@@ -30,6 +30,7 @@ const configSchema = z.object({
     user: z.string().default("polyant"),
     password: z.string(),
     databaseUrl: z.string(),
+    ssl: z.coerce.boolean().default(false),
   }),
 
   // Memory (pgvector)
@@ -82,6 +83,10 @@ const configSchema = z.object({
     /** Shared secret between web and engine for the internal credentials endpoint.
      *  When unset, /api/auth/credentials/verify is disabled (only Google login works). */
     internalSecret: z.string().min(16).optional(),
+    /** Auth source: "session" (Auth.js JWT) or "alb-oidc" (trust ALB x-amzn-oidc-data header).
+     *  Use "alb-oidc" when deployed behind an AWS ALB with OIDC authentication — the ALB
+     *  has already authenticated the user, so the engine trusts the forwarded claims. */
+    mode: z.enum(["session", "alb-oidc"]).default("session"),
   }),
 
   // Initial admin user — created on first boot if the users table is empty.
@@ -182,6 +187,7 @@ function loadConfig(): Config {
       user: process.env.POSTGRES_USER ?? dbUrlParsed?.user,
       password: process.env.POSTGRES_PASSWORD ?? dbUrlParsed?.password,
       databaseUrl: buildDatabaseUrl(),
+      ssl: process.env.POSTGRES_SSL,
     },
     memory: {
       dedupSimilarityThreshold: process.env.DEDUP_SIMILARITY_THRESHOLD,
@@ -201,6 +207,7 @@ function loadConfig(): Config {
     auth: {
       secret: process.env.AUTH_SECRET,
       internalSecret: process.env.AUTH_INTERNAL_SECRET,
+      mode: process.env.AUTH_MODE,
     },
     initialAdmin: {
       email: process.env.INITIAL_ADMIN_EMAIL,
