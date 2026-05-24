@@ -1,0 +1,58 @@
+# Agent Builder CDK Configuration
+# Copy this file to config.yaml and fill in your deployment-specific values.
+# config.yaml is gitignored — never commit it.
+
+dev:
+  account: ""                             # AWS account ID (required)
+  region: "eu-south-1"                    # AWS region
+
+  vpc:
+    cidr: "10.0.0.0/16"
+
+  database:
+    minAcu: 0.5                           # Aurora Serverless v2 min capacity (0.5 = near-zero idle)
+    maxAcu: 4                             # Aurora Serverless v2 max capacity
+    deletionProtection: false             # Set true in production
+
+  ecs:
+    cpu: 1024                             # Total task CPU (1 vCPU)
+    memory: 2048                          # Total task memory (MB)
+    desiredCount: 1
+    stopTimeout: 120                      # Seconds — streaming LLM responses can exceed 30s
+    engine:
+      cpu: 768
+      memory: 1536
+    web:
+      cpu: 256
+      memory: 512
+
+  # DNS & TLS — REQUIRED when "auth" is set (ALB OIDC needs HTTPS).
+  # AWS does NOT provide a default TLS cert on the raw ALB DNS, so HTTPS
+  # always requires a domain you control + an ACM certificate.
+  # If you omit this block, the stack will deploy HTTP-only on the raw ALB URL.
+  # dns:
+  #   domainName: "myapp.example.com"     # Full domain for this deployment
+  #   certificateArn: ""                  # ACM certificate ARN (create via scripts/dns-setup.sh)
+
+  # OIDC Authentication (optional — omit to leave app open).
+  # REQUIRES the "dns" block above (synth validation will fail otherwise).
+  # Any OIDC provider works (Cognito, Okta, Auth0, etc.).
+  # auth:
+  #   issuer: "https://cognito-idp.REGION.amazonaws.com/POOL_ID"
+  #   authorizationEndpoint: "https://DOMAIN.auth.REGION.amazoncognito.com/oauth2/authorize"
+  #   tokenEndpoint: "https://DOMAIN.auth.REGION.amazoncognito.com/oauth2/token"
+  #   userInfoEndpoint: "https://DOMAIN.auth.REGION.amazoncognito.com/oauth2/userInfo"
+  #   clientId: ""                        # OIDC app client ID
+  #   clientSecretArn: ""                 # Secrets Manager ARN containing the client secret
+
+  logging:
+    retentionDays: 30
+
+  app:
+    defaultInstanceId: "default"
+    timezone: "Europe/Rome"
+    locale: "it-IT"
+
+  tags:
+    Project: "agent-builder"
+    Environment: "dev"

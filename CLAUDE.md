@@ -290,6 +290,10 @@ packages/engine/src/auth/
 packages/web/src/lib/auth.ts — Auth.js config + custom Drizzle schema for adapter
 ```
 
+### Gateway-authenticated mode (`AUTH_MODE=<gateway>`)
+
+When the engine runs behind a cloud-managed auth gateway (ALB OIDC on AWS, GCP IAP, Cloudflare Access, Azure Easy Auth — future), set `AUTH_MODE` to the gateway name (currently only `alb-oidc` is implemented). `auth.guard.ts` dispatches on this value: in gateway mode it reads the identity header set by the gateway (`x-amzn-oidc-data` for ALB OIDC) via a per-gateway parser (`alb-oidc.service.ts`) instead of validating an Auth.js session. The header's JWT signature is NOT verified; the engine relies on network isolation (ECS security group accepts ingress only from the ALB SG) — this is documented in [ADR-0001](docs/adr/0001-gateway-authenticated-mode.md) along with the trust trade-offs and the deferred follow-up for signature verification. In this mode the `packages/web` container does NOT need `AUTH_SECRET`/`POSTGRES_*`/`GOOGLE_*` — Auth.js Edge middleware finds no `authjs.session-token` cookie (the gateway uses its own cookie), returns null without decrypting, and the engine becomes the sole source of authenticated identity. When adding a new gateway, add a new parser file under `packages/engine/src/auth/` and a new `AUTH_MODE` value; do NOT branch on cloud-specific logic inside `auth.guard.ts`.
+
 ### Future (Phase 2 — Multi-Tenancy)
 
 Planned hierarchy: **Organization > Project > Instance**

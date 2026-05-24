@@ -44,39 +44,37 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     },
   },
   bedrock: {
+    // Anthropic models on Bedrock require cross-region inference profiles
+    // (raw model IDs fail with "Invocation ... with on-demand throughput isn't supported").
+    // Defaults target the `eu.*` profile family since Exelab deployments run in EU regions.
+    // Instances in other regions must override `model` with a matching `us.*` / `apac.*` /
+    // `global.*` profile ID.
     tiers: {
       fast: "amazon.nova-lite-v1:0",
-      standard: "anthropic.claude-sonnet-4-20250514-v1:0",
-      heavy: "anthropic.claude-opus-4-20250514-v1:0",
+      standard: "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
+      heavy: "eu.anthropic.claude-opus-4-6-v1",
     },
     costPerMillionTokens: {
-      // Amazon Nova
+      // Amazon Nova (raw IDs — on-demand supported)
       "amazon.nova-micro-v1:0": { input: 0.035, output: 0.14 },
       "amazon.nova-lite-v1:0": { input: 0.06, output: 0.24 },
+      "amazon.nova-2-lite-v1:0": { input: 0.06, output: 0.24 },
       "amazon.nova-pro-v1:0": { input: 0.80, output: 3.20 },
-      // Anthropic (via Bedrock)
-      "anthropic.claude-3-5-haiku-20241022-v1:0": { input: 0.80, output: 4.00 },
-      "anthropic.claude-sonnet-4-20250514-v1:0": { input: 3.00, output: 15.00 },
-      "anthropic.claude-opus-4-20250514-v1:0": { input: 15.00, output: 75.00 },
-      // Meta Llama 4
-      "meta.llama4-scout-17b-instruct-v1:0": { input: 0.17, output: 0.66 },
-      "meta.llama4-maverick-17b-instruct-v1:0": { input: 0.24, output: 0.97 },
-      // Meta Llama 3.x
-      "us.meta.llama3-3-70b-instruct-v1:0": { input: 0.72, output: 0.72 },
-      "meta.llama3-1-70b-instruct-v1:0": { input: 0.35, output: 0.45 },
-      "meta.llama3-1-405b-instruct-v1:0": { input: 0.65, output: 0.80 },
-      // Qwen3
-      "qwen.qwen3-32b-v1:0": { input: 0.20, output: 0.78 },
-      "qwen.qwen3-235b-a22b-2507-v1:0": { input: 0.23, output: 0.91 },
-      "qwen.qwen3-coder-30b-a3b-v1:0": { input: 0.20, output: 0.78 },
-      "qwen.qwen3-coder-480b-a35b-v1:0": { input: 1.50, output: 7.50 },
-      // Kimi (Moonshot AI)
-      "moonshotai.kimi-k2.5": { input: 0.60, output: 3.00 },
-      // DeepSeek
-      "us.deepseek.r1-v1:0": { input: 1.35, output: 5.40 },
-      "us.deepseek.deepseek-v3-2-v1:0": { input: 0.62, output: 1.85 },
-      // Mistral
-      "mistral.mistral-large-2402-v1:0": { input: 4.00, output: 12.00 },
+      // Anthropic via Bedrock — EU inference profiles
+      "eu.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00 },
+      "eu.anthropic.claude-sonnet-4-20250514-v1:0": { input: 3.00, output: 15.00 },
+      "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00 },
+      "eu.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00 },
+      "eu.anthropic.claude-opus-4-5-20251101-v1:0": { input: 15.00, output: 75.00 },
+      "eu.anthropic.claude-opus-4-6-v1": { input: 15.00, output: 75.00 },
+      "eu.anthropic.claude-opus-4-7": { input: 15.00, output: 75.00 },
+      // Anthropic via Bedrock — Global inference profiles (use-case form may be required)
+      "global.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00 },
+      "global.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00 },
+      "global.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00 },
+      "global.anthropic.claude-opus-4-5-20251101-v1:0": { input: 15.00, output: 75.00 },
+      "global.anthropic.claude-opus-4-6-v1": { input: 15.00, output: 75.00 },
+      "global.anthropic.claude-opus-4-7": { input: 15.00, output: 75.00 },
     },
   },
 };
