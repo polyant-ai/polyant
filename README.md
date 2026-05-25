@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/polyant-logo-horizontal-dark.svg">
+    <img alt="Polyant" src=".github/assets/polyant-logo-horizontal-light.svg" width="320">
+  </picture>
+</p>
+
 # Polyant
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL--v3-blue.svg)](LICENSE)
