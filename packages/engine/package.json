@@ -52,7 +52,7 @@
     "grammy": "^1.40.0",
     "helmet": "^8.1.0",
     "jose": "^6.2.2",
-    "langsmith": "^0.5.26",
+    "langsmith": "^0.7.2",
     "postgres": "^3.4.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
