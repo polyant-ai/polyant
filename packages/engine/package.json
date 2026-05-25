@@ -65,7 +65,6 @@
     "@eslint/js": "^9.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.10",
-    "@types/helmet": "^0.0.48",
     "@types/node": "^22.0.0",
     "@types/shell-quote": "^1.7.5",
     "@vitest/coverage-v8": "^4.1.4",
