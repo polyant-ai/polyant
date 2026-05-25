@@ -43,7 +43,7 @@
     "@panva/hkdf": "^1.2.1",
     "@slack/bolt": "^4.6.0",
     "@tavily/core": "^0.0.3",
-    "ai": "^4.0.0",
+    "ai": "^5.0.52",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "croner": "^10.0.1",
