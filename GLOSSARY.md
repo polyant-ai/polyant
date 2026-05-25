@@ -1,7 +1,7 @@
 # Glossary
 
 Quick reference for the core Polyant vocabulary. For long-form definitions
-with examples, see [Glossary](https://docs.polyant.it/concepts/glossary).
+with examples, see [Glossary](https://docs.polyant.ai/concepts/glossary).
 
 - **Instance** — A shared assistant configuration (prompts, tools, skills,
   secrets, channels). Multiple users interact with the same instance.

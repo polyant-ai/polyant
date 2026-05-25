@@ -4,7 +4,7 @@
 [![Node.js 22](https://img.shields.io/badge/node-22-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-🌐 **Website**: [polyant.ai](https://polyant.ai) &nbsp;·&nbsp; 📚 **Docs**: [docs.polyant.it](https://docs.polyant.it) &nbsp;·&nbsp; 💬 **GitHub**: [polyant-ai/polyant](https://github.com/polyant-ai/polyant)
+🌐 **Website**: [polyant.ai](https://polyant.ai) &nbsp;·&nbsp; 📚 **Docs**: [docs.polyant.ai](https://docs.polyant.ai) &nbsp;·&nbsp; 💬 **GitHub**: [polyant-ai/polyant](https://github.com/polyant-ai/polyant)
 
 ---
 
@@ -49,19 +49,19 @@ Polyant is, in short, what happens when you take the architectural lessons of Op
 
 ## Documentation
 
-The full documentation lives at **[docs.polyant.it](https://docs.polyant.it)** (source: [polyant-ai/docs](https://github.com/polyant-ai/docs)).
+The full documentation lives at **[docs.polyant.ai](https://docs.polyant.ai)** (source: [polyant-ai/docs](https://github.com/polyant-ai/docs)).
 
 ### Get started
-- **[Getting Started](https://docs.polyant.it/getting-started/quickstart)** — build your first agent in 10 minutes
-- **[Channels Setup](https://docs.polyant.it/getting-started/connect-a-channel)** — Telegram, Slack, WhatsApp recipes
+- **[Getting Started](https://docs.polyant.ai/getting-started/quickstart)** — build your first agent in 10 minutes
+- **[Channels Setup](https://docs.polyant.ai/getting-started/connect-a-channel)** — Telegram, Slack, WhatsApp recipes
 - **[Examples](examples/README.md)** — minimal instance, skill, and tool templates
 
 ### Operate
-- **[Deployment](https://docs.polyant.it/operations/deployment)** — Docker Compose, Render, Fly.io, Kubernetes
+- **[Deployment](https://docs.polyant.ai/operations/deployment)** — Docker Compose, Render, Fly.io, Kubernetes
 
 ### Understand
-- **[Architecture](https://docs.polyant.it/concepts/architecture)** — full technical deep dive
-- **[Glossary](https://docs.polyant.it/concepts/glossary)** — Instance, Tier, Room, Skill, Tool explained
+- **[Architecture](https://docs.polyant.ai/concepts/architecture)** — full technical deep dive
+- **[Glossary](https://docs.polyant.ai/concepts/glossary)** — Instance, Tier, Room, Skill, Tool explained
 
 ## Quick Start
 
@@ -134,7 +134,7 @@ Open `http://localhost:3001`, create an instance, and configure your AI provider
 └──────────────────────────────────────────────┘
 ```
 
-See [Architecture](https://docs.polyant.it/concepts/architecture) for the full technical reference.
+See [Architecture](https://docs.polyant.ai/concepts/architecture) for the full technical reference.
 
 ## Project Structure
 
@@ -249,7 +249,7 @@ These are deliberate trade-offs, deferred decisions, or rough edges that ship wi
 ### Documentation gaps
 
 - The "Phase 2 — Multi-Tenancy" section of `CLAUDE.md` describes a hierarchy that does not exist in the schema yet; this is a roadmap document, not a description of current behavior.
-- Trade-offs around the `gitCloneRepo` credential lifecycle (token at rest while the workspace exists) are documented in `CLAUDE.md` but should be surfaced on [docs.polyant.it](https://docs.polyant.it) as well, since they affect deployment posture.
+- Trade-offs around the `gitCloneRepo` credential lifecycle (token at rest while the workspace exists) are documented in `CLAUDE.md` but should be surfaced on [docs.polyant.ai](https://docs.polyant.ai) as well, since they affect deployment posture.
 
 If you would like to take on any of the items above, please open an issue first so we can scope it together — most of these decisions involve trade-offs we are happy to discuss in the open.
 

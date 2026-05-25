@@ -76,7 +76,7 @@ polyant/
 └── examples/     # Minimal working examples (instances, skills)
 ```
 
-See [Architecture](https://docs.polyant.it/concepts/architecture) for a full technical reference (source: [polyant-ai/docs](https://github.com/polyant-ai/docs)).
+See [Architecture](https://docs.polyant.ai/concepts/architecture) for a full technical reference (source: [polyant-ai/docs](https://github.com/polyant-ai/docs)).
 
 ## Development Workflow
 
@@ -167,7 +167,7 @@ See [`.claude/rules/`](.claude/rules/) for the full coding style rules.
 
 ## Adding a New Skill
 
-Skills live in the database. Use the management API or admin panel to create them. See [Architecture](https://docs.polyant.it/concepts/architecture) for the skill system design.
+Skills live in the database. Use the management API or admin panel to create them. See [Architecture](https://docs.polyant.ai/concepts/architecture) for the skill system design.
 
 ## Running Tests
 
