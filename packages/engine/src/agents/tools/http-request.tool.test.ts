@@ -59,9 +59,14 @@ describe("httpRequest tool", () => {
   it("registers with correct metadata", () => {
     expect(def.name).toBe("httpRequest");
     expect(def.category).toBe("integration");
-    // requiredSecrets is intentionally not set so the tool is available even
-    // without http_api_key (auth header is opt-in via authStyle).
-    expect(def.requiredSecrets).toBeUndefined();
+    // Both declared secrets are optional so the tool remains available even
+    // without them (auth is opt-in via authStyle; the domain allowlist is
+    // an additional SSRF gate, off by default).
+    expect(def.requiredSecrets?.map((s) => s.key).sort()).toEqual([
+      "http_allowed_domains",
+      "http_api_key",
+    ]);
+    expect(def.requiredSecrets?.every((s) => s.optional)).toBe(true);
   });
 
   // Happy path POST with explicit bearer

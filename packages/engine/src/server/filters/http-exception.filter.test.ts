@@ -99,13 +99,14 @@ describe("GlobalExceptionFilter", () => {
     const res = createMockResponse();
     const host = createMockHost(res, createMockRequest("POST", "/api/instances"));
 
-    // Simulate `body.items.map(...)` when body.items is undefined.
+    // Simulate `body.items.map(...)` when body.items is undefined. The filter
+    // surfaces a generic message to avoid leaking internal property paths.
     filter.catch(new TypeError("Cannot read properties of undefined (reading 'map')"), host);
 
     expect(res.statusCode).toBe(400);
     expect(res.body).toEqual({
       statusCode: 400,
-      message: "Cannot read properties of undefined (reading 'map')",
+      message: "Invalid request body",
       error: "Bad Request",
     });
   });
@@ -119,7 +120,7 @@ describe("GlobalExceptionFilter", () => {
     expect(res.statusCode).toBe(400);
     expect(res.body.statusCode).toBe(400);
     expect(res.body.error).toBe("Bad Request");
-    expect(res.body.message).toBe("Invalid array length");
+    expect(res.body.message).toBe("Invalid request body");
   });
 
   it("returns 500 for thrown object", () => {
