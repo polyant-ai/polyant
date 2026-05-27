@@ -28,6 +28,10 @@ import type { UserRole } from "../auth/users.schema.js";
 import { generateToken } from "../crypto/index.js";
 import { isUniqueViolation } from "../utils/db-errors.js";
 
+// RFC 5321 caps an email address at 254 chars. Enforce it before the regex
+// runs so the polynomial-ish backtracking cost of the [^\s@]+ groups can
+// never be triggered by an attacker-supplied long string (CodeQL js/polynomial-redos).
+const EMAIL_MAX_LEN = 254;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validRole(value: unknown): UserRole {
@@ -67,7 +71,7 @@ export class UsersService {
     password?: string;
   }): Promise<CreateUserResult> {
     const email = (body.email ?? "").trim().toLowerCase();
-    if (!EMAIL_RE.test(email)) {
+    if (email.length > EMAIL_MAX_LEN || !EMAIL_RE.test(email)) {
       throw new BadRequestException("Invalid email");
     }
     const role = validRole(body.role ?? "user");
