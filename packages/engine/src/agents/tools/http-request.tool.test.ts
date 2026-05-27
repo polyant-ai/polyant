@@ -62,11 +62,11 @@ describe("httpRequest tool", () => {
     // Both declared secrets are optional so the tool remains available even
     // without them (auth is opt-in via authStyle; the domain allowlist is
     // an additional SSRF gate, off by default).
-    expect(def.requiredSecrets?.map((s) => s.key).sort()).toEqual([
-      "http_allowed_domains",
-      "http_api_key",
-    ]);
-    expect(def.requiredSecrets?.every((s) => s.optional)).toBe(true);
+    const specs = (def.requiredSecrets ?? []).filter(
+      (s): s is Exclude<typeof s, string> => typeof s !== "string",
+    );
+    expect(specs.map((s) => s.key).sort()).toEqual(["http_allowed_domains", "http_api_key"]);
+    expect(specs.every((s) => s.optional === true)).toBe(true);
   });
 
   // Happy path POST with explicit bearer
