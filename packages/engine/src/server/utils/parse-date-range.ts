@@ -2,12 +2,19 @@
 
 import { BadRequestException } from "@nestjs/common";
 
-export function parseDateRange(from?: string, to?: string) {
+export function parseDateRange(from?: unknown, to?: unknown) {
+  // Express query parsing can yield arrays (e.g. ?from[]=x) — enforce string at runtime.
+  if (from !== undefined && typeof from !== "string") {
+    throw new BadRequestException('"from" must be a string');
+  }
+  if (to !== undefined && typeof to !== "string") {
+    throw new BadRequestException('"to" must be a string');
+  }
+
   const now = new Date();
   const toDate = to ? new Date(to) : now;
   const fromDate = from ? new Date(from) : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  // When "to" is a date-only string (e.g. "2026-02-22"), include the full day
   if (to && !to.includes("T")) {
     toDate.setUTCHours(23, 59, 59, 999);
   }
