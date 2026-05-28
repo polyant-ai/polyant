@@ -1,0 +1,7 @@
+{
+  "app": "npx tsx bin/app.ts",
+  "requireApproval": "broadening",
+  "context": {
+    "@aws-cdk/aws-ecs:disableExplicitDeploymentControllerForCircuitBreaker": true
+  }
+}

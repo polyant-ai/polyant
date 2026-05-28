@@ -1,0 +1,46 @@
+# ── Stage 1: Install dependencies ──────────────────────────────
+FROM node:22-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages/engine/package.json packages/engine/
+# Create a minimal package.json for web to satisfy workspace resolution
+RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"0.1.0","private":true}' > packages/web/package.json
+RUN npm ci --workspace=@polyant/engine --include-workspace-root
+# Ensure workspace node_modules dir exists (even if empty) for COPY
+RUN mkdir -p packages/engine/node_modules
+
+# ── Stage 2: Build ─────────────────────────────────────────────
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/engine/node_modules ./packages/engine/node_modules
+COPY package.json package-lock.json ./
+COPY packages/engine/ packages/engine/
+# Use tsconfig.build.json to exclude test files from compilation
+RUN npm run build:docker -w @polyant/engine
+
+# ── Stage 3: Runtime ───────────────────────────────────────────
+FROM node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Copy hoisted deps + non-hoisted workspace deps (e.g. langsmith)
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/engine/node_modules ./packages/engine/node_modules
+COPY --from=build /app/packages/engine/dist ./packages/engine/dist
+COPY packages/engine/package.json packages/engine/
+COPY package.json ./
+
+# Copy migration files (needed by entrypoint)
+COPY packages/engine/src/database/migrations packages/engine/src/database/migrations
+COPY packages/engine/src/database/migrate.ts packages/engine/src/database/
+
+# tsx is needed for running migrate.ts at startup
+RUN npm install -g tsx
+
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+EXPOSE 4000
+
+ENTRYPOINT ["docker-entrypoint.sh"]

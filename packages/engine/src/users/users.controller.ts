@@ -44,7 +44,8 @@ export class UsersController {
     @Body() body: { name?: string | null; role?: string },
     @CurrentUser() actor: AuthenticatedUser,
   ) {
-    return { user: await this.users.update(id, body, actor) };
+    // RoleGuard ("superadmin") on this controller guarantees actor.role is set.
+    return { user: await this.users.update(id, body, { userId: actor.userId, role: actor.role! }) };
   }
 
   @Delete(":id")
