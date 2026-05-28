@@ -14,11 +14,6 @@ vi.mock("./users.store.js", () => ({
   insertUser: vi.fn(),
 }));
 
-// Make generateToken deterministic so we can assert on the password we log.
-vi.mock("../crypto/index.js", () => ({
-  generateToken: vi.fn(() => "abc123def4"),
-}));
-
 import * as store from "./users.store.js";
 import { config } from "../config.js";
 import { seedInitialAdmin } from "./seed.js";
@@ -49,27 +44,25 @@ describe("seedInitialAdmin", () => {
     log.mockRestore();
   });
 
-  it("seeds administrator@local with a generated password and prints a banner", async () => {
+  it("skips seeding (without inserting or printing secrets) when INITIAL_ADMIN_PASSWORD is unset", async () => {
     mockedStore.countUsers.mockResolvedValueOnce(0);
-    mockedStore.insertUser.mockResolvedValueOnce({});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await seedInitialAdmin();
 
-    expect(mockedStore.insertUser).toHaveBeenCalledTimes(1);
-    const inserted = mockedStore.insertUser.mock.calls[0][0];
-    expect(inserted.email).toBe("administrator@local");
-    expect(inserted.role).toBe("superadmin");
-    expect(inserted.mustChangePassword).toBe(true);
-    expect(inserted.passwordHash).toMatch(/^\$2[aby]\$/);
-
+    // No user is created — operator must opt-in via INITIAL_ADMIN_PASSWORD.
+    expect(mockedStore.insertUser).not.toHaveBeenCalled();
+    // Operator visibility: one warning explaining the skip + how to recover.
     expect(warn).toHaveBeenCalledTimes(1);
-    const banner = warn.mock.calls[0][0] as string;
-    expect(banner).toContain("INITIAL ADMIN CREATED");
-    expect(banner).toContain("administrator@local");
-    expect(banner).toContain("abc123def4");
+    const msg = warn.mock.calls[0][0] as string;
+    expect(msg).toContain("INITIAL_ADMIN_PASSWORD");
+    expect(msg).toContain("Skipping");
+    // Defence-in-depth: no .log call either (so file-logger never tees a secret).
+    expect(log).not.toHaveBeenCalled();
 
     warn.mockRestore();
+    log.mockRestore();
   });
 
   it("uses INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD when set, and does NOT print the password", async () => {
@@ -100,6 +93,7 @@ describe("seedInitialAdmin", () => {
     // Note: seed.ts itself does not catch — the boot wrapper in index.ts does.
     // This test just locks the contract that seed surfaces store errors.
     mockedStore.countUsers.mockResolvedValueOnce(0);
+    mutableConfig.initialAdmin = { password: "set-via-env" };
     mockedStore.insertUser.mockRejectedValueOnce(new Error("db down"));
     await expect(seedInitialAdmin()).rejects.toThrow("db down");
   });

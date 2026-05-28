@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { chunkText, splitSentences } from "./chunker.js";
+import { chunkText, splitSentences, MAX_CHUNKER_INPUT_LENGTH } from "./chunker.js";
 
 // ---------------------------------------------------------------------------
 // splitSentences
@@ -225,5 +225,22 @@ describe("chunkText sentence splitting", () => {
       expect(chunk.content).not.toMatch(/^Bianchi/);
       expect(chunk.content).not.toMatch(/^ra Verdi/);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Input length cap (CodeQL js/loop-bound-injection — #16)
+// ---------------------------------------------------------------------------
+describe("chunker input length cap", () => {
+  it("chunkText throws RangeError when input exceeds MAX_CHUNKER_INPUT_LENGTH", () => {
+    // We don't actually allocate a 10MB+1 string — we synthesise a string of
+    // that length via String.prototype.repeat on a single char (cheap).
+    const oversized = "a".repeat(MAX_CHUNKER_INPUT_LENGTH + 1);
+    expect(() => chunkText(oversized)).toThrow(RangeError);
+  });
+
+  it("splitSentences throws RangeError when input exceeds MAX_CHUNKER_INPUT_LENGTH", () => {
+    const oversized = "a".repeat(MAX_CHUNKER_INPUT_LENGTH + 1);
+    expect(() => splitSentences(oversized)).toThrow(RangeError);
   });
 });

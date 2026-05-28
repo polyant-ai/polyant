@@ -88,7 +88,9 @@ export class TwilioWebhookController {
       instanceId: instanceSlug,
       media: mediaItems.length > 0 ? mediaItems : undefined,
     }).catch((err) =>
-      console.error(`[whatsapp] Error processing inbound for "${instanceSlug}":`, err),
+      // Pass the user-controlled slug as a separate argument so it is never
+      // treated as part of the format string (CodeQL js/tainted-format-string).
+      console.error("[whatsapp] Error processing inbound for instance:", instanceSlug, err),
     );
 
     // 7. Return empty TwiML response immediately

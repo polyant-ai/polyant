@@ -17,6 +17,16 @@ const DEFAULT_CHUNK_SIZE = 2000;
 const DEFAULT_OVERLAP = 200;
 
 /**
+ * Hard cap on the input text length accepted by the chunker. Documents come
+ * from user uploads — the store layer enforces MAX_DOCUMENT_BYTES (10MB) on
+ * the binary, but the extracted text could in principle be larger after
+ * decoding. This independent ceiling at the chunker entry point prevents
+ * loop-bound injection (CodeQL js/loop-bound-injection) on the
+ * sentence-splitter while loop.
+ */
+export const MAX_CHUNKER_INPUT_LENGTH = 10 * 1024 * 1024;
+
+/**
  * Common abbreviations that should NOT trigger sentence splits.
  * Covers Italian titles, professional titles, and common abbreviations.
  */
@@ -73,6 +83,11 @@ const ABBREVIATIONS = new Set([
  * but skip known abbreviations and ellipsis (`...`).
  */
 export function splitSentences(text: string): string[] {
+  if (text.length > MAX_CHUNKER_INPUT_LENGTH) {
+    throw new RangeError(
+      `splitSentences input exceeds ${MAX_CHUNKER_INPUT_LENGTH} chars (got ${text.length})`,
+    );
+  }
   const sentences: string[] = [];
   let current = "";
 
@@ -178,6 +193,11 @@ export function chunkText(
   text: string,
   opts: { chunkSize?: number; overlap?: number } = {},
 ): Chunk[] {
+  if (text.length > MAX_CHUNKER_INPUT_LENGTH) {
+    throw new RangeError(
+      `chunkText input exceeds ${MAX_CHUNKER_INPUT_LENGTH} chars (got ${text.length})`,
+    );
+  }
   const chunkSize = opts.chunkSize ?? DEFAULT_CHUNK_SIZE;
   const overlap = opts.overlap ?? DEFAULT_OVERLAP;
 
