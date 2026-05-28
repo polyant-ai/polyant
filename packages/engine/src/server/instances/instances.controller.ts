@@ -197,7 +197,9 @@ export class InstancesController {
       await channelManager.stopAllForInstance(slug);
     } catch (err) {
       // Best-effort: a stuck adapter must not block the delete.
-      console.error(`[instances] failed to stop channels for "${slug}":`, err);
+      // Pass the user-controlled slug as a separate argument so it is never
+      // treated as part of the format string (CodeQL js/tainted-format-string).
+      console.error("[instances] failed to stop channels for instance:", slug, err);
     }
     const deleted = await deleteInstance(slug);
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
