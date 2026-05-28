@@ -69,4 +69,16 @@ describe("parseDateRange", () => {
     // to defaults to now
     expect(to.getTime()).toBe(new Date("2026-02-15T12:00:00.000Z").getTime());
   });
+
+  it("throws BadRequestException when from is an array (HTTP param tampering)", () => {
+    expect(() => parseDateRange(["2026-01-01"] as unknown as string)).toThrow(
+      BadRequestException,
+    );
+  });
+
+  it("throws BadRequestException when to is an array (HTTP param tampering)", () => {
+    expect(() =>
+      parseDateRange(undefined, ["2026-02-22"] as unknown as string),
+    ).toThrow(BadRequestException);
+  });
 });
