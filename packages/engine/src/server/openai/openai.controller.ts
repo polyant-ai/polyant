@@ -27,8 +27,18 @@ import type {
   ModelsListResponse,
 } from "./openai.types.js";
 
+// Restrict model to the instance-slug shape — same pattern as instances.controller.ts.
+// This is the only user-controlled value that we echo back into the SSE stream
+// (role chunk, finish chunk, every text/think chunk) so it MUST be a safe identifier
+// to neutralise reflected-XSS taint.
+const MODEL_SLUG_RE = /^[a-z0-9]([a-z0-9_.-]*[a-z0-9])?$/;
+
 const chatCompletionSchema = z.object({
-  model: z.string().min(1),
+  model: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(MODEL_SLUG_RE, "model must be a lowercase slug (a-z, 0-9, _, ., -)"),
   messages: z.array(z.object({
     role: z.enum(["system", "user", "assistant"]),
     content: z.string(),
@@ -73,6 +83,8 @@ export class OpenAIController {
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join("; "));
     }
+    // Use the Zod-validated model going forward — guarantees the slug regex.
+    body.model = parsed.data.model;
 
     await this.validateAuth(body.model, authHeader);
 
@@ -88,6 +100,9 @@ export class OpenAIController {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
+    // Defence-in-depth against reflected-XSS: prevent the response from being
+    // sniffed and rendered as HTML by an off-spec client.
+    res.setHeader("X-Content-Type-Options", "nosniff");
 
     const completionId = `chatcmpl-${randomUUID().replace(/-/g, "").slice(0, 24)}`;
     const created = Math.floor(Date.now() / 1000);
