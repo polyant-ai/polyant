@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { resolveModel, estimateCost } from "./config.js";
-import { OpenAIProvider } from "./providers/openai.js";
-import { AnthropicProvider } from "./providers/anthropic.js";
+import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
+import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
 import { BedrockProvider } from "./providers/bedrock.js";
 import { aiLogger } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
@@ -71,6 +71,30 @@ function resolveCallConfig(
       modelId,
     });
     providerOptions = { ...providerOptions, langsmith: lsOptions as Record<string, unknown> };
+  }
+
+  // Inject provider-specific thinking/reasoning configuration when requested.
+  // The SDK forwards these to the provider; non-thinking-capable models ignore
+  // the fields. Anthropic also requires the interleaved beta header which is
+  // set unconditionally on the AnthropicProvider factory.
+  if (request.thinking) {
+    if (providerName === "anthropic") {
+      providerOptions = {
+        ...providerOptions,
+        anthropic: {
+          ...(providerOptions?.anthropic ?? {}),
+          ...buildAnthropicThinkingOptions(),
+        } as Record<string, unknown>,
+      };
+    } else if (providerName === "openai") {
+      providerOptions = {
+        ...providerOptions,
+        openai: {
+          ...(providerOptions?.openai ?? {}),
+          ...buildOpenAIReasoningOptions(),
+        } as Record<string, unknown>,
+      };
+    }
   }
 
   return { provider, providerName, modelId, providerOptions };
