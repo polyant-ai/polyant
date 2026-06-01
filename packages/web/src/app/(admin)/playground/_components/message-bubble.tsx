@@ -2,42 +2,10 @@
 
 "use client";
 
-import { Wrench, Terminal } from "lucide-react";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Terminal } from "lucide-react";
 import { MarkdownRenderer } from "./markdown-renderer";
-import { ToolCallIndicator } from "./tool-call-indicator";
-import type { ChatMessage, ToolCallStatus } from "../_hooks/use-chat";
-
-function hasToolCallData(toolCalls: ToolCallStatus[]): boolean {
-  return toolCalls.some((tc) => tc.args !== undefined || tc.result !== undefined);
-}
-
-function ToolCallsAccordion({ toolCalls }: { toolCalls: ToolCallStatus[] }) {
-  return (
-    <Accordion type="single" collapsible className="mt-1">
-      {toolCalls.map((tc, i) => (
-        <AccordionItem key={i} value={`tool-${i}`} className="border-none">
-          <AccordionTrigger className="py-1 text-xs text-muted-foreground hover:no-underline">
-            <span className="flex items-center gap-1">
-              <Wrench className="h-3 w-3" />
-              {tc.name}
-            </span>
-          </AccordionTrigger>
-          <AccordionContent>
-            <pre className="max-w-full overflow-x-auto rounded-sm bg-secondary p-2 text-xs">
-              {JSON.stringify({ args: tc.args, result: tc.result }, null, 2)}
-            </pre>
-          </AccordionContent>
-        </AccordionItem>
-      ))}
-    </Accordion>
-  );
-}
+import { MessageExtras } from "@/components/messages/message-extras";
+import type { ChatMessage } from "../_hooks/use-chat";
 
 function formatTime(dateStr: string | null): string {
   if (!dateStr) return "";
@@ -82,11 +50,14 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           isUser ? "bg-primary text-primary-foreground" : "bg-muted"
         }`}
       >
-        {/* Tool calls shown above assistant text */}
-        {!isUser && message.toolCalls.length > 0 && (
-          hasToolCallData(message.toolCalls)
-            ? <ToolCallsAccordion toolCalls={message.toolCalls} />
-            : <ToolCallIndicator toolCalls={message.toolCalls} />
+        {/* Reasoning + steps panels above assistant text. Default closed in
+            playground (clean live UX); conversations page passes defaultOpen=true. */}
+        {!isUser && (
+          <MessageExtras
+            reasoning={message.reasoning}
+            steps={message.steps}
+            defaultOpen={false}
+          />
         )}
 
         {/* Message content */}
