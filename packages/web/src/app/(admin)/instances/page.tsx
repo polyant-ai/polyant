@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { toast } from "sonner";
 import { Plus, Bot, List, LayoutGrid, Upload, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -68,10 +69,7 @@ function useShowInactive(): [boolean, (next: boolean) => void] {
   return [show, setAndPersist];
 }
 
-function InstanceGrid({ instances, t }: {
-  instances: Instance[];
-  t: (key: TranslationKey, params?: Record<string, string | number>) => string;
-}) {
+function InstanceGrid({ instances }: { instances: Instance[] }) {
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
       {instances.map((inst) => (
@@ -82,10 +80,13 @@ function InstanceGrid({ instances, t }: {
         >
           <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border bg-muted">
             {inst.icon && isSafeImageSrc(inst.icon) ? (
-              <img
+              <Image
                 src={inst.icon}
                 alt=""
+                width={64}
+                height={64}
                 className="h-full w-full object-cover"
+                unoptimized
               />
             ) : (
               <Bot className="h-8 w-8 text-muted-foreground" />
@@ -136,10 +137,13 @@ function InstanceList({ instances, t }: {
                 className="flex items-center gap-2 hover:underline"
               >
                 {inst.icon && isSafeImageSrc(inst.icon) ? (
-                  <img
+                  <Image
                     src={inst.icon}
                     alt=""
+                    width={24}
+                    height={24}
                     className="h-6 w-6 shrink-0 rounded object-cover"
+                    unoptimized
                   />
                 ) : (
                   <Bot className="h-6 w-6 shrink-0 text-muted-foreground" />
@@ -226,6 +230,9 @@ export default function InstancesPage() {
 
   useEffect(() => {
     fetchInstances();
+    // Load once on mount. `fetchInstances` is a stable closure; adding it to
+    // deps without useCallback would re-run every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Hide inactive instances by default. The toggle is purely client-side —
@@ -345,7 +352,7 @@ export default function InstancesPage() {
         ) : viewMode === "list" ? (
           <InstanceList instances={visibleInstances} t={t} />
         ) : (
-          <InstanceGrid instances={visibleInstances} t={t} />
+          <InstanceGrid instances={visibleInstances} />
         )}
       </div>
 
