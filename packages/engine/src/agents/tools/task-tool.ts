@@ -43,10 +43,11 @@ export function createTaskTool(subAgentTools: Record<string, Tool>, apiKeys?: Ch
       const taskLabel = label ?? task.slice(0, 50);
 
       try {
-        const response = await chat({
-          tier: "standard",
-          apiKeys,
-          system: `You are a specialized agent. Execute the following task precisely and completely.
+        const response = await chat(
+          {
+            tier: "standard",
+            apiKeys,
+            system: `You are a specialized agent. Execute the following task precisely and completely.
 
 Task: ${task}
 
@@ -56,10 +57,12 @@ Rules:
 - Be concise yet complete in the result
 - Do not ask for clarification: act on the information provided
 - You cannot delegate further: the spawnTask tool is NOT available in this context`,
-          messages: [{ role: "user", content: task }],
-          tools: isolatedTools,
-          maxSteps: 10,
-        });
+            messages: [{ role: "user", content: task }],
+            tools: isolatedTools,
+            maxSteps: 10,
+          },
+          { instanceId, conversationId, callType: "service" },
+        );
 
         const toolsUsed = response.steps.flatMap((s) => s.toolCalls.map((tc) => tc.toolName));
         audit.log({
