@@ -273,6 +273,26 @@ export interface AttachmentMeta {
   sizeBytes?: number;
 }
 
+export type ReasoningDetail =
+  | { type: "text"; text: string; signature?: string }
+  | { type: "redacted"; data: string };
+
+/** One step of a multi-step assistant turn (assistant → tool → assistant → …). */
+export interface StepDetail {
+  index: number;
+  stepType: "initial" | "continue" | "tool-result";
+  text: string;
+  toolCalls: { toolCallId: string; toolName: string; args: unknown }[];
+  toolResults?: { toolCallId: string; result: unknown }[];
+  reasoning?: ReasoningDetail[];
+  finishReason: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  durationMs: number;
+  /** True for rows backfilled from the legacy `tool_calls` shape (no real timing/reasoning). */
+  legacy?: boolean;
+}
+
 export interface ConversationMessage {
   id: string;
   role: string;
