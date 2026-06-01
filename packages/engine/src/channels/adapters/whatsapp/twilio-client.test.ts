@@ -76,6 +76,37 @@ describe("TwilioWhatsAppClient", () => {
       // 4500 chars / 1600 cap = 3 chunks (1600 + 1600 + 1300).
       expect(mockCreate).toHaveBeenCalledTimes(3);
     });
+
+    it("attaches mediaUrl on the first chunk only", async () => {
+      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const longText = "A".repeat(3500);
+      await client.sendMessage("+393331234567", longText, {
+        mediaUrl: ["https://hubspot.example/file/abc.pdf"],
+      });
+
+      expect(mockCreate.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const firstCall = mockCreate.mock.calls[0][0] as { mediaUrl?: string[] };
+      expect(firstCall.mediaUrl).toEqual(["https://hubspot.example/file/abc.pdf"]);
+      for (let i = 1; i < mockCreate.mock.calls.length; i++) {
+        const c = mockCreate.mock.calls[i][0] as { mediaUrl?: string[] };
+        expect(c.mediaUrl).toBeUndefined();
+      }
+    });
+
+    it("sends a media-only message with empty body when text is empty", async () => {
+      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      await client.sendMessage("+393331234567", "", {
+        mediaUrl: ["https://hubspot.example/file/abc.pdf"],
+      });
+
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockCreate).toHaveBeenCalledWith({
+        from: "whatsapp:+14155238886",
+        to: "whatsapp:+393331234567",
+        body: "",
+        mediaUrl: ["https://hubspot.example/file/abc.pdf"],
+      });
+    });
   });
 
   describe("sendTemplate", () => {
