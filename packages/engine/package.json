@@ -42,7 +42,7 @@
     "@nestjs/throttler": "^6.5.0",
     "@panva/hkdf": "^1.2.1",
     "@slack/bolt": "^4.6.0",
-    "@tavily/core": "^0.0.3",
+    "@tavily/core": "^0.7.5",
     "ai": "^4.0.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
