@@ -57,13 +57,13 @@ export class ComputeConstruct extends Construct {
 
     // ── ECS Cluster ───────────────────────────────────────────
     const cluster = new ecs.Cluster(this, "Cluster", {
-      clusterName: `agent-builder-cluster-${props.stage}`,
+      clusterName: `polyant-cluster-${props.stage}`,
       vpc: props.vpc,
     });
 
     // ── IAM Task Role ─────────────────────────────────────────
     const taskRole = new iam.Role(this, "TaskRole", {
-      roleName: `agent-builder-task-role-${props.stage}`,
+      roleName: `polyant-task-role-${props.stage}`,
       assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
     });
 
@@ -88,7 +88,7 @@ export class ComputeConstruct extends Construct {
 
     // ── Task Definition ───────────────────────────────────────
     const taskDef = new ecs.FargateTaskDefinition(this, "TaskDef", {
-      family: `agent-builder-task-${props.stage}`,
+      family: `polyant-task-${props.stage}`,
       cpu: props.ecsConfig.cpu,
       memoryLimitMiB: props.ecsConfig.memory,
       taskRole,
@@ -100,7 +100,7 @@ export class ComputeConstruct extends Construct {
 
     // ── Engine Container ──────────────────────────────────────
     const engineLogGroup = new logs.LogGroup(this, "EngineLogGroup", {
-      logGroupName: `/ecs/agent-builder-engine-${props.stage}`,
+      logGroupName: `/ecs/polyant-engine-${props.stage}`,
       retention: props.loggingRetentionDays,
     });
 
@@ -132,8 +132,10 @@ export class ComputeConstruct extends Construct {
         POSTGRES_PASSWORD: ecs.Secret.fromSecretsManager(props.dbSecret, "password"),
         ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(props.appSecret, "encryption_key"),
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.appSecret, "auth_secret"),
-        GOOGLE_CLIENT_ID: ecs.Secret.fromSecretsManager(props.appSecret, "google_client_id"),
-        GOOGLE_CLIENT_SECRET: ecs.Secret.fromSecretsManager(props.appSecret, "google_client_secret"),
+        // Only needed for local email/password accounts (web → engine credentials
+        // verify). Harmless placeholder otherwise. GOOGLE_* are NOT injected here:
+        // the engine never reads them — Google OAuth is handled entirely by the web.
+        AUTH_INTERNAL_SECRET: ecs.Secret.fromSecretsManager(props.appSecret, "auth_internal_secret"),
       },
       logging: ecs.LogDrivers.awsLogs({
         logGroup: engineLogGroup,
@@ -151,7 +153,7 @@ export class ComputeConstruct extends Construct {
 
     // ── Web Container ─────────────────────────────────────────
     const webLogGroup = new logs.LogGroup(this, "WebLogGroup", {
-      logGroupName: `/ecs/agent-builder-web-${props.stage}`,
+      logGroupName: `/ecs/polyant-web-${props.stage}`,
       retention: props.loggingRetentionDays,
     });
 
@@ -165,7 +167,7 @@ export class ComputeConstruct extends Construct {
       memoryLimitMiB: props.ecsConfig.web.memory,
       essential: true,
       environment: {
-        INTERNAL_API_URL: "http://localhost:4000",
+        INTERNAL_ENGINE_URL: "http://localhost:4000",
         HOSTNAME: "0.0.0.0",
         ...(props.domainName ? { NEXTAUTH_URL: `https://${props.domainName}` } : {}),
         // Gateway-authenticated mode: ALB OIDC authenticates upstream;
@@ -192,7 +194,7 @@ export class ComputeConstruct extends Construct {
 
     // ── ALB ───────────────────────────────────────────────────
     const alb = new elbv2.ApplicationLoadBalancer(this, "Alb", {
-      loadBalancerName: `agent-builder-alb-${props.stage}`,
+      loadBalancerName: `polyant-alb-${props.stage}`,
       vpc: props.vpc,
       internetFacing: true,
       securityGroup: props.albSg,
@@ -218,7 +220,7 @@ export class ComputeConstruct extends Construct {
 
     // ── ECS Service ───────────────────────────────────────────
     const service = new ecs.FargateService(this, "Service", {
-      serviceName: `agent-builder-service-${props.stage}`,
+      serviceName: `polyant-service-${props.stage}`,
       cluster,
       taskDefinition: taskDef,
       desiredCount: props.ecsConfig.desiredCount,
@@ -230,7 +232,7 @@ export class ComputeConstruct extends Construct {
 
     // Engine target group (API routes)
     const engineTg = new elbv2.ApplicationTargetGroup(this, "EngineTg", {
-      targetGroupName: `ab-engine-tg-${props.stage}`,
+      targetGroupName: `polyant-engine-tg-${props.stage}`,
       vpc: props.vpc,
       port: 4000,
       protocol: elbv2.ApplicationProtocol.HTTP,
@@ -249,7 +251,7 @@ export class ComputeConstruct extends Construct {
 
     // Web target group (default)
     const webTg = new elbv2.ApplicationTargetGroup(this, "WebTg", {
-      targetGroupName: `ab-web-tg-${props.stage}`,
+      targetGroupName: `polyant-web-tg-${props.stage}`,
       vpc: props.vpc,
       port: 3000,
       protocol: elbv2.ApplicationProtocol.HTTP,
@@ -290,6 +292,19 @@ export class ComputeConstruct extends Construct {
       ],
       priority: 5,
       action: wrapAction(elbv2.ListenerAction.forward([webTg])),
+    });
+
+    // OpenAI-compatible completions endpoint stays PUBLIC even when OIDC is on:
+    // it authenticates programmatic clients via per-instance API keys (the engine
+    // marks POST /v1/chat/completions as @Public). Not wrapped in OIDC, and at a
+    // higher priority than the catch-all engine routing below. Note: /v1/models
+    // and the rest of /v1 remain behind the IdP.
+    listener.addAction("CompletionsPublic", {
+      conditions: [
+        elbv2.ListenerCondition.pathPatterns(["/v1/chat/completions"]),
+      ],
+      priority: 8,
+      action: elbv2.ListenerAction.forward([engineTg]),
     });
 
     // Route API paths to engine, everything else to web
