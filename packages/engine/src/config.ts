@@ -111,6 +111,14 @@ const configSchema = z.object({
     maxRestarts: z.coerce.number().int().min(0).default(3),
   }),
 
+  // PDF rendering (markdownToPdf tool). `concurrency` caps how many puppeteer
+  // pages render in parallel inside the singleton Chromium browser. Each page
+  // costs ~50-100MB RSS during render, so the default is conservative — bump
+  // up in environments with more RAM, down on tight container memory.
+  pdf: z.object({
+    concurrency: z.coerce.number().int().min(1).max(32).default(3),
+  }),
+
   // Agent-to-agent invocation (virtual `agent` channel).
   //   callTimeoutMs: maximum wall-clock duration of a single sub-agent call.
   //     On timeout the synthesised tool returns an error string to the caller.
@@ -216,6 +224,9 @@ function loadConfig(): Config {
       softDebounceMs: process.env.MESSAGE_SOFT_DEBOUNCE_MS,
       typingDelayMs: process.env.MESSAGE_TYPING_DELAY_MS,
       maxRestarts: process.env.MESSAGE_MAX_RESTARTS,
+    },
+    pdf: {
+      concurrency: process.env.PDF_CONCURRENCY,
     },
     agent: {
       callTimeoutMs: process.env.AGENT_CALL_TIMEOUT_MS,
