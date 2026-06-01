@@ -185,7 +185,13 @@ export class ChannelManager {
   }
 
   /** Send a proactive outbound message via a running channel adapter. */
-  async sendOutbound(instanceSlug: string, channelType: string, channelId: string, message: string): Promise<void> {
+  async sendOutbound(
+    instanceSlug: string,
+    channelType: string,
+    channelId: string,
+    message: string,
+    opts?: { mediaUrl?: string | string[] },
+  ): Promise<void> {
     const instanceMap = this.adapters.get(instanceSlug);
     if (!instanceMap) throw new Error(`No active channels for instance "${instanceSlug}"`);
 
@@ -195,7 +201,10 @@ export class ChannelManager {
     let ok = false;
     let errorMessage: string | undefined;
     try {
-      await adapter.sendMessage(channelId, { text: message });
+      await adapter.sendMessage(channelId, {
+        text: message,
+        ...(opts?.mediaUrl ? { mediaUrl: opts.mediaUrl } : {}),
+      });
       ok = true;
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : String(err);

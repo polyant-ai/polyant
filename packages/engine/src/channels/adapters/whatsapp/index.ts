@@ -169,7 +169,12 @@ export class WhatsAppAdapter implements ChannelAdapter {
       // Formatting failed — fall back to the raw text so the message is never lost
       console.warn(`[whatsapp] Markdown conversion failed, sending raw text:`, err);
     }
-    await this.client.sendMessage(channelId, body);
+    const mediaUrl = Array.isArray(msg.mediaUrl)
+      ? msg.mediaUrl
+      : msg.mediaUrl
+        ? [msg.mediaUrl]
+        : undefined;
+    await this.client.sendMessage(channelId, body, mediaUrl ? { mediaUrl } : undefined);
   }
 
   async sendTemplate(
