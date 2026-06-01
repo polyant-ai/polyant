@@ -91,8 +91,8 @@ describe("tapAndForwardFullStream", () => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     for await (const _ of tapAndForwardFullStream(stream, ctx)) { /* drain */ }
 
-    // No `tool` field on any emitted event — tool events come from
-    // `wrapToolWithGovernance`, not from the SDK chunk tap.
+    // No `tool` field on any emitted event — the SDK chunk tap does not
+    // surface tool calls as activity events.
     expect(cap.events.every((e) => e.tool === undefined)).toBe(true);
   });
 
@@ -192,8 +192,8 @@ describe("emitFromChatResponse", () => {
     emitFromChatResponse(response, ctx);
 
     const ids = cap.events.map((e) => e.id);
-    // Tool events are NOT emitted by the batch replay anymore — they come
-    // from the supervisor's governance wrapper (real wall-clock timestamps).
+    // Tool events are NOT emitted by the batch replay — only text/usage
+    // events carry through this path.
     expect(cap.events.every((e) => e.tool === undefined)).toBe(true);
     expect(ids.some((id) => /:tool:/.test(id))).toBe(false);
     expect(ids.some((id) => /:s1:text:0$/.test(id))).toBe(true);

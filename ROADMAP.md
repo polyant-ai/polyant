@@ -25,7 +25,6 @@ contributions and feedback.
 ## Out of scope
 
 - Hosting/SaaS offering — Polyant is self-hosted by design.
-- Closed-source enterprise tier.
 
 ## Get involved
 

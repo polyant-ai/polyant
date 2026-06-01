@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Node version aligned to **22** across `Dockerfile`, `.nvmrc`, README, and `docs/getting-started/install.md`.
 
 ### Removed
-- Dead `governance` category from the activity-stream module (types, i18n strings, render block, narrative tests) — never emitted in the OSS distribution.
+- Unused `governance` category from the activity-stream module (types, i18n strings, render block, narrative tests) — it was never emitted.
 - Stale `hubspot-file.tool.ts` import that slipped into the batch 2 OSS port.
 
 ### Added (initial release)
