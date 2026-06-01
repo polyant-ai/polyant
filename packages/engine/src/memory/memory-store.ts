@@ -54,10 +54,22 @@ const DEDUP_SIMILARITY_THRESHOLD = config.memory.dedupSimilarityThreshold;
 
 /** PostgreSQL serialization_failure SQLSTATE. Emitted when SERIALIZABLE detects a conflict. */
 const SERIALIZATION_FAILURE = "40001";
-const MAX_UPSERT_RETRIES = 3;
+const MAX_UPSERT_RETRIES = 5;
+/** Base backoff in ms — actual delay is `BASE * 2^attempt + random(0, BASE * 2^attempt)`. */
+const RETRY_BASE_BACKOFF_MS = 20;
 
 function isSerializationFailure(err: unknown): boolean {
-  return err instanceof Error && "code" in err && (err as Error & { code: string }).code === SERIALIZATION_FAILURE;
+  // postgres-js wraps the original error in DrizzleQueryError; the SQLSTATE
+  // lives on `err.cause.code`. Older paths still carry it on `err.code`.
+  if (!(err instanceof Error)) return false;
+  if ("code" in err && (err as Error & { code: string }).code === SERIALIZATION_FAILURE) {
+    return true;
+  }
+  const cause = (err as Error & { cause?: unknown }).cause;
+  if (cause instanceof Error && "code" in cause && (cause as Error & { code: string }).code === SERIALIZATION_FAILURE) {
+    return true;
+  }
+  return false;
 }
 
 async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult> {
@@ -119,9 +131,10 @@ async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult
  * Deduplication: if any memory for this user has cosine similarity > threshold,
  * the closest match is updated (content replaced, updatedAt refreshed).
  *
- * Retries on `serialization_failure` (40001) with exponential backoff (10/20/40ms).
- * SERIALIZABLE isolation aborts conflicting transactions; the caller should not see
- * the 40001 under normal contention.
+ * Retries on `serialization_failure` (40001) with exponential backoff + jitter.
+ * The jitter desynchronises retries so two transactions that collided at attempt
+ * N don't all re-fire at the same time and re-collide at attempt N+1.
+ * Cumulative max wait across 5 attempts: ~640 ms (still fire-and-forget friendly).
  */
 export async function upsertMemory(input: InsertMemoryInput): Promise<UpsertResult> {
   let lastErr: unknown;
@@ -132,7 +145,9 @@ export async function upsertMemory(input: InsertMemoryInput): Promise<UpsertResu
       lastErr = err;
       if (!isSerializationFailure(err)) throw err;
       if (attempt < MAX_UPSERT_RETRIES - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 10 * Math.pow(2, attempt)));
+        const base = RETRY_BASE_BACKOFF_MS * Math.pow(2, attempt);
+        const jitter = Math.random() * base;
+        await new Promise((resolve) => setTimeout(resolve, base + jitter));
       }
     }
   }
