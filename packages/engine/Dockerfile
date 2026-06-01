@@ -22,6 +22,12 @@ COPY package.json package-lock.json ./
 COPY packages/engine/package.json ./packages/engine/
 COPY packages/web/package.json ./packages/web/
 
+# Skip Puppeteer's bundled Chromium download — it's glibc-linked and won't run
+# on Alpine (musl). The runner image installs Alpine's chromium package and
+# points Puppeteer at it via PUPPETEER_EXECUTABLE_PATH.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
 # Install all dependencies (full monorepo — hoisting needs all workspaces)
 RUN npm ci
 
@@ -32,8 +38,10 @@ COPY packages/engine/ ./packages/engine/
 RUN rm -rf ./packages/engine/dist
 RUN npm run build -w @polyant/engine
 
-# Reinstall production-only deps (prune doesn't work reliably with workspaces + hoisting)
+# Reinstall production-only deps (prune doesn't work reliably with workspaces + hoisting).
+# Keep the Puppeteer Chromium-download skip flags from above active for this step too.
 RUN rm -rf node_modules packages/engine/node_modules packages/web/node_modules && \
+    PUPPETEER_SKIP_DOWNLOAD=true PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     npm ci --omit=dev && \
     mkdir -p packages/engine/node_modules
 
@@ -47,15 +55,24 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Install git (for gitCloneRepo) and gh CLI (for gh* tools)
+# Install:
+#   - git (for gitCloneRepo)
+#   - gh CLI (for gh* tools)
+#   - Chromium + runtime libs (for the markdownToPdf tool via Puppeteer)
 ARG GH_CLI_VERSION=2.65.0
-RUN apk add --no-cache git curl bash && \
+RUN apk add --no-cache \
+      git curl bash \
+      chromium nss freetype freetype-dev harfbuzz ca-certificates ttf-freefont font-noto-emoji && \
     ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && \
     curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_${ARCH}.tar.gz" \
       | tar -xz -C /tmp && \
     mv "/tmp/gh_${GH_CLI_VERSION}_linux_${ARCH}/bin/gh" /usr/local/bin/gh && \
     chmod +x /usr/local/bin/gh && \
     rm -rf /tmp/gh_*
+
+# Point Puppeteer at the Alpine-provided Chromium binary (skip its own download).
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Create non-root user
 RUN addgroup --system --gid 1001 engine && \
