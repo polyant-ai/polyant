@@ -5,7 +5,7 @@ set -euo pipefail
 # Usage: source awsume test3-prod && ./scripts/db-init.sh
 
 STAGE="${CDK_STAGE:-dev}"
-STACK_NAME="agent-builder-${STAGE}"
+STACK_NAME="polyant-${STAGE}"
 REGION="${AWS_REGION:-eu-south-1}"
 
 echo "Reading DB credentials from Secrets Manager..."
@@ -17,7 +17,7 @@ SECRET_ARN=$(aws cloudformation describe-stacks \
 if [ -z "$SECRET_ARN" ]; then
   # Fallback: find secret by name
   SECRET_ARN=$(aws secretsmanager list-secrets \
-    --filter Key="name",Values="agent-builder-db-secrets-${STAGE}" \
+    --filter Key="name",Values="polyant-db-secrets-${STAGE}" \
     --query 'SecretList[0].ARN' --output text --region "$REGION")
 fi
 
@@ -27,7 +27,7 @@ SECRET_JSON=$(aws secretsmanager get-secret-value \
 
 DB_HOST=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['host'])")
 DB_PORT=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['port'])")
-DB_NAME=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('dbname','agent_crm'))")
+DB_NAME=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('dbname','polyant'))")
 DB_USER=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['username'])")
 DB_PASS=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])")
 

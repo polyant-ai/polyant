@@ -59,7 +59,7 @@ if (stageConfig.auth && !stageConfig.dns) {
 
 const app = new App();
 
-new MainStack(app, `agent-builder-${stage}`, {
+new MainStack(app, `polyant-${stage}`, {
   env: { account: stageConfig.account, region: stageConfig.region },
   stage,
   config: stageConfig,

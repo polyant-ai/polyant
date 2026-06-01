@@ -1,4 +1,4 @@
-# Agent Builder CDK Configuration
+# Polyant CDK Configuration
 # Copy this file to config.yaml and fill in your deployment-specific values.
 # config.yaml is gitignored — never commit it.
 
@@ -54,5 +54,5 @@ dev:
     locale: "it-IT"
 
   tags:
-    Project: "agent-builder"
+    Project: "polyant"
     Environment: "dev"
