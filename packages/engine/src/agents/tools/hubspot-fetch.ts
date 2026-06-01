@@ -51,6 +51,13 @@ type HubSpotFilter = { propertyName: string; operator: string; value: string };
  * Build HubSpot `filterGroups` that match a phone number on both `phone` and
  * `mobilephone` properties, trying both E.164 variants (with and without the
  * leading "+"). Returned filter groups are OR'd by HubSpot semantics.
+ *
+ * When the input contains ≥10 digits, also emits a fallback group on
+ * `hs_searchable_calculated_phone_number` (the HubSpot-maintained digits-only
+ * mirror of the phone) using `CONTAINS_TOKEN` on the last 10 digits. This
+ * recovers contacts when the caller passes a phone whose formatting diverges
+ * from how HubSpot stored it (extra/missing country code, embedded spaces,
+ * or non-E.164 strings that HubSpot kept verbatim).
  */
 export function buildPhoneFilterGroups(phone: string): Array<{ filters: HubSpotFilter[] }> {
   const withPlus = phone.replace(/[\s().-]/g, "");
@@ -62,6 +69,18 @@ export function buildPhoneFilterGroups(phone: string): Array<{ filters: HubSpotF
   if (withoutPlus !== withPlus) {
     groups.push({ filters: [{ propertyName: "phone", operator: "EQ", value: withoutPlus }] });
     groups.push({ filters: [{ propertyName: "mobilephone", operator: "EQ", value: withoutPlus }] });
+  }
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length >= 10) {
+    groups.push({
+      filters: [
+        {
+          propertyName: "hs_searchable_calculated_phone_number",
+          operator: "CONTAINS_TOKEN",
+          value: digits.slice(-10),
+        },
+      ],
+    });
   }
   return groups;
 }
