@@ -55,11 +55,36 @@ describe("toSlackMrkdwn", () => {
     expect(toSlackMrkdwn("above\n---\nbelow")).toBe("above\nbelow");
   });
 
-  it("converts tables to nested lists", () => {
+  it("renders tables as monospace code blocks with column alignment", () => {
     const input = "| Name | Value |\n|------|-------|\n| foo  | 42    |";
     const result = toSlackMrkdwn(input);
-    expect(result).toContain("• foo");
-    expect(result).toContain("*Value:* 42");
+    expect(result.startsWith("```\n")).toBe(true);
+    expect(result.endsWith("\n```")).toBe(true);
+    // Header + separator + row, each on its own line
+    const body = result.slice(4, -4);
+    const lines = body.split("\n");
+    expect(lines).toHaveLength(3);
+    // Header preserved
+    expect(lines[0]).toMatch(/^Name\s+Value$/);
+    // Separator made of dashes only
+    expect(lines[1]).toMatch(/^-+\s+-+$/);
+    // Data row preserved
+    expect(lines[2]).toMatch(/^foo\s+42$/);
+  });
+
+  it("strips markdown markers inside table cells before laying out the code block", () => {
+    const input = [
+      "| Metric | Value |",
+      "|--------|-------|",
+      "| **Revenue** | [EUR 57.720](https://example.com) |",
+    ].join("\n");
+    const result = toSlackMrkdwn(input);
+    // Markers must not appear inside the code block — they would render as
+    // literal characters and break alignment.
+    expect(result).not.toContain("**");
+    expect(result).not.toContain("](");
+    expect(result).toContain("Revenue");
+    expect(result).toContain("EUR 57.720");
   });
 
   it("handles mixed formatting in one line", () => {
