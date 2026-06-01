@@ -217,3 +217,82 @@
 .dark .hljs-class .hljs-title { color: #ffa657; }
 .dark .hljs-deletion { color: #ffdcd7; }
 .dark .hljs-meta { color: #d2a8ff; }
+
+/* Activity ticker (header) — entry/attention animations */
+@keyframes ticker-slide-in {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes ticker-bounce-in {
+  0% {
+    transform: translateY(60%) scale(0.94);
+    opacity: 0;
+  }
+  55% {
+    transform: translateY(-4%) scale(1.02);
+    opacity: 1;
+  }
+  75% {
+    transform: translateY(1%) scale(0.995);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+.animate-ticker-bounce-in {
+  animation: ticker-bounce-in 380ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticker-bounce-in {
+    animation: ticker-slide-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+.animate-shimmer {
+  animation: shimmer 4s linear infinite;
+  background-size: 200% 100%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-shimmer {
+    animation: none;
+  }
+}
+
+@keyframes ticker-flash {
+  0% {
+    opacity: 1;
+    background-color: rgba(241, 96, 52, 0.2);
+  }
+  60% {
+    opacity: 0.6;
+    background-color: rgba(241, 96, 52, 0.08);
+  }
+  100% {
+    opacity: 0;
+    background-color: transparent;
+  }
+}
+.animate-ticker-flash {
+  animation: ticker-flash 420ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticker-flash {
+    animation: none;
+  }
+}
