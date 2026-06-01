@@ -21,8 +21,6 @@ import { emitInbound } from "./emit-inbound.js";
 import { emitOutbound } from "./emit-outbound.js";
 import { emitWebhook } from "./emit-webhook.js";
 import { emitCron } from "./emit-cron.js";
-// NOTE: emit-governance is intentionally NOT ported to OSS — the governance
-// layer is excluded from this distribution (memory: project_oss_predeploy).
 import { emitMemory } from "./emit-memory.js";
 import { emitConversation } from "./emit-conversation.js";
 import { emitAgentHandoffStart, emitAgentHandoffEnd } from "./emit-agent-handoff.js";
@@ -144,8 +142,6 @@ describe("emitCron", () => {
     expect(e.responsePreview).toBe("Build the daily brief");
   });
 });
-
-// describe("emitGovernance", …) — intentionally not ported; governance layer is OSS-excluded.
 
 describe("emitMemory", () => {
   it("emits a single aggregated event per batch", () => {

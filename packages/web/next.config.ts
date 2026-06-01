@@ -12,7 +12,6 @@ const nextConfig: NextConfig = {
       { source: "/api/instances/:path*", destination: `${ENGINE_URL}/api/instances/:path*` },
       { source: "/api/conversations/:path*", destination: `${ENGINE_URL}/api/conversations/:path*` },
       { source: "/api/analytics/:path*", destination: `${ENGINE_URL}/api/analytics/:path*` },
-      { source: "/api/governance/:path*", destination: `${ENGINE_URL}/api/governance/:path*` },
       { source: "/api/skills/:path*", destination: `${ENGINE_URL}/api/skills/:path*` },
       { source: "/api/audit-logs/:path*", destination: `${ENGINE_URL}/api/audit-logs/:path*` },
       { source: "/api/users/:path*", destination: `${ENGINE_URL}/api/users/:path*` },

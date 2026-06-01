@@ -16,7 +16,7 @@ with examples, see [Glossary](https://docs.polyant.ai/concepts/glossary).
 - **Event Source** — A webhook endpoint that converts external events
   (HubSpot, GitHub, etc.) into Room actions.
 - **Pipeline** — End-to-end message processing: input → context →
-  governance → LLM → tools → governance → output.
+  LLM → tools → output.
 - **Supervisor** — The central LLM call that orchestrates tools and produces
   the response.
 - **Sub-agent** — An LLM invocation spawned by `spawnTask` for delegated
@@ -27,7 +27,5 @@ with examples, see [Glossary](https://docs.polyant.ai/concepts/glossary).
   cosine-similarity dedup.
 - **Tier** — A tag (`fast` / `standard` / `heavy`) that maps to a concrete
   model. Lets components stay model-agnostic.
-- **Governance** — Pluggable input/output policy layer (gates, audit) that
-  runs before and after the LLM call.
 - **Workspace** — Per-instance, per-conversation scratch directory used by
   filesystem-backed tools. Ephemeral (cleaned after 2 hours).
