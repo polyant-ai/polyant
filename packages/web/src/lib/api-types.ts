@@ -297,8 +297,10 @@ export interface ConversationMessage {
   id: string;
   role: string;
   content: string;
-  steps: unknown[] | null;
-  reasoning: unknown[] | null;
+  /** Per-step trace (replaces the legacy `toolCalls` flat array). */
+  steps: StepDetail[] | null;
+  /** Aggregated message-level reasoning (Anthropic signed thinking blocks, OpenAI summary). */
+  reasoning: ReasoningDetail[] | null;
   attachments: AttachmentMeta[] | null;
   metadata: Record<string, unknown> | null;
   createdAt: string | null;
