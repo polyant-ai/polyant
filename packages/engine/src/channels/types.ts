@@ -83,6 +83,11 @@ export interface OutgoingMessage {
   /** Optional structured attachments */
   attachments?: Attachment[];
 
+  /** Optional public media URL(s) to deliver alongside the text (e.g. a PDF or
+   *  image). Channel adapters that support media (e.g. WhatsApp/Twilio) attach
+   *  it; others ignore it. */
+  mediaUrl?: string | string[];
+
   /** Tool calls made during the response (for observability) */
   toolCalls?: Array<{ name: string; args?: Record<string, unknown>; durationMs?: number }>;
 
