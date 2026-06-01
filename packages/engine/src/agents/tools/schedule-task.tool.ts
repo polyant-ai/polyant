@@ -199,7 +199,12 @@ registerTool({
           }
 
           case "list": {
-            const tasks = await scheduledTaskStore.listByInstance(ctx.instanceId);
+            // Cap the LLM-facing list at 50 to keep tool-result tokens bounded.
+            // Instances with more than 50 active tasks are exceptional; if the
+            // model needs to inspect more, it must paginate via a future
+            // `offset` argument. The admin API exposes the full list via
+            // explicit pagination.
+            const tasks = await scheduledTaskStore.listByInstance(ctx.instanceId, { limit: 50 });
             ctx.audit.log({
               action: "task.schedule",
               details: { subAction: "list", resultCount: tasks.length },

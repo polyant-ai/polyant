@@ -39,20 +39,23 @@ export function createPromptUpdaterTool(config: PromptUpdaterConfig): void {
           const section = await getPromptSection(instanceId, config.sectionId);
           const current = section?.content ?? config.defaultContent;
 
-          const response = await chat({
-            tier: "fast",
-            apiKeys: {
-              openai: ctx.secrets?.openai_api_key,
-              anthropic: ctx.secrets?.anthropic_api_key,
-            },
-            system: config.buildSystemPrompt(),
-            messages: [
-              {
-                role: "user",
-                content: config.buildUserPrompt(instruction, current),
+          const response = await chat(
+            {
+              tier: "fast",
+              apiKeys: {
+                openai: ctx.secrets?.openai_api_key,
+                anthropic: ctx.secrets?.anthropic_api_key,
               },
-            ],
-          });
+              system: config.buildSystemPrompt(),
+              messages: [
+                {
+                  role: "user",
+                  content: config.buildUserPrompt(instruction, current),
+                },
+              ],
+            },
+            { instanceId: ctx.instanceId, callType: "service" },
+          );
 
           const newContent = response.text.trim() + "\n";
           await upsertPrompt(instanceId, config.sectionId, config.displayName, newContent);
