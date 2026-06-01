@@ -16,14 +16,14 @@ describe("parseAlbOidcData", () => {
   it("returns user with sub/email/name/groups when all claims present", () => {
     const header = buildAlbHeader({
       sub: "user-123",
-      email: "alice@exelab.com",
+      email: "alice@example.com",
       name: "Alice",
       "cognito:groups": ["admins", "readers"],
     });
 
     expect(parseAlbOidcData(header)).toEqual({
       userId: "user-123",
-      email: "alice@exelab.com",
+      email: "alice@example.com",
       name: "Alice",
       groups: ["admins", "readers"],
       source: "alb-oidc",
@@ -41,7 +41,7 @@ describe("parseAlbOidcData", () => {
   });
 
   it("omits name when claim is missing", () => {
-    const header = buildAlbHeader({ sub: "user-789", email: "bob@exelab.com" });
+    const header = buildAlbHeader({ sub: "user-789", email: "bob@example.com" });
 
     const result = parseAlbOidcData(header);
     expect(result?.name).toBeUndefined();
@@ -63,13 +63,13 @@ describe("parseAlbOidcData", () => {
   });
 
   it("returns null when sub claim is missing", () => {
-    const header = buildAlbHeader({ email: "noone@exelab.com" });
+    const header = buildAlbHeader({ email: "noone@example.com" });
 
     expect(parseAlbOidcData(header)).toBeNull();
   });
 
   it("returns null when sub is not a string", () => {
-    const header = buildAlbHeader({ sub: 12345, email: "x@exelab.com" });
+    const header = buildAlbHeader({ sub: 12345, email: "x@example.com" });
 
     expect(parseAlbOidcData(header)).toBeNull();
   });

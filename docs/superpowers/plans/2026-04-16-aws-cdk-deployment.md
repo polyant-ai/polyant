@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Deploy Agent Builder (engine + web) to AWS account `870676149456` (test3-prod) with a single `cdk deploy` command.
+**Goal:** Deploy Polyant (engine + web) to AWS account `<account-id>` (test3-prod) with a single `cdk deploy` command.
 
 **Architecture:** CDK standalone app in `infra/` creates VPC, Aurora Serverless v2, ECS Fargate (2 containers in 1 task), and ALB. Dockerfiles at repo root build engine and web images. Six application code changes enable SSL, relative API paths, and Bedrock region.
 
 **Tech Stack:** AWS CDK v2 (TypeScript), Docker multi-stage builds, Aurora PostgreSQL 16 + pgvector, ECS Fargate, ALB
 
-**Worktree:** `/Users/fabrizio/Work/agent-builder/.worktrees/feat/issue-90-aws-cdk-deployment`
+**Worktree:** `/Users/fabrizio/Work/polyant/.worktrees/feat/issue-90-aws-cdk-deployment`
 
 **Spec:** `docs/superpowers/specs/2026-04-16-aws-cdk-deployment-design.md`
 
@@ -66,7 +66,7 @@ In `packages/engine/src/config.ts`, add `ssl` field to the `postgres` object in 
 postgres: z.object({
   host: z.string().default("localhost"),
   port: z.coerce.number().default(5432),
-  database: z.string().default("agent_crm"),
+  database: z.string().default("polyant"),
   user: z.string().default("crm"),
   password: z.string(),
   ssl: z.coerce.boolean().default(false),
@@ -135,7 +135,7 @@ ssl: process.env.POSTGRES_SSL === "true" ? { rejectUnauthorized: true } : false,
 
 Run from worktree root:
 ```bash
-npm run typecheck -w @agent-builder/engine
+npm run typecheck -w @polyant/engine
 ```
 Expected: passes (POSTGRES_SSL defaults to false, no behavior change locally)
 
@@ -210,8 +210,8 @@ const region = apiKeys?.bedrock_region ?? process.env.AWS_REGION ?? "us-east-1";
 - [ ] **Step 4: Verify typecheck**
 
 ```bash
-npm run typecheck -w @agent-builder/engine
-npm run typecheck -w @agent-builder/web
+npm run typecheck -w @polyant/engine
+npm run typecheck -w @polyant/web
 ```
 
 - [ ] **Step 5: Commit**
@@ -285,8 +285,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
 # Create a minimal package.json for web to satisfy workspace resolution
-RUN mkdir -p packages/web && echo '{"name":"@agent-builder/web","version":"0.1.0","private":true}' > packages/web/package.json
-RUN npm ci --workspace=@agent-builder/engine --include-workspace-root
+RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"0.1.0","private":true}' > packages/web/package.json
+RUN npm ci --workspace=@polyant/engine --include-workspace-root
 
 # ── Stage 2: Build ─────────────────────────────────────────────
 FROM node:22-alpine AS build
@@ -295,7 +295,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/engine/node_modules ./packages/engine/node_modules
 COPY package.json package-lock.json ./
 COPY packages/engine/ packages/engine/
-RUN npm run build -w @agent-builder/engine
+RUN npm run build -w @polyant/engine
 
 # ── Stage 3: Runtime ───────────────────────────────────────────
 FROM node:22-alpine AS runtime
@@ -335,8 +335,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/web/package.json packages/web/
 # Create minimal engine package.json for workspace resolution
-RUN mkdir -p packages/engine && echo '{"name":"@agent-builder/engine","version":"0.1.0","private":true}' > packages/engine/package.json
-RUN npm ci --workspace=@agent-builder/web --include-workspace-root
+RUN mkdir -p packages/engine && echo '{"name":"@polyant/engine","version":"0.1.0","private":true}' > packages/engine/package.json
+RUN npm ci --workspace=@polyant/web --include-workspace-root
 
 # ── Stage 2: Build ─────────────────────────────────────────────
 FROM node:22-alpine AS build
@@ -348,7 +348,7 @@ COPY packages/web/ packages/web/
 
 # NEXT_PUBLIC_API_URL must be empty at build time for relative paths
 ENV NEXT_PUBLIC_API_URL=""
-RUN npm run build -w @agent-builder/web
+RUN npm run build -w @polyant/web
 
 # ── Stage 3: Runtime ───────────────────────────────────────────
 FROM node:22-alpine AS runtime
@@ -368,8 +368,8 @@ CMD ["node", "packages/web/server.js"]
 - [ ] **Step 6: Verify Docker builds locally**
 
 ```bash
-docker build -f Dockerfile.engine -t agent-builder-engine:test .
-docker build -f Dockerfile.web -t agent-builder-web:test .
+docker build -f Dockerfile.engine -t polyant-engine:test .
+docker build -f Dockerfile.web -t polyant-web:test .
 ```
 
 Expected: both build successfully. Don't need to run them — CDK will build and push.
@@ -397,7 +397,7 @@ git commit -m "feat: add Dockerfiles for engine and web containers"
 
 ```json
 {
-  "name": "agent-builder-infra",
+  "name": "polyant-infra",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -460,7 +460,7 @@ git commit -m "feat: add Dockerfiles for engine and web containers"
 
 ```yaml
 dev:
-  account: "870676149456"
+  account: "<account-id>"
   region: "eu-south-1"
   vpc:
     cidr: "10.0.0.0/16"
@@ -486,7 +486,7 @@ dev:
     timezone: "Europe/Rome"
     locale: "it-IT"
   tags:
-    Project: "agent-builder"
+    Project: "polyant"
     Environment: "dev"
 ```
 
@@ -535,7 +535,7 @@ if (!stageConfig.account) {
 
 const app = new App();
 
-new MainStack(app, `agent-builder-${stage}`, {
+new MainStack(app, `polyant-${stage}`, {
   env: { account: stageConfig.account, region: stageConfig.region },
   stage,
   config: stageConfig,
@@ -598,7 +598,7 @@ export class VpcConstruct extends Construct {
     super(scope, id);
 
     this.vpc = new ec2.Vpc(this, "Vpc", {
-      vpcName: `agent-builder-vpc-${props.stage}`,
+      vpcName: `polyant-vpc-${props.stage}`,
       ipAddresses: ec2.IpAddresses.cidr(props.cidr),
       maxAzs: 2,
       natGateways: 0,
@@ -614,7 +614,7 @@ export class VpcConstruct extends Construct {
     // ALB Security Group
     this.albSg = new ec2.SecurityGroup(this, "AlbSg", {
       vpc: this.vpc,
-      securityGroupName: `agent-builder-alb-sg-${props.stage}`,
+      securityGroupName: `polyant-alb-sg-${props.stage}`,
       description: "ALB security group",
       allowAllOutbound: true,
     });
@@ -623,7 +623,7 @@ export class VpcConstruct extends Construct {
     // ECS Security Group
     this.ecsSg = new ec2.SecurityGroup(this, "EcsSg", {
       vpc: this.vpc,
-      securityGroupName: `agent-builder-ecs-sg-${props.stage}`,
+      securityGroupName: `polyant-ecs-sg-${props.stage}`,
       description: "ECS tasks security group",
       allowAllOutbound: true,
     });
@@ -633,7 +633,7 @@ export class VpcConstruct extends Construct {
     // DB Security Group
     this.dbSg = new ec2.SecurityGroup(this, "DbSg", {
       vpc: this.vpc,
-      securityGroupName: `agent-builder-db-sg-${props.stage}`,
+      securityGroupName: `polyant-db-sg-${props.stage}`,
       description: "Aurora security group",
       allowAllOutbound: false,
     });
@@ -686,18 +686,18 @@ export class DatabaseConstruct extends Construct {
 
     // DB credentials secret
     this.dbSecret = new rds.DatabaseSecret(this, "DbSecret", {
-      secretName: `agent-builder-db-secrets-${props.stage}`,
-      username: "agentbuilder",
+      secretName: `polyant-db-secrets-${props.stage}`,
+      username: "polyant",
     });
 
     // Aurora Serverless v2 cluster
     this.cluster = new rds.DatabaseCluster(this, "Cluster", {
-      clusterIdentifier: `agent-builder-db-${props.stage}`,
+      clusterIdentifier: `polyant-db-${props.stage}`,
       engine: rds.DatabaseClusterEngine.auroraPostgres({
         version: rds.AuroraPostgresEngineVersion.VER_16_4,
       }),
       credentials: rds.Credentials.fromSecret(this.dbSecret),
-      defaultDatabaseName: "agent_crm",
+      defaultDatabaseName: "polyant",
       vpc: props.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       securityGroups: [props.securityGroup],
@@ -722,8 +722,8 @@ export class DatabaseConstruct extends Construct {
 
     // App secret (encryption key — placeholder, populated manually after deploy)
     this.appSecret = new secretsmanager.Secret(this, "AppSecret", {
-      secretName: `agent-builder-secrets-${props.stage}`,
-      description: "Agent Builder application secrets (encryption_key)",
+      secretName: `polyant-secrets-${props.stage}`,
+      description: "Polyant application secrets (encryption_key)",
       generateSecretString: {
         secretStringTemplate: JSON.stringify({ encryption_key: "REPLACE_ME_WITH_64_HEX_CHARS" }),
         generateStringKey: "_placeholder",
@@ -799,13 +799,13 @@ export class ComputeConstruct extends Construct {
 
     // ── ECS Cluster ───────────────────────────────────────────
     const cluster = new ecs.Cluster(this, "Cluster", {
-      clusterName: `agent-builder-cluster-${props.stage}`,
+      clusterName: `polyant-cluster-${props.stage}`,
       vpc: props.vpc,
     });
 
     // ── IAM Task Role ─────────────────────────────────────────
     const taskRole = new iam.Role(this, "TaskRole", {
-      roleName: `agent-builder-task-role-${props.stage}`,
+      roleName: `polyant-task-role-${props.stage}`,
       assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
     });
 
@@ -830,7 +830,7 @@ export class ComputeConstruct extends Construct {
 
     // ── Task Definition ───────────────────────────────────────
     const taskDef = new ecs.FargateTaskDefinition(this, "TaskDef", {
-      family: `agent-builder-task-${props.stage}`,
+      family: `polyant-task-${props.stage}`,
       cpu: props.ecsConfig.cpu,
       memoryLimitMiB: props.ecsConfig.memory,
       taskRole,
@@ -842,7 +842,7 @@ export class ComputeConstruct extends Construct {
 
     // ── Engine Container ──────────────────────────────────────
     const engineLogGroup = new logs.LogGroup(this, "EngineLogGroup", {
-      logGroupName: `/ecs/agent-builder-engine-${props.stage}`,
+      logGroupName: `/ecs/polyant-engine-${props.stage}`,
       retention: props.loggingRetentionDays,
     });
 
@@ -886,7 +886,7 @@ export class ComputeConstruct extends Construct {
 
     // ── Web Container ─────────────────────────────────────────
     const webLogGroup = new logs.LogGroup(this, "WebLogGroup", {
-      logGroupName: `/ecs/agent-builder-web-${props.stage}`,
+      logGroupName: `/ecs/polyant-web-${props.stage}`,
       retention: props.loggingRetentionDays,
     });
 
@@ -918,7 +918,7 @@ export class ComputeConstruct extends Construct {
 
     // ── ALB ───────────────────────────────────────────────────
     const alb = new elbv2.ApplicationLoadBalancer(this, "Alb", {
-      loadBalancerName: `agent-builder-alb-${props.stage}`,
+      loadBalancerName: `polyant-alb-${props.stage}`,
       vpc: props.vpc,
       internetFacing: true,
       securityGroup: props.albSg,
@@ -931,7 +931,7 @@ export class ComputeConstruct extends Construct {
 
     // ── ECS Service ───────────────────────────────────────────
     const service = new ecs.FargateService(this, "Service", {
-      serviceName: `agent-builder-service-${props.stage}`,
+      serviceName: `polyant-service-${props.stage}`,
       cluster,
       taskDefinition: taskDef,
       desiredCount: props.ecsConfig.desiredCount,
@@ -1121,7 +1121,7 @@ set -euo pipefail
 # Usage: source awsume test3-prod && ./scripts/db-init.sh
 
 STAGE="${CDK_STAGE:-dev}"
-STACK_NAME="agent-builder-${STAGE}"
+STACK_NAME="polyant-${STAGE}"
 REGION="${AWS_REGION:-eu-south-1}"
 
 echo "Reading DB credentials from Secrets Manager..."
@@ -1133,7 +1133,7 @@ SECRET_ARN=$(aws cloudformation describe-stacks \
 if [ -z "$SECRET_ARN" ]; then
   # Fallback: find secret by name
   SECRET_ARN=$(aws secretsmanager list-secrets \
-    --filter Key="name",Values="agent-builder-db-secrets-${STAGE}" \
+    --filter Key="name",Values="polyant-db-secrets-${STAGE}" \
     --query 'SecretList[0].ARN' --output text --region "$REGION")
 fi
 
@@ -1143,7 +1143,7 @@ SECRET_JSON=$(aws secretsmanager get-secret-value \
 
 DB_HOST=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['host'])")
 DB_PORT=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['port'])")
-DB_NAME=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('dbname','agent_crm'))")
+DB_NAME=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('dbname','polyant'))")
 DB_USER=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['username'])")
 DB_PASS=$(echo "$SECRET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])")
 
@@ -1198,7 +1198,7 @@ Expected: `CREATE EXTENSION` succeeds.
 source awsume test3-prod
 ENCRYPTION_KEY=$(openssl rand -hex 32)
 aws secretsmanager put-secret-value \
-  --secret-id agent-builder-secrets-dev \
+  --secret-id polyant-secrets-dev \
   --secret-string "{\"encryption_key\":\"${ENCRYPTION_KEY}\"}" \
   --region eu-south-1
 echo "Encryption key set. Restart ECS task to pick it up."
@@ -1209,8 +1209,8 @@ echo "Encryption key set. Restart ECS task to pick it up."
 ```bash
 source awsume test3-prod
 aws ecs update-service \
-  --cluster agent-builder-cluster-dev \
-  --service agent-builder-service-dev \
+  --cluster polyant-cluster-dev \
+  --service polyant-service-dev \
   --force-new-deployment \
   --region eu-south-1
 ```
@@ -1220,7 +1220,7 @@ aws ecs update-service \
 ```bash
 # Get ALB URL from stack outputs
 ALB_URL=$(source awsume test3-prod && aws cloudformation describe-stacks \
-  --stack-name agent-builder-dev \
+  --stack-name polyant-dev \
   --query 'Stacks[0].Outputs[?contains(OutputKey,`AlbUrl`)].OutputValue' \
   --output text --region eu-south-1)
 
@@ -1228,7 +1228,7 @@ echo "ALB URL: $ALB_URL"
 
 # Test health
 curl "$ALB_URL/health"
-# Expected: {"status":"ok","timestamp":"...","service":"agent-builder"}
+# Expected: {"status":"ok","timestamp":"...","service":"polyant"}
 
 # Test web
 curl -s "$ALB_URL" | head -20

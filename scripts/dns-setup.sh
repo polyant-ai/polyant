@@ -9,8 +9,8 @@ set -euo pipefail
 #   ./scripts/dns-setup.sh <domain-name> <hosted-zone-id> <alb-dns-name> <alb-hosted-zone-id>
 #
 # Example:
-#   source awsume exelab-prod
-#   ./scripts/dns-setup.sh ab-test3.apps.exelab.net Z06031513MEHLUU2Y6N7Z agent-builder-alb-dev-123.eu-south-1.elb.amazonaws.com Z3ULH7SSC9OV64
+#   source awsume <parent-zone-profile>
+#   ./scripts/dns-setup.sh myapp.example.com Z0000000000000000000 polyant-alb-dev-123.eu-south-1.elb.amazonaws.com ZXXXXXXXXXXXXX
 
 DOMAIN_NAME="${1:?Usage: $0 <domain-name> <hosted-zone-id> <alb-dns-name> <alb-hosted-zone-id>}"
 HOSTED_ZONE_ID="${2:?Missing hosted-zone-id}"

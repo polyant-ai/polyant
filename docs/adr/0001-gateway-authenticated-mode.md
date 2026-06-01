@@ -7,7 +7,7 @@
 
 ## Context
 
-Agent Builder is a multi-cloud framework. The current AWS deployment template runs the engine behind an Application Load Balancer (ALB) with OIDC authentication enabled, which forwards user identity claims to the upstream service via the `x-amzn-oidc-data` header. Future cloud templates will use analogous mechanisms — none of them are AWS-specific in concept:
+Polyant is a multi-cloud framework. The current AWS deployment template runs the engine behind an Application Load Balancer (ALB) with OIDC authentication enabled, which forwards user identity claims to the upstream service via the `x-amzn-oidc-data` header. Future cloud templates will use analogous mechanisms — none of them are AWS-specific in concept:
 
 | Cloud / gateway       | Identity header                     | Format                                 |
 | --------------------- | ----------------------------------- | -------------------------------------- |
@@ -25,7 +25,7 @@ Introduce a `AUTH_MODE` environment variable as the umbrella dispatch:
 - `AUTH_MODE=session` (default) — `auth.guard.ts` validates an Auth.js session JWT (Bearer or cookie). Used for local development and any deployment where the application owns the auth flow.
 - `AUTH_MODE=<gateway-name>` (e.g. `alb-oidc`) — `auth.guard.ts` reads the gateway's identity header, parses the claims, and trusts them. The first concrete implementation is `alb-oidc` (`packages/engine/src/auth/alb-oidc.service.ts`).
 
-In a gateway-authenticated mode, **the engine does not verify the JWT signature**. It relies on **network isolation** — specifically, that only traffic routed through the authenticating gateway can reach the engine. On AWS this is enforced by the ECS security group (`agent-builder-ecs-sg-dev` accepts ingress only from the ALB security group).
+In a gateway-authenticated mode, **the engine does not verify the JWT signature**. It relies on **network isolation** — specifically, that only traffic routed through the authenticating gateway can reach the engine. On AWS this is enforced by the ECS security group (`polyant-ecs-sg-dev` accepts ingress only from the ALB security group).
 
 Adding signature verification is a tracked follow-up (see linked issue) and is expected to be implemented per gateway, because each cloud uses different signing keys and discovery endpoints. The umbrella decision stays the same; only the per-mode parser gains a verify step.
 
@@ -33,7 +33,7 @@ Adding signature verification is a tracked follow-up (see linked issue) and is e
 
 When running behind a gateway-authenticated mode, the `packages/web` (Next.js) container does **not** need `AUTH_SECRET`, `POSTGRES_*`, or `GOOGLE_*` secrets. The Auth.js Edge middleware looks for an `authjs.session-token` cookie that never gets set in this scenario (the gateway uses its own session cookie, e.g. `AWSELBAuthSessionCookie-*` for ALB OIDC). With no cookie to decrypt, Auth.js returns a null session synchronously — no decryption, no `MissingSecret` throw. The user identity used by the engine comes from the gateway header, parsed by the per-mode parser.
 
-This was verified on the AWS deployment at task definition `agent-builder-task-dev:24`, which runs successfully with `AUTH_MODE=alb-oidc` and zero secrets on the web container.
+This was verified on the AWS deployment at task definition `polyant-task-dev:24`, which runs successfully with `AUTH_MODE=alb-oidc` and zero secrets on the web container.
 
 ## Consequences
 
