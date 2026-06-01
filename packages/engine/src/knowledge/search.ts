@@ -22,8 +22,9 @@ export interface KnowledgeSearchResult {
  *
  * Why both backends:
  * - Pure vector retrieves semantic neighbors but penalises chunks that lack
- *   contextual keywords (e.g. a "Menu della serata" chunk loses to an "evento
- *   Exelab 26 maggio" chunk when the LLM expands the query with full context).
+ *   contextual keywords (e.g. a generic "evening menu" chunk loses to a
+ *   "company event on May 26" chunk when the LLM expands the query with
+ *   full context).
  * - Pure FTS catches the literal keyword but misses paraphrases.
  *
  * RRF fuses the two rankings without needing to normalise heterogeneous scores.
