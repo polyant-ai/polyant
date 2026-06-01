@@ -1,121 +1,152 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi } from "vitest";
-import { processContent, processThinkContent, type StreamCallbacks } from "./stream-parser";
+import { parseSseEvent, dispatch } from "./stream-parser";
+import type { StreamCallbacks } from "./stream-parser";
 
-function makeCallbacks() {
+function makeCallbacks(): StreamCallbacks & { calls: Array<[string, unknown[]]> } {
+  const calls: Array<[string, unknown[]]> = [];
+  const record = (name: string) => (...args: unknown[]) => calls.push([name, args]);
   return {
-    onDelta: vi.fn(),
-    onToolCallStart: vi.fn(),
-    onToolCallEnd: vi.fn(),
-    onDone: vi.fn(),
-    onError: vi.fn(),
-  } satisfies StreamCallbacks;
+    calls,
+    onTextDelta: record("textDelta") as StreamCallbacks["onTextDelta"],
+    onReasoningDelta: record("reasoningDelta") as StreamCallbacks["onReasoningDelta"],
+    onReasoningSignature: record("reasoningSignature") as StreamCallbacks["onReasoningSignature"],
+    onReasoningRedacted: record("reasoningRedacted") as StreamCallbacks["onReasoningRedacted"],
+    onStepStart: record("stepStart") as StreamCallbacks["onStepStart"],
+    onStepFinish: record("stepFinish") as StreamCallbacks["onStepFinish"],
+    onToolCall: record("toolCall") as StreamCallbacks["onToolCall"],
+    onToolResult: record("toolResult") as StreamCallbacks["onToolResult"],
+    onDone: record("done") as StreamCallbacks["onDone"],
+    onError: record("error") as StreamCallbacks["onError"],
+  };
 }
 
-describe("processContent", () => {
-  it("passes regular content to onDelta when not inside think block", () => {
-    const cb = makeCallbacks();
-    const setThink = vi.fn();
-
-    processContent("Hello world", false, cb, setThink);
-
-    expect(cb.onDelta).toHaveBeenCalledWith("Hello world");
-    expect(setThink).not.toHaveBeenCalled();
+describe("parseSseEvent", () => {
+  it("parses event + data correctly", () => {
+    const raw = `event: text-delta\ndata: {"text":"hello"}`;
+    expect(parseSseEvent(raw)).toEqual({
+      event: "text-delta",
+      data: { text: "hello" },
+    });
   });
 
-  it("enters think mode on <think> tag", () => {
-    const cb = makeCallbacks();
-    const setThink = vi.fn();
-
-    processContent("<think>", false, cb, setThink);
-
-    expect(setThink).toHaveBeenCalledWith(true);
-    expect(cb.onDelta).not.toHaveBeenCalled();
+  it("defaults event name to 'message' when missing", () => {
+    expect(parseSseEvent(`data: {"x":1}`)).toEqual({ event: "message", data: { x: 1 } });
   });
 
-  it("processes content after <think> tag as think content", () => {
-    const cb = makeCallbacks();
-    const setThink = vi.fn();
-
-    processContent("<think>\n⏳ web_search...", false, cb, setThink);
-
-    expect(setThink).toHaveBeenCalledWith(true);
-    expect(cb.onToolCallStart).toHaveBeenCalledWith("web_search");
-    expect(cb.onDelta).not.toHaveBeenCalled();
+  it("returns null when data line is missing", () => {
+    expect(parseSseEvent(`event: foo`)).toBeNull();
   });
 
-  it("exits think mode on </think> tag", () => {
-    const cb = makeCallbacks();
-    const setThink = vi.fn();
-
-    processContent("</think>", true, cb, setThink);
-
-    expect(setThink).toHaveBeenCalledWith(false);
-    expect(cb.onDelta).not.toHaveBeenCalled();
-  });
-
-  it("passes content after </think> as regular delta", () => {
-    const cb = makeCallbacks();
-    const setThink = vi.fn();
-
-    processContent("</think>Here is the result", true, cb, setThink);
-
-    expect(setThink).toHaveBeenCalledWith(false);
-    expect(cb.onDelta).toHaveBeenCalledWith("Here is the result");
-  });
-
-  it("routes content inside think block to processThinkContent", () => {
-    const cb = makeCallbacks();
-    const setThink = vi.fn();
-
-    processContent("⏳ read_file...", true, cb, setThink);
-
-    expect(cb.onToolCallStart).toHaveBeenCalledWith("read_file");
-    expect(cb.onDelta).not.toHaveBeenCalled();
+  it("returns null on malformed JSON", () => {
+    expect(parseSseEvent(`event: x\ndata: not-json`)).toBeNull();
   });
 });
 
-describe("processThinkContent", () => {
-  it("detects tool call start pattern", () => {
+describe("dispatch", () => {
+  it("step-start invokes onStepStart with index + stepType", () => {
     const cb = makeCallbacks();
-    processThinkContent("⏳ web_search...", cb);
-    expect(cb.onToolCallStart).toHaveBeenCalledWith("web_search");
+    dispatch({ event: "step-start", data: { index: 0, stepType: "initial" } }, cb);
+    expect(cb.calls).toEqual([["stepStart", [0, "initial"]]]);
   });
 
-  it("detects tool call end pattern", () => {
+  it("text-delta invokes onTextDelta with text", () => {
     const cb = makeCallbacks();
-    processThinkContent("✓ web_search", cb);
-    expect(cb.onToolCallEnd).toHaveBeenCalledWith("web_search");
+    dispatch({ event: "text-delta", data: { text: "abc" } }, cb);
+    expect(cb.calls).toEqual([["textDelta", ["abc"]]]);
   });
 
-  it("handles multiple lines", () => {
+  it("reasoning-delta invokes onReasoningDelta with text", () => {
     const cb = makeCallbacks();
-    processThinkContent("⏳ tool_a...\n✓ tool_b", cb);
-
-    expect(cb.onToolCallStart).toHaveBeenCalledWith("tool_a");
-    expect(cb.onToolCallEnd).toHaveBeenCalledWith("tool_b");
+    dispatch({ event: "reasoning-delta", data: { text: "thinking" } }, cb);
+    expect(cb.calls).toEqual([["reasoningDelta", ["thinking"]]]);
   });
 
-  it("ignores empty lines", () => {
+  it("reasoning-signature invokes onReasoningSignature when present", () => {
     const cb = makeCallbacks();
-    processThinkContent("\n\n\n", cb);
-
-    expect(cb.onToolCallStart).not.toHaveBeenCalled();
-    expect(cb.onToolCallEnd).not.toHaveBeenCalled();
+    dispatch({ event: "reasoning-signature", data: { signature: "sig" } }, cb);
+    expect(cb.calls).toEqual([["reasoningSignature", ["sig"]]]);
   });
 
-  it("ignores unrecognized think content", () => {
+  it("reasoning-redacted invokes onReasoningRedacted with no args", () => {
     const cb = makeCallbacks();
-    processThinkContent("some random thinking text", cb);
-
-    expect(cb.onToolCallStart).not.toHaveBeenCalled();
-    expect(cb.onToolCallEnd).not.toHaveBeenCalled();
+    dispatch({ event: "reasoning-redacted", data: {} }, cb);
+    expect(cb.calls).toEqual([["reasoningRedacted", []]]);
   });
 
-  it("handles tool names with special characters", () => {
+  it("tool-call requires id and name; missing fields are dropped", () => {
     const cb = makeCallbacks();
-    processThinkContent("⏳ my-tool_v2...", cb);
-    expect(cb.onToolCallStart).toHaveBeenCalledWith("my-tool_v2");
+    dispatch({ event: "tool-call", data: { id: "c1", name: "search", args: { q: "x" } } }, cb);
+    dispatch({ event: "tool-call", data: { id: "", name: "search" } }, cb);
+    expect(cb.calls).toEqual([["toolCall", ["c1", "search", { q: "x" }]]]);
+  });
+
+  it("tool-result attaches result by id", () => {
+    const cb = makeCallbacks();
+    dispatch({ event: "tool-result", data: { id: "c1", result: { ok: true } } }, cb);
+    expect(cb.calls).toEqual([["toolResult", ["c1", { ok: true }]]]);
+  });
+
+  it("done invokes onDone and signals stop (returns false)", () => {
+    const cb = makeCallbacks();
+    const cont = dispatch({ event: "done", data: {} }, cb);
+    expect(cont).toBe(false);
+    expect(cb.calls).toEqual([["done", []]]);
+  });
+
+  it("error invokes onError with Error and signals stop", () => {
+    const cb = makeCallbacks();
+    const cont = dispatch({ event: "error", data: { message: "bad" } }, cb);
+    expect(cont).toBe(false);
+    expect(cb.calls[0][0]).toBe("error");
+    const err = (cb.calls[0][1] as unknown[])[0] as Error;
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toBe("bad");
+  });
+
+  it("unknown event types are ignored without throwing", () => {
+    const cb = makeCallbacks();
+    expect(dispatch({ event: "weird", data: {} }, cb)).toBe(true);
+    expect(cb.calls).toEqual([]);
+  });
+
+  it("models a realistic step lifecycle in order", () => {
+    const cb = makeCallbacks();
+    dispatch({ event: "step-start", data: { index: 0, stepType: "initial" } }, cb);
+    dispatch({ event: "tool-call", data: { id: "c1", name: "search", args: {} } }, cb);
+    dispatch({ event: "tool-result", data: { id: "c1", result: "ok" } }, cb);
+    dispatch({ event: "step-finish", data: { index: 0, finishReason: "tool-calls" } }, cb);
+    dispatch({ event: "step-start", data: { index: 1, stepType: "continue" } }, cb);
+    dispatch({ event: "text-delta", data: { text: "answer" } }, cb);
+    dispatch({ event: "step-finish", data: { index: 1, finishReason: "stop" } }, cb);
+    dispatch({ event: "done", data: {} }, cb);
+
+    expect(cb.calls.map(([name]) => name)).toEqual([
+      "stepStart",
+      "toolCall",
+      "toolResult",
+      "stepFinish",
+      "stepStart",
+      "textDelta",
+      "stepFinish",
+      "done",
+    ]);
+  });
+});
+
+describe("smoke: makeCallbacks does not require real fetch", () => {
+  it("makeCallbacks returns all expected handlers", () => {
+    const cb = makeCallbacks();
+    expect(typeof cb.onTextDelta).toBe("function");
+    expect(typeof cb.onReasoningDelta).toBe("function");
+    expect(typeof cb.onStepStart).toBe("function");
+    expect(typeof cb.onStepFinish).toBe("function");
+    expect(typeof cb.onToolCall).toBe("function");
+    expect(typeof cb.onToolResult).toBe("function");
+    expect(typeof cb.onDone).toBe("function");
+    expect(typeof cb.onError).toBe("function");
+    // Suppress vi unused-import lint
+    vi.fn();
   });
 });

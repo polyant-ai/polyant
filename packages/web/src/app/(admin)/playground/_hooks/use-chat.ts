@@ -7,22 +7,42 @@ import {
   streamChatCompletion,
   type ChatMessage as SSEMessage,
 } from "../_lib/stream-parser";
-import { api, type ConversationMessage } from "@/lib/api";
+import {
+  api,
+  type ConversationMessage,
+  type ReasoningDetail,
+  type StepDetail,
+} from "@/lib/api";
 
 // ── Types ───────────────────────────────────────────────────────────
 
-export interface ToolCallStatus {
-  name: string;
-  status: "running" | "completed";
-  args?: unknown;
-  result?: unknown;
+/**
+ * Live representation of a step while the assistant is streaming. The fields
+ * are populated incrementally by SSE events:
+ *  - `toolCall` arrives via `tool-call`
+ *  - `toolResult` arrives via `tool-result`
+ *  - `text` is appended via `text-delta` (only the step that ends in plain text)
+ *  - `finishReason` arrives via `step-finish`
+ */
+export interface LiveStep {
+  index: number;
+  stepType: string;
+  text: string;
+  toolCalls: { toolCallId: string; toolName: string; args: unknown }[];
+  toolResults: { toolCallId: string; result: unknown }[];
+  finishReason?: string;
+  /** True once `step-finish` has arrived for this index. */
+  done: boolean;
 }
 
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
-  toolCalls: ToolCallStatus[];
+  /** Per-step view used for live rendering AND historical playback. */
+  steps: LiveStep[];
+  /** Reasoning text accumulated during the stream (signature attached on close). */
+  reasoning: ReasoningDetail[];
   isStreaming: boolean;
   createdAt: string | null;
 }
@@ -40,9 +60,14 @@ export interface ChatState {
 
 export type ChatAction =
   | { type: "SEND_MESSAGE"; text: string }
-  | { type: "APPEND_DELTA"; content: string }
-  | { type: "TOOL_CALL_START"; toolName: string }
-  | { type: "TOOL_CALL_END"; toolName: string }
+  | { type: "TEXT_DELTA"; text: string }
+  | { type: "REASONING_DELTA"; text: string }
+  | { type: "REASONING_SIGNATURE"; signature: string }
+  | { type: "REASONING_REDACTED" }
+  | { type: "STEP_START"; index: number; stepType: string }
+  | { type: "STEP_FINISH"; index: number; finishReason: string }
+  | { type: "TOOL_CALL"; id: string; name: string; args: unknown }
+  | { type: "TOOL_RESULT"; id: string; result: unknown }
   | { type: "STREAM_DONE" }
   | { type: "STREAM_ERROR"; error: string }
   | { type: "LOAD_CONVERSATION"; messages: ConversationMessage[]; conversationId: string; instanceSlug?: string }
@@ -66,6 +91,30 @@ export function createInitialState(instanceSlug: string): ChatState {
   };
 }
 
+/** Helper: replace the trailing assistant message via a transformer. */
+function updateLastAssistant(
+  messages: ChatMessage[],
+  fn: (msg: ChatMessage) => ChatMessage,
+): ChatMessage[] {
+  if (messages.length === 0) return messages;
+  const last = messages[messages.length - 1];
+  if (last.role !== "assistant" || !last.isStreaming) return messages;
+  return [...messages.slice(0, -1), fn(last)];
+}
+
+/** Map a persisted StepDetail to the live shape (no in-flight state). */
+function liveStepFromPersisted(s: StepDetail): LiveStep {
+  return {
+    index: s.index,
+    stepType: s.stepType,
+    text: s.text,
+    toolCalls: s.toolCalls,
+    toolResults: s.toolResults ?? [],
+    finishReason: s.finishReason,
+    done: true,
+  };
+}
+
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "SEND_MESSAGE": {
@@ -74,7 +123,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         id: generateId(),
         role: "user",
         content: action.text,
-        toolCalls: [],
+        steps: [],
+        reasoning: [],
         isStreaming: false,
         createdAt: now,
       };
@@ -82,7 +132,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         id: generateId(),
         role: "assistant",
         content: "",
-        toolCalls: [],
+        steps: [],
+        reasoning: [],
         isStreaming: true,
         createdAt: null,
       };
@@ -94,47 +145,139 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     }
 
-    case "APPEND_DELTA": {
-      const msgs = [...state.messages];
-      const last = msgs[msgs.length - 1];
-      if (last?.role === "assistant" && last.isStreaming) {
-        msgs[msgs.length - 1] = {
-          ...last,
-          content: last.content + action.content,
-        };
-      }
-      return { ...state, messages: msgs };
+    case "TEXT_DELTA": {
+      return {
+        ...state,
+        messages: updateLastAssistant(state.messages, (m) => ({
+          ...m,
+          content: m.content + action.text,
+        })),
+      };
     }
 
-    case "TOOL_CALL_START": {
-      const msgs = [...state.messages];
-      const last = msgs[msgs.length - 1];
-      if (last?.role === "assistant" && last.isStreaming) {
-        msgs[msgs.length - 1] = {
-          ...last,
-          toolCalls: [
-            ...last.toolCalls,
-            { name: action.toolName, status: "running" },
-          ],
-        };
-      }
-      return { ...state, messages: msgs };
+    case "REASONING_DELTA": {
+      return {
+        ...state,
+        messages: updateLastAssistant(state.messages, (m) => {
+          // Append text into the last open text-block, or start a new one.
+          const lastReasoning = m.reasoning[m.reasoning.length - 1];
+          if (lastReasoning?.type === "text" && !lastReasoning.signature) {
+            const updated: ReasoningDetail = {
+              ...lastReasoning,
+              text: lastReasoning.text + action.text,
+            };
+            return { ...m, reasoning: [...m.reasoning.slice(0, -1), updated] };
+          }
+          return {
+            ...m,
+            reasoning: [...m.reasoning, { type: "text", text: action.text }],
+          };
+        }),
+      };
     }
 
-    case "TOOL_CALL_END": {
-      const msgs = [...state.messages];
-      const last = msgs[msgs.length - 1];
-      if (last?.role === "assistant" && last.isStreaming) {
-        msgs[msgs.length - 1] = {
-          ...last,
-          toolCalls: last.toolCalls.map((tc) =>
-            tc.name === action.toolName && tc.status === "running"
-              ? { ...tc, status: "completed" as const }
-              : tc,
+    case "REASONING_SIGNATURE": {
+      return {
+        ...state,
+        messages: updateLastAssistant(state.messages, (m) => {
+          const lastReasoning = m.reasoning[m.reasoning.length - 1];
+          if (!lastReasoning || lastReasoning.type !== "text") return m;
+          return {
+            ...m,
+            reasoning: [
+              ...m.reasoning.slice(0, -1),
+              { ...lastReasoning, signature: action.signature },
+            ],
+          };
+        }),
+      };
+    }
+
+    case "REASONING_REDACTED": {
+      return {
+        ...state,
+        messages: updateLastAssistant(state.messages, (m) => ({
+          ...m,
+          reasoning: [...m.reasoning, { type: "redacted", data: "" }],
+        })),
+      };
+    }
+
+    case "STEP_START": {
+      return {
+        ...state,
+        messages: updateLastAssistant(state.messages, (m) => {
+          // Reuse an existing step row for this index (idempotent).
+          if (m.steps.some((s) => s.index === action.index)) return m;
+          return {
+            ...m,
+            steps: [
+              ...m.steps,
+              {
+                index: action.index,
+                stepType: action.stepType,
+                text: "",
+                toolCalls: [],
+                toolResults: [],
+                done: false,
+              },
+            ],
+          };
+        }),
+      };
+    }
+
+    case "STEP_FINISH": {
+      return {
+        ...state,
+        messages: updateLastAssistant(state.messages, (m) => ({
+          ...m,
+          steps: m.steps.map((s) =>
+            s.index === action.index
+              ? { ...s, finishReason: action.finishReason, done: true }
+              : s,
           ),
-        };
-      }
-      return { ...state, messages: msgs };
+        })),
+      };
+    }
+
+    case "TOOL_CALL": {
+      return {
+        ...state,
+        messages: updateLastAssistant(state.messages, (m) => {
+          const steps = [...m.steps];
+          // Attach to the most recent open step (or last step in any case).
+          const idx = steps.length - 1;
+          if (idx < 0) return m;
+          steps[idx] = {
+            ...steps[idx],
+            toolCalls: [
+              ...steps[idx].toolCalls,
+              { toolCallId: action.id, toolName: action.name, args: action.args },
+            ],
+          };
+          return { ...m, steps };
+        }),
+      };
+    }
+
+    case "TOOL_RESULT": {
+      return {
+        ...state,
+        messages: updateLastAssistant(state.messages, (m) => {
+          // Pin the result on whichever step holds the matching toolCallId.
+          const steps = m.steps.map((s) => {
+            if (s.toolCalls.some((tc) => tc.toolCallId === action.id)) {
+              return {
+                ...s,
+                toolResults: [...s.toolResults, { toolCallId: action.id, result: action.result }],
+              };
+            }
+            return s;
+          });
+          return { ...m, steps };
+        }),
+      };
     }
 
     case "STREAM_DONE": {
@@ -158,33 +301,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     }
 
     case "LOAD_CONVERSATION": {
-      const loaded: ChatMessage[] = action.messages.map((msg) => {
-        // Map stored tool calls to ToolCallStatus (all completed, with full data)
-        const toolCalls: ToolCallStatus[] =
-          Array.isArray(msg.steps) && msg.steps.length > 0
-            ? msg.steps.map((tc, i) => {
-                const tool = tc as Record<string, unknown>;
-                const name =
-                  (tool.toolName as string) ??
-                  (tool.tool as string) ??
-                  `Tool ${i + 1}`;
-                return {
-                  name,
-                  status: "completed" as const,
-                  args: tool.args ?? undefined,
-                  result: tool.result ?? undefined,
-                };
-              })
-            : [];
-        return {
-          id: msg.id,
-          role: msg.role as "user" | "assistant" | "system",
-          content: msg.content,
-          toolCalls,
-          isStreaming: false,
-          createdAt: msg.createdAt ?? null,
-        };
-      });
+      const loaded: ChatMessage[] = action.messages.map((msg) => ({
+        id: msg.id,
+        role: msg.role as "user" | "assistant" | "system",
+        content: msg.content,
+        steps: (msg.steps ?? []).map(liveStepFromPersisted),
+        reasoning: msg.reasoning ?? [],
+        isStreaming: false,
+        createdAt: msg.createdAt ?? null,
+      }));
       // Extract chatId from conversationId (format: api-{uuid})
       const chatId = action.conversationId.startsWith("api-")
         ? action.conversationId.slice(4)
@@ -254,18 +379,26 @@ export function useChat(defaultInstanceSlug: string) {
 
       streamChatCompletion(
         {
-          model: state.instanceSlug,
+          instanceSlug: state.instanceSlug,
           messages: history,
           chatId: state.chatId,
           signal: controller.signal,
           authToken,
         },
         {
-          onDelta: (content) => dispatch({ type: "APPEND_DELTA", content }),
-          onToolCallStart: (toolName) =>
-            dispatch({ type: "TOOL_CALL_START", toolName }),
-          onToolCallEnd: (toolName) =>
-            dispatch({ type: "TOOL_CALL_END", toolName }),
+          onTextDelta: (text) => dispatch({ type: "TEXT_DELTA", text }),
+          onReasoningDelta: (text) => dispatch({ type: "REASONING_DELTA", text }),
+          onReasoningSignature: (signature) =>
+            dispatch({ type: "REASONING_SIGNATURE", signature }),
+          onReasoningRedacted: () => dispatch({ type: "REASONING_REDACTED" }),
+          onStepStart: (index, stepType) =>
+            dispatch({ type: "STEP_START", index, stepType }),
+          onStepFinish: (index, finishReason) =>
+            dispatch({ type: "STEP_FINISH", index, finishReason }),
+          onToolCall: (id, name, args) =>
+            dispatch({ type: "TOOL_CALL", id, name, args }),
+          onToolResult: (id, result) =>
+            dispatch({ type: "TOOL_RESULT", id, result }),
           onDone: () => {
             dispatch({ type: "STREAM_DONE" });
             abortRef.current = null;
