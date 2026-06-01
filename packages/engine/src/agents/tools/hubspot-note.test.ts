@@ -423,8 +423,8 @@ describe("hubspotNote", () => {
       // First call MUST be the contact search (phone resolution), not the associations list
       expect(mockFetch.mock.calls[0][0]).toBe("https://api.hubapi.com/crm/v3/objects/contacts/search");
       const body0 = JSON.parse(mockFetch.mock.calls[0][1].body);
-      // Emits 4 filterGroups (with+/no-+ × phone/mobilephone)
-      expect(body0.filterGroups).toHaveLength(4);
+      // Emits 4 EQ filterGroups (with+/no-+ × phone/mobilephone) + 1 CONTAINS_TOKEN fallback
+      expect(body0.filterGroups).toHaveLength(5);
       // Second call: contact → notes associations for resolved c-42
       expect(mockFetch.mock.calls[1][0]).toContain("/crm/v4/objects/contacts/c-42/associations/notes");
     });
