@@ -274,3 +274,59 @@ describe("SlackAdapter — channel mentions (app_mention)", () => {
     expect(onMessage).not.toHaveBeenCalled();
   });
 });
+
+describe("SlackAdapter — outbound mrkdwn conversion on replies", () => {
+  const richMarkdown = [
+    "## Quarterly summary",
+    "",
+    "**Revenue**: USD 57,720",
+    "- [Open the report](https://example.com/reports/q1)",
+  ].join("\n");
+
+  it("converts standard Markdown to Slack mrkdwn before replying to a DM", async () => {
+    const onMessage = vi.fn().mockResolvedValue({ text: richMarkdown });
+    const { init } = makeAdapter(onMessage);
+    await init();
+
+    const say = vi.fn();
+    await captured.message!({
+      message: { channel_type: "im", text: "report", user: "U1", channel: "D1", ts: "1.0" },
+      say,
+      client: fakeClient,
+    });
+
+    expect(say).toHaveBeenCalledOnce();
+    const payload = say.mock.calls[0][0] as { text: string; thread_ts?: string };
+    expect(payload.text).toContain("*Quarterly summary*");
+    expect(payload.text).toContain("*Revenue*: USD 57,720");
+    expect(payload.text).toContain("<https://example.com/reports/q1|Open the report>");
+    // No leftover standard-markdown headings or link syntax
+    expect(payload.text).not.toMatch(/^##\s/m);
+    expect(payload.text).not.toContain("](");
+  });
+
+  it("converts standard Markdown to Slack mrkdwn before replying to a channel mention", async () => {
+    const onMessage = vi.fn().mockResolvedValue({ text: richMarkdown });
+    const { init } = makeAdapter(onMessage);
+    await init();
+
+    const say = vi.fn();
+    await captured.appMention!({
+      event: {
+        type: "app_mention",
+        text: `<@${BOT_USER_ID}> show me the report`,
+        user: "U1",
+        channel: "C42",
+        ts: "100.0",
+      },
+      say,
+      client: fakeClient,
+    });
+
+    expect(say).toHaveBeenCalledOnce();
+    const payload = say.mock.calls[0][0] as { text: string };
+    expect(payload.text).toContain("*Quarterly summary*");
+    expect(payload.text).toContain("<https://example.com/reports/q1|Open the report>");
+    expect(payload.text).not.toContain("**");
+  });
+});
