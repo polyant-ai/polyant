@@ -218,8 +218,12 @@ describe("RoomScheduler", () => {
 
       await (roomScheduler as any).tick();
 
-      // Wait a microtask for the fire-and-forget error handler
-      await new Promise((r) => setTimeout(r, 10));
+      // processRoom is fire-and-forget inside tick(): wait deterministically for
+      // its finally block to release the per-room lock before the second tick.
+      // Polling `running.has(...)` avoids depending on a fixed setTimeout delay.
+      await vi.waitFor(() => {
+        expect((roomScheduler as any).running.has("inst-a")).toBe(false);
+      });
 
       // Second tick: room should be available again (lock released in finally)
       mockExecuteRoomCycle.mockResolvedValueOnce(undefined);
@@ -249,8 +253,12 @@ describe("RoomScheduler", () => {
 
       await (roomScheduler as any).tick();
 
-      // Wait for fire-and-forget
-      await new Promise((r) => setTimeout(r, 10));
+      // Fire-and-forget processRoom: wait deterministically until the mocked
+      // executeRoomCycle has actually been invoked (its push to `order` is the
+      // signal that processRoom progressed past the first await).
+      await vi.waitFor(() => {
+        expect(order).toContain("executeRoomCycle:start");
+      });
 
       // The lock was acquired (has returned false, then add() was called)
       // before executeRoomCycle started
