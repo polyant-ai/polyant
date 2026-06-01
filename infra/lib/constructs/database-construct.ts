@@ -23,18 +23,18 @@ export class DatabaseConstruct extends Construct {
 
     // DB credentials secret
     this.dbSecret = new rds.DatabaseSecret(this, "DbSecret", {
-      secretName: `agent-builder-db-secrets-${props.stage}`,
-      username: "agentbuilder",
+      secretName: `polyant-db-secrets-${props.stage}`,
+      username: "polyant",
     });
 
     // Aurora Serverless v2 cluster
     this.cluster = new rds.DatabaseCluster(this, "Cluster", {
-      clusterIdentifier: `agent-builder-db-${props.stage}`,
+      clusterIdentifier: `polyant-db-${props.stage}`,
       engine: rds.DatabaseClusterEngine.auroraPostgres({
         version: rds.AuroraPostgresEngineVersion.VER_16_4,
       }),
       credentials: rds.Credentials.fromSecret(this.dbSecret),
-      defaultDatabaseName: "agent_crm",
+      defaultDatabaseName: "polyant",
       vpc: props.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       securityGroups: [props.securityGroup],
@@ -57,13 +57,23 @@ export class DatabaseConstruct extends Construct {
       }),
     });
 
-    // App secret (encryption key — placeholder, populated manually after deploy)
+    // App secret. `auth_secret` is auto-generated (Secrets Manager can only
+    // randomise one key per secret). `encryption_key` (64 hex chars for
+    // AES-256-GCM) and `auth_internal_secret` (only needed for local
+    // email/password accounts) are placeholders to populate after deploy.
+    // GOOGLE_* are intentionally NOT here: the engine never reads them —
+    // Google OAuth is a web-only concern.
     this.appSecret = new secretsmanager.Secret(this, "AppSecret", {
-      secretName: `agent-builder-secrets-${props.stage}`,
-      description: "Agent Builder application secrets (encryption_key)",
+      secretName: `polyant-secrets-${props.stage}`,
+      description: "Polyant application secrets (auth_secret, encryption_key, auth_internal_secret)",
       generateSecretString: {
-        secretStringTemplate: JSON.stringify({ encryption_key: "REPLACE_ME_WITH_64_HEX_CHARS" }),
-        generateStringKey: "_placeholder",
+        secretStringTemplate: JSON.stringify({
+          encryption_key: "REPLACE_ME_WITH_64_HEX_CHARS",
+          auth_internal_secret: "REPLACE_ME_OPTIONAL_FOR_LOCAL_ACCOUNTS",
+        }),
+        generateStringKey: "auth_secret",
+        passwordLength: 48,
+        excludePunctuation: true,
       },
     });
   }
