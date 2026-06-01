@@ -23,10 +23,26 @@ import type { ScheduleConfig, RunStatus } from "../../scheduled-tasks/schema.js"
 @Controller("api/instances")
 export class InstanceScheduledTasksController {
   @Get(":slug/scheduled-tasks")
-  async list(@Param("slug") slug: string) {
+  async list(
+    @Param("slug") slug: string,
+    @Query("limit") limitStr?: string,
+    @Query("offset") offsetStr?: string,
+    @Query("enabledOnly") enabledOnlyStr?: string,
+  ) {
     const instance = await findInstanceOrFail(slug);
 
-    const tasks = await scheduledTaskStore.listByInstance(instance.slug);
+    // Mirror the parse/clamp pattern used by `listRuns` below.
+    // `limit` is hard-capped at 500 to prevent unbounded admin payloads;
+    // `offset` is non-negative. Invalid values fall back to safe defaults.
+    const limit = limitStr ? Math.min(Math.max(parseInt(limitStr, 10) || 100, 1), 500) : 100;
+    const offset = offsetStr ? Math.max(parseInt(offsetStr, 10) || 0, 0) : 0;
+    const enabledOnly = enabledOnlyStr === "true";
+
+    const tasks = await scheduledTaskStore.listByInstance(instance.slug, {
+      limit,
+      offset,
+      enabledOnly,
+    });
     return {
       tasks: tasks.map((t) => ({
         id: t.id,
