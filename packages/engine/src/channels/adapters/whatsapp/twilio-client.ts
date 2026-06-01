@@ -35,15 +35,19 @@ export class TwilioWhatsAppClient {
     return new TwilioWhatsAppClient(accountSid, authToken, whatsappNumber);
   }
 
-  async sendMessage(to: string, body: string): Promise<void> {
+  async sendMessage(to: string, body: string, opts?: { mediaUrl?: string[] }): Promise<void> {
     const cleanTo = to.replace(/^whatsapp:/, "");
-    const chunks = splitMessage(body, CHANNEL_MAX_LENGTH.whatsapp);
+    const chunks = body.length > 0 ? splitMessage(body, CHANNEL_MAX_LENGTH.whatsapp) : [""];
+    const mediaUrl = opts?.mediaUrl?.length ? opts.mediaUrl : undefined;
 
-    for (const chunk of chunks) {
+    for (let i = 0; i < chunks.length; i++) {
+      const isFirst = i === 0;
       await this.client.messages.create({
         from: `whatsapp:${this.fromNumber}`,
         to: `whatsapp:${cleanTo}`,
-        body: chunk,
+        body: chunks[i],
+        // Media goes with the first chunk only to avoid duplicate deliveries.
+        ...(isFirst && mediaUrl ? { mediaUrl } : {}),
       });
     }
   }
