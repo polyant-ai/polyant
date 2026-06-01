@@ -127,6 +127,82 @@ describe("memory-store", () => {
       expect(mockDb.update).toHaveBeenCalled();
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
+
+    it("retries on serialization_failure 40001 carried on err.cause (DrizzleQueryError shape)", async () => {
+      // 4 retries fail with 40001 nested in `cause`, the 5th succeeds.
+      const wrap = (msg: string) => {
+        const inner: Error & { code?: string } = new Error("inner");
+        inner.code = "40001";
+        const outer: Error & { cause?: unknown } = new Error(msg);
+        outer.cause = inner;
+        return outer;
+      };
+
+      mockDb.transaction
+        .mockRejectedValueOnce(wrap("fail 1"))
+        .mockRejectedValueOnce(wrap("fail 2"))
+        .mockRejectedValueOnce(wrap("fail 3"))
+        .mockRejectedValueOnce(wrap("fail 4"))
+        .mockImplementationOnce(async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb));
+
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+      const insChain = createChainMock([{ id: "after-retry" }]);
+      mockDb.insert.mockReturnValue(insChain as any);
+
+      const result = await upsertMemory({
+        instanceId: "user-1",
+        content: "Recovered after retries",
+        embedding: [0.1, 0.2],
+      });
+
+      expect(result.id).toBe("after-retry");
+      expect(result.event).toBe("ADD");
+      expect(mockDb.transaction).toHaveBeenCalledTimes(5);
+    });
+
+    it("rethrows non-serialization errors immediately without retry", async () => {
+      const fatal: Error & { code?: string } = new Error("permission denied");
+      fatal.code = "42501";
+      mockDb.transaction.mockRejectedValueOnce(fatal);
+
+      await expect(
+        upsertMemory({
+          instanceId: "user-1",
+          content: "Should fail",
+          embedding: [0.1, 0.2],
+        }),
+      ).rejects.toThrow("permission denied");
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("gives up after MAX_UPSERT_RETRIES (5) consecutive 40001 errors", async () => {
+      const wrap = () => {
+        const inner: Error & { code?: string } = new Error("conflict");
+        inner.code = "40001";
+        const outer: Error & { cause?: unknown } = new Error("DrizzleQueryError");
+        outer.cause = inner;
+        return outer;
+      };
+
+      mockDb.transaction
+        .mockRejectedValueOnce(wrap())
+        .mockRejectedValueOnce(wrap())
+        .mockRejectedValueOnce(wrap())
+        .mockRejectedValueOnce(wrap())
+        .mockRejectedValueOnce(wrap());
+
+      await expect(
+        upsertMemory({
+          instanceId: "user-1",
+          content: "Will give up",
+          embedding: [0.1, 0.2],
+        }),
+      ).rejects.toThrow("DrizzleQueryError");
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(5);
+    });
   });
 
   describe("searchByVector", () => {

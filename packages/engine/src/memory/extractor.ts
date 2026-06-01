@@ -102,19 +102,28 @@ export async function extractMemories(
   const contents = facts.map((f) => f.content);
   const embeddings = await generateEmbeddings(contents, apiKeys?.openai);
 
-  // 6. Upsert each memory (with deduplication via cosine similarity)
-  const results = await Promise.all(
-    facts.map((fact, i) =>
-      upsertMemory({
-        instanceId,
-        content: fact.content,
-        category: fact.category,
-        importance: fact.importance,
-        sourceConversationId: conversationId,
-        embedding: embeddings[i],
-      }),
-    ),
-  );
+  // 6. Upsert each memory sequentially (with deduplication via cosine similarity).
+  //    Sequential — not Promise.all — to avoid SERIALIZABLE serialization_failure
+  //    (40001) on the predicate scan inside `upsertMemory`. Two concurrent
+  //    transactions reading the same `WHERE instance_id=$1` predicate range get
+  //    flagged as a r/w pivot by Postgres and aborted; even with retries+jitter
+  //    they re-collide. Sequential upsert costs ~10-30 ms more in a fire-and-forget
+  //    path that doesn't block the user-facing response, in exchange for zero
+  //    intra-batch conflicts. Cross-conversation conflicts on the same instance
+  //    are still possible and handled by the retry loop in `upsertMemory`.
+  const results: UpsertResult[] = [];
+  for (let i = 0; i < facts.length; i++) {
+    const fact = facts[i];
+    const result = await upsertMemory({
+      instanceId,
+      content: fact.content,
+      category: fact.category,
+      importance: fact.importance,
+      sourceConversationId: conversationId,
+      embedding: embeddings[i],
+    });
+    results.push(result);
+  }
 
   const elapsed = Date.now() - start;
   const added = results.filter((r) => r.event === "ADD").length;
