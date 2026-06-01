@@ -28,6 +28,8 @@ export type {
   ConversationListItem,
   ConversationSearchResult,
   ConversationMessage,
+  ReasoningDetail,
+  StepDetail,
   AttachmentMeta,
   Memory,
   KnowledgeDocument,

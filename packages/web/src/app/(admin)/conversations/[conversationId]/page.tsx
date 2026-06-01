@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, Wrench, Loader2, Info, Zap, Coins, Terminal, FileText, Mic } from "lucide-react";
+import { Trash2, Loader2, Info, Zap, Coins, Terminal, FileText, Mic } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -29,19 +29,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta } from "@/lib/api";
+import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta, type ReasoningDetail, type StepDetail } from "@/lib/api";
 import { MarkdownRenderer } from "@/app/(admin)/playground/_components/markdown-renderer";
+import { MessageExtras } from "@/components/messages/message-extras";
 import { formatRelativeTime, parseUTC } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 
@@ -98,32 +93,6 @@ function formatTime(dateStr: string | null): string {
     ...(sameYear ? {} : { year: "numeric" }),
   });
   return `${datePart} ${time}`;
-}
-
-function ToolCallsDisplay({ toolCalls }: { toolCalls: unknown[] }) {
-  return (
-    <Accordion type="single" collapsible className="mt-1">
-      {toolCalls.map((tc, i) => {
-        const tool = tc as Record<string, unknown>;
-        const name = (tool.toolName as string) ?? (tool.tool as string) ?? `Tool ${i + 1}`;
-        return (
-          <AccordionItem key={i} value={`tool-${i}`} className="border-none">
-            <AccordionTrigger className="py-1 text-xs text-muted-foreground hover:no-underline">
-              <span className="flex items-center gap-1">
-                <Wrench className="h-3 w-3" />
-                {name}
-              </span>
-            </AccordionTrigger>
-            <AccordionContent>
-              <pre className="max-w-full overflow-x-auto rounded-sm bg-muted p-2 text-xs">
-                {JSON.stringify(tc, null, 2)}
-              </pre>
-            </AccordionContent>
-          </AccordionItem>
-        );
-      })}
-    </Accordion>
-  );
 }
 
 function AttachmentDisplay({ attachments, isUser }: { attachments: AttachmentMeta[]; isUser: boolean }) {
@@ -239,13 +208,29 @@ export default function ConversationDetailPage() {
   };
 
   // After the initial fetch resolves, jump to the bottom (latest message visible).
+  // Re-pin on each image load — lazy-loaded images grow the scrollHeight after the
+  // first synchronous measure, otherwise the user lands a few hundred px above the bottom.
   useLayoutEffect(() => {
     if (loading) return;
     if (didInitialScrollRef.current) return;
     const el = scrollContainerRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    const pin = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    pin();
+    const imgs = el.querySelectorAll("img");
+    const handlers: Array<() => void> = [];
+    imgs.forEach((img) => {
+      if (img.complete) return;
+      const onLoad = () => pin();
+      img.addEventListener("load", onLoad, { once: true });
+      handlers.push(() => img.removeEventListener("load", onLoad));
+    });
     didInitialScrollRef.current = true;
+    return () => {
+      handlers.forEach((cleanup) => cleanup());
+    };
   }, [loading]);
 
   // After prepending older messages, restore the relative scroll position so the user
@@ -304,7 +289,7 @@ export default function ConversationDetailPage() {
       : conversationId);
 
   return (
-    <div>
+    <div className="flex h-[calc(100svh-3.5rem-3rem)] flex-col">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -403,7 +388,7 @@ export default function ConversationDetailPage() {
 
       <div
         ref={scrollContainerRef}
-        className="mt-8 h-[calc(100vh-280px)] space-y-4 overflow-y-auto pr-2"
+        className="mt-8 flex-1 min-h-0 space-y-4 overflow-y-auto pr-2"
       >
         <div ref={topSentinelRef} aria-hidden="true" />
         {loadingMore && (
@@ -483,12 +468,16 @@ export default function ConversationDetailPage() {
                       <Mic className="h-3 w-3" />
                     </span>
                   )}
+                  {/* Reasoning + steps panels above message text. Default open
+                      on the conversations page (audit/exploratory UX). */}
+                  {msg.role !== "user" && (
+                    <MessageExtras
+                      reasoning={msg.reasoning as ReasoningDetail[] | null}
+                      steps={msg.steps as StepDetail[] | null}
+                      defaultOpen
+                    />
+                  )}
                   <MarkdownRenderer content={msg.content} />
-                  {msg.steps &&
-                    Array.isArray(msg.steps) &&
-                    msg.steps.length > 0 && (
-                      <ToolCallsDisplay toolCalls={msg.steps} />
-                    )}
                   <div
                     className={`mt-1 flex items-center gap-1.5 text-xs ${
                       msg.role === "user"
