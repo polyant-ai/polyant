@@ -65,7 +65,7 @@ export function toSlackMrkdwn(markdown: string): string {
       continue;
     }
     if (tableHeaders.length > 0) {
-      result.push(renderTableAsNestedList(tableHeaders, tableRows));
+      result.push(renderTableAsCodeBlock(tableHeaders, tableRows));
       tableHeaders = [];
       tableRows = [];
     }
@@ -113,7 +113,7 @@ export function toSlackMrkdwn(markdown: string): string {
 
   // Flush pending table
   if (tableHeaders.length > 0) {
-    result.push(renderTableAsNestedList(tableHeaders, tableRows));
+    result.push(renderTableAsCodeBlock(tableHeaders, tableRows));
   }
 
   // Handle unclosed code block
@@ -200,25 +200,51 @@ function parseTableRow(line: string): string[] | null {
   return cells.length > 0 ? cells : null;
 }
 
-/** Render table as nested list: header as bold label, cells as sub-items. */
-function renderTableAsNestedList(headers: string[], rows: string[][]): string {
-  const lines: string[] = [];
-  for (const row of rows) {
-    const pairs = headers
-      .map((h, i) => {
-        const cell = row[i]?.trim();
-        return cell ? `    • *${h}:* ${cell}` : null;
-      })
-      .filter(Boolean);
-    if (pairs.length > 0) {
-      // Use first cell as top-level bullet
-      lines.push(`• ${row[0]?.trim() ?? ""}`);
-      // Remaining headers as nested items (skip first, already used as label)
-      for (let i = 1; i < headers.length; i++) {
-        const cell = row[i]?.trim();
-        if (cell) lines.push(`    • *${headers[i]}:* ${cell}`);
-      }
+/**
+ * Render a markdown table as a Slack code block with monospace alignment.
+ * Strips inline markdown markers from cells (bold, italic, links) before
+ * measuring column widths — those markers do not render inside code blocks
+ * and would otherwise distort the alignment. Trade-off: links inside table
+ * cells lose clickability; acceptable for KPI/data tables where cells are
+ * usually plain values.
+ */
+function renderTableAsCodeBlock(headers: string[], rows: string[][]): string {
+  const cleanHeaders = headers.map(stripInline);
+  const cleanRows = rows.map((row) => row.map((c) => stripInline(c ?? "")));
+  const colCount = cleanHeaders.length;
+
+  const widths: number[] = [];
+  for (let i = 0; i < colCount; i++) {
+    let max = cleanHeaders[i].length;
+    for (const row of cleanRows) {
+      const cell = row[i] ?? "";
+      if (cell.length > max) max = cell.length;
     }
+    widths.push(max);
   }
-  return lines.join("\n");
+
+  const fmtRow = (cells: string[]): string =>
+    cells.map((c, i) => (c ?? "").padEnd(widths[i])).join("  ").trimEnd();
+
+  const padded = cleanRows.map((row) => {
+    const out: string[] = [];
+    for (let i = 0; i < colCount; i++) out.push(row[i] ?? "");
+    return out;
+  });
+
+  const lines: string[] = [];
+  lines.push(fmtRow(cleanHeaders));
+  lines.push(widths.map((w) => "-".repeat(w)).join("  "));
+  for (const row of padded) lines.push(fmtRow(row));
+
+  return "```\n" + lines.join("\n") + "\n```";
+}
+
+function stripInline(s: string): string {
+  return s
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(?<![\\*])\*([^*]+?)\*(?!\*)/g, "$1");
 }
