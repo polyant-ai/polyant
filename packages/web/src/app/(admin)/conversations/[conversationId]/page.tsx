@@ -34,7 +34,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta, type ReasoningDetail, type StepDetail } from "@/lib/api";
+import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta } from "@/lib/api";
 import { MarkdownRenderer } from "@/app/(admin)/playground/_components/markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
 import { formatRelativeTime, parseUTC } from "@/lib/format";
@@ -472,8 +472,8 @@ export default function ConversationDetailPage() {
                       on the conversations page (audit/exploratory UX). */}
                   {msg.role !== "user" && (
                     <MessageExtras
-                      reasoning={msg.reasoning as ReasoningDetail[] | null}
-                      steps={msg.steps as StepDetail[] | null}
+                      reasoning={msg.reasoning}
+                      steps={msg.steps}
                       defaultOpen
                     />
                   )}
