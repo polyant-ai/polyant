@@ -310,10 +310,6 @@ describe("narrate — cron", () => {
   });
 });
 
-// describe("narrate — governance", …) — intentionally removed; the governance
-// layer is excluded from the OSS distribution, so no events with
-// category="governance" are ever emitted.
-
 describe("narrate — memory", () => {
   test("renders count", () => {
     const result = narrate(

@@ -32,7 +32,6 @@ export default defineConfig({
     "./src/instances/channels.schema.ts",
     "./src/memory/schema.ts",
     "./src/knowledge/schema.ts",
-    "./src/governance/schema.ts",
     "./src/scheduled-tasks/schema.ts",
     "./src/instances/prompts.schema.ts",
     "./src/agents/tools/tools.schema.ts",
