@@ -61,6 +61,7 @@ describe("createTaskTool", () => {
         system: expect.stringContaining("Research the latest AI trends"),
         maxSteps: 10,
       }),
+      expect.objectContaining({ callType: "service" }),
     );
     expect(result).toEqual({
       success: true,
