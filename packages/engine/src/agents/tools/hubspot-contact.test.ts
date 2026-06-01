@@ -245,7 +245,8 @@ describe("hubspotContact", () => {
 
     const [, opts] = mockFetch.mock.calls[0];
     const body = JSON.parse(opts.body);
-    // Phone with "+" produces 4 filterGroups (phone/mobilephone × with+/without+),
+    // Phone with "+" produces 4 EQ filterGroups (phone/mobilephone × with+/without+),
+    // plus a fallback CONTAINS_TOKEN on hs_searchable_calculated_phone_number,
     // each with the custom evento filter AND-ed in.
     expect(body.filterGroups).toEqual([
       {
@@ -269,6 +270,12 @@ describe("hubspotContact", () => {
       {
         filters: [
           { propertyName: "mobilephone", operator: "EQ", value: "393331234567" },
+          { propertyName: "evento", operator: "EQ", value: "spring-conference-2026" },
+        ],
+      },
+      {
+        filters: [
+          { propertyName: "hs_searchable_calculated_phone_number", operator: "CONTAINS_TOKEN", value: "3331234567" },
           { propertyName: "evento", operator: "EQ", value: "spring-conference-2026" },
         ],
       },
@@ -309,6 +316,7 @@ describe("hubspotContact", () => {
       { filters: [{ propertyName: "mobilephone", operator: "EQ", value: "+390000000001" }] },
       { filters: [{ propertyName: "phone", operator: "EQ", value: "390000000001" }] },
       { filters: [{ propertyName: "mobilephone", operator: "EQ", value: "390000000001" }] },
+      { filters: [{ propertyName: "hs_searchable_calculated_phone_number", operator: "CONTAINS_TOKEN", value: "0000000001" }] },
     ]);
   });
 
@@ -344,6 +352,7 @@ describe("hubspotContact", () => {
     expect(body.filterGroups).toEqual([
       { filters: [{ propertyName: "phone", operator: "EQ", value: "390000000001" }] },
       { filters: [{ propertyName: "mobilephone", operator: "EQ", value: "390000000001" }] },
+      { filters: [{ propertyName: "hs_searchable_calculated_phone_number", operator: "CONTAINS_TOKEN", value: "0000000001" }] },
     ]);
   });
 
