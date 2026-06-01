@@ -46,7 +46,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
   bedrock: {
     // Anthropic models on Bedrock require cross-region inference profiles
     // (raw model IDs fail with "Invocation ... with on-demand throughput isn't supported").
-    // Defaults target the `eu.*` profile family since Exelab deployments run in EU regions.
+    // Defaults target the `eu.*` profile family for EU-region deployments.
     // Instances in other regions must override `model` with a matching `us.*` / `apac.*` /
     // `global.*` profile ID.
     tiers: {

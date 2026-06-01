@@ -1,6 +1,6 @@
-# Agent Builder — AWS CDK Deployment
+# Polyant — AWS CDK Deployment
 
-CDK template that deploys Agent Builder to AWS: VPC, Aurora Serverless v2, ECS Fargate (engine + web), an Application Load Balancer with HTTPS, and optional OIDC authentication enforced at the ALB layer.
+CDK template that deploys Polyant to AWS: VPC, Aurora Serverless v2, ECS Fargate (engine + web), an Application Load Balancer with HTTPS, and optional OIDC authentication enforced at the ALB layer.
 
 This is a **starter template**. It assumes someone in your org already owns the identity provider — the CDK does not create one for you.
 
@@ -20,7 +20,11 @@ See `config.yaml.example` for the full set of knobs.
 
 The ALB does the OIDC dance via the `authenticate-oidc` listener action. ECS only accepts ingress from the ALB security group (`vpc-construct.ts`), so the engine trusts the `x-amzn-oidc-data` header without re-verifying the JWT signature — the network boundary is the trust boundary. See `packages/engine/src/auth/alb-oidc.service.ts` for the parser.
 
-The `auth:` block in `config.yaml` is optional. Omit it and the app runs open (useful for early-stage testing). Fill it in and **every** route — web, API, and `/v1/*` — sits behind the IdP.
+The `auth:` block in `config.yaml` is optional. Omit it and the app runs open (useful for early-stage testing). Fill it in and the web UI, the management API (`/api/*`, `/memories/*`) and `/v1/models` sit behind the IdP.
+
+**Exception — the OpenAI-compatible completions endpoint stays public.** `POST /v1/chat/completions` is routed by a dedicated ALB rule (`CompletionsPublic`, priority 8) that is **not** wrapped in the OIDC action, so programmatic clients keep working when auth is on. The engine still protects it: it is `@Public()` but authenticated per-instance via API keys and rate-limited. The rest of `/v1` (e.g. `/v1/models`) remains behind the IdP.
+
+> **Web admin panel + OIDC caveat.** In ALB-OIDC mode the Next.js web container does not read the gateway identity header: its Auth.js middleware looks for an `authjs.session-token` cookie, doesn't find one (the ALB uses its own Cognito cookie), and redirects to `/login`. Until a gateway-bypass is added on the web side (tracked follow-up), protect the panel with **local email/password accounts** (session mode) instead — see the secrets note below.
 
 Any OIDC provider works: Cognito (with or without a federated upstream IdP), Okta, Auth0, Azure AD / Entra ID, Keycloak, etc.
 
@@ -93,3 +97,22 @@ If you need a different scope set, edit the `scope:` value in `compute-construct
 | `DnsConstruct` | (Optional) Route 53 alias to ALB |
 
 See `lib/stacks/main-stack.ts` for the wiring.
+
+## Secrets (post-deploy)
+
+`DatabaseConstruct` creates `polyant-secrets-<stage>` in Secrets Manager. CDK can only auto-generate one random value per secret, so:
+
+| Key | Source | Action |
+|-----|--------|--------|
+| `auth_secret` | auto-generated (48 chars) | none — ready to use |
+| `encryption_key` | placeholder `REPLACE_ME_WITH_64_HEX_CHARS` | **required**: set 64 hex chars (`openssl rand -hex 32`) after first deploy, then force a new ECS deployment |
+| `auth_internal_secret` | placeholder | only for **local email/password accounts**: set a ≥16-char value (same value the web container uses) to enable the credentials login |
+
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are **not** in this secret — the engine never reads them (Google OAuth is web-only). Add them to the web container's secrets only if you enable Google sign-in.
+
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id polyant-secrets-<stage> \
+  --secret-string "{\"encryption_key\":\"$(openssl rand -hex 32)\",\"auth_secret\":\"<keep-generated>\"}"
+# then: aws ecs update-service --force-new-deployment ...
+```

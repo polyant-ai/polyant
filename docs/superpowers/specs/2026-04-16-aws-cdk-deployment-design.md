@@ -2,9 +2,9 @@
 
 ## Overview
 
-Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to test3-prod account (`870676149456`). Single Fargate task, Aurora Serverless v2, public-subnet VPC.
+Full-spec AWS CDK deployment of the Polyant monorepo (engine + web) to test3-prod account (`<account-id>`). Single Fargate task, Aurora Serverless v2, public-subnet VPC.
 
-> **Status update (2026-04-27):** this spec was written for the initial HTTP-only scope. The deployment now ships with **HTTPS + ALB OIDC (Cognito)** at `https://ab-test3.apps.exelab.net`. The original HTTP-only path is still supported as a config option (omit the `dns` and `auth` blocks in `config.yaml`).
+> **Status update (2026-04-27):** this spec was written for the initial HTTP-only scope. The deployment now ships with **HTTPS + ALB OIDC (Cognito)** at `https://myapp.example.com`. The original HTTP-only path is still supported as a config option (omit the `dns` and `auth` blocks in `config.yaml`).
 >
 > **Auth & TLS — what shipped:**
 > - HTTPS on AWS ALB requires a domain + ACM cert. AWS provides no default TLS cert on the raw ALB DNS, so the `dns` block is required whenever `auth` is set; `infra/bin/app.ts` enforces this at synth time.
@@ -13,20 +13,20 @@ Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to tes
 
 **Target cost at idle:** ~$50-80/month (Aurora Serverless 0.5 ACU + 1 Fargate task)
 
-**Test account:** `870676149456` (test3-prod), profile `test3-prod`, region `eu-south-1`
+**Test account:** `<account-id>` (test3-prod), profile `test3-prod`, region `eu-south-1`
 
 ## Architecture
 
 ```
                      ALB (HTTP:80)
-                     agent-builder-alb-dev
+                     polyant-alb-dev
                      ┌──────┬───────────────┐
                      │      │               │
                 /api/* /v1/*          /* (default)
                 /memories/*
                      │               │
        ┌─────────────┴───────────────┴─────────────┐
-       │  Fargate Task: agent-builder-task-dev       │
+       │  Fargate Task: polyant-task-dev       │
        │  ┌──────────────────┐ ┌─────────────────┐  │
        │  │  engine (NestJS)  │ │  web (Next.js)  │  │
        │  │  port 4000        │ │  port 3000      │  │
@@ -37,13 +37,13 @@ Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to tes
                      │
        ┌─────────────┴─────────────────┐
        │  Aurora Serverless v2          │
-       │  agent-builder-db-dev          │
+       │  polyant-db-dev          │
        │  PostgreSQL 16 + pgvector      │
        │  0.5 - 4 ACU                  │
        └────────────────────────────────┘
 
   ┌──────────────────────────────────────────────────┐
-  │  VPC: agent-builder-vpc-dev                       │
+  │  VPC: polyant-vpc-dev                       │
   │  CIDR: 10.0.0.0/16                               │
   │  Public subnets only (2 AZs) — No NAT            │
   │  Internet Gateway for outbound                    │
@@ -54,7 +54,7 @@ Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to tes
 
 ### VPC
 
-- **Name:** `agent-builder-vpc-dev`
+- **Name:** `polyant-vpc-dev`
 - **CIDR:** `10.0.0.0/16`
 - **Subnets:** 2 public subnets across 2 AZs
   - `10.0.1.0/24` (AZ-a)
@@ -65,15 +65,15 @@ Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to tes
 
 ### Security Groups
 
-**ALB SG** (`agent-builder-alb-sg-dev`):
+**ALB SG** (`polyant-alb-sg-dev`):
 - Inbound: TCP 80 from `0.0.0.0/0`
 - Outbound: all
 
-**ECS SG** (`agent-builder-ecs-sg-dev`):
+**ECS SG** (`polyant-ecs-sg-dev`):
 - Inbound: TCP 3000, 4000 from ALB SG only
 - Outbound: all (Bedrock, Telegram, Slack, OpenAI, Tavily, LangSmith)
 
-**DB SG** (`agent-builder-db-sg-dev`):
+**DB SG** (`polyant-db-sg-dev`):
 - Inbound: TCP 5432 from ECS SG only
 - Outbound: none needed
 
@@ -81,15 +81,15 @@ Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to tes
 
 ### Cluster & Service
 
-- **Cluster:** `agent-builder-cluster-dev`
-- **Service:** `agent-builder-service-dev`
+- **Cluster:** `polyant-cluster-dev`
+- **Service:** `polyant-service-dev`
 - **Desired count:** 1
 - **Platform version:** LATEST
 - **Assign public IP:** true (required for outbound without NAT)
 
 ### Task Definition
 
-- **Family:** `agent-builder-task-dev`
+- **Family:** `polyant-task-dev`
 - **Total CPU:** 1024 (1 vCPU)
 - **Total Memory:** 2048 MB
 
@@ -108,7 +108,7 @@ Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to tes
 - Secrets (from Secrets Manager):
   - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` (from DB secret)
   - `ENCRYPTION_KEY` (from app secret)
-- Logging: CloudWatch `/ecs/agent-builder-engine-dev` (retention: 30 days)
+- Logging: CloudWatch `/ecs/polyant-engine-dev` (retention: 30 days)
 
 **Web container (essential):**
 - Image: CDK asset build from `Dockerfile.web` (repo root context)
@@ -117,11 +117,11 @@ Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to tes
 - Health check: HTTP GET `/` → 200
 - Environment variables:
   - `INTERNAL_API_URL=http://localhost:4000` (server-side Next.js → engine)
-- Logging: CloudWatch `/ecs/agent-builder-web-dev` (retention: 30 days)
+- Logging: CloudWatch `/ecs/polyant-web-dev` (retention: 30 days)
 
 ### ALB
 
-- **Name:** `agent-builder-alb-dev`
+- **Name:** `polyant-alb-dev`
 - **Scheme:** internet-facing
 - **Subnets:** both public subnets
 - **Security group:** ALB SG
@@ -130,8 +130,8 @@ Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to tes
 - HTTP:80 → routing rules
 
 **Target Groups:**
-- `agent-builder-engine-tg-dev`: paths `/api/*`, `/v1/*`, `/memories/*` → port 4000
-- `agent-builder-web-tg-dev`: default action `/*` → port 3000
+- `polyant-engine-tg-dev`: paths `/api/*`, `/v1/*`, `/memories/*` → port 4000
+- `polyant-web-tg-dev`: default action `/*` → port 3000
 
 **Health checks:**
 - Engine TG: `/health`, interval 30s, healthy threshold 2
@@ -139,12 +139,12 @@ Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to tes
 
 ### IAM Roles
 
-**Task Role** (`agent-builder-task-role-dev`):
+**Task Role** (`polyant-task-role-dev`):
 - `bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream` on `arn:aws:bedrock:*::foundation-model/*`
 - `secretsmanager:GetSecretValue` on app secrets ARN
 - `logs:CreateLogGroup`, `logs:PutLogEvents`
 
-**Execution Role** (`agent-builder-exec-role-dev`):
+**Execution Role** (`polyant-exec-role-dev`):
 - `ecr:GetAuthorizationToken`, `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`
 - `secretsmanager:GetSecretValue` (for injecting secrets as env vars)
 - `logs:CreateLogGroup`, `logs:PutLogEvents`
@@ -153,7 +153,7 @@ Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to tes
 
 ### Cluster
 
-- **Identifier:** `agent-builder-db-dev`
+- **Identifier:** `polyant-db-dev`
 - **Engine:** `aurora-postgresql` (PostgreSQL 16-compatible)
 - **Serverless v2 scaling:** 0.5 min ACU / 4 max ACU
 - **Instance count:** 1 writer (no reader)
@@ -168,15 +168,15 @@ Full-spec AWS CDK deployment of the Agent Builder monorepo (engine + web) to tes
 
 ### Database & Secrets
 
-- **Database name:** `agent_crm`
+- **Database name:** `polyant`
 - **App user:** auto-generated by CDK, credentials in Secrets Manager
 
-**DB Secret** (`agent-builder-db-secrets-dev`):
+**DB Secret** (`polyant-db-secrets-dev`):
 - Auto-generated by CDK (Aurora default secret)
 - Contains: host, port, dbname, username, password
 - Injected into ECS task as `POSTGRES_*` env vars
 
-**App Secret** (`agent-builder-secrets-dev`):
+**App Secret** (`polyant-secrets-dev`):
 - Created by CDK with placeholder value
 - Populated manually after first deploy
 - Contains: `encryption_key` (64 hex chars for AES-256-GCM)
@@ -239,7 +239,7 @@ infra/
 
 ```yaml
 dev:
-  account: "870676149456"
+  account: "<account-id>"
   region: "eu-south-1"
   vpc:
     cidr: "10.0.0.0/16"
@@ -265,7 +265,7 @@ dev:
     timezone: "Europe/Rome"
     locale: "it-IT"
   tags:
-    Project: "agent-builder"
+    Project: "polyant"
     Environment: "dev"
 ```
 
@@ -283,7 +283,7 @@ cd infra && npm install && npx cdk deploy
 
 # 3. Populate app secret
 aws secretsmanager put-secret-value \
-  --secret-id agent-builder-secrets-dev \
+  --secret-id polyant-secrets-dev \
   --secret-string '{"encryption_key":"<64-hex-chars>"}'
 
 # 4. Verify

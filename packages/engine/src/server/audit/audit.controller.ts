@@ -10,7 +10,7 @@ import { parsePagination } from "../utils/parse-pagination.js";
 // user is allowed to see tool executions across every instance, and the admin
 // panel's "all agents" selector relies on that. The store
 // (`audit-query.store.ts:instanceFilter`) already accepts `undefined` and emits
-// an empty SQL filter. When agent-builder grows real multi-tenancy
+// an empty SQL filter. When polyant grows real multi-tenancy
 // (org > project > instance, CLAUDE.md "Auth & Multi-Tenancy" Phase 2),
 // isolation will be enforced at the `org` layer — not by requiring instanceId here.
 

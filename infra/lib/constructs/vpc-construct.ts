@@ -16,7 +16,7 @@ export class VpcConstruct extends Construct {
     super(scope, id);
 
     this.vpc = new ec2.Vpc(this, "Vpc", {
-      vpcName: `agent-builder-vpc-${props.stage}`,
+      vpcName: `polyant-vpc-${props.stage}`,
       ipAddresses: ec2.IpAddresses.cidr(props.cidr),
       maxAzs: 2,
       natGateways: 0,
@@ -32,7 +32,7 @@ export class VpcConstruct extends Construct {
     // ALB Security Group
     this.albSg = new ec2.SecurityGroup(this, "AlbSg", {
       vpc: this.vpc,
-      securityGroupName: `agent-builder-alb-sg-${props.stage}`,
+      securityGroupName: `polyant-alb-sg-${props.stage}`,
       description: "ALB security group",
       allowAllOutbound: true,
     });
@@ -42,7 +42,7 @@ export class VpcConstruct extends Construct {
     // ECS Security Group
     this.ecsSg = new ec2.SecurityGroup(this, "EcsSg", {
       vpc: this.vpc,
-      securityGroupName: `agent-builder-ecs-sg-${props.stage}`,
+      securityGroupName: `polyant-ecs-sg-${props.stage}`,
       description: "ECS tasks security group",
       allowAllOutbound: true,
     });
@@ -52,7 +52,7 @@ export class VpcConstruct extends Construct {
     // DB Security Group
     this.dbSg = new ec2.SecurityGroup(this, "DbSg", {
       vpc: this.vpc,
-      securityGroupName: `agent-builder-db-sg-${props.stage}`,
+      securityGroupName: `polyant-db-sg-${props.stage}`,
       description: "Aurora security group",
       allowAllOutbound: false,
     });
