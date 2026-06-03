@@ -20,10 +20,10 @@ registerTool({
     parameters: z.object({
       name: z
         .string()
-        .nullish()
+        .nullable()
         .describe("Name of the skill to load (value of the <name> tag in the <available_skills> section, e.g. 'booking', 'intro-request')"),
     }),
-    execute: async ({ name }: { name?: string | null }) => {
+    execute: async ({ name }: { name: string | null }) => {
       const identifier = (name ?? "").trim();
       if (!identifier) {
         return { found: false, error: "Missing required parameter 'name'." };

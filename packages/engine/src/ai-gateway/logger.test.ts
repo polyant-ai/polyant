@@ -15,6 +15,8 @@ function makeEntry(overrides: Partial<AILogEntry> = {}): AILogEntry {
     totalTokens: 150,
     estimatedCostUsd: 0.0075,
     durationMs: 500,
+    reasoningChars: 0,
+    stepCount: 0,
     callType: "conversation",
     ...overrides,
   };
@@ -36,7 +38,9 @@ describe("AILogger", () => {
     it("returns a properly structured entry with default callType", () => {
       const entry = logger.createEntry(
         "openai", "gpt-4o", "standard", false,
-        100, 50, 150, 0.0075, 500, "conv-1", "user-1",
+        100, 50, 150, 0.0075, 500,
+        42, 3, // reasoningChars, stepCount
+        "conv-1", "user-1",
       );
       expect(entry).toEqual({
         provider: "openai",
@@ -48,6 +52,8 @@ describe("AILogger", () => {
         totalTokens: 150,
         estimatedCostUsd: 0.0075,
         durationMs: 500,
+        reasoningChars: 42,
+        stepCount: 3,
         conversationId: "conv-1",
         instanceId: "user-1",
         callType: "conversation",
@@ -58,18 +64,33 @@ describe("AILogger", () => {
       const entry = logger.createEntry(
         "anthropic", "claude-sonnet-4-5-20250929", "standard", true,
         200, 100, 300, 0.015, 1000,
+        500, 5,
       );
       expect(entry.conversationId).toBeUndefined();
       expect(entry.instanceId).toBeUndefined();
       expect(entry.callType).toBe("conversation");
+      expect(entry.reasoningChars).toBe(500);
+      expect(entry.stepCount).toBe(5);
     });
 
     it("accepts explicit callType 'service'", () => {
       const entry = logger.createEntry(
         "openai", "gpt-4o-mini", "fast", false,
-        50, 20, 70, 0.001, 200, "conv-1", "inst-1", "service",
+        50, 20, 70, 0.001, 200,
+        0, 0,
+        "conv-1", "inst-1", "service",
       );
       expect(entry.callType).toBe("service");
+    });
+
+    it("clamps non-finite reasoningChars and stepCount to 0", () => {
+      const entry = logger.createEntry(
+        "openai", "gpt-4o", "fast", false,
+        10, 10, 20, 0.001, 100,
+        Number.NaN, Number.POSITIVE_INFINITY,
+      );
+      expect(entry.reasoningChars).toBe(0);
+      expect(entry.stepCount).toBe(0);
     });
   });
 

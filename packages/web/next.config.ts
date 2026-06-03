@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
       { source: "/api/users/:path*", destination: `${ENGINE_URL}/api/users/:path*` },
       { source: "/api/users", destination: `${ENGINE_URL}/api/users` },
       { source: "/api/me/:path*", destination: `${ENGINE_URL}/api/me/:path*` },
+      { source: "/api/activity-stream/:path*", destination: `${ENGINE_URL}/api/activity-stream/:path*` },
       { source: "/memories/:path*", destination: `${ENGINE_URL}/memories/:path*` },
       { source: "/health", destination: `${ENGINE_URL}/health` },
       { source: "/v1/:path*", destination: `${ENGINE_URL}/v1/:path*` },

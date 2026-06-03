@@ -142,9 +142,11 @@ export async function triggerConversation(
   // messages in history. Handle at pipeline load-time (merge) when needed.
 
   // 5. Call supervisor — include harness tools gated by the outbound channel
-  //    (e.g. "whatsapp" enables send_whatsapp_template).
+  //    (e.g. "whatsapp" enables send_whatsapp_template) plus the
+  //    `conversation-trigger` category (enables send_outbound_message, which
+  //    lets the agent reply on the trigger's outbound channel).
   const harnessCategories = hasChannel
-    ? new Set<string>([definition.outboundChannel!])
+    ? new Set<string>([definition.outboundChannel!, "conversation-trigger"])
     : new Set<string>();
   let result;
   try {
@@ -180,7 +182,7 @@ export async function triggerConversation(
 
   // Persist assistant response (tool-delivered content when replyHandled, else supervisor text)
   await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result.toolCalls },
+    { role: "assistant", content: finalText, steps: result.steps, ...(result.reasoning ? { reasoning: result.reasoning } : {}) },
   ]);
 
   // Send response to the configured outbound channel — unless a tool has already

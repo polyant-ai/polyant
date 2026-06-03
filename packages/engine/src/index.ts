@@ -14,7 +14,7 @@ import { supervise, superviseStream } from "./agents/supervisor/index.js";
 import { channelManager } from "./channels/channel-manager.js";
 import { listAllInstances } from "./instances/store.js";
 import { startServer } from "./server/main.js";
-import { type IncomingMessage, type OutgoingMessage, type StreamOutgoingMessage } from "./channels/types.js";
+import { type AgentCallMetadata, type IncomingMessage, type OutgoingMessage, type StreamOutgoingMessage } from "./channels/types.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { loadAllTools, getToolRegistry } from "./agents/tools/registry.js";
 import { syncToolsToDb } from "./agents/tools/tools-sync.js";
@@ -187,6 +187,7 @@ async function main() {
     const { ctx, contextPrepMs, messageText } = pre;
 
     // Phase 3: Supervisor (LLM call + tool building)
+    const agentMeta = msg.metadata?.agentCall as AgentCallMetadata | undefined;
     let result;
     try {
       result = await supervise({
@@ -207,6 +208,8 @@ async function main() {
         thinkingEnabled: ctx.instanceConfig.thinkingEnabled,
         attachments: msg.attachments,
         abortSignal,
+        agentCallDepth: agentMeta?.depth,
+        agentCallMetadata: agentMeta,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
@@ -223,7 +226,8 @@ async function main() {
       messageText,
       channel: msg.channelType,
       resultText: result.text,
-      steps: result.toolCalls,
+      steps: result.steps,
+      reasoning: result.reasoning,
       toolCallTraces: result.toolCallTraces,
       usage: result.usage,
       durationMs: result.durationMs,
@@ -247,6 +251,7 @@ async function main() {
     const { ctx, contextPrepMs, messageText } = pre;
 
     // Phase 3: Supervisor (LLM streaming + tool building)
+    const agentMetaStream = msg.metadata?.agentCall as AgentCallMetadata | undefined;
     let stream;
     try {
       stream = await superviseStream({
@@ -267,6 +272,8 @@ async function main() {
         thinkingEnabled: ctx.instanceConfig.thinkingEnabled,
         attachments: msg.attachments,
         abortSignal,
+        agentCallDepth: agentMetaStream?.depth,
+        agentCallMetadata: agentMetaStream,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
@@ -289,7 +296,8 @@ async function main() {
         messageText,
         channel: msg.channelType,
         resultText: result.text,
-        steps: result.toolCalls,
+        steps: result.steps,
+        reasoning: result.reasoning,
         toolCallTraces: result.toolCallTraces,
         usage: result.usage,
         durationMs: result.durationMs,

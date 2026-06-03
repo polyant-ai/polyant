@@ -140,7 +140,7 @@ beforeEach(() => {
   mockChat.mockResolvedValue({ text: "Room Title", usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 }, durationMs: 100 });
   mockSupervise.mockResolvedValue({
     text: "I've processed the events.",
-    toolCalls: [],
+    steps: [],
     usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
     durationMs: 500,
     toolBuildingMs: 10,

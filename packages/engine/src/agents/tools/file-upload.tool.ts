@@ -46,19 +46,19 @@ registerTool({
         .number()
         .int()
         .min(0)
-        .nullish()
+        .nullable()
         .describe("Index of the attachment to upload (0-based). Use this OR `base64Data`."),
       base64Data: z
         .string()
-        .nullish()
+        .nullable()
         .describe("File data encoded as base64 (alternative to `attachmentIndex`)."),
       mimeType: z
         .string()
-        .nullish()
+        .nullable()
         .describe("MIME type of the file (required when using `base64Data`)."),
       filename: z
         .string()
-        .nullish()
+        .nullable()
         .describe("Custom filename. If omitted, uses the attachment name or generates a UUID."),
     }),
     execute: async ({
@@ -67,10 +67,10 @@ registerTool({
       mimeType,
       filename,
     }: {
-      attachmentIndex?: number | null;
-      base64Data?: string | null;
-      mimeType?: string | null;
-      filename?: string | null;
+      attachmentIndex: number | null;
+      base64Data: string | null;
+      mimeType: string | null;
+      filename: string | null;
     }) => {
       // Resolve file data
       let fileBuffer: Buffer;

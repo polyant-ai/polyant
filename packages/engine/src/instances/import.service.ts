@@ -112,8 +112,10 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
     warnings.push(...esWarnings);
 
     // 9. Import scheduled tasks
+    // NB: scheduled_tasks.instance_id is the SLUG, not the UUID — see the
+    // export service for the rationale.
     if (data.scheduledTasks && data.scheduledTasks.length > 0) {
-      await importScheduledTasks(tx, id, data.scheduledTasks);
+      await importScheduledTasks(tx, slug, data.scheduledTasks);
     }
 
     // 10. Secrets — only generate warnings
@@ -229,9 +231,11 @@ export async function importOverwriteInstance(
     warnings.push(...esWarnings);
 
     // 9. Replace scheduled tasks
-    await tx.delete(scheduledTasks).where(eq(scheduledTasks.instanceId, instanceId));
+    // NB: scheduled_tasks.instance_id is the SLUG, not the UUID — see the
+    // export service for the rationale.
+    await tx.delete(scheduledTasks).where(eq(scheduledTasks.instanceId, targetSlug));
     if (data.scheduledTasks && data.scheduledTasks.length > 0) {
-      await importScheduledTasks(tx, instanceId, data.scheduledTasks);
+      await importScheduledTasks(tx, targetSlug, data.scheduledTasks);
     }
 
     // 10. Secrets warnings

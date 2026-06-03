@@ -103,6 +103,8 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
         0,
         estimateSttCost(provider, response.model, billedDurationSec),
         response.latencyMs,
+        0,
+        0,
         input.conversationId,
         input.instanceSlug,
         "service",

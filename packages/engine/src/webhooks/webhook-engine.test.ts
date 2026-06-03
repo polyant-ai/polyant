@@ -86,7 +86,7 @@ const baseDefinition: EventDefinition = {
 
 const baseSuperviseResult = {
   text: "Done.",
-  toolCalls: [],
+  steps: [],
   usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
   durationMs: 100,
   toolBuildingMs: 5,
