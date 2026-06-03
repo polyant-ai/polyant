@@ -20,9 +20,10 @@ registerTool({
   harness: true,
   create: (ctx) => ({
     parameters: z.object({
-      keepRecent: z.number().optional().default(10).describe("Number of recent turns to keep intact"),
+      keepRecent: z.number().nullable().describe("Number of recent turns to keep intact"),
     }),
     execute: async ({ keepRecent }) => {
+      const recentToKeep = keepRecent ?? 10;
       const instanceId = await resolveInstanceId(ctx.instanceId);
       if (!instanceId) return { error: "Instance not found" };
 
@@ -30,11 +31,11 @@ registerTool({
       if (!room?.conversationId) return { error: "No room conversation to compact" };
 
       const allMessages = await conversationStore.getRecentMessages(room.conversationId, 100);
-      if (allMessages.length <= keepRecent) {
+      if (allMessages.length <= recentToKeep) {
         return { success: true, message: "History is already small enough, no compaction needed" };
       }
 
-      const toCompact = allMessages.slice(0, -keepRecent);
+      const toCompact = allMessages.slice(0, -recentToKeep);
       const compactText = toCompact
         .map((m) => `${m.role === "user" ? "Human" : "Assistant"}: ${m.content}`)
         .join("\n");
@@ -61,7 +62,7 @@ registerTool({
       return {
         success: true,
         compactedMessages: toCompact.length,
-        keptMessages: keepRecent,
+        keptMessages: recentToKeep,
       };
     },
   }),

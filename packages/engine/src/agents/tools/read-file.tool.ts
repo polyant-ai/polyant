@@ -53,10 +53,10 @@ registerTool({
       path: z.string().describe(
         "File path. Relative (recommended) or absolute — in both cases must resolve inside the current conversation's sandboxed workspace.",
       ),
-      tail: z.number().int().min(1).nullish()
+      tail: z.number().int().min(1).nullable()
         .describe("If specified, returns only the last N lines of the file. Useful for log files."),
     }),
-    execute: async ({ path, tail }: { path: string; tail?: number | null }) => {
+    execute: async ({ path, tail }: { path: string; tail: number | null }) => {
       let resolvedPath: string;
       let source: "workspace-relative" | "workspace-absolute";
 

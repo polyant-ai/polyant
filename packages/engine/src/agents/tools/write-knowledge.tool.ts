@@ -53,7 +53,7 @@ registerTool({
         .describe("Text content to write or append (UTF-8)"),
       mimeType: z
         .string()
-        .nullish()
+        .nullable()
         .describe("Document MIME type, used only on creation (default: text/markdown)"),
     }),
     execute: async ({

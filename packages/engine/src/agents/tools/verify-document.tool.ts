@@ -47,10 +47,11 @@ registerTool({
         .number()
         .int()
         .min(0)
-        .default(0)
+        .nullable()
         .describe("Index of the attachment to verify (0-based, default 0)"),
     }),
-    execute: async ({ attachmentIndex }: { attachmentIndex: number }) => {
+    execute: async ({ attachmentIndex: attachmentIndexInput }: { attachmentIndex: number | null }) => {
+      const attachmentIndex = attachmentIndexInput ?? 0;
       // Read attachment from context
       const attachment = ctx.attachments?.[attachmentIndex];
       if (!attachment) {
