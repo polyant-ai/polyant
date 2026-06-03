@@ -104,7 +104,7 @@ export class ComputeConstruct extends Construct {
       retention: props.loggingRetentionDays,
     });
 
-    const engineContainer = taskDef.addContainer("engine", {
+    taskDef.addContainer("engine", {
       containerName: "engine",
       image: ecs.ContainerImage.fromAsset(REPO_ROOT, {
         file: "Dockerfile.engine",
