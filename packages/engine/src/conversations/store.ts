@@ -16,6 +16,32 @@ export interface MessageRow {
   createdAt: Date | null;
 }
 
+/**
+ * PostgreSQL `text` and `jsonb` columns reject NUL bytes (`\x00`). LLMs
+ * occasionally emit them as control-char hallucinations inside otherwise valid
+ * output, which would crash `appendMessages` (22021 on text, 22P05 on jsonb).
+ * Strip silently at the persistence boundary so a stray control char never
+ * blocks an entire pipeline turn.
+ */
+const NUL = String.fromCharCode(0);
+const NUL_RE = new RegExp(NUL, "g");
+function stripNulString(s: string): string {
+  return s.indexOf(NUL) === -1 ? s : s.replace(NUL_RE, "");
+}
+
+function stripNulDeep<T>(value: T): T {
+  if (typeof value === "string") return stripNulString(value) as unknown as T;
+  if (Array.isArray(value)) return value.map((v) => stripNulDeep(v)) as unknown as T;
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = stripNulDeep(v);
+    }
+    return out as unknown as T;
+  }
+  return value;
+}
+
 export interface KeywordSearchResult {
   id: string;
   conversationId: string;
@@ -108,12 +134,13 @@ export class ConversationStore {
 
   /** Update conversation title in DB and in-memory cache. */
   async updateTitle(conversationId: string, title: string): Promise<void> {
+    const safe = stripNulString(title);
     await db
       .update(conversations)
-      .set({ title, updatedAt: new Date() })
+      .set({ title: safe, updatedAt: new Date() })
       .where(eq(conversations.conversationId, conversationId));
 
-    this.titleCache.set(conversationId, title);
+    this.titleCache.set(conversationId, safe);
   }
 
   /** Get conversation summary. Checks in-memory cache first, falls back to DB. */
@@ -136,12 +163,13 @@ export class ConversationStore {
 
   /** Update conversation summary in DB and in-memory cache. */
   async updateSummary(conversationId: string, summary: string): Promise<void> {
+    const safe = stripNulString(summary);
     await db
       .update(conversations)
-      .set({ summary, updatedAt: new Date() })
+      .set({ summary: safe, updatedAt: new Date() })
       .where(eq(conversations.conversationId, conversationId));
 
-    this.summaryCache.set(conversationId, summary);
+    this.summaryCache.set(conversationId, safe);
   }
 
   /** Get context prompt for a webhook-triggered conversation. Returns null if not set. */
@@ -229,13 +257,15 @@ export class ConversationStore {
       messages.map((m) => ({
         conversationId,
         role: m.role,
-        content: m.content,
+        // Postgres `text` rejects NUL bytes; `jsonb` rejects NUL escapes
+        // inside string values. Strip both before insert.
+        content: stripNulString(m.content),
         // Cast to satisfy Drizzle: the JSONB column is typed `StepDetail[]`/`ReasoningDetail[]`
         // in schema.ts, but callers may still pass legacy unstructured arrays.
-        steps: (m.steps as never) ?? null,
-        reasoning: (m.reasoning as never) ?? null,
-        attachments: m.attachments ?? null,
-        metadata: m.metadata ?? null,
+        steps: m.steps ? (stripNulDeep(m.steps) as never) : null,
+        reasoning: m.reasoning ? (stripNulDeep(m.reasoning) as never) : null,
+        attachments: m.attachments ? stripNulDeep(m.attachments) : null,
+        metadata: m.metadata ? stripNulDeep(m.metadata) : null,
       })),
     );
   }
