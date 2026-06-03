@@ -571,6 +571,8 @@
   "room.definitions.contextPromptPlaceholder": "e.g. A new deal has been created:\n{{payload}}\n\nUse the fetch_deal tool to get details, then send a message to the customer.",
   "room.definitions.outboundChannel": "Outbound Channel",
   "room.definitions.outboundChannelPlaceholder": "Select channel",
+  "room.definitions.outboundChannelNone": "None (internal action)",
+  "room.definitions.outboundChannelNoneHelp": "The agent will run the configured actions without sending a reply to a channel. The conversation stays visible in history for consultation.",
   "room.definitions.outboundTarget": "Outbound Target",
   "room.definitions.outboundTargetPlaceholder": "e.g. {{payload.phone}} or +39123456789",
   "room.backlog.title": "Event Backlog",
