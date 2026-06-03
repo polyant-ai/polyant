@@ -181,6 +181,33 @@ describe("WebhookController", () => {
         expect(mockGetRoomByInstanceId).not.toHaveBeenCalled();
       });
 
+      it("should trigger conversation in internal mode (no outboundChannel)", async () => {
+        const matchedDef = {
+          id: "def-internal",
+          name: "Internal Action",
+          action: "conversation",
+          contextPrompt: "Run the internal task with payload {{payload}}",
+          outboundChannel: null,
+          outboundTarget: null,
+        };
+        const payload = { foo: "bar" };
+
+        mockFindByWebhookToken.mockResolvedValue({
+          source: { id: "src-1", name: "External System", enabled: true },
+          instanceId: "inst-1",
+        });
+        mockListEnabledDefinitions.mockResolvedValue([matchedDef]);
+        mockResolveInstanceSlug.mockResolvedValue("test-slug");
+        mockMatchEvent.mockResolvedValue(matchedDef);
+        mockTriggerConversation.mockResolvedValue(undefined);
+
+        await processEvent("valid-token", payload);
+
+        expect(mockTriggerConversation).toHaveBeenCalledWith("inst-1", "test-slug", matchedDef, payload);
+        expect(mockInsertEvent).not.toHaveBeenCalled();
+        expect(mockGetRoomByInstanceId).not.toHaveBeenCalled();
+      });
+
       it("should not require Room to be enabled for conversation action", async () => {
         const matchedDef = {
           id: "def-1",

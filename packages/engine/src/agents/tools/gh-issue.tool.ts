@@ -143,26 +143,26 @@ registerTool({
     parameters: z.object({
       action: z.enum(["create", "get", "comment", "search"]).describe("Action to perform on the issue."),
       repo: z.string().describe("Repository in `owner/name` format."),
-      number: z.number().nullish().describe("Issue number (required for `get` and `comment`)."),
-      title: z.string().nullish().describe("Issue title (required for `create`)."),
-      body: z.string().nullish().describe("Issue body or comment text (required for `create` and `comment`). Supports Markdown."),
-      labels: z.string().nullish().describe("Comma-separated labels (optional for `create` and `search`)."),
-      assignee: z.string().nullish().describe("Username to assign (only for `create`)."),
-      query: z.string().nullish().describe("Text to search (only for `search`). Searches title and body."),
-      state: z.enum(["open", "closed", "all"]).nullish().describe("Filter by state (only for `search`, default: all)."),
-      limit: z.number().nullish().describe("Maximum number of results (only for `search`, default: 100, recommended max: 500)."),
+      number: z.number().nullable().describe("Issue number (required for `get` and `comment`)."),
+      title: z.string().nullable().describe("Issue title (required for `create`)."),
+      body: z.string().nullable().describe("Issue body or comment text (required for `create` and `comment`). Supports Markdown."),
+      labels: z.string().nullable().describe("Comma-separated labels (optional for `create` and `search`)."),
+      assignee: z.string().nullable().describe("Username to assign (only for `create`)."),
+      query: z.string().nullable().describe("Text to search (only for `search`). Searches title and body."),
+      state: z.enum(["open", "closed", "all"]).nullable().describe("Filter by state (only for `search`, default: all)."),
+      limit: z.number().nullable().describe("Maximum number of results (only for `search`, default: 100, recommended max: 500)."),
     }),
     execute: async (params: {
       action: "create" | "get" | "comment" | "search";
       repo: string;
-      number?: number | null;
-      title?: string | null;
-      body?: string | null;
-      labels?: string | null;
-      assignee?: string | null;
-      query?: string | null;
-      state?: "open" | "closed" | "all" | null;
-      limit?: number | null;
+      number: number | null;
+      title: string | null;
+      body: string | null;
+      labels: string | null;
+      assignee: string | null;
+      query: string | null;
+      state: "open" | "closed" | "all" | null;
+      limit: number | null;
     }) => {
       const token = ctx.secrets?.github_token;
       if (!token) return { error: "GitHub token not configured for this instance." };

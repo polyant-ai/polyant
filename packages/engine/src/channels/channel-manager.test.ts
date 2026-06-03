@@ -8,7 +8,7 @@ vi.mock("../instances/channels.store.js", () => ({
   listEnabledChannelConfigs: vi.fn().mockResolvedValue([]),
   // Keep in sync with the real tuple in instances/channels.store.ts —
   // any new API-configurable channel type must be added here.
-  CHANNEL_TYPES: ["telegram", "slack", "whatsapp"],
+  CHANNEL_TYPES: ["telegram", "slack", "whatsapp", "agent"],
 }));
 
 vi.mock("./adapters/telegram/index.js", () => ({

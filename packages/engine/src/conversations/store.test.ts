@@ -441,19 +441,79 @@ describe("ConversationStore", () => {
       ]);
     });
 
-    it("preserves steps when provided", async () => {
+    it("preserves steps and reasoning when provided", async () => {
       const id = uid();
       const insChain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(insChain as any);
 
-      const steps = [{ name: "search", args: { q: "test" } }];
+      const steps = [
+        {
+          index: 0,
+          stepType: "tool-result" as const,
+          text: "",
+          toolCalls: [{ toolCallId: "c1", toolName: "search", args: { q: "test" } }],
+          toolResults: [{ toolCallId: "c1", result: "ok" }],
+          finishReason: "tool-calls",
+          durationMs: 42,
+        },
+      ];
+      const reasoning = [
+        { type: "text" as const, text: "thinking…", signature: "sig" },
+      ];
       await conversationStore.appendMessages(id, [
-        { role: "assistant", content: "With tools", steps },
+        { role: "assistant", content: "With tools", steps, reasoning },
       ]);
 
       expect(insChain.values).toHaveBeenCalledWith([
-        expect.objectContaining({ steps }),
+        expect.objectContaining({ steps, reasoning }),
       ]);
+    });
+
+    it("strips NUL bytes from content, steps, reasoning, attachments, metadata", async () => {
+      const id = uid();
+      const insChain = createChainMock(undefined);
+      mockDb.insert.mockReturnValue(insChain as any);
+
+      // Build NUL byte at runtime to avoid leaking literal U+0000 into the
+      // test source file. Postgres would reject this NUL in both `text` and
+      // `jsonb` columns (codes 22021 / 22P05). The store must strip it.
+      const nul = String.fromCharCode(0);
+      const dirtyContent = `prefix${nul}suffix`;
+      const dirtySteps = [
+        {
+          index: 0,
+          stepType: "tool-result" as const,
+          text: `prefix${nul}suffix`,
+          toolCalls: [{ toolCallId: "c1", toolName: "x", args: { q: `with${nul}nul` } }],
+          toolResults: [{ toolCallId: "c1", result: `ok${nul}` }],
+          finishReason: "stop",
+          durationMs: 1,
+        },
+      ];
+      const dirtyReasoning = [{ type: "text" as const, text: `r${nul}` }];
+      const dirtyAttachments = [{ kind: "url", url: `https://x${nul}` }];
+      const dirtyMetadata = { note: `m${nul}` };
+
+      await conversationStore.appendMessages(id, [
+        {
+          role: "assistant",
+          content: dirtyContent,
+          steps: dirtySteps as any,
+          reasoning: dirtyReasoning as any,
+          attachments: dirtyAttachments as any,
+          metadata: dirtyMetadata,
+        },
+      ]);
+
+      const inserted = insChain.values.mock.calls[0][0][0];
+      expect(inserted.content).toBe("prefixsuffix");
+      expect(JSON.stringify(inserted.steps)).not.toContain(nul);
+      expect(JSON.stringify(inserted.reasoning)).not.toContain(nul);
+      expect(JSON.stringify(inserted.attachments)).not.toContain(nul);
+      expect(JSON.stringify(inserted.metadata)).not.toContain(nul);
+      // Sanity: structural shape preserved
+      expect(inserted.steps[0].text).toBe("prefixsuffix");
+      expect(inserted.metadata.note).toBe("m");
     });
   });
 

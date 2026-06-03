@@ -70,89 +70,77 @@ registerTool({
         .describe("Action to perform"),
 
       // --- create fields ---
-      name: z.string().nullable().optional().describe("Task name"),
+      name: z.string().nullable().describe("Task name"),
       prompt: z
         .string()
         .nullable()
-        .optional()
         .describe("Message/prompt to execute when the task fires"),
       scheduleType: z
         .enum(["cron", "interval", "one-shot"])
         .nullable()
-        .optional()
         .describe("Schedule type"),
       cronExpression: z
         .string()
         .nullable()
-        .optional()
         .describe("Cron expression (e.g. '0 9 * * 1-5' = Mon–Fri at 9am)"),
       timezone: z
         .string()
         .nullable()
-        .optional()
         .describe("IANA timezone (e.g. 'Europe/London', 'America/New_York'). Default: UTC"),
       everyMs: z
         .number()
         .nullable()
-        .optional()
         .describe("Interval in milliseconds (for type 'interval')"),
       runAt: z
         .string()
         .nullable()
-        .optional()
         .describe("ISO timestamp or relative duration '+20m', '+1h', '+2d' (for type 'one-shot')"),
-      description: z.string().nullable().optional().describe("Task description"),
+      description: z.string().nullable().describe("Task description"),
       deleteAfterRun: z
         .boolean()
         .nullable()
-        .optional()
         .describe("If true, delete the task after its first execution (useful for one-shot)"),
 
       // --- outbound notification ---
       outboundChannel: z
         .enum(["telegram", "slack", "whatsapp"])
         .nullable()
-        .optional()
         .describe("Channel to send the task output to (telegram, slack, whatsapp). Null means no notification."),
       outboundTarget: z
         .string()
         .nullable()
-        .optional()
         .describe("Recipient ID on the channel (e.g. Telegram chat ID, Slack channel ID). Required when `outboundChannel` is set."),
       keepHistory: z
         .boolean()
         .nullable()
-        .optional()
         .describe("If true, preserve conversation history across runs and allow continuing the conversation from the channel. Default: false (each run starts fresh)."),
 
       // --- update/delete/run fields ---
       taskId: z
         .string()
         .nullable()
-        .optional()
         .describe("Task ID (required for update, delete, run)"),
       enabled: z
         .boolean()
         .nullable()
-        .optional()
         .describe("Enable or disable the task (for update)"),
     }),
     execute: async (params: {
       action: "create" | "list" | "update" | "delete" | "run";
-      name?: string | null;
-      prompt?: string | null;
-      scheduleType?: "cron" | "interval" | "one-shot" | null;
-      cronExpression?: string | null;
-      timezone?: string | null;
-      everyMs?: number | null;
-      runAt?: string | null;
-      description?: string | null;
-      deleteAfterRun?: boolean | null;
-      outboundChannel?: "telegram" | "slack" | "whatsapp" | null;
-      outboundTarget?: string | null;
-      keepHistory?: boolean | null;
-      taskId?: string | null;
-      enabled?: boolean | null;
+      name: string | null;
+      prompt: string | null;
+      scheduleType: "cron" | "interval" | "one-shot" | null;
+      cronExpression: string | null;
+      timezone: string | null;
+      everyMs: number | null;
+      runAt: string | null;
+      description: string | null;
+      deleteAfterRun: boolean | null;
+      outboundChannel: "telegram" | "slack" | "whatsapp" | null;
+      outboundTarget: string | null;
+      keepHistory: boolean | null;
+      taskId: string | null;
+      enabled: boolean | null;
     }) => {
       try {
         switch (params.action) {
@@ -232,14 +220,14 @@ registerTool({
             const updateData: scheduledTaskStore.UpdateTaskInput = {};
             if (params.name) updateData.name = params.name;
             if (params.prompt) updateData.prompt = params.prompt;
-            if (params.description !== undefined) updateData.description = params.description ?? undefined;
-            if (params.enabled !== undefined && params.enabled !== null) updateData.enabled = params.enabled;
-            if (params.deleteAfterRun !== undefined && params.deleteAfterRun !== null) {
+            if (params.description != null) updateData.description = params.description;
+            if (params.enabled != null) updateData.enabled = params.enabled;
+            if (params.deleteAfterRun != null) {
               updateData.deleteAfterRun = params.deleteAfterRun;
             }
-            if (params.outboundChannel !== undefined) updateData.outboundChannel = params.outboundChannel;
-            if (params.outboundTarget !== undefined) updateData.outboundTarget = params.outboundTarget;
-            if (params.keepHistory !== undefined && params.keepHistory !== null) updateData.keepHistory = params.keepHistory;
+            if (params.outboundChannel != null) updateData.outboundChannel = params.outboundChannel;
+            if (params.outboundTarget != null) updateData.outboundTarget = params.outboundTarget;
+            if (params.keepHistory != null) updateData.keepHistory = params.keepHistory;
 
             // Rebuild schedule if any schedule field is provided
             if (params.scheduleType) {

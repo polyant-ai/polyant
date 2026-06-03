@@ -164,9 +164,8 @@ describe("supervise", () => {
 
     expect(result).toEqual(expect.objectContaining({
       text: "Hello from supervisor",
-      // SupervisorOutput.toolCalls is derived from ChatResponse.steps:
-      // empty steps → undefined toolCalls (matches previous flat-array semantics).
-      toolCalls: undefined,
+      // Empty multi-step trace: no tools were used in this run.
+      steps: [],
       usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
       durationMs: 1234,
     }));
@@ -490,8 +489,8 @@ describe("superviseStream", () => {
 
     expect(output).toEqual(expect.objectContaining({
       text: "Hello from supervisor",
-      // Empty steps → undefined toolCalls (matches the legacy flat-array semantics).
-      toolCalls: undefined,
+      // Empty multi-step trace: no tools were used in this run.
+      steps: [],
       usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
       durationMs: 1234,
     }));

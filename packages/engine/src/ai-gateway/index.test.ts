@@ -64,6 +64,7 @@ function makeChatResponse(overrides = {}) {
     durationMs: 500,
     model: "gpt-4o",
     provider: "openai",
+    steps: [],
     toolCalls: [],
     ...overrides,
   };
@@ -118,6 +119,8 @@ describe("AI Gateway", () => {
         100, 50, 150,
         expect.any(Number),
         500,
+        expect.any(Number),
+        expect.any(Number),
         "conv-1", "user-1",
         undefined, // callType defaults to undefined when not specified
       );
@@ -133,6 +136,8 @@ describe("AI Gateway", () => {
         100, 50, 150,
         expect.any(Number),
         500,
+        expect.any(Number),
+        expect.any(Number),
         "conv-1", "inst-1",
         "service",
       );
@@ -238,6 +243,8 @@ describe("AI Gateway", () => {
         100, 50, 150,
         expect.any(Number),
         500,
+        expect.any(Number),
+        expect.any(Number),
         "conv-1", "inst-1",
         "service",
       );

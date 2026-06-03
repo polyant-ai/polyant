@@ -139,7 +139,7 @@ describe("Tool schemas — OpenAI strict-mode compatibility", () => {
   // These are real bugs in the tool definitions, NOT in this guard-rail. They
   // are out of scope for the activity-stream wire-up commit; re-enable once the
   // tool schemas are fixed in a dedicated follow-up.
-  it.skip("every registered tool produces a strict-mode-valid JSON schema", () => {
+  it("every registered tool produces a strict-mode-valid JSON schema", () => {
     const violations: string[] = [];
     const ctx = stubCtx();
     let checked = 0;

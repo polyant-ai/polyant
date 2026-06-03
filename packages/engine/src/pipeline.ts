@@ -17,7 +17,7 @@ import { generateConversationTitle } from "./utils/title-generator.js";
 import { resolveInstanceConfig, type InstanceConfig } from "./instances/config-resolver.js";
 import { traceStore } from "./analytics/trace.store.js";
 import { uploadAttachment, isPlatformStorageConfigured } from "./attachments/platform-storage.js";
-import type { AttachmentMeta } from "./conversations/schema.js";
+import type { AttachmentMeta, StepDetail, ReasoningDetail } from "./conversations/schema.js";
 import type { AgentCallMetadata, Attachment, IncomingMessage } from "./channels/types.js";
 import type { ToolCallTrace } from "./analytics/traces.schema.js";
 import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
@@ -243,7 +243,9 @@ export interface AfterResponseOptions {
   instanceId: string;
   userMessage: string;
   assistantResponse: string;
-  steps?: unknown[];
+  steps?: StepDetail[];
+  /** Aggregated message-level reasoning (Anthropic signed blocks, OpenAI summary). */
+  reasoning?: ReasoningDetail[];
   existingSummary?: string;
   /** When true, the sliding window overflowed — generate/update summary. */
   needsSummaryUpdate?: boolean;
@@ -305,7 +307,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
 
     // 1. Save assistant message to PostgreSQL
     await conversationStore.appendMessages(opts.conversationId, [
-      { role: "assistant", content: opts.assistantResponse, steps: opts.steps },
+      { role: "assistant", content: opts.assistantResponse, steps: opts.steps, reasoning: opts.reasoning },
     ]);
 
     // 1.5 Generate title (only once, after first exchange)
@@ -400,7 +402,9 @@ export interface PipelinePostOptions {
   messageText: string;
   channel: string;
   resultText: string;
-  steps?: unknown[];
+  steps?: StepDetail[];
+  /** Message-level reasoning from supervisor. */
+  reasoning?: ReasoningDetail[];
   toolCallTraces?: ToolCallTrace[];
   usage: { promptTokens: number; completionTokens: number };
   durationMs: number;
@@ -458,6 +462,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     userMessage: opts.messageText,
     assistantResponse: finalText,
     steps: opts.steps,
+    reasoning: opts.reasoning,
     existingSummary: ctx.conversationSummary,
     needsSummaryUpdate: ctx.hasOverflow,
     droppedMessages: ctx.droppedMessages,
