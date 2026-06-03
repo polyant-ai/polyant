@@ -48,5 +48,6 @@ export default defineConfig({
   dbCredentials: {
     url: process.env.DATABASE_URL ??
       `postgresql://${process.env.POSTGRES_USER ?? "polyant"}:${process.env.POSTGRES_PASSWORD ?? ""}@${process.env.POSTGRES_HOST ?? "localhost"}:${process.env.POSTGRES_PORT ?? "5432"}/${process.env.POSTGRES_DB ?? "polyant"}`,
+    ssl: process.env.POSTGRES_SSL === "true" ? { rejectUnauthorized: false } : false,
   },
 });

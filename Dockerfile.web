@@ -1,0 +1,32 @@
+# ── Stage 1: Install dependencies ──────────────────────────────
+FROM node:22-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages/web/package.json packages/web/
+# Create minimal engine package.json for workspace resolution
+RUN mkdir -p packages/engine && echo '{"name":"@polyant/engine","version":"0.1.0","private":true}' > packages/engine/package.json
+RUN npm ci --workspace=@polyant/web --include-workspace-root
+
+# ── Stage 2: Build ─────────────────────────────────────────────
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json package-lock.json ./
+COPY packages/web/ packages/web/
+
+# NEXT_PUBLIC_API_URL must be empty at build time for relative paths
+ENV NEXT_PUBLIC_API_URL=""
+RUN npm run build -w @polyant/web
+
+# ── Stage 3: Runtime ───────────────────────────────────────────
+FROM node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Copy Next.js standalone output
+COPY --from=build /app/packages/web/.next/standalone ./
+COPY --from=build /app/packages/web/.next/static ./packages/web/.next/static
+
+EXPOSE 3000
+
+CMD ["node", "packages/web/server.js"]

@@ -6,6 +6,7 @@ import { config } from "../config.js";
 
 const queryClient = postgres(config.postgres.databaseUrl, {
   connection: { TimeZone: "UTC" },
+  ssl: config.postgres.ssl ? { rejectUnauthorized: false } : false,
 });
 
 export const db = drizzle(queryClient);

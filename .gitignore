@@ -38,3 +38,9 @@ packages/engine/scripts/eval-loop/**/*.md
 # Local Claude Code settings (may contain session tokens or machine-specific permissions)
 .claude/settings.local.json
 
+# CDK
+infra/config.yaml
+infra/cdk.out/
+infra/cdk.context.json
+infra/node_modules/
+infra/dist/

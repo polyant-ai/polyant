@@ -34,7 +34,7 @@ export class RoleGuard implements CanActivate {
       // AuthGuard should have rejected already; defensive guard.
       throw new ForbiddenException("Authentication required");
     }
-    if (!required.includes(user.role)) {
+    if (!user.role || !required.includes(user.role)) {
       throw new ForbiddenException("Insufficient role");
     }
     return true;
