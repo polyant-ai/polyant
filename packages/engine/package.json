@@ -54,7 +54,7 @@
     "grammy": "^1.40.0",
     "helmet": "^8.1.0",
     "jose": "^6.2.2",
-    "langsmith": "^0.7.2",
+    "langsmith": "^0.7.3",
     "markdown-it": "^14.1.1",
     "postgres": "^3.4.0",
     "puppeteer": "^24.43.1",
