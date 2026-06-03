@@ -14,14 +14,14 @@ export function ActivityTicker() {
       aria-live="polite"
       aria-atomic="true"
       className="bg-muted/40 relative h-8 w-full max-w-2xl overflow-hidden rounded-full border"
-      style={{ boxShadow: "0 0 18px -8px rgba(241,96,52,0.4)" }}
+      style={{ boxShadow: "0 0 18px -8px rgba(200,242,62,0.4)" }}
     >
       <div
         aria-hidden
         className="animate-shimmer pointer-events-none absolute inset-0 rounded-full"
         style={{
           background:
-            "linear-gradient(90deg, transparent 0%, rgba(241,96,52,0.12) 50%, transparent 100%)",
+            "linear-gradient(90deg, transparent 0%, rgba(200,242,62,0.12) 50%, transparent 100%)",
           backgroundSize: "200% 100%",
         }}
       />
