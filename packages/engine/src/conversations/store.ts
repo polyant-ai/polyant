@@ -3,7 +3,7 @@
 import { eq, desc, asc, sql, count, inArray } from "drizzle-orm";
 import type { CoreMessage } from "ai";
 import { db } from "../database/client.js";
-import { conversations, conversationMessages, type AttachmentMeta } from "./schema.js";
+import { conversations, conversationMessages, type AttachmentMeta, type ReasoningDetail, type StepDetail } from "./schema.js";
 import { pipelineTraces } from "../analytics/traces.schema.js";
 import { aiLogs } from "../ai-gateway/logger.js";
 import { toolAuditLogs } from "../audit/audit.schema.js";
@@ -11,8 +11,10 @@ import { toolAuditLogs } from "../audit/audit.schema.js";
 export interface MessageRow {
   role: string;
   content: string;
-  steps?: unknown[] | null;
-  reasoning?: unknown[] | null;
+  /** Per-step breakdown of a multi-step assistant turn. NULL for user/system rows. */
+  steps?: StepDetail[] | null;
+  /** Aggregated reasoning at the message level. NULL when not produced/persisted. */
+  reasoning?: ReasoningDetail[] | null;
   createdAt: Date | null;
 }
 
@@ -75,8 +77,10 @@ export interface MessageDetail {
   id: string;
   role: string;
   content: string;
-  steps: unknown[] | null;
-  reasoning: unknown[] | null;
+  /** Per-step multi-step trace (replaces the legacy `toolCalls` flat array). */
+  steps: StepDetail[] | null;
+  /** Message-level reasoning (signed thinking blocks for Anthropic, summaries for OpenAI). */
+  reasoning: ReasoningDetail[] | null;
   attachments: AttachmentMeta[] | null;
   metadata: Record<string, unknown> | null;
   createdAt: Date | null;
@@ -245,8 +249,8 @@ export class ConversationStore {
     messages: Array<{
       role: string;
       content: string;
-      steps?: unknown[];
-      reasoning?: unknown[];
+      steps?: StepDetail[];
+      reasoning?: ReasoningDetail[];
       attachments?: AttachmentMeta[];
       metadata?: Record<string, unknown>;
     }>,
@@ -260,17 +264,21 @@ export class ConversationStore {
         // Postgres `text` rejects NUL bytes; `jsonb` rejects NUL escapes
         // inside string values. Strip both before insert.
         content: stripNulString(m.content),
-        // Cast to satisfy Drizzle: the JSONB column is typed `StepDetail[]`/`ReasoningDetail[]`
-        // in schema.ts, but callers may still pass legacy unstructured arrays.
-        steps: m.steps ? (stripNulDeep(m.steps) as never) : null,
-        reasoning: m.reasoning ? (stripNulDeep(m.reasoning) as never) : null,
+        steps: m.steps ? stripNulDeep(m.steps) : null,
+        reasoning: m.reasoning ? stripNulDeep(m.reasoning) : null,
         attachments: m.attachments ? stripNulDeep(m.attachments) : null,
         metadata: m.metadata ? stripNulDeep(m.metadata) : null,
       })),
     );
   }
 
-  /** Get the most recent N messages for a conversation, ordered chronologically. */
+  /**
+   * Get the most recent N messages for a conversation, ordered chronologically.
+   *
+   * Returns CoreMessage shape for direct use by the AI gateway. Reasoning is
+   * NOT included here — Anthropic signed-block re-injection is handled by a
+   * dedicated helper that consumes raw rows via `getRecentMessageRows()`.
+   */
   async getRecentMessages(conversationId: string, limit = 15): Promise<CoreMessage[]> {
     const rows = await db
       .select({
@@ -286,6 +294,36 @@ export class ConversationStore {
     return rows.reverse().map((r) => ({
       role: r.role as "user" | "assistant" | "system",
       content: r.content,
+    }));
+  }
+
+  /**
+   * Get the most recent N messages with full reasoning + steps detail.
+   *
+   * Used by the AI gateway's reasoning-injector to rebuild Anthropic
+   * multi-turn payloads that include the previous turn's signed thinking
+   * blocks. Returns chronologically ordered rows.
+   */
+  async getRecentMessageRows(conversationId: string, limit = 15): Promise<MessageRow[]> {
+    const rows = await db
+      .select({
+        role: conversationMessages.role,
+        content: conversationMessages.content,
+        steps: conversationMessages.steps,
+        reasoning: conversationMessages.reasoning,
+        createdAt: conversationMessages.createdAt,
+      })
+      .from(conversationMessages)
+      .where(eq(conversationMessages.conversationId, conversationId))
+      .orderBy(desc(conversationMessages.createdAt))
+      .limit(limit);
+
+    return rows.reverse().map((r) => ({
+      role: r.role,
+      content: r.content,
+      steps: (r.steps as StepDetail[] | null) ?? null,
+      reasoning: (r.reasoning as ReasoningDetail[] | null) ?? null,
+      createdAt: r.createdAt ?? null,
     }));
   }
 
@@ -506,8 +544,8 @@ export class ConversationStore {
         id: r.id,
         role: r.role,
         content: r.content,
-        steps: (r.steps as unknown[] | null) ?? null,
-        reasoning: (r.reasoning as unknown[] | null) ?? null,
+        steps: (r.steps as StepDetail[] | null) ?? null,
+        reasoning: (r.reasoning as ReasoningDetail[] | null) ?? null,
         attachments: (r.attachments as AttachmentMeta[] | null) ?? null,
         metadata: (r.metadata as Record<string, unknown> | null) ?? null,
         createdAt: r.createdAt ?? null,
