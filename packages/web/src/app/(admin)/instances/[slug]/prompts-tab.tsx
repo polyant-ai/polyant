@@ -145,7 +145,7 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
                     {dirty && (
                       <span
                         aria-label={t("prompts.modified")}
-                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500"
+                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
                       />
                     )}
                   </button>
