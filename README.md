@@ -99,14 +99,32 @@ Starts PostgreSQL 16 with pgvector on port 5432.
 cp .env.example .env
 ```
 
-Set the required variables (see `.env.example` for descriptions):
+Generate the three required secrets and paste each into `.env`:
 
 ```bash
-# Generate encryption key
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+openssl rand -hex 32   # → ENCRYPTION_KEY
+openssl rand -hex 32   # → AUTH_SECRET
+openssl rand -hex 32   # → AUTH_INTERNAL_SECRET
+```
 
-# Generate auth secret
-openssl rand -base64 32
+Set an initial admin account (used for the first sign-in) in `.env`:
+
+```bash
+INITIAL_ADMIN_EMAIL=admin@example.com
+INITIAL_ADMIN_PASSWORD=choose-a-strong-password
+```
+
+The admin panel (Next.js) does not read the root `.env`. Mirror the values
+into `packages/web/.env.local`:
+
+```bash
+# packages/web/.env.local
+AUTH_SECRET=<same value as .env>
+AUTH_INTERNAL_SECRET=<same value as .env>
+AUTH_TRUST_HOST=true
+DATABASE_URL=postgresql://polyant:changeme@localhost:5432/polyant
+NEXT_PUBLIC_API_URL=http://localhost:4000
+INTERNAL_ENGINE_URL=http://localhost:4000
 ```
 
 ### 4. Run migrations and start
@@ -117,7 +135,7 @@ npm run dev          # engine on :4000
 npm run dev:web      # admin panel on :3001 (separate terminal)
 ```
 
-Open `http://localhost:3001`, create an instance, and configure your AI provider keys in the Settings tab.
+Open `http://localhost:3001`, sign in with the admin credentials from step 3, create an instance, and configure your AI provider keys in the Settings tab.
 
 ## Architecture
 
