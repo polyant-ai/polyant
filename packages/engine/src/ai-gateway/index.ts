@@ -179,7 +179,16 @@ export async function chat(
   // non-streaming callers (room-engine, webhook-engine, scheduled-tasks)
   // still feed the live activity panel. Fire-and-forget — failures are
   // swallowed by the bus emitter to keep the chat path unaffected.
-  void buildBusContext(options).then((ctx) => emitFromChatResponse(response, ctx)).catch(() => undefined);
+  //
+  // Skip the emit for:
+  //   - service-type calls (summary, title, memory extraction, webhook
+  //     matcher, internal tool sub-LLMs): they're internals, not part of
+  //     the visible turn and would surface as duplicate REPLY/tool events.
+  //   - aborted pipelines (cancel-and-restart on the message coordinator):
+  //     the cancelled run shouldn't leave events behind for the user.
+  if (options?.callType !== "service" && !request.abortSignal?.aborted) {
+    void buildBusContext(options).then((ctx) => emitFromChatResponse(response, ctx)).catch(() => undefined);
+  }
 
   return response;
 }
@@ -206,9 +215,18 @@ export async function chatStream(
 
   // Tap the fullStream so live tool-call / reasoning / step-finish events
   // flow onto the ActivityBus while the original consumer still receives
-  // every chunk unchanged. The instance metadata is fetched once per call.
-  const busCtxPromise = buildBusContext(options);
+  // every chunk unchanged. The instance metadata is fetched once per call
+  // (small, cached upstream by ttl-cache via findInstanceBySlug).
+  //
+  // Service-type calls bypass the tap entirely (same rationale as `chat()`):
+  // an internal LLM invocation must not pollute the visible turn timeline.
+  const skipBus = options?.callType === "service";
+  const busCtxPromise = skipBus ? null : buildBusContext(options);
   const tappedFullStream = (async function* tapped() {
+    if (skipBus || busCtxPromise === null) {
+      yield* stream.fullStream as AsyncIterable<unknown>;
+      return;
+    }
     const ctx = await busCtxPromise;
     yield* tapAndForwardFullStream(stream.fullStream, ctx) as AsyncIterable<unknown>;
   })();
