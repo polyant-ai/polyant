@@ -119,6 +119,17 @@ export interface ChatCallOptions {
   };
 }
 
+/** Total reasoning content size, in characters, for analytics. */
+function reasoningCharCount(response: ChatResponse): number {
+  if (!response.reasoning) return 0;
+  let n = 0;
+  for (const r of response.reasoning) {
+    if (r.type === "text") n += r.text.length;
+    else if (r.type === "redacted") n += r.data.length;
+  }
+  return n;
+}
+
 function logAndRecordUsage(
   config: { providerName: string; modelId: string },
   request: ChatRequest,
@@ -151,6 +162,8 @@ function logAndRecordUsage(
       response.usage.totalTokens,
       cost,
       response.durationMs,
+      reasoningCharCount(response),
+      response.steps.length,
       options?.conversationId,
       options?.instanceId,
       options?.callType,
