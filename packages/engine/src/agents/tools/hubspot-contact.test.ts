@@ -356,6 +356,84 @@ describe("hubspotContact", () => {
     ]);
   });
 
+  it("phone fallback recovers contacts whose stored value diverges in country-code", async () => {
+    // Real-world case: a contact saved in HubSpot missing the IT country code
+    // (10 digits) while the caller passes the "normalized" full number. EQ
+    // filters miss; the CONTAINS_TOKEN fallback on the last 10 digits hits
+    // hs_searchable_calculated_phone_number.
+    const tool = buildTool(def, ctxWithKey) as any;
+
+    mockFetch
+      .mockResolvedValueOnce(
+        createMockResponse(JSON.stringify({ total: 0, results: [] })),
+      )
+      .mockResolvedValueOnce(
+        createMockResponse(JSON.stringify({ portalId: 11111111 })),
+      );
+
+    await tool.execute(
+      {
+        action: "search",
+        contactId: null,
+        firstName: null,
+        lastName: null,
+        phone: "+390000000002",
+        email: null,
+        companyId: null,
+        name: null,
+        customProperties: null,
+        filters: null,
+      },
+      toolCtx,
+    );
+
+    const [, opts] = mockFetch.mock.calls[0];
+    const body = JSON.parse(opts.body);
+    expect(body.filterGroups).toContainEqual({
+      filters: [
+        { propertyName: "hs_searchable_calculated_phone_number", operator: "CONTAINS_TOKEN", value: "0000000002" },
+      ],
+    });
+  });
+
+  it("short phone numbers (<10 digits) do not emit the CONTAINS_TOKEN fallback", async () => {
+    // Guard: avoid overly permissive matches when the caller passes only a few
+    // digits — CONTAINS_TOKEN on 5 digits would match too many unrelated contacts.
+    const tool = buildTool(def, ctxWithKey) as any;
+
+    mockFetch
+      .mockResolvedValueOnce(
+        createMockResponse(JSON.stringify({ total: 0, results: [] })),
+      )
+      .mockResolvedValueOnce(
+        createMockResponse(JSON.stringify({ portalId: 11111111 })),
+      );
+
+    await tool.execute(
+      {
+        action: "search",
+        contactId: null,
+        firstName: null,
+        lastName: null,
+        phone: "12345",
+        email: null,
+        companyId: null,
+        name: null,
+        customProperties: null,
+        filters: null,
+      },
+      toolCtx,
+    );
+
+    const [, opts] = mockFetch.mock.calls[0];
+    const body = JSON.parse(opts.body);
+    for (const g of body.filterGroups) {
+      for (const f of g.filters) {
+        expect(f.propertyName).not.toBe("hs_searchable_calculated_phone_number");
+      }
+    }
+  });
+
   it("filters[] tolerates LLMs that omit propertyName entirely (no key at all)", async () => {
     // Real production failure on gpt-4.1-mini: the model emitted
     //   filters: [{ property: "email", operator: "EQ", value: "..." }]
