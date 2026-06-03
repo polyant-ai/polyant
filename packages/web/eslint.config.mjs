@@ -17,7 +17,9 @@ const eslintConfig = [
     },
   },
   {
-    ignores: [".next/", "node_modules/", "out/"],
+    // next-env.d.ts is a Next.js generated file (triple-slash refs, not meant to
+    // be edited) — exclude it from lint.
+    ignores: [".next/", "node_modules/", "dist/", "out/", "next-env.d.ts"],
   },
 ];
 
