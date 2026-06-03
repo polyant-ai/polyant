@@ -161,7 +161,7 @@ export default function SkillsPage() {
                   <TableCell className="font-medium truncate">
                     <Link
                       href={`/skills/${skill.name}`}
-                      className="underline underline-offset-4 hover:text-accent"
+                      className="underline underline-offset-4 hover:text-accent-strong"
                     >
                       {skill.name}
                     </Link>

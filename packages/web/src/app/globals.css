@@ -9,7 +9,7 @@
  *
  * Light: white-dominant, black primary, minimal color.
  * Dark: inverted neutral scale.
- * Accent (#F16034) reserved for highlights only.
+ * Accent (#C8F23E lime) reserved for highlights only.
  */
 
 @theme inline {
@@ -34,6 +34,7 @@
 
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-strong: var(--accent-strong);
 
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
@@ -86,8 +87,9 @@
   --muted: #F5F5F5;
   --muted-foreground: #6B6B6B;
 
-  --accent: #F16034;
-  --accent-foreground: #FFFFFF;
+  --accent: #C8F23E;
+  --accent-foreground: #000000;
+  --accent-strong: #AEDB1F;
 
   --destructive: #D32F2F;
   --destructive-foreground: #FFFFFF;
@@ -101,7 +103,7 @@
 
   /* Chart colors */
   --chart-1: #000000;
-  --chart-2: #F16034;
+  --chart-2: #C8F23E;
   --chart-3: #6B6B6B;
   --chart-4: #A0A0A0;
   --chart-5: #D4D4D4;
@@ -139,8 +141,9 @@
   --muted: #1A1A1A;
   --muted-foreground: #A0A0A0;
 
-  --accent: #F16034;
-  --accent-foreground: #FFFFFF;
+  --accent: #C8F23E;
+  --accent-foreground: #000000;
+  --accent-strong: #C8F23E;
 
   --destructive: #D32F2F;
   --destructive-foreground: #FFFFFF;
@@ -154,7 +157,7 @@
 
   /* Chart colors */
   --chart-1: #FAFAFA;
-  --chart-2: #F16034;
+  --chart-2: #C8F23E;
   --chart-3: #A0A0A0;
   --chart-4: #6B6B6B;
   --chart-5: #3A3A3A;
@@ -277,11 +280,11 @@
 @keyframes ticker-flash {
   0% {
     opacity: 1;
-    background-color: rgba(241, 96, 52, 0.2);
+    background-color: rgba(200, 242, 62, 0.2);
   }
   60% {
     opacity: 0.6;
-    background-color: rgba(241, 96, 52, 0.08);
+    background-color: rgba(200, 242, 62, 0.08);
   }
   100% {
     opacity: 0;
