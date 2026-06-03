@@ -18,6 +18,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "build:docker": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "db:generate": "tsx ../../node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "tsx src/database/migrate.ts",
@@ -36,6 +37,7 @@
     "@ai-sdk/openai": "^1.0.0",
     "@aws-sdk/client-s3": "^3.1052.0",
     "@aws-sdk/client-transcribe-streaming": "^3.1052.0",
+    "@aws-sdk/credential-providers": "^3.1052.0",
     "@nestjs/common": "^11.1.13",
     "@nestjs/core": "^11.1.13",
     "@nestjs/platform-express": "^11.1.13",
