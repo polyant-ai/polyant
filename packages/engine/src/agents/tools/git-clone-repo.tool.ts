@@ -291,10 +291,9 @@ registerTool({
       branch: z
         .string()
         .nullable()
-        .optional()
         .describe("Branch to use (default: the repo's default branch)."),
     }),
-    execute: async ({ repo, branch }: { repo: string; branch?: string | null }) => {
+    execute: async ({ repo, branch }: { repo: string; branch: string | null }) => {
       const token = ctx.secrets?.github_token;
       if (!token) {
         return { error: "GitHub token not configured for this instance." };

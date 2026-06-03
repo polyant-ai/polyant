@@ -19,7 +19,7 @@ registerTool({
       query: z.string().describe("What to search for in the knowledge base"),
       limit: z
         .number()
-        .nullish()
+        .nullable()
         .describe("Maximum number of results (default: 5)"),
     }),
     execute: async ({ query, limit }: { query: string; limit: number | null }) => {

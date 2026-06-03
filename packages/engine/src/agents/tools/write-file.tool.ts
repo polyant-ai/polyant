@@ -48,7 +48,7 @@ registerTool({
       content: z.string().describe("Text content to write (UTF-8)."),
       overwrite: z
         .boolean()
-        .nullish()
+        .nullable()
         .describe(
           "If `false`, the tool returns an error when the file already exists. Default: `true` (overwrites).",
         ),
@@ -60,7 +60,7 @@ registerTool({
     }: {
       path: string;
       content: string;
-      overwrite?: boolean | null;
+      overwrite: boolean | null;
     }) => {
       try {
         if (!ctx.conversationId) {
