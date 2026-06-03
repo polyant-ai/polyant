@@ -23,6 +23,16 @@ export interface TraceContext {
   providerName?: string;
   /** Resolved model ID (e.g. "gpt-5-mini") — used for ls_model_name metadata and cost. */
   modelId?: string;
+  /**
+   * Agent-to-agent call metadata. When present, added to the LangSmith trace
+   * so the UI can correlate caller and callee runs in the call chain.
+   */
+  agentCall?: {
+    callerSlug: string;
+    callerConversationId: string;
+    parentTraceId?: string;
+    depth: number;
+  };
 }
 
 /** In-memory cache for LangSmith clients keyed by apiKey. */
@@ -113,6 +123,14 @@ export function buildLangSmithProviderOptions(
   }
   if (context?.instanceId) {
     metadata.instance_id = context.instanceId;
+  }
+  if (context?.agentCall) {
+    metadata.caller_slug = context.agentCall.callerSlug;
+    metadata.parent_conversation_id = context.agentCall.callerConversationId;
+    metadata.agent_call_depth = String(context.agentCall.depth);
+    if (context.agentCall.parentTraceId) {
+      metadata.parent_trace_id = context.agentCall.parentTraceId;
+    }
   }
   // NOTE: ls_provider + ls_model_name intentionally omitted.
   // They trigger LangSmith's internal auto-pricing on child LLM runs,

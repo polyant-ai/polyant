@@ -177,7 +177,7 @@ export async function executeRoomCycle(
   const finalText = result.text;
 
   await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result.toolCalls },
+    { role: "assistant", content: finalText, steps: result.steps, ...(result.reasoning ? { reasoning: result.reasoning } : {}) },
   ]);
 
   // Mark events as completed

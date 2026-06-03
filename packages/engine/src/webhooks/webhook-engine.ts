@@ -180,7 +180,7 @@ export async function triggerConversation(
 
   // Persist assistant response (tool-delivered content when replyHandled, else supervisor text)
   await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result.toolCalls },
+    { role: "assistant", content: finalText, steps: result.steps, ...(result.reasoning ? { reasoning: result.reasoning } : {}) },
   ]);
 
   // Send response to the configured outbound channel — unless a tool has already

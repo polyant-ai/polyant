@@ -69,6 +69,7 @@ function resolveCallConfig(
       callType: options?.callType,
       providerName,
       modelId,
+      agentCall: options?.agentCallMetadata,
     });
     providerOptions = { ...providerOptions, langsmith: lsOptions as Record<string, unknown> };
   }

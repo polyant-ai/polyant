@@ -18,7 +18,8 @@ import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { config, DEFAULT_INSTANCE_ID } from "../../config.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { findInstanceBySlug } from "../../instances/store.js";
-import type { ChatRequest, ChatResponse, ToolCallResult } from "../../ai-gateway/types.js";
+import type { ChatRequest } from "../../ai-gateway/types.js";
+import type { ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
@@ -92,7 +93,10 @@ export interface SupervisorInput {
 
 export interface SupervisorOutput {
   text: string;
-  toolCalls?: ToolCallResult[];
+  /** Per-step multi-step trace from the underlying LLM. Empty array → single-step. */
+  steps: StepDetail[];
+  /** Aggregated reasoning details (Anthropic signed blocks, OpenAI summaries). */
+  reasoning?: ReasoningDetail[];
   usage: {
     promptTokens: number;
     completionTokens: number;
@@ -248,16 +252,6 @@ async function buildTools(opts: BuildToolsOptions) {
     }
   }
 
-  // spawnTask: meta-tool built last so the sub-agent's tool set is a
-  // point-in-time snapshot of everything else (including ask_* handoffs).
-  // Passing `{ ...tools }` ensures the sub-agent cannot see spawnTask
-  // inserted on the next line — the factory itself also strips spawnTask
-  // defensively (no self-recursion).
-  if (allEnabled || enabledNames.has("spawnTask")) {
-    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId);
-    tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);
-  }
-
   // --- agent-to-agent invocation: synthesise a tool per "agent:<targetSlug>" entry ---
   // The catalog row is managed by agent-tool-sync when the callee enables/disables
   // its `agent` channel; here we look up the target instance + its running
@@ -297,6 +291,16 @@ async function buildTools(opts: BuildToolsOptions) {
         execute: synth.execute as (args: { prompt: string }) => Promise<string>,
       });
     }
+  }
+
+  // spawnTask: meta-tool built last so the sub-agent's tool set is a
+  // point-in-time snapshot of everything else (including ask_* handoffs).
+  // Passing `{ ...tools }` ensures the sub-agent cannot see spawnTask
+  // inserted on the next line — the factory itself also strips spawnTask
+  // defensively (no self-recursion).
+  if (allEnabled || enabledNames.has("spawnTask")) {
+    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId);
+    tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);
   }
 
   return tools;
@@ -419,6 +423,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
     {
       conversationId: input.conversationId,
       instanceId: ctx.instanceId,
+      agentCallMetadata: input.agentCallMetadata,
     }
   );
 
@@ -439,7 +444,8 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
       pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
       return {
         text: response.text,
-        toolCalls: flattenChatResponseToolCalls(response),
+        steps: response.steps,
+        ...(response.reasoning ? { reasoning: response.reasoning } : {}),
         usage: response.usage,
         durationMs: response.durationMs,
         toolBuildingMs: ctx.toolBuildingMs,
@@ -450,31 +456,6 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
       };
     }),
   };
-}
-
-/**
- * Derive the legacy flat ToolCallResult[] shape from the new ChatResponse.steps[]
- * so existing pipeline/room/webhook callers keep working without per-callsite
- * refactor. Returns `undefined` when no tool calls happened (matches the
- * previous semantics).
- */
-function flattenChatResponseToolCalls(
-  response: ChatResponse,
-): ToolCallResult[] | undefined {
-  const toolResults = new Map<string, unknown>();
-  for (const step of response.steps) {
-    for (const tr of step.toolResults ?? []) {
-      toolResults.set(tr.toolCallId, tr.result);
-    }
-  }
-  const flat: ToolCallResult[] = response.steps.flatMap((step) =>
-    step.toolCalls.map((tc) => ({
-      toolName: tc.toolName,
-      args: tc.args as Record<string, unknown>,
-      result: toolResults.get(tc.toolCallId),
-    })),
-  );
-  return flat.length > 0 ? flat : undefined;
 }
 
 export async function supervise(input: SupervisorInput): Promise<SupervisorOutput> {
@@ -497,6 +478,7 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
     {
       conversationId: input.conversationId,
       instanceId: ctx.instanceId,
+      agentCallMetadata: input.agentCallMetadata,
     }
   );
 
@@ -504,7 +486,8 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
 
   return {
     text: response.text,
-    toolCalls: flattenChatResponseToolCalls(response),
+    steps: response.steps,
+    ...(response.reasoning ? { reasoning: response.reasoning } : {}),
     usage: response.usage,
     durationMs: response.durationMs,
     toolBuildingMs: ctx.toolBuildingMs,
