@@ -18,12 +18,12 @@ registerTool({
   create: (ctx) => ({
     parameters: z.object({
       eventIds: z.array(z.string()).describe("IDs of backlog events to mark as completed"),
-      notes: z.string().optional().describe("Optional notes about how the events were resolved"),
+      notes: z.string().nullable().describe("Optional notes about how the events were resolved"),
     }),
-    execute: async ({ eventIds, notes }) => {
+    execute: async ({ eventIds, notes }: { eventIds: string[]; notes: string | null }) => {
       const instanceId = await resolveInstanceId(ctx.instanceId);
       if (!instanceId) return { error: "Instance not found" };
-      await markEventsCompleted(eventIds, notes, instanceId);
+      await markEventsCompleted(eventIds, notes ?? undefined, instanceId);
       return { success: true, completedCount: eventIds.length };
     },
   }),
