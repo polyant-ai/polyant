@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
+import { buildSteps, aggregateReasoning } from "./base.js";
 
 // safeTokens and aggregateStepUsage are not exported, so we test them
 // indirectly by re-implementing the same logic in a testable way.
@@ -129,5 +130,143 @@ describe("aggregateStepUsage", () => {
     const result = aggregateStepUsage(steps);
     expect(result.promptTokens).toBe(500);
     expect(result.completionTokens).toBe(200);
+  });
+});
+
+describe("buildSteps", () => {
+  it("returns empty array when no SDK steps", () => {
+    expect(buildSteps([], 100)).toEqual([]);
+  });
+
+  it("maps SDK fields into StepDetail with proportional duration", () => {
+    const steps = buildSteps(
+      [
+        {
+          stepType: "initial",
+          text: "intermediate",
+          toolCalls: [{ toolCallId: "c1", toolName: "search", args: { q: "x" } }],
+          toolResults: [{ toolCallId: "c1", result: "ok" }],
+          finishReason: "tool-calls",
+          usage: { promptTokens: 10, completionTokens: 5 },
+        },
+        {
+          stepType: "continue",
+          text: "final",
+          toolCalls: [],
+          finishReason: "stop",
+          usage: { promptTokens: 0, completionTokens: 20 },
+        },
+      ],
+      400,
+    );
+
+    expect(steps).toHaveLength(2);
+    expect(steps[0]).toMatchObject({
+      index: 0,
+      stepType: "initial",
+      text: "intermediate",
+      finishReason: "tool-calls",
+      durationMs: 200,
+      promptTokens: 10,
+      completionTokens: 5,
+    });
+    expect(steps[0].toolCalls).toEqual([
+      { toolCallId: "c1", toolName: "search", args: { q: "x" } },
+    ]);
+    expect(steps[0].toolResults).toEqual([{ toolCallId: "c1", result: "ok" }]);
+    expect(steps[1]).toMatchObject({
+      index: 1,
+      stepType: "continue",
+      text: "final",
+      finishReason: "stop",
+      durationMs: 200,
+    });
+    expect(steps[1].toolCalls).toEqual([]);
+    expect(steps[1].toolResults).toBeUndefined();
+  });
+
+  it("normalises reasoningDetails per step (text+signature, redacted, drops unknowns)", () => {
+    const steps = buildSteps(
+      [
+        {
+          stepType: "initial",
+          text: "x",
+          toolCalls: [],
+          finishReason: "stop",
+          reasoningDetails: [
+            { type: "text", text: "th1", signature: "s1" },
+            { type: "text", text: "th2" },
+            { type: "redacted", data: "blob" },
+            { type: "unknown", text: "ignored" },
+          ],
+        },
+      ],
+      100,
+    );
+    expect(steps[0].reasoning).toEqual([
+      { type: "text", text: "th1", signature: "s1" },
+      { type: "text", text: "th2" },
+      { type: "redacted", data: "blob" },
+    ]);
+  });
+
+  it("defaults missing optional fields to safe values", () => {
+    const steps = buildSteps([{}], 100);
+    expect(steps[0]).toMatchObject({
+      index: 0,
+      stepType: "initial",
+      text: "",
+      toolCalls: [],
+      finishReason: "stop",
+      durationMs: 100,
+    });
+    expect(steps[0].reasoning).toBeUndefined();
+    expect(steps[0].toolResults).toBeUndefined();
+  });
+});
+
+describe("aggregateReasoning", () => {
+  it("returns undefined when no step has reasoning", () => {
+    expect(aggregateReasoning([])).toBeUndefined();
+    expect(
+      aggregateReasoning([
+        {
+          index: 0,
+          stepType: "initial",
+          text: "x",
+          toolCalls: [],
+          finishReason: "stop",
+          durationMs: 1,
+        },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("concatenates per-step reasoning preserving order", () => {
+    expect(
+      aggregateReasoning([
+        {
+          index: 0,
+          stepType: "initial",
+          text: "",
+          toolCalls: [],
+          finishReason: "stop",
+          durationMs: 1,
+          reasoning: [{ type: "text", text: "a" }],
+        },
+        {
+          index: 1,
+          stepType: "continue",
+          text: "",
+          toolCalls: [],
+          finishReason: "stop",
+          durationMs: 1,
+          reasoning: [{ type: "text", text: "b", signature: "s" }],
+        },
+      ]),
+    ).toEqual([
+      { type: "text", text: "a" },
+      { type: "text", text: "b", signature: "s" },
+    ]);
   });
 });
