@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { tool, type Tool } from "ai";
-import type { z } from "zod";
+import { z } from "zod";
 import { readdirSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -197,8 +197,15 @@ export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
 
   let description = def.description;
   if (def.inputExamples?.length) {
+    // Examples are illustrative subsets — they intentionally omit fields not
+    // relevant to the action they demonstrate. Validate them against the
+    // partial schema so missing-but-nullable fields don't reject the example.
+    const exampleSchema =
+      "partial" in parameters && typeof (parameters as { partial?: unknown }).partial === "function"
+        ? (parameters as unknown as z.ZodObject<z.ZodRawShape>).partial()
+        : parameters;
     const valid = def.inputExamples.filter((ex) => {
-      const result = parameters.safeParse(ex.input);
+      const result = exampleSchema.safeParse(ex.input);
       if (!result.success) {
         console.warn(
           `Tool "${def.name}": example "${ex.label}" failed validation:`,
@@ -228,7 +235,25 @@ export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
     }
   };
 
-  return tool({ description, parameters, execute: wrappedExecute });
+  // Schema with .nullable() on every field is required for OpenAI strict mode
+  // (gpt-5 / o-series with thinking) to keep all keys in `required`. Models
+  // that don't run in strict mode (e.g. gpt-4.1, Claude) still omit irrelevant
+  // fields, which would fail the strict schema at runtime. Wrap the schema in
+  // a preprocess that fills missing keys with `null` so non-strict models keep
+  // working without weakening the JSON schema sent to OpenAI.
+  const runtimeParameters = parameters instanceof z.ZodObject
+    ? (z.preprocess((val) => {
+        if (!val || typeof val !== "object" || Array.isArray(val)) return val;
+        const shape = (parameters as z.ZodObject<z.ZodRawShape>).shape;
+        const filled: Record<string, unknown> = { ...(val as Record<string, unknown>) };
+        for (const key of Object.keys(shape)) {
+          if (!(key in filled)) filled[key] = null;
+        }
+        return filled;
+      }, parameters) as unknown as typeof parameters)
+    : parameters;
+
+  return tool({ description, parameters: runtimeParameters, execute: wrappedExecute });
 }
 
 /**

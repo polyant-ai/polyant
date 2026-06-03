@@ -182,11 +182,13 @@ describe("registry", () => {
       buildTool(def, mockCtx);
 
       expect(aiTool).toHaveBeenCalledTimes(1);
-      // execute is wrapped by buildTool to add pipelineLog calls,
-      // so we check it's a function rather than the exact reference.
+      // - execute is wrapped by buildTool to add pipelineLog calls
+      // - parameters is wrapped in z.preprocess to fill missing fields with null
+      //   for non-strict models, so we check it's a Zod schema rather than the
+      //   exact reference.
       expect(aiTool).toHaveBeenCalledWith({
         description,
-        parameters,
+        parameters: expect.objectContaining({ safeParse: expect.any(Function) }),
         execute: expect.any(Function),
       });
     });
@@ -238,6 +240,32 @@ describe("registry", () => {
 
       expect(createSpy).toHaveBeenCalledWith(ctxWithSecrets);
       expect(createSpy.mock.calls[0][0].secrets).toEqual({ API_KEY: "sk-test-123" });
+    });
+
+    // -----------------------------------------------------------------------
+    // runtime preprocess: fill missing fields with null
+    // -----------------------------------------------------------------------
+
+    it("fills missing nullable fields with null at runtime parse", () => {
+      const name = uid("build-runtime-fill");
+      const parameters = z.object({
+        action: z.string(),
+        contactId: z.string().nullable(),
+        firstName: z.string().nullable(),
+      });
+      const def: ToolDefinition = {
+        name,
+        description: "fill missing test",
+        create: () => ({ parameters, execute: async (p) => p }),
+      };
+
+      buildTool(def, mockCtx);
+      const call = vi.mocked(aiTool).mock.calls.at(-1)![0] as { parameters: z.ZodTypeAny };
+      const result = call.parameters.safeParse({ action: "create", firstName: "Mario" });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).toEqual({ action: "create", firstName: "Mario", contactId: null });
+      }
     });
 
     // -----------------------------------------------------------------------
@@ -312,8 +340,10 @@ describe("registry", () => {
         name,
         description: "Original.",
         inputExamples: [
+          // Examples are validated against the partial schema, so missing
+          // required fields don't reject them — both inputs use type mismatches.
           { label: "Bad1", input: { num: "not-a-number" } },
-          { label: "Bad2", input: {} },
+          { label: "Bad2", input: { num: true } },
         ],
         create: () => ({ parameters, execute: async () => null }),
       };
