@@ -26,7 +26,7 @@ describe("createTaskTool", () => {
   it("returns a tool with description and parameters", () => {
     const tool = createTaskTool({});
     expect(tool.description).toBeDefined();
-    expect(tool.parameters).toBeDefined();
+    expect(tool.inputSchema).toBeDefined();
   });
 
   it("calls chat with standard tier and system prompt containing the task", async () => {
@@ -50,7 +50,7 @@ describe("createTaskTool", () => {
     });
 
     const tool = createTaskTool({ someOtherTool: {} as any });
-    const result = await tool.execute(
+    const result = await tool.execute!(
       { task: "Research the latest AI trends", label: null },
       { toolCallId: "tc-1", messages: [] } as any,
     );
@@ -74,7 +74,7 @@ describe("createTaskTool", () => {
     mockChat.mockRejectedValue(new Error("LLM timeout"));
 
     const tool = createTaskTool({});
-    const result = await tool.execute(
+    const result = await tool.execute!(
       { task: "Do something", label: null },
       { toolCallId: "tc-1", messages: [] } as any,
     );
@@ -101,7 +101,7 @@ describe("createTaskTool", () => {
       spawnTask: {} as any, // simulate the buggy case
       ask_other_agent: {} as any,
     });
-    await tool.execute(
+    await tool.execute!(
       { task: "x", label: null },
       { toolCallId: "tc-1", messages: [] } as any,
     );
@@ -123,11 +123,11 @@ describe("createTaskTool", () => {
     });
 
     const tool = createTaskTool({});
-    const result = await tool.execute(
+    const result = await tool.execute!(
       { task: "Answer simply", label: null },
       { toolCallId: "tc-1", messages: [] } as any,
     );
 
-    expect(result.toolsUsed).toEqual([]);
+    expect((result as { toolsUsed: string[] }).toolsUsed).toEqual([]);
   });
 });

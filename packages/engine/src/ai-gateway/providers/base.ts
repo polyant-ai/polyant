@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { type LanguageModelV1 } from "ai";
+import { type LanguageModel, stepCountIs } from "ai";
 import { config } from "../../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 import type { ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
 import type { ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 
-type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => LanguageModelV1;
+type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => LanguageModel;
 
 const C = { reset: "\x1b[0m", cyan: "\x1b[36m", dim: "\x1b[2m" };
 
@@ -120,6 +120,53 @@ interface SdkStep {
   reasoningDetails?: unknown[];
   finishReason?: string;
   usage?: { promptTokens?: number; completionTokens?: number };
+}
+
+/**
+ * AI SDK v5+ renamed several step/usage fields. We keep our internal SdkStep
+ * shape (args/result/promptTokens/completionTokens) stable and translate from
+ * the SDK shape here, so downstream logic (buildSteps, buildUsage) is untouched.
+ *  - toolCall.args      → toolCall.input
+ *  - toolResult.result  → toolResult.output
+ *  - usage {promptTokens,completionTokens} → {inputTokens,outputTokens}
+ *  - step.reasoningDetails / result.reasoningDetails → reasoning (array)
+ */
+function mapUsage(u: unknown): { promptTokens?: number; completionTokens?: number } {
+  if (!u || typeof u !== "object") return {};
+  const o = u as Record<string, unknown>;
+  return {
+    promptTokens: typeof o.inputTokens === "number" ? o.inputTokens : undefined,
+    completionTokens: typeof o.outputTokens === "number" ? o.outputTokens : undefined,
+  };
+}
+
+function normalizeSdkSteps(rawSteps: unknown): SdkStep[] {
+  if (!Array.isArray(rawSteps)) return [];
+  return rawSteps.map((raw): SdkStep => {
+    const s = (raw ?? {}) as Record<string, unknown>;
+    const toolCalls = Array.isArray(s.toolCalls)
+      ? (s.toolCalls as Record<string, unknown>[]).map((tc) => ({
+          toolCallId: String(tc.toolCallId ?? ""),
+          toolName: String(tc.toolName ?? ""),
+          args: tc.input,
+        }))
+      : undefined;
+    const toolResults = Array.isArray(s.toolResults)
+      ? (s.toolResults as Record<string, unknown>[]).map((tr) => ({
+          toolCallId: String(tr.toolCallId ?? ""),
+          result: tr.output,
+        }))
+      : undefined;
+    return {
+      text: typeof s.text === "string" ? s.text : undefined,
+      stepType: typeof s.stepType === "string" ? s.stepType : undefined,
+      toolCalls,
+      toolResults,
+      reasoningDetails: Array.isArray(s.reasoning) ? s.reasoning : undefined,
+      finishReason: typeof s.finishReason === "string" ? s.finishReason : undefined,
+      usage: mapUsage(s.usage),
+    };
+  });
 }
 
 /** Coerce SDK reasoningDetails (loosely typed `unknown[]`) into our ReasoningDetail[] shape. */
@@ -238,20 +285,21 @@ export function createProvider(providerName: string, createModel: ModelFactory):
         system: request.system,
         messages: request.messages,
         tools: request.tools,
-        maxSteps: request.maxSteps ?? 1,
+        stopWhen: stepCountIs(request.maxSteps ?? 1),
         abortSignal: request.abortSignal,
         ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
       });
 
-      // The SDK exposes `reasoningDetails` at the top level (across all steps).
-      // We pass it through normaliseReasoningDetails for type safety.
-      const topReasoning = (result as unknown as { reasoningDetails?: unknown[] }).reasoningDetails;
+      // v5+: per-turn reasoning blocks are exposed at the top level as `reasoning`
+      // (array). Normalised for type safety.
+      const topReasoning = (result as unknown as { reasoning?: unknown[] }).reasoning;
 
       return buildChatResponse(
         result.text,
-        result.steps as SdkStep[],
+        normalizeSdkSteps((result as unknown as { steps?: unknown }).steps),
         topReasoning,
-        result.usage,
+        // v5+: `usage` is the final step only; `totalUsage` is the cross-step total.
+        mapUsage((result as unknown as { totalUsage?: unknown }).totalUsage),
         Date.now() - start,
         modelId,
         providerName,
@@ -271,7 +319,7 @@ export function createProvider(providerName: string, createModel: ModelFactory):
         system: request.system,
         messages: request.messages,
         tools: request.tools,
-        maxSteps: request.maxSteps ?? 1,
+        stopWhen: stepCountIs(request.maxSteps ?? 1),
         abortSignal: request.abortSignal,
         ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
       });
@@ -281,16 +329,16 @@ export function createProvider(providerName: string, createModel: ModelFactory):
         fullStream: result.fullStream,
         response: (async () => {
           const finalText = await result.text;
-          const finalUsage = await result.usage;
+          // v5+: totalUsage is the cross-step total (usage = final step only).
+          const finalUsage = await (result as unknown as { totalUsage?: Promise<unknown> }).totalUsage;
           const steps = await result.steps;
-          // streamText also exposes a Promise<ReasoningDetail[]> on result.
-          const topReasoning = await (result as unknown as { reasoningDetails?: Promise<unknown[]> })
-            .reasoningDetails;
+          // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
+          const topReasoning = await (result as unknown as { reasoning?: Promise<unknown[]> }).reasoning;
           return buildChatResponse(
             finalText,
-            steps as SdkStep[],
+            normalizeSdkSteps(steps),
             topReasoning,
-            finalUsage,
+            mapUsage(finalUsage),
             Date.now() - start,
             modelId,
             providerName,

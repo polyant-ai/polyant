@@ -253,7 +253,7 @@ export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
       }, parameters) as unknown as typeof parameters)
     : parameters;
 
-  return tool({ description, parameters: runtimeParameters, execute: wrappedExecute });
+  return tool({ description, inputSchema: runtimeParameters, execute: wrappedExecute });
 }
 
 /**

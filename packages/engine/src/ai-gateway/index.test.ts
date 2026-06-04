@@ -186,15 +186,17 @@ describe("AI Gateway", () => {
       );
     });
 
-    it("does not build providerOptions when langsmith config is absent", async () => {
+    it("does not build langsmith providerOptions when langsmith config is absent (still sets openai strictJsonSchema)", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
       await chat(makeRequest());
 
       expect(buildLangSmithProviderOptions).not.toHaveBeenCalled();
+      // v6: openai always gets strictJsonSchema:false (replaces the removed
+      // factory option structuredOutputs:false). No langsmith key is added.
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({
-          providerOptions: undefined,
+          providerOptions: { openai: { strictJsonSchema: false } },
         }),
         expect.any(String),
       );

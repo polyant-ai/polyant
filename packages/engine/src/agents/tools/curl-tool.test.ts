@@ -58,7 +58,7 @@ describe("curl", () => {
 
   it("has correct description and parameter schema", () => {
     expect(curl.description).toBeDefined();
-    expect(curl.parameters).toBeDefined();
+    expect(curl.inputSchema).toBeDefined();
   });
 
   it("performs GET request and returns structured response", async () => {
