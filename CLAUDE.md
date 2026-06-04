@@ -6,7 +6,7 @@ Open-source platform for building AI assistants with long-term memory, multi-cha
 
 - **Monorepo**: npm workspaces (`packages/engine`, `packages/web`)
 - **packages/engine** (AI runtime + management API):
-  - Agent Framework: Vercel AI SDK v4 (`ai`, `@ai-sdk/openai`, `@ai-sdk/anthropic`)
+  - Agent Framework: Vercel AI SDK v6 (`ai`, `@ai-sdk/openai`, `@ai-sdk/anthropic`)
   - HTTP Server: NestJS 11 (OpenAI-compatible API + Management REST API)
   - Encryption: AES-256-GCM (Node.js crypto) for skill env vars and instance secrets
   - Database: PostgreSQL 16 with Drizzle ORM + pgvector + Full-Text Search (tsvector)
@@ -16,7 +16,7 @@ Open-source platform for building AI assistants with long-term memory, multi-cha
   - Validation: Zod
   - **Architecture patterns**: see `.claude/skills/backend-architecture/SKILL.md` for full reference (functional pipeline + NestJS bridge, tier-based AI gateway, self-registering tools, domain-oriented modules)
 - **packages/web** (admin panel):
-  - Next.js 15 (App Router)
+  - Next.js 16 (App Router)
   - React 19
   - Tailwind CSS 4 (CSS-first config, no tailwind.config)
   - shadcn/ui (new-york style, source-owned components)
@@ -161,7 +161,7 @@ polyant/                            # Monorepo root
 │           │   ├── api.ts           # API client for engine (proxied via Next.js rewrites)
 │           │   ├── auth.ts          # Auth.js v5 config (Google, Drizzle adapter, DB sessions)
 │           │   └── i18n/            # Internationalization (Italian/English)
-│           ├── middleware.ts         # Auth middleware (redirect to /login if unauthenticated)
+│           ├── proxy.ts              # Auth proxy (redirect to /login if unauthenticated; Next 16 renamed middleware→proxy)
 │           └── hooks/               # use-mobile, etc.
 ```
 
@@ -247,6 +247,7 @@ polyant/                            # Monorepo root
 ## Important Caveats
 
 - **Embeddings always use OpenAI** — the per-instance `openai_api_key` secret is required regardless of the instance's AI provider. Anthropic has no embedding API. The extraction LLM uses the configured provider via ai-gateway (tier `fast`).
+- **AI SDK v6 shape is isolated at the ai-gateway boundary** — the v6→internal mapping lives in `ai-gateway/providers/base.ts`: `normalizeSdkSteps()` maps `toolCall.input`→`args`, `toolResult.output`→`result`, `step.reasoning`→`reasoningDetails`; `mapUsage()` maps `inputTokens`/`outputTokens` (from `result.totalUsage`) → `promptTokens`/`completionTokens`. The internal types (`SdkStep`, `TokenUsage`, `StepDetail`) stay stable, so the rest of the codebase is untouched by the major bump. Other v6 renames already applied: multi-step uses `stopWhen: stepCountIs(n)` (was v4 `maxSteps`); tools declare `inputSchema` (was `parameters`); messages are typed `ModelMessage` (was `CoreMessage`); OpenAI non-strict JSON Schema is forced via `providerOptions.openai.strictJsonSchema=false` in `resolveCallConfig` (replaces the removed `createOpenAI({ compatibility })` / `structuredOutputs`)
 - **Memory extraction is conditional** on the instance's `memoryEnabled` flag. The extraction prompt includes today's date and converts relative dates to absolute. Facts are written in the same language as the conversation.
 - **No specialized sub-agents** — `spawnTask` creates ad-hoc agents; the `SubAgentDefinition` type exists for future extensions
 - **Hybrid search uses RRF** (Reciprocal Rank Fusion) to merge pgvector cosine similarity results with PostgreSQL FTS keyword results
@@ -255,6 +256,7 @@ polyant/                            # Monorepo root
 - **tsx and NestJS DI**: `tsx` (esbuild-based) does NOT support `emitDecoratorMetadata`. All NestJS constructor injection MUST use explicit `@Inject(ClassName)` — implicit type-based injection silently resolves to `undefined`
 - **drizzle-kit with ESM**: `drizzle-kit generate` (run via the bare CLI, e.g. `npx drizzle-kit generate`) fails in this repo because of an ESM resolution issue. The `npm run db:generate` script wraps the workaround (`tsx ../../node_modules/drizzle-kit/bin.cjs generate`) so contributors can just run `npm run db:generate -w @polyant/engine` — invoking the CLI directly remains broken. No snapshot files exist, so `generate` always produces full-schema migrations — write incremental migrations manually
 - **Next.js env loading**: Next.js only loads `.env` from its own package directory (`packages/web/`), NOT from the monorepo root. Auth vars (`AUTH_SECRET`, `DATABASE_URL`, `GOOGLE_*`) must be in `packages/web/.env.local` or duplicated
+- **Next 16 conventions**: the auth middleware is `packages/web/src/proxy.ts` (Next 16 renamed `middleware.ts`→`proxy.ts`; the matcher still excludes `api`/`_next`/static so proxied API + `/v1` routes are NOT gated by the web session). Web lint runs as `eslint .` (the `lint` script) against native flat config (`eslint-config-next/core-web-vitals` + `/typescript`) — `next lint` was removed in 16; the newly-tightened react-compiler rules are currently kept at `"warn"` pending a dedicated follow-up. The root `package.json` `overrides.next` MUST track the installed Next major, or next-auth pulls in a second `next` copy. Auth.js route handlers are wrapped as plain `GET`/`POST(req: NextRequest)` in `app/api/auth/[...nextauth]/route.ts` because Next 16 type-checks handlers against `RouteHandlerConfig` (dynamic `params` is now a `Promise`)
 - **Pipeline latency tracing** records per-phase timing for every user message (context prep, tool building, LLM call, total). Data is written fire-and-forget to `pipeline_traces` via a buffered `TraceStore` (flush every 10 entries or 5s). Tool call durations and streaming TTFB are also captured. Auto-tasks (Open WebUI title/summary) are excluded via `isAutoTask()` guard. The `ai_logs` table tracks individual LLM calls; `pipeline_traces` tracks end-to-end pipeline latency — they serve different purposes
 - **Room scheduler is a singleton** (`roomScheduler`) with per-room mutex via a `running` Set. Multiple rooms process in parallel, but the same room never runs concurrently. The tick uses a batch query (`countPendingByInstance`) to avoid N+1
 - **Webhook receiver always returns 200 OK** — processing is fire-and-forget. Events are dropped (not queued) if backlog cap (100) is reached. Payloads are limited to 64KB
