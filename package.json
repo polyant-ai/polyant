@@ -37,7 +37,7 @@
   },
   "overrides": {
     "path-to-regexp": "^8.4.1",
-    "next": "15.5.18",
+    "next": "^16.2.7",
     "axios": "^1.15.0",
     "langsmith": "^0.5.19"
   },
