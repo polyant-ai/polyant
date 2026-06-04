@@ -55,7 +55,7 @@ describe("hubspotCreateTask", () => {
   it("has parameters and description", () => {
     const tool = buildTool(def, ctxWithKey) as any;
     expect(tool.description).toBeDefined();
-    expect(tool.parameters).toBeDefined();
+    expect(tool.inputSchema).toBeDefined();
   });
 
   it("returns error when API key is missing", async () => {

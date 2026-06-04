@@ -7,7 +7,7 @@
 // and module-level helpers (isAutoTask, isMissingApiKeyError, MISSING_KEY_RESPONSE).
 // ---------------------------------------------------------------------------
 
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 import { config, DEFAULT_INSTANCE_ID } from "./config.js";
 import { chat } from "./ai-gateway/index.js";
 import { conversationStore } from "./conversations/index.js";
@@ -85,9 +85,9 @@ export interface PipelineContext {
   conversationSummary: string | undefined;
   contextPrompt: string | undefined;
   channelIdentity: { channel: string; channelId: string; userName?: string } | undefined;
-  history: CoreMessage[] | undefined;
+  history: ModelMessage[] | undefined;
   hasOverflow: boolean;
-  droppedMessages: CoreMessage[] | undefined;
+  droppedMessages: ModelMessage[] | undefined;
   instanceConfig: InstanceConfig;
   langsmith: { apiKey: string; project: string } | undefined;
   /** Attachments to persist alongside the user message, once the pipeline has succeeded. */
@@ -178,7 +178,7 @@ export async function preparePipeline(
 
   // Fetch history, instance config, and context prompt in parallel — all independent.
   const [conversationHistory, instanceConfig, contextPrompt] = await Promise.all([
-    conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as CoreMessage[]),
+    conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as ModelMessage[]),
     resolveInstanceConfig(instanceId),
     conversationStore.getContextPrompt(conversationId).catch(() => null).then((p) => p ?? undefined),
   ]);
@@ -191,9 +191,9 @@ export async function preparePipeline(
 
   // Sliding window: if >15 messages exist, use summary + last 10; otherwise pass all
   const hasOverflow = conversationHistory.length > 15;
-  let history: CoreMessage[] | undefined;
+  let history: ModelMessage[] | undefined;
   let conversationSummary: string | undefined;
-  let droppedMessages: CoreMessage[] | undefined;
+  let droppedMessages: ModelMessage[] | undefined;
 
   if (hasOverflow) {
     conversationSummary =
@@ -204,7 +204,7 @@ export async function preparePipeline(
     conversationSummary = undefined;
     history = conversationHistory.length > 0
       ? conversationHistory
-      : (msg.metadata?.conversationHistory as CoreMessage[] | undefined);
+      : (msg.metadata?.conversationHistory as ModelMessage[] | undefined);
   }
 
   const langsmith = buildLangsmithConfig(instanceConfig);
@@ -250,7 +250,7 @@ export interface AfterResponseOptions {
   /** When true, the sliding window overflowed — generate/update summary. */
   needsSummaryUpdate?: boolean;
   /** Messages that fell outside the retained window (to be summarized). */
-  droppedMessages?: CoreMessage[];
+  droppedMessages?: ModelMessage[];
   memoryEnabled?: boolean;
   provider?: string;
   apiKeys?: InstanceConfig["apiKeys"];
