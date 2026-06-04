@@ -6,7 +6,10 @@ import { authConfig } from "@/lib/auth.config";
 export default NextAuth(authConfig).auth;
 
 export const config = {
+  // Mirrors the former middleware.ts matcher (Next 16 renamed middleware→proxy):
+  // exclude `api` (and `/v1` completion) so proxied/API routes are NOT gated by
+  // the web session, plus static assets and any path with a file extension.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|icon.svg).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.).*)",
   ],
 };
