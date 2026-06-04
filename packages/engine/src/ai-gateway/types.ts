@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { CoreMessage, Tool } from "ai";
+import type { ModelMessage, Tool } from "ai";
 import type { ReasoningDetail, StepDetail } from "../conversations/schema.js";
 
 export type ModelTier = "fast" | "standard" | "heavy";
@@ -12,7 +12,7 @@ export interface ChatRequest {
   /** Override tier-resolved model with a specific model ID. */
   model?: string;
   thinking?: boolean;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
   tools?: Record<string, Tool>;
   maxSteps?: number;
   system?: string;

@@ -49,7 +49,7 @@ describe("hubspotContact", () => {
   it("has parameters and description", () => {
     const tool = buildTool(def, ctxWithKey) as any;
     expect(tool.description).toBeDefined();
-    expect(tool.parameters).toBeDefined();
+    expect(tool.inputSchema).toBeDefined();
   });
 
   it("writes customProperties to HubSpot on create", async () => {
@@ -204,7 +204,7 @@ describe("hubspotContact", () => {
       limit: null,
       after: null,
     };
-    const parsed = (tool.parameters as { parse: (v: unknown) => unknown }).parse(rawArgs);
+    const parsed = (tool.inputSchema as { parse: (v: unknown) => unknown }).parse(rawArgs);
 
     const result = await tool.execute(parsed as any, toolCtx);
 
@@ -474,7 +474,7 @@ describe("hubspotContact", () => {
       limit: null,
       after: null,
     };
-    const parsed = (tool.parameters as { parse: (v: unknown) => unknown }).parse(rawArgs);
+    const parsed = (tool.inputSchema as { parse: (v: unknown) => unknown }).parse(rawArgs);
 
     const result = await tool.execute(parsed as any, toolCtx);
 
@@ -520,7 +520,7 @@ describe("hubspotContact", () => {
       limit: null,
       after: null,
     };
-    const parsed = (tool.parameters as { parse: (v: unknown) => unknown }).parse(rawArgs);
+    const parsed = (tool.inputSchema as { parse: (v: unknown) => unknown }).parse(rawArgs);
 
     const result = await tool.execute(parsed as any, toolCtx);
 

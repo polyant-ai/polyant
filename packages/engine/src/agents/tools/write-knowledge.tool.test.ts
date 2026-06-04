@@ -53,7 +53,7 @@ describe("writeKnowledge tool", () => {
   it("registers with correct metadata", () => {
     expect(def.name).toBe("writeKnowledge");
     expect(def.category).toBe("knowledge");
-    expect(writeKnowledge.parameters).toBeDefined();
+    expect(writeKnowledge.inputSchema).toBeDefined();
   });
 
   it("calls upsertAgentDocument for action='write' and schedules reindex", async () => {

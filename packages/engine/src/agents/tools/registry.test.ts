@@ -183,12 +183,12 @@ describe("registry", () => {
 
       expect(aiTool).toHaveBeenCalledTimes(1);
       // - execute is wrapped by buildTool to add pipelineLog calls
-      // - parameters is wrapped in z.preprocess to fill missing fields with null
+      // - inputSchema is wrapped in z.preprocess to fill missing fields with null
       //   for non-strict models, so we check it's a Zod schema rather than the
       //   exact reference.
       expect(aiTool).toHaveBeenCalledWith({
         description,
-        parameters: expect.objectContaining({ safeParse: expect.any(Function) }),
+        inputSchema: expect.objectContaining({ safeParse: expect.any(Function) }),
         execute: expect.any(Function),
       });
     });
@@ -260,8 +260,8 @@ describe("registry", () => {
       };
 
       buildTool(def, mockCtx);
-      const call = vi.mocked(aiTool).mock.calls.at(-1)![0] as { parameters: z.ZodTypeAny };
-      const result = call.parameters.safeParse({ action: "create", firstName: "Mario" });
+      const call = vi.mocked(aiTool).mock.calls.at(-1)![0] as { inputSchema: z.ZodTypeAny };
+      const result = call.inputSchema.safeParse({ action: "create", firstName: "Mario" });
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data).toEqual({ action: "create", firstName: "Mario", contactId: null });

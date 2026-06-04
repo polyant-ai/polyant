@@ -49,7 +49,7 @@ describe("hubspotNote", () => {
   it("has parameters and description", () => {
     const tool = buildTool(def, ctxWithKey) as any;
     expect(tool.description).toBeDefined();
-    expect(tool.parameters).toBeDefined();
+    expect(tool.inputSchema).toBeDefined();
   });
 
   describe("create", () => {

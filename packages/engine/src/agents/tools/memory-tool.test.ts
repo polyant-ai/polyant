@@ -34,7 +34,7 @@ describe("saveMemory", () => {
 
   it("returns a tool with description and parameters", () => {
     expect(saveMemory.description).toBeDefined();
-    expect(saveMemory.parameters).toBeDefined();
+    expect(saveMemory.inputSchema).toBeDefined();
   });
 
   it("calls generateEmbedding and upsertMemory with correct args", async () => {

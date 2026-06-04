@@ -13,12 +13,12 @@
  * content is summary-only and not part of the conversation context.
  *
  * Inputs are persisted message rows from `getRecentMessageRows()`; output is
- * a `CoreMessage[]` ready to pass to the AI SDK. Rows for `user` and
+ * a `ModelMessage[]` ready to pass to the AI SDK. Rows for `user` and
  * `system` are returned unchanged. Assistant rows without reasoning are
- * returned as plain-text CoreMessages.
+ * returned as plain-text ModelMessages.
  */
 
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 import type { MessageRow } from "../conversations/store.js";
 import type { ReasoningDetail } from "../conversations/schema.js";
 
@@ -46,7 +46,7 @@ function pickSignedThinking(reasoning: unknown[] | null | undefined): AnthropicT
 }
 
 /**
- * Convert persisted message rows into `CoreMessage[]` ready for the AI gateway.
+ * Convert persisted message rows into `ModelMessage[]` ready for the AI gateway.
  *
  * @param rows Chronologically ordered message rows (from `getRecentMessageRows`).
  * @param provider Provider name ("anthropic" enables thinking-block re-injection).
@@ -57,10 +57,10 @@ export function buildMessagesWithReasoning(
   rows: MessageRow[],
   provider: string,
   thinking: boolean,
-): CoreMessage[] {
+): ModelMessage[] {
   const shouldInject = provider === "anthropic" && thinking;
 
-  return rows.map((row): CoreMessage => {
+  return rows.map((row): ModelMessage => {
     if (row.role !== "assistant" || !shouldInject) {
       return {
         role: row.role as "user" | "assistant" | "system",
@@ -74,7 +74,7 @@ export function buildMessagesWithReasoning(
     }
 
     // Multipart content: thinking blocks first, then the assistant text.
-    // Casting through `unknown` because Vercel AI SDK's CoreMessage types do
+    // Casting through `unknown` because Vercel AI SDK's ModelMessage types do
     // not formally include the Anthropic-specific `thinking` part — the SDK
     // forwards it verbatim, which is the documented integration path.
     const parts: (AnthropicThinkingPart | AnthropicTextPart)[] = [
@@ -84,6 +84,6 @@ export function buildMessagesWithReasoning(
     return {
       role: "assistant",
       content: parts,
-    } as unknown as CoreMessage;
+    } as unknown as ModelMessage;
   });
 }

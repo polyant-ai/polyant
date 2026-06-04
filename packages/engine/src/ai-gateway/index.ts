@@ -98,6 +98,20 @@ function resolveCallConfig(
     }
   }
 
+  // v6: OpenAI's `strictJsonSchema` defaults to true; our tools use Zod
+  // .nullish()/.optional() schemas (incompatible with strict mode). v4 disabled
+  // this via the now-removed factory option `structuredOutputs:false` — we opt
+  // out per call here so non-strict tool schemas keep validating.
+  if (providerName === "openai") {
+    providerOptions = {
+      ...providerOptions,
+      openai: {
+        ...(providerOptions?.openai ?? {}),
+        strictJsonSchema: false,
+      } as Record<string, unknown>,
+    };
+  }
+
   return { provider, providerName, modelId, providerOptions };
 }
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { CoreMessage, Tool, UserContent } from "ai";
+import type { ModelMessage, Tool, UserContent } from "ai";
 import { tool as aiTool } from "ai";
 import { chat, chatStream, type ChatCallOptions } from "../../ai-gateway/index.js";
 import {
@@ -27,7 +27,7 @@ import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
 
 export interface SupervisorInput {
   message: string;
-  conversationHistory?: CoreMessage[];
+  conversationHistory?: ModelMessage[];
   instanceId?: string;
   conversationId?: string;
   conversationSummary?: string;
@@ -153,13 +153,13 @@ function wrapToolWithAudit(
   toolCallTraces?: ToolCallTrace[],
   signals?: SupervisorSignals,
 ): Tool {
-  const original = builtTool as { description?: string; parameters: unknown; execute?: (...args: unknown[]) => Promise<unknown> };
+  const original = builtTool as { description?: string; inputSchema: unknown; execute?: (...args: unknown[]) => Promise<unknown> };
   if (!original.execute) return builtTool;
 
   const originalExecute = original.execute;
   return aiTool({
     description: original.description ?? "",
-    parameters: original.parameters as any,
+    inputSchema: original.inputSchema as never,
     execute: async (params: any) => {
       const toolStart = Date.now();
 
@@ -287,7 +287,7 @@ async function buildTools(opts: BuildToolsOptions) {
       });
       tools[synth.name] = aiTool({
         description: synth.description,
-        parameters: synth.inputSchema,
+        inputSchema: synth.inputSchema,
         execute: synth.execute as (args: { prompt: string }) => Promise<string>,
       });
     }
@@ -314,7 +314,7 @@ interface SupervisorContext {
   instanceId: string;
   tools: Record<string, Tool>;
   systemPrompt: string;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
   toolBuildingMs: number;
   toolCallTraces: ToolCallTrace[];
   signals: SupervisorSignals;
@@ -333,12 +333,12 @@ function buildUserContent(message: string, attachments?: Attachment[]): string |
     if (!att.data) continue;
     const isImage = att.type === "image" || att.mimeType?.startsWith("image/");
     if (isImage) {
-      parts.push({ type: "image" as const, image: att.data, mimeType: att.mimeType });
+      parts.push({ type: "image" as const, image: att.data, mediaType: att.mimeType });
     } else {
       parts.push({
         type: "file" as const,
         data: att.data,
-        mimeType: att.mimeType ?? "application/octet-stream",
+        mediaType: att.mimeType ?? "application/octet-stream",
       });
     }
   }
@@ -391,7 +391,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
 
   // Build user message — multimodal when attachments are present
   const userContent = buildUserContent(input.message, input.attachments);
-  const messages: CoreMessage[] = [
+  const messages: ModelMessage[] = [
     ...(input.conversationHistory ?? []),
     { role: "user", content: userContent },
   ];
