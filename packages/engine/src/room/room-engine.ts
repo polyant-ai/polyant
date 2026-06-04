@@ -147,6 +147,7 @@ export async function executeRoomCycle(
       apiKeys: instanceConfig.apiKeys,
       secrets: instanceConfig.secrets,
       memoryEnabled: instanceConfig.memoryEnabled,
+      knowledgeEnabled: instanceConfig.knowledgeEnabled,
       thinkingEnabled: instanceConfig.thinkingEnabled,
       includeHarness: new Set(["room"]),
     });
