@@ -8,10 +8,12 @@ logs/
 .DS_Store
 memory.db
 
-# Instance workspaces (runtime data, not committed).
+# Instance workspaces (runtime data + local scratch, not committed).
 # Per-conversation sandboxes live here, including cloned repos:
 # packages/engine/workspaces/{instanceId}/conversations/{convId}/.repos/
-packages/engine/workspaces/*/
+# NOTE: ignore ALL loose contents (files + dirs), not just subdirs, so local
+# scratch files (tokens, one-off scripts) can never be accidentally committed.
+packages/engine/workspaces/*
 
 # Legacy cloned-repos directory (deprecated; kept for safety against leftovers)
 packages/engine/.repos/
