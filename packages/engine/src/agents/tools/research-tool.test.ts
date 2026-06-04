@@ -28,7 +28,7 @@ describe("webSearch", () => {
 
   it("has correct parameter schema", () => {
     expect(webSearch.description).toBeDefined();
-    expect(webSearch.parameters).toBeDefined();
+    expect(webSearch.inputSchema).toBeDefined();
   });
 
   it("calls Tavily with correct parameters and maps results", async () => {

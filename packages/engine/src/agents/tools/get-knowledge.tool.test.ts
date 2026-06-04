@@ -31,7 +31,7 @@ describe("getKnowledge tool", () => {
     expect(def.name).toBe("getKnowledge");
     expect(def.category).toBe("knowledge");
     expect(getKnowledge.description).toBeDefined();
-    expect(getKnowledge.parameters).toBeDefined();
+    expect(getKnowledge.inputSchema).toBeDefined();
   });
 
   it("returns found=false when the document does not exist", async () => {

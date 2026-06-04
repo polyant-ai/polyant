@@ -40,7 +40,7 @@ describe("slackPostMessage", () => {
   it("has parameters and description", () => {
     const tool = buildTool(def, ctx) as any;
     expect(tool.description).toBeDefined();
-    expect(tool.parameters).toBeDefined();
+    expect(tool.inputSchema).toBeDefined();
   });
 
   it("posts to a channel by '#name'", async () => {

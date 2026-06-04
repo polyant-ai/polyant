@@ -29,7 +29,7 @@ describe("searchMemory", () => {
 
   it("returns a tool with description and parameters", () => {
     expect(searchMemory.description).toBeDefined();
-    expect(searchMemory.parameters).toBeDefined();
+    expect(searchMemory.inputSchema).toBeDefined();
   });
 
   it("calls hybridSearch and maps results", async () => {

@@ -2,7 +2,7 @@
 
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 import type { MessageHandler, StreamMessageHandler, StreamOutgoingMessage } from "../../channels/types.js";
 import type {
   ChatCompletionRequest,
@@ -83,7 +83,7 @@ export class OpenAIService {
 
   private prepareRequest(request: ChatCompletionRequest): {
     text: string;
-    conversationHistory: CoreMessage[];
+    conversationHistory: ModelMessage[];
     systemMessages: Array<{ role: "system"; content: string }>;
     instanceId: string;
     channelId: string;
@@ -96,11 +96,11 @@ export class OpenAIService {
       .find((m) => m.role === "user");
     const text = lastUserMsg?.content ?? "";
 
-    // Convert previous messages to CoreMessage[] for conversation history
+    // Convert previous messages to ModelMessage[] for conversation history
     const lastUserIdx = lastUserMsg
       ? messages.lastIndexOf(lastUserMsg)
       : messages.length;
-    const conversationHistory = this.toCoreMessages(
+    const conversationHistory = this.toModelMessages(
       messages.slice(0, lastUserIdx),
     );
 
@@ -129,7 +129,7 @@ export class OpenAIService {
     return `api-${randomUUID()}`;
   }
 
-  private toCoreMessages(messages: ChatCompletionMessage[]): CoreMessage[] {
+  private toModelMessages(messages: ChatCompletionMessage[]): ModelMessage[] {
     return messages
       .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "system")
       .map((m) => ({

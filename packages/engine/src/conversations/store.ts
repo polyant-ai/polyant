@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { eq, desc, asc, sql, count, inArray } from "drizzle-orm";
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 import { db } from "../database/client.js";
 import { conversations, conversationMessages, type AttachmentMeta, type ReasoningDetail, type StepDetail } from "./schema.js";
 import { pipelineTraces } from "../analytics/traces.schema.js";
@@ -275,11 +275,11 @@ export class ConversationStore {
   /**
    * Get the most recent N messages for a conversation, ordered chronologically.
    *
-   * Returns CoreMessage shape for direct use by the AI gateway. Reasoning is
+   * Returns ModelMessage shape for direct use by the AI gateway. Reasoning is
    * NOT included here — Anthropic signed-block re-injection is handled by a
    * dedicated helper that consumes raw rows via `getRecentMessageRows()`.
    */
-  async getRecentMessages(conversationId: string, limit = 15): Promise<CoreMessage[]> {
+  async getRecentMessages(conversationId: string, limit = 15): Promise<ModelMessage[]> {
     const rows = await db
       .select({
         role: conversationMessages.role,
@@ -290,7 +290,7 @@ export class ConversationStore {
       .orderBy(desc(conversationMessages.createdAt))
       .limit(limit);
 
-    // Reverse to chronological order and map to CoreMessage
+    // Reverse to chronological order and map to ModelMessage
     return rows.reverse().map((r) => ({
       role: r.role as "user" | "assistant" | "system",
       content: r.content,

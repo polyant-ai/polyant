@@ -18,7 +18,7 @@ export const OpenAIProvider = createProvider("openai", (modelId, apiKeys) => {
   if (!apiKey) {
     throw new Error("OpenAI API key not configured for this instance. Set it in the admin panel under Settings → AI Provider API Keys.");
   }
-  const factory = createOpenAI({ apiKey, compatibility: "strict" });
+  const factory = createOpenAI({ apiKey });
 
   // Reasoning-capable models (o-series + gpt-5 family) MUST be routed through
   // the OpenAI Responses API when used with reasoning_effort + tools — the
@@ -30,15 +30,11 @@ export const OpenAIProvider = createProvider("openai", (modelId, apiKeys) => {
     return factory.responses(modelId);
   }
 
-  return factory(modelId, {
-    // Disable structuredOutputs for non-reasoning models with our tool schemas.
-    // The SDK defaults structuredOutputs=true for reasoning models, which adds
-    // strict:true to tool schemas — requiring ALL properties in `required`.
-    // Our tools use Zod .nullish()/.optional() extensively, producing schemas
-    // incompatible with OpenAI's strict mode. Disabling this lets the API
-    // validate schemas normally while keeping full tool-use support.
-    structuredOutputs: false,
-  });
+  // v6 removed the factory-level `structuredOutputs` setting and defaults
+  // `strictJsonSchema` to true. Our tools use Zod .nullish()/.optional()
+  // (incompatible with strict JSON schema), so strict mode is disabled per call
+  // via providerOptions.openai.strictJsonSchema=false (see ai-gateway index).
+  return factory(modelId);
 });
 
 /**

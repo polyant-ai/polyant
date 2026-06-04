@@ -35,7 +35,7 @@ export function createTaskTool(subAgentTools: Record<string, Tool>, apiKeys?: Ch
       "Delegate a specific task to an isolated sub-agent with separate context. " +
       "The sub-agent runs the task without knowledge of the current conversation and returns the result. " +
       "Useful for deep research, complex analysis, or tasks that require multiple autonomous steps.",
-    parameters: z.object({
+    inputSchema: z.object({
       task: z.string().describe("Detailed description of the task to perform"),
       label: z.string().nullable().optional().describe("Short label to identify the task in logs. Pass null if not needed."),
     }),
