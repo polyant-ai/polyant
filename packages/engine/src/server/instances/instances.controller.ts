@@ -31,6 +31,7 @@ import { providerConfigs, isThinkingCapable } from "../../ai-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
 /**
  * Explicit response DTO — never return the raw Drizzle entity so schema additions
@@ -109,7 +110,7 @@ export class InstancesController {
   @Get(":slug")
   async getBySlug(@Param("slug") slug: string) {
     this.validateSlug(slug);
-    const instance = await findInstanceBySlug(slug);
+    const instance = await findInstanceBySlug(asInstanceSlug(slug));
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     return { instance: toInstanceDto(instance) };
   }
@@ -119,7 +120,7 @@ export class InstancesController {
   @Get(":slug/icon")
   async getIcon(@Param("slug") slug: string, @Res() res: Response): Promise<void> {
     this.validateSlug(slug);
-    const instance = await findInstanceBySlug(slug);
+    const instance = await findInstanceBySlug(asInstanceSlug(slug));
     if (!instance || !instance.icon) {
       throw new NotFoundException(`Icon not found for instance "${slug}"`);
     }
@@ -142,7 +143,7 @@ export class InstancesController {
     // A pre-select + insert would introduce a TOCTOU race window.
     let instance: Instance;
     try {
-      instance = await createInstance(body);
+      instance = await createInstance({ ...body, slug: asInstanceSlug(body.slug) });
     } catch (err: unknown) {
       if (isUniqueViolation(err)) {
         throw new ConflictException(`Slug "${body.slug}" already exists`);
@@ -179,9 +180,9 @@ export class InstancesController {
   ) {
     this.validateSlug(slug);
     this.validateModelConfig(body.provider, body.model);
-    const instance = await updateInstance(slug, body);
+    const instance = await updateInstance(asInstanceSlug(slug), body);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    invalidateInstanceConfigCache(slug);
+    invalidateInstanceConfigCache(asInstanceSlug(slug));
     return { instance: toInstanceDto(instance) };
   }
 
@@ -201,7 +202,7 @@ export class InstancesController {
       // treated as part of the format string (CodeQL js/tainted-format-string).
       console.error("[instances] failed to stop channels for instance:", slug, err);
     }
-    const deleted = await deleteInstance(slug);
+    const deleted = await deleteInstance(asInstanceSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
     // deleteInstance() runs in a transaction: it explicitly removes operational
     // data keyed by slug (conversations, messages, memories, knowledge base,
@@ -216,7 +217,7 @@ export class InstancesController {
     this.validateSlug(slug);
     if (!body.icon) throw new BadRequestException("icon is required");
     validateIconDataUri(body.icon);
-    const instance = await updateInstance(slug, { icon: body.icon });
+    const instance = await updateInstance(asInstanceSlug(slug), { icon: body.icon });
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     return { instance: toInstanceDto(instance) };
   }
@@ -225,7 +226,7 @@ export class InstancesController {
   @Delete(":slug/icon")
   async removeIcon(@Param("slug") slug: string) {
     this.validateSlug(slug);
-    const instance = await updateInstance(slug, { icon: null });
+    const instance = await updateInstance(asInstanceSlug(slug), { icon: null });
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     return { instance: toInstanceDto(instance) };
   }

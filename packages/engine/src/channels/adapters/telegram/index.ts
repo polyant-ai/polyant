@@ -6,6 +6,7 @@ import { CHANNEL_MAX_LENGTH } from "../../types.js";
 import { toTelegramMarkdownV2 } from "./markdown-v2.js";
 import { splitMessage } from "../../split-message.js";
 import { transcribeAudio } from "../../audio-transcription.js";
+import type { InstanceSlug } from "../../../instances/identifiers.js";
 
 export interface TelegramConfig {
   botToken: string;
@@ -17,7 +18,7 @@ export class TelegramAdapter implements ChannelAdapter {
   private bot: Bot | null = null;
 
   constructor(
-    private readonly instanceId: string,
+    private readonly instanceId: InstanceSlug,
     private readonly cfg: TelegramConfig,
   ) {}
 

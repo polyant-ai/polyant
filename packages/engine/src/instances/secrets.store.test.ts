@@ -83,12 +83,13 @@ import {
   listSecretKeys,
   deleteSecret,
 } from "./secrets.store.js";
+import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const INSTANCE_UUID = "uuid-instance-1";
-const INSTANCE_SLUG = "default";
+const INSTANCE_UUID = asInstanceUuid("uuid-instance-1");
+const INSTANCE_SLUG = asInstanceSlug("default");
 
 /** Creates a select chain that resolves the slug to the UUID.
  *  Kept as a helper for future tests; silenced to avoid an unused-warning. */
@@ -174,7 +175,7 @@ describe("instances/secrets.store", () => {
       const resolveChain = createChainMock([]);
       mockDb.select.mockReturnValue(resolveChain as any);
 
-      const result = await getSecret("nonexistent", "openai_api_key");
+      const result = await getSecret(asInstanceSlug("nonexistent"), "openai_api_key");
 
       expect(result).toBeUndefined();
       expect(mockDecrypt).not.toHaveBeenCalled();
@@ -222,7 +223,7 @@ describe("instances/secrets.store", () => {
       const resolveChain = createChainMock([]);
       mockDb.select.mockReturnValue(resolveChain as any);
 
-      const result = await getAllSecrets("nonexistent");
+      const result = await getAllSecrets(asInstanceSlug("nonexistent"));
 
       expect(result).toEqual({});
     });
@@ -300,7 +301,7 @@ describe("instances/secrets.store", () => {
       const resolveChain = createChainMock([]);
       mockDb.select.mockReturnValue(resolveChain as any);
 
-      const result = await listSecretKeys("nonexistent");
+      const result = await listSecretKeys(asInstanceSlug("nonexistent"));
 
       expect(result).toEqual([]);
     });

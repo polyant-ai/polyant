@@ -5,6 +5,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import type { z } from "zod";
 import { loadAllTools, getToolRegistry, type ToolContext } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
 // Guard-rail: every registered tool must produce a JSON schema compatible
 // with OpenAI strict-mode (Responses API /v1/responses).
@@ -29,7 +30,7 @@ const FORBIDDEN_FORMATS = new Set([
 
 function stubCtx(): ToolContext {
   return {
-    instanceId: "strict-mode-test",
+    instanceId: asInstanceSlug("strict-mode-test"),
     secrets: {
       hubspot_api_key: "test",
       slack_bot_token: "test",

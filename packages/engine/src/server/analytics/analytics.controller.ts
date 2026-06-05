@@ -10,6 +10,7 @@ import {
 import { getAnalytics } from "../../analytics/analytics.store.js";
 import { getLatencyAnalytics } from "../../analytics/latency.store.js";
 import { findInstanceBySlug } from "../../instances/store.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 import { parseDateRange } from "../utils/parse-date-range.js";
 
 @Controller("api")
@@ -35,7 +36,7 @@ export class AnalyticsController {
     @Query("from") from?: string,
     @Query("to") to?: string,
   ) {
-    const instance = await findInstanceBySlug(slug);
+    const instance = await findInstanceBySlug(asInstanceSlug(slug));
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
 
     const range = parseDateRange(from, to);

@@ -8,6 +8,7 @@ import { extractMemories } from "../memory/extractor.js";
 import { generateConversationTitle } from "../utils/title-generator.js";
 import { channelManager } from "../channels/channel-manager.js";
 import { renderTemplate } from "./template-renderer.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 import { registerTrigger } from "./active-triggers.js";
 import { setTriggerContext, clearTriggerContext } from "./trigger-context.js";
 import { webhookLog } from "./webhook-logger.js";
@@ -27,7 +28,7 @@ import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
  */
 export async function triggerConversation(
   instanceId: string,
-  instanceSlug: string,
+  instanceSlug: InstanceSlug,
   definition: EventDefinition,
   payload: Record<string, unknown>,
 ): Promise<void> {

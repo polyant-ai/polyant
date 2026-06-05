@@ -2,6 +2,7 @@
 
 import { chat } from "../ai-gateway/index.js";
 import { conversationStore } from "../conversations/index.js";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 interface GenerateTitleOptions {
   conversationId: string;
@@ -27,7 +28,7 @@ export async function generateConversationTitle(opts: GenerateTitleOptions): Pro
     langsmith: opts.langsmith ?? undefined,
     system,
     messages: [{ role: "user", content: opts.content }],
-  }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service" });
+  }, { conversationId: opts.conversationId, instanceId: asInstanceSlug(opts.instanceId), callType: "service" });
 
   const title = titleResponse.text.trim();
   if (title) {

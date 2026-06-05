@@ -5,12 +5,13 @@ import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db } from "../database/client.js";
 import { memories } from "./schema.js";
 import { config } from "../config.js";
+import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 
 // ---- Types ----
 
 export interface MemoryRecord {
   id: string;
-  instanceId: string;
+  instanceId: InstanceSlug;
   content: string;
   category: string;
   importance: number;
@@ -20,7 +21,7 @@ export interface MemoryRecord {
 }
 
 export interface InsertMemoryInput {
-  instanceId: string;
+  instanceId: InstanceSlug;
   content: string;
   category?: string;
   importance?: number;
@@ -159,7 +160,7 @@ export async function upsertMemory(input: InsertMemoryInput): Promise<UpsertResu
  */
 export async function searchByVector(
   queryEmbedding: number[],
-  instanceId: string,
+  instanceId: InstanceSlug,
   limit = 10,
 ): Promise<Array<MemoryRecord & { similarity: number }>> {
   const distance = cosineDistance(memories.embedding, queryEmbedding);
@@ -183,7 +184,7 @@ export async function searchByVector(
 
   return rows.map((r) => ({
     id: r.id,
-    instanceId: r.instanceId,
+    instanceId: asInstanceSlug(r.instanceId),
     content: r.content,
     category: r.category,
     importance: r.importance,
@@ -197,8 +198,8 @@ export async function searchByVector(
 /**
  * Get all memories for a user, ordered by most recent first.
  */
-export async function getAllMemories(instanceId: string): Promise<MemoryRecord[]> {
-  return db
+export async function getAllMemories(instanceId: InstanceSlug): Promise<MemoryRecord[]> {
+  const rows = await db
     .select({
       id: memories.id,
       instanceId: memories.instanceId,
@@ -212,13 +213,15 @@ export async function getAllMemories(instanceId: string): Promise<MemoryRecord[]
     .from(memories)
     .where(eq(memories.instanceId, instanceId))
     .orderBy(desc(memories.updatedAt));
+
+  return rows.map((r) => ({ ...r, instanceId: asInstanceSlug(r.instanceId) }));
 }
 
 /**
  * Search memories with pagination, text filtering (ILIKE), and category filtering.
  */
 export async function searchMemories(
-  instanceId: string,
+  instanceId: InstanceSlug,
   opts: { search?: string; category?: string; limit?: number; offset?: number } = {},
 ): Promise<{ memories: MemoryRecord[]; total: number }> {
   const limit = opts.limit ?? 20;
@@ -250,14 +253,17 @@ export async function searchMemories(
       .offset(offset),
   ]);
 
-  return { memories: rows, total: Number(totalRow.count) };
+  return {
+    memories: rows.map((r) => ({ ...r, instanceId: asInstanceSlug(r.instanceId) })),
+    total: Number(totalRow.count),
+  };
 }
 
 /**
  * Delete a memory by ID only if it belongs to the specified instance.
  * Returns true when a row was deleted, false when not found or owned by another instance.
  */
-export async function deleteMemoryForInstance(memoryId: string, instanceId: string): Promise<boolean> {
+export async function deleteMemoryForInstance(memoryId: string, instanceId: InstanceSlug): Promise<boolean> {
   const result = await db
     .delete(memories)
     .where(and(eq(memories.id, memoryId), eq(memories.instanceId, instanceId)))
@@ -268,6 +274,6 @@ export async function deleteMemoryForInstance(memoryId: string, instanceId: stri
 /**
  * Delete all memories for a user.
  */
-export async function deleteAllMemories(instanceId: string): Promise<void> {
+export async function deleteAllMemories(instanceId: InstanceSlug): Promise<void> {
   await db.delete(memories).where(eq(memories.instanceId, instanceId));
 }

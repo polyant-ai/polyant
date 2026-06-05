@@ -111,11 +111,12 @@ import {
   recomputeInstanceTools,
   seedInstanceTools,
 } from "./instance-tools.store.js";
+import { asInstanceUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-const INSTANCE_UUID = "uuid-instance-1";
+const INSTANCE_UUID = asInstanceUuid("uuid-instance-1");
 
 describe("instance-tools.store", () => {
   beforeEach(() => {

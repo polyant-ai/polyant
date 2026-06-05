@@ -4,6 +4,7 @@ import { Controller, Get, Query } from "@nestjs/common";
 import { listAuditLogs, getAuditStats } from "../../audit/index.js";
 import { parseDateRange } from "../utils/parse-date-range.js";
 import { parsePagination } from "../utils/parse-pagination.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
 // NOTE: `instanceId` is OPTIONAL here (unlike /memories and /api/conversations/:id
 // which need it as an IDOR scope). Audit logs are a system-wide view: a logged-in
@@ -31,7 +32,7 @@ export class AuditController {
     const { limit, offset } = parsePagination(limitStr, offsetStr);
 
     return listAuditLogs({
-      instanceId,
+      instanceId: instanceId ? asInstanceSlug(instanceId) : undefined,
       toolName,
       action,
       search,
@@ -50,7 +51,7 @@ export class AuditController {
   ) {
     const range = parseDateRange(from, to);
     return getAuditStats({
-      instanceId,
+      instanceId: instanceId ? asInstanceSlug(instanceId) : undefined,
       from: from ? range.from : undefined,
       to: to ? range.to : undefined,
     });

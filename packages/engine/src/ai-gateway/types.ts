@@ -2,6 +2,7 @@
 
 import type { ModelMessage, Tool } from "ai";
 import type { ReasoningDetail, StepDetail } from "../conversations/schema.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 
 export type ModelTier = "fast" | "standard" | "heavy";
 
@@ -87,7 +88,7 @@ export interface AILogEntry {
   /** Number of multi-step tool iterations executed by the model loop. */
   stepCount?: number;
   conversationId?: string;
-  instanceId?: string;
+  instanceId?: InstanceSlug;
   callType?: "conversation" | "service";
   createdAt?: Date;
 }

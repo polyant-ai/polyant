@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { findInstanceBySlug } from "./store.js";
+import { asInstanceSlug, type InstanceSlug } from "./identifiers.js";
 import { getAllSecretsById } from "./secrets.store.js";
 import { SECRET_KEYS } from "./secrets.store.js";
 import { TtlCache } from "../utils/ttl-cache.js";
@@ -59,7 +60,7 @@ function effectiveModelFor(provider: string | undefined, model: string | undefin
 const cache = new TtlCache<string, InstanceConfig>({ maxSize: 200, ttlMs: 30_000 });
 
 /** Invalidate cached config for a specific instance. */
-export function invalidateInstanceConfigCache(slug: string): void {
+export function invalidateInstanceConfigCache(slug: InstanceSlug): void {
   cache.delete(slug);
 }
 
@@ -72,13 +73,13 @@ export function invalidateAllInstanceConfigCache(): void {
  * Resolve full instance configuration including decrypted secrets.
  * Results are cached for 30 seconds.
  */
-export async function resolveInstanceConfig(instanceSlug: string): Promise<InstanceConfig> {
+export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise<InstanceConfig> {
   const cached = cache.get(instanceSlug);
   if (cached) {
     return cached;
   }
 
-  const instance = await findInstanceBySlug(instanceSlug);
+  const instance = await findInstanceBySlug(asInstanceSlug(instanceSlug));
   if (!instance) {
     // Return a minimal config for unknown instances
     return {

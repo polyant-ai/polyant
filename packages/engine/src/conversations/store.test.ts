@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Chain mock: each chained method returns the chain itself; awaiting resolves
@@ -346,7 +347,7 @@ describe("ConversationStore", () => {
       const insChain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(insChain as any);
 
-      await conversationStore.ensureConversation(id, "instance-1");
+      await conversationStore.ensureConversation(id, asInstanceSlug("instance-1"));
 
       expect(mockDb.insert).toHaveBeenCalled();
       // The chain should have called .values and .onConflictDoUpdate
@@ -376,7 +377,7 @@ describe("ConversationStore", () => {
       const insChain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(insChain as any);
 
-      await conversationStore.ensureConversation(id, "inst-x", {
+      await conversationStore.ensureConversation(id, asInstanceSlug("inst-x"), {
         channel: "telegram",
         userIdentifier: "user-42",
       });

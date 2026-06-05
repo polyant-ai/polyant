@@ -6,6 +6,7 @@ import { db } from "../database/client.js";
 import { instanceChannels } from "./channels.schema.js";
 import { encrypt, decrypt } from "../crypto/index.js";
 import { resolveInstanceId } from "./resolve-instance-id.js";
+import { type InstanceSlug, type InstanceUuid } from "./identifiers.js";
 
 /**
  * API-configurable channel types — narrow/closed set.
@@ -75,7 +76,7 @@ export interface ChannelConfig {
 
 /** Set or update a channel config for an instance (by UUID). */
 export async function setChannelConfig(
-  instanceId: string,
+  instanceId: InstanceUuid,
   channelType: ChannelType,
   config: Record<string, unknown>,
   enabled: boolean,
@@ -97,7 +98,7 @@ export async function setChannelConfig(
 
 /** Get a single channel config for an instance (by slug). */
 export async function getChannelConfig(
-  instanceSlug: string,
+  instanceSlug: InstanceSlug,
   channelType: ChannelType,
 ): Promise<ChannelConfig | null> {
   const instanceId = await resolveInstanceId(instanceSlug);
@@ -123,7 +124,7 @@ export async function getChannelConfig(
 }
 
 /** List all channel configs for an instance (by slug). */
-export async function listChannelConfigs(instanceSlug: string): Promise<ChannelConfig[]> {
+export async function listChannelConfigs(instanceSlug: InstanceSlug): Promise<ChannelConfig[]> {
   const instanceId = await resolveInstanceId(instanceSlug);
   if (!instanceId) return [];
 
@@ -144,7 +145,7 @@ export async function listChannelConfigs(instanceSlug: string): Promise<ChannelC
 }
 
 /** List all enabled channel configs for an instance (by slug). */
-export async function listEnabledChannelConfigs(instanceSlug: string): Promise<ChannelConfig[]> {
+export async function listEnabledChannelConfigs(instanceSlug: InstanceSlug): Promise<ChannelConfig[]> {
   const instanceId = await resolveInstanceId(instanceSlug);
   if (!instanceId) return [];
 
@@ -164,9 +165,8 @@ export async function listEnabledChannelConfigs(instanceSlug: string): Promise<C
   }));
 }
 
-/** Delete a channel config by instance UUID + channel type. */
 /** Disable a channel by slug + type (used by auto-disable on adapter failure). */
-export async function disableChannel(instanceSlug: string, channelType: string): Promise<void> {
+export async function disableChannel(instanceSlug: InstanceSlug, channelType: string): Promise<void> {
   const instanceId = await resolveInstanceId(instanceSlug);
   if (!instanceId) return;
   await db
@@ -175,7 +175,8 @@ export async function disableChannel(instanceSlug: string, channelType: string):
     .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, channelType)));
 }
 
-export async function deleteChannelConfig(instanceId: string, channelType: ChannelType): Promise<void> {
+/** Delete a channel config by instance UUID + channel type. */
+export async function deleteChannelConfig(instanceId: InstanceUuid, channelType: ChannelType): Promise<void> {
   await db
     .delete(instanceChannels)
     .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, channelType)));

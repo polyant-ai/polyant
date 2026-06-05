@@ -22,6 +22,7 @@ import { listSkills as listAllSkills, getSkill as getSkillFromStore } from "../.
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { setSkillEnv, getSkillEnv, deleteSkillEnv, hasAllRequiredEnvBatch } from "../../instances/skill-env.store.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
+import { asInstanceSlug, type InstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
 
 interface RequiredEnvEntry {
   name: string;
@@ -55,7 +56,7 @@ async function loadSkillMetaMap(slugs: string[]): Promise<Map<string, SkillMeta>
 }
 
 /** Build the merged skills list with env check status for an instance (used by GET and PATCH). */
-async function buildSkillsWithStatus(slug: string, instanceId: string) {
+async function buildSkillsWithStatus(slug: InstanceSlug, instanceId: InstanceUuid) {
   const allLibrarySkills = await listAllSkills();
   const instanceSkillRows = await getInstanceSkills(instanceId);
   const instanceMap = new Map(instanceSkillRows.map((is) => [is.skillSlug, is]));
@@ -105,7 +106,7 @@ export class InstanceSkillsController {
   @Get(":slug/skills")
   async getSkills(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
-    const skills = await buildSkillsWithStatus(slug, instance.id);
+    const skills = await buildSkillsWithStatus(asInstanceSlug(slug), instance.id);
     return { skills };
   }
 
@@ -148,7 +149,7 @@ export class InstanceSkillsController {
       removed: [...beforeTools].filter((t) => !afterTools.has(t)),
     };
 
-    const skills = await buildSkillsWithStatus(slug, instance.id);
+    const skills = await buildSkillsWithStatus(asInstanceSlug(slug), instance.id);
     return { skills, toolsChanged };
   }
 
@@ -196,7 +197,7 @@ export class InstanceSkillsController {
 
     const meta = skill.currentVersion?.metadata as { requiredEnv?: RequiredEnvEntry[] } | null;
     const requiredEnv = meta?.requiredEnv ?? [];
-    const storedEnv = await getSkillEnv(slug, skillSlug);
+    const storedEnv = await getSkillEnv(asInstanceSlug(slug), skillSlug);
 
     const env = requiredEnv.map((entry) => ({
       key: entry.name,
@@ -230,7 +231,7 @@ export class InstanceSkillsController {
     const skill = await getSkillFromStore(skillSlug);
     const meta = skill?.currentVersion?.metadata as { requiredEnv?: RequiredEnvEntry[] } | null;
     const requiredEnv = meta?.requiredEnv ?? [];
-    const storedEnv = await getSkillEnv(slug, skillSlug);
+    const storedEnv = await getSkillEnv(asInstanceSlug(slug), skillSlug);
 
     const env = requiredEnv.map((entry) => ({
       key: entry.name,
