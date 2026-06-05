@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "./schema.js";
+import { conversations, conversationMessages } from "../conversations/schema.js";
+import { memories } from "../memory/schema.js";
+import { knowledgeDocuments } from "../knowledge/schema.js";
+import { scheduledTasks } from "../scheduled-tasks/schema.js";
 
 export interface Instance {
   id: string;
@@ -112,8 +116,39 @@ export async function updateInstance(
   return rows[0];
 }
 
-/** Delete an instance by slug. Returns true if a row was deleted. */
+/**
+ * Delete an instance by slug. Returns true if a row was deleted.
+ *
+ * Runs in a transaction. Operational/PII data is keyed by the instance SLUG in
+ * `text` columns with no FK to `instances`, so the DB cascade never reaches it —
+ * it must be deleted explicitly here. Config/lifecycle tables (secrets, channels,
+ * prompts, tools, skills, room, webhooks) use a `uuid` FK with ON DELETE CASCADE
+ * and are cleaned up automatically by the final `DELETE FROM instances`.
+ *
+ * Audit/telemetry (`tool_audit_logs`, `pipeline_traces`, `ai_logs`) is
+ * INTENTIONALLY PRESERVED as a historical record and is left untouched.
+ */
 export async function deleteInstance(slug: string): Promise<boolean> {
-  const result = await db.delete(instances).where(eq(instances.slug, slug)).returning();
-  return result.length > 0;
+  return db.transaction(async (tx) => {
+    // conversation_messages has no instance_id — delete via the instance's conversations.
+    const convRows = await tx
+      .select({ conversationId: conversations.conversationId })
+      .from(conversations)
+      .where(eq(conversations.instanceId, slug));
+    const convIds = convRows.map((r) => r.conversationId);
+    if (convIds.length > 0) {
+      await tx
+        .delete(conversationMessages)
+        .where(inArray(conversationMessages.conversationId, convIds));
+    }
+    await tx.delete(conversations).where(eq(conversations.instanceId, slug));
+    await tx.delete(memories).where(eq(memories.instanceId, slug));
+    // knowledge_chunks cascade via their document_id FK.
+    await tx.delete(knowledgeDocuments).where(eq(knowledgeDocuments.instanceId, slug));
+    // scheduled_task_runs cascade via their task_id FK.
+    await tx.delete(scheduledTasks).where(eq(scheduledTasks.instanceId, slug));
+
+    const result = await tx.delete(instances).where(eq(instances.slug, slug)).returning();
+    return result.length > 0;
+  });
 }
