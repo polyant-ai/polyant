@@ -933,8 +933,8 @@ describe("ConversationStore", () => {
   // deleteConversation
   // =========================================================================
   describe("deleteConversation", () => {
-    // Order: messages, ai_logs, pipeline_traces, tool_audit_logs, conversations
-    const EXPECTED_DELETE_CALLS = 5;
+    // Order: messages, ai_logs, pipeline_traces, tool_audit_logs, memories, conversations
+    const EXPECTED_DELETE_CALLS = 6;
 
     it("cascades delete across all conversation-scoped tables and returns true when found", async () => {
       const id = uid();
@@ -984,7 +984,7 @@ describe("ConversationStore", () => {
 
       vi.clearAllMocks();
 
-      // Delete the conversation (cascades across 5 tables; conversations is the last one)
+      // Delete the conversation (cascades across 6 tables; conversations is the last one)
       const sideChain = createChainMock(undefined);
       const delConvChain = createChainMock([{ id: "uuid-1" }]);
       let deleteCallCount = 0;
