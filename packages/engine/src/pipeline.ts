@@ -9,6 +9,7 @@
 
 import type { ModelMessage } from "ai";
 import { config, DEFAULT_INSTANCE_ID } from "./config.js";
+import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
 import { conversationStore } from "./conversations/index.js";
 import { extractMemories } from "./memory/index.js";
@@ -80,7 +81,7 @@ export const MISSING_KEY_RESPONSE =
 
 export interface PipelineContext {
   pipelineStart: number;
-  instanceId: string;
+  instanceId: InstanceSlug;
   conversationId: string;
   conversationSummary: string | undefined;
   contextPrompt: string | undefined;
@@ -115,7 +116,7 @@ export async function preparePipeline(
   conversationIdOverride?: string | null,
 ): Promise<PipelineContext> {
   const pipelineStart = Date.now();
-  const instanceId = msg.instanceId || DEFAULT_INSTANCE_ID;
+  const instanceId: InstanceSlug = msg.instanceId || DEFAULT_INSTANCE_ID;
   pipelineLog.request(msg.channelType, instanceId, msg.text);
 
   const conversationId = conversationIdOverride
@@ -240,7 +241,7 @@ export async function preparePipeline(
 
 export interface AfterResponseOptions {
   conversationId: string;
-  instanceId: string;
+  instanceId: InstanceSlug;
   userMessage: string;
   assistantResponse: string;
   steps?: StepDetail[];

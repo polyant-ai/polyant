@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
+import { asInstanceSlug } from "../instances/identifiers.js";
 import { transcribe } from "../stt-gateway/index.js";
 import {
   STTMissingCredentialsError,
@@ -60,7 +61,7 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
     return fail("too_long");
   }
 
-  const config = await resolveInstanceConfig(input.instanceSlug);
+  const config = await resolveInstanceConfig(asInstanceSlug(input.instanceSlug));
   const provider = config.stt.provider;
 
   if (!hasCredentialsFor(provider, config.stt.credentials)) {
@@ -106,7 +107,7 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
         0,
         0,
         input.conversationId,
-        input.instanceSlug,
+        asInstanceSlug(input.instanceSlug),
         "service",
       ),
     );

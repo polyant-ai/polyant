@@ -85,12 +85,13 @@ import {
   listEnabledChannelConfigs,
   deleteChannelConfig,
 } from "./channels.store.js";
+import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const INSTANCE_UUID = "uuid-instance-1";
-const INSTANCE_SLUG = "default";
+const INSTANCE_UUID = asInstanceUuid("uuid-instance-1");
+const INSTANCE_SLUG = asInstanceSlug("default");
 
 function mockResolveInstanceId(found = true) {
   const chain = createChainMock(found ? [{ id: INSTANCE_UUID }] : []);
@@ -224,7 +225,7 @@ describe("instances/channels.store", () => {
     it("returns null when instance slug is not found", async () => {
       mockResolveInstanceId(false);
 
-      const result = await getChannelConfig("nonexistent", "telegram");
+      const result = await getChannelConfig(asInstanceSlug("nonexistent"), "telegram");
 
       expect(result).toBeNull();
       expect(mockDecrypt).not.toHaveBeenCalled();
@@ -275,7 +276,7 @@ describe("instances/channels.store", () => {
     it("returns empty array when instance not found", async () => {
       mockResolveInstanceId(false);
 
-      const result = await listChannelConfigs("nonexistent");
+      const result = await listChannelConfigs(asInstanceSlug("nonexistent"));
 
       expect(result).toEqual([]);
     });
@@ -307,7 +308,7 @@ describe("instances/channels.store", () => {
     it("returns empty array when instance not found", async () => {
       mockResolveInstanceId(false);
 
-      const result = await listEnabledChannelConfigs("nonexistent");
+      const result = await listEnabledChannelConfigs(asInstanceSlug("nonexistent"));
 
       expect(result).toEqual([]);
     });

@@ -21,6 +21,7 @@ import { computeNextRun } from "../scheduled-tasks/schedule-utils.js";
 import { generateToken } from "../crypto/index.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
+import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
 import { invalidateInstanceConfigCache } from "./config-resolver.js";
 import {
   instanceBundleSchema,
@@ -74,7 +75,7 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
       })
       .returning({ id: instances.id });
 
-    const id = inst.id;
+    const id = asInstanceUuid(inst.id);
 
     // 2. Import prompts
     await importPrompts(tx, id, data.prompts);
@@ -156,7 +157,7 @@ export async function importOverwriteInstance(
     .limit(1);
 
   if (!existing) throw new Error(`Instance "${targetSlug}" not found`);
-  const instanceId = existing.id;
+  const instanceId = asInstanceUuid(existing.id);
 
   await db.transaction(async (tx) => {
     // 1. Update instance metadata
@@ -249,7 +250,7 @@ export async function importOverwriteInstance(
 
   await recomputeInstanceTools(instanceId);
   invalidatePromptsCache(instanceId);
-  invalidateInstanceConfigCache(targetSlug);
+  invalidateInstanceConfigCache(asInstanceSlug(targetSlug));
 
   return { slug: targetSlug, instanceId, warnings };
 }

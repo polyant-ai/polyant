@@ -3,12 +3,13 @@
 import { Controller, Get, Post, Delete, Param, Query, Body, BadRequestException, NotFoundException } from "@nestjs/common";
 import { searchMemories, deleteAllMemories, upsertMemory, deleteMemoryForInstance } from "../../memory/memory-store.js";
 import { generateEmbeddings } from "../../memory/embedder.js";
-import { getAllSecretsById } from "../../instances/secrets.store.js";
+import { getAllSecrets } from "../../instances/secrets.store.js";
+import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
 
-function requireInstanceId(instanceId: string | undefined): string {
+function requireInstanceId(instanceId: string | undefined): InstanceSlug {
   const trimmed = instanceId?.trim();
   if (!trimmed) throw new BadRequestException("instanceId is required");
-  return trimmed;
+  return asInstanceSlug(trimmed);
 }
 
 @Controller("memories")
@@ -52,7 +53,7 @@ export class MemoriesController {
       throw new BadRequestException("content is required");
     }
 
-    const secrets = await getAllSecretsById(uid);
+    const secrets = await getAllSecrets(uid);
     const openaiKey = secrets["openai_api_key"];
     if (!openaiKey) {
       throw new BadRequestException(

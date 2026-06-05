@@ -11,6 +11,7 @@ import { MessageCoordinator } from "./message-coordinator.js";
 import { config } from "../config.js";
 import { emitOutbound } from "../activity-stream/emitters/emit-outbound.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 /**
  * Channel types that should NOT produce `category: "outbound"` events:
@@ -152,7 +153,7 @@ export class ChannelManager {
 
   /** Start all enabled channels for an instance (reads from DB). */
   async startAllForInstance(instanceSlug: string): Promise<void> {
-    const channels = await listEnabledChannelConfigs(instanceSlug);
+    const channels = await listEnabledChannelConfigs(asInstanceSlug(instanceSlug));
 
     await Promise.allSettled(
       channels.map((ch) => this.startChannel(instanceSlug, ch.channelType, ch.config)),
@@ -293,19 +294,20 @@ export class ChannelManager {
 
   /** Auto-disable a channel in DB after adapter initialization failure. */
   private async autoDisableChannel(instanceSlug: string, channelType: string): Promise<void> {
-    await disableChannel(instanceSlug, channelType);
+    await disableChannel(asInstanceSlug(instanceSlug), channelType);
     console.warn(`Channel auto-disabled: ${channelType} for instance "${instanceSlug}" — re-enable from admin panel after fixing credentials`);
   }
 
   /** Create the appropriate adapter based on channel type. */
   private createAdapter(instanceSlug: string, channelType: ChannelType, config: Record<string, unknown>): ChannelAdapter | null {
+    const slug = asInstanceSlug(instanceSlug);
     switch (channelType) {
       case "telegram":
-        return new TelegramAdapter(instanceSlug, config as unknown as TelegramConfig);
+        return new TelegramAdapter(slug, config as unknown as TelegramConfig);
       case "slack":
-        return new SlackAdapter(instanceSlug, config as unknown as SlackConfig);
+        return new SlackAdapter(slug, config as unknown as SlackConfig);
       case "whatsapp":
-        return new WhatsAppAdapter(instanceSlug, config as unknown as WhatsAppConfig);
+        return new WhatsAppAdapter(slug, config as unknown as WhatsAppConfig);
       case "agent":
         // agent: virtual in-process, dispatched directly via adapter.dispatch()
         return new AgentChannelAdapter();

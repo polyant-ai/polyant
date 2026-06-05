@@ -6,6 +6,7 @@ import {
   type KnowledgeSearchResult as StoreResult,
 } from "./store.js";
 import { generateEmbedding } from "../memory/embedder.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 
 export interface KnowledgeSearchResult {
   content: string;
@@ -34,7 +35,7 @@ export interface KnowledgeSearchResult {
  */
 export async function searchKnowledge(
   query: string,
-  instanceId: string,
+  instanceId: InstanceSlug,
   limit = 5,
   openaiApiKey?: string,
 ): Promise<KnowledgeSearchResult[]> {

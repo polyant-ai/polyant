@@ -9,6 +9,7 @@ import { instanceSkills } from "../../instances/instance-skills.schema.js";
 import { skills, skillVersions } from "../../skills/schema.js";
 import { hasAllRequiredEnvBatch } from "../../instances/skill-env.store.js";
 import { normalizeRequiredEnv } from "../../utils/frontmatter.js";
+import { type InstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
 
 export { normalizeRequiredEnv, type RequiredEnvEntry } from "../../utils/frontmatter.js";
 
@@ -21,9 +22,9 @@ export { invalidatePromptsCache };
 
 export interface PromptOptions {
   tools?: Record<string, Tool>;
-  instanceId: string;
+  instanceId: InstanceUuid;
   /** Instance slug — needed for skill env checks (resolveInstanceId inside). */
-  instanceSlug: string;
+  instanceSlug: InstanceSlug;
   memoryEnabled?: boolean;
   knowledgeEnabled?: boolean;
   conversationSummary?: string;
@@ -110,8 +111,8 @@ interface SkillVersionMetadata {
  * Fetches pinned version content/metadata, checks requiredEnv, and filters.
  */
 async function discoverSkills(
-  instanceId: string,
-  instanceSlug: string,
+  instanceId: InstanceUuid,
+  instanceSlug: InstanceSlug,
   enabledToolNames?: Set<string>,
 ): Promise<SkillEntry[]> {
   // Single query: get enabled skills with their pinned version data
@@ -177,8 +178,8 @@ async function discoverSkills(
 }
 
 async function loadSkillsList(
-  instanceId: string,
-  instanceSlug: string,
+  instanceId: InstanceUuid,
+  instanceSlug: InstanceSlug,
   enabledToolNames?: Set<string>,
 ): Promise<string> {
   const skillEntries = await discoverSkills(instanceId, instanceSlug, enabledToolNames);

@@ -8,6 +8,7 @@ import { pipelineTraces } from "../analytics/traces.schema.js";
 import { aiLogs } from "../ai-gateway/logger.js";
 import { toolAuditLogs } from "../audit/audit.schema.js";
 import { memories } from "../memory/schema.js";
+import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 
 export interface MessageRow {
   role: string;
@@ -59,7 +60,7 @@ export interface ConversationListItem {
   conversationId: string;
   title: string | null;
   summary: string | null;
-  instanceId: string | null;
+  instanceId: InstanceSlug | null;
   instanceName: string | null;
   messageCount: number;
   totalTokens: number;
@@ -217,7 +218,7 @@ export class ConversationStore {
    */
   async ensureConversation(
     conversationId: string,
-    instanceId?: string,
+    instanceId?: InstanceSlug,
     options?: { channel?: string; userIdentifier?: string; source?: string; contextPrompt?: string },
   ): Promise<{ created: boolean }> {
     const channel = options?.channel ?? "web";
@@ -331,7 +332,7 @@ export class ConversationStore {
   /** Full-text search across all conversation messages for an instance. */
   async searchByKeyword(
     query: string,
-    instanceId: string | undefined,
+    instanceId: InstanceSlug | undefined,
     limit = 20,
   ): Promise<KeywordSearchResult[]> {
     // Build the tsquery from the user query (websearch syntax handles natural language)
@@ -370,7 +371,7 @@ export class ConversationStore {
 
   /** List conversations with message count, optionally filtered by instance. */
   async listConversations(options: {
-    instanceId?: string;
+    instanceId?: InstanceSlug;
     source?: string;
     limit?: number;
     offset?: number;
@@ -434,7 +435,7 @@ export class ConversationStore {
         conversationId: r.conversation_id as string,
         title: (r.title as string) ?? null,
         summary: (r.summary as string) ?? null,
-        instanceId: (r.instance_id as string) ?? null,
+        instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         messageCount: (r.message_count as number) ?? 0,
         totalTokens: (r.total_tokens as number) ?? 0,
@@ -494,7 +495,7 @@ export class ConversationStore {
       conversationId: r.conversation_id as string,
       title: (r.title as string) ?? null,
       summary: (r.summary as string) ?? null,
-      instanceId: (r.instance_id as string) ?? null,
+      instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
       instanceName: (r.instance_name as string) ?? null,
       messageCount: (r.message_count as number) ?? 0,
       totalTokens: (r.total_tokens as number) ?? 0,
@@ -558,7 +559,7 @@ export class ConversationStore {
   /** Search conversations by message content using FTS. Returns conversation-level results. */
   async searchConversations(
     query: string,
-    options: { instanceId?: string; limit?: number; offset?: number } = {},
+    options: { instanceId?: InstanceSlug; limit?: number; offset?: number } = {},
   ): Promise<{ conversations: ConversationSearchResult[]; total: number }> {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
@@ -631,7 +632,7 @@ export class ConversationStore {
         conversationId: r.conversation_id as string,
         title: (r.title as string) ?? null,
         summary: (r.summary as string) ?? null,
-        instanceId: (r.instance_id as string) ?? null,
+        instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         matchCount: (r.match_count as number) ?? 0,
         bestSnippet: (r.best_snippet as string) ?? "",

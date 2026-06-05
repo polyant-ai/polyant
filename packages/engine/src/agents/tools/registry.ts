@@ -7,6 +7,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { errMsg } from "../../utils/error.js";
+import type { InstanceSlug } from "../../instances/identifiers.js";
 // ---------------------------------------------------------------------------
 // Directory where *.tool.(ts|js) files live (same dir as this registry file)
 // ---------------------------------------------------------------------------
@@ -20,7 +21,7 @@ const __toolsDir = dirname(fileURLToPath(import.meta.url));
 /** Runtime context passed to every tool factory. */
 export interface ToolContext {
   /** Instance identifier (slug, not UUID). Used by tool-level operations. */
-  instanceId: string;
+  instanceId: InstanceSlug;
   /** Per-instance decrypted secrets. */
   secrets?: Record<string, string>;
   /** Audit logger scoped to this tool + instance + conversation. */

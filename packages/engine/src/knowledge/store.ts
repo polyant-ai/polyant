@@ -5,6 +5,7 @@ import { eq, and, desc, sql, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db } from "../database/client.js";
 import { knowledgeDocuments, knowledgeChunks } from "./schema.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 
 // Size caps enforced on agent-originated writes.
 export const MAX_WRITE_BYTES = 1 * 1024 * 1024; // 1MB per call
@@ -26,7 +27,7 @@ export function hashContent(content: string): string {
 
 export interface KnowledgeDocument {
   id: string;
-  instanceId: string;
+  instanceId: InstanceSlug;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -51,7 +52,7 @@ export interface KnowledgeSearchResult {
 // ── Document CRUD ──────────────────────────────────────────────────
 
 export async function createDocument(input: {
-  instanceId: string;
+  instanceId: InstanceSlug;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -92,7 +93,7 @@ export async function updateDocumentStatus(
 }
 
 /** List documents (without rawContent for performance). */
-export async function listDocuments(instanceId: string): Promise<Omit<KnowledgeDocument, "rawContent">[]> {
+export async function listDocuments(instanceId: InstanceSlug): Promise<Omit<KnowledgeDocument, "rawContent">[]> {
   const rows = await db
     .select({
       id: knowledgeDocuments.id,
@@ -136,7 +137,7 @@ export async function deleteDocument(docId: string): Promise<boolean> {
 
 /** Get a document by (instanceId, filename). Relies on the UNIQUE constraint. */
 export async function getDocumentByFilename(
-  instanceId: string,
+  instanceId: InstanceSlug,
   filename: string,
 ): Promise<KnowledgeDocument | undefined> {
   const [doc] = await db
@@ -164,7 +165,7 @@ export interface AgentWriteResult {
  * Marks the document as "processing" so the caller can kick off a reindex.
  */
 export async function upsertAgentDocument(input: {
-  instanceId: string;
+  instanceId: InstanceSlug;
   filename: string;
   content: string;
   mimeType?: string;
@@ -238,7 +239,7 @@ export async function upsertAgentDocument(input: {
  * Uses SELECT ... FOR UPDATE to serialize concurrent appends on the same row.
  */
 export async function appendAgentDocument(input: {
-  instanceId: string;
+  instanceId: InstanceSlug;
   filename: string;
   content: string;
   mimeType?: string;
@@ -358,7 +359,7 @@ export async function resetStuckProcessingAll(minutes = 5): Promise<number> {
 export async function insertChunks(
   chunks: Array<{
     documentId: string;
-    instanceId: string;
+    instanceId: InstanceSlug;
     content: string;
     embedding: number[];
     chunkIndex: number;
@@ -386,7 +387,7 @@ export async function insertChunksAndFinalize(
   docId: string,
   chunks: Array<{
     documentId: string;
-    instanceId: string;
+    instanceId: InstanceSlug;
     content: string;
     embedding: number[];
     chunkIndex: number;
@@ -429,7 +430,7 @@ export async function insertChunksAndFinalize(
  */
 export async function searchByVector(
   queryEmbedding: number[],
-  instanceId: string,
+  instanceId: InstanceSlug,
   limit = 5,
 ): Promise<KnowledgeSearchResult[]> {
   const distance = cosineDistance(knowledgeChunks.embedding, queryEmbedding);
@@ -465,7 +466,7 @@ export async function searchByVector(
  */
 export async function searchByKeyword(
   query: string,
-  instanceId: string,
+  instanceId: InstanceSlug,
   limit = 5,
 ): Promise<KnowledgeSearchResult[]> {
   const rows = await db.execute(sql`
@@ -492,7 +493,7 @@ export async function searchByKeyword(
   }));
 }
 
-export async function countChunks(instanceId: string): Promise<number> {
+export async function countChunks(instanceId: InstanceSlug): Promise<number> {
   const [row] = await db
     .select({ count: drizzleCount() })
     .from(knowledgeChunks)
@@ -501,7 +502,7 @@ export async function countChunks(instanceId: string): Promise<number> {
 }
 
 /** Count knowledge documents owned by an instance (used to enforce the per-instance cap). */
-export async function countDocuments(instanceId: string): Promise<number> {
+export async function countDocuments(instanceId: InstanceSlug): Promise<number> {
   const [row] = await db
     .select({ count: drizzleCount() })
     .from(knowledgeDocuments)

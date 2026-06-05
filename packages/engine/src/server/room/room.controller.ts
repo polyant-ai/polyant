@@ -4,13 +4,15 @@ import { Controller, Get, Put, Delete, Param, Body, BadRequestException, NotFoun
 import { getRoomBySlug, upsertRoom, deleteRoom } from "../../room/room.store.js";
 import { countPendingEvents } from "../../webhooks/webhook-backlog.store.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
+
 import { upsertRoomSchema } from "../../room/room.validators.js";
 
 @Controller("api/instances/:slug/room")
 export class RoomController {
   @Get()
   async getRoom(@Param("slug") slug: string) {
-    const room = await getRoomBySlug(slug);
+    const room = await getRoomBySlug(asInstanceSlug(slug));
     if (!room) return { configured: false };
 
     const pendingCount = await countPendingEvents(room.instanceId);
@@ -27,7 +29,7 @@ export class RoomController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(slug);
+    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     await upsertRoom(instanceId, parsed.data);
@@ -36,7 +38,7 @@ export class RoomController {
 
   @Delete()
   async deleteRoomConfig(@Param("slug") slug: string) {
-    const instanceId = await resolveInstanceId(slug);
+    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     await deleteRoom(instanceId);

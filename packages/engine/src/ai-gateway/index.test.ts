@@ -48,6 +48,7 @@ import { chat, chatStream, initAIGateway } from "./index.js";
 import { aiLogger } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
 import type { ChatRequest } from "./types.js";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 function makeRequest(overrides: Partial<ChatRequest> = {}): ChatRequest {
   return {
@@ -112,7 +113,7 @@ describe("AI Gateway", () => {
     it("passes conversationId, instanceId, and callType to logger", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
-      await chat(makeRequest(), { conversationId: "conv-1", instanceId: "user-1" });
+      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("user-1") });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
         "openai", "gpt-4o", "standard", false,
@@ -129,7 +130,7 @@ describe("AI Gateway", () => {
     it("passes callType 'service' to logger when specified", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
-      await chat(makeRequest(), { conversationId: "conv-1", instanceId: "inst-1", callType: "service" });
+      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
         "openai", "gpt-4o", "standard", false,
@@ -169,12 +170,12 @@ describe("AI Gateway", () => {
 
       await chat(
         makeRequest({ langsmith: { apiKey: "ls-key", project: "test-project" } }),
-        { conversationId: "conv-1", instanceId: "inst-1" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1") },
       );
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: "inst-1", providerName: "openai", modelId: "gpt-4o" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-4o" },
       );
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -237,7 +238,7 @@ describe("AI Gateway", () => {
         response: Promise.resolve(makeChatResponse()),
       });
 
-      const stream = await chatStream(makeRequest(), { conversationId: "conv-1", instanceId: "inst-1", callType: "service" });
+      const stream = await chatStream(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
       await stream.response;
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
@@ -261,12 +262,12 @@ describe("AI Gateway", () => {
 
       await chatStream(
         makeRequest({ langsmith: { apiKey: "ls-key", project: "test-project" } }),
-        { conversationId: "conv-1", instanceId: "inst-1" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1") },
       );
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: "inst-1", providerName: "openai", modelId: "gpt-4o" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-4o" },
       );
       expect(mockProviderChatStream).toHaveBeenCalledWith(
         expect.objectContaining({
