@@ -203,7 +203,10 @@ export class InstancesController {
     }
     const deleted = await deleteInstance(slug);
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
-    // DB CASCADE handles cleanup of prompts, tools, skills, etc.
+    // deleteInstance() runs in a transaction: it explicitly removes operational
+    // data keyed by slug (conversations, messages, memories, knowledge base,
+    // scheduled tasks); the DB CASCADE removes config (prompts, tools, skills,
+    // channels, secrets, room, webhooks); audit/telemetry is preserved on purpose.
     return { deleted: true };
   }
 

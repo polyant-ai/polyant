@@ -35,7 +35,10 @@ const { mockDb } = vi.hoisted(() => {
     update: vi.fn(),
     insert: vi.fn(),
     delete: vi.fn(),
+    transaction: vi.fn(),
   };
+  // transaction passes the mock db itself as the tx argument
+  mockDb.transaction.mockImplementation(async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb));
   return { mockDb };
 });
 
@@ -60,8 +63,26 @@ vi.mock("./schema.js", () => ({
   },
 }));
 
+vi.mock("../conversations/schema.js", () => ({
+  conversations: { conversationId: "conversation_id", instanceId: "instance_id" },
+  conversationMessages: { conversationId: "conversation_id" },
+}));
+
+vi.mock("../memory/schema.js", () => ({
+  memories: { instanceId: "instance_id", sourceConversationId: "source_conversation_id" },
+}));
+
+vi.mock("../knowledge/schema.js", () => ({
+  knowledgeDocuments: { instanceId: "instance_id" },
+}));
+
+vi.mock("../scheduled-tasks/schema.js", () => ({
+  scheduledTasks: { instanceId: "instance_id" },
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
+  inArray: vi.fn((col: unknown, values: unknown[]) => ({ type: "inArray", col, values })),
   sql: Object.assign(vi.fn(), { raw: vi.fn() }),
 }));
 
@@ -272,21 +293,35 @@ describe("instances/store", () => {
   // deleteInstance
   // -----------------------------------------------------------------------
   describe("deleteInstance", () => {
-    it("returns true when a row is deleted", async () => {
-      const chain = createChainMock([fakeInstance]);
-      mockDb.delete.mockReturnValue(chain as any);
+    it("runs in a transaction and returns true when the instance row is deleted", async () => {
+      // No conversations for this instance → the conversation_messages delete is skipped.
+      mockDb.select.mockReturnValue(createChainMock([]) as any);
+      mockDb.delete.mockReturnValue(createChainMock([fakeInstance]) as any);
 
       const result = await deleteInstance("default");
 
       expect(result).toBe(true);
-      expect(mockDb.delete).toHaveBeenCalled();
-      expect(chain.where).toHaveBeenCalled();
-      expect(chain.returning).toHaveBeenCalled();
+      expect(mockDb.transaction).toHaveBeenCalled();
+      // conversations + memories + knowledge_documents + scheduled_tasks + instances
+      expect(mockDb.delete).toHaveBeenCalledTimes(5);
     });
 
-    it("returns false when no row is deleted", async () => {
-      const chain = createChainMock([]);
-      mockDb.delete.mockReturnValue(chain as any);
+    it("also deletes conversation_messages when the instance has conversations", async () => {
+      mockDb.select.mockReturnValue(
+        createChainMock([{ conversationId: "c1" }, { conversationId: "c2" }]) as any,
+      );
+      mockDb.delete.mockReturnValue(createChainMock([fakeInstance]) as any);
+
+      const result = await deleteInstance("default");
+
+      expect(result).toBe(true);
+      // conversation_messages + conversations + memories + knowledge_documents + scheduled_tasks + instances
+      expect(mockDb.delete).toHaveBeenCalledTimes(6);
+    });
+
+    it("returns false when no instance row is deleted", async () => {
+      mockDb.select.mockReturnValue(createChainMock([]) as any);
+      mockDb.delete.mockReturnValue(createChainMock([]) as any);
 
       const result = await deleteInstance("nonexistent");
 
