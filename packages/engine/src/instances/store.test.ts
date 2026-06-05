@@ -98,6 +98,7 @@ import {
   deleteInstance,
   listAllInstances,
 } from "./store.js";
+import { asInstanceSlug } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -161,7 +162,7 @@ describe("instances/store", () => {
       const chain = createChainMock([fakeInstance]);
       mockDb.select.mockReturnValue(chain as any);
 
-      const result = await findInstanceBySlug("default");
+      const result = await findInstanceBySlug(asInstanceSlug("default"));
 
       expect(result).toEqual(fakeInstance);
       expect(mockDb.select).toHaveBeenCalled();
@@ -174,7 +175,7 @@ describe("instances/store", () => {
       const chain = createChainMock([]);
       mockDb.select.mockReturnValue(chain as any);
 
-      const result = await findInstanceBySlug("nonexistent");
+      const result = await findInstanceBySlug(asInstanceSlug("nonexistent"));
 
       expect(result).toBeUndefined();
     });
@@ -189,7 +190,7 @@ describe("instances/store", () => {
       mockDb.insert.mockReturnValue(chain as any);
 
       await ensureInstance({
-        slug: "default",
+        slug: asInstanceSlug("default"),
         name: "Default Assistant",
         description: "A default assistant",
       });
@@ -207,7 +208,7 @@ describe("instances/store", () => {
       const chain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(chain as any);
 
-      await ensureInstance({ slug: "test", name: "Test" });
+      await ensureInstance({ slug: asInstanceSlug("test"), name: "Test" });
 
       expect(chain.values).toHaveBeenCalledWith({
         slug: "test",
@@ -226,7 +227,7 @@ describe("instances/store", () => {
       mockDb.insert.mockReturnValue(chain as any);
 
       const result = await createInstance({
-        slug: "default",
+        slug: asInstanceSlug("default"),
         name: "Default Assistant",
         description: "A default assistant",
         provider: "openai",
@@ -249,7 +250,7 @@ describe("instances/store", () => {
       const chain = createChainMock([{ ...fakeInstance, description: null, provider: null, model: null }]);
       mockDb.insert.mockReturnValue(chain as any);
 
-      await createInstance({ slug: "minimal", name: "Minimal" });
+      await createInstance({ slug: asInstanceSlug("minimal"), name: "Minimal" });
 
       expect(chain.values).toHaveBeenCalledWith({
         slug: "minimal",
@@ -270,7 +271,7 @@ describe("instances/store", () => {
       const chain = createChainMock([updatedInstance]);
       mockDb.update.mockReturnValue(chain as any);
 
-      const result = await updateInstance("default", { name: "Updated Name" });
+      const result = await updateInstance(asInstanceSlug("default"), { name: "Updated Name" });
 
       expect(result).toEqual(updatedInstance);
       expect(mockDb.update).toHaveBeenCalled();
@@ -283,7 +284,7 @@ describe("instances/store", () => {
       const chain = createChainMock([]);
       mockDb.update.mockReturnValue(chain as any);
 
-      const result = await updateInstance("nonexistent", { name: "No Match" });
+      const result = await updateInstance(asInstanceSlug("nonexistent"), { name: "No Match" });
 
       expect(result).toBeUndefined();
     });
@@ -298,7 +299,7 @@ describe("instances/store", () => {
       mockDb.select.mockReturnValue(createChainMock([]) as any);
       mockDb.delete.mockReturnValue(createChainMock([fakeInstance]) as any);
 
-      const result = await deleteInstance("default");
+      const result = await deleteInstance(asInstanceSlug("default"));
 
       expect(result).toBe(true);
       expect(mockDb.transaction).toHaveBeenCalled();
@@ -312,7 +313,7 @@ describe("instances/store", () => {
       );
       mockDb.delete.mockReturnValue(createChainMock([fakeInstance]) as any);
 
-      const result = await deleteInstance("default");
+      const result = await deleteInstance(asInstanceSlug("default"));
 
       expect(result).toBe(true);
       // conversation_messages + conversations + memories + knowledge_documents + scheduled_tasks + instances
@@ -323,7 +324,7 @@ describe("instances/store", () => {
       mockDb.select.mockReturnValue(createChainMock([]) as any);
       mockDb.delete.mockReturnValue(createChainMock([]) as any);
 
-      const result = await deleteInstance("nonexistent");
+      const result = await deleteInstance(asInstanceSlug("nonexistent"));
 
       expect(result).toBe(false);
     });

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 /* ── hoisted mocks ─────────────────────────────────────────────── */
 
@@ -81,13 +82,14 @@ vi.mock("../config.js", () => ({
 
 import { executeRoomCycle } from "./room-engine.js";
 import type { RoomConfig } from "./room.store.js";
+import { asInstanceUuid } from "../instances/identifiers.js";
 
 /* ── helpers ────────────────────────────────────────────────────── */
 
 function makeRoom(overrides: Partial<RoomConfig> = {}): RoomConfig {
   return {
     id: "room-1",
-    instanceId: "inst-1",
+    instanceId: asInstanceUuid("inst-1"),
     enabled: true,
     prompt: "You are a helpful room agent.",
     outboundChannel: "slack",
@@ -158,7 +160,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([{ name: "Test Def", interpretationPrompt: "Handle it" }]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockConversationStore.ensureConversation).toHaveBeenCalledWith(
         expect.stringMatching(/^room:inst-1:\d+$/),
@@ -174,7 +176,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockSetRoomConversationId).toHaveBeenCalledWith(
         "inst-1",
@@ -189,7 +191,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockSupervise).not.toHaveBeenCalled();
       expect(mockConversationStore.appendMessages).not.toHaveBeenCalled();
@@ -203,7 +205,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([{ name: "Test", interpretationPrompt: "Handle it" }]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockSupervise).toHaveBeenCalledTimes(1);
     });
@@ -213,7 +215,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug", "Hello, can you help?");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "Hello, can you help?");
 
       expect(mockSupervise).toHaveBeenCalledTimes(1);
     });
@@ -229,7 +231,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([{ name: "Order Def", interpretationPrompt: "Process the order" }]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       const message = mockSupervise.mock.calls[0][0].message as string;
       expect(message).toContain("## Pending Events (2)");
@@ -248,7 +250,7 @@ describe("executeRoomCycle", () => {
       ]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       const message = mockSupervise.mock.calls[0][0].message as string;
       expect(message).toContain("## Event Handling Instructions");
@@ -261,7 +263,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug", "Please check the latest tickets");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "Please check the latest tickets");
 
       const message = mockSupervise.mock.calls[0][0].message as string;
       expect(message).toContain("## Human Message");
@@ -275,7 +277,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       const message = mockSupervise.mock.calls[0][0].message as string;
       expect(message).toContain("[Room context usage:");
@@ -289,7 +291,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug", "Human says hello");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "Human says hello");
 
       // Synthetic user message should be appended BEFORE supervise call
       const appendCalls = mockConversationStore.appendMessages.mock.calls;
@@ -308,7 +310,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       // Second call to appendMessages is the assistant response
       const appendCalls = mockConversationStore.appendMessages.mock.calls;
@@ -327,7 +329,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockSupervise).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -350,7 +352,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockSupervise).toHaveBeenCalledWith(
         expect.objectContaining({ memoryEnabled: true }),
@@ -367,7 +369,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockAppendDailyLog).toHaveBeenCalledWith(
         "inst-1",
@@ -381,7 +383,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug", "Help me");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "Help me");
 
       expect(mockAppendDailyLog).toHaveBeenCalledWith(
         "inst-1",
@@ -399,7 +401,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockTraceStore.record).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -423,7 +425,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       // Give fire-and-forget a tick to run
       await new Promise((r) => setTimeout(r, 10));
@@ -445,7 +447,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       // Give fire-and-forget a tick to run
       await new Promise((r) => setTimeout(r, 10));

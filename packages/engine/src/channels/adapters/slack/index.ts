@@ -5,6 +5,7 @@ import type { ChannelAdapter, IncomingMessage, MessageHandler, OutgoingMessage }
 import { CHANNEL_MAX_LENGTH, METADATA_CONVERSATION_ID_OVERRIDE } from "../../types.js";
 import { toSlackMrkdwn } from "./slack-mrkdwn.js";
 import { splitMessage } from "../../split-message.js";
+import type { InstanceSlug } from "../../../instances/identifiers.js";
 
 export interface SlackConfig {
   botToken: string;
@@ -22,7 +23,7 @@ export class SlackAdapter implements ChannelAdapter {
   private readonly userCache = new Map<string, { name: string; expiresAt: number }>();
 
   constructor(
-    private readonly instanceId: string,
+    private readonly instanceId: InstanceSlug,
     private readonly cfg: SlackConfig,
   ) {}
 

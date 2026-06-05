@@ -10,6 +10,7 @@ import type { ExtractedFact } from "./types.js";
 import { memoryLog } from "./memory-logger.js";
 import { emitMemory } from "../activity-stream/emitters/emit-memory.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 
 function buildExtractionPrompt(): string {
   const now = new Date();
@@ -44,7 +45,7 @@ OUTPUT FORMAT (strict JSON array):
  */
 export async function extractMemories(
   conversationId: string,
-  instanceId: string,
+  instanceId: InstanceSlug,
   apiKeys?: ChatRequest["apiKeys"],
   provider?: string,
   langsmith?: { apiKey: string; project: string },

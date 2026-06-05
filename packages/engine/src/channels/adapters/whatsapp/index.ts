@@ -6,6 +6,7 @@ import { renderTemplateBody } from "./render-template.js";
 import type { ChannelAdapter, Attachment, MessageHandler, OutgoingMessage } from "../../types.js";
 import { transcribeAudio } from "../../audio-transcription.js";
 import { createSafeDispatcher } from "../../../utils/safe-http.js";
+import type { InstanceSlug } from "../../../instances/identifiers.js";
 
 export interface WhatsAppConfig {
   accountSid: string;
@@ -19,7 +20,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
   private onMessage: MessageHandler | null = null;
 
   constructor(
-    private readonly instanceSlug: string,
+    private readonly instanceSlug: InstanceSlug,
     private readonly cfg: WhatsAppConfig,
   ) {}
 
@@ -39,7 +40,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
     body: string;
     profileName?: string;
     messageSid: string;
-    instanceId: string;
+    instanceId: InstanceSlug;
     media?: Array<{ url: string; contentType: string }>;
   }): Promise<string> {
     if (!this.onMessage) throw new Error("WhatsApp adapter not initialized");

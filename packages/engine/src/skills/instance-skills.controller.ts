@@ -15,13 +15,14 @@ import {
   disableSkill,
 } from "../instances/instance-skills.store.js";
 import { findInstanceBySlug } from "../instances/store.js";
+import { asInstanceSlug } from "../instances/identifiers.js";
 import { errMsg } from "../utils/error.js";
 
 @Controller("api/instances/:slug/skills")
 export class InstanceSkillsController {
   @Get()
   async list(@Param("slug") slug: string) {
-    const instance = await findInstanceBySlug(slug);
+    const instance = await findInstanceBySlug(asInstanceSlug(slug));
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     const skills = await getInstanceSkills(instance.id);
     return { skills };
@@ -29,7 +30,7 @@ export class InstanceSkillsController {
 
   @Post(":name")
   async enable(@Param("slug") slug: string, @Param("name") name: string) {
-    const instance = await findInstanceBySlug(slug);
+    const instance = await findInstanceBySlug(asInstanceSlug(slug));
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     try {
       await enableSkill(instance.id, name);
@@ -43,7 +44,7 @@ export class InstanceSkillsController {
 
   @Delete(":name")
   async disable(@Param("slug") slug: string, @Param("name") name: string) {
-    const instance = await findInstanceBySlug(slug);
+    const instance = await findInstanceBySlug(asInstanceSlug(slug));
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     await disableSkill(instance.id, name);
     return { disabled: true, name };

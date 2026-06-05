@@ -2,6 +2,7 @@
 
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
+import requireInject from "./eslint-rules/require-inject-in-nest-classes.js";
 
 export default tseslint.config(
   js.configs.recommended,
@@ -13,6 +14,11 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ["dist/", "node_modules/"],
+    files: ["src/**/*.ts"],
+    plugins: { polyant: { rules: { "require-inject-in-nest-classes": requireInject } } },
+    rules: { "polyant/require-inject-in-nest-classes": "error" },
+  },
+  {
+    ignores: ["dist/", "node_modules/", "eslint-rules/**/*.test.js"],
   }
 );

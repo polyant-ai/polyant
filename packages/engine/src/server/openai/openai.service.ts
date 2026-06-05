@@ -11,6 +11,7 @@ import type {
 } from "./openai.types.js";
 import { DEFAULT_INSTANCE_ID } from "../../config.js";
 import { listActiveInstances, type Instance } from "../../instances/store.js";
+import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
 
 @Injectable()
 export class OpenAIService {
@@ -85,7 +86,7 @@ export class OpenAIService {
     text: string;
     conversationHistory: ModelMessage[];
     systemMessages: Array<{ role: "system"; content: string }>;
-    instanceId: string;
+    instanceId: InstanceSlug;
     channelId: string;
   } {
     const { messages, chat_id } = request;
@@ -109,8 +110,9 @@ export class OpenAIService {
       .filter((m): m is ChatCompletionMessage & { role: "system" } => m.role === "system")
       .map((m) => ({ role: "system" as const, content: m.content }));
 
-    // Use the model field as instance slug (falls back to default)
-    const instanceId = request.model || DEFAULT_INSTANCE_ID;
+    // Use the model field as instance slug (falls back to default).
+    // `request.model` is the client-chosen instance slug; its existence is validated downstream by findInstanceBySlug.
+    const instanceId = request.model ? asInstanceSlug(request.model) : DEFAULT_INSTANCE_ID;
 
     const channelId = this.deriveChannelId(messages, chat_id);
 

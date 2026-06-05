@@ -2,6 +2,7 @@
 
 import { chat } from "../ai-gateway/index.js";
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
+import { asInstanceSlug } from "../instances/identifiers.js";
 import type { EventDefinition } from "./webhook-sources.store.js";
 
 /**
@@ -14,7 +15,7 @@ export async function matchEvent(
   definitions: EventDefinition[],
   instanceSlug: string,
 ): Promise<EventDefinition | null> {
-  const instanceConfig = await resolveInstanceConfig(instanceSlug);
+  const instanceConfig = await resolveInstanceConfig(asInstanceSlug(instanceSlug));
   const apiKeys = instanceConfig.apiKeys;
   const provider = instanceConfig.provider;
 
@@ -36,7 +37,7 @@ export async function matchEvent(
           },
         ],
       },
-      { conversationId: `event-match:${def.id}`, instanceId: instanceSlug, callType: "service" },
+      { conversationId: `event-match:${def.id}`, instanceId: asInstanceSlug(instanceSlug), callType: "service" },
     );
 
     const answer = response.text.trim().toLowerCase();

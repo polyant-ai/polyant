@@ -2,6 +2,7 @@
 
 import type { ModelMessage, Tool, UserContent } from "ai";
 import { tool as aiTool } from "ai";
+import type { InstanceSlug, InstanceUuid } from "../../instances/identifiers.js";
 import { chat, chatStream, type ChatCallOptions } from "../../ai-gateway/index.js";
 import {
   getToolRegistry,
@@ -18,6 +19,7 @@ import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { config, DEFAULT_INSTANCE_ID } from "../../config.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { findInstanceBySlug } from "../../instances/store.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 import type { ChatRequest } from "../../ai-gateway/types.js";
 import type { ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import type { ToolCallTrace } from "../../analytics/traces.schema.js";
@@ -28,7 +30,7 @@ import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
 export interface SupervisorInput {
   message: string;
   conversationHistory?: ModelMessage[];
-  instanceId?: string;
+  instanceId?: InstanceSlug;
   conversationId?: string;
   conversationSummary?: string;
   /** Override AI provider for this instance. */
@@ -148,7 +150,7 @@ function safeOutputPreview(output: unknown): string | undefined {
 function wrapToolWithAudit(
   name: string,
   builtTool: Tool,
-  instanceId: string,
+  instanceId: InstanceSlug,
   _conversationId?: string,
   toolCallTraces?: ToolCallTrace[],
   signals?: SupervisorSignals,
@@ -194,8 +196,8 @@ function wrapToolWithAudit(
 }
 
 interface BuildToolsOptions {
-  instanceId: string;
-  instanceUuid: string;
+  instanceId: InstanceSlug;
+  instanceUuid: InstanceUuid;
   secrets?: Record<string, string>;
   memoryEnabled?: boolean;
   knowledgeEnabled?: boolean;
@@ -261,7 +263,7 @@ async function buildTools(opts: BuildToolsOptions) {
     const currentDepth = agentCallDepth ?? 0;
     for (const entryName of agentEntries) {
       const targetSlug = entryName.slice("agent:".length);
-      const target = await findInstanceBySlug(targetSlug);
+      const target = await findInstanceBySlug(asInstanceSlug(targetSlug));
       if (!target) {
         console.warn(`[supervisor] agent tool '${entryName}': target instance not found`);
         continue;
@@ -311,7 +313,7 @@ async function buildTools(opts: BuildToolsOptions) {
 // ---------------------------------------------------------------------------
 
 interface SupervisorContext {
-  instanceId: string;
+  instanceId: InstanceSlug;
   tools: Record<string, Tool>;
   systemPrompt: string;
   messages: ModelMessage[];

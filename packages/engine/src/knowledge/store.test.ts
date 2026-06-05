@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 // Chain proxy helper: await returns resolvedValue, every chained method keeps the chain.
 function createChainMock(resolvedValue: unknown = []) {
@@ -57,7 +58,7 @@ describe("upsertAgentDocument", () => {
     mockDb.insert.mockReturnValue(createChainMock([{ id: "doc-new" }])); // INSERT RETURNING id
 
     const result = await upsertAgentDocument({
-      instanceId: "inst-1",
+      instanceId: asInstanceSlug("inst-1"),
       filename: "a.md",
       content: "hello",
     });
@@ -76,7 +77,7 @@ describe("upsertAgentDocument", () => {
     mockDb.update.mockReturnValue(createChainMock([]));
 
     const result = await upsertAgentDocument({
-      instanceId: "inst-1",
+      instanceId: asInstanceSlug("inst-1"),
       filename: "a.md",
       content: "overwrite",
     });
@@ -94,7 +95,7 @@ describe("upsertAgentDocument", () => {
   it("rejects input larger than MAX_WRITE_BYTES", async () => {
     const big = "x".repeat(MAX_WRITE_BYTES + 1);
     await expect(
-      upsertAgentDocument({ instanceId: "inst-1", filename: "x.md", content: big }),
+      upsertAgentDocument({ instanceId: asInstanceSlug("inst-1"), filename: "x.md", content: big }),
     ).rejects.toBeInstanceOf(DocumentSizeExceededError);
   });
 });
@@ -105,7 +106,7 @@ describe("appendAgentDocument", () => {
     mockDb.insert.mockReturnValue(createChainMock([{ id: "doc-new" }]));
 
     const result = await appendAgentDocument({
-      instanceId: "inst-1",
+      instanceId: asInstanceSlug("inst-1"),
       filename: "log.md",
       content: "first",
     });
@@ -122,7 +123,7 @@ describe("appendAgentDocument", () => {
     mockDb.update.mockReturnValue(createChainMock([]));
 
     const result = await appendAgentDocument({
-      instanceId: "inst-1",
+      instanceId: asInstanceSlug("inst-1"),
       filename: "log.md",
       content: "B",
     });
@@ -143,7 +144,7 @@ describe("appendAgentDocument", () => {
 
     await expect(
       appendAgentDocument({
-        instanceId: "inst-1",
+        instanceId: asInstanceSlug("inst-1"),
         filename: "big.md",
         content: "x".repeat(100), // 100 bytes + \n\n = 102 → well over the 10-byte headroom
       }),
@@ -154,7 +155,7 @@ describe("appendAgentDocument", () => {
   it("rejects a single chunk larger than MAX_WRITE_BYTES", async () => {
     await expect(
       appendAgentDocument({
-        instanceId: "inst-1",
+        instanceId: asInstanceSlug("inst-1"),
         filename: "x.md",
         content: "x".repeat(MAX_WRITE_BYTES + 1),
       }),

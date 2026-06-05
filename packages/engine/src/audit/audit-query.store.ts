@@ -3,6 +3,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { type DateRange, toISO, asRows, instanceFilter } from "../utils/query-helpers.js";
+import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 
 export type { DateRange };
 
@@ -10,7 +11,7 @@ export type { DateRange };
 
 export interface AuditLogRow {
   id: string;
-  instanceId: string;
+  instanceId: InstanceSlug;
   conversationId: string | null;
   toolName: string;
   action: string;
@@ -40,7 +41,7 @@ export interface AuditStatsResult {
 // ── List (paginated + filtered) ───────────────────────────────────
 
 export async function listAuditLogs(opts: {
-  instanceId?: string;
+  instanceId?: InstanceSlug;
   toolName?: string;
   action?: string;
   search?: string;
@@ -89,7 +90,7 @@ export async function listAuditLogs(opts: {
     created_at: string;
   }>(itemsResult).map((r) => ({
     id: r.id,
-    instanceId: r.instance_id,
+    instanceId: asInstanceSlug(r.instance_id),
     conversationId: r.conversation_id,
     toolName: r.tool_name,
     action: r.action,
@@ -107,7 +108,7 @@ export async function listAuditLogs(opts: {
 // ── Stats ─────────────────────────────────────────────────────────
 
 export async function getAuditStats(opts: {
-  instanceId?: string;
+  instanceId?: InstanceSlug;
   from?: Date;
   to?: Date;
 }): Promise<AuditStatsResult> {

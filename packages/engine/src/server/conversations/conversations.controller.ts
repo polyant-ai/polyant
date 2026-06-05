@@ -11,18 +11,21 @@ import {
 } from "@nestjs/common";
 import { conversationStore } from "../../conversations/store.js";
 import { parsePagination } from "../utils/parse-pagination.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
-function requireInstanceId(instanceId: string | undefined): string {
+import { type InstanceSlug } from "../../instances/identifiers.js";
+
+function requireInstanceId(instanceId: string | undefined): InstanceSlug {
   const trimmed = instanceId?.trim();
   if (!trimmed) throw new BadRequestException("instanceId is required");
-  return trimmed;
+  return asInstanceSlug(trimmed);
 }
 
 /**
  * Look up a conversation and verify it belongs to the requested instance scope.
  * Returns 404 on either miss or mismatch — never reveals existence across instances.
  */
-async function loadConversationScoped(conversationId: string, instanceId: string) {
+async function loadConversationScoped(conversationId: string, instanceId: InstanceSlug) {
   const conversation = await conversationStore.getConversation(conversationId);
   if (!conversation || conversation.instanceId !== instanceId) {
     throw new NotFoundException(`Conversation not found: ${conversationId}`);
@@ -41,10 +44,11 @@ export class ConversationsController {
     @Query("offset") offsetStr?: string,
   ) {
     const { limit, offset } = parsePagination(limitStr, offsetStr, { defaultLimit: 20, maxLimit: 100 });
+    const instanceSlug = instanceId ? asInstanceSlug(instanceId) : undefined;
 
     if (search) {
       const result = await conversationStore.searchConversations(search, {
-        instanceId,
+        instanceId: instanceSlug,
         limit,
         offset,
       });
@@ -52,7 +56,7 @@ export class ConversationsController {
     }
 
     const result = await conversationStore.listConversations({
-      instanceId,
+      instanceId: instanceSlug,
       source,
       limit,
       offset,

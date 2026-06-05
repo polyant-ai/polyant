@@ -5,9 +5,10 @@ import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
 import { scheduledTasks, type ScheduledTask, type ScheduleConfig } from "./schema.js";
 import { computeNextRun, computeRetryDelay, MAX_CONSECUTIVE_ERRORS } from "./schedule-utils.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 
 export interface CreateTaskInput {
-  instanceId: string;
+  instanceId: InstanceSlug;
   name: string;
   prompt: string;
   schedule: ScheduleConfig;
@@ -58,7 +59,7 @@ export const LIST_BY_INSTANCE_DEFAULT_LIMIT = 100;
  *  backward-compatibility — existing callers transparently pick up the
  *  default cap. */
 export async function listByInstance(
-  instanceId: string,
+  instanceId: InstanceSlug,
   options: ListByInstanceOptions = {},
 ): Promise<ScheduledTask[]> {
   const limit = options.limit ?? LIST_BY_INSTANCE_DEFAULT_LIMIT;
@@ -277,7 +278,7 @@ export async function disableTask(id: string): Promise<void> {
 /** Find an active task whose outbound matches the given channel + target for an instance.
  *  Used to detect if an incoming channel message is a reply to a scheduled task's output. */
 export async function findActiveTaskByOutbound(
-  instanceId: string,
+  instanceId: InstanceSlug,
   channelType: string,
   channelId: string,
 ): Promise<ScheduledTask | undefined> {

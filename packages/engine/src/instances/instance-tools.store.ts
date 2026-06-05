@@ -11,6 +11,7 @@ import { instanceSkills } from "./instance-skills.schema.js";
 import { tools } from "../agents/tools/tools.schema.js";
 import { skillVersions } from "../skills/schema.js";
 import { DEFAULT_TOOL_NAMES } from "./defaults.js";
+import { type InstanceUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,7 +27,7 @@ interface SkillVersionMetadata {
 // ---------------------------------------------------------------------------
 
 /** Get the set of enabled tool names for an instance. */
-export async function getEnabledToolNames(instanceId: string): Promise<Set<string>> {
+export async function getEnabledToolNames(instanceId: InstanceUuid): Promise<Set<string>> {
   const rows = await db
     .select({ name: tools.name })
     .from(instanceTools)
@@ -49,7 +50,7 @@ export async function getEnabledToolNames(instanceId: string): Promise<Set<strin
  * 3. Gather manually-added tools
  * 4. Replace all rows in a transaction
  */
-export async function recomputeInstanceTools(instanceId: string): Promise<void> {
+export async function recomputeInstanceTools(instanceId: InstanceUuid): Promise<void> {
   // 1. Get enabled skills with their PINNED version metadata
   const enabledSkills = await db
     .select({
@@ -164,7 +165,7 @@ export async function recomputeInstanceTools(instanceId: string): Promise<void> 
  * Seed instance tools using DEFAULT_TOOL_NAMES.
  * Resolves tool names to IDs, inserts as source='manual'.
  */
-export async function seedInstanceTools(instanceId: string): Promise<void> {
+export async function seedInstanceTools(instanceId: InstanceUuid): Promise<void> {
   const toolRows = await db
     .select({ id: tools.id, name: tools.name })
     .from(tools)

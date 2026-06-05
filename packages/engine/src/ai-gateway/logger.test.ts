@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { AILogger, aiLogs } from "./logger.js";
 import type { AILogEntry } from "./types.js";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 function makeEntry(overrides: Partial<AILogEntry> = {}): AILogEntry {
   return {
@@ -40,7 +41,7 @@ describe("AILogger", () => {
         "openai", "gpt-4o", "standard", false,
         100, 50, 150, 0.0075, 500,
         42, 3, // reasoningChars, stepCount
-        "conv-1", "user-1",
+        "conv-1", asInstanceSlug("user-1"),
       );
       expect(entry).toEqual({
         provider: "openai",
@@ -78,7 +79,7 @@ describe("AILogger", () => {
         "openai", "gpt-4o-mini", "fast", false,
         50, 20, 70, 0.001, 200,
         0, 0,
-        "conv-1", "inst-1", "service",
+        "conv-1", asInstanceSlug("inst-1"), "service",
       );
       expect(entry.callType).toBe("service");
     });

@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
 const {
   mockChat,
@@ -128,7 +129,7 @@ beforeEach(() => {
 
 describe("supervise", () => {
   it("resolves instance by slug", async () => {
-    await supervise({ message: "hi", instanceId: "my-instance" });
+    await supervise({ message: "hi", instanceId: asInstanceSlug("my-instance") });
 
     expect(mockFindInstanceBySlug).toHaveBeenCalledWith("my-instance");
   });
@@ -140,7 +141,7 @@ describe("supervise", () => {
   });
 
   it("calls chat with tier standard, system prompt, messages, and tools", async () => {
-    await supervise({ message: "hi", instanceId: "inst-1" });
+    await supervise({ message: "hi", instanceId: asInstanceSlug("inst-1") });
 
     expect(mockChat).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -425,7 +426,7 @@ describe("supervise", () => {
       mockGetEnabledToolNames.mockResolvedValue(new Set(["spawnTask"]));
 
       const apiKeys = { openai: "sk-test" };
-      await supervise({ message: "hi", apiKeys, instanceId: "my-instance", conversationId: "conv-1" });
+      await supervise({ message: "hi", apiKeys, instanceId: asInstanceSlug("my-instance"), conversationId: "conv-1" });
 
       expect(mockCreateTaskTool).toHaveBeenCalledWith(
         expect.any(Object),
@@ -464,7 +465,7 @@ describe("superviseStream", () => {
   });
 
   it("resolves instance by slug", async () => {
-    await superviseStream({ message: "hi", instanceId: "stream-inst" });
+    await superviseStream({ message: "hi", instanceId: asInstanceSlug("stream-inst") });
 
     expect(mockFindInstanceBySlug).toHaveBeenCalledWith("stream-inst");
   });
@@ -533,7 +534,7 @@ describe("superviseStream", () => {
   });
 
   it("calls chatStream with standard tier and system prompt", async () => {
-    await superviseStream({ message: "test", instanceId: "x" });
+    await superviseStream({ message: "test", instanceId: asInstanceSlug("x") });
 
     expect(mockChatStream).toHaveBeenCalledWith(
       expect.objectContaining({

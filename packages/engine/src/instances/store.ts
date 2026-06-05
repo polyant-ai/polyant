@@ -7,10 +7,11 @@ import { conversations, conversationMessages } from "../conversations/schema.js"
 import { memories } from "../memory/schema.js";
 import { knowledgeDocuments } from "../knowledge/schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
+import { asInstanceSlug, asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
 
 export interface Instance {
-  id: string;
-  slug: string;
+  id: InstanceUuid;
+  slug: InstanceSlug;
   name: string;
   description: string | null;
   status: string;
@@ -35,20 +36,24 @@ export interface Instance {
   updatedAt: Date | null;
 }
 
+function toInstance(row: typeof instances.$inferSelect): Instance {
+  return { ...row, id: asInstanceUuid(row.id), slug: asInstanceSlug(row.slug) } as Instance;
+}
+
 /** Return all active instances. */
 export async function listActiveInstances(): Promise<Instance[]> {
-  return db.select().from(instances).where(eq(instances.status, "active"));
+  return db.select().from(instances).where(eq(instances.status, "active")).then((rows) => rows.map(toInstance));
 }
 
 /** Find an instance by slug. Returns undefined if not found. */
-export async function findInstanceBySlug(slug: string): Promise<Instance | undefined> {
+export async function findInstanceBySlug(slug: InstanceSlug): Promise<Instance | undefined> {
   const rows = await db.select().from(instances).where(eq(instances.slug, slug)).limit(1);
-  return rows[0];
+  return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
 /** Insert an instance if the slug doesn't already exist. */
 export async function ensureInstance(data: {
-  slug: string;
+  slug: InstanceSlug;
   name: string;
   description?: string;
 }): Promise<void> {
@@ -65,12 +70,12 @@ export async function ensureInstance(data: {
 /** Seed the default instances. Call once at startup. */
 export async function seedInstances(): Promise<void> {
   await ensureInstance({
-    slug: "default",
+    slug: asInstanceSlug("default"),
     name: "Default Assistant",
     description: "Default instance — professional and concise",
   });
   await ensureInstance({
-    slug: "creative",
+    slug: asInstanceSlug("creative"),
     name: "Creative Assistant",
     description: "Example alternative instance — informal and playful",
   });
@@ -79,12 +84,12 @@ export async function seedInstances(): Promise<void> {
 
 /** Return all instances (any status), ordered by name (case-insensitive). */
 export async function listAllInstances(): Promise<Instance[]> {
-  return db.select().from(instances).orderBy(sql`LOWER(${instances.name})`);
+  return db.select().from(instances).orderBy(sql`LOWER(${instances.name})`).then((rows) => rows.map(toInstance));
 }
 
 /** Create a new instance and return it. */
 export async function createInstance(data: {
-  slug: string;
+  slug: InstanceSlug;
   name: string;
   description?: string;
   provider?: string;
@@ -100,12 +105,12 @@ export async function createInstance(data: {
       model: data.model ?? null,
     })
     .returning();
-  return rows[0];
+  return toInstance(rows[0]);
 }
 
 /** Update an instance by slug. Touches updatedAt. Returns the updated instance or undefined if not found. */
 export async function updateInstance(
-  slug: string,
+  slug: InstanceSlug,
   data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; icon?: string | null; sttProvider?: string },
 ): Promise<Instance | undefined> {
   const rows = await db
@@ -113,7 +118,7 @@ export async function updateInstance(
     .set({ ...data, updatedAt: sql`now()` })
     .where(eq(instances.slug, slug))
     .returning();
-  return rows[0];
+  return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
 /**
@@ -128,7 +133,7 @@ export async function updateInstance(
  * Audit/telemetry (`tool_audit_logs`, `pipeline_traces`, `ai_logs`) is
  * INTENTIONALLY PRESERVED as a historical record and is left untouched.
  */
-export async function deleteInstance(slug: string): Promise<boolean> {
+export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
   return db.transaction(async (tx) => {
     // conversation_messages has no instance_id — delete via the instance's conversations.
     const convRows = await tx

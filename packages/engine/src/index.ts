@@ -24,6 +24,7 @@ import { seedInitialAdmin } from "./users/seed.js";
 import { schedulerService } from "./scheduled-tasks/scheduler.service.js";
 import { roomScheduler } from "./room/room-scheduler.js";
 import { getRoomBySlug, type RoomConfig } from "./room/room.store.js";
+import { asInstanceSlug, type InstanceSlug } from "./instances/identifiers.js";
 import { getActiveTrigger } from "./webhooks/active-triggers.js";
 import { findActiveTaskByOutbound } from "./scheduled-tasks/store.js";
 import { isPlatformStorageConfigured } from "./attachments/platform-storage.js";
@@ -44,7 +45,7 @@ const roomCache = new TtlCache<string, RoomConfig | null>({ maxSize: 500, ttlMs:
 
 async function getCachedRoom(slug: string): Promise<RoomConfig | null> {
   if (roomCache.has(slug)) return roomCache.get(slug)!;
-  const room = await getRoomBySlug(slug);
+  const room = await getRoomBySlug(asInstanceSlug(slug));
   roomCache.set(slug, room);
   return room;
 }
@@ -54,7 +55,7 @@ type TaskOutboundResult = { lastConversationId: string | null } | null | undefin
 const taskOutboundCache = new TtlCache<string, TaskOutboundResult>({ maxSize: 500, ttlMs: 30_000 });
 
 async function getCachedTaskOutbound(
-  instanceId: string,
+  instanceId: InstanceSlug,
   channelType: string,
   channelId: string,
 ): Promise<TaskOutboundResult> {

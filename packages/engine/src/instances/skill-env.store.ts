@@ -5,9 +5,10 @@ import { db } from "../database/client.js";
 import { instanceSkillEnv } from "./skill-env.schema.js";
 import { encrypt, decrypt } from "../crypto/index.js";
 import { resolveInstanceId } from "./resolve-instance-id.js";
+import { type InstanceSlug, type InstanceUuid } from "./identifiers.js";
 
 export async function setSkillEnv(params: {
-  instanceId: string;
+  instanceId: InstanceUuid;
   skillSlug: string;
   key: string;
   value: string;
@@ -34,7 +35,7 @@ export async function setSkillEnv(params: {
  * Accepts instance slug (e.g. "default"), resolves to UUID internally.
  */
 export async function getSkillEnv(
-  instanceSlug: string,
+  instanceSlug: InstanceSlug,
   skillSlug: string,
 ): Promise<Record<string, string>> {
   const instanceId = await resolveInstanceId(instanceSlug);
@@ -57,7 +58,7 @@ export async function getSkillEnv(
  * Accepts instance slug (e.g. "default"), resolves to UUID internally.
  */
 export async function hasAllRequiredEnv(
-  instanceSlug: string,
+  instanceSlug: InstanceSlug,
   skillSlug: string,
   keys: string[],
 ): Promise<boolean> {
@@ -79,7 +80,7 @@ export async function hasAllRequiredEnv(
  * Returns a Map<skillSlug, boolean>.
  */
 export async function hasAllRequiredEnvBatch(
-  instanceSlug: string,
+  instanceSlug: InstanceSlug,
   checks: Array<{ skillSlug: string; keys: string[] }>,
 ): Promise<Map<string, boolean>> {
   const result = new Map<string, boolean>();
@@ -121,7 +122,7 @@ export async function hasAllRequiredEnvBatch(
 }
 
 export async function deleteSkillEnv(
-  instanceId: string,
+  instanceId: InstanceUuid,
   skillSlug: string,
   key: string,
 ): Promise<void> {
