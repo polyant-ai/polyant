@@ -7,6 +7,7 @@ import { conversations, conversationMessages, type AttachmentMeta, type Reasonin
 import { pipelineTraces } from "../analytics/traces.schema.js";
 import { aiLogs } from "../ai-gateway/logger.js";
 import { toolAuditLogs } from "../audit/audit.schema.js";
+import { memories } from "../memory/schema.js";
 
 export interface MessageRow {
   role: string;
@@ -742,6 +743,11 @@ export class ConversationStore {
       await tx
         .delete(toolAuditLogs)
         .where(eq(toolAuditLogs.conversationId, conversationId));
+      // Memories extracted from this conversation: drop them too, so deleting a
+      // conversation leaves no derived facts behind (right-to-be-forgotten).
+      await tx
+        .delete(memories)
+        .where(eq(memories.sourceConversationId, conversationId));
 
       const result = await tx
         .delete(conversations)
