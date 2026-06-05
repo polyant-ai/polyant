@@ -3,6 +3,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { AgentChannelAdapter } from "./agent.adapter.js";
 import type { IncomingMessage, OutgoingMessage } from "../types.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
 describe("AgentChannelAdapter", () => {
   it("dispatches a synthetic IncomingMessage and returns the response text", async () => {
@@ -14,7 +15,7 @@ describe("AgentChannelAdapter", () => {
     await adapter.initialize(handler);
 
     const result = await adapter.dispatch({
-      targetInstanceId: "tgt-uuid",
+      targetInstanceId: asInstanceSlug("tgt-uuid"),
       prompt: "hello",
       callerSlug: "acme",
       callerConversationId: "conv-1",
@@ -40,7 +41,7 @@ describe("AgentChannelAdapter", () => {
     const adapter = new AgentChannelAdapter();
     await expect(
       adapter.dispatch({
-        targetInstanceId: "x",
+        targetInstanceId: asInstanceSlug("x"),
         prompt: "x",
         callerSlug: "x",
         callerConversationId: "x",
@@ -58,7 +59,7 @@ describe("AgentChannelAdapter", () => {
     await adapter.initialize(handler);
     const ac = new AbortController();
     await adapter.dispatch({
-      targetInstanceId: "x",
+      targetInstanceId: asInstanceSlug("x"),
       prompt: "x",
       callerSlug: "x",
       callerConversationId: "x",
@@ -73,7 +74,7 @@ describe("AgentChannelAdapter", () => {
     const handler = vi.fn(async (_msg: IncomingMessage): Promise<OutgoingMessage> => ({ text: "ok", attachments: [] }));
     await adapter.initialize(handler);
     await adapter.dispatch({
-      targetInstanceId: "x",
+      targetInstanceId: asInstanceSlug("x"),
       prompt: "x",
       callerSlug: "acme",
       callerConversationId: "parent",

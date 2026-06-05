@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 const mockChat = vi.fn();
 const mockGetRecentMessages = vi.fn();
@@ -52,7 +53,7 @@ describe("extractMemories", () => {
       event: "ADD",
     });
 
-    const results = await extractMemories("conv-1", "user-1");
+    const results = await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     expect(mockGetRecentMessages).toHaveBeenCalledWith("conv-1", 15);
     expect(mockChat).toHaveBeenCalledWith(
@@ -85,7 +86,7 @@ describe("extractMemories", () => {
     ]);
     mockChat.mockResolvedValue({ text: "[]" });
 
-    await extractMemories("conv-1", "user-1", undefined, undefined, { apiKey: "ls-key", project: "proj" });
+    await extractMemories("conv-1", asInstanceSlug("user-1"), undefined, undefined, { apiKey: "ls-key", project: "proj" });
 
     expect(mockChat).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -98,7 +99,7 @@ describe("extractMemories", () => {
   it("returns early when no messages found", async () => {
     mockGetRecentMessages.mockResolvedValue([]);
 
-    const results = await extractMemories("conv-1", "user-1");
+    const results = await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     expect(results).toEqual([]);
     expect(mockChat).not.toHaveBeenCalled();
@@ -123,7 +124,7 @@ describe("extractMemories", () => {
       event: "ADD",
     });
 
-    await extractMemories("conv-1", "user-1");
+    await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     // The transcript sent to the LLM should only contain the non-empty message
     const chatCall = mockChat.mock.calls[0];
@@ -138,7 +139,7 @@ describe("extractMemories", () => {
       { role: "assistant", content: "", createdAt: new Date() },
     ]);
 
-    const results = await extractMemories("conv-1", "user-1");
+    const results = await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     expect(results).toEqual([]);
     expect(mockChat).not.toHaveBeenCalled();
@@ -161,7 +162,7 @@ describe("extractMemories", () => {
       event: "ADD",
     });
 
-    await extractMemories("conv-1", "user-1");
+    await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     // Non-string content becomes "" and gets filtered out of the transcript
     const chatCall = mockChat.mock.calls[0];
@@ -180,7 +181,7 @@ describe("extractMemories", () => {
       text: "[]",
     });
 
-    const results = await extractMemories("conv-1", "user-1");
+    const results = await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     expect(results).toEqual([]);
     expect(mockGenerateEmbeddings).not.toHaveBeenCalled();
@@ -208,7 +209,7 @@ describe("extractMemories", () => {
       event: "ADD",
     });
 
-    await extractMemories("conv-1", "user-1");
+    await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     const output = stdoutSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(output).toContain("1 fact(s)");
@@ -225,7 +226,7 @@ describe("extractMemories", () => {
       text: "This is not valid JSON at all",
     });
 
-    const results = await extractMemories("conv-1", "user-1");
+    const results = await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     expect(results).toEqual([]);
     expect(mockGenerateEmbeddings).not.toHaveBeenCalled();
@@ -253,7 +254,7 @@ describe("extractMemories", () => {
       .mockResolvedValueOnce({ id: "m1", content: "The user lives in Rome", event: "ADD" })
       .mockResolvedValueOnce({ id: "m2", content: "The user likes pasta", event: "ADD" });
 
-    const results = await extractMemories("conv-1", "user-1");
+    const results = await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     // All facts embedded in a single batch call
     expect(mockGenerateEmbeddings).toHaveBeenCalledTimes(1);

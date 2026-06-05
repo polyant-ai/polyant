@@ -22,6 +22,7 @@ vi.mock("@tavily/core", () => ({
 }));
 
 import { getToolRegistry, type ToolContext } from "./registry.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
 // Importing the tool file triggers `registerTool()` as a side effect.
 import "./web-search.tool.js";
@@ -33,7 +34,7 @@ const noopAudit = { log: auditLog };
 
 function makeCtx(secrets: Record<string, string>): ToolContext {
   return {
-    instanceId: "test-instance",
+    instanceId: asInstanceSlug("test-instance"),
     secrets,
     audit: noopAudit as any,
   };

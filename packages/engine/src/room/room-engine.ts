@@ -8,6 +8,7 @@ import { extractMemories } from "../memory/extractor.js";
 import { listAndMarkPendingEventsProcessing, markEventsCompleted } from "../webhooks/webhook-backlog.store.js";
 import { appendDailyLog } from "./activity-log.store.js";
 import type { RoomConfig } from "./room.store.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 import { setRoomConversationId } from "./room.store.js";
 import { generateConversationTitle } from "../utils/title-generator.js";
 import { roomLog } from "./room-logger.js";
@@ -37,7 +38,7 @@ function scrubClosing(input: string, close: string): string {
 
 export async function executeRoomCycle(
   room: RoomConfig,
-  instanceSlug: string,
+  instanceSlug: InstanceSlug,
   humanMessage?: string,
 ): Promise<void> {
   const cycleStart = Date.now();

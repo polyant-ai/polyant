@@ -8,6 +8,7 @@ import { computeNextRun } from "./schedule-utils.js";
 import { channelManager } from "../channels/channel-manager.js";
 import { scheduledTaskLog } from "./scheduled-task-logger.js";
 import { emitCron } from "../activity-stream/emitters/emit-cron.js";
+import { asInstanceSlug } from "../instances/identifiers.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { findInstanceBySlug } from "../instances/store.js";
 
@@ -85,7 +86,7 @@ class SchedulerService {
     // via JOIN in `getDueTasks`, but `runNow` (manual trigger) bypasses that
     // query — and a race could let a task slip through between the tick query
     // and lock acquisition. We re-check here defensively.
-    const instance = await findInstanceBySlug(task.instanceId);
+    const instance = await findInstanceBySlug(asInstanceSlug(task.instanceId));
     if (!instance || instance.status !== "active") {
       scheduledTaskLog.info(
         "SchedulerService",
@@ -112,7 +113,7 @@ class SchedulerService {
     // Create run log entry
     let runId: string | undefined;
     try {
-      runId = await runLog.createRun(task.id, task.instanceId, triggerType);
+      runId = await runLog.createRun(task.id, asInstanceSlug(task.instanceId), triggerType);
     } catch (logErr) {
       scheduledTaskLog.error("SchedulerService", `failed to create run log for "${task.name}":`, logErr);
     }
@@ -142,7 +143,7 @@ class SchedulerService {
       const result = await this.messageHandler!({
         channelType: "scheduled",
         channelId,
-        instanceId: task.instanceId,
+        instanceId: asInstanceSlug(task.instanceId),
         userName: "scheduler",
         text: task.prompt,
         metadata: {

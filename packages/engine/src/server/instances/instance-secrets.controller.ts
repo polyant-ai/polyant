@@ -5,6 +5,7 @@ import { z } from "zod";
 import { setSecret, listSecretKeys, deleteSecret } from "../../instances/secrets.store.js";
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
 const PutSecretsSchema = z.object({
   secrets: z
@@ -26,7 +27,7 @@ export class InstanceSecretsController {
   @Get(":slug/secrets")
   async listSecrets(@Param("slug") slug: string) {
     await findInstanceOrFail(slug);
-    const secrets = await listSecretKeys(slug);
+    const secrets = await listSecretKeys(asInstanceSlug(slug));
     return { secrets };
   }
 
@@ -49,8 +50,8 @@ export class InstanceSecretsController {
       await setSecret(instance.id, entry.key, entry.value);
     }
 
-    invalidateInstanceConfigCache(slug);
-    const secrets = await listSecretKeys(slug);
+    invalidateInstanceConfigCache(asInstanceSlug(slug));
+    const secrets = await listSecretKeys(asInstanceSlug(slug));
     return { secrets };
   }
 
@@ -61,7 +62,7 @@ export class InstanceSecretsController {
   ) {
     const instance = await findInstanceOrFail(slug);
     await deleteSecret(instance.id, key);
-    invalidateInstanceConfigCache(slug);
+    invalidateInstanceConfigCache(asInstanceSlug(slug));
     return { deleted: true };
   }
 }

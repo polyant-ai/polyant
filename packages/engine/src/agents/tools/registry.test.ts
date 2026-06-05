@@ -2,6 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Mock the `ai` module so we never invoke real Vercel AI SDK tooling.
@@ -58,7 +59,7 @@ function makeDef(overrides: Partial<ToolDefinition> & { name: string }): ToolDef
 const noopAudit = { log: () => {} };
 
 const mockCtx: ToolContext = {
-  instanceId: "test-instance",
+  instanceId: asInstanceSlug("test-instance"),
   audit: noopAudit,
 };
 

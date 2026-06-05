@@ -8,6 +8,7 @@ import { resolveInstanceSlug } from "../instances/resolve-instance-id.js";
 import { roomLog } from "./room-logger.js";
 import { runAnalyticsCleanup } from "../analytics/cleanup.js";
 import { config } from "../config.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 
 const TICK_INTERVAL_MS = 30_000;
 const HOUSEKEEPING_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -79,7 +80,7 @@ class RoomScheduler {
     }
   }
 
-  async triggerImmediate(room: RoomConfig, instanceSlug: string, humanMessage: string): Promise<void> {
+  async triggerImmediate(room: RoomConfig, instanceSlug: InstanceSlug, humanMessage: string): Promise<void> {
     if (this.running.has(room.instanceId)) {
       roomLog.warn("Scheduler", `room for ${instanceSlug} already running, dropping human message`);
       return;

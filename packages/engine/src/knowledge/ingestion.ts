@@ -8,6 +8,7 @@ import {
   updateDocumentStatus,
 } from "./store.js";
 import { generateEmbeddings } from "../memory/embedder.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 
 /**
  * Process a document: chunk the text, generate embeddings, store chunks.
@@ -23,7 +24,7 @@ import { generateEmbeddings } from "../memory/embedder.js";
  */
 export async function processDocument(
   docId: string,
-  instanceId: string,
+  instanceId: InstanceSlug,
   textContent: string,
   openaiApiKey?: string,
 ): Promise<{ chunkCount: number }> {

@@ -8,6 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 // Capture every drizzle builder method call so we can assert on the
 // arguments passed to `.limit()` / `.offset()` and on whether `.where()`
@@ -50,36 +51,36 @@ describe("scheduled-tasks store: listByInstance pagination", () => {
   });
 
   it("applies the default cap of 100 when called with only an instanceId (backward-compat)", async () => {
-    await listByInstance("any-slug");
+    await listByInstance(asInstanceSlug("any-slug"));
     expect(LIST_BY_INSTANCE_DEFAULT_LIMIT).toBe(100);
     expect(calls.limitArg).toBe(100);
     expect(calls.offsetArg).toBe(0);
   });
 
   it("respects an explicit limit option", async () => {
-    await listByInstance("any-slug", { limit: 50 });
+    await listByInstance(asInstanceSlug("any-slug"), { limit: 50 });
     expect(calls.limitArg).toBe(50);
     expect(calls.offsetArg).toBe(0);
   });
 
   it("respects an explicit offset option", async () => {
-    await listByInstance("any-slug", { limit: 25, offset: 50 });
+    await listByInstance(asInstanceSlug("any-slug"), { limit: 25, offset: 50 });
     expect(calls.limitArg).toBe(25);
     expect(calls.offsetArg).toBe(50);
   });
 
   it("falls back to the default cap when limit is undefined but offset is set", async () => {
-    await listByInstance("any-slug", { offset: 200 });
+    await listByInstance(asInstanceSlug("any-slug"), { offset: 200 });
     expect(calls.limitArg).toBe(100);
     expect(calls.offsetArg).toBe(200);
   });
 
   it("changes the where predicate when enabledOnly is true", async () => {
-    await listByInstance("any-slug");
+    await listByInstance(asInstanceSlug("any-slug"));
     const baseWhere = calls.whereArg;
     calls.whereArg = undefined;
 
-    await listByInstance("any-slug", { enabledOnly: true });
+    await listByInstance(asInstanceSlug("any-slug"), { enabledOnly: true });
     expect(calls.whereArg).not.toBe(baseWhere);
     expect(calls.whereArg).toBeDefined();
   });

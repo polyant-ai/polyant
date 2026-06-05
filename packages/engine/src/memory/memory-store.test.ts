@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 // Chain mock: each chained method returns the chain itself, with the final
 // call returning a resolved promise (or the accumulated result).
@@ -88,7 +89,7 @@ describe("memory-store", () => {
       mockDb.insert.mockReturnValue(insChain as any);
 
       const result = await upsertMemory({
-        instanceId: "user-1",
+        instanceId: asInstanceSlug("user-1"),
         content: "User likes pizza",
         category: "preference",
         importance: 8,
@@ -114,7 +115,7 @@ describe("memory-store", () => {
       mockDb.update.mockReturnValue(updChain as any);
 
       const result = await upsertMemory({
-        instanceId: "user-1",
+        instanceId: asInstanceSlug("user-1"),
         content: "User likes pizza",
         embedding: [0.1, 0.2],
       });
@@ -151,7 +152,7 @@ describe("memory-store", () => {
       mockDb.insert.mockReturnValue(insChain as any);
 
       const result = await upsertMemory({
-        instanceId: "user-1",
+        instanceId: asInstanceSlug("user-1"),
         content: "Recovered after retries",
         embedding: [0.1, 0.2],
       });
@@ -168,7 +169,7 @@ describe("memory-store", () => {
 
       await expect(
         upsertMemory({
-          instanceId: "user-1",
+          instanceId: asInstanceSlug("user-1"),
           content: "Should fail",
           embedding: [0.1, 0.2],
         }),
@@ -195,7 +196,7 @@ describe("memory-store", () => {
 
       await expect(
         upsertMemory({
-          instanceId: "user-1",
+          instanceId: asInstanceSlug("user-1"),
           content: "Will give up",
           embedding: [0.1, 0.2],
         }),
@@ -223,7 +224,7 @@ describe("memory-store", () => {
       const selChain = createChainMock(rows);
       mockDb.select.mockReturnValue(selChain as any);
 
-      const results = await searchByVector([0.1, 0.2], "user-1", 10);
+      const results = await searchByVector([0.1, 0.2], asInstanceSlug("user-1"), 10);
 
       expect(results).toHaveLength(1);
       expect(results[0].similarity).toBe(0.85); // 1 - 0.15
@@ -249,7 +250,7 @@ describe("memory-store", () => {
       const selChain = createChainMock(rows);
       mockDb.select.mockReturnValue(selChain as any);
 
-      const results = await getAllMemories("user-1");
+      const results = await getAllMemories(asInstanceSlug("user-1"));
 
       expect(results).toHaveLength(1);
       expect(results[0].content).toBe("Fact A");
@@ -262,7 +263,7 @@ describe("memory-store", () => {
       const delChain = createChainMock([{ id: "mem-123" }]);
       mockDb.delete.mockReturnValue(delChain as any);
 
-      const result = await deleteMemoryForInstance("mem-123", "inst-1");
+      const result = await deleteMemoryForInstance("mem-123", asInstanceSlug("inst-1"));
 
       expect(result).toBe(true);
       expect(mockDb.delete).toHaveBeenCalled();
@@ -272,7 +273,7 @@ describe("memory-store", () => {
       const delChain = createChainMock([]);
       mockDb.delete.mockReturnValue(delChain as any);
 
-      const result = await deleteMemoryForInstance("mem-999", "inst-1");
+      const result = await deleteMemoryForInstance("mem-999", asInstanceSlug("inst-1"));
 
       expect(result).toBe(false);
     });
@@ -283,7 +284,7 @@ describe("memory-store", () => {
       const delChain = createChainMock(undefined);
       mockDb.delete.mockReturnValue(delChain as any);
 
-      await deleteAllMemories("user-1");
+      await deleteAllMemories(asInstanceSlug("user-1"));
 
       expect(mockDb.delete).toHaveBeenCalled();
     });

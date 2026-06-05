@@ -3,6 +3,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { type DateRange, toISO, asRows, pctChange, instanceFilter } from "../utils/query-helpers.js";
+import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 
 export type { DateRange };
 
@@ -65,7 +66,7 @@ export interface ToolRow {
 }
 
 export interface InstanceComparisonRow {
-  instanceId: string;
+  instanceId: InstanceSlug;
   name: string;
   conversations: number;
   cost: number;
@@ -87,7 +88,7 @@ export interface AnalyticsData {
 
 async function getOverviewStats(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
 ): Promise<OverviewStats> {
   const instFilter = instanceFilter(instanceId);
 
@@ -201,7 +202,7 @@ async function getOverviewStats(
 
 async function getDailyTrend(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
 ): Promise<DailyTrendRow[]> {
   const instFilter = instanceFilter(instanceId);
   const convFilter = instanceFilter(instanceId, "c.instance_id");
@@ -272,7 +273,7 @@ async function getDailyTrend(
 
 async function getHourlyDistribution(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
 ): Promise<HourlyRow[]> {
   const convFilter = instanceFilter(instanceId, "c.instance_id");
 
@@ -303,7 +304,7 @@ async function getHourlyDistribution(
 
 async function getChannelDistribution(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
 ): Promise<ChannelRow[]> {
   const convFilter = instanceFilter(instanceId, "c.instance_id");
 
@@ -331,7 +332,7 @@ async function getChannelDistribution(
 
 async function getModelDistribution(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
 ): Promise<ModelRow[]> {
   const instFilter = instanceFilter(instanceId);
 
@@ -371,7 +372,7 @@ async function getModelDistribution(
 
 async function getTierDistribution(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
 ): Promise<TierRow[]> {
   const instFilter = instanceFilter(instanceId);
 
@@ -395,7 +396,7 @@ async function getTierDistribution(
 
 async function getToolUsage(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
 ): Promise<ToolRow[]> {
   const convFilter = instanceFilter(instanceId, "c.instance_id");
 
@@ -452,7 +453,7 @@ async function getInstanceComparison(
       ORDER BY cost DESC
     `),
   ).map((r) => ({
-    instanceId: r.instance_id,
+    instanceId: asInstanceSlug(r.instance_id),
     name: r.name,
     conversations: r.conversations,
     cost: r.cost,
@@ -464,7 +465,7 @@ async function getInstanceComparison(
 
 export async function getAnalytics(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
   includeInstanceComparison = false,
 ): Promise<AnalyticsData> {
   const [

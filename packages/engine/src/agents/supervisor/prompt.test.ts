@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Tool } from "ai";
 import type { PromptRow } from "../../instances/prompts.store.js";
+import { asInstanceUuid, asInstanceSlug } from "../../instances/identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Section content used across tests
@@ -22,7 +23,7 @@ const SECTION_CONTENT: Record<string, { title: string; content: string }> = {
 function makePromptRows(instanceId: string, overrides?: Partial<Record<string, string>>): PromptRow[] {
   return Object.entries(SECTION_CONTENT).map(([sectionKey, { title, content }]) => ({
     id: `row-${sectionKey}`,
-    instanceId,
+    instanceId: asInstanceUuid(instanceId),
     sectionKey,
     title,
     content: overrides?.[sectionKey] ?? content,
@@ -72,13 +73,13 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const TEST_INSTANCE_ID = "uuid-test-instance";
-const TEST_INSTANCE_SLUG = "test-instance";
+const TEST_INSTANCE_ID = asInstanceUuid("uuid-test-instance");
+const TEST_INSTANCE_SLUG = asInstanceSlug("test-instance");
 
 function buildPrompt(overrides?: {
   tools?: Record<string, Tool>;
-  instanceId?: string;
-  instanceSlug?: string;
+  instanceId?: ReturnType<typeof asInstanceUuid>;
+  instanceSlug?: ReturnType<typeof asInstanceSlug>;
   memoryEnabled?: boolean;
   conversationSummary?: string;
 }) {
@@ -232,8 +233,9 @@ describe("buildSupervisorSystemPrompt", () => {
   });
 
   it("calls getPrompts with the instance UUID", async () => {
-    await buildPrompt({ instanceId: "my-uuid" });
-    expect(mockGetPrompts).toHaveBeenCalledWith("my-uuid");
+    const uuid = asInstanceUuid("my-uuid");
+    await buildPrompt({ instanceId: uuid });
+    expect(mockGetPrompts).toHaveBeenCalledWith(uuid);
   });
 
   it("excludes memory section when memoryEnabled is false", async () => {

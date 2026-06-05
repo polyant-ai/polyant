@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 const mockSearchByVector = vi.fn();
 const mockSearchByKeyword = vi.fn();
@@ -32,7 +33,7 @@ describe("searchKnowledge (hybrid)", () => {
     mockSearchByVector.mockResolvedValue([]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await searchKnowledge("menu", "maia");
+    const results = await searchKnowledge("menu", asInstanceSlug("maia"));
     expect(results).toEqual([]);
   });
 
@@ -43,7 +44,7 @@ describe("searchKnowledge (hybrid)", () => {
     ]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await searchKnowledge("menu", "maia");
+    const results = await searchKnowledge("menu", asInstanceSlug("maia"));
     expect(results).toHaveLength(2);
     expect(results.map((r) => r.content)).toEqual(["Alpha", "Beta"]);
   });
@@ -54,7 +55,7 @@ describe("searchKnowledge (hybrid)", () => {
       makeChunkResult("c1", "Menu della serata", "Menu evento"),
     ]);
 
-    const results = await searchKnowledge("menu", "maia");
+    const results = await searchKnowledge("menu", asInstanceSlug("maia"));
     expect(results).toHaveLength(1);
     expect(results[0].content).toBe("Menu della serata");
     expect(results[0].source).toBe("Menu evento");
@@ -71,7 +72,7 @@ describe("searchKnowledge (hybrid)", () => {
       makeChunkResult("c3", "keyword only"),
     ]);
 
-    const results = await searchKnowledge("menu", "maia");
+    const results = await searchKnowledge("menu", asInstanceSlug("maia"));
     const ids = results.map((r) => r.content);
     expect(ids).toContain("shared chunk");
     expect(ids.filter((c) => c === "shared chunk")).toHaveLength(1);
@@ -93,7 +94,7 @@ describe("searchKnowledge (hybrid)", () => {
       makeChunkResult("c5", "E"),
     ]);
 
-    const results = await searchKnowledge("menu", "maia", 2);
+    const results = await searchKnowledge("menu", asInstanceSlug("maia"), 2);
     expect(results).toHaveLength(2);
   });
 
@@ -101,7 +102,7 @@ describe("searchKnowledge (hybrid)", () => {
     mockSearchByVector.mockResolvedValue([makeChunkResult("c1", "first")]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await searchKnowledge("menu", "maia");
+    const results = await searchKnowledge("menu", asInstanceSlug("maia"));
     const expected = Math.round((1 / 61) * 10000) / 10000;
     expect(results[0].score).toBe(expected);
   });
@@ -110,7 +111,7 @@ describe("searchKnowledge (hybrid)", () => {
     mockSearchByVector.mockResolvedValue([makeChunkResult("c1", "a")]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await searchKnowledge("menu", "maia");
+    const results = await searchKnowledge("menu", asInstanceSlug("maia"));
     const decimals = results[0].score.toString().split(".")[1] ?? "";
     expect(decimals.length).toBeLessThanOrEqual(4);
   });
@@ -121,7 +122,7 @@ describe("searchKnowledge (hybrid)", () => {
       makeChunkResult("c1", "still works"),
     ]);
 
-    const results = await searchKnowledge("menu", "maia");
+    const results = await searchKnowledge("menu", asInstanceSlug("maia"));
     expect(results).toHaveLength(1);
     expect(results[0].content).toBe("still works");
   });
@@ -132,7 +133,7 @@ describe("searchKnowledge (hybrid)", () => {
     ]);
     mockSearchByKeyword.mockRejectedValue(new Error("FTS down"));
 
-    const results = await searchKnowledge("menu", "maia");
+    const results = await searchKnowledge("menu", asInstanceSlug("maia"));
     expect(results).toHaveLength(1);
     expect(results[0].content).toBe("still works");
   });
@@ -141,14 +142,14 @@ describe("searchKnowledge (hybrid)", () => {
     mockSearchByVector.mockResolvedValue([]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    await searchKnowledge("menu", "maia", 5);
+    await searchKnowledge("menu", asInstanceSlug("maia"), 5);
     expect(mockSearchByVector).toHaveBeenCalledWith([0.1, 0.2, 0.3], "maia", 20);
     expect(mockSearchByKeyword).toHaveBeenCalledWith("menu", "maia", 20);
 
     vi.clearAllMocks();
     mockGenerateEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
 
-    await searchKnowledge("menu", "maia", 15);
+    await searchKnowledge("menu", asInstanceSlug("maia"), 15);
     expect(mockSearchByVector).toHaveBeenCalledWith([0.1, 0.2, 0.3], "maia", 30);
     expect(mockSearchByKeyword).toHaveBeenCalledWith("menu", "maia", 30);
   });
@@ -157,7 +158,7 @@ describe("searchKnowledge (hybrid)", () => {
     mockSearchByVector.mockResolvedValue([]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    await searchKnowledge("menu", "maia", 5, "sk-test-key");
+    await searchKnowledge("menu", asInstanceSlug("maia"), 5, "sk-test-key");
     expect(mockGenerateEmbedding).toHaveBeenCalledWith("menu", "sk-test-key");
   });
 
@@ -165,7 +166,7 @@ describe("searchKnowledge (hybrid)", () => {
     mockSearchByVector.mockResolvedValue([]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    await searchKnowledge("menu", "maia");
+    await searchKnowledge("menu", asInstanceSlug("maia"));
     expect(mockSearchByVector).toHaveBeenCalledWith(
       [0.1, 0.2, 0.3],
       "maia",

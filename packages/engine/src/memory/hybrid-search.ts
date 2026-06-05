@@ -5,6 +5,7 @@ import { generateEmbedding } from "./embedder.js";
 import { conversationStore } from "../conversations/index.js";
 import { DEFAULT_INSTANCE_ID } from "../config.js";
 import { memoryLog } from "./memory-logger.js";
+import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 
 export interface HybridSearchResult {
   content: string;
@@ -24,11 +25,11 @@ export interface HybridSearchResult {
  */
 export async function hybridSearch(
   query: string,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
   limit = 10,
   openaiApiKey?: string,
 ): Promise<HybridSearchResult[]> {
-  const uid = instanceId ?? DEFAULT_INSTANCE_ID;
+  const uid = instanceId ?? asInstanceSlug(DEFAULT_INSTANCE_ID);
   const fetchLimit = Math.max(limit * 2, 20);
 
   // Generate embedding for the query

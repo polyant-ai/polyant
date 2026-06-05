@@ -7,6 +7,7 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { findInstanceBySlug, type Instance } from "./store.js";
+import { asInstanceSlug, type InstanceUuid } from "./identifiers.js";
 import { getPrompts } from "./prompts.store.js";
 import { getInstanceSkills } from "./instance-skills.store.js";
 import { instanceTools } from "./instance-tools.schema.js";
@@ -24,7 +25,7 @@ import type { InstanceBundle, ExportInstanceData } from "./export.schema.js";
 // ---------------------------------------------------------------------------
 
 export async function exportInstance(slug: string): Promise<InstanceBundle> {
-  const instance = await findInstanceBySlug(slug);
+  const instance = await findInstanceBySlug(asInstanceSlug(slug));
   if (!instance) throw new Error(`Instance "${slug}" not found`);
 
   const data = await assembleInstanceData(instance);
@@ -123,7 +124,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
   };
 }
 
-async function exportPrompts(instanceId: string) {
+async function exportPrompts(instanceId: InstanceUuid) {
   const rows = await getPrompts(instanceId);
   return rows.map((r) => ({
     sectionKey: r.sectionKey,
@@ -132,7 +133,7 @@ async function exportPrompts(instanceId: string) {
   }));
 }
 
-async function exportSkillAssignments(instanceId: string) {
+async function exportSkillAssignments(instanceId: InstanceUuid) {
   const rows = await getInstanceSkills(instanceId);
   return rows.map((r) => ({
     skillSlug: r.skillSlug,

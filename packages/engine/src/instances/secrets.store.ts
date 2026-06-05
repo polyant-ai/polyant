@@ -7,6 +7,7 @@ import { instanceSecrets } from "./secrets.schema.js";
 import { instances } from "./schema.js";
 import { encrypt, decrypt } from "../crypto/index.js";
 import { resolveInstanceId } from "./resolve-instance-id.js";
+import { asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
 
 /** Well-known secret key names. */
 export const SECRET_KEYS = {
@@ -25,7 +26,7 @@ export const SECRET_KEYS = {
 } as const;
 
 /** Encrypt and upsert a secret for an instance (by UUID). */
-export async function setSecret(instanceId: string, key: string, value: string): Promise<void> {
+export async function setSecret(instanceId: InstanceUuid, key: string, value: string): Promise<void> {
   const encrypted = encrypt(value);
   await db
     .insert(instanceSecrets)
@@ -37,7 +38,7 @@ export async function setSecret(instanceId: string, key: string, value: string):
 }
 
 /** Get a single decrypted secret by instance slug + key. */
-export async function getSecret(instanceSlug: string, key: string): Promise<string | undefined> {
+export async function getSecret(instanceSlug: InstanceSlug, key: string): Promise<string | undefined> {
   const instanceId = await resolveInstanceId(instanceSlug);
   if (!instanceId) return undefined;
 
@@ -51,7 +52,7 @@ export async function getSecret(instanceSlug: string, key: string): Promise<stri
 }
 
 /** Get all decrypted secrets for an instance (by slug). */
-export async function getAllSecrets(instanceSlug: string): Promise<Record<string, string>> {
+export async function getAllSecrets(instanceSlug: InstanceSlug): Promise<Record<string, string>> {
   const instanceId = await resolveInstanceId(instanceSlug);
   if (!instanceId) return {};
 
@@ -68,7 +69,7 @@ export async function getAllSecrets(instanceSlug: string): Promise<Record<string
 }
 
 /** Get all decrypted secrets for an instance (by UUID). */
-export async function getAllSecretsById(instanceId: string): Promise<Record<string, string>> {
+export async function getAllSecretsById(instanceId: InstanceUuid): Promise<Record<string, string>> {
   const rows = await db
     .select({ key: instanceSecrets.key, value: instanceSecrets.value })
     .from(instanceSecrets)
@@ -82,7 +83,7 @@ export async function getAllSecretsById(instanceId: string): Promise<Record<stri
 }
 
 /** List secret key names + configured status (never exposes values). */
-export async function listSecretKeys(instanceSlug: string): Promise<Array<{ key: string; configured: boolean }>> {
+export async function listSecretKeys(instanceSlug: InstanceSlug): Promise<Array<{ key: string; configured: boolean }>> {
   const instanceId = await resolveInstanceId(instanceSlug);
   if (!instanceId) return [];
 
@@ -110,7 +111,7 @@ export async function listSecretKeys(instanceSlug: string): Promise<Array<{ key:
 }
 
 /** Delete a secret by instance UUID + key. */
-export async function deleteSecret(instanceId: string, key: string): Promise<void> {
+export async function deleteSecret(instanceId: InstanceUuid, key: string): Promise<void> {
   await db
     .delete(instanceSecrets)
     .where(and(eq(instanceSecrets.instanceId, instanceId), eq(instanceSecrets.key, key)));
@@ -126,7 +127,7 @@ export async function deleteSecret(instanceId: string, key: string): Promise<voi
  *
  * Returns the matched instance slug or `null` when no key matches.
  */
-export async function findInstanceByAuthApiKey(token: string): Promise<{ slug: string; instanceId: string } | null> {
+export async function findInstanceByAuthApiKey(token: string): Promise<{ slug: string; instanceId: InstanceUuid } | null> {
   if (!token) return null;
 
   const rows = await db
@@ -143,7 +144,7 @@ export async function findInstanceByAuthApiKey(token: string): Promise<{ slug: s
     ));
 
   const tokBuf = Buffer.from(token, "utf-8");
-  let match: { slug: string; instanceId: string } | null = null;
+  let match: { slug: string; instanceId: InstanceUuid } | null = null;
 
   for (const row of rows) {
     let plaintext: string;
@@ -159,7 +160,7 @@ export async function findInstanceByAuthApiKey(token: string): Promise<{ slug: s
     if (tokBuf.length === expBuf.length && timingSafeEqual(tokBuf, expBuf)) {
       // Don't early-return: keep iterating to keep the wall-clock time
       // independent of which row matched.
-      match = { slug: row.slug, instanceId: row.instanceId };
+      match = { slug: row.slug, instanceId: asInstanceUuid(row.instanceId) };
     }
   }
 

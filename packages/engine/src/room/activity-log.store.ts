@@ -3,17 +3,18 @@
 import { and, eq, lte, sql, desc, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { roomActivityLog } from "./room.schema.js";
+import { asInstanceUuid, type InstanceUuid } from "../instances/identifiers.js";
 
 export interface ActivityEntry {
   id: string;
-  instanceId: string;
+  instanceId: InstanceUuid;
   logDate: string;
   logType: string;
   content: string;
   eventCount: number;
 }
 
-export async function appendDailyLog(instanceId: string, content: string, eventCount: number): Promise<void> {
+export async function appendDailyLog(instanceId: InstanceUuid, content: string, eventCount: number): Promise<void> {
   const today = new Date().toISOString().split("T")[0];
 
   await db
@@ -29,7 +30,7 @@ export async function appendDailyLog(instanceId: string, content: string, eventC
 }
 
 export async function listActivity(
-  instanceId: string,
+  instanceId: InstanceUuid,
   opts: { logType?: string; limit?: number; offset?: number },
 ): Promise<ActivityEntry[]> {
   const conditions = [eq(roomActivityLog.instanceId, instanceId)];
@@ -43,10 +44,10 @@ export async function listActivity(
     .limit(opts.limit ?? 50)
     .offset(opts.offset ?? 0);
 
-  return rows as ActivityEntry[];
+  return rows.map((r) => ({ ...r, instanceId: asInstanceUuid(r.instanceId) })) as ActivityEntry[];
 }
 
-export async function compactActivityLog(instanceId: string): Promise<void> {
+export async function compactActivityLog(instanceId: InstanceUuid): Promise<void> {
   const now = new Date();
 
   const twelveMonthsAgo = new Date(now);
@@ -71,7 +72,7 @@ export async function compactActivityLog(instanceId: string): Promise<void> {
 }
 
 async function compactEntries(
-  instanceId: string,
+  instanceId: InstanceUuid,
   fromType: string,
   olderThan: Date,
   toType: string,

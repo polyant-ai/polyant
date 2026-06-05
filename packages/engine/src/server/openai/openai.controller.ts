@@ -19,6 +19,7 @@ import { z } from "zod";
 import { OpenAIService } from "./openai.service.js";
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { findInstanceBySlug } from "../../instances/store.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import { AllowInstanceApiKey } from "../../auth/decorators/allow-instance-api-key.decorator.js";
 import type {
@@ -192,12 +193,12 @@ export class OpenAIController {
 
   private async validateAuth(instanceSlug: string, authHeader?: string) {
     // Verify instance exists before checking auth config
-    const instance = await findInstanceBySlug(instanceSlug);
+    const instance = await findInstanceBySlug(asInstanceSlug(instanceSlug));
     if (!instance) {
       throw new UnauthorizedException("Unknown model");
     }
 
-    const instanceConfig = await resolveInstanceConfig(instanceSlug);
+    const instanceConfig = await resolveInstanceConfig(asInstanceSlug(instanceSlug));
     if (!instanceConfig.authEnabled) return; // Auth not enabled = open access
 
     if (!instanceConfig.authApiKey) {

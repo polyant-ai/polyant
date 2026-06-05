@@ -60,6 +60,7 @@ import {
   resolveInstanceId,
   resolveInstanceSlug,
 } from "./resolve-instance-id.js";
+import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -79,7 +80,7 @@ describe("resolveInstanceId / resolveInstanceSlug", () => {
     it("returns the uuid when slug matches an existing instance", async () => {
       mockDb.select.mockReturnValue(createChainMock([{ id: UUID }]) as never);
 
-      const result = await resolveInstanceId(SLUG);
+      const result = await resolveInstanceId(asInstanceSlug(SLUG));
 
       expect(result).toBe(UUID);
     });
@@ -87,7 +88,7 @@ describe("resolveInstanceId / resolveInstanceSlug", () => {
     it("returns undefined when slug does not exist (never throws)", async () => {
       mockDb.select.mockReturnValue(createChainMock([]) as never);
 
-      const result = await resolveInstanceId("nonexistent-slug");
+      const result = await resolveInstanceId(asInstanceSlug("nonexistent-slug"));
 
       expect(result).toBeUndefined();
     });
@@ -95,7 +96,7 @@ describe("resolveInstanceId / resolveInstanceSlug", () => {
     it("returns undefined for an empty-string slug (zero rows)", async () => {
       mockDb.select.mockReturnValue(createChainMock([]) as never);
 
-      const result = await resolveInstanceId("");
+      const result = await resolveInstanceId(asInstanceSlug(""));
 
       expect(result).toBeUndefined();
     });
@@ -108,7 +109,7 @@ describe("resolveInstanceId / resolveInstanceSlug", () => {
     it("returns the slug when uuid matches an existing instance", async () => {
       mockDb.select.mockReturnValue(createChainMock([{ slug: SLUG }]) as never);
 
-      const result = await resolveInstanceSlug(UUID);
+      const result = await resolveInstanceSlug(asInstanceUuid(UUID));
 
       expect(result).toBe(SLUG);
     });
@@ -116,7 +117,7 @@ describe("resolveInstanceId / resolveInstanceSlug", () => {
     it("returns undefined when uuid does not exist (never throws)", async () => {
       mockDb.select.mockReturnValue(createChainMock([]) as never);
 
-      const result = await resolveInstanceSlug("00000000-0000-0000-0000-000000000099");
+      const result = await resolveInstanceSlug(asInstanceUuid("00000000-0000-0000-0000-000000000099"));
 
       expect(result).toBeUndefined();
     });
@@ -133,10 +134,10 @@ describe("resolveInstanceId / resolveInstanceSlug", () => {
         .mockReturnValueOnce(createChainMock([{ id: UUID }]) as never)
         .mockReturnValueOnce(createChainMock([{ slug: SLUG }]) as never);
 
-      const uuid = await resolveInstanceId(SLUG);
+      const uuid = await resolveInstanceId(asInstanceSlug(SLUG));
       expect(uuid).toBe(UUID);
 
-      const slug = await resolveInstanceSlug(uuid as string);
+      const slug = await resolveInstanceSlug(uuid!);
       expect(slug).toBe(SLUG);
     });
   });

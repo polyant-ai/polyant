@@ -6,11 +6,12 @@ import { db } from "../database/client.js";
 import { eventSources, eventDefinitions } from "./webhooks.schema.js";
 import { encrypt, decrypt, generateToken } from "../crypto/index.js";
 import { resolveInstanceId } from "../instances/resolve-instance-id.js";
+import { asInstanceUuid, type InstanceSlug, type InstanceUuid } from "../instances/identifiers.js";
 import { webhookLog } from "./webhook-logger.js";
 
 export interface EventSource {
   id: string;
-  instanceId: string;
+  instanceId: InstanceUuid;
   name: string;
   sourceType: string;
   config: Record<string, unknown>;
@@ -42,7 +43,7 @@ function generateWebhookToken(): string {
   return generateToken(32);
 }
 
-export async function listEventSources(slug: string): Promise<EventSource[]> {
+export async function listEventSources(slug: InstanceSlug): Promise<EventSource[]> {
   const instanceId = await resolveInstanceId(slug);
   if (!instanceId) return [];
 
@@ -53,10 +54,10 @@ export async function listEventSources(slug: string): Promise<EventSource[]> {
 
   return rows.map((r) => {
     try {
-      return { ...r, config: JSON.parse(decrypt(r.config)) as Record<string, unknown> };
+      return { ...r, instanceId: asInstanceUuid(r.instanceId), config: JSON.parse(decrypt(r.config)) as Record<string, unknown> };
     } catch {
       webhookLog.warn("WebhookSources", `failed to decrypt config for source ${r.id}, using empty config`);
-      return { ...r, config: {} as Record<string, unknown> };
+      return { ...r, instanceId: asInstanceUuid(r.instanceId), config: {} as Record<string, unknown> };
     }
   });
 }
@@ -65,7 +66,7 @@ export interface EventSourceWithDefinitions extends EventSource {
   definitions: EventDefinition[];
 }
 
-export async function listEventSourcesWithDefinitions(slug: string): Promise<EventSourceWithDefinitions[]> {
+export async function listEventSourcesWithDefinitions(slug: InstanceSlug): Promise<EventSourceWithDefinitions[]> {
   const sources = await listEventSources(slug);
   if (sources.length === 0) return [];
 
@@ -89,7 +90,7 @@ export async function listEventSourcesWithDefinitions(slug: string): Promise<Eve
 }
 
 export async function createEventSource(
-  instanceId: string,
+  instanceId: InstanceUuid,
   data: { name: string; sourceType: string; config: Record<string, unknown>; enabled?: boolean },
 ): Promise<{ id: string; webhookToken: string }> {
   const schema = eventSourceConfigSchemas[data.sourceType];
@@ -115,7 +116,7 @@ export async function createEventSource(
 
 export async function updateEventSource(
   id: string,
-  instanceId: string,
+  instanceId: InstanceUuid,
   data: { name?: string; config?: Record<string, unknown>; enabled?: boolean },
 ): Promise<void> {
   const set: Record<string, unknown> = { updatedAt: new Date() };
@@ -150,17 +151,17 @@ export async function updateEventSource(
   await db.update(eventSources).set(set).where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)));
 }
 
-export async function deleteEventSource(id: string, instanceId: string): Promise<void> {
+export async function deleteEventSource(id: string, instanceId: InstanceUuid): Promise<void> {
   await db.delete(eventSources).where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)));
 }
 
-export async function rotateWebhookToken(id: string, instanceId: string): Promise<string> {
+export async function rotateWebhookToken(id: string, instanceId: InstanceUuid): Promise<string> {
   const newToken = generateWebhookToken();
   await db.update(eventSources).set({ webhookToken: newToken, updatedAt: new Date() }).where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)));
   return newToken;
 }
 
-export async function findByWebhookToken(token: string): Promise<{ source: EventSource; instanceId: string } | null> {
+export async function findByWebhookToken(token: string): Promise<{ source: EventSource; instanceId: InstanceUuid } | null> {
   const rows = await db
     .select()
     .from(eventSources)
@@ -175,10 +176,11 @@ export async function findByWebhookToken(token: string): Promise<{ source: Event
   } catch {
     webhookLog.warn("WebhookSources", `failed to decrypt config for token ${token.slice(0, 8)}...`);
   }
-  return { source: { ...rows[0], config }, instanceId: rows[0].instanceId };
+  const rowInstanceId = asInstanceUuid(rows[0].instanceId);
+  return { source: { ...rows[0], config, instanceId: rowInstanceId }, instanceId: rowInstanceId };
 }
 
-async function verifyEventSourceOwnership(eventSourceId: string, instanceId: string): Promise<boolean> {
+async function verifyEventSourceOwnership(eventSourceId: string, instanceId: InstanceUuid): Promise<boolean> {
   const rows = await db
     .select({ id: eventSources.id })
     .from(eventSources)
@@ -187,7 +189,7 @@ async function verifyEventSourceOwnership(eventSourceId: string, instanceId: str
   return rows.length > 0;
 }
 
-export async function listDefinitions(eventSourceId: string, instanceId: string): Promise<EventDefinition[]> {
+export async function listDefinitions(eventSourceId: string, instanceId: InstanceUuid): Promise<EventDefinition[]> {
   if (!(await verifyEventSourceOwnership(eventSourceId, instanceId))) return [];
 
   const rows = await db
@@ -218,7 +220,7 @@ export interface CreateDefinitionData {
 
 export async function createDefinition(
   eventSourceId: string,
-  instanceId: string,
+  instanceId: InstanceUuid,
   data: CreateDefinitionData,
 ): Promise<{ id: string }> {
   if (!(await verifyEventSourceOwnership(eventSourceId, instanceId))) {
@@ -257,7 +259,7 @@ export interface UpdateDefinitionData {
 export async function updateDefinition(
   id: string,
   eventSourceId: string,
-  instanceId: string,
+  instanceId: InstanceUuid,
   data: UpdateDefinitionData,
 ): Promise<void> {
   if (!(await verifyEventSourceOwnership(eventSourceId, instanceId))) return;
@@ -265,7 +267,7 @@ export async function updateDefinition(
   await db.update(eventDefinitions).set({ ...data, updatedAt: new Date() }).where(and(eq(eventDefinitions.id, id), eq(eventDefinitions.eventSourceId, eventSourceId)));
 }
 
-export async function deleteDefinition(id: string, eventSourceId: string, instanceId: string): Promise<void> {
+export async function deleteDefinition(id: string, eventSourceId: string, instanceId: InstanceUuid): Promise<void> {
   if (!(await verifyEventSourceOwnership(eventSourceId, instanceId))) return;
 
   await db.delete(eventDefinitions).where(and(eq(eventDefinitions.id, id), eq(eventDefinitions.eventSourceId, eventSourceId)));
