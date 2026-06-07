@@ -128,7 +128,7 @@ export class OpenAIController {
 
     let chunkCount = 0;
     try {
-      for await (const event of stream.fullStream as AsyncIterable<{ type: string; textDelta?: string; toolName?: string; error?: unknown }>) {
+      for await (const event of stream.fullStream as AsyncIterable<{ type: string; text?: string; toolName?: string; error?: unknown }>) {
         chunkCount++;
         if (event.type === "error") {
           const errDetail = event.error instanceof Error ? event.error.message : String(event.error ?? "Unknown error");
@@ -146,12 +146,12 @@ export class OpenAIController {
           if (thinkOpen) {
             res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, `✓ ${event.toolName}\n`))}\n\n`);
           }
-        } else if (event.type === "text-delta" && event.textDelta) {
+        } else if (event.type === "text-delta" && event.text) {
           if (thinkOpen) {
             res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, "</think>\n"))}\n\n`);
             thinkOpen = false;
           }
-          res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, event.textDelta))}\n\n`);
+          res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, event.text))}\n\n`);
         }
       }
     } catch (err) {

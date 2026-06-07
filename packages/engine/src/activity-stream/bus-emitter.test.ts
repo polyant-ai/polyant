@@ -55,9 +55,9 @@ describe("tapAndForwardFullStream", () => {
     const cap = captureEvents();
     teardown = cap.stop;
     const stream = fromArray([
-      { type: "step-start" },
-      { type: "text-delta", textDelta: "hi" },
-      { type: "step-finish", finishReason: "stop" },
+      { type: "start-step" },
+      { type: "text-delta", text: "hi" },
+      { type: "finish-step", finishReason: "stop" },
     ]);
 
     const seen: unknown[] = [];
@@ -72,7 +72,7 @@ describe("tapAndForwardFullStream", () => {
     const cap = captureEvents();
     teardown = cap.stop;
     const stream = fromArray([
-      { type: "step-start" },
+      { type: "start-step" },
       {
         type: "tool-call",
         toolCallId: "c1",
@@ -85,7 +85,7 @@ describe("tapAndForwardFullStream", () => {
         toolName: "webSearch",
         result: { results: [{ title: "GPT-5 launches" }] },
       },
-      { type: "step-finish", finishReason: "tool-calls" },
+      { type: "finish-step", finishReason: "tool-calls" },
     ]);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -100,9 +100,9 @@ describe("tapAndForwardFullStream", () => {
     const cap = captureEvents();
     teardown = cap.stop;
     const stream = fromArray([
-      { type: "step-start" },
-      { type: "text-delta", textDelta: "ok" },
-      { type: "step-finish", finishReason: "stop" },
+      { type: "start-step" },
+      { type: "text-delta", text: "ok" },
+      { type: "finish-step", finishReason: "stop" },
     ]);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -117,10 +117,10 @@ describe("tapAndForwardFullStream", () => {
     const cap = captureEvents();
     teardown = cap.stop;
     const stream = fromArray([
-      { type: "step-start" },
-      { type: "reasoning", textDelta: "First " },
-      { type: "reasoning", textDelta: "thought." },
-      { type: "step-finish", finishReason: "stop" },
+      { type: "start-step" },
+      { type: "reasoning-delta", text: "First " },
+      { type: "reasoning-delta", text: "thought." },
+      { type: "finish-step", finishReason: "stop" },
     ]);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -137,14 +137,14 @@ describe("tapAndForwardFullStream", () => {
     const cap = captureEvents();
     teardown = cap.stop;
     const stream = fromArray([
-      { type: "step-start" },
+      { type: "start-step" },
       // Intermediate step text — junk like "[]" the model emits before a tool call.
-      { type: "text-delta", textDelta: "[]" },
-      { type: "step-finish", finishReason: "tool-calls" },
+      { type: "text-delta", text: "[]" },
+      { type: "finish-step", finishReason: "tool-calls" },
       // Real terminal step
-      { type: "step-start" },
-      { type: "text-delta", textDelta: "Final answer." },
-      { type: "step-finish", finishReason: "stop" },
+      { type: "start-step" },
+      { type: "text-delta", text: "Final answer." },
+      { type: "finish-step", finishReason: "stop" },
     ]);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
