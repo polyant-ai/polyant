@@ -2,7 +2,7 @@
 
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
-import type { INestApplication } from "@nestjs/common";
+import type { INestApplication, LogLevel } from "@nestjs/common";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { ServerModule } from "./server.module.js";
@@ -51,13 +51,13 @@ export function getCorsOptions(env: NodeJS.ProcessEnv = process.env): {
 }
 
 /**
- * NestJS log levels: production keeps the quiet default; development adds
+ * NestJS log levels: production keeps the quiet error/warn/log subset this
+ * server has always used (NestJS's own default would include debug/verbose);
+ * every non-production NODE_ENV (development, test, unset) also gets
  * debug/verbose so framework internals (router, DI, guards) are visible.
  * Same testable env-param pattern as getCorsOptions above.
  */
-export function getLogLevels(
-  env: NodeJS.ProcessEnv = process.env,
-): Array<"error" | "warn" | "log" | "debug" | "verbose"> {
+export function getLogLevels(env: NodeJS.ProcessEnv = process.env): LogLevel[] {
   return env.NODE_ENV === "production"
     ? ["error", "warn", "log"]
     : ["error", "warn", "log", "debug", "verbose"];
