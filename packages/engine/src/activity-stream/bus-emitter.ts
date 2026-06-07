@@ -126,7 +126,7 @@ interface HandleCtx {
 function handleChunk(chunk: Record<string, unknown>, h: HandleCtx): void {
   const type = chunk.type as string | undefined;
   switch (type) {
-    case "step-start": {
+    case "start-step": {
       // Bump the step index when a new SDK step starts. The first step still
       // lives at index 0 — see the constructor in tapAndForwardFullStream.
       if (h.getStepIndex() !== 0 || h.stepBuffer.reasoningBlocks.length > 0 || h.stepBuffer.text.length > 0) {
@@ -135,10 +135,10 @@ function handleChunk(chunk: Record<string, unknown>, h: HandleCtx): void {
       return;
     }
 
-    case "reasoning": {
+    case "reasoning-delta": {
       // SDK emits reasoning text deltas. Buffer and keep them for the
       // step-finish aggregate event.
-      const delta = typeof chunk.textDelta === "string" ? chunk.textDelta : "";
+      const delta = typeof chunk.text === "string" ? chunk.text : "";
       if (delta) {
         const last = h.stepBuffer.reasoningBlocks[h.stepBuffer.reasoningBlocks.length - 1];
         if (last && last.type === "text" && !last.signature) {
@@ -165,7 +165,7 @@ function handleChunk(chunk: Record<string, unknown>, h: HandleCtx): void {
     }
 
     case "text-delta": {
-      const delta = typeof chunk.textDelta === "string" ? chunk.textDelta : "";
+      const delta = typeof chunk.text === "string" ? chunk.text : "";
       if (delta) h.stepBuffer.text += delta;
       return;
     }
@@ -178,7 +178,7 @@ function handleChunk(chunk: Record<string, unknown>, h: HandleCtx): void {
       // intentionally ignored to avoid double events.
       return;
 
-    case "step-finish": {
+    case "finish-step": {
       // Emit the aggregated reasoning of the step (if any) and — only for
       // terminal steps — the assistant text. Steps that finish with
       // `tool-calls` are intermediate (the model is delegating to a tool

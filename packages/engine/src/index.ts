@@ -282,7 +282,7 @@ async function main() {
         async function* singleChunk() { yield MISSING_KEY_RESPONSE; }
         return {
           textStream: singleChunk(),
-          fullStream: (async function* () { yield { type: "text-delta", textDelta: MISSING_KEY_RESPONSE }; })(),
+          fullStream: (async function* () { yield { type: "text-delta", text: MISSING_KEY_RESPONSE }; })(),
           completed: Promise.resolve({ text: MISSING_KEY_RESPONSE }),
         };
       }
