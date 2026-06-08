@@ -63,10 +63,17 @@ vi.mock("./schema.js", () => ({
     createdAt: "created_at",
     searchVector: "search_vector",
   },
+  conversationState: {
+    scope: "scope",
+    scopeKey: "scope_key",
+    instanceId: "instance_id",
+    data: "data",
+  },
 }));
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
+  and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
   desc: vi.fn((col: unknown) => ({ type: "desc", col })),
   asc: vi.fn((col: unknown) => ({ type: "asc", col })),
   inArray: vi.fn((col: unknown, values: unknown[]) => ({ type: "inArray", col, values })),
@@ -934,8 +941,8 @@ describe("ConversationStore", () => {
   // deleteConversation
   // =========================================================================
   describe("deleteConversation", () => {
-    // Order: messages, ai_logs, pipeline_traces, tool_audit_logs, memories, conversations
-    const EXPECTED_DELETE_CALLS = 6;
+    // Order: messages, ai_logs, pipeline_traces, tool_audit_logs, memories, conversation_state, conversations
+    const EXPECTED_DELETE_CALLS = 7;
 
     it("cascades delete across all conversation-scoped tables and returns true when found", async () => {
       const id = uid();
@@ -985,7 +992,7 @@ describe("ConversationStore", () => {
 
       vi.clearAllMocks();
 
-      // Delete the conversation (cascades across 6 tables; conversations is the last one)
+      // Delete the conversation (cascades across 7 tables; conversations is the last one)
       const sideChain = createChainMock(undefined);
       const delConvChain = createChainMock([{ id: "uuid-1" }]);
       let deleteCallCount = 0;
