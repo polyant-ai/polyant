@@ -121,17 +121,21 @@ export class ConversationStateBuffer {
     this.removed.add(key);
   }
 
-  /** Build the tool-facing facade — exposes only the API surface, never flush/internal state. */
+  /** Build the tool-facing facade — exposes only the API surface, never flush/internal state.
+   *  Arrow functions capture `this` lexically (no aliasing); the `channel` getter stays
+   *  reactive by delegating to a closure rather than the object literal's own `this`. */
   api(): ConversationStateApi {
-    const buf = this;
+    const readChannel = (): ChannelStateIdentity | undefined => {
+      const c = this.get(CHANNEL_STATE_KEY);
+      return c && typeof c === "object" ? (c as ChannelStateIdentity) : undefined;
+    };
     return {
-      get: (k) => buf.get(k),
-      set: (k, v) => buf.set(k, v),
-      getAll: () => buf.getAll(),
-      delete: (k) => buf.delete(k),
+      get: (k) => this.get(k),
+      set: (k, v) => this.set(k, v),
+      getAll: () => this.getAll(),
+      delete: (k) => this.delete(k),
       get channel(): ChannelStateIdentity | undefined {
-        const c = buf.get(CHANNEL_STATE_KEY);
-        return c && typeof c === "object" ? (c as ChannelStateIdentity) : undefined;
+        return readChannel();
       },
     };
   }
