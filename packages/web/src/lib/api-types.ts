@@ -49,6 +49,8 @@ export interface Instance {
   thinkingEnabled: boolean;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
+  /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
+  toolResultsInHistoryEnabled: boolean;
   sttProvider: string | null;
   icon: string | null;
   createdAt: string | null;

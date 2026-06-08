@@ -201,6 +201,7 @@ export const api = {
         authEnabled?: boolean;
         thinkingEnabled?: boolean;
         stateInPromptEnabled?: boolean;
+        toolResultsInHistoryEnabled?: boolean;
         sttProvider?: "openai" | "aws" | "deepgram";
       },
     ) =>

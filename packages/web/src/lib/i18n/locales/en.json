@@ -316,6 +316,8 @@
   "settings.tab.thinkingHelp": "Enable extended reasoning on capable models. Increases output quality and cost. The toggle is hidden when the selected model does not support extended thinking.",
   "settings.tab.stateInPrompt": "Conversation state in prompt",
   "settings.tab.stateInPromptHelp": "When on, the per-conversation state store (channel identity and values tools have saved) is shown read-only to the model in the system prompt. Off keeps it tool-to-tool only.",
+  "settings.tab.toolResultsInHistory": "Tool results in history",
+  "settings.tab.toolResultsInHistoryHelp": "When on, prior-turn tool results are replayed (truncated) into the model's context so it remembers what tools returned across turns. Off replays only the assistant's text. Uses more tokens per turn.",
   "settings.tab.memoryOpenaiWarning": "Memory requires an OpenAI API key for embeddings, even when using Anthropic or Bedrock as the AI provider.",
   "settings.tab.knowledge": "Knowledge Base",
   "settings.tab.knowledgeHelp": "Enable the RAG knowledge base to search information from uploaded documents.",
