@@ -313,6 +313,8 @@
   "settings.tab.memoryHelp": "Abilita l'estrazione automatica e il richiamo delle memorie per questo assistente.",
   "settings.tab.thinking": "Reasoning esteso",
   "settings.tab.thinkingHelp": "Abilita il ragionamento esteso sui modelli che lo supportano. Aumenta la qualità delle risposte e il costo. Il toggle è nascosto quando il modello selezionato non supporta il reasoning esteso.",
+  "settings.tab.stateInPrompt": "Stato conversazione nel prompt",
+  "settings.tab.stateInPromptHelp": "Se attivo, lo stato per-conversazione (identità del canale e valori salvati dai tool) viene mostrato in sola lettura al modello nel system prompt. Se disattivo resta solo tra i tool.",
   "settings.tab.memoryOpenaiWarning": "La memoria richiede una chiave API OpenAI per gli embeddings, anche quando si usa Anthropic o Bedrock come provider AI.",
   "settings.tab.knowledge": "Knowledge Base",
   "settings.tab.knowledgeHelp": "Abilita il knowledge base RAG per cercare informazioni nei documenti caricati.",

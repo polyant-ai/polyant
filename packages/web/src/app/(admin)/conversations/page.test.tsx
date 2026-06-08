@@ -100,6 +100,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     langsmithProject: null,
     authEnabled: false,
     thinkingEnabled: false,
+    stateInPromptEnabled: false,
     sttProvider: "openai",
     icon: null,
     createdAt: null,

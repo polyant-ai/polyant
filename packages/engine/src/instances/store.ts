@@ -113,7 +113,7 @@ export async function createInstance(data: {
 /** Update an instance by slug. Touches updatedAt. Returns the updated instance or undefined if not found. */
 export async function updateInstance(
   slug: InstanceSlug,
-  data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; icon?: string | null; sttProvider?: string },
+  data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; stateInPromptEnabled?: boolean; icon?: string | null; sttProvider?: string },
 ): Promise<Instance | undefined> {
   const rows = await db
     .update(instances)
