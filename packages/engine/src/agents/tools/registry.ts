@@ -34,6 +34,13 @@ export interface ToolContext {
   apiKeys?: import("../../ai-gateway/types.js").ChatRequest["apiKeys"];
   /** AI provider name (e.g. "openai", "anthropic") for tool-level LLM calls. */
   provider?: string;
+  /**
+   * Shared per-conversation key/value state. Tools read/write trusted, derived
+   * values here (e.g. `ctx.state.channel.id`, a looked-up contactId) instead of
+   * relying on LLM-supplied arguments. Undefined for turns without a conversation
+   * buffer (e.g. auto-tasks). See conversations/state.buffer.ts.
+   */
+  state?: import("../../conversations/state.buffer.js").ConversationStateApi;
 }
 
 /**

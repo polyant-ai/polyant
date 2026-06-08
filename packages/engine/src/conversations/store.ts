@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, desc, asc, sql, count, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, sql, count, inArray } from "drizzle-orm";
 import type { ModelMessage } from "ai";
 import { db } from "../database/client.js";
-import { conversations, conversationMessages, type AttachmentMeta, type ReasoningDetail, type StepDetail } from "./schema.js";
+import { conversations, conversationMessages, conversationState, type AttachmentMeta, type ReasoningDetail, type StepDetail } from "./schema.js";
 import { pipelineTraces } from "../analytics/traces.schema.js";
 import { aiLogs } from "../ai-gateway/logger.js";
 import { toolAuditLogs } from "../audit/audit.schema.js";
@@ -749,6 +749,16 @@ export class ConversationStore {
       await tx
         .delete(memories)
         .where(eq(memories.sourceConversationId, conversationId));
+      // Conversation state store (per-conversation KV, incl. trusted channel
+      // identity) — drop it so deleting a conversation leaves no derived state.
+      await tx
+        .delete(conversationState)
+        .where(
+          and(
+            eq(conversationState.scope, "conversation"),
+            eq(conversationState.scopeKey, conversationId),
+          ),
+        );
 
       const result = await tx
         .delete(conversations)

@@ -12,6 +12,9 @@ import { config, DEFAULT_INSTANCE_ID } from "./config.js";
 import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
 import { conversationStore } from "./conversations/index.js";
+import { ConversationStateBuffer } from "./conversations/state.buffer.js";
+import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
+import type { MessageRow } from "./conversations/store.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { generateConversationTitle } from "./utils/title-generator.js";
@@ -86,6 +89,8 @@ export interface PipelineContext {
   conversationSummary: string | undefined;
   contextPrompt: string | undefined;
   channelIdentity: { channel: string; channelId: string; userName?: string } | undefined;
+  /** Per-run shared conversation state buffer (commit-on-success). Undefined on auto-task turns. */
+  stateBuffer: ConversationStateBuffer | undefined;
   history: ModelMessage[] | undefined;
   hasOverflow: boolean;
   droppedMessages: ModelMessage[] | undefined;
@@ -121,9 +126,10 @@ export async function preparePipeline(
 
   const conversationId = conversationIdOverride
     ?? `${instanceId}:${msg.channelType}:${msg.channelId}`;
+  const isAutoTaskTurn = isAutoTask(msg.text);
 
   // Skip conversation creation for automated tasks (e.g. Open WebUI title/tag generation)
-  if (!isAutoTask(msg.text)) {
+  if (!isAutoTaskTurn) {
     const source = (msg.metadata?.source as string) ?? "user";
     const ensureResult = await conversationStore
       .ensureConversation(conversationId, instanceId, {
@@ -178,17 +184,22 @@ export async function preparePipeline(
   }
 
   // Fetch history, instance config, and context prompt in parallel — all independent.
-  const [conversationHistory, instanceConfig, contextPrompt] = await Promise.all([
+  const [conversationHistory, instanceConfig, contextPrompt, stateBuffer] = await Promise.all([
     conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as ModelMessage[]),
     resolveInstanceConfig(instanceId),
     conversationStore.getContextPrompt(conversationId).catch(() => null).then((p) => p ?? undefined),
+    isAutoTaskTurn
+      ? Promise.resolve(undefined)
+      : ConversationStateBuffer.load(conversationId, instanceId).catch((err) => {
+          console.error(`Failed to load conversation state for ${conversationId}:`, err);
+          return new ConversationStateBuffer(conversationId, instanceId);
+        }),
   ]);
 
   // NOTE: user message and incoming system messages are NOT persisted here.
   // They are persisted in `afterResponse()` only after the pipeline succeeds,
   // so that an aborted pipeline (cancel-and-restart) leaves no trace in DB.
   const incomingSystemMessages = (msg.metadata?.systemMessages as Array<{ role: string; content: string }>) ?? [];
-  const isAutoTaskTurn = isAutoTask(msg.text);
 
   // Sliding window: if >15 messages exist, use summary + last 10; otherwise pass all
   const hasOverflow = conversationHistory.length > 15;
@@ -208,6 +219,20 @@ export async function preparePipeline(
       : (msg.metadata?.conversationHistory as ModelMessage[] | undefined);
   }
 
+  // Tool-result replay (opt-in per instance): rebuild the in-window history from
+  // raw rows, reconstructing tool_use/tool_result blocks from the persisted
+  // `steps` so the model retains tool outputs across turns. Extra fetch only when
+  // the flag is on — the default text path above is untouched, and the dropped
+  // messages / summary stay text-only.
+  if (instanceConfig.toolResultsInHistoryEnabled && !isAutoTaskTurn) {
+    const rows = await conversationStore
+      .getRecentMessageRows(conversationId, 16)
+      .catch(() => [] as MessageRow[]);
+    if (rows.length > 0) {
+      history = buildHistoryWithToolResults(hasOverflow ? rows.slice(-10) : rows);
+    }
+  }
+
   const langsmith = buildLangsmithConfig(instanceConfig);
 
   // Build channel identity — injected into the system prompt so the agent
@@ -216,6 +241,16 @@ export async function preparePipeline(
     ? undefined
     : { channel: msg.channelType, channelId: msg.channelId, userName: msg.userName };
 
+  // Seed the trusted channel identity into the shared state under `_channel` for
+  // real user channels (skip synthetic agent/scheduled/room conversations).
+  if (stateBuffer && channelIdentity && !INBOUND_SUPPRESSED_CHANNELS.has(msg.channelType)) {
+    stateBuffer.seedChannel({
+      type: channelIdentity.channel,
+      id: channelIdentity.channelId,
+      userName: channelIdentity.userName,
+    });
+  }
+
   return {
     pipelineStart,
     instanceId,
@@ -223,6 +258,7 @@ export async function preparePipeline(
     conversationSummary,
     contextPrompt,
     channelIdentity,
+    stateBuffer,
     history,
     hasOverflow,
     droppedMessages,
@@ -455,6 +491,17 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       parentTraceId: agentCall?.parentTraceId,
       ...sttFields,
     });
+  }
+
+  // Persist conversation state (commit-on-success): reached only when not aborted
+  // (the abort gate above already returned). Awaited — a single fast upsert — so a
+  // tool's derived value is durable before the next turn reads it.
+  if (ctx.stateBuffer) {
+    try {
+      await ctx.stateBuffer.flush();
+    } catch (err) {
+      console.error(`Failed to flush conversation state for ${ctx.conversationId}:`, err);
+    }
   }
 
   afterResponse({

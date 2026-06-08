@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { pgTable, uuid, text, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const conversations = pgTable(
   "conversations",
@@ -93,5 +93,35 @@ export const conversationMessages = pgTable(
   (table) => [
     index("idx_conversation_messages_conversation_id").on(table.conversationId),
     index("idx_conversation_messages_created_at").on(table.createdAt),
+  ],
+);
+
+/**
+ * Per-conversation shared key/value state ("conversation state store").
+ *
+ * A single JSONB blob per scope that every tool can read/write via `ctx.state`,
+ * plus a server-seeded `_channel` key holding the trusted channel identity
+ * (phone / chat id / userName). Writes are deterministic — tool code only, never
+ * the LLM — and committed on pipeline success (see `state.buffer.ts`).
+ *
+ * `scope` / `scopeKey` are an abstraction: today only `scope = "conversation"`
+ * is used (`scopeKey` = conversationId). A future "principal" tier can be added
+ * without a schema change. `instanceId` is the denormalized slug, kept only for
+ * the instance-delete cascade — operational/PII tier (slug-text, no UUID FK).
+ */
+export const conversationState = pgTable(
+  "conversation_state",
+  {
+    scope: text("scope").notNull().default("conversation"),
+    scopeKey: text("scope_key").notNull(),
+    instanceId: text("instance_id"),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scope, table.scopeKey] }),
+    index("idx_conversation_state_scope_key").on(table.scopeKey),
+    index("idx_conversation_state_instance").on(table.instanceId),
   ],
 );

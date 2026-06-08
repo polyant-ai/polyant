@@ -3,7 +3,7 @@
 import { eq, sql, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "./schema.js";
-import { conversations, conversationMessages } from "../conversations/schema.js";
+import { conversations, conversationMessages, conversationState } from "../conversations/schema.js";
 import { memories } from "../memory/schema.js";
 import { knowledgeDocuments } from "../knowledge/schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
@@ -30,6 +30,10 @@ export interface Instance {
    * after switching to a non-capable model has no effect.
    */
   thinkingEnabled: boolean;
+  /** When true, the conversation state store is rendered read-only into the system prompt. */
+  stateInPromptEnabled: boolean;
+  /** When true, prior-turn tool calls + results are reconstructed into the model's cross-turn history. */
+  toolResultsInHistoryEnabled: boolean;
   icon: string | null;
   sttProvider: string;
   createdAt: Date | null;
@@ -111,7 +115,7 @@ export async function createInstance(data: {
 /** Update an instance by slug. Touches updatedAt. Returns the updated instance or undefined if not found. */
 export async function updateInstance(
   slug: InstanceSlug,
-  data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; icon?: string | null; sttProvider?: string },
+  data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; stateInPromptEnabled?: boolean; toolResultsInHistoryEnabled?: boolean; icon?: string | null; sttProvider?: string },
 ): Promise<Instance | undefined> {
   const rows = await db
     .update(instances)
@@ -152,6 +156,8 @@ export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
     await tx.delete(knowledgeDocuments).where(eq(knowledgeDocuments.instanceId, slug));
     // scheduled_task_runs cascade via their task_id FK.
     await tx.delete(scheduledTasks).where(eq(scheduledTasks.instanceId, slug));
+    // conversation_state is slug-keyed operational/PII data — drop it too.
+    await tx.delete(conversationState).where(eq(conversationState.instanceId, slug));
 
     const result = await tx.delete(instances).where(eq(instances.slug, slug)).returning();
     return result.length > 0;

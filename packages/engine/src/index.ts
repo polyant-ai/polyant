@@ -211,6 +211,8 @@ async function main() {
         abortSignal,
         agentCallDepth: agentMeta?.depth,
         agentCallMetadata: agentMeta,
+        stateBuffer: ctx.stateBuffer,
+        stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
@@ -275,6 +277,8 @@ async function main() {
         abortSignal,
         agentCallDepth: agentMetaStream?.depth,
         agentCallMetadata: agentMetaStream,
+        stateBuffer: ctx.stateBuffer,
+        stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
