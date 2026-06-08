@@ -103,6 +103,14 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // switching back to a capable model reapplies the preference.
   const [thinkingEnabled, setThinkingEnabled] = useState(instance.thinkingEnabled);
 
+  // Conversation state store: render known state read-only into the prompt (default off).
+  const [stateInPromptEnabled, setStateInPromptEnabled] = useState(instance.stateInPromptEnabled);
+
+  // Replay prior-turn tool results into the model's cross-turn history (default off).
+  const [toolResultsInHistoryEnabled, setToolResultsInHistoryEnabled] = useState(
+    instance.toolResultsInHistoryEnabled,
+  );
+
   // Memory
   const [memoryEnabled, setMemoryEnabled] = useState(instance.memoryEnabled);
 
@@ -198,6 +206,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     provider !== (instance.provider ?? "") ||
     model !== (instance.model ?? "") ||
     thinkingEnabled !== instance.thinkingEnabled ||
+    stateInPromptEnabled !== instance.stateInPromptEnabled ||
+    toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
     memoryEnabled !== instance.memoryEnabled ||
     knowledgeEnabled !== (instance.knowledgeEnabled ?? false) ||
     Object.values(secretFields).some((f) => f.value !== f.initial) ||
@@ -238,6 +248,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         knowledgeEnabled,
         authEnabled,
         thinkingEnabled,
+        stateInPromptEnabled,
+        toolResultsInHistoryEnabled,
         langsmithEnabled,
         langsmithProject: langsmithProject || null,
         sttProvider,
@@ -409,6 +421,46 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             />
           </div>
         )}
+
+        {/*
+          Conversation state store visibility. When on, the engine renders the
+          per-conversation state (read-only) into the system prompt. Default off
+          keeps the state purely tool-to-tool. Not model-gated.
+        */}
+        <div className="flex items-start justify-between gap-4 border-t pt-4">
+          <div className="space-y-1">
+            <Label className="text-sm font-medium">
+              {t("settings.tab.stateInPrompt")}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {t("settings.tab.stateInPromptHelp")}
+            </p>
+          </div>
+          <Switch
+            checked={stateInPromptEnabled}
+            onCheckedChange={setStateInPromptEnabled}
+          />
+        </div>
+
+        {/*
+          Tool-result replay. When on, the engine reconstructs prior-turn
+          tool_use/tool_result blocks (truncated) into the model's history so it
+          retains what tools returned across turns. Default off (extra tokens).
+        */}
+        <div className="flex items-start justify-between gap-4 border-t pt-4">
+          <div className="space-y-1">
+            <Label className="text-sm font-medium">
+              {t("settings.tab.toolResultsInHistory")}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {t("settings.tab.toolResultsInHistoryHelp")}
+            </p>
+          </div>
+          <Switch
+            checked={toolResultsInHistoryEnabled}
+            onCheckedChange={setToolResultsInHistoryEnabled}
+          />
+        </div>
       </section>
 
       {/* AI Provider API Keys */}

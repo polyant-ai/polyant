@@ -66,6 +66,7 @@ vi.mock("./schema.js", () => ({
 vi.mock("../conversations/schema.js", () => ({
   conversations: { conversationId: "conversation_id", instanceId: "instance_id" },
   conversationMessages: { conversationId: "conversation_id" },
+  conversationState: { instanceId: "instance_id", scope: "scope", scopeKey: "scope_key" },
 }));
 
 vi.mock("../memory/schema.js", () => ({
@@ -303,8 +304,8 @@ describe("instances/store", () => {
 
       expect(result).toBe(true);
       expect(mockDb.transaction).toHaveBeenCalled();
-      // conversations + memories + knowledge_documents + scheduled_tasks + instances
-      expect(mockDb.delete).toHaveBeenCalledTimes(5);
+      // conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + instances
+      expect(mockDb.delete).toHaveBeenCalledTimes(6);
     });
 
     it("also deletes conversation_messages when the instance has conversations", async () => {
@@ -316,8 +317,8 @@ describe("instances/store", () => {
       const result = await deleteInstance(asInstanceSlug("default"));
 
       expect(result).toBe(true);
-      // conversation_messages + conversations + memories + knowledge_documents + scheduled_tasks + instances
-      expect(mockDb.delete).toHaveBeenCalledTimes(6);
+      // conversation_messages + conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + instances
+      expect(mockDb.delete).toHaveBeenCalledTimes(7);
     });
 
     it("returns false when no instance row is deleted", async () => {
