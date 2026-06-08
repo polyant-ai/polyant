@@ -22,6 +22,7 @@ import { findInstanceBySlug } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import type { ChatRequest } from "../../ai-gateway/types.js";
 import type { ReasoningDetail, StepDetail } from "../../conversations/schema.js";
+import type { ConversationStateBuffer } from "../../conversations/state.buffer.js";
 import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
@@ -91,6 +92,8 @@ export interface SupervisorInput {
   agentCallMetadata?: ChatCallOptions["agentCallMetadata"];
   /** Cancellation signal propagated to the underlying LLM call. */
   abortSignal?: AbortSignal;
+  /** Per-run shared conversation state buffer; its `.api()` is exposed to tools as `ctx.state`. */
+  stateBuffer?: ConversationStateBuffer;
 }
 
 export interface SupervisorOutput {
@@ -210,11 +213,13 @@ interface BuildToolsOptions {
   signals?: SupervisorSignals;
   /** Current agent invocation depth (0 = top-level). Used when synthesising `ask_{slug}` tools. */
   agentCallDepth?: number;
+  /** Per-run shared conversation state buffer; its `.api()` becomes `ctx.state`. */
+  stateBuffer?: ConversationStateBuffer;
 }
 
 /** Build the tool set scoped to an instance, filtered by DB-stored enabled tool names. */
 async function buildTools(opts: BuildToolsOptions) {
-  const { instanceId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth } = opts;
+  const { instanceId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth, stateBuffer } = opts;
   const enabledNames = await getEnabledToolNames(instanceUuid);
   const allEnabled = enabledNames.size === 0; // empty = no rows, enable all (backward compat)
 
@@ -248,6 +253,7 @@ async function buildTools(opts: BuildToolsOptions) {
         attachments,
         apiKeys,
         provider,
+        state: stateBuffer?.api(),
       };
       const built = buildTool(def, ctx);
       tools[name] = wrapToolWithAudit(name, built, instanceId, conversationId, toolCallTraces, signals);
@@ -375,6 +381,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     attachments: input.attachments,
     signals,
     agentCallDepth: input.agentCallDepth,
+    stateBuffer: input.stateBuffer,
   });
   const toolBuildingMs = Date.now() - toolBuildStart;
 
