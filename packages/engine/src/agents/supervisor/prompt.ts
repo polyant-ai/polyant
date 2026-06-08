@@ -40,6 +40,11 @@ export interface PromptOptions {
     channelId: string;
     userName?: string;
   };
+  /**
+   * Snapshot of the conversation state store, rendered read-only into the prompt
+   * only when the instance's `stateInPromptEnabled` flag is on. Undefined = not injected.
+   */
+  conversationState?: Record<string, unknown>;
 }
 
 /**
@@ -62,6 +67,31 @@ function renderChannelIdentitySection(
     `- User name: ${identity.userName ?? "unknown"}`,
   ];
   return lines.join("\n");
+}
+
+/**
+ * Render a compact, read-only view of the conversation state store. Used only
+ * when the instance opted in via `stateInPromptEnabled`. Values are truncated so
+ * a large blob cannot blow up the prompt. The store remains the source of truth —
+ * this section is informational for the model, not authoritative.
+ */
+function renderConversationStateSection(state: Record<string, unknown>): string {
+  const entries = Object.entries(state);
+  if (entries.length === 0) return "";
+  const MAX_VALUE_CHARS = 500;
+  const lines = entries.map(([key, value]) => {
+    let rendered = typeof value === "string" ? value : JSON.stringify(value);
+    if (rendered && rendered.length > MAX_VALUE_CHARS) {
+      rendered = `${rendered.slice(0, MAX_VALUE_CHARS)}… (truncated)`;
+    }
+    return `- ${key}: ${rendered}`;
+  });
+  return [
+    `## Known conversation state`,
+    ``,
+    `Server-tracked facts for this conversation (read-only — tools own the source of truth):`,
+    ...lines,
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +299,11 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
     sections.push(
       `## Previous conversation context (summary)\n\n${options.conversationSummary}\n\nNote: this is a summary of earlier messages. When tool results from the current turn contain data (dates, names, figures), always use the current tool results — they take precedence over this summary.`,
     );
+  }
+
+  if (options.conversationState) {
+    const stateSection = renderConversationStateSection(options.conversationState);
+    if (stateSection) sections.push(stateSection);
   }
 
   return sections

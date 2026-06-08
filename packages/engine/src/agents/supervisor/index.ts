@@ -54,6 +54,8 @@ export interface SupervisorInput {
    * can forward this verbatim to the AI gateway.
    */
   thinkingEnabled?: boolean;
+  /** When true, the current conversation state is rendered read-only into the system prompt. */
+  stateInPromptEnabled?: boolean;
   /** Harness categories to include (e.g. "room"). Tools with `harness: true` are only equipped when their category is in this set. */
   includeHarness?: Set<string>;
   /** Attachments from the current user message (images, files, etc.). */
@@ -393,6 +395,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     conversationSummary: input.conversationSummary,
     contextPrompt: input.contextPrompt,
     channelIdentity: input.channelIdentity,
+    conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
   });
 
   pipelineLog.systemPrompt(instanceSlug, systemPrompt);

@@ -30,6 +30,8 @@ export interface Instance {
    * after switching to a non-capable model has no effect.
    */
   thinkingEnabled: boolean;
+  /** When true, the conversation state store is rendered read-only into the system prompt. */
+  stateInPromptEnabled: boolean;
   icon: string | null;
   sttProvider: string;
   createdAt: Date | null;
