@@ -72,6 +72,7 @@ const fullInstance = {
   authEnabled: true,
   thinkingEnabled: false,
   stateInPromptEnabled: false,
+  toolResultsInHistoryEnabled: false,
   icon: "data:image/png;base64,AAA=",
   // Simulated internal field — must NOT leak through the DTO.
   internalSecretFlag: "sensitive",
@@ -100,7 +101,7 @@ describe("InstancesController", () => {
       const allowed = new Set([
         "id", "slug", "name", "description", "status", "provider", "model",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
-        "authEnabled", "thinkingEnabled", "stateInPromptEnabled", "sttProvider", "icon", "createdAt", "updatedAt",
+        "authEnabled", "thinkingEnabled", "stateInPromptEnabled", "toolResultsInHistoryEnabled", "sttProvider", "icon", "createdAt", "updatedAt",
       ]);
 
       for (const key of Object.keys(instance)) {

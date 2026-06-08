@@ -281,6 +281,13 @@
       "when": 1779408000000,
       "tag": "0043_add_conversation_state",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1779494400000,
+      "tag": "0044_add_tool_results_in_history",
+      "breakpoints": true
     }
   ]
 }
