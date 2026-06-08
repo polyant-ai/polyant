@@ -3,7 +3,7 @@
 import { eq, sql, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "./schema.js";
-import { conversations, conversationMessages } from "../conversations/schema.js";
+import { conversations, conversationMessages, conversationState } from "../conversations/schema.js";
 import { memories } from "../memory/schema.js";
 import { knowledgeDocuments } from "../knowledge/schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
@@ -152,6 +152,8 @@ export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
     await tx.delete(knowledgeDocuments).where(eq(knowledgeDocuments.instanceId, slug));
     // scheduled_task_runs cascade via their task_id FK.
     await tx.delete(scheduledTasks).where(eq(scheduledTasks.instanceId, slug));
+    // conversation_state is slug-keyed operational/PII data — drop it too.
+    await tx.delete(conversationState).where(eq(conversationState.instanceId, slug));
 
     const result = await tx.delete(instances).where(eq(instances.slug, slug)).returning();
     return result.length > 0;
