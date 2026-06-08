@@ -16,6 +16,12 @@ export const instances = pgTable("instances", {
   langsmithProject: varchar("langsmith_project", { length: 255 }),
   authEnabled: boolean("auth_enabled").notNull().default(false),
   thinkingEnabled: boolean("thinking_enabled").notNull().default(false),
+  /**
+   * When true, the current conversation state store is rendered (read-only) into
+   * the supervisor system prompt so the model can see known facts. Default false
+   * keeps the state purely tool-to-tool (see conversations/state.buffer.ts).
+   */
+  stateInPromptEnabled: boolean("state_in_prompt_enabled").notNull().default(false),
   icon: text("icon"),
   sttProvider: text("stt_provider").notNull().default("openai"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
