@@ -13,6 +13,8 @@ import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
 import { conversationStore } from "./conversations/index.js";
 import { ConversationStateBuffer } from "./conversations/state.buffer.js";
+import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
+import type { MessageRow } from "./conversations/store.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { generateConversationTitle } from "./utils/title-generator.js";
@@ -215,6 +217,20 @@ export async function preparePipeline(
     history = conversationHistory.length > 0
       ? conversationHistory
       : (msg.metadata?.conversationHistory as ModelMessage[] | undefined);
+  }
+
+  // Tool-result replay (opt-in per instance): rebuild the in-window history from
+  // raw rows, reconstructing tool_use/tool_result blocks from the persisted
+  // `steps` so the model retains tool outputs across turns. Extra fetch only when
+  // the flag is on — the default text path above is untouched, and the dropped
+  // messages / summary stay text-only.
+  if (instanceConfig.toolResultsInHistoryEnabled && !isAutoTaskTurn) {
+    const rows = await conversationStore
+      .getRecentMessageRows(conversationId, 16)
+      .catch(() => [] as MessageRow[]);
+    if (rows.length > 0) {
+      history = buildHistoryWithToolResults(hasOverflow ? rows.slice(-10) : rows);
+    }
   }
 
   const langsmith = buildLangsmithConfig(instanceConfig);

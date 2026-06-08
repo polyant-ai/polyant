@@ -22,6 +22,12 @@ export const instances = pgTable("instances", {
    * keeps the state purely tool-to-tool (see conversations/state.buffer.ts).
    */
   stateInPromptEnabled: boolean("state_in_prompt_enabled").notNull().default(false),
+  /**
+   * When true, prior-turn tool calls + results are reconstructed (truncated) into
+   * the model's cross-turn history so it "remembers" what tools returned. Default
+   * false keeps the history text-only (see conversations/store.ts getRecentMessages).
+   */
+  toolResultsInHistoryEnabled: boolean("tool_results_in_history_enabled").notNull().default(false),
   icon: text("icon"),
   sttProvider: text("stt_provider").notNull().default("openai"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

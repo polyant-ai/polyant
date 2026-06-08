@@ -65,6 +65,7 @@ const fakeInstance = {
   authEnabled: true,
   thinkingEnabled: false,
   stateInPromptEnabled: false,
+  toolResultsInHistoryEnabled: false,
   icon: null,
   sttProvider: "openai",
   createdAt: new Date("2025-01-01"),
@@ -114,6 +115,7 @@ describe("instances/config-resolver", () => {
         knowledgeEnabled: false,
         thinkingEnabled: false,
         stateInPromptEnabled: false,
+        toolResultsInHistoryEnabled: false,
         stt: { provider: "openai", credentials: {} },
       });
       expect(mockFindInstanceBySlug).toHaveBeenCalledWith("nonexistent");
@@ -152,6 +154,7 @@ describe("instances/config-resolver", () => {
         // if the persisted preference were true. The fixture has it false.
         thinkingEnabled: false,
         stateInPromptEnabled: false,
+        toolResultsInHistoryEnabled: false,
         stt: {
           provider: "openai",
           credentials: { openai: { apiKey: "sk-openai-test" } },

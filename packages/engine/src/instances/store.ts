@@ -32,6 +32,8 @@ export interface Instance {
   thinkingEnabled: boolean;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
+  /** When true, prior-turn tool calls + results are reconstructed into the model's cross-turn history. */
+  toolResultsInHistoryEnabled: boolean;
   icon: string | null;
   sttProvider: string;
   createdAt: Date | null;
@@ -113,7 +115,7 @@ export async function createInstance(data: {
 /** Update an instance by slug. Touches updatedAt. Returns the updated instance or undefined if not found. */
 export async function updateInstance(
   slug: InstanceSlug,
-  data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; stateInPromptEnabled?: boolean; icon?: string | null; sttProvider?: string },
+  data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; stateInPromptEnabled?: boolean; toolResultsInHistoryEnabled?: boolean; icon?: string | null; sttProvider?: string },
 ): Promise<Instance | undefined> {
   const rows = await db
     .update(instances)

@@ -57,6 +57,7 @@ function toInstanceDto(instance: Instance) {
     authEnabled: instance.authEnabled,
     thinkingEnabled: instance.thinkingEnabled,
     stateInPromptEnabled: instance.stateInPromptEnabled,
+    toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     sttProvider: instance.sttProvider,
     icon: instance.icon
       ? `/api/instances/${instance.slug}/icon?v=${instance.updatedAt?.getTime() ?? 0}`
@@ -177,6 +178,7 @@ export class InstancesController {
       authEnabled?: boolean;
       thinkingEnabled?: boolean;
       stateInPromptEnabled?: boolean;
+      toolResultsInHistoryEnabled?: boolean;
       sttProvider?: "openai" | "aws" | "deepgram";
     },
   ) {
