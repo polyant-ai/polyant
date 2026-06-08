@@ -34,6 +34,8 @@ export interface InstanceConfig {
    * model); the gate lives here to keep runtime requests coherent.
    */
   thinkingEnabled: boolean;
+  /** When true, the conversation state store is rendered read-only into the system prompt. */
+  stateInPromptEnabled: boolean;
   stt: {
     provider: STTProviderName;
     credentials: STTCredentials;
@@ -92,6 +94,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       memoryEnabled: false,
       knowledgeEnabled: false,
       thinkingEnabled: false,
+      stateInPromptEnabled: false,
       stt: { provider: "openai", credentials: {} },
     };
   }
@@ -151,6 +154,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
         instance.provider ?? "",
         effectiveModelFor(instance.provider ?? undefined, instance.model ?? undefined) ?? "",
       ),
+    stateInPromptEnabled: instance.stateInPromptEnabled,
     stt: { provider: sttProvider, credentials: sttCredentials },
   };
 

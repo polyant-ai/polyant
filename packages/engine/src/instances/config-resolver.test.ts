@@ -64,6 +64,7 @@ const fakeInstance = {
   langsmithProject: "my-project",
   authEnabled: true,
   thinkingEnabled: false,
+  stateInPromptEnabled: false,
   icon: null,
   sttProvider: "openai",
   createdAt: new Date("2025-01-01"),
@@ -112,6 +113,7 @@ describe("instances/config-resolver", () => {
         memoryEnabled: false,
         knowledgeEnabled: false,
         thinkingEnabled: false,
+        stateInPromptEnabled: false,
         stt: { provider: "openai", credentials: {} },
       });
       expect(mockFindInstanceBySlug).toHaveBeenCalledWith("nonexistent");
@@ -149,6 +151,7 @@ describe("instances/config-resolver", () => {
         // gpt-4o is not thinking-capable, so the gate keeps thinking off even
         // if the persisted preference were true. The fixture has it false.
         thinkingEnabled: false,
+        stateInPromptEnabled: false,
         stt: {
           provider: "openai",
           credentials: { openai: { apiKey: "sk-openai-test" } },
