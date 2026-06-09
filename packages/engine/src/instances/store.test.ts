@@ -100,6 +100,7 @@ import {
   listAllInstances,
 } from "./store.js";
 import { asInstanceSlug } from "./identifiers.js";
+import { DEFAULT_EMBEDDING_DIM } from "../embeddings-gateway/config.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -201,6 +202,7 @@ describe("instances/store", () => {
         slug: "default",
         name: "Default Assistant",
         description: "A default assistant",
+        embeddingDim: DEFAULT_EMBEDDING_DIM,
       });
       expect(chain.onConflictDoNothing).toHaveBeenCalled();
     });
@@ -215,6 +217,7 @@ describe("instances/store", () => {
         slug: "test",
         name: "Test",
         description: null,
+        embeddingDim: DEFAULT_EMBEDDING_DIM,
       });
     });
   });
@@ -243,6 +246,7 @@ describe("instances/store", () => {
         description: "A default assistant",
         provider: "openai",
         model: "gpt-4o",
+        embeddingDim: DEFAULT_EMBEDDING_DIM,
       });
       expect(chain.returning).toHaveBeenCalled();
     });
@@ -259,6 +263,7 @@ describe("instances/store", () => {
         description: null,
         provider: null,
         model: null,
+        embeddingDim: DEFAULT_EMBEDDING_DIM,
       });
     });
   });

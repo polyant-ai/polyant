@@ -2,6 +2,7 @@
 
 import { eq, sql, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
+import { DEFAULT_EMBEDDING_DIM } from "../embeddings-gateway/config.js";
 import { instances } from "./schema.js";
 import { conversations, conversationMessages, conversationState } from "../conversations/schema.js";
 import { memories } from "../memory/schema.js";
@@ -45,6 +46,7 @@ export interface Instance {
   optoutInjectPromptHint: boolean;
   icon: string | null;
   sttProvider: string;
+  embeddingDim: number;
   createdAt: Date | null;
   updatedAt: Date | null;
 }
@@ -64,6 +66,12 @@ export async function findInstanceBySlug(slug: InstanceSlug): Promise<Instance |
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
+/** Find an instance by id (UUID). Returns undefined if not found. */
+export async function findInstanceById(id: string): Promise<Instance | undefined> {
+  const rows = await db.select().from(instances).where(eq(instances.id, id)).limit(1);
+  return rows[0];
+}
+
 /** Insert an instance if the slug doesn't already exist. */
 export async function ensureInstance(data: {
   slug: InstanceSlug;
@@ -76,6 +84,7 @@ export async function ensureInstance(data: {
       slug: data.slug,
       name: data.name,
       description: data.description ?? null,
+      embeddingDim: DEFAULT_EMBEDDING_DIM,
     })
     .onConflictDoNothing({ target: instances.slug });
 }
@@ -116,6 +125,8 @@ export async function createInstance(data: {
       description: data.description ?? null,
       provider: data.provider ?? null,
       model: data.model ?? null,
+      // New instances default to 1024d; the DB default (1536) stays for legacy rows.
+      embeddingDim: DEFAULT_EMBEDDING_DIM,
     })
     .returning();
   return toInstance(rows[0]);
