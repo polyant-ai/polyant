@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { ModelMessage, Tool } from "ai";
-import type { ReasoningDetail, StepDetail } from "../conversations/schema.js";
+import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../conversations/schema.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 
 export type ModelTier = "fast" | "standard" | "heavy";
@@ -33,6 +33,12 @@ export interface ChatRequest {
   onToolCall?: (toolName: string, args: Record<string, unknown>) => void;
   /** Cancellation signal propagated to Vercel AI SDK (generateText/streamText). */
   abortSignal?: AbortSignal;
+  /**
+   * When true, the provider captures the exact request payload (system + messages
+   * + tool definitions) and returns it on `ChatResponse.debugPayload`. Gated by the
+   * instance `debug_enabled` flag — heavy, opt-in, persisted for analysis/debug.
+   */
+  captureDebug?: boolean;
 }
 
 export interface ChatResponse {
@@ -54,6 +60,12 @@ export interface ChatResponse {
   durationMs: number;
   model: string;
   provider: string;
+  /**
+   * Exact LLM request payload (system + messages + tool defs) — populated only
+   * when `ChatRequest.captureDebug` was set. Threaded up to the pipeline and
+   * persisted on the assistant message row (`conversation_messages.debug_payload`).
+   */
+  debugPayload?: LlmDebugPayload;
 }
 
 /**

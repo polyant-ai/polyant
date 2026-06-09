@@ -110,6 +110,13 @@ export interface StreamOutgoingMessage {
   textStream: AsyncIterable<string>;
   fullStream: AsyncIterable<unknown>;
   completed: Promise<{ text: string }>;
+  /**
+   * Stable identifiers for the persisted assistant turn, known synchronously when
+   * the stream is created (the assistant message UUID is pre-generated). Lets a
+   * first-party SSE consumer echo them (e.g. in the `done` event) so the client
+   * can later fetch the per-message debug payload without ordinal-matching.
+   */
+  meta?: { conversationId: string; messageId: string };
 }
 
 export type StreamMessageHandler = (msg: IncomingMessage, signal?: AbortSignal) => Promise<StreamOutgoingMessage>;

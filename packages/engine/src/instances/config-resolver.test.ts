@@ -66,6 +66,7 @@ const fakeInstance = {
   thinkingEnabled: false,
   stateInPromptEnabled: false,
   toolResultsInHistoryEnabled: false,
+  debugEnabled: false,
   icon: null,
   sttProvider: "openai",
   createdAt: new Date("2025-01-01"),
@@ -116,6 +117,7 @@ describe("instances/config-resolver", () => {
         thinkingEnabled: false,
         stateInPromptEnabled: false,
         toolResultsInHistoryEnabled: false,
+        debugEnabled: false,
         stt: { provider: "openai", credentials: {} },
       });
       expect(mockFindInstanceBySlug).toHaveBeenCalledWith("nonexistent");
@@ -155,6 +157,7 @@ describe("instances/config-resolver", () => {
         thinkingEnabled: false,
         stateInPromptEnabled: false,
         toolResultsInHistoryEnabled: false,
+        debugEnabled: false,
         stt: {
           provider: "openai",
           credentials: { openai: { apiKey: "sk-openai-test" } },

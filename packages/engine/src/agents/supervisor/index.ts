@@ -21,7 +21,7 @@ import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { findInstanceBySlug } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import type { ChatRequest } from "../../ai-gateway/types.js";
-import type { ReasoningDetail, StepDetail } from "../../conversations/schema.js";
+import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import type { ConversationStateBuffer } from "../../conversations/state.buffer.js";
 import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
@@ -56,6 +56,8 @@ export interface SupervisorInput {
   thinkingEnabled?: boolean;
   /** When true, the current conversation state is rendered read-only into the system prompt. */
   stateInPromptEnabled?: boolean;
+  /** When true, the exact LLM request payload (system + messages + tools) is captured and returned for debug. */
+  debugEnabled?: boolean;
   /** Harness categories to include (e.g. "room"). Tools with `harness: true` are only equipped when their category is in this set. */
   includeHarness?: Set<string>;
   /** Attachments from the current user message (images, files, etc.). */
@@ -126,6 +128,11 @@ export interface SupervisorOutput {
    * (which would otherwise be the supervisor's meta-commentary).
    */
   replyText?: string;
+  /**
+   * Exact LLM request payload captured when the instance `debug_enabled` flag is
+   * on — threaded to the pipeline and persisted on the assistant message row.
+   */
+  debugPayload?: LlmDebugPayload;
 }
 
 /** Shared mutable signals accumulated across tool calls within a single supervise() run. */
@@ -431,6 +438,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
       tools: ctx.tools,
       maxSteps: 15,
       abortSignal: input.abortSignal,
+      captureDebug: input.debugEnabled ?? false,
     },
     {
       conversationId: input.conversationId,
@@ -465,6 +473,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
         ttfbMs,
         replyHandled: ctx.signals.replyHandled || undefined,
         replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
+        ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
       };
     }),
   };
@@ -486,6 +495,7 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
       tools: ctx.tools,
       maxSteps: 15,
       abortSignal: input.abortSignal,
+      captureDebug: input.debugEnabled ?? false,
     },
     {
       conversationId: input.conversationId,
@@ -506,5 +516,6 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
     toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
     replyHandled: ctx.signals.replyHandled || undefined,
     replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
+    ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
   };
 }

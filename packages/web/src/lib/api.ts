@@ -28,6 +28,8 @@ export type {
   ConversationListItem,
   ConversationSearchResult,
   ConversationMessage,
+  MessageDebug,
+  LlmDebugPayload,
   ReasoningDetail,
   StepDetail,
   AttachmentMeta,
@@ -82,6 +84,7 @@ import type {
   ScheduledTaskRun,
   ConversationListItem,
   ConversationMessage,
+  MessageDebug,
   Memory,
   KnowledgeDocument,
   KnowledgeDocumentDetail,
@@ -202,6 +205,7 @@ export const api = {
         thinkingEnabled?: boolean;
         stateInPromptEnabled?: boolean;
         toolResultsInHistoryEnabled?: boolean;
+        debugEnabled?: boolean;
         sttProvider?: "openai" | "aws" | "deepgram";
       },
     ) =>
@@ -379,6 +383,16 @@ export const api = {
         `/api/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
       );
     },
+    /** Heavy per-turn debug data (captured LLM request payload + step trace) for one message. */
+    messageDebug: (conversationId: string, messageId: string, instanceId: string) =>
+      request<MessageDebug>(
+        `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/debug?instanceId=${encodeURIComponent(instanceId)}`,
+      ),
+    /** The conversation state store snapshot (latest; includes the `_channel` identity). */
+    state: (conversationId: string, instanceId: string) =>
+      request<{ state: Record<string, unknown> }>(
+        `/api/conversations/${encodeURIComponent(conversationId)}/state?instanceId=${encodeURIComponent(instanceId)}`,
+      ),
     delete: (conversationId: string, instanceId: string) =>
       request<{ deleted: boolean }>(
         `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,

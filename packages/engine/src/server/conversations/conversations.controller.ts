@@ -10,8 +10,12 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { conversationStore } from "../../conversations/store.js";
+import { loadConversationState } from "../../conversations/state.store.js";
 import { parsePagination } from "../utils/parse-pagination.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+
+/** RFC-4122 UUID shape — guards the message-id path param before it hits the uuid column. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 import { type InstanceSlug } from "../../instances/identifiers.js";
 
@@ -100,6 +104,40 @@ export class ConversationsController {
       completionTokens: tokenStats[m.id]?.completionTokens ?? null,
     }));
     return { messages, total: result.total, limit, offset, order };
+  }
+
+  // GET /api/conversations/:conversationId/messages/:messageId/debug — heavy per-turn
+  // debug data (captured LLM request payload + step trace), fetched on-demand so the
+  // message-list payload stays light. Returns 404 if the message isn't in the conversation.
+  @Get(":conversationId/messages/:messageId/debug")
+  async getMessageDebug(
+    @Param("conversationId") conversationId: string,
+    @Param("messageId") messageId: string,
+    @Query("instanceId") instanceId?: string,
+  ) {
+    const uid = requireInstanceId(instanceId);
+    if (!UUID_RE.test(messageId)) throw new BadRequestException("messageId must be a UUID");
+    const id = decodeURIComponent(conversationId);
+    await loadConversationScoped(id, uid);
+
+    const debug = await conversationStore.getMessageDebug(id, messageId);
+    if (!debug) throw new NotFoundException(`Message not found: ${messageId}`);
+    return debug;
+  }
+
+  // GET /api/conversations/:conversationId/state — the conversation state store snapshot
+  // (latest, not versioned per turn). Includes the server-seeded `_channel` identity.
+  @Get(":conversationId/state")
+  async getState(
+    @Param("conversationId") conversationId: string,
+    @Query("instanceId") instanceId?: string,
+  ) {
+    const uid = requireInstanceId(instanceId);
+    const id = decodeURIComponent(conversationId);
+    await loadConversationScoped(id, uid);
+
+    const state = await loadConversationState(id);
+    return { state };
   }
 
   @Delete(":conversationId")

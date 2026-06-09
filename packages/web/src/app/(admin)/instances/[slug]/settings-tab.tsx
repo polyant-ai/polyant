@@ -111,6 +111,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     instance.toolResultsInHistoryEnabled,
   );
 
+  // DEBUG mode: persist the exact LLM request payload per turn (default off).
+  const [debugEnabled, setDebugEnabled] = useState(instance.debugEnabled ?? false);
+
   // Memory
   const [memoryEnabled, setMemoryEnabled] = useState(instance.memoryEnabled);
 
@@ -208,6 +211,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     thinkingEnabled !== instance.thinkingEnabled ||
     stateInPromptEnabled !== instance.stateInPromptEnabled ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
+    debugEnabled !== (instance.debugEnabled ?? false) ||
     memoryEnabled !== instance.memoryEnabled ||
     knowledgeEnabled !== (instance.knowledgeEnabled ?? false) ||
     Object.values(secretFields).some((f) => f.value !== f.initial) ||
@@ -250,6 +254,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         thinkingEnabled,
         stateInPromptEnabled,
         toolResultsInHistoryEnabled,
+        debugEnabled,
         langsmithEnabled,
         langsmithProject: langsmithProject || null,
         sttProvider,
@@ -459,6 +464,27 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           <Switch
             checked={toolResultsInHistoryEnabled}
             onCheckedChange={setToolResultsInHistoryEnabled}
+          />
+        </div>
+
+        {/*
+          DEBUG mode. When on, the engine persists the exact LLM request payload
+          (full system prompt, the messages array sent, and the tool definitions)
+          per turn, viewable from the playground / conversation message detail.
+          Default off — heavy and stores PII at rest.
+        */}
+        <div className="flex items-start justify-between gap-4 border-t pt-4">
+          <div className="space-y-1">
+            <Label className="text-sm font-medium">
+              {t("settings.tab.debug")}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {t("settings.tab.debugHelp")}
+            </p>
+          </div>
+          <Switch
+            checked={debugEnabled}
+            onCheckedChange={setDebugEnabled}
           />
         </div>
       </section>

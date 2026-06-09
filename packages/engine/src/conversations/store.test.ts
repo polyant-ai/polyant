@@ -60,6 +60,7 @@ vi.mock("./schema.js", () => ({
     content: "content",
     steps: "steps",
     reasoning: "reasoning",
+    debugPayload: "debug_payload",
     createdAt: "created_at",
     searchVector: "search_vector",
   },
@@ -422,7 +423,7 @@ describe("ConversationStore", () => {
 
       expect(mockDb.insert).toHaveBeenCalled();
       expect(insChain.values).toHaveBeenCalledWith([
-        { conversationId: id, role: "user", content: "Hello", steps: null, reasoning: null, attachments: null, metadata: null },
+        { conversationId: id, role: "user", content: "Hello", steps: null, reasoning: null, attachments: null, metadata: null, debugPayload: null },
         {
           conversationId: id,
           role: "assistant",
@@ -431,6 +432,7 @@ describe("ConversationStore", () => {
           reasoning: null,
           attachments: null,
           metadata: null,
+          debugPayload: null,
         },
       ]);
     });
@@ -522,6 +524,40 @@ describe("ConversationStore", () => {
       // Sanity: structural shape preserved
       expect(inserted.steps[0].text).toBe("prefixsuffix");
       expect(inserted.metadata.note).toBe("m");
+    });
+  });
+
+  // =========================================================================
+  // getMessageDebug
+  // =========================================================================
+  describe("getMessageDebug", () => {
+    it("returns the captured payload + steps for a matching message", async () => {
+      const payload = { system: "sys", messages: [{ role: "user", content: "hi" }], tools: [] };
+      const steps = [{ index: 0, stepType: "initial", text: "", toolCalls: [], finishReason: "stop", durationMs: 1 }];
+      const selChain = createChainMock([{ debugPayload: payload, steps }]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      const result = await conversationStore.getMessageDebug("conv-1", "11111111-1111-1111-1111-111111111111");
+      expect(result).toEqual({ debugPayload: payload, steps });
+      // Scoped by both message id AND conversation id.
+      expect(selChain.where).toHaveBeenCalled();
+    });
+
+    it("returns null debugPayload when DEBUG was off (column null) but keeps steps", async () => {
+      const steps = [{ index: 0, stepType: "initial", text: "", toolCalls: [], finishReason: "stop", durationMs: 1 }];
+      const selChain = createChainMock([{ debugPayload: null, steps }]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      const result = await conversationStore.getMessageDebug("conv-1", "msg-1");
+      expect(result).toEqual({ debugPayload: null, steps });
+    });
+
+    it("returns null when the message is not in the conversation", async () => {
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      const result = await conversationStore.getMessageDebug("conv-1", "missing");
+      expect(result).toBeNull();
     });
   });
 

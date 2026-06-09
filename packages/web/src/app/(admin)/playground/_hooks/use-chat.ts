@@ -45,6 +45,12 @@ export interface ChatMessage {
   reasoning: ReasoningDetail[];
   isStreaming: boolean;
   createdAt: string | null;
+  /**
+   * Persisted DB message id, echoed by the engine in the stream `done` event.
+   * Lets the debug sheet fetch this turn's captured payload. Absent for the user
+   * message and while streaming. For loaded conversations the row `id` IS the DB id.
+   */
+  dbMessageId?: string;
 }
 
 export interface ChatState {
@@ -68,7 +74,7 @@ export type ChatAction =
   | { type: "STEP_FINISH"; index: number; finishReason: string }
   | { type: "TOOL_CALL"; id: string; name: string; args: unknown }
   | { type: "TOOL_RESULT"; id: string; result: unknown }
-  | { type: "STREAM_DONE" }
+  | { type: "STREAM_DONE"; meta?: { conversationId?: string; messageId?: string } }
   | { type: "STREAM_ERROR"; error: string }
   | { type: "LOAD_CONVERSATION"; messages: ConversationMessage[]; conversationId: string; instanceSlug?: string }
   | { type: "NEW_CHAT" }
@@ -283,9 +289,18 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case "STREAM_DONE": {
       const now = new Date().toISOString();
       const msgs = state.messages.map((msg) =>
-        msg.isStreaming ? { ...msg, isStreaming: false, createdAt: now } : msg,
+        msg.isStreaming
+          ? { ...msg, isStreaming: false, createdAt: now, dbMessageId: action.meta?.messageId ?? msg.dbMessageId }
+          : msg,
       );
-      return { ...state, messages: msgs, isStreaming: false };
+      // The engine echoes the full conversationId in `done`; adopt it so the
+      // debug sheet (and conversation reload) can address this turn.
+      return {
+        ...state,
+        messages: msgs,
+        isStreaming: false,
+        conversationId: action.meta?.conversationId ?? state.conversationId,
+      };
     }
 
     case "STREAM_ERROR": {
@@ -399,8 +414,8 @@ export function useChat(defaultInstanceSlug: string) {
             dispatch({ type: "TOOL_CALL", id, name, args }),
           onToolResult: (id, result) =>
             dispatch({ type: "TOOL_RESULT", id, result }),
-          onDone: () => {
-            dispatch({ type: "STREAM_DONE" });
+          onDone: (meta) => {
+            dispatch({ type: "STREAM_DONE", meta });
             abortRef.current = null;
           },
           onError: (error) => {

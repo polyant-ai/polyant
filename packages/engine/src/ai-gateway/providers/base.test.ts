@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { buildSteps, aggregateReasoning } from "./base.js";
+import { z } from "zod";
+import { buildSteps, aggregateReasoning, serializeTools } from "./base.js";
 
 // safeTokens and aggregateStepUsage are not exported, so we test them
 // indirectly by re-implementing the same logic in a testable way.
@@ -222,6 +223,44 @@ describe("buildSteps", () => {
     });
     expect(steps[0].reasoning).toBeUndefined();
     expect(steps[0].toolResults).toBeUndefined();
+  });
+});
+
+describe("serializeTools (debug capture)", () => {
+  it("returns [] for undefined tools", () => {
+    expect(serializeTools(undefined)).toEqual([]);
+  });
+
+  it("captures name + description + JSON-schema parameters from a zod inputSchema", () => {
+    const tools = {
+      search: {
+        description: "Search the web",
+        inputSchema: z.object({ q: z.string() }),
+      },
+    } as unknown as NonNullable<Parameters<typeof serializeTools>[0]>;
+
+    const result = serializeTools(tools);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe("search");
+    expect(result[0].description).toBe("Search the web");
+    // zod-to-json-schema produces an object schema with the `q` property.
+    expect(result[0].parameters).toMatchObject({ type: "object" });
+    expect(JSON.stringify(result[0].parameters)).toContain("\"q\"");
+  });
+
+  it("degrades to name (+ description) without throwing when the schema is not convertible", () => {
+    const tools = {
+      weird: { description: "No real schema", inputSchema: { not: "a zod schema" } },
+      bare: {},
+    } as unknown as NonNullable<Parameters<typeof serializeTools>[0]>;
+
+    const result = serializeTools(tools);
+    expect(result.map((t) => t.name).sort()).toEqual(["bare", "weird"]);
+    const weird = result.find((t) => t.name === "weird")!;
+    expect(weird.description).toBe("No real schema");
+    // No usable parameters → omitted, never throws.
+    const bare = result.find((t) => t.name === "bare")!;
+    expect(bare.description).toBeUndefined();
   });
 });
 
