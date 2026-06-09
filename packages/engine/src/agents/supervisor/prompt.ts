@@ -76,22 +76,8 @@ function renderChannelIdentitySection(
  * this section is informational for the model, not authoritative.
  */
 function renderConversationStateSection(state: Record<string, unknown>): string {
-  const entries = Object.entries(state);
-  if (entries.length === 0) return "";
-  const MAX_VALUE_CHARS = 500;
-  const lines = entries.map(([key, value]) => {
-    let rendered = typeof value === "string" ? value : JSON.stringify(value);
-    if (rendered && rendered.length > MAX_VALUE_CHARS) {
-      rendered = `${rendered.slice(0, MAX_VALUE_CHARS)}… (truncated)`;
-    }
-    return `- ${key}: ${rendered}`;
-  });
-  return [
-    `## Known conversation state`,
-    ``,
-    `Server-tracked facts for this conversation (read-only — tools own the source of truth):`,
-    ...lines,
-  ].join("\n");
+  if (Object.keys(state).length === 0) return "";
+  return [`## Conversation state`, ``, JSON.stringify(state)].join("\n");
 }
 
 // ---------------------------------------------------------------------------
