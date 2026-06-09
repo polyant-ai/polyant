@@ -16,6 +16,8 @@ const {
   mockSecretsDelete,
   mockModelsList,
   mockToolsRequiredSecrets,
+  mockMemoriesList,
+  mockMemoriesReEmbed,
 } = vi.hoisted(() => ({
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
@@ -25,6 +27,8 @@ const {
   mockSecretsDelete: vi.fn(),
   mockModelsList: vi.fn(),
   mockToolsRequiredSecrets: vi.fn(),
+  mockMemoriesList: vi.fn(),
+  mockMemoriesReEmbed: vi.fn(),
 }));
 
 vi.mock("@/lib/i18n/context", () => ({
@@ -63,6 +67,10 @@ vi.mock("@/lib/api", () => ({
     },
     models: { list: (...args: unknown[]) => mockModelsList(...args) },
     tools: { requiredSecrets: (...args: unknown[]) => mockToolsRequiredSecrets(...args) },
+    memories: {
+      list: (...args: unknown[]) => mockMemoriesList(...args),
+      reEmbed: (...args: unknown[]) => mockMemoriesReEmbed(...args),
+    },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
@@ -113,6 +121,8 @@ function setupDefaultMocks() {
   });
   // New shape: array of RequiredSecretSpec, not plain strings.
   mockToolsRequiredSecrets.mockResolvedValue({ requiredSecrets: [] });
+  mockMemoriesList.mockResolvedValue({ memories: [], total: 0, limit: 1, offset: 0 });
+  mockMemoriesReEmbed.mockResolvedValue({ accepted: true, slug: "test-instance" });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -214,33 +224,81 @@ describe("SettingsTab", () => {
     expect(lastSaveAction.current?.isDirty).toBe(true);
   });
 
-  it("shows memory warning when memory is enabled but openai key is not configured", async () => {
-    // OpenAI key not configured
-    mockSecretsList.mockResolvedValue({
-      secrets: [
-        { key: "openai_api_key", configured: false },
-      ],
-    });
-
+  it("shows the openai memory warning when the engine reports needsOpenAIKey", async () => {
     render(
-      <SettingsTab instance={makeInstance({ memoryEnabled: true })} onUpdate={onUpdate} />,
+      <SettingsTab
+        instance={makeInstance({
+          memoryEnabled: true,
+          provider: "openai",
+          memory: { needsOpenAIKey: true, canEnable: false },
+        })}
+        onUpdate={onUpdate}
+      />,
     );
 
     await waitFor(() => {
-      expect(screen.getByText("settings.tab.memoryOpenaiWarning")).toBeInTheDocument();
+      expect(screen.getByText("memory.banner.openaiNeedsKey")).toBeInTheDocument();
     });
   });
 
-  it("does not show memory warning when openai key is configured", async () => {
+  it("shows the anthropic memory warning for an anthropic instance needing an openai key", async () => {
     render(
-      <SettingsTab instance={makeInstance({ memoryEnabled: true })} onUpdate={onUpdate} />,
+      <SettingsTab
+        instance={makeInstance({
+          memoryEnabled: true,
+          provider: "anthropic",
+          model: "claude-3-opus",
+          memory: { needsOpenAIKey: true, canEnable: false },
+        })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("memory.banner.anthropicNeedsOpenAI")).toBeInTheDocument();
+    });
+  });
+
+  it("shows the bedrock memory warning for a bedrock instance needing aws credentials", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        bedrock: { models: [{ id: "titan", tier: "standard", costInput: 0.01, costOutput: 0.03 }] },
+      },
+    });
+
+    render(
+      <SettingsTab
+        instance={makeInstance({
+          memoryEnabled: true,
+          provider: "bedrock",
+          model: "titan",
+          memory: { needsOpenAIKey: true, canEnable: false },
+        })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("memory.banner.bedrockNeedsAws")).toBeInTheDocument();
+    });
+  });
+
+  it("does not show the memory warning when the engine reports no missing key", async () => {
+    render(
+      <SettingsTab
+        instance={makeInstance({
+          memoryEnabled: true,
+          memory: { needsOpenAIKey: false, canEnable: true },
+        })}
+        onUpdate={onUpdate}
+      />,
     );
 
     await waitFor(() => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    expect(screen.queryByText("settings.tab.memoryOpenaiWarning")).not.toBeInTheDocument();
+    expect(screen.queryByText("memory.banner.openaiNeedsKey")).not.toBeInTheDocument();
   });
 
   it("shows auth key field when authEnabled is true", async () => {
@@ -323,6 +381,71 @@ describe("SettingsTab", () => {
 
     expect(onUpdate).toHaveBeenCalledWith(updatedInstance);
     expect(mockToastSuccess).toHaveBeenCalledWith("settings.tab.saved");
+  });
+
+  it("prompts for re-embed and triggers it when the provider changes with existing memories", async () => {
+    const user = userEvent.setup();
+    const instance = makeInstance({ provider: "openai", model: "gpt-4o", memoryEnabled: true });
+    const updatedInstance = makeInstance({ provider: "anthropic", model: "claude-3-opus" });
+    mockMemoriesList.mockResolvedValue({ memories: [], total: 5, limit: 1, offset: 0 });
+    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+
+    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // Switch provider to anthropic via the pricing dialog (a Table-row click,
+    // which works under jsdom — unlike the Radix Select trigger which needs
+    // pointer-capture APIs jsdom doesn't implement).
+    await user.click(screen.getByText("settings.tab.viewPricing"));
+    await user.click(await screen.findByText("claude-3-opus"));
+
+    // Saving with a provider change + existing memories opens the migration dialog
+    // instead of saving directly.
+    await lastSaveAction.current!.onSave();
+
+    await waitFor(() => {
+      expect(screen.getByText("memory.migrate.title")).toBeInTheDocument();
+    });
+    expect(mockInstanceUpdate).not.toHaveBeenCalled();
+
+    // Confirming runs the save and fires the re-embed.
+    await user.click(screen.getByText("memory.migrate.primary"));
+
+    await waitFor(() => {
+      expect(mockInstanceUpdate).toHaveBeenCalledWith(
+        "test-instance",
+        expect.objectContaining({ provider: "anthropic" }),
+      );
+    });
+    expect(mockMemoriesReEmbed).toHaveBeenCalledWith("test-instance");
+  });
+
+  it("does not prompt for re-embed when the provider is unchanged", async () => {
+    const user = userEvent.setup();
+    const instance = makeInstance({ provider: "openai", model: "gpt-4o", memoryEnabled: false });
+    const updatedInstance = makeInstance({ memoryEnabled: true });
+    mockMemoriesList.mockResolvedValue({ memories: [], total: 5, limit: 1, offset: 0 });
+    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+
+    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // Toggle memory (no provider change) and save.
+    const switches = screen.getAllByRole("switch");
+    await user.click(switches[0]);
+    await lastSaveAction.current!.onSave();
+
+    await waitFor(() => {
+      expect(mockInstanceUpdate).toHaveBeenCalled();
+    });
+    expect(screen.queryByText("memory.migrate.title")).not.toBeInTheDocument();
+    expect(mockMemoriesReEmbed).not.toHaveBeenCalled();
   });
 
   it("saves secrets when api key fields are filled", async () => {
