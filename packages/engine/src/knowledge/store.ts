@@ -6,6 +6,8 @@ import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db } from "../database/client.js";
 import { knowledgeDocuments, knowledgeChunks } from "./schema.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
+import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
+import { vectorColumnValues } from "../embeddings-gateway/dim-columns.js";
 
 // Size caps enforced on agent-originated writes.
 export const MAX_WRITE_BYTES = 1 * 1024 * 1024; // 1MB per call
@@ -356,25 +358,40 @@ export async function resetStuckProcessingAll(minutes = 5): Promise<number> {
 
 // ── Chunk operations ───────────────────────────────────────────────
 
+/** Pick the active Drizzle column based on embedding dim. */
+function activeKnowledgeChunkColumn(dim: EmbeddingDim) {
+  return dim === 1024 ? knowledgeChunks.embedding1024 : knowledgeChunks.embedding;
+}
+
+export interface InsertChunkInput {
+  documentId: string;
+  instanceId: string;
+  content: string;
+  embedding: number[];
+  chunkIndex: number;
+}
+
+/** Build row values for a chunk insert — populates the active column, NULLs the other. */
+function chunkRowValues(c: InsertChunkInput, dimensions: EmbeddingDim, provider: EmbeddingProvider) {
+  return {
+    documentId: c.documentId,
+    instanceId: c.instanceId,
+    content: c.content,
+    ...vectorColumnValues(dimensions, c.embedding),
+    embeddingProvider: provider,
+    chunkIndex: c.chunkIndex,
+  };
+}
+
 export async function insertChunks(
-  chunks: Array<{
-    documentId: string;
-    instanceId: InstanceSlug;
-    content: string;
-    embedding: number[];
-    chunkIndex: number;
-  }>,
+  chunks: InsertChunkInput[],
+  dimensions: EmbeddingDim,
+  provider: EmbeddingProvider,
 ): Promise<number> {
   if (chunks.length === 0) return 0;
 
   await db.insert(knowledgeChunks).values(
-    chunks.map((c) => ({
-      documentId: c.documentId,
-      instanceId: c.instanceId,
-      content: c.content,
-      embedding: c.embedding,
-      chunkIndex: c.chunkIndex,
-    })),
+    chunks.map((c) => chunkRowValues(c, dimensions, provider)),
   );
   return chunks.length;
 }
@@ -385,13 +402,9 @@ export async function insertChunks(
  */
 export async function insertChunksAndFinalize(
   docId: string,
-  chunks: Array<{
-    documentId: string;
-    instanceId: InstanceSlug;
-    content: string;
-    embedding: number[];
-    chunkIndex: number;
-  }>,
+  chunks: InsertChunkInput[],
+  dimensions: EmbeddingDim,
+  provider: EmbeddingProvider,
 ): Promise<number> {
   if (chunks.length === 0) {
     await updateDocumentStatus(docId, "ready", { chunkCount: 0 });
@@ -400,13 +413,7 @@ export async function insertChunksAndFinalize(
 
   return await db.transaction(async (tx) => {
     await tx.insert(knowledgeChunks).values(
-      chunks.map((c) => ({
-        documentId: c.documentId,
-        instanceId: c.instanceId,
-        content: c.content,
-        embedding: c.embedding,
-        chunkIndex: c.chunkIndex,
-      })),
+      chunks.map((c) => chunkRowValues(c, dimensions, provider)),
     );
 
     await tx
@@ -432,8 +439,9 @@ export async function searchByVector(
   queryEmbedding: number[],
   instanceId: InstanceSlug,
   limit = 5,
+  dimensions: EmbeddingDim,
 ): Promise<KnowledgeSearchResult[]> {
-  const distance = cosineDistance(knowledgeChunks.embedding, queryEmbedding);
+  const distance = cosineDistance(activeKnowledgeChunkColumn(dimensions), queryEmbedding);
 
   const rows = await db
     .select({
