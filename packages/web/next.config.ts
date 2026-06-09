@@ -1,11 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import path from "node:path";
+
 import type { NextConfig } from "next";
 
 const ENGINE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Pin the Turbopack workspace root to the monorepo root. In the Docker build
+  // the builder stage copies the hoisted node_modules to /app/node_modules but
+  // not the lockfile, so Next 16's automatic root inference fails to resolve
+  // `next/package.json` and aborts. This config lives at packages/web/, so the
+  // monorepo root is two levels up.
+  turbopack: {
+    root: path.join(import.meta.dirname, "..", ".."),
+  },
   async rewrites() {
     return [
       // Proxy engine API calls — forwards cookies (including Auth.js session token)
