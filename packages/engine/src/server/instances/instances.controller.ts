@@ -27,6 +27,8 @@ import { seedInstancePrompts } from "../../instances/prompts.store.js";
 import { seedInstanceTools } from "../../instances/instance-tools.store.js";
 import { seedInstanceSkills } from "../../instances/instance-skills.store.js";
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
+import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
+import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
 import { providerConfigs, isThinkingCapable } from "../../ai-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
@@ -67,6 +69,7 @@ function toInstanceDto(instance: Instance) {
     optoutResumeMessage: instance.optoutResumeMessage,
     optoutInjectPromptHint: instance.optoutInjectPromptHint,
     sttProvider: instance.sttProvider,
+    embeddingDim: instance.embeddingDim,
     icon: buildInstanceIconUrl(instance.slug, instance.icon, instance.updatedAt),
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
@@ -120,7 +123,12 @@ export class InstancesController {
     this.validateSlug(slug);
     const instance = await findInstanceBySlug(asInstanceSlug(slug));
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    return { instance: toInstanceDto(instance) };
+    return {
+      instance: {
+        ...toInstanceDto(instance),
+        memory: await computeMemoryStatusFromInstance(instance),
+      },
+    };
   }
 
   // GET /api/instances/:slug/icon — serve the icon binary
@@ -202,7 +210,13 @@ export class InstancesController {
     const instance = await updateInstance(asInstanceSlug(slug), body);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     invalidateInstanceConfigCache(asInstanceSlug(slug));
-    return { instance: toInstanceDto(instance) };
+    invalidateEmbeddingContext(instance.id, slug);
+    return {
+      instance: {
+        ...toInstanceDto(instance),
+        memory: await computeMemoryStatusFromInstance(instance),
+      },
+    };
   }
 
   // DELETE /api/instances/:slug — delete
