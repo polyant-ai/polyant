@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, and, isNotNull, isNull, sql } from "drizzle-orm";
+import { eq, and, or, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { memories } from "../memory/schema.js";
 import { instances } from "../instances/schema.js";
@@ -29,13 +29,19 @@ export interface ReEmbedResult {
 }
 
 /**
- * Re-embed every memory still on the legacy 1536-dim column into embedding_1024,
- * then flip the instance's embedding_dim flag once all rows are migrated.
- * Idempotent: candidates are rows with non-null `embedding` and null `embedding_1024`.
+ * Re-embed memories into embedding_1024 using the instance's current provider,
+ * then flip the instance's embedding_dim flag once all legacy rows are migrated.
+ * Idempotent. Candidates are EITHER:
+ *  - legacy 1536-dim rows (non-null `embedding`, null `embedding_1024`), OR
+ *  - same-dim 1024 rows produced by a DIFFERENT provider than the target
+ *    (covers a same-dimension provider switch, e.g. OpenAI↔Bedrock at 1024d,
+ *    where the old vectors would otherwise be cosine-compared against new-provider
+ *    query vectors — two incompatible embedding spaces in one column).
  */
 export async function reEmbedInstance(instanceId: string): Promise<ReEmbedResult> {
   const ctx = await resolveEmbeddingContext(instanceId);
   const forceCtx: EmbeddingContext = { ...ctx, dimensions: 1024 as const };
+  const targetProvider = ctx.credentials.provider;
 
   let migrated = 0;
   let failed = 0;
@@ -47,8 +53,15 @@ export async function reEmbedInstance(instanceId: string): Promise<ReEmbedResult
       .where(
         and(
           eq(memories.instanceId, ctx.instanceId),
-          isNotNull(memories.embedding),
-          isNull(memories.embedding1024),
+          or(
+            // legacy 1536 → migrate to 1024
+            and(isNotNull(memories.embedding), isNull(memories.embedding1024)),
+            // already 1024 but produced by a different provider → re-embed in place
+            and(
+              isNotNull(memories.embedding1024),
+              sql`${memories.embeddingProvider} IS DISTINCT FROM ${targetProvider}`,
+            ),
+          ),
         ),
       )
       .limit(BATCH_SIZE);
