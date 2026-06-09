@@ -85,7 +85,7 @@ describe("writeKnowledge tool", () => {
     });
 
     await flushMicrotasks();
-    expect(mockProcessDocument).toHaveBeenCalledWith("doc-1", "inst-1", "hello", "sk-test");
+    expect(mockProcessDocument).toHaveBeenCalledWith("doc-1", "inst-1", "hello");
   });
 
   it("calls appendAgentDocument for action='append'", async () => {
@@ -112,7 +112,7 @@ describe("writeKnowledge tool", () => {
     expect(result.sizeBytes).toBe(12);
 
     await flushMicrotasks();
-    expect(mockProcessDocument).toHaveBeenCalledWith("doc-2", "inst-1", "foo\n\nbar", "sk-test");
+    expect(mockProcessDocument).toHaveBeenCalledWith("doc-2", "inst-1", "foo\n\nbar");
   });
 
   it("forwards custom mimeType on creation", async () => {

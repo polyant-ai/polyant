@@ -3,11 +3,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BadRequestException } from "@nestjs/common";
 
-vi.mock("../../instances/secrets.store.js", () => ({
-  getAllSecrets: vi.fn(),
-}));
-vi.mock("../../memory/embedder.js", () => ({
-  generateEmbeddings: vi.fn(),
+const mockResolveEmbeddingContext = vi.fn();
+const mockEmbedMany = vi.fn();
+
+vi.mock("../../embeddings-gateway/index.js", () => ({
+  resolveEmbeddingContext: (...args: unknown[]) => mockResolveEmbeddingContext(...args),
+  embedMany: (...args: unknown[]) => mockEmbedMany(...args),
 }));
 vi.mock("../../memory/memory-store.js", () => ({
   searchMemories: vi.fn(),
@@ -17,8 +18,6 @@ vi.mock("../../memory/memory-store.js", () => ({
 }));
 
 import { MemoriesController } from "./memories.controller.js";
-import { getAllSecrets } from "../../instances/secrets.store.js";
-import { generateEmbeddings } from "../../memory/embedder.js";
 import { upsertMemory } from "../../memory/memory-store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 
@@ -27,35 +26,40 @@ describe("MemoriesController.create", () => {
     vi.clearAllMocks();
   });
 
-  it("resolves the OpenAI key via the slug-keyed secrets lookup and creates the memory", async () => {
+  it("resolves the provider-aware context by slug and creates the memory", async () => {
     // Regression guard for the slug-vs-UUID bug: the POST /memories handler must
-    // resolve secrets with getAllSecrets(slug) — which resolves the slug to the
-    // instance UUID internally — NOT getAllSecretsById(slug-cast-as-uuid), which
-    // queried instance_secrets by the wrong key and always returned no
-    // openai_api_key (causing a spurious 400 on every memory creation).
-    vi.mocked(getAllSecrets).mockResolvedValue({ openai_api_key: "sk-test" });
-    vi.mocked(generateEmbeddings).mockResolvedValue([[0.1, 0.2, 0.3]]);
+    // pass the instance slug through to the embeddings gateway, which resolves it
+    // to the instance UUID internally — never cast the slug to a UUID directly.
+    mockResolveEmbeddingContext.mockResolvedValue({
+      instanceId: "my-assistant",
+      dimensions: 1024,
+      credentials: { provider: "openai", apiKey: "sk-test" },
+    });
+    mockEmbedMany.mockResolvedValue([[0.1, 0.2, 0.3]]);
     vi.mocked(upsertMemory).mockResolvedValue({ id: "mem-1", content: "hello", event: "ADD" });
 
     const controller = new MemoriesController();
     const result = await controller.create({ instanceId: "my-assistant", content: "hello" });
 
-    expect(getAllSecrets).toHaveBeenCalledWith(asInstanceSlug("my-assistant"));
-    expect(generateEmbeddings).toHaveBeenCalledWith(["hello"], "sk-test");
+    expect(mockResolveEmbeddingContext).toHaveBeenCalledWith(asInstanceSlug("my-assistant"));
+    expect(mockEmbedMany).toHaveBeenCalledWith(
+      ["hello"],
+      expect.objectContaining({ dimensions: 1024 }),
+    );
     expect(upsertMemory).toHaveBeenCalledWith(
       expect.objectContaining({ instanceId: asInstanceSlug("my-assistant"), content: "hello" }),
     );
     expect(result).toEqual({ memory: { id: "mem-1", content: "hello", event: "ADD" } });
   });
 
-  it("returns 400 when the instance has no OpenAI key", async () => {
-    vi.mocked(getAllSecrets).mockResolvedValue({});
+  it("returns 400 when the embedding provider is not configured", async () => {
+    mockResolveEmbeddingContext.mockRejectedValue(new Error("Embedding provider not configured."));
 
     const controller = new MemoriesController();
 
     await expect(
       controller.create({ instanceId: "my-assistant", content: "hello" }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(generateEmbeddings).not.toHaveBeenCalled();
+    expect(mockEmbedMany).not.toHaveBeenCalled();
   });
 });

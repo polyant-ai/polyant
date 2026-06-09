@@ -40,6 +40,4 @@ export {
 } from "./memory-store.js";
 export type { MemoryRecord, UpsertResult } from "./memory-store.js";
 
-export { generateEmbedding, generateEmbeddings } from "./embedder.js";
-
 export type { Memory, MemoryUpsertResult, ExtractedFact } from "./types.js";
