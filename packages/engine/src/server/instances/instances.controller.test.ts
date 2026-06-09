@@ -101,7 +101,7 @@ describe("InstancesController", () => {
       const allowed = new Set([
         "id", "slug", "name", "description", "status", "provider", "model",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
-        "authEnabled", "thinkingEnabled", "stateInPromptEnabled", "toolResultsInHistoryEnabled", "sttProvider", "icon", "createdAt", "updatedAt",
+        "authEnabled", "thinkingEnabled", "stateInPromptEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "icon", "createdAt", "updatedAt",
       ]);
 
       for (const key of Object.keys(instance)) {

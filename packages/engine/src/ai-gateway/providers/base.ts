@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { type LanguageModel, stepCountIs } from "ai";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { config } from "../../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 import type { ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
-import type { ReasoningDetail, StepDetail } from "../../conversations/schema.js";
+import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 
 type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => LanguageModel;
 
@@ -61,6 +62,38 @@ function logLlmPayload(providerName: string, modelId: string, request: ChatReque
     toolCount: toolNames.length,
     maxSteps: request.maxSteps ?? 1,
   }, null, 2)}${C.reset}`);
+}
+
+/**
+ * Serialize the tool definitions sent to the model for debug capture.
+ * name + description are always captured; the JSON-schema of parameters is
+ * best-effort (zod→JSON-schema) and silently omitted on failure.
+ */
+export function serializeTools(tools: ChatRequest["tools"]): LlmDebugPayload["tools"] {
+  if (!tools) return [];
+  return Object.entries(tools).map(([name, tool]) => {
+    const t = tool as { description?: string; inputSchema?: unknown };
+    let parameters: unknown;
+    try {
+      if (t.inputSchema) parameters = zodToJsonSchema(t.inputSchema as never);
+    } catch {
+      parameters = undefined;
+    }
+    return {
+      name,
+      ...(typeof t.description === "string" ? { description: t.description } : {}),
+      ...(parameters ? { parameters } : {}),
+    };
+  });
+}
+
+/** Capture the exact LLM request payload (system + messages + tool defs) for debug. */
+function buildDebugPayload(request: ChatRequest): LlmDebugPayload {
+  return {
+    system: request.system ?? "",
+    messages: request.messages as unknown[],
+    tools: serializeTools(request.tools),
+  };
 }
 
 /** Safely coerce a token count to a non-negative integer. Handles NaN, undefined, null. */
@@ -294,7 +327,7 @@ export function createProvider(providerName: string, createModel: ModelFactory):
       // (array). Normalised for type safety.
       const topReasoning = (result as unknown as { reasoning?: unknown[] }).reasoning;
 
-      return buildChatResponse(
+      const response = buildChatResponse(
         result.text,
         normalizeSdkSteps((result as unknown as { steps?: unknown }).steps),
         topReasoning,
@@ -304,6 +337,8 @@ export function createProvider(providerName: string, createModel: ModelFactory):
         modelId,
         providerName,
       );
+      if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
+      return response;
     },
 
     async chatStream(request: ChatRequest, modelId: string): Promise<ChatStreamResult> {
@@ -334,7 +369,7 @@ export function createProvider(providerName: string, createModel: ModelFactory):
           const steps = await result.steps;
           // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
           const topReasoning = await (result as unknown as { reasoning?: Promise<unknown[]> }).reasoning;
-          return buildChatResponse(
+          const response = buildChatResponse(
             finalText,
             normalizeSdkSteps(steps),
             topReasoning,
@@ -343,6 +378,8 @@ export function createProvider(providerName: string, createModel: ModelFactory):
             modelId,
             providerName,
           );
+          if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
+          return response;
         })(),
       };
     },

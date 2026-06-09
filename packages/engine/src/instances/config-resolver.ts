@@ -38,6 +38,8 @@ export interface InstanceConfig {
   stateInPromptEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
+  /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
+  debugEnabled: boolean;
   stt: {
     provider: STTProviderName;
     credentials: STTCredentials;
@@ -98,6 +100,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       thinkingEnabled: false,
       stateInPromptEnabled: false,
       toolResultsInHistoryEnabled: false,
+      debugEnabled: false,
       stt: { provider: "openai", credentials: {} },
     };
   }
@@ -159,6 +162,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       ),
     stateInPromptEnabled: instance.stateInPromptEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    debugEnabled: instance.debugEnabled,
     stt: { provider: sttProvider, credentials: sttCredentials },
   };
 

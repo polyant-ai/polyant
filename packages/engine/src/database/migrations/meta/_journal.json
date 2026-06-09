@@ -288,6 +288,13 @@
       "when": 1779494400000,
       "tag": "0044_add_tool_results_in_history",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1779580800000,
+      "tag": "0045_add_debug_payload",
+      "breakpoints": true
     }
   ]
 }

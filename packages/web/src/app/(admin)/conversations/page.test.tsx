@@ -102,6 +102,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     thinkingEnabled: false,
     stateInPromptEnabled: false,
     toolResultsInHistoryEnabled: false,
+    debugEnabled: false,
     sttProvider: "openai",
     icon: null,
     createdAt: null,

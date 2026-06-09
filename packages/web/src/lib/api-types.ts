@@ -51,6 +51,8 @@ export interface Instance {
   stateInPromptEnabled: boolean;
   /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
+  /** When true, the exact LLM request payload is persisted per turn (debug/analysis). */
+  debugEnabled: boolean;
   sttProvider: string | null;
   icon: string | null;
   createdAt: string | null;
@@ -310,6 +312,24 @@ export interface ConversationMessage {
   createdAt: string | null;
   promptTokens: number | null;
   completionTokens: number | null;
+}
+
+/**
+ * Exact LLM request payload captured for an assistant turn when the instance's
+ * DEBUG flag was on. Heavy, fetched on-demand via the per-message debug endpoint.
+ */
+export interface LlmDebugPayload {
+  system: string;
+  messages: unknown[];
+  tools: { name: string; description?: string; parameters?: unknown }[];
+}
+
+/** Response of GET /api/conversations/:id/messages/:messageId/debug. */
+export interface MessageDebug {
+  /** Null when the turn was generated with DEBUG off. */
+  debugPayload: LlmDebugPayload | null;
+  /** Per-step tool trace for the turn (always present for tool-using turns). */
+  steps: StepDetail[] | null;
 }
 
 // ── Memories ──────────────────────────────────────────────────────────

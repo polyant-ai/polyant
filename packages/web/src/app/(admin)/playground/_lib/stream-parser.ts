@@ -19,8 +19,12 @@ export interface StreamCallbacks {
   onToolCall: (id: string, name: string, args: unknown) => void;
   /** Result for a previously-emitted tool call. */
   onToolResult: (id: string, result: unknown) => void;
-  /** Stream completed successfully. */
-  onDone: () => void;
+  /**
+   * Stream completed successfully. The engine echoes the persisted identifiers
+   * (full conversationId + assistant message id) so the client can later fetch
+   * this turn's debug payload. Absent on the EOF-drain fallback.
+   */
+  onDone: (meta?: { conversationId?: string; messageId?: string }) => void;
   /** A non-recoverable error occurred. */
   onError: (error: Error) => void;
 }
@@ -196,7 +200,10 @@ export function dispatch(evt: SseEvent, cb: StreamCallbacks): boolean {
       return true;
     }
     case "done": {
-      cb.onDone();
+      cb.onDone({
+        conversationId: typeof data?.conversationId === "string" ? data.conversationId : undefined,
+        messageId: typeof data?.messageId === "string" ? data.messageId : undefined,
+      });
       return false;
     }
     case "error": {

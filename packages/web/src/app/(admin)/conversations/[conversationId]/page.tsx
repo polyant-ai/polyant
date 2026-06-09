@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, Loader2, Info, Zap, Coins, Terminal, FileText, Mic } from "lucide-react";
+import { Trash2, Loader2, Info, Zap, Coins, Terminal, FileText, Mic, SearchCode, Database } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -37,6 +37,8 @@ import {
 import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta } from "@/lib/api";
 import { MarkdownRenderer } from "@/app/(admin)/playground/_components/markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
+import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
+import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
 import { formatRelativeTime, parseUTC } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 
@@ -156,6 +158,8 @@ export default function ConversationDetailPage() {
 
   const [conversation, setConversation] = useState<ConversationListItem | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [debugTarget, setDebugTarget] = useState<DebugSheetTarget | null>(null);
+  const [stateOpen, setStateOpen] = useState(false);
   const [totalMessages, setTotalMessages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -359,6 +363,11 @@ export default function ConversationDetailPage() {
             )}
           </div>
         </div>
+        <div className="flex items-center gap-1">
+        <Button variant="ghost" size="sm" onClick={() => setStateOpen(true)}>
+          <Database className="h-4 w-4" />
+          {t("conversations.state.button")}
+        </Button>
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="ghost" size="sm" className="text-destructive">
@@ -384,6 +393,7 @@ export default function ConversationDetailPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        </div>
       </div>
 
       <div
@@ -509,6 +519,18 @@ export default function ConversationDetailPage() {
                         </TooltipContent>
                       </Tooltip>
                     )}
+                    {msg.role !== "user" && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDebugTarget({ conversationId, messageId: msg.id, instanceId })
+                        }
+                        className="inline-flex items-center gap-1 rounded px-1 text-muted-foreground transition hover:text-foreground"
+                        title={t("message.debug.open")}
+                      >
+                        <SearchCode className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -522,6 +544,18 @@ export default function ConversationDetailPage() {
           </p>
         )}
       </div>
+
+      <DebugSheet
+        open={debugTarget !== null}
+        onOpenChange={(o) => !o && setDebugTarget(null)}
+        target={debugTarget}
+      />
+      <ContextStoreSheet
+        open={stateOpen}
+        onOpenChange={setStateOpen}
+        conversationId={conversationId}
+        instanceId={instanceId}
+      />
     </div>
   );
 }

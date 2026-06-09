@@ -3,7 +3,7 @@
 import { eq, and, desc, asc, sql, count, inArray } from "drizzle-orm";
 import type { ModelMessage } from "ai";
 import { db } from "../database/client.js";
-import { conversations, conversationMessages, conversationState, type AttachmentMeta, type ReasoningDetail, type StepDetail } from "./schema.js";
+import { conversations, conversationMessages, conversationState, type AttachmentMeta, type LlmDebugPayload, type ReasoningDetail, type StepDetail } from "./schema.js";
 import { pipelineTraces } from "../analytics/traces.schema.js";
 import { aiLogs } from "../ai-gateway/logger.js";
 import { toolAuditLogs } from "../audit/audit.schema.js";
@@ -249,18 +249,23 @@ export class ConversationStore {
   async appendMessages(
     conversationId: string,
     messages: Array<{
+      /** Explicit row id. When omitted the column default (random UUID) is used. */
+      id?: string;
       role: string;
       content: string;
       steps?: StepDetail[];
       reasoning?: ReasoningDetail[];
       attachments?: AttachmentMeta[];
       metadata?: Record<string, unknown>;
+      /** Exact LLM request payload (DEBUG mode only). NULL otherwise. */
+      debugPayload?: LlmDebugPayload;
     }>,
   ): Promise<void> {
     if (messages.length === 0) return;
 
     await db.insert(conversationMessages).values(
       messages.map((m) => ({
+        ...(m.id ? { id: m.id } : {}),
         conversationId,
         role: m.role,
         // Postgres `text` rejects NUL bytes; `jsonb` rejects NUL escapes
@@ -270,6 +275,7 @@ export class ConversationStore {
         reasoning: m.reasoning ? stripNulDeep(m.reasoning) : null,
         attachments: m.attachments ? stripNulDeep(m.attachments) : null,
         metadata: m.metadata ? stripNulDeep(m.metadata) : null,
+        debugPayload: m.debugPayload ? stripNulDeep(m.debugPayload) : null,
       })),
     );
   }
@@ -553,6 +559,33 @@ export class ConversationStore {
         createdAt: r.createdAt ?? null,
       })),
       total: countResult[0]?.total ?? 0,
+    };
+  }
+
+  /**
+   * Fetch the heavy per-turn debug data for a single message: the captured LLM
+   * request payload (DEBUG mode only) plus the multi-step tool trace. Scoped by
+   * conversationId so a message id cannot be read out of its conversation.
+   * Returns null when the message does not exist in that conversation.
+   */
+  async getMessageDebug(
+    conversationId: string,
+    messageId: string,
+  ): Promise<{ debugPayload: LlmDebugPayload | null; steps: StepDetail[] | null } | null> {
+    const rows = await db
+      .select({
+        debugPayload: conversationMessages.debugPayload,
+        steps: conversationMessages.steps,
+      })
+      .from(conversationMessages)
+      .where(and(eq(conversationMessages.id, messageId), eq(conversationMessages.conversationId, conversationId)))
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      debugPayload: (row.debugPayload as LlmDebugPayload | null) ?? null,
+      steps: (row.steps as StepDetail[] | null) ?? null,
     };
   }
 

@@ -65,6 +65,21 @@ export interface StepDetail {
   legacy?: boolean;
 }
 
+/**
+ * Exact LLM request payload captured for an assistant turn when the instance's
+ * `debug_enabled` flag is on. Heavy and PII-bearing at rest — persisted only
+ * opt-in (see pipeline `afterResponse`). The per-step tool I/O lives in `steps`
+ * and is NOT duplicated here.
+ */
+export interface LlmDebugPayload {
+  /** Full system prompt string sent to the model. */
+  system: string;
+  /** The messages array (ModelMessage[]) sent to the model, serialized. */
+  messages: unknown[];
+  /** Tool definitions sent to the model (best-effort name + description + JSON schema). */
+  tools: { name: string; description?: string; parameters?: unknown }[];
+}
+
 export const conversationMessages = pgTable(
   "conversation_messages",
   {
@@ -88,6 +103,13 @@ export const conversationMessages = pgTable(
     reasoning: jsonb("reasoning").$type<ReasoningDetail[]>(),
     attachments: jsonb("attachments").$type<AttachmentMeta[]>(),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    /**
+     * Exact LLM request payload (system + messages + tool defs) for this assistant
+     * turn. NULL unless the instance had `debug_enabled` on when it was generated.
+     * Heavy / PII at rest — never selected by the default `getMessages` list query;
+     * fetched on-demand via the per-message debug endpoint.
+     */
+    debugPayload: jsonb("debug_payload").$type<LlmDebugPayload>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
