@@ -145,6 +145,15 @@ registerTool({
           success: true,
         });
 
+        // Persist the most-recently uploaded file in conversation state so a later
+        // turn can reuse its URL deterministically (text-only history would drop it).
+        ctx.state?.set("lastUploadedFile", {
+          key: s3Key,
+          url,
+          sizeBytes: fileBuffer.length,
+          mimeType: fileMime ?? null,
+        });
+
         return {
           key: s3Key,
           url,

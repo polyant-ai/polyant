@@ -16,7 +16,8 @@ vi.mock("../../utils/error.js", () => ({
 }));
 
 import { registerTool } from "./registry.js";
-import { createMockAudit } from "../../test-utils.js";
+import { createMockAudit, createMockState } from "../../test-utils.js";
+import type { ConversationStateApi } from "../../conversations/state.buffer.js";
 import "./file-upload.tool.js";
 
 const def = vi.mocked(registerTool).mock.calls[0][0];
@@ -28,15 +29,16 @@ const DEFAULT_SECRETS = {
   s3_bucket_name: "test-bucket",
 };
 
-function buildTool(opts?: { secrets?: Record<string, string>; attachments?: any[] }) {
+function buildTool(opts?: { secrets?: Record<string, string>; attachments?: any[]; state?: ConversationStateApi }) {
   const ctx = {
     instanceId: "test-instance",
     secrets: opts?.secrets ?? DEFAULT_SECRETS,
     audit: createMockAudit(),
     conversationId: "conv-1",
     attachments: opts?.attachments,
+    state: opts?.state,
   } as any;
-  return { execute: def.create(ctx).execute, audit: ctx.audit };
+  return { execute: def.create(ctx).execute, audit: ctx.audit, state: ctx.state };
 }
 
 beforeEach(() => {
@@ -206,6 +208,40 @@ describe("fileUpload tool", () => {
         success: true,
       }),
     );
+  });
+
+  // Context state: persist uploaded file for cross-turn reuse
+  it("writes the uploaded file to conversation state on success", async () => {
+    const state = createMockState();
+    const { execute } = buildTool({
+      attachments: [
+        { type: "image", data: Buffer.from("fake-image"), mimeType: "image/jpeg", fileName: "bolletta.jpg" },
+      ],
+      state,
+    });
+
+    await execute({ attachmentIndex: 0, base64Data: null, mimeType: null, filename: null });
+
+    expect(state.get("lastUploadedFile")).toEqual({
+      key: "test-instance/conv-1/bolletta.jpg",
+      url: "https://test-bucket.s3.eu-west-1.amazonaws.com/test-instance/conv-1/bolletta.jpg",
+      sizeBytes: Buffer.from("fake-image").length,
+      mimeType: "image/jpeg",
+    });
+  });
+
+  // Context state: do not write on failure
+  it("does not write to conversation state when the upload fails", async () => {
+    mockS3Send.mockRejectedValue(new Error("S3 PutObject failed"));
+    const state = createMockState();
+    const { execute } = buildTool({
+      attachments: [{ type: "image", data: Buffer.from("img"), mimeType: "image/png" }],
+      state,
+    });
+
+    await execute({ attachmentIndex: 0, base64Data: null, mimeType: null, filename: null });
+
+    expect(state.get("lastUploadedFile")).toBeUndefined();
   });
 
   // UUID filename generation
