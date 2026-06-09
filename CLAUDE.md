@@ -246,7 +246,7 @@ polyant/                            # Monorepo root
 
 ## Important Caveats
 
-- **Embeddings always use OpenAI** — the per-instance `openai_api_key` secret is required regardless of the instance's AI provider. Anthropic has no embedding API. The extraction LLM uses the configured provider via ai-gateway (tier `fast`).
+- **Embeddings are per-instance, provider-aware.** Each instance has `embedding_dim` (1024 or 1536). OpenAI-provider instances can use either dim; Bedrock-provider instances are always 1024 (Titan v2). Anthropic-provider instances fall back to OpenAI for embeddings and must configure `openai_api_key`. The `embeddings-gateway` module picks the right model + credentials based on the instance. The `memories` and `knowledge_chunks` tables have two parallel vector columns (`embedding vector(1536)`, `embedding_1024 vector(1024)`) with an XOR check constraint — exactly one is populated per row, decided by the owning instance's `embedding_dim`. Switching provider on an existing instance triggers a re-embed job.
 - **Memory extraction is conditional** on the instance's `memoryEnabled` flag. The extraction prompt includes today's date and converts relative dates to absolute. Facts are written in the same language as the conversation.
 - **No specialized sub-agents** — `spawnTask` creates ad-hoc agents; the `SubAgentDefinition` type exists for future extensions
 - **Hybrid search uses RRF** (Reciprocal Rank Fusion) to merge pgvector cosine similarity results with PostgreSQL FTS keyword results
