@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { pgTable, uuid, varchar, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, boolean, integer } from "drizzle-orm/pg-core";
 
 export const instances = pgTable("instances", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -18,6 +18,7 @@ export const instances = pgTable("instances", {
   thinkingEnabled: boolean("thinking_enabled").notNull().default(false),
   icon: text("icon"),
   sttProvider: text("stt_provider").notNull().default("openai"),
+  embeddingDim: integer("embedding_dim").notNull().default(1536),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
