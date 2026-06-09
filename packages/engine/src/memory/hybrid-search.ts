@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { searchByVector } from "./memory-store.js";
-import { generateEmbedding } from "./embedder.js";
+import { embed, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
 import { conversationStore } from "../conversations/index.js";
 import { DEFAULT_INSTANCE_ID } from "../config.js";
 import { memoryLog } from "./memory-logger.js";
@@ -27,17 +27,17 @@ export async function hybridSearch(
   query: string,
   instanceId?: InstanceSlug,
   limit = 10,
-  openaiApiKey?: string,
 ): Promise<HybridSearchResult[]> {
   const uid = instanceId ?? asInstanceSlug(DEFAULT_INSTANCE_ID);
   const fetchLimit = Math.max(limit * 2, 20);
 
-  // Generate embedding for the query
-  const queryEmbedding = await generateEmbedding(query, openaiApiKey);
+  // Generate embedding for the query via the provider-aware gateway
+  const ctx = await resolveEmbeddingContext(uid);
+  const queryEmbedding = await embed(query, ctx);
 
   // Run both backends in parallel
   const [semanticResults, keywordResults] = await Promise.all([
-    searchByVector(queryEmbedding, uid, fetchLimit).catch((err) => {
+    searchByVector(queryEmbedding, uid, fetchLimit, ctx.dimensions).catch((err) => {
       memoryLog.error("HybridSearch", "pgvector semantic search failed:", err);
       return [];
     }),

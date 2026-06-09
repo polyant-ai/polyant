@@ -3,7 +3,7 @@ const oa = vi.fn(); const oaMany = vi.fn(); const br = vi.fn(); const brMany = v
 vi.mock("./providers/openai.js", () => ({ embedOpenAI: (...a: unknown[]) => oa(...a), embedManyOpenAI: (...a: unknown[]) => oaMany(...a) }));
 vi.mock("./providers/bedrock.js", () => ({ embedBedrock: (...a: unknown[]) => br(...a), embedManyBedrock: (...a: unknown[]) => brMany(...a) }));
 vi.mock("./provider-resolver.js", () => ({ resolveEmbeddingContext: vi.fn() }));
-import { embed, embedMany } from "./index.js";
+import { embed } from "./index.js";
 beforeEach(() => { oa.mockReset().mockResolvedValue([1]); br.mockReset().mockResolvedValue([2]); });
 describe("embed dispatch", () => {
   it("routes openai", async () => {

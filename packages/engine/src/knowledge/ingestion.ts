@@ -7,7 +7,7 @@ import {
   insertChunksAndFinalize,
   updateDocumentStatus,
 } from "./store.js";
-import { generateEmbeddings } from "../memory/embedder.js";
+import { embedMany, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 
 /**
@@ -26,7 +26,6 @@ export async function processDocument(
   docId: string,
   instanceId: InstanceSlug,
   textContent: string,
-  openaiApiKey?: string,
 ): Promise<{ chunkCount: number }> {
   try {
     await updateDocumentStatus(docId, "processing");
@@ -52,13 +51,16 @@ export async function processDocument(
       i === 0 && titlePrefix ? `${titlePrefix}${c.content}` : c.content,
     );
 
+    // Resolve the provider-aware embedding context once for the whole document.
+    const ctx = await resolveEmbeddingContext(instanceId);
+
     // Generate embeddings in batches
     const BATCH_SIZE = 100;
     const allEmbeddings: number[][] = [];
 
     for (let i = 0; i < chunkContents.length; i += BATCH_SIZE) {
       const batch = chunkContents.slice(i, i + BATCH_SIZE);
-      const embeddings = await generateEmbeddings(batch, openaiApiKey);
+      const embeddings = await embedMany(batch, ctx);
       allEmbeddings.push(...embeddings);
     }
 
@@ -72,7 +74,12 @@ export async function processDocument(
     }));
 
     // Insert chunks + mark document as "ready" atomically in a transaction
-    const inserted = await insertChunksAndFinalize(docId, chunkRecords);
+    const inserted = await insertChunksAndFinalize(
+      docId,
+      chunkRecords,
+      ctx.dimensions,
+      ctx.credentials.provider,
+    );
 
     console.log(`[Knowledge] Processed doc ${docId}: ${inserted} chunks embedded`);
     return { chunkCount: inserted };
