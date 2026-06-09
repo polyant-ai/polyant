@@ -47,6 +47,8 @@ vi.mock("./schema.js", () => ({
     importance: "importance",
     sourceConversationId: "source_conversation_id",
     embedding: "embedding",
+    embedding1024: "embedding_1024",
+    embeddingProvider: "embedding_provider",
     createdAt: "created_at",
     updatedAt: "updated_at",
   },
@@ -93,6 +95,8 @@ describe("memory-store", () => {
         category: "preference",
         importance: 8,
         embedding: [0.1, 0.2],
+        dimensions: 1536,
+        provider: "openai",
       });
 
       expect(result).toEqual({
@@ -102,6 +106,46 @@ describe("memory-store", () => {
       });
       expect(mockDb.select).toHaveBeenCalled();
       expect(mockDb.insert).toHaveBeenCalled();
+    });
+
+    it("inserts 1536-dim embedding into `embedding`, nulls `embedding_1024`", async () => {
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+      const insChain = createChainMock([{ id: "new-id" }]);
+      mockDb.insert.mockReturnValue(insChain as any);
+
+      await upsertMemory({
+        instanceId: "user-1",
+        content: "User likes pizza",
+        embedding: [0.1, 0.2],
+        dimensions: 1536,
+        provider: "openai",
+      });
+
+      const values = insChain.values.mock.calls[0][0];
+      expect(values.embedding).toEqual([0.1, 0.2]);
+      expect(values.embedding1024).toBeNull();
+      expect(values.embeddingProvider).toBe("openai");
+    });
+
+    it("inserts 1024-dim embedding into `embedding_1024`, nulls `embedding`", async () => {
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+      const insChain = createChainMock([{ id: "new-id" }]);
+      mockDb.insert.mockReturnValue(insChain as any);
+
+      await upsertMemory({
+        instanceId: "user-1",
+        content: "User likes pizza",
+        embedding: [0.3, 0.4],
+        dimensions: 1024,
+        provider: "bedrock",
+      });
+
+      const values = insChain.values.mock.calls[0][0];
+      expect(values.embedding).toBeNull();
+      expect(values.embedding1024).toEqual([0.3, 0.4]);
+      expect(values.embeddingProvider).toBe("bedrock");
     });
 
     it("updates when near-duplicate exists", async () => {
@@ -117,6 +161,8 @@ describe("memory-store", () => {
         instanceId: "user-1",
         content: "User likes pizza",
         embedding: [0.1, 0.2],
+        dimensions: 1536,
+        provider: "openai",
       });
 
       expect(result).toEqual({
@@ -147,7 +193,7 @@ describe("memory-store", () => {
       const selChain = createChainMock(rows);
       mockDb.select.mockReturnValue(selChain as any);
 
-      const results = await searchByVector([0.1, 0.2], "user-1", 10);
+      const results = await searchByVector([0.1, 0.2], "user-1", 10, 1024);
 
       expect(results).toHaveLength(1);
       expect(results[0].similarity).toBe(0.85); // 1 - 0.15
