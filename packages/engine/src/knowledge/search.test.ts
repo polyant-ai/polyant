@@ -4,15 +4,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockSearchByVector = vi.fn();
 const mockSearchByKeyword = vi.fn();
-const mockGenerateEmbedding = vi.fn();
+const mockEmbed = vi.fn();
+const mockResolveEmbeddingContext = vi.fn();
 
 vi.mock("./store.js", () => ({
   searchByVector: (...args: unknown[]) => mockSearchByVector(...args),
   searchByKeyword: (...args: unknown[]) => mockSearchByKeyword(...args),
 }));
 
-vi.mock("../memory/embedder.js", () => ({
-  generateEmbedding: (...args: unknown[]) => mockGenerateEmbedding(...args),
+vi.mock("../embeddings-gateway/index.js", () => ({
+  embed: (...args: unknown[]) => mockEmbed(...args),
+  embedMany: (...args: unknown[]) => mockEmbed(...args),
+  resolveEmbeddingContext: (...args: unknown[]) => mockResolveEmbeddingContext(...args),
 }));
 
 import { searchKnowledge } from "./search.js";
@@ -24,7 +27,12 @@ function makeChunkResult(id: string, content: string, source = "doc.md", chunkIn
 describe("searchKnowledge (hybrid)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGenerateEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockEmbed.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockResolveEmbeddingContext.mockResolvedValue({
+      instanceId: "maia",
+      dimensions: 1024,
+      credentials: { provider: "openai", apiKey: "k" },
+    });
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
@@ -142,23 +150,29 @@ describe("searchKnowledge (hybrid)", () => {
     mockSearchByKeyword.mockResolvedValue([]);
 
     await searchKnowledge("menu", "maia", 5);
-    expect(mockSearchByVector).toHaveBeenCalledWith([0.1, 0.2, 0.3], "maia", 20);
+    expect(mockSearchByVector).toHaveBeenCalledWith([0.1, 0.2, 0.3], "maia", 20, 1024);
     expect(mockSearchByKeyword).toHaveBeenCalledWith("menu", "maia", 20);
 
     vi.clearAllMocks();
-    mockGenerateEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockEmbed.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockResolveEmbeddingContext.mockResolvedValue({
+      instanceId: "maia",
+      dimensions: 1024,
+      credentials: { provider: "openai", apiKey: "k" },
+    });
 
     await searchKnowledge("menu", "maia", 15);
-    expect(mockSearchByVector).toHaveBeenCalledWith([0.1, 0.2, 0.3], "maia", 30);
+    expect(mockSearchByVector).toHaveBeenCalledWith([0.1, 0.2, 0.3], "maia", 30, 1024);
     expect(mockSearchByKeyword).toHaveBeenCalledWith("menu", "maia", 30);
   });
 
-  it("propagates the openai api key to the embedder", async () => {
+  it("embeds the query through the provider-aware gateway", async () => {
     mockSearchByVector.mockResolvedValue([]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    await searchKnowledge("menu", "maia", 5, "sk-test-key");
-    expect(mockGenerateEmbedding).toHaveBeenCalledWith("menu", "sk-test-key");
+    await searchKnowledge("menu", "maia", 5);
+    expect(mockResolveEmbeddingContext).toHaveBeenCalledWith("maia");
+    expect(mockEmbed).toHaveBeenCalledWith("menu", expect.objectContaining({ dimensions: 1024 }));
   });
 
   it("propagates the instanceId to both backends", async () => {
@@ -170,6 +184,7 @@ describe("searchKnowledge (hybrid)", () => {
       [0.1, 0.2, 0.3],
       "maia",
       expect.any(Number),
+      1024,
     );
     expect(mockSearchByKeyword).toHaveBeenCalledWith(
       "menu",

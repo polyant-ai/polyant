@@ -3,7 +3,7 @@
 import { chat } from "../ai-gateway/index.js";
 import type { ChatRequest } from "../ai-gateway/types.js";
 import { conversationStore } from "../conversations/index.js";
-import { generateEmbeddings } from "./embedder.js";
+import { embedMany, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
 import { upsertMemory } from "./memory-store.js";
 import type { UpsertResult } from "./memory-store.js";
 import type { ExtractedFact } from "./types.js";
@@ -100,7 +100,8 @@ export async function extractMemories(
 
   // 5. Generate embeddings for all extracted facts (batched)
   const contents = facts.map((f) => f.content);
-  const embeddings = await generateEmbeddings(contents, apiKeys?.openai);
+  const ctx = await resolveEmbeddingContext(instanceId);
+  const embeddings = await embedMany(contents, ctx);
 
   // 6. Upsert each memory (with deduplication via cosine similarity)
   const results = await Promise.all(
@@ -112,6 +113,8 @@ export async function extractMemories(
         importance: fact.importance,
         sourceConversationId: conversationId,
         embedding: embeddings[i],
+        dimensions: ctx.dimensions,
+        provider: ctx.credentials.provider,
       }),
     ),
   );
