@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 export type EmbeddingProvider = "openai" | "bedrock";
 
 export type EmbeddingDim = 1024 | 1536;
