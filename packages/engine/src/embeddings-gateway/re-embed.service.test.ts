@@ -81,6 +81,7 @@ vi.mock("drizzle-orm", () => {
   return {
     eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
     and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
+    or: vi.fn((...args: unknown[]) => ({ type: "or", args })),
     isNotNull: vi.fn((c: unknown) => ({ type: "isNotNull", c })),
     isNull: vi.fn((c: unknown) => ({ type: "isNull", c })),
     sql: sqlTag,
@@ -166,5 +167,28 @@ describe("reEmbedInstance", () => {
     expect(result.failed).toBe(0);
     expect(result.dimFlipped).toBe(true);
     expect(updateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("should re-embed same-dim rows produced by a different provider on a same-dimension switch", async () => {
+    // The instance is already on 1024 (no legacy rows), but it switched provider
+    // (target = bedrock). One row still carries another provider's 1024 vector and
+    // must be re-embedded in place.
+    selectQueue.push([{ id: "33333333-3333-3333-3333-333333333333", content: "stale-provider memory" }]);
+    // After the UPDATE the row's embedding_provider becomes the target, so it no
+    // longer matches → next fetch drains and the loop terminates.
+    selectQueue.push([]);
+    // No legacy `embedding IS NOT NULL` rows remain → remaining count is 0.
+    selectQueue.push([{ remaining: 0 }]);
+
+    embedManyMock.mockResolvedValueOnce([[0.4, 0.5, 0.6]]);
+
+    const result = await reEmbedInstance("inst-1");
+
+    expect(result.migrated).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.dimFlipped).toBe(true);
+    expect(embedManyMock).toHaveBeenCalledTimes(1);
+    // The bulk UPDATE writes embedding_provider = target (bedrock) for the row.
+    expect(mockDb.transaction).toHaveBeenCalledTimes(1);
   });
 });
