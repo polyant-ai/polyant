@@ -148,6 +148,15 @@ registerTool({
           success: true,
         });
 
+        // Persist the verdict in conversation state so a later turn can read the
+        // outcome without re-running the check (text-only history would drop it).
+        ctx.state?.set("lastVerifiedDocument", {
+          isBill: validated.data.isBill,
+          readabilityScore: validated.data.readabilityScore,
+          billType: validated.data.billType,
+          confidence: validated.data.confidence,
+        });
+
         return validated.data;
       } catch (err) {
         const message = errMsg(err);

@@ -15,12 +15,13 @@ vi.mock("../../utils/error.js", () => ({
 }));
 
 import { registerTool } from "./registry.js";
-import { createMockAudit } from "../../test-utils.js";
+import { createMockAudit, createMockState } from "../../test-utils.js";
+import type { ConversationStateApi } from "../../conversations/state.buffer.js";
 import "./verify-document.tool.js";
 
 const def = vi.mocked(registerTool).mock.calls[0][0];
 
-function buildTool(opts?: { attachments?: any[] }) {
+function buildTool(opts?: { attachments?: any[]; state?: ConversationStateApi }) {
   const ctx = {
     instanceId: "test-instance",
     secrets: {},
@@ -29,8 +30,9 @@ function buildTool(opts?: { attachments?: any[] }) {
     attachments: opts?.attachments,
     apiKeys: { openai: "sk-test" },
     provider: "openai",
+    state: opts?.state,
   } as any;
-  return { execute: def.create(ctx).execute, audit: ctx.audit };
+  return { execute: def.create(ctx).execute, audit: ctx.audit, state: ctx.state };
 }
 
 const VALID_RESULT = {
@@ -236,6 +238,39 @@ describe("verifyDocument tool", () => {
         }),
       }),
     );
+  });
+
+  // Context state: persist verdict for cross-turn reuse
+  it("writes the verdict to conversation state on success", async () => {
+    mockChat.mockResolvedValue({ text: JSON.stringify(VALID_RESULT) });
+    const state = createMockState();
+    const { execute } = buildTool({
+      attachments: [{ type: "image", data: Buffer.from("img"), mimeType: "image/jpeg" }],
+      state,
+    });
+
+    await execute({ attachmentIndex: 0 });
+
+    expect(state.get("lastVerifiedDocument")).toEqual({
+      isBill: VALID_RESULT.isBill,
+      readabilityScore: VALID_RESULT.readabilityScore,
+      billType: VALID_RESULT.billType,
+      confidence: VALID_RESULT.confidence,
+    });
+  });
+
+  // Context state: do not write an invalid verdict
+  it("does not write to conversation state when the verdict is invalid", async () => {
+    mockChat.mockResolvedValue({ text: JSON.stringify({ foo: "bar" }) });
+    const state = createMockState();
+    const { execute } = buildTool({
+      attachments: [{ type: "image", data: Buffer.from("img"), mimeType: "image/jpeg" }],
+      state,
+    });
+
+    await execute({ attachmentIndex: 0 });
+
+    expect(state.get("lastVerifiedDocument")).toBeUndefined();
   });
 
   it("logs audit on malformed response", async () => {
