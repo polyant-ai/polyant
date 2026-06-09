@@ -92,12 +92,14 @@ RUN addgroup --system --gid 1001 nodejs && \
 # Set correct permissions for prerender cache
 RUN mkdir -p .next && chown nextjs:nodejs .next
 
-# Copy standalone output (server.js + .next server files)
+# Copy standalone output (server.js + .next server files).
+# In a monorepo build, Next emits the standalone tree preserving the workspace
+# path, so server.js lands at ./packages/web/server.js (see CMD below).
 COPY --from=builder --chown=nextjs:nodejs /app/packages/web/.next/standalone ./
 # Copy node_modules that standalone needs (traced deps from builder)
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
-# Copy static assets
-COPY --from=builder --chown=nextjs:nodejs /app/packages/web/.next/static ./.next/static
+# Static assets must sit next to server.js (packages/web/.next/static), not at root
+COPY --from=builder --chown=nextjs:nodejs /app/packages/web/.next/static ./packages/web/.next/static
 
 USER nextjs
 
@@ -106,5 +108,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Next.js standalone server.js (at root of standalone output)
-CMD ["node", "server.js"]
+# Next.js standalone server.js — under packages/web in a monorepo standalone output
+CMD ["node", "packages/web/server.js"]
