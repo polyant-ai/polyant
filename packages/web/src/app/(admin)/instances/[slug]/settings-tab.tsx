@@ -146,6 +146,11 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // Pricing dialog
   const [pricingOpen, setPricingOpen] = useState(false);
 
+  // Re-embed migration dialog (shown when the provider changes while memory is
+  // enabled and the instance already has memories that must be re-embedded).
+  const [migrateOpen, setMigrateOpen] = useState(false);
+  const [migrateCount, setMigrateCount] = useState(0);
+
 
   // Instance-level settings
   const [authEnabled, setAuthEnabled] = useState(instance.authEnabled);
@@ -221,7 +226,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     langsmithProject !== (instance.langsmithProject ?? "") ||
     sttProvider !== ((instance.sttProvider as STTProvider | null) ?? "openai");
 
-  const handleSave = async () => {
+  const performSave = async (triggerReEmbed: boolean) => {
     setSaving(true);
     try {
       // 1. Save secrets (only fields whose value diverges from the loaded baseline).
@@ -265,12 +270,56 @@ export function SettingsTab({ instance, onUpdate }: Props) {
       // Clear input fields after save
       clearAllSecretValues();
 
+      // 3. When the provider changed, kick off a background re-embed of the
+      // instance's memories so their vectors match the new embeddings provider.
+      // Fire-and-forget: the engine returns 202 and processes asynchronously.
+      if (triggerReEmbed) {
+        api.memories.reEmbed(instance.slug).catch(() => {
+          toast.error(t("settings.tab.saveFailed"));
+        });
+      }
+
       toast.success(t("settings.tab.saved"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("settings.tab.saveFailed")));
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = async () => {
+    const providerChanged = provider !== (instance.provider ?? "");
+    // A provider change requires re-embedding existing memories. Prompt for
+    // confirmation only when there is actually something to migrate.
+    if (providerChanged && memoryEnabled) {
+      try {
+        const { total } = await api.memories.list({ instanceId: instance.id, limit: 1 });
+        if (total > 0) {
+          setMigrateCount(total);
+          setMigrateOpen(true);
+          return;
+        }
+      } catch {
+        // If the count lookup fails, fall back to prompting so we never silently
+        // skip the required re-embed on a provider change.
+        setMigrateCount(0);
+        setMigrateOpen(true);
+        return;
+      }
+    }
+    await performSave(false);
+  };
+
+  const handleMigrateConfirm = async () => {
+    setMigrateOpen(false);
+    await performSave(true);
+  };
+
+  const handleMigrateCancel = () => {
+    setMigrateOpen(false);
+    // Revert the provider/model selection back to the persisted instance values.
+    setProvider(instance.provider ?? "");
+    setModel(instance.model ?? "");
   };
 
   usePageSaveAction({ isDirty, saving, onSave: handleSave });
@@ -596,10 +645,18 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           />
         </div>
 
-        {memoryEnabled && !isConfigured(SECRET_KEYS.OPENAI) && secretValue(SECRET_KEYS.OPENAI) === "" && (
+        {memoryEnabled && instance.memory?.needsOpenAIKey && (
           <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p className="text-sm">{t("settings.tab.memoryOpenaiWarning")}</p>
+            <p className="text-sm">
+              {t(
+                provider === "bedrock"
+                  ? "memory.banner.bedrockNeedsAws"
+                  : provider === "anthropic"
+                    ? "memory.banner.anthropicNeedsOpenAI"
+                    : "memory.banner.openaiNeedsKey",
+              )}
+            </p>
           </div>
         )}
       </section>
@@ -807,6 +864,28 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         )}
       </section>
 
+      {/* Provider-change re-embed confirmation */}
+      <AlertDialog open={migrateOpen} onOpenChange={setMigrateOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("memory.migrate.title")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("memory.migrate.body", {
+                provider: BRAND_NAMES[provider] ?? provider,
+                count: migrateCount,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleMigrateCancel}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleMigrateConfirm}>
+              {t("memory.migrate.primary")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

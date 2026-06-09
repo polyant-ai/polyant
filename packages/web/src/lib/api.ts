@@ -452,6 +452,11 @@ export const api = {
       request<{ deleted: boolean }>(`/memories?instanceId=${encodeURIComponent(instanceId)}`, {
         method: "DELETE",
       }),
+    reEmbed: (slug: string) =>
+      request<{ accepted: true; slug: string }>(
+        `/api/instances/${encodeURIComponent(slug)}/memories/re-embed`,
+        { method: "POST" },
+      ),
   },
   skillLibrary: {
     list: () =>
