@@ -29,6 +29,12 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
 import { MessageExtras } from "./message-extras";
 
 export interface DebugSheetTarget {
@@ -127,24 +133,32 @@ export function DebugSheet({ open, onOpenChange, target }: DebugSheetProps) {
                     {payload.tools.length === 0 ? (
                       <p className="text-xs text-muted-foreground">—</p>
                     ) : (
-                      <div className="flex flex-col gap-2">
+                      <Accordion type="multiple" className="flex flex-col gap-2">
                         {payload.tools.map((tool) => (
-                          <div key={tool.name} className="rounded-md border bg-background/50 p-2">
-                            <div className="font-mono text-xs font-semibold">{tool.name}</div>
-                            {tool.description && (
-                              <p className="mt-1 text-[11px] text-muted-foreground">{tool.description}</p>
-                            )}
-                            {tool.parameters != null && (
-                              <div className="mt-2">
-                                <div className="mb-1 text-[11px] text-muted-foreground">
-                                  {t("message.debug.toolParams")}
+                          <AccordionItem
+                            key={tool.name}
+                            value={tool.name}
+                            className="rounded-md border bg-background/50 last:border-b"
+                          >
+                            <AccordionTrigger className="px-2 py-2 font-mono text-xs font-semibold">
+                              {tool.name}
+                            </AccordionTrigger>
+                            <AccordionContent className="px-2">
+                              {tool.description && (
+                                <p className="text-[11px] text-muted-foreground">{tool.description}</p>
+                              )}
+                              {tool.parameters != null && (
+                                <div className="mt-2">
+                                  <div className="mb-1 text-[11px] text-muted-foreground">
+                                    {t("message.debug.toolParams")}
+                                  </div>
+                                  <JsonBlock value={tool.parameters} />
                                 </div>
-                                <JsonBlock value={tool.parameters} />
-                              </div>
-                            )}
-                          </div>
+                              )}
+                            </AccordionContent>
+                          </AccordionItem>
                         ))}
-                      </div>
+                      </Accordion>
                     )}
                   </Section>
                 </>
