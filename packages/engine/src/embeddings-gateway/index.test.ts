@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { describe, it, expect, vi, beforeEach } from "vitest";
 const oa = vi.fn(); const oaMany = vi.fn(); const br = vi.fn(); const brMany = vi.fn();
 vi.mock("./providers/openai.js", () => ({ embedOpenAI: (...a: unknown[]) => oa(...a), embedManyOpenAI: (...a: unknown[]) => oaMany(...a) }));
