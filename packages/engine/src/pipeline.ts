@@ -21,7 +21,7 @@ import { generateConversationTitle } from "./utils/title-generator.js";
 import { resolveInstanceConfig, type InstanceConfig } from "./instances/config-resolver.js";
 import { traceStore } from "./analytics/trace.store.js";
 import { uploadAttachment, isPlatformStorageConfigured } from "./attachments/platform-storage.js";
-import type { AttachmentMeta, StepDetail, ReasoningDetail } from "./conversations/schema.js";
+import type { AttachmentMeta, StepDetail, ReasoningDetail, LlmDebugPayload } from "./conversations/schema.js";
 import type { AgentCallMetadata, Attachment, IncomingMessage } from "./channels/types.js";
 import type { ToolCallTrace } from "./analytics/traces.schema.js";
 import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
@@ -283,6 +283,10 @@ export interface AfterResponseOptions {
   steps?: StepDetail[];
   /** Aggregated message-level reasoning (Anthropic signed blocks, OpenAI summary). */
   reasoning?: ReasoningDetail[];
+  /** Exact LLM request payload — persisted on the assistant row only when DEBUG is on. */
+  debugPayload?: LlmDebugPayload;
+  /** Pre-generated assistant message UUID (streaming path) — keeps the persisted id stable. */
+  assistantMessageId?: string;
   existingSummary?: string;
   /** When true, the sliding window overflowed — generate/update summary. */
   needsSummaryUpdate?: boolean;
@@ -342,9 +346,18 @@ export function afterResponse(opts: AfterResponseOptions): void {
       },
     ]);
 
-    // 1. Save assistant message to PostgreSQL
+    // 1. Save assistant message to PostgreSQL. The id is pre-generated on the
+    // streaming path so the client can correlate it with the per-message debug
+    // payload; the debug payload itself is present only when DEBUG was on.
     await conversationStore.appendMessages(opts.conversationId, [
-      { role: "assistant", content: opts.assistantResponse, steps: opts.steps, reasoning: opts.reasoning },
+      {
+        ...(opts.assistantMessageId ? { id: opts.assistantMessageId } : {}),
+        role: "assistant",
+        content: opts.assistantResponse,
+        steps: opts.steps,
+        reasoning: opts.reasoning,
+        debugPayload: opts.debugPayload,
+      },
     ]);
 
     // 1.5 Generate title (only once, after first exchange)
@@ -442,6 +455,10 @@ export interface PipelinePostOptions {
   steps?: StepDetail[];
   /** Message-level reasoning from supervisor. */
   reasoning?: ReasoningDetail[];
+  /** Exact LLM request payload — persisted on the assistant row when DEBUG is on. */
+  debugPayload?: LlmDebugPayload;
+  /** Pre-generated assistant message UUID (streaming path), so the persisted id matches the one echoed to the client. */
+  assistantMessageId?: string;
   toolCallTraces?: ToolCallTrace[];
   usage: { promptTokens: number; completionTokens: number };
   durationMs: number;
@@ -511,6 +528,8 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     assistantResponse: finalText,
     steps: opts.steps,
     reasoning: opts.reasoning,
+    debugPayload: opts.debugPayload,
+    assistantMessageId: opts.assistantMessageId,
     existingSummary: ctx.conversationSummary,
     needsSummaryUpdate: ctx.hasOverflow,
     droppedMessages: ctx.droppedMessages,

@@ -3,7 +3,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, MessageSquareCode, KeyRound, Eye, EyeOff } from "lucide-react";
+import { Plus, MessageSquareCode, KeyRound, Eye, EyeOff, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -16,6 +16,8 @@ import { MessageBubble } from "./message-bubble";
 import { ChatInput } from "./chat-input";
 import { InstanceSelector } from "./instance-selector";
 import { ChatHistoryDialog } from "./chat-sidebar";
+import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
+import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
 import { useI18n } from "@/lib/i18n/context";
 import type { ChatMessage } from "../_hooks/use-chat";
 import type { ConversationListItem } from "@/lib/api";
@@ -57,6 +59,8 @@ export function ChatArea({
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [showKeyValue, setShowKeyValue] = useState(false);
+  const [debugTarget, setDebugTarget] = useState<DebugSheetTarget | null>(null);
+  const [stateOpen, setStateOpen] = useState(false);
 
   // Auto-scroll to bottom on new messages or streaming updates
   useEffect(() => {
@@ -111,6 +115,20 @@ export function ChatArea({
               {t("playground.authKeyToggle")}
             </TooltipContent>
           </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                disabled={!activeConversationId}
+                onClick={() => setStateOpen(true)}
+              >
+                <Database className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("conversations.state.button")}</TooltipContent>
+          </Tooltip>
           <ChatHistoryDialog
             conversations={conversations}
             loading={conversationsLoading}
@@ -138,9 +156,32 @@ export function ChatArea({
           </div>
         ) : (
           <div className="mx-auto max-w-3xl space-y-4 p-4">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
+            {messages.map((msg) => {
+              const messageId = msg.dbMessageId ?? msg.id;
+              // Inspect affordance only when we can address the persisted turn:
+              // a known conversationId + a DB message id, and not the live stream.
+              const canInspect =
+                msg.role === "assistant" &&
+                !msg.isStreaming &&
+                !!activeConversationId &&
+                !!messageId;
+              return (
+                <MessageBubble
+                  key={msg.id}
+                  message={msg}
+                  onDebugClick={
+                    canInspect
+                      ? () =>
+                          setDebugTarget({
+                            conversationId: activeConversationId,
+                            messageId,
+                            instanceId: instanceSlug,
+                          })
+                      : undefined
+                  }
+                />
+              );
+            })}
             <div ref={bottomRef} />
           </div>
         )}
@@ -159,6 +200,18 @@ export function ChatArea({
         onStop={onStop}
         isStreaming={isStreaming}
         disabled={!instanceSlug}
+      />
+
+      <DebugSheet
+        open={debugTarget !== null}
+        onOpenChange={(o) => !o && setDebugTarget(null)}
+        target={debugTarget}
+      />
+      <ContextStoreSheet
+        open={stateOpen}
+        onOpenChange={setStateOpen}
+        conversationId={activeConversationId}
+        instanceId={instanceSlug}
       />
     </div>
   );

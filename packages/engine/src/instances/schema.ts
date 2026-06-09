@@ -28,6 +28,13 @@ export const instances = pgTable("instances", {
    * false keeps the history text-only (see conversations/store.ts getRecentMessages).
    */
   toolResultsInHistoryEnabled: boolean("tool_results_in_history_enabled").notNull().default(false),
+  /**
+   * When true, the engine persists the exact LLM request payload per assistant
+   * turn (full system prompt, the messages array sent to the model, and the tool
+   * definitions) into conversation_messages.debug_payload, for analysis/debug.
+   * Default false — this is heavy and stores PII at rest (see pipeline afterResponse).
+   */
+  debugEnabled: boolean("debug_enabled").notNull().default(false),
   icon: text("icon"),
   sttProvider: text("stt_provider").notNull().default("openai"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

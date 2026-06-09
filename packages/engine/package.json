@@ -63,7 +63,8 @@
     "shell-quote": "^1.8.3",
     "twilio": "^6.0.2",
     "undici": "^7.24.7",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
@@ -78,7 +79,6 @@
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.0.0",
-    "vitest": "^4.1.4",
-    "zod-to-json-schema": "^3.25.2"
+    "vitest": "^4.1.4"
   }
 }

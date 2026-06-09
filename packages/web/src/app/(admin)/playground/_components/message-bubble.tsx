@@ -2,9 +2,10 @@
 
 "use client";
 
-import { Terminal } from "lucide-react";
+import { Terminal, SearchCode } from "lucide-react";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
+import { useI18n } from "@/lib/i18n/context";
 import type { ChatMessage } from "../_hooks/use-chat";
 
 function formatTime(dateStr: string | null): string {
@@ -15,9 +16,12 @@ function formatTime(dateStr: string | null): string {
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  /** When provided, an "inspect turn" affordance opens the debug panel for this message. */
+  onDebugClick?: () => void;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, onDebugClick }: MessageBubbleProps) {
+  const { t } = useI18n();
   const isUser = message.role === "user";
 
   // System message → centered amber pill
@@ -75,15 +79,25 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           </div>
         ) : null}
 
-        {/* Timestamp */}
+        {/* Timestamp + (assistant only) inspect-turn affordance */}
         {message.createdAt && !message.isStreaming && (
-          <p
-            className={`mt-1 text-xs ${
+          <div
+            className={`mt-1 flex items-center gap-1.5 text-xs ${
               isUser ? "text-primary-foreground/60" : "text-muted-foreground"
             }`}
           >
-            {formatTime(message.createdAt)}
-          </p>
+            <span>{formatTime(message.createdAt)}</span>
+            {!isUser && onDebugClick && (
+              <button
+                type="button"
+                onClick={onDebugClick}
+                className="inline-flex items-center gap-1 rounded px-1 transition hover:text-foreground"
+                title={t("message.debug.open")}
+              >
+                <SearchCode className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

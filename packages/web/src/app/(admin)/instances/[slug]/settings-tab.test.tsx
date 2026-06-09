@@ -86,6 +86,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     thinkingEnabled: false,
     stateInPromptEnabled: false,
     toolResultsInHistoryEnabled: false,
+    debugEnabled: false,
     sttProvider: "openai",
     icon: null,
     createdAt: "2025-01-01T00:00:00Z",
@@ -312,9 +313,10 @@ describe("SettingsTab", () => {
 
     // Toggle memory on to create a dirty state. Switch order in the AI-model +
     // memory sections: [0] = "state in prompt", [1] = "tool results in history",
-    // [2] = memory; the thinking toggle is hidden for non-reasoning models (gpt-4o).
+    // [2] = "debug mode", [3] = memory; the thinking toggle is hidden for
+    // non-reasoning models (gpt-4o).
     const switches = screen.getAllByRole("switch");
-    await user.click(switches[2]); // memory switch
+    await user.click(switches[3]); // memory switch
 
     await lastSaveAction.current!.onSave();
 

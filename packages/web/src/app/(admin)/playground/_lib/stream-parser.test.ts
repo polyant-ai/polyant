@@ -88,11 +88,11 @@ describe("dispatch", () => {
     expect(cb.calls).toEqual([["toolResult", ["c1", { ok: true }]]]);
   });
 
-  it("done invokes onDone and signals stop (returns false)", () => {
+  it("done invokes onDone with the echoed ids and signals stop (returns false)", () => {
     const cb = makeCallbacks();
-    const cont = dispatch({ event: "done", data: {} }, cb);
+    const cont = dispatch({ event: "done", data: { conversationId: "c1", messageId: "m1" } }, cb);
     expect(cont).toBe(false);
-    expect(cb.calls).toEqual([["done", []]]);
+    expect(cb.calls).toEqual([["done", [{ conversationId: "c1", messageId: "m1" }]]]);
   });
 
   it("error invokes onError with Error and signals stop", () => {
