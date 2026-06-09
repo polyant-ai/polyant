@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import "reflect-metadata";
+import { randomUUID } from "crypto";
 import { installFileLogger, shutdownFileLogger } from "./utils/file-logger.js";
 installFileLogger();
 
@@ -213,6 +214,7 @@ async function main() {
         agentCallMetadata: agentMeta,
         stateBuffer: ctx.stateBuffer,
         stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
+        debugEnabled: ctx.instanceConfig.debugEnabled,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
@@ -231,6 +233,7 @@ async function main() {
       resultText: result.text,
       steps: result.steps,
       reasoning: result.reasoning,
+      debugPayload: result.debugPayload,
       toolCallTraces: result.toolCallTraces,
       usage: result.usage,
       durationMs: result.durationMs,
@@ -279,6 +282,7 @@ async function main() {
         agentCallMetadata: agentMetaStream,
         stateBuffer: ctx.stateBuffer,
         stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
+        debugEnabled: ctx.instanceConfig.debugEnabled,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
@@ -293,6 +297,11 @@ async function main() {
       throw err;
     }
 
+    // Pre-generate the assistant message id so first-party SSE consumers can
+    // echo it (with the conversationId) before persistence completes — used to
+    // fetch the per-message debug payload without ordinal-matching.
+    const assistantMessageId = randomUUID();
+
     // Phase 4+5: Deferred — runs after stream completes (skipped on abort)
     const completed = stream.completed.then(async (result) => {
       const { finalText } = await runPipelinePost({
@@ -303,6 +312,8 @@ async function main() {
         resultText: result.text,
         steps: result.steps,
         reasoning: result.reasoning,
+        debugPayload: result.debugPayload,
+        assistantMessageId,
         toolCallTraces: result.toolCallTraces,
         usage: result.usage,
         durationMs: result.durationMs,
@@ -315,7 +326,12 @@ async function main() {
       return { text: finalText };
     });
 
-    return { textStream: stream.textStream, fullStream: stream.fullStream, completed };
+    return {
+      textStream: stream.textStream,
+      fullStream: stream.fullStream,
+      completed,
+      meta: { conversationId: ctx.conversationId, messageId: assistantMessageId },
+    };
   }
 
   // 4. Start NestJS HTTP server (OpenAI-compatible API)
