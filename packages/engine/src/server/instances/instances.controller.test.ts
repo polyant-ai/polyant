@@ -53,6 +53,16 @@ vi.mock("../../instances/config-resolver.js", () => ({
 }));
 vi.mock("../../ai-gateway/config.js", () => ({ providerConfigs: mockProviderConfigs }));
 vi.mock("../../instances/icon-validator.js", () => ({ validateIconDataUri: vi.fn() }));
+vi.mock("../../embeddings-gateway/provider-resolver.js", () => ({
+  invalidateEmbeddingContext: vi.fn(),
+}));
+// Stub the memory-status helper so getBySlug/update never touch the DB
+// (computeMemoryStatusFromInstance reads instance_secrets).
+vi.mock("../memories/memory-status.js", () => ({
+  computeMemoryStatusFromInstance: vi
+    .fn()
+    .mockResolvedValue({ needsOpenAIKey: false, canEnable: true }),
+}));
 
 import { InstancesController } from "./instances.controller.js";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
@@ -99,7 +109,8 @@ describe("InstancesController", () => {
       const allowed = new Set([
         "id", "slug", "name", "description", "status", "provider", "model",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
-        "authEnabled", "thinkingEnabled", "sttProvider", "icon", "createdAt", "updatedAt",
+        "authEnabled", "thinkingEnabled", "sttProvider", "embeddingDim", "icon", "createdAt", "updatedAt",
+        "memory",
       ]);
 
       for (const key of Object.keys(instance)) {

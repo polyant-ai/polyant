@@ -27,6 +27,8 @@ import { seedInstancePrompts } from "../../instances/prompts.store.js";
 import { seedInstanceTools } from "../../instances/instance-tools.store.js";
 import { seedInstanceSkills } from "../../instances/instance-skills.store.js";
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
+import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
+import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
 import { providerConfigs, isThinkingCapable } from "../../ai-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
@@ -56,6 +58,7 @@ function toInstanceDto(instance: Instance) {
     authEnabled: instance.authEnabled,
     thinkingEnabled: instance.thinkingEnabled,
     sttProvider: instance.sttProvider,
+    embeddingDim: instance.embeddingDim,
     icon: instance.icon
       ? `/api/instances/${instance.slug}/icon?v=${instance.updatedAt?.getTime() ?? 0}`
       : null,
@@ -111,7 +114,12 @@ export class InstancesController {
     this.validateSlug(slug);
     const instance = await findInstanceBySlug(slug);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    return { instance: toInstanceDto(instance) };
+    return {
+      instance: {
+        ...toInstanceDto(instance),
+        memory: await computeMemoryStatusFromInstance(instance),
+      },
+    };
   }
 
   // GET /api/instances/:slug/icon — serve the icon binary
@@ -182,7 +190,13 @@ export class InstancesController {
     const instance = await updateInstance(slug, body);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     invalidateInstanceConfigCache(slug);
-    return { instance: toInstanceDto(instance) };
+    invalidateEmbeddingContext(instance.id, slug);
+    return {
+      instance: {
+        ...toInstanceDto(instance),
+        memory: await computeMemoryStatusFromInstance(instance),
+      },
+    };
   }
 
   // DELETE /api/instances/:slug — delete
