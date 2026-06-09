@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import type { EmbeddingProvider, EmbeddingDim } from "./types.js";
 
 /** Model ID per provider. Both must support 1024-dim output. */

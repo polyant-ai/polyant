@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import type { EmbedOptions } from "./types.js";
 import { embedOpenAI, embedManyOpenAI } from "./providers/openai.js";
 import { embedBedrock, embedManyBedrock } from "./providers/bedrock.js";
