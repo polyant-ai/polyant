@@ -46,6 +46,14 @@ function stripNulDeep<T>(value: T): T {
   return value;
 }
 
+/**
+ * Escape LIKE/ILIKE wildcards (`%`, `_`) and the escape char (`\`) so user
+ * input is matched literally when interpolated into a pattern.
+ */
+export function escapeLikePattern(input: string): string {
+  return input.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 export interface KeywordSearchResult {
   id: string;
   conversationId: string;
@@ -589,7 +597,10 @@ export class ConversationStore {
     };
   }
 
-  /** Search conversations by message content using FTS. Returns conversation-level results. */
+  /**
+   * Search conversations by message content (FTS) or by conversation id
+   * substring (case-insensitive). Returns conversation-level results.
+   */
   async searchConversations(
     query: string,
     options: { instanceId?: InstanceSlug; limit?: number; offset?: number } = {},
@@ -597,10 +608,20 @@ export class ConversationStore {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
     const tsQuery = sql`websearch_to_tsquery('simple', ${query})`;
+    const idPattern = `%${escapeLikePattern(query)}%`;
 
     const instanceFilter = options.instanceId
       ? sql`AND c.instance_id = ${options.instanceId}`
       : sql``;
+
+    const matchFilter = sql`(
+      c.conversation_id ILIKE ${idPattern}
+      OR EXISTS (
+        SELECT 1 FROM conversation_messages cmx
+        WHERE cmx.conversation_id = c.conversation_id
+          AND cmx.search_vector @@ ${tsQuery}
+      )
+    )`;
 
     const [rows, countResult] = await Promise.all([
       db.execute(sql`
@@ -631,7 +652,7 @@ export class ConversationStore {
           c.updated_at
         FROM conversations c
         LEFT JOIN instances i ON i.slug = c.instance_id
-        JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
+        LEFT JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
           AND cm.search_vector @@ ${tsQuery}
         LEFT JOIN LATERAL (
           SELECT SUM(al.total_tokens) AS total_tokens,
@@ -643,17 +664,15 @@ export class ConversationStore {
           FROM ai_logs al
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true
-        WHERE 1=1 ${instanceFilter}
+        WHERE ${matchFilter} ${instanceFilter}
         GROUP BY c.id, i.name, al_agg.total_tokens, al_agg.total_cost, al_agg.conversation_tokens, al_agg.conversation_cost, al_agg.service_tokens, al_agg.service_cost
-        ORDER BY MAX(ts_rank(cm.search_vector, ${tsQuery})) DESC
+        ORDER BY MAX(ts_rank(cm.search_vector, ${tsQuery})) DESC NULLS LAST, c.updated_at DESC NULLS LAST
         LIMIT ${limit} OFFSET ${offset}
       `),
       db.execute(sql`
-        SELECT COUNT(DISTINCT c.id)::int AS total
+        SELECT COUNT(*)::int AS total
         FROM conversations c
-        JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
-          AND cm.search_vector @@ ${tsQuery}
-        WHERE 1=1 ${instanceFilter}
+        WHERE ${matchFilter} ${instanceFilter}
       `),
     ]);
 
