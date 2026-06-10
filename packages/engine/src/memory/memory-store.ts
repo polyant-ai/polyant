@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, desc, sql, gt, and, ilike, count as drizzleCount } from "drizzle-orm";
+import { eq, desc, sql, gt, and, ilike, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db } from "../database/client.js";
 import { memories } from "./schema.js";
@@ -179,7 +179,10 @@ export async function searchByVector(
       distance: sql<number>`${distance}`,
     })
     .from(memories)
-    .where(eq(memories.instanceId, instanceId))
+    // Exclude rows whose active vector column is NULL: their cosine distance is
+    // NULL → `1 - NULL` = NaN, which would otherwise leak into search results
+    // (and to the model via the memory tools) when fewer than `limit` rows match.
+    .where(and(eq(memories.instanceId, instanceId), isNotNull(activeCol)))
     .orderBy(distance)
     .limit(limit);
 

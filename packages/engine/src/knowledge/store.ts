@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createHash } from "crypto";
-import { eq, and, desc, sql, count as drizzleCount } from "drizzle-orm";
+import { eq, and, desc, sql, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db } from "../database/client.js";
 import { knowledgeDocuments, knowledgeChunks } from "./schema.js";
@@ -440,7 +440,8 @@ export async function searchByVector(
   limit = 5,
   dimensions: EmbeddingDim,
 ): Promise<KnowledgeSearchResult[]> {
-  const distance = cosineDistance(activeKnowledgeChunkColumn(dimensions), queryEmbedding);
+  const activeCol = activeKnowledgeChunkColumn(dimensions);
+  const distance = cosineDistance(activeCol, queryEmbedding);
 
   const rows = await db
     .select({
@@ -452,7 +453,10 @@ export async function searchByVector(
     })
     .from(knowledgeChunks)
     .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
-    .where(eq(knowledgeChunks.instanceId, instanceId))
+    // Exclude rows whose active vector column is NULL: their cosine distance is
+    // NULL → `1 - NULL` = NaN, which would otherwise leak a NaN score into the
+    // knowledge search results when fewer than `limit` rows match.
+    .where(and(eq(knowledgeChunks.instanceId, instanceId), isNotNull(activeCol)))
     .orderBy(distance)
     .limit(limit);
 

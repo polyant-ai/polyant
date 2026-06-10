@@ -110,14 +110,57 @@ export async function createInstance(data: {
   return rows[0];
 }
 
+/** Fields a caller is allowed to PATCH. `embeddingDim` is deliberately excluded:
+ * it is owned by the re-embed pipeline and must never be set directly, or it
+ * desyncs from the actual populated vector column. */
+type UpdatableInstanceFields = {
+  name?: string;
+  description?: string | null;
+  status?: string;
+  provider?: string | null;
+  model?: string | null;
+  memoryEnabled?: boolean;
+  knowledgeEnabled?: boolean;
+  langsmithEnabled?: boolean;
+  langsmithProject?: string | null;
+  authEnabled?: boolean;
+  thinkingEnabled?: boolean;
+  icon?: string | null;
+  sttProvider?: string;
+};
+
+const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
+  "name",
+  "description",
+  "status",
+  "provider",
+  "model",
+  "memoryEnabled",
+  "knowledgeEnabled",
+  "langsmithEnabled",
+  "langsmithProject",
+  "authEnabled",
+  "thinkingEnabled",
+  "icon",
+  "sttProvider",
+];
+
 /** Update an instance by slug. Touches updatedAt. Returns the updated instance or undefined if not found. */
 export async function updateInstance(
   slug: string,
-  data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; icon?: string | null; sttProvider?: string },
+  data: UpdatableInstanceFields,
 ): Promise<Instance | undefined> {
+  // Runtime whitelist: TS types do not protect against extra keys arriving via
+  // a JSON body (NestJS does not strip them), so only known columns are written.
+  const patch: Partial<UpdatableInstanceFields> = {};
+  for (const key of UPDATABLE_INSTANCE_KEYS) {
+    if (data[key] !== undefined) {
+      (patch as Record<string, unknown>)[key] = data[key];
+    }
+  }
   const rows = await db
     .update(instances)
-    .set({ ...data, updatedAt: sql`now()` })
+    .set({ ...patch, updatedAt: sql`now()` })
     .where(eq(instances.slug, slug))
     .returning();
   return rows[0];
