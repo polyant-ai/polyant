@@ -29,6 +29,7 @@ import {
   loadAllTools,
   normalizeRequiredSecrets,
   requiredSecretKeys,
+  fillMissingKeysWithNull,
   type ToolContext,
   type ToolDefinition,
 } from "./registry.js";
@@ -724,6 +725,20 @@ describe("registry", () => {
 
       expect(getToolRegistry().has(goodName)).toBe(true);
       expect(getToolRegistry().has(badName)).toBe(false);
+    });
+  });
+
+  describe("fillMissingKeysWithNull", () => {
+    it("should_fill_missing_object_keys_with_null", () => {
+      const schema = z.object({ a: z.string().nullable(), b: z.number().nullable() });
+      expect(fillMissingKeysWithNull(schema, { a: "x" })).toEqual({ a: "x", b: null });
+    });
+
+    it("should_pass_through_non_object_schema_or_value", () => {
+      const schema = z.object({ a: z.string().nullable() });
+      expect(fillMissingKeysWithNull(z.string(), "v")).toBe("v");
+      expect(fillMissingKeysWithNull(schema, null)).toBe(null);
+      expect(fillMissingKeysWithNull(schema, [1])).toEqual([1]);
     });
   });
 });
