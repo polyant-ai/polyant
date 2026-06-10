@@ -29,14 +29,24 @@ function makeInstance(overrides: Partial<Instance>): Instance {
     id: "uuid-1",
     provider: "openai",
     memoryEnabled: true,
+    embeddingDim: 1024, // compatible with both openai and bedrock by default
     ...overrides,
   } as Instance;
 }
 
 describe("computeMemoryStatusFromInstance", () => {
+  let prevAwsRegion: string | undefined;
+  beforeEach(() => {
+    // Make the engine-level AWS_REGION fallback deterministic regardless of the
+    // host/CI environment; individual tests opt in by setting it.
+    prevAwsRegion = process.env.AWS_REGION;
+    delete process.env.AWS_REGION;
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     mockGetAllSecretsById.mockReset();
+    if (prevAwsRegion === undefined) delete process.env.AWS_REGION;
+    else process.env.AWS_REGION = prevAwsRegion;
   });
 
   it("returns both false when memory is disabled (no secret lookup)", async () => {
@@ -91,6 +101,33 @@ describe("computeMemoryStatusFromInstance", () => {
     const status = await computeMemoryStatusFromInstance(instance);
 
     expect(status).toEqual({ needsOpenAIKey: true, canEnable: false });
+  });
+
+  it("reports canEnable:false when the dim is unsupported by the provider (bedrock + 1536)", async () => {
+    // Provider was switched to bedrock but a re-embed never completed, leaving
+    // embedding_dim=1536 which Titan v2 cannot emit → the instance is unembeddable.
+    // Credentials are present, so without the dim guard this would falsely report healthy.
+    mockGetAllSecretsById.mockResolvedValue({ aws_region: "eu-west-1" });
+    const instance = makeInstance({ provider: "bedrock", embeddingDim: 1536 });
+
+    const status = await computeMemoryStatusFromInstance(instance);
+
+    expect(status.canEnable).toBe(false);
+  });
+
+  it("enables Bedrock memory via the engine-level AWS_REGION fallback when no per-instance region is set", async () => {
+    // Mirrors resolveEmbeddingContext: a region on the engine env is sufficient.
+    mockGetAllSecretsById.mockResolvedValue({});
+    const instance = makeInstance({ provider: "bedrock" });
+    const prev = process.env.AWS_REGION;
+    process.env.AWS_REGION = "us-east-1";
+    try {
+      const status = await computeMemoryStatusFromInstance(instance);
+      expect(status).toEqual({ needsOpenAIKey: false, canEnable: true });
+    } finally {
+      if (prev === undefined) delete process.env.AWS_REGION;
+      else process.env.AWS_REGION = prev;
+    }
   });
 });
 

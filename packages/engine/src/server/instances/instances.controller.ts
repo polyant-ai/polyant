@@ -28,6 +28,7 @@ import { seedInstanceTools } from "../../instances/instance-tools.store.js";
 import { seedInstanceSkills } from "../../instances/instance-skills.store.js";
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
 import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
+import { reEmbedInstance, shouldReEmbedAfterSwitch } from "../../embeddings-gateway/re-embed.service.js";
 import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
 import { providerConfigs, isThinkingCapable } from "../../ai-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
@@ -207,15 +208,33 @@ export class InstancesController {
     this.validateModelConfig(body.provider, body.model);
     body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
     body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
+    // Capture the pre-update state to detect an embedding-relevant provider switch.
+    const before = await findInstanceBySlug(asInstanceSlug(slug));
     const instance = await updateInstance(asInstanceSlug(slug), body);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     invalidateInstanceConfigCache(asInstanceSlug(slug));
     invalidateEmbeddingContext(instance.id, slug);
+
+    // Server-side re-embed guard: a provider switch via the Management API bypasses
+    // the UI's confirmation dialog. Mirror it here so scripted callers don't land
+    // in an unembeddable / silently-degraded state. The job is idempotent and a
+    // no-op when nothing needs migration.
+    const reEmbedTriggered = !!before && shouldReEmbedAfterSwitch(before, instance);
+    if (reEmbedTriggered) {
+      setImmediate(() => {
+        reEmbedInstance(instance.id).catch((err) => {
+          const message = err instanceof Error ? err.message : "unknown error";
+          console.error("[instances] auto re-embed after provider switch failed:", slug, message);
+        });
+      });
+    }
+
     return {
       instance: {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
       },
+      reEmbedTriggered,
     };
   }
 
