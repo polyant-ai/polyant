@@ -68,6 +68,7 @@ export interface ConversationListItem {
   conversationId: string;
   title: string | null;
   summary: string | null;
+  channel: string | null;
   instanceId: InstanceSlug | null;
   instanceName: string | null;
   messageCount: number;
@@ -407,6 +408,7 @@ export class ConversationStore {
           c.conversation_id,
           c.title,
           c.summary,
+          c.channel,
           c.instance_id,
           i.name AS instance_name,
           COUNT(cm.id)::int AS message_count,
@@ -449,6 +451,7 @@ export class ConversationStore {
         conversationId: r.conversation_id as string,
         title: (r.title as string) ?? null,
         summary: (r.summary as string) ?? null,
+        channel: (r.channel as string) ?? null,
         instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         messageCount: (r.message_count as number) ?? 0,
@@ -473,6 +476,7 @@ export class ConversationStore {
         c.conversation_id,
         c.title,
         c.summary,
+        c.channel,
         c.instance_id,
         i.name AS instance_name,
         COUNT(cm.id)::int AS message_count,
@@ -509,6 +513,7 @@ export class ConversationStore {
       conversationId: r.conversation_id as string,
       title: (r.title as string) ?? null,
       summary: (r.summary as string) ?? null,
+      channel: (r.channel as string) ?? null,
       instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
       instanceName: (r.instance_name as string) ?? null,
       messageCount: (r.message_count as number) ?? 0,
@@ -630,6 +635,7 @@ export class ConversationStore {
           c.conversation_id,
           c.title,
           c.summary,
+          c.channel,
           c.instance_id,
           i.name AS instance_name,
           COUNT(cm.id)::int AS match_count,
@@ -684,6 +690,7 @@ export class ConversationStore {
         conversationId: r.conversation_id as string,
         title: (r.title as string) ?? null,
         summary: (r.summary as string) ?? null,
+        channel: (r.channel as string) ?? null,
         instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         matchCount: (r.match_count as number) ?? 0,

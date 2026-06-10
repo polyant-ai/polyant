@@ -27,6 +27,7 @@
   "conversations.table.summary": "Riepilogo",
   "conversations.newChat": "Nuova Chat",
   "conversations.table.instance": "Agente",
+  "conversations.table.channel": "Canale",
   "conversations.table.messages": "Messaggi",
   "conversations.table.tokens": "Token",
   "conversations.table.cost": "Costo",

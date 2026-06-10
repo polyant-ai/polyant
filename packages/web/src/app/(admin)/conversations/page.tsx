@@ -32,6 +32,7 @@ import {
   type ConversationListItem,
   type ConversationSearchResult,
 } from "@/lib/api";
+import { channelIcon } from "@/lib/channel-icons";
 import { useI18n } from "@/lib/i18n/context";
 import { formatRelativeTime, truncate } from "@/lib/format";
 
@@ -149,9 +150,12 @@ export default function ConversationsPage() {
             <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[40%]">{t("conversations.table.conversation")}</TableHead>
-                  <TableHead className="hidden md:table-cell w-[15%]">
+                  <TableHead className="w-[35%]">{t("conversations.table.conversation")}</TableHead>
+                  <TableHead className="hidden md:table-cell w-[13%]">
                     {t("conversations.table.instance")}
+                  </TableHead>
+                  <TableHead className="w-[7%] text-center">
+                    {t("conversations.table.channel")}
                   </TableHead>
                   <TableHead className="hidden md:table-cell w-[8%]">
                     {t("conversations.table.messages")}
@@ -206,6 +210,15 @@ export default function ConversationsPage() {
                     <TableCell className="hidden md:table-cell">
                       {conv.instanceName ? (
                         <Badge variant="secondary">{conv.instanceName}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">&mdash;</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {conv.channel ? (
+                        <span title={conv.channel} aria-label={conv.channel}>
+                          {channelIcon(conv.channel)}
+                        </span>
                       ) : (
                         <span className="text-muted-foreground">&mdash;</span>
                       )}

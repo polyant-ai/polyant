@@ -640,6 +640,7 @@ describe("ConversationStore", () => {
           conversation_id: "conv-1",
           title: "Chat 1",
           summary: "Sum 1",
+          channel: "telegram",
           instance_id: "inst-a",
           instance_name: "Instance A",
           message_count: 5,
@@ -668,6 +669,7 @@ describe("ConversationStore", () => {
         expect.objectContaining({
           conversationId: "conv-1",
           title: "Chat 1",
+          channel: "telegram",
           instanceId: "inst-a",
           instanceName: "Instance A",
           messageCount: 5,
@@ -772,6 +774,7 @@ describe("ConversationStore", () => {
           conversation_id: "conv-1",
           title: "Chat 1",
           summary: "Sum 1",
+          channel: "telegram",
           instance_id: "inst-a",
           instance_name: "Instance A",
           match_count: 3,
