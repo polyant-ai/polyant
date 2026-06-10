@@ -32,7 +32,7 @@ import {
   type ConversationListItem,
   type ConversationSearchResult,
 } from "@/lib/api";
-import { channelIcon } from "@/lib/channel-icons";
+import { ChannelIcon } from "@/components/channel-icon";
 import { useI18n } from "@/lib/i18n/context";
 import { formatRelativeTime, truncate } from "@/lib/format";
 
@@ -216,8 +216,12 @@ export default function ConversationsPage() {
                     </TableCell>
                     <TableCell className="text-center">
                       {conv.channel ? (
-                        <span title={conv.channel} aria-label={conv.channel}>
-                          {channelIcon(conv.channel)}
+                        <span
+                          title={conv.channel}
+                          aria-label={conv.channel}
+                          className="inline-flex text-muted-foreground"
+                        >
+                          <ChannelIcon channel={conv.channel} />
                         </span>
                       ) : (
                         <span className="text-muted-foreground">&mdash;</span>

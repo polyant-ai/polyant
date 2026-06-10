@@ -2,10 +2,10 @@
 
 "use client";
 
-import { Fragment, useState } from "react";
-import { CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, XCircle } from "lucide-react";
+import { Fragment, useState, type ReactNode } from "react";
+import { Bell, CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, XCircle } from "lucide-react";
 import { isSafeImageSrc } from "@/lib/utils";
-import { channelIcon } from "@/lib/channel-icons";
+import { ChannelIcon } from "@/components/channel-icon";
 import { narrate } from "@/lib/activity-stream/narrative";
 import { NarrativeTokenView } from "@/lib/activity-stream/narrative-tokens";
 import {
@@ -218,18 +218,18 @@ export function ActivityRow({ ev, isLast, isFresh, labels }: Props) {
  * meaningful: inbound/outbound get the channel, webhook gets the source name,
  * conversation lifecycle gets the channel, cron gets a clock badge.
  */
-function derivSourcePill(ev: FeedEvent): { icon: string; label: string } | null {
+function derivSourcePill(ev: FeedEvent): { icon: ReactNode; label: string } | null {
   if (ev.channel?.type) {
-    return { icon: channelIcon(ev.channel.type), label: ev.channel.type };
+    return { icon: <ChannelIcon channel={ev.channel.type} className="size-3" />, label: ev.channel.type };
   }
   if (ev.webhook?.source) {
-    return { icon: "🔔", label: ev.webhook.source };
+    return { icon: <Bell className="size-3" aria-hidden />, label: ev.webhook.source };
   }
   if (ev.conversation?.channel) {
-    return { icon: channelIcon(ev.conversation.channel), label: ev.conversation.channel };
+    return { icon: <ChannelIcon channel={ev.conversation.channel} className="size-3" />, label: ev.conversation.channel };
   }
   if (ev.cron) {
-    return { icon: "⏰", label: ev.cron.schedule };
+    return { icon: <Clock className="size-3" aria-hidden />, label: ev.cron.schedule };
   }
   return null;
 }
