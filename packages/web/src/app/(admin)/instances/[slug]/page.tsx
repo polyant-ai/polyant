@@ -41,6 +41,7 @@ import { ChannelsTab } from "./channels-tab";
 import { AnalyticsTab } from "./analytics-tab";
 import { TriggersTab } from "./triggers-tab";
 import { RoomTab } from "./room-tab";
+import { HooksTab } from "./hooks-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { useI18n } from "@/lib/i18n/context";
 
@@ -213,6 +214,7 @@ export default function InstanceDetailPage() {
           <TabsTrigger value="analytics">{t("instances.detail.tabAnalytics")}</TabsTrigger>
           <TabsTrigger value="triggers">{t("instances.detail.tabTriggers")}</TabsTrigger>
           <TabsTrigger value="room">{t("instances.detail.tabRoom")}</TabsTrigger>
+          <TabsTrigger value="hooks">{t("instances.detail.tabHooks")}</TabsTrigger>
         </TabsList>
         <TabsContent value="general" className="mt-6">
           <GeneralTab instance={instance} onUpdate={setInstance} />
@@ -257,6 +259,9 @@ export default function InstanceDetailPage() {
         </TabsContent>
         <TabsContent value="room" className="mt-6">
           <RoomTab slug={instance.slug} />
+        </TabsContent>
+        <TabsContent value="hooks" className="mt-6">
+          <HooksTab slug={instance.slug} />
         </TabsContent>
       </Tabs>
     </div>
