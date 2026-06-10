@@ -85,7 +85,8 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 // Import AFTER mocks are in place so the module-level singleton picks them up.
-import { ConversationStore, conversationStore } from "./store.js";
+import { ConversationStore, conversationStore, escapeLikePattern } from "./store.js";
+import { sql as sqlMock } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -743,6 +744,113 @@ describe("ConversationStore", () => {
       const result = await conversationStore.listConversations({});
 
       expect(result.total).toBe(0);
+    });
+  });
+
+  // =========================================================================
+  // escapeLikePattern
+  // =========================================================================
+  describe("escapeLikePattern", () => {
+    it("escapes LIKE wildcards and the escape char", () => {
+      expect(escapeLikePattern("50%_x")).toBe("50\\%\\_x");
+      expect(escapeLikePattern("a\\b")).toBe("a\\\\b");
+    });
+
+    it("leaves plain input untouched", () => {
+      expect(escapeLikePattern("web:conv-123")).toBe("web:conv-123");
+    });
+  });
+
+  // =========================================================================
+  // searchConversations
+  // =========================================================================
+  describe("searchConversations", () => {
+    it("maps FTS-match rows with snippet and matchCount", async () => {
+      const rows = [
+        {
+          id: "uuid-1",
+          conversation_id: "conv-1",
+          title: "Chat 1",
+          summary: "Sum 1",
+          instance_id: "inst-a",
+          instance_name: "Instance A",
+          match_count: 3,
+          best_snippet: "hello world",
+          message_count: 7,
+          total_tokens: 100,
+          total_cost: 0.001,
+          conversation_tokens: 80,
+          conversation_cost: 0.0008,
+          service_tokens: 20,
+          service_cost: 0.0002,
+          created_at: "2025-06-01T00:00:00Z",
+          updated_at: "2025-06-02T00:00:00Z",
+        },
+      ];
+      mockDb.execute
+        .mockResolvedValueOnce(rows)
+        .mockResolvedValueOnce([{ total: 1 }]);
+
+      const result = await conversationStore.searchConversations("hello");
+
+      expect(result.total).toBe(1);
+      expect(result.conversations[0]).toEqual(
+        expect.objectContaining({
+          conversationId: "conv-1",
+          matchCount: 3,
+          bestSnippet: "hello world",
+          messageCount: 7,
+        }),
+      );
+    });
+
+    it("maps ID-only matches (no FTS hit) with empty snippet and matchCount 0", async () => {
+      const rows = [
+        {
+          id: "uuid-2",
+          conversation_id: "web:abc-123",
+          title: null,
+          summary: null,
+          instance_id: null,
+          instance_name: null,
+          match_count: 0,
+          best_snippet: null,
+          message_count: 2,
+          total_tokens: null,
+          total_cost: null,
+          conversation_tokens: null,
+          conversation_cost: null,
+          service_tokens: null,
+          service_cost: null,
+          created_at: null,
+          updated_at: null,
+        },
+      ];
+      mockDb.execute
+        .mockResolvedValueOnce(rows)
+        .mockResolvedValueOnce([{ total: 1 }]);
+
+      const result = await conversationStore.searchConversations("abc-123");
+
+      expect(result.conversations[0]).toEqual(
+        expect.objectContaining({
+          conversationId: "web:abc-123",
+          matchCount: 0,
+          bestSnippet: "",
+        }),
+      );
+    });
+
+    it("interpolates an escaped, %-wrapped ILIKE pattern for the conversation id", async () => {
+      mockDb.execute
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ total: 0 }]);
+
+      await conversationStore.searchConversations("50%_x");
+
+      const sqlFn = sqlMock as unknown as ReturnType<typeof vi.fn>;
+      const interpolatedValues = sqlFn.mock.calls.flat();
+      expect(interpolatedValues).toContain("%50\\%\\_x%");
     });
   });
 

@@ -19,7 +19,7 @@
   "conversations.title": "Conversations",
   "conversations.subtitle": "Browse and search conversation history.",
   "conversations.allInstances": "All agents",
-  "conversations.searchPlaceholder": "Search conversations...",
+  "conversations.searchPlaceholder": "Search messages or conversation ID...",
   "conversations.empty.title": "No conversations yet",
   "conversations.empty.description": "Conversations will appear here as users interact with your AI assistants.",
   "conversations.empty.searchTitle": "No matching conversations",

@@ -181,14 +181,20 @@ export default function ConversationsPage() {
                             ? truncate(conv.summary, 60)
                             : t("conversations.newChat")}
                       </Link>
-                      {isSearchResult(conv) && conv.bestSnippet && (
+                      {isSearchResult(conv) && (
                         <p className="mt-0.5 text-xs font-normal text-muted-foreground line-clamp-1">
-                          {conv.bestSnippet}
-                          <span className="ml-2">
-                            {conv.matchCount === 1
-                              ? t("conversations.match", { count: conv.matchCount })
-                              : t("conversations.matches", { count: conv.matchCount })}
-                          </span>
+                          {conv.bestSnippet ? (
+                            <>
+                              {conv.bestSnippet}
+                              <span className="ml-2">
+                                {conv.matchCount === 1
+                                  ? t("conversations.match", { count: conv.matchCount })
+                                  : t("conversations.matches", { count: conv.matchCount })}
+                              </span>
+                            </>
+                          ) : (
+                            conv.conversationId
+                          )}
                         </p>
                       )}
                       {!isSearchResult(conv) && conv.title && conv.summary && (
