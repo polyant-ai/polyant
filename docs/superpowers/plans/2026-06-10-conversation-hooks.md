@@ -19,7 +19,7 @@
 - Create: `packages/engine/src/hooks/hook-template.ts`
 - Test: `packages/engine/src/hooks/hook-template.test.ts`
 
-- [ ] **Step 1: Create the domain types** (no test — pure type declarations)
+- [x] **Step 1: Create the domain types** (no test — pure type declarations)
 
 ```ts
 // packages/engine/src/hooks/hook-types.ts
@@ -102,7 +102,7 @@ export interface HookActionExecutor {
 }
 ```
 
-- [ ] **Step 2: Write the failing tests for the template renderer**
+- [x] **Step 2: Write the failing tests for the template renderer**
 
 ```ts
 // packages/engine/src/hooks/hook-template.test.ts
@@ -179,12 +179,12 @@ describe("renderArgsTemplate", () => {
 });
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run from `packages/engine`: `npx vitest run src/hooks/hook-template.test.ts -w false`
 Expected: FAIL — `Cannot find module './hook-template.js'`
 
-- [ ] **Step 4: Implement the renderer**
+- [x] **Step 4: Implement the renderer**
 
 ```ts
 // packages/engine/src/hooks/hook-template.ts
@@ -257,12 +257,12 @@ export function renderArgsTemplate(
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `npx vitest run src/hooks/hook-template.test.ts -w false`
 Expected: PASS (6 tests)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 `feat(hooks): add hook domain types and args template renderer`
 
@@ -275,7 +275,7 @@ Expected: PASS (6 tests)
 - Create: `packages/engine/src/database/migrations/0046_add_instance_hooks.sql`
 - Modify: `packages/engine/src/database/migrations/meta/_journal.json`
 
-- [ ] **Step 1: Create the Drizzle schema**
+- [x] **Step 1: Create the Drizzle schema**
 
 ```ts
 // packages/engine/src/hooks/hooks.schema.ts
@@ -310,7 +310,7 @@ export const instanceHooks = pgTable(
 );
 ```
 
-- [ ] **Step 2: Write the migration manually** (drizzle-kit has no snapshots in this repo — never run bare `generate`)
+- [x] **Step 2: Write the migration manually** (drizzle-kit has no snapshots in this repo — never run bare `generate`)
 
 ```sql
 -- packages/engine/src/database/migrations/0046_add_instance_hooks.sql
@@ -330,7 +330,7 @@ CREATE TABLE IF NOT EXISTS "instance_hooks" (
 CREATE INDEX IF NOT EXISTS "idx_instance_hooks_instance_event" ON "instance_hooks" ("instance_id", "event");
 ```
 
-- [ ] **Step 3: Register the migration in the journal**
+- [x] **Step 3: Register the migration in the journal**
 
 Append to the `entries` array in `packages/engine/src/database/migrations/meta/_journal.json` (after the `0045_add_debug_payload` entry):
 
@@ -344,12 +344,12 @@ Append to the `entries` array in `packages/engine/src/database/migrations/meta/_
     }
 ```
 
-- [ ] **Step 4: Apply the migration against the local DB**
+- [x] **Step 4: Apply the migration against the local DB**
 
 Run from repo root: `docker compose up -d postgres && npm run db:migrate`
 Expected: `Running migrations from .../migrations` then exit 0. Verify: `docker compose exec postgres psql -U polyant -d polyant -c "\d instance_hooks"` shows the 10 columns (adjust user/db to `.env` values).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `feat(hooks): add instance_hooks table schema and migration`
 
@@ -361,7 +361,7 @@ Expected: `Running migrations from .../migrations` then exit 0. Verify: `docker 
 - Create: `packages/engine/src/hooks/hooks.store.ts`
 - Test: `packages/engine/src/hooks/hooks.store.integration.test.ts`
 
-- [ ] **Step 1: Write the failing integration test** (self-skips without a migrated DB, same pattern as `conversations/state.store.integration.test.ts`)
+- [x] **Step 1: Write the failing integration test** (self-skips without a migrated DB, same pattern as `conversations/state.store.integration.test.ts`)
 
 ```ts
 // packages/engine/src/hooks/hooks.store.integration.test.ts
@@ -476,12 +476,12 @@ describe("hooks store (integration)", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run src/hooks/hooks.store.integration.test.ts -w false`
 Expected: FAIL — `Cannot find module './hooks.store.js'`
 
-- [ ] **Step 3: Implement the store**
+- [x] **Step 3: Implement the store**
 
 ```ts
 // packages/engine/src/hooks/hooks.store.ts
@@ -614,12 +614,12 @@ export async function getEnabledHooks(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes** (with DB up)
+- [x] **Step 4: Run test to verify it passes** (with DB up)
 
 Run: `npx vitest run src/hooks/hooks.store.integration.test.ts -w false`
 Expected: PASS (or silent skip without DB — run with DB at least once)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `feat(hooks): add instance hooks store with cached event lookup`
 
@@ -633,7 +633,7 @@ The hooks tool-executor must validate template-rendered args exactly like the su
 - Modify: `packages/engine/src/agents/tools/registry.ts:252-262`
 - Test: `packages/engine/src/agents/tools/registry.test.ts` (add cases)
 
-- [ ] **Step 1: Write the failing test** — append to the existing describe blocks in `registry.test.ts`:
+- [x] **Step 1: Write the failing test** — append to the existing describe blocks in `registry.test.ts`:
 
 ```ts
 describe("fillMissingKeysWithNull", () => {
@@ -653,12 +653,12 @@ describe("fillMissingKeysWithNull", () => {
 
 Add `fillMissingKeysWithNull` to the existing `./registry.js` import in the test file (and `z` from `zod` if not already imported).
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run src/agents/tools/registry.test.ts -w false`
 Expected: FAIL — `fillMissingKeysWithNull` is not exported
 
-- [ ] **Step 3: Implement the extraction** — in `registry.ts`, add the exported helper above `buildTool` and replace the inline preprocess body:
+- [x] **Step 3: Implement the extraction** — in `registry.ts`, add the exported helper above `buildTool` and replace the inline preprocess body:
 
 ```ts
 /**
@@ -687,12 +687,12 @@ And in `buildTool` replace the `runtimeParameters` assignment with:
     : parameters;
 ```
 
-- [ ] **Step 4: Run the full registry + strict-mode suites to verify no regression**
+- [x] **Step 4: Run the full registry + strict-mode suites to verify no regression**
 
 Run: `npx vitest run src/agents/tools/registry.test.ts src/agents/tools/strict-mode.test.ts -w false`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `refactor(tools): extract fillMissingKeysWithNull from buildTool preprocess`
 
@@ -704,7 +704,7 @@ Expected: PASS
 - Create: `packages/engine/src/hooks/actions/tool-action.ts`
 - Test: `packages/engine/src/hooks/actions/tool-action.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 // packages/engine/src/hooks/actions/tool-action.test.ts
@@ -807,12 +807,12 @@ describe("toolActionExecutor", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run src/hooks/actions/tool-action.test.ts -w false`
 Expected: FAIL — `Cannot find module './tool-action.js'`
 
-- [ ] **Step 3: Implement the executor**
+- [x] **Step 3: Implement the executor**
 
 ```ts
 // packages/engine/src/hooks/actions/tool-action.ts
@@ -863,12 +863,12 @@ export const toolActionExecutor: HookActionExecutor = {
 };
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run src/hooks/actions/tool-action.test.ts -w false`
 Expected: PASS (4 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `feat(hooks): add tool action executor with schema validation`
 
@@ -880,7 +880,7 @@ Expected: PASS (4 tests)
 - Create: `packages/engine/src/hooks/hook-runner.ts`
 - Test: `packages/engine/src/hooks/hook-runner.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```ts
 // packages/engine/src/hooks/hook-runner.test.ts
@@ -1010,12 +1010,12 @@ describe("runHooks", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run src/hooks/hook-runner.test.ts -w false`
 Expected: FAIL — `Cannot find module './hook-runner.js'`
 
-- [ ] **Step 3: Implement the runner**
+- [x] **Step 3: Implement the runner**
 
 ```ts
 // packages/engine/src/hooks/hook-runner.ts
@@ -1104,12 +1104,12 @@ export async function runHooks(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run src/hooks/hook-runner.test.ts -w false`
 Expected: PASS (6 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `feat(hooks): add hook runner with timeout and log-and-continue semantics`
 
@@ -1122,7 +1122,7 @@ Expected: PASS (6 tests)
 - Modify: `packages/engine/src/index.ts:187` and `:255` (thread abortSignal into runPipelinePre)
 - Test: `packages/engine/src/pipeline-hooks.test.ts`
 
-- [ ] **Step 1: Write the failing tests for the payload builder**
+- [x] **Step 1: Write the failing tests for the payload builder**
 
 ```ts
 // packages/engine/src/pipeline-hooks.test.ts
@@ -1194,12 +1194,12 @@ describe("buildHookPayload", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run src/pipeline-hooks.test.ts -w false`
 Expected: FAIL — `buildHookPayload` is not exported (and `isFirstTurn` missing from PipelineContext)
 
-- [ ] **Step 3: Implement the pipeline changes** — all in `pipeline.ts`:
+- [x] **Step 3: Implement the pipeline changes** — all in `pipeline.ts`:
 
 3a. Add imports at the top:
 
@@ -1330,13 +1330,13 @@ export async function runPipelinePre(
 - line ~187 (handleMessage): `const pre = await runPipelinePre(msg, taskConversationOverride, abortSignal);`
 - line ~255 (handleMessageStream): `const pre = await runPipelinePre(msg, undefined, abortSignal);`
 
-- [ ] **Step 4: Run the new test + the full unit suite to catch regressions**
+- [x] **Step 4: Run the new test + the full unit suite to catch regressions**
 
 Run: `npx vitest run src/pipeline-hooks.test.ts -w false` → PASS (6 tests)
 Run: `npm run typecheck -w @polyant/engine` → exit 0
 Run: `npm run test:unit -w @polyant/engine` → PASS (pre-existing suites green)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `feat(hooks): wire lifecycle hooks into the message pipeline`
 
@@ -1350,7 +1350,7 @@ Run: `npm run test:unit -w @polyant/engine` → PASS (pre-existing suites green)
 - Modify: `packages/engine/src/server/server.module.ts`
 - Test: `packages/engine/src/hooks/hooks.validators.test.ts`
 
-- [ ] **Step 1: Write the failing validator tests**
+- [x] **Step 1: Write the failing validator tests**
 
 ```ts
 // packages/engine/src/hooks/hooks.validators.test.ts
@@ -1414,12 +1414,12 @@ describe("validateHookTool", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run src/hooks/hooks.validators.test.ts -w false`
 Expected: FAIL — `Cannot find module './hooks.validators.js'`
 
-- [ ] **Step 3: Implement the validators**
+- [x] **Step 3: Implement the validators**
 
 ```ts
 // packages/engine/src/hooks/hooks.validators.ts
@@ -1454,12 +1454,12 @@ export function validateHookTool(toolName: string): string | null {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run src/hooks/hooks.validators.test.ts -w false`
 Expected: PASS (7 tests)
 
-- [ ] **Step 5: Implement the controller** (pure HTTP bridge; instance-scoped WHERE via store; no constructor deps so the `@Inject` lint rule is satisfied trivially)
+- [x] **Step 5: Implement the controller** (pure HTTP bridge; instance-scoped WHERE via store; no constructor deps so the `@Inject` lint rule is satisfied trivially)
 
 ```ts
 // packages/engine/src/server/hooks/instance-hooks.controller.ts
@@ -1554,7 +1554,7 @@ export class InstanceHooksController {
 }
 ```
 
-- [ ] **Step 6: Register the controller** — in `server.module.ts` add the import after the `RoomController` import:
+- [x] **Step 6: Register the controller** — in `server.module.ts` add the import after the `RoomController` import:
 
 ```ts
 import { InstanceHooksController } from "./hooks/instance-hooks.controller.js";
@@ -1562,12 +1562,12 @@ import { InstanceHooksController } from "./hooks/instance-hooks.controller.js";
 
 and add `InstanceHooksController,` to the `controllers` array (after `RoomController,`).
 
-- [ ] **Step 7: Verify typecheck + lint**
+- [x] **Step 7: Verify typecheck + lint**
 
 Run: `npm run typecheck -w @polyant/engine && npm run lint -w @polyant/engine`
 Expected: exit 0 (no `@Inject` violations — controller has no constructor)
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 `feat(hooks): add management API for instance hooks`
 
@@ -1579,7 +1579,7 @@ Expected: exit 0 (no `@Inject` violations — controller has no constructor)
 - Modify: `packages/web/src/lib/api-types.ts` (append the type)
 - Modify: `packages/web/src/lib/api.ts` (re-export type + `hooks` section in the `api` object)
 
-- [ ] **Step 1: Add the type to `api-types.ts`** (append near `EventSource`/`EventDefinition`):
+- [x] **Step 1: Add the type to `api-types.ts`** (append near `EventSource`/`EventDefinition`):
 
 ```ts
 export type HookEvent =
@@ -1601,7 +1601,7 @@ export interface InstanceHook {
 }
 ```
 
-- [ ] **Step 2: Wire into `api.ts`** — add `HookEvent`, `InstanceHook` to BOTH the `export type {...}` re-export list and the internal `import type {...}` list. Then add a `hooks` section to the `api` object (after `scheduledTasks`):
+- [x] **Step 2: Wire into `api.ts`** — add `HookEvent`, `InstanceHook` to BOTH the `export type {...}` re-export list and the internal `import type {...}` list. Then add a `hooks` section to the `api` object (after `scheduledTasks`):
 
 ```ts
   hooks: {
@@ -1649,12 +1649,12 @@ export interface InstanceHook {
 
 (Match the exact local helper name used in `api.ts` for HTTP calls — it is `request` per the `scheduledTasks` section; keep the surrounding style.)
 
-- [ ] **Step 3: Verify web typecheck**
+- [x] **Step 3: Verify web typecheck**
 
 Run: `npm run typecheck -w @polyant/web`
 Expected: exit 0
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 `feat(web): add hooks API client`
 
@@ -1667,7 +1667,7 @@ Expected: exit 0
 - Modify: `packages/web/src/app/(admin)/instances/[slug]/page.tsx` (import, TabsTrigger, TabsContent)
 - Modify: `packages/web/src/lib/i18n/locales/en.json` + `it.json`
 
-- [ ] **Step 1: Create the tab component**
+- [x] **Step 1: Create the tab component**
 
 ```tsx
 // packages/web/src/app/(admin)/instances/[slug]/hooks-tab.tsx
@@ -2048,7 +2048,7 @@ export function HooksTab({ slug }: Props) {
 
 (Verify `api.tools.catalog()` is the actual catalog function name at `packages/web/src/lib/api.ts:250`; adjust if it differs.)
 
-- [ ] **Step 2: Register the tab in `page.tsx`**
+- [x] **Step 2: Register the tab in `page.tsx`**
 
 Add the import after `import { RoomTab } ...`:
 
@@ -2070,7 +2070,7 @@ Add the content after the `room` TabsContent (line ~260):
         </TabsContent>
 ```
 
-- [ ] **Step 3: Add i18n keys**
+- [x] **Step 3: Add i18n keys**
 
 In `packages/web/src/lib/i18n/locales/en.json`: add `"tabHooks": "Hooks"` inside `instances.detail`, and a top-level `"hooks"` section (match the file's existing nesting style):
 
@@ -2148,12 +2148,12 @@ In `it.json`, same keys translated:
 
 And `"tabHooks": "Hook"` inside `instances.detail` in `it.json`.
 
-- [ ] **Step 4: Verify typecheck + lint + build**
+- [x] **Step 4: Verify typecheck + lint + build**
 
 Run: `npm run typecheck -w @polyant/web && npm run lint -w @polyant/web`
 Expected: exit 0 (react-compiler rules are warn-level)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 `feat(web): add hooks tab to instance admin page`
 
@@ -2164,7 +2164,7 @@ Expected: exit 0 (react-compiler rules are warn-level)
 **Files:**
 - Modify: `CLAUDE.md`
 
-- [ ] **Step 1: Update CLAUDE.md**
+- [x] **Step 1: Update CLAUDE.md**
 
 Add to the Instance Configuration table:
 
@@ -2180,14 +2180,14 @@ Add to Key Conventions (after the conversation-state bullet):
 
 Add `│   │   │   ├── hooks/                # Conversation lifecycle hooks (event → tool action)` to the directory tree (after `crypto/`), `- **Hooks**: \`GET/POST/PATCH/DELETE /api/instances/:slug/hooks\`` to the Management API list, and `- Hooks tab (lifecycle event → tool action with template args)` to the Admin Panel list.
 
-- [ ] **Step 2: Full verification**
+- [x] **Step 2: Full verification**
 
 Run from repo root:
 - `npm run typecheck` → exit 0
 - `npm run lint` → exit 0
 - `npm test` → all suites pass (hooks integration suite needs the DB up to actually run)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 `docs: document conversation lifecycle hooks conventions`
 
