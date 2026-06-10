@@ -253,6 +253,7 @@ export interface ConversationListItem {
   conversationId: string;
   title: string | null;
   summary: string | null;
+  channel: string | null;
   instanceId: string | null;
   instanceName: string | null;
   messageCount: number;

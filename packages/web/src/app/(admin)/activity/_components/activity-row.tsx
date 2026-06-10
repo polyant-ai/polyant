@@ -5,6 +5,7 @@
 import { Fragment, useState } from "react";
 import { CheckCircle2, ChevronDown, ChevronRight, Clock, Loader2, XCircle } from "lucide-react";
 import { isSafeImageSrc } from "@/lib/utils";
+import { channelIcon } from "@/lib/channel-icons";
 import { narrate } from "@/lib/activity-stream/narrative";
 import { NarrativeTokenView } from "@/lib/activity-stream/narrative-tokens";
 import {
@@ -210,21 +211,6 @@ export function ActivityRow({ ev, isLast, isFresh, labels }: Props) {
       </article>
     </li>
   );
-}
-
-/** Map a channel type / webhook source to a single-emoji icon. */
-const CHANNEL_ICONS: Record<string, string> = {
-  web: "🌐",
-  telegram: "✈️",
-  whatsapp: "💬",
-  slack: "#️⃣",
-  email: "✉️",
-  room: "🏠",
-  scheduled: "⏰",
-};
-
-function channelIcon(name: string): string {
-  return CHANNEL_ICONS[name.toLowerCase()] ?? "📡";
 }
 
 /**

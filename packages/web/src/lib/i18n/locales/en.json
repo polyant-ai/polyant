@@ -28,6 +28,7 @@
   "conversations.table.summary": "Summary",
   "conversations.newChat": "New Chat",
   "conversations.table.instance": "Agent",
+  "conversations.table.channel": "Channel",
   "conversations.table.messages": "Messages",
   "conversations.table.tokens": "Tokens",
   "conversations.table.cost": "Cost",

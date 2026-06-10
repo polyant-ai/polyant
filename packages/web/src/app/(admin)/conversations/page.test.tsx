@@ -70,6 +70,7 @@ function makeConversation(overrides: Partial<ConversationListItem> = {}): Conver
     conversationId: "conv-1",
     title: "Test Conversation",
     summary: "A summary",
+    channel: "telegram",
     instanceId: "inst-1",
     instanceName: "My Instance",
     messageCount: 5,
@@ -220,6 +221,43 @@ describe("ConversationsPage", () => {
     expect(
       screen.getByPlaceholderText("conversations.searchPlaceholder"),
     ).toBeInTheDocument();
+  });
+
+  it("renders the channel icon with the channel name as label", async () => {
+    const conv = makeConversation({ channel: "telegram" });
+    mockConversationsList.mockResolvedValue({
+      conversations: [conv],
+      total: 1,
+      limit: 20,
+      offset: 0,
+    });
+
+    render(<ConversationsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Conversation")).toBeInTheDocument();
+    });
+
+    const icon = screen.getByLabelText("telegram");
+    expect(icon).toHaveAttribute("title", "telegram");
+  });
+
+  it("shows a dash when the conversation has no channel", async () => {
+    const conv = makeConversation({ channel: null });
+    mockConversationsList.mockResolvedValue({
+      conversations: [conv],
+      total: 1,
+      limit: 20,
+      offset: 0,
+    });
+
+    render(<ConversationsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Test Conversation")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByLabelText("telegram")).not.toBeInTheDocument();
   });
 
   it("shows 'new chat' fallback for conversations without title or summary", async () => {
