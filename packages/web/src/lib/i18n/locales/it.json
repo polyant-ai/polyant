@@ -18,7 +18,7 @@
   "conversations.title": "Conversazioni",
   "conversations.subtitle": "Cerca e sfoglia la cronologia delle conversazioni.",
   "conversations.allInstances": "Tutti gli agenti",
-  "conversations.searchPlaceholder": "Cerca conversazioni...",
+  "conversations.searchPlaceholder": "Cerca nei messaggi o per ID conversazione...",
   "conversations.empty.title": "Nessuna conversazione",
   "conversations.empty.description": "Le conversazioni appariranno qui quando gli utenti interagiranno con i tuoi assistenti AI.",
   "conversations.empty.searchTitle": "Nessuna conversazione trovata",
