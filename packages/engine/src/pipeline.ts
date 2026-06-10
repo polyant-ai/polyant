@@ -27,6 +27,8 @@ import type { ToolCallTrace } from "./analytics/traces.schema.js";
 import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
 import { emitConversation } from "./activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "./activity-stream/emit-helpers.js";
+import { runHooks } from "./hooks/hook-runner.js";
+import type { HookEventPayload, HookRunContext } from "./hooks/hook-types.js";
 
 /**
  * Channel types that should NOT produce `category: "inbound"` events:
@@ -92,6 +94,8 @@ export interface PipelineContext {
   /** Per-run shared conversation state buffer (commit-on-success). Undefined on auto-task turns. */
   stateBuffer: ConversationStateBuffer | undefined;
   history: ModelMessage[] | undefined;
+  /** True when no message rows were persisted before this turn (first successful turn). */
+  isFirstTurn: boolean;
   hasOverflow: boolean;
   droppedMessages: ModelMessage[] | undefined;
   instanceConfig: InstanceConfig;
@@ -196,6 +200,12 @@ export async function preparePipeline(
         }),
   ]);
 
+  // First persisted turn — computed from PERSISTED rows, NOT the metadata
+  // fallback below: the OpenAI-compat path passes client-side history that must
+  // not suppress the conversation_start hook. Abort-safe by construction: an
+  // aborted run persists nothing, so the restarted run still sees zero rows.
+  const isFirstTurn = conversationHistory.length === 0;
+
   // NOTE: user message and incoming system messages are NOT persisted here.
   // They are persisted in `afterResponse()` only after the pipeline succeeds,
   // so that an aborted pipeline (cancel-and-restart) leaves no trace in DB.
@@ -260,6 +270,7 @@ export async function preparePipeline(
     channelIdentity,
     stateBuffer,
     history,
+    isFirstTurn,
     hasOverflow,
     droppedMessages,
     instanceConfig,
@@ -268,6 +279,44 @@ export async function preparePipeline(
     incomingSystemMessages: incomingSystemMessages.length > 0 ? incomingSystemMessages : undefined,
     isAutoTaskTurn,
     inboundMetadata: Object.keys(msg.metadata).length > 0 ? msg.metadata : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle hooks — payload + run-context builders
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the hook event payload, or undefined when hooks must not fire:
+ * auto-task turns and synthetic channels (agent/scheduled/room), consistent
+ * with state seeding and inbound emits.
+ */
+export function buildHookPayload(
+  ctx: PipelineContext,
+  messageText: string,
+  responseText?: string,
+): HookEventPayload | undefined {
+  if (ctx.isAutoTaskTurn || !ctx.channelIdentity) return undefined;
+  if (INBOUND_SUPPRESSED_CHANNELS.has(ctx.channelIdentity.channel)) return undefined;
+  return {
+    instance: { slug: ctx.instanceId },
+    conversation: { id: ctx.conversationId },
+    channel: { type: ctx.channelIdentity.channel, id: ctx.channelIdentity.channelId },
+    user: { name: ctx.channelIdentity.userName ?? "" },
+    message: { text: messageText },
+    ...(responseText !== undefined ? { response: { text: responseText } } : {}),
+  };
+}
+
+function buildHookRunContext(ctx: PipelineContext, abortSignal?: AbortSignal): HookRunContext {
+  return {
+    instanceId: ctx.instanceId,
+    conversationId: ctx.conversationId,
+    secrets: ctx.instanceConfig.secrets,
+    apiKeys: ctx.instanceConfig.apiKeys,
+    provider: ctx.instanceConfig.provider,
+    state: ctx.stateBuffer?.api(),
+    abortSignal,
   };
 }
 
@@ -433,11 +482,25 @@ export interface PipelinePreResult {
 export async function runPipelinePre(
   msg: IncomingMessage,
   conversationIdOverride?: string | null,
+  abortSignal?: AbortSignal,
 ): Promise<PipelinePreResult> {
   // Phase 1: Context preparation
   const contextPrepStart = Date.now();
   const ctx = await preparePipeline(msg, conversationIdOverride);
   const contextPrepMs = Date.now() - contextPrepStart;
+
+  // Lifecycle hooks (observe-only, awaited): conversation_start on the first
+  // persisted turn, then message_received on every turn — state writes are
+  // visible to the supervisor in the same turn. Runs after contextPrepMs is
+  // measured so hook latency doesn't pollute the context-prep metric.
+  const hookPayload = buildHookPayload(ctx, msg.text);
+  if (hookPayload) {
+    const hookCtx = buildHookRunContext(ctx, abortSignal);
+    if (ctx.isFirstTurn) {
+      await runHooks("conversation_start", hookPayload, hookCtx);
+    }
+    await runHooks("message_received", hookPayload, hookCtx);
+  }
 
   return { ctx, contextPrepMs, messageText: msg.text };
 }
@@ -483,6 +546,16 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   }
 
   const finalText = opts.resultText;
+
+  // Lifecycle hooks: response_generated precedes outbound delivery on the
+  // sync path (the adapter sends only after handleMessage returns) and the
+  // state flush below, so hook state writes ride the turn's commit.
+  // Streaming caveat: the text has already streamed to the client.
+  const hookPayload = buildHookPayload(ctx, opts.messageText, finalText);
+  const hookCtx = hookPayload ? buildHookRunContext(ctx, opts.abortSignal) : undefined;
+  if (hookPayload && hookCtx) {
+    await runHooks("response_generated", hookPayload, hookCtx);
+  }
 
   const totalMs = Date.now() - ctx.pipelineStart;
   pipelineLog.response(ctx.instanceId, totalMs);
@@ -549,6 +622,21 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     conversationStore.clearContextPrompt(ctx.conversationId).catch((err) =>
       console.error(`Failed to clear contextPrompt for ${ctx.conversationId}:`, err),
     );
+  }
+
+  // Lifecycle hooks: response_sent fires once the turn is finalized and handed
+  // to the channel (the pipeline never observes physical delivery — see the
+  // hooks design doc). The main flush already ran, so persist any state these
+  // hooks wrote with a second flush (no-op when nothing changed).
+  if (hookPayload && hookCtx) {
+    await runHooks("response_sent", hookPayload, hookCtx);
+    if (ctx.stateBuffer) {
+      try {
+        await ctx.stateBuffer.flush();
+      } catch (err) {
+        console.error(`Failed to flush hook state for ${ctx.conversationId}:`, err);
+      }
+    }
   }
 
   return { finalText };
