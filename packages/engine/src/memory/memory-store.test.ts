@@ -64,6 +64,7 @@ vi.mock("drizzle-orm", () => ({
   }),
   gt: vi.fn((...args: unknown[]) => ({ type: "gt", args })),
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
+  isNotNull: vi.fn((c: unknown) => ({ type: "isNotNull", c })),
 }));
 
 vi.mock("drizzle-orm/sql/functions", () => ({

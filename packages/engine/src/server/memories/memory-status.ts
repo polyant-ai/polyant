@@ -3,6 +3,8 @@
 import type { Instance } from "../../instances/store.js";
 import { findInstanceByIdOrSlug } from "../../instances/resolve-instance-id.js";
 import { getAllSecretsById, SECRET_KEYS } from "../../instances/secrets.store.js";
+import { SUPPORTED_DIMS } from "../../embeddings-gateway/config.js";
+import type { EmbeddingDim, EmbeddingProvider } from "../../embeddings-gateway/types.js";
 
 /**
  * Embedding-pipeline readiness for an instance's memory feature.
@@ -21,13 +23,24 @@ const OFF: MemoryStatus = { needsOpenAIKey: false, canEnable: false };
 export async function computeMemoryStatusFromInstance(instance: Instance): Promise<MemoryStatus> {
   if (!instance.memoryEnabled) return OFF;
   const secrets = await getAllSecretsById(instance.id);
-  const provider = instance.provider ?? "openai";
-  if (provider === "bedrock") {
-    const hasRegion = !!secrets[SECRET_KEYS.AWS_REGION];
-    return { needsOpenAIKey: !hasRegion, canEnable: hasRegion };
+  // Embedding provider mirrors resolveEmbeddingContext: bedrock → bedrock,
+  // openai/anthropic → openai (Anthropic has no embedding API).
+  const embeddingProvider: EmbeddingProvider = instance.provider === "bedrock" ? "bedrock" : "openai";
+
+  // The instance is only usable if the embedding provider can emit its stored
+  // dimension. A provider switch that left embedding_dim incompatible (e.g.
+  // bedrock + 1536) makes every embed throw — never report that as healthy.
+  const dimCompatible = SUPPORTED_DIMS[embeddingProvider].includes(instance.embeddingDim as EmbeddingDim);
+
+  if (embeddingProvider === "bedrock") {
+    // CONVENTION-EXCEPTION: process.env.AWS_REGION read directly to mirror the
+    // engine-level fallback in resolveEmbeddingContext — otherwise the UI reports
+    // "AWS credentials needed" while embeddings actually work via the engine region.
+    const hasRegion = !!secrets[SECRET_KEYS.AWS_REGION] || !!process.env.AWS_REGION;
+    return { needsOpenAIKey: !hasRegion, canEnable: hasRegion && dimCompatible };
   }
   const hasOpenAIKey = !!secrets[SECRET_KEYS.OPENAI_API_KEY];
-  return { needsOpenAIKey: !hasOpenAIKey, canEnable: hasOpenAIKey };
+  return { needsOpenAIKey: !hasOpenAIKey, canEnable: hasOpenAIKey && dimCompatible };
 }
 
 /** Derive memory embedding status by instance id or slug. */
