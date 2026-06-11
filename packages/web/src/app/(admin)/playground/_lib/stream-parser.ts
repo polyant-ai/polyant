@@ -1,6 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { API_BASE } from "@/lib/api";
+import { API_BASE, type HookEvent } from "@/lib/api";
+
+const HOOK_EVENTS: readonly HookEvent[] = [
+  "conversation_start",
+  "message_received",
+  "response_generated",
+  "response_sent",
+];
+
+/** Outcome of a lifecycle hook execution, emitted live by the engine. */
+export interface PlaygroundHookExecution {
+  hookId: string;
+  event: HookEvent;
+  actionType: string;
+  toolName: string;
+  success: boolean;
+  error?: string;
+  durationMs: number;
+  /** Rendered tool args (post-template). */
+  args?: Record<string, unknown>;
+  /** Tool result, JSON-stringified and truncated. */
+  result?: string;
+}
 
 export interface StreamCallbacks {
   /** Assistant text delta. Append to the current message content. */
@@ -19,6 +41,8 @@ export interface StreamCallbacks {
   onToolCall: (id: string, name: string, args: unknown) => void;
   /** Result for a previously-emitted tool call. */
   onToolResult: (id: string, result: unknown) => void;
+  /** A lifecycle hook ran (pre hooks before the LLM events, post hooks before `done`). */
+  onHookExecution?: (execution: PlaygroundHookExecution) => void;
   /**
    * Stream completed successfully. The engine echoes the persisted identifiers
    * (full conversationId + assistant message id) so the client can later fetch
@@ -197,6 +221,31 @@ export function dispatch(evt: SseEvent, cb: StreamCallbacks): boolean {
     }
     case "text-delta": {
       if (typeof data?.text === "string") cb.onTextDelta(data.text);
+      return true;
+    }
+    case "hook-execution": {
+      if (
+        cb.onHookExecution &&
+        typeof data?.hookId === "string" &&
+        typeof data?.event === "string" &&
+        (HOOK_EVENTS as readonly string[]).includes(data.event) &&
+        typeof data?.toolName === "string"
+      ) {
+        cb.onHookExecution({
+          hookId: data.hookId,
+          event: data.event as HookEvent,
+          actionType: typeof data.actionType === "string" ? data.actionType : "tool",
+          toolName: data.toolName,
+          success: data.success === true,
+          error: typeof data.error === "string" ? data.error : undefined,
+          durationMs: typeof data.durationMs === "number" ? data.durationMs : 0,
+          args:
+            data.args && typeof data.args === "object" && !Array.isArray(data.args)
+              ? (data.args as Record<string, unknown>)
+              : undefined,
+          result: typeof data.result === "string" ? data.result : undefined,
+        });
+      }
       return true;
     }
     case "done": {

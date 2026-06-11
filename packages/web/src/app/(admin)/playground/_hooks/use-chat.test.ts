@@ -50,6 +50,34 @@ describe("chatReducer", () => {
     });
   });
 
+  describe("HOOK_EXECUTION", () => {
+    const execution = {
+      hookId: "h1",
+      event: "message_received" as const,
+      actionType: "tool",
+      toolName: "lookup",
+      success: true,
+      durationMs: 42,
+    };
+
+    it("appends executions to the streaming assistant message", () => {
+      let s = withAssistantMessage(createInitialState(SLUG));
+      s = chatReducer(s, { type: "HOOK_EXECUTION", execution });
+      s = chatReducer(s, {
+        type: "HOOK_EXECUTION",
+        execution: { ...execution, event: "response_sent" as const, success: false, error: "boom" },
+      });
+      expect(s.messages[1].hookExecutions).toHaveLength(2);
+      expect(s.messages[1].hookExecutions[0]).toMatchObject({ event: "message_received", success: true });
+      expect(s.messages[1].hookExecutions[1]).toMatchObject({ event: "response_sent", error: "boom" });
+    });
+
+    it("ignores executions when no streaming assistant exists", () => {
+      const s = chatReducer(createInitialState(SLUG), { type: "HOOK_EXECUTION", execution });
+      expect(s.messages).toHaveLength(0);
+    });
+  });
+
   describe("REASONING_DELTA + REASONING_SIGNATURE", () => {
     it("accumulates into a single open text block", () => {
       let s = withAssistantMessage(createInitialState(SLUG));

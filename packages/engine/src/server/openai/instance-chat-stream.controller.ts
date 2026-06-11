@@ -14,6 +14,7 @@ import type { ChatCompletionRequest } from "./openai.types.js";
  * **typed SSE stream** that exposes the full multi-step + reasoning timeline
  * as it happens:
  *
+ *   event: hook-execution     data: {"hookId":"…","event":"…","toolName":"…","success":true,"durationMs":42}
  *   event: step-start         data: {"index":0,"stepType":"initial"}
  *   event: reasoning-delta    data: {"text":"…"}
  *   event: tool-call          data: {"id":"…","name":"…","args":{…}}
@@ -22,6 +23,11 @@ import type { ChatCompletionRequest } from "./openai.types.js";
  *   event: step-finish        data: {"index":0,"finishReason":"stop"}
  *   event: done               data: {}
  *   event: error              data: {"message":"…"}
+ *
+ * `hook-execution` events fire in two waves: pre-LLM hooks (conversation_start,
+ * message_received) right after the stream opens, and post-LLM hooks
+ * (response_generated, response_sent) after the text finishes, before `done`
+ * (which therefore waits for the synchronous post-processing phase).
  *
  * The endpoint accepts the same `ChatCompletionRequest` body as the OpenAI
  * endpoint (model = instance slug, messages, optional `chat_id`) so that the
@@ -74,6 +80,12 @@ export class InstanceChatStreamController {
       send("done", {});
       res.end();
       return;
+    }
+
+    // Pre-LLM hook outcomes (conversation_start / message_received) — already
+    // executed by the time the stream exists; surface them before the LLM events.
+    for (const exec of stream.hookExecutions ?? []) {
+      send("hook-execution", exec);
     }
 
     // Track open steps so we can emit step-start exactly once per step.
@@ -154,6 +166,17 @@ export class InstanceChatStreamController {
             break;
         }
       }
+      // Post-processing runs the response_generated/response_sent hooks — await
+      // it so their outcomes reach the client before `done`. Hooks are
+      // synchronous by design; on abort the post phase short-circuits.
+      try {
+        const result = await stream.completed;
+        for (const exec of result.hookExecutions ?? []) {
+          send("hook-execution", exec);
+        }
+      } catch (err) {
+        console.error("[chat/stream] post-process error:", err);
+      }
       // Echo the persisted conversation + assistant message ids so the client can
       // later fetch the per-message debug payload without ordinal-matching.
       send("done", stream.meta ?? {});
@@ -162,8 +185,9 @@ export class InstanceChatStreamController {
       send("error", { message });
     } finally {
       res.end();
-      // Trigger post-processing fire-and-forget; aborts are already handled.
-      stream.completed.catch((err) => console.error("[chat/stream] post-process error:", err));
+      // Safety net: if the loop threw before `completed` was awaited, swallow
+      // its eventual rejection so it never surfaces as an unhandled rejection.
+      stream.completed.catch(() => {});
     }
   }
 }

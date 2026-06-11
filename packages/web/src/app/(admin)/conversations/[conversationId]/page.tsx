@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -34,9 +34,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta } from "@/lib/api";
+import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta, type HookExecution } from "@/lib/api";
 import { MarkdownRenderer } from "@/app/(admin)/playground/_components/markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
+import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
 import { formatRelativeTime, parseUTC } from "@/lib/format";
@@ -158,6 +159,7 @@ export default function ConversationDetailPage() {
 
   const [conversation, setConversation] = useState<ConversationListItem | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [hookExecutions, setHookExecutions] = useState<HookExecution[]>([]);
   const [debugTarget, setDebugTarget] = useState<DebugSheetTarget | null>(null);
   const [stateOpen, setStateOpen] = useState(false);
   const [totalMessages, setTotalMessages] = useState(0);
@@ -174,12 +176,15 @@ export default function ConversationDetailPage() {
     Promise.all([
       api.conversations.get(conversationId, instanceId),
       api.conversations.messages(conversationId, instanceId, { limit: MESSAGES_PAGE_SIZE, order: "desc" }),
+      // Hook telemetry is decorative — a failed fetch never blocks the page.
+      api.conversations.hookExecutions(conversationId, instanceId).catch(() => ({ executions: [] as HookExecution[] })),
     ])
-      .then(([convRes, msgRes]) => {
+      .then(([convRes, msgRes, hooksRes]) => {
         setConversation(convRes.conversation);
         // API returned newest first; reverse to chronological for top-down rendering.
         setMessages([...msgRes.messages].reverse());
         setTotalMessages(msgRes.total);
+        setHookExecutions(hooksRes.executions);
       })
       .catch(() => {
         toast.error(t("conversations.detail.notFound"));
@@ -246,6 +251,30 @@ export default function ConversationDetailPage() {
     el.scrollTop = el.scrollHeight - prevScrollHeightRef.current;
     prevScrollHeightRef.current = null;
   }, [messages]);
+
+  // Merge messages and hook executions into a single chronological timeline.
+  // Executions older than the loaded message window are hidden so pagination
+  // doesn't pile them all at the top.
+  type TimelineItem =
+    | { kind: "message"; msg: ConversationMessage; ts: number }
+    | { kind: "hook"; exec: HookExecution; ts: number };
+
+  const timeline = useMemo<TimelineItem[]>(() => {
+    const items: TimelineItem[] = messages.map((msg) => ({
+      kind: "message" as const,
+      msg,
+      ts: msg.createdAt ? parseUTC(msg.createdAt).getTime() : 0,
+    }));
+    const loadedTs = items.map((i) => i.ts).filter((ts) => ts > 0);
+    const oldestLoaded = loadedTs.length > 0 ? Math.min(...loadedTs) : 0;
+    const hasOlderPages = messages.length < totalMessages;
+    for (const exec of hookExecutions) {
+      const ts = parseUTC(exec.createdAt).getTime();
+      if (hasOlderPages && ts < oldestLoaded) continue;
+      items.push({ kind: "hook" as const, exec, ts });
+    }
+    return items.sort((a, b) => a.ts - b.ts);
+  }, [messages, hookExecutions, totalMessages]);
 
   // Watch the top sentinel: when it scrolls into view, fetch the previous page.
   useEffect(() => {
@@ -408,7 +437,18 @@ export default function ConversationDetailPage() {
         )}
 
         <TooltipProvider>
-          {messages.map((msg) => {
+          {timeline.map((item) => {
+            // Hook execution → centered expandable pill in the timeline
+            if (item.kind === "hook") {
+              const exec = item.exec;
+              return (
+                <div key={`hook-${exec.id}`} className="flex justify-center">
+                  <HookExecutionPill execution={exec} timestamp={formatTime(exec.createdAt)} />
+                </div>
+              );
+            }
+
+            const msg = item.msg;
             // System message → centered amber pill
             if (msg.role === "system") {
               return (

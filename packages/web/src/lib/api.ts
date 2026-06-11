@@ -56,6 +56,9 @@ export type {
   AuditStatsResult,
   EventSource,
   EventDefinition,
+  HookEvent,
+  InstanceHook,
+  HookExecution,
   BacklogEvent,
   ActivityLogEntry,
 } from "./api-types";
@@ -94,6 +97,9 @@ import type {
   AuditStatsResult,
   EventSource,
   EventDefinition,
+  HookEvent,
+  InstanceHook,
+  HookExecution,
   BacklogEvent,
   ActivityLogEntry,
 } from "./api-types";
@@ -364,6 +370,10 @@ export const api = {
       request<{ conversation: ConversationListItem }>(
         `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,
       ),
+    hookExecutions: (conversationId: string, instanceId: string) =>
+      request<{ executions: HookExecution[] }>(
+        `/api/conversations/${encodeURIComponent(conversationId)}/hooks?instanceId=${encodeURIComponent(instanceId)}`,
+      ),
     messages: (
       conversationId: string,
       instanceId: string,
@@ -575,6 +585,48 @@ export const api = {
         `/api/instances/${encodeURIComponent(slug)}/scheduled-tasks/runs${query ? `?${query}` : ""}`,
       );
     },
+  },
+
+  hooks: {
+    list: (slug: string) =>
+      request<{ hooks: InstanceHook[] }>(
+        `/api/instances/${encodeURIComponent(slug)}/hooks`,
+      ),
+    create: (
+      slug: string,
+      data: {
+        event: HookEvent;
+        actionType?: "tool";
+        actionConfig: { toolName: string; args: Record<string, unknown> };
+        enabled?: boolean;
+        position?: number;
+        timeoutMs?: number;
+      },
+    ) =>
+      request<{ hook: InstanceHook }>(
+        `/api/instances/${encodeURIComponent(slug)}/hooks`,
+        { method: "POST", body: JSON.stringify(data) },
+      ),
+    update: (
+      slug: string,
+      id: string,
+      data: {
+        event?: HookEvent;
+        actionConfig?: { toolName: string; args: Record<string, unknown> };
+        enabled?: boolean;
+        position?: number;
+        timeoutMs?: number;
+      },
+    ) =>
+      request<{ hook: InstanceHook }>(
+        `/api/instances/${encodeURIComponent(slug)}/hooks/${encodeURIComponent(id)}`,
+        { method: "PATCH", body: JSON.stringify(data) },
+      ),
+    delete: (slug: string, id: string) =>
+      request<{ deleted: boolean }>(
+        `/api/instances/${encodeURIComponent(slug)}/hooks/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      ),
   },
 
   room: {
