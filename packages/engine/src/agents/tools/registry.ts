@@ -195,6 +195,23 @@ export function getToolRegistry(): ReadonlyMap<string, ToolDefinition> {
 }
 
 /**
+ * Fill keys missing from `val` with `null` for ZodObject schemas. Strict-mode
+ * schemas mark every key required-but-nullable; non-strict models (and hook
+ * configs) legitimately omit irrelevant fields. Shared by `buildTool`'s
+ * runtime preprocess and the hooks tool-action executor.
+ */
+export function fillMissingKeysWithNull(parameters: z.ZodType, val: unknown): unknown {
+  if (!(parameters instanceof z.ZodObject)) return val;
+  if (!val || typeof val !== "object" || Array.isArray(val)) return val;
+  const shape = (parameters as z.ZodObject<z.ZodRawShape>).shape;
+  const filled: Record<string, unknown> = { ...(val as Record<string, unknown>) };
+  for (const key of Object.keys(shape)) {
+    if (!(key in filled)) filled[key] = null;
+  }
+  return filled;
+}
+
+/**
  * Build a Vercel AI SDK `Tool` from a `ToolDefinition` + runtime context.
  *
  * The description is taken from the definition (not from `create()`), ensuring
@@ -250,15 +267,7 @@ export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
   // a preprocess that fills missing keys with `null` so non-strict models keep
   // working without weakening the JSON schema sent to OpenAI.
   const runtimeParameters = parameters instanceof z.ZodObject
-    ? (z.preprocess((val) => {
-        if (!val || typeof val !== "object" || Array.isArray(val)) return val;
-        const shape = (parameters as z.ZodObject<z.ZodRawShape>).shape;
-        const filled: Record<string, unknown> = { ...(val as Record<string, unknown>) };
-        for (const key of Object.keys(shape)) {
-          if (!(key in filled)) filled[key] = null;
-        }
-        return filled;
-      }, parameters) as unknown as typeof parameters)
+    ? (z.preprocess((val) => fillMissingKeysWithNull(parameters, val), parameters) as unknown as typeof parameters)
     : parameters;
 
   return tool({ description, inputSchema: runtimeParameters, execute: wrappedExecute });

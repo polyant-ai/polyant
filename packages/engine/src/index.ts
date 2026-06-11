@@ -184,7 +184,7 @@ async function main() {
     const taskConversationOverride = taskMatch?.lastConversationId ?? null;
 
     // Phase 1: Context preparation
-    const pre = await runPipelinePre(msg, taskConversationOverride);
+    const pre = await runPipelinePre(msg, taskConversationOverride, abortSignal);
 
     const { ctx, contextPrepMs, messageText } = pre;
 
@@ -252,7 +252,7 @@ async function main() {
   // 3b. Streaming message handler (for OpenAI-compatible SSE)
   async function handleMessageStream(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<StreamOutgoingMessage> {
     // Phase 1: Context preparation
-    const pre = await runPipelinePre(msg);
+    const pre = await runPipelinePre(msg, undefined, abortSignal);
 
     const { ctx, contextPrepMs, messageText } = pre;
 
@@ -304,7 +304,7 @@ async function main() {
 
     // Phase 4+5: Deferred — runs after stream completes (skipped on abort)
     const completed = stream.completed.then(async (result) => {
-      const { finalText } = await runPipelinePost({
+      const { finalText, hookExecutions } = await runPipelinePost({
         ctx,
         contextPrepMs,
         messageText,
@@ -323,7 +323,7 @@ async function main() {
         abortSignal,
       });
 
-      return { text: finalText };
+      return { text: finalText, hookExecutions };
     });
 
     return {
@@ -331,6 +331,7 @@ async function main() {
       fullStream: stream.fullStream,
       completed,
       meta: { conversationId: ctx.conversationId, messageId: assistantMessageId },
+      hookExecutions: pre.hookExecutions,
     };
   }
 

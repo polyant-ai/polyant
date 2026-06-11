@@ -546,6 +546,40 @@ export interface EventSource {
   definitions: EventDefinition[];
 }
 
+export type HookEvent =
+  | "conversation_start"
+  | "message_received"
+  | "response_generated"
+  | "response_sent";
+
+export interface InstanceHook {
+  id: string;
+  event: HookEvent;
+  actionType: "tool";
+  actionConfig: { toolName: string; args: Record<string, unknown> };
+  enabled: boolean;
+  position: number;
+  timeoutMs: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HookExecution {
+  id: string;
+  hookId: string;
+  event: HookEvent;
+  actionType: "tool";
+  toolName: string;
+  success: boolean;
+  error: string | null;
+  durationMs: number;
+  /** Rendered tool args (post-template). */
+  args: Record<string, unknown> | null;
+  /** Tool result, JSON-stringified and truncated. */
+  result: string | null;
+  createdAt: string;
+}
+
 export interface BacklogEvent {
   id: string;
   status: string;

@@ -5,6 +5,7 @@
 import { Terminal, SearchCode } from "lucide-react";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
+import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { useI18n } from "@/lib/i18n/context";
 import type { ChatMessage } from "../_hooks/use-chat";
 
@@ -54,6 +55,15 @@ export function MessageBubble({ message, onDebugClick }: MessageBubbleProps) {
           isUser ? "bg-primary text-primary-foreground" : "bg-muted"
         }`}
       >
+        {/* Lifecycle hook outcomes for this turn (live SSE), above the LLM extras. */}
+        {!isUser && message.hookExecutions.length > 0 && (
+          <div className="mb-2 flex flex-col gap-1">
+            {message.hookExecutions.map((exec, i) => (
+              <HookExecutionPill key={`${exec.hookId}-${exec.event}-${i}`} execution={exec} />
+            ))}
+          </div>
+        )}
+
         {/* Reasoning + steps panels above assistant text. Default closed in
             playground (clean live UX); conversations page passes defaultOpen=true. */}
         {!isUser && (

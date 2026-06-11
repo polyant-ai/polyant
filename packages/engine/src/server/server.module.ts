@@ -21,6 +21,7 @@ import { InstanceScheduledTasksController } from "./instances/instance-scheduled
 import { WebhookController } from "./webhooks/webhook.controller.js";
 import { TwilioWebhookController } from "./channels/twilio-webhook.controller.js";
 import { RoomController } from "./room/room.controller.js";
+import { InstanceHooksController } from "./hooks/instance-hooks.controller.js";
 import { EventSourcesController } from "./webhooks/webhook-sources.controller.js";
 import { WebhookBacklogController } from "./webhooks/webhook-backlog.controller.js";
 import { AuditController } from "./audit/audit.controller.js";
@@ -63,6 +64,7 @@ import { ActivityStreamModule } from "../activity-stream/activity-stream.module.
     WebhookController,
     TwilioWebhookController,
     RoomController,
+    InstanceHooksController,
     EventSourcesController,
     WebhookBacklogController,
     AuditController,

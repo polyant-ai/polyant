@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import { conversationStore } from "../../conversations/store.js";
 import { loadConversationState } from "../../conversations/state.store.js";
+import { listHookExecutions } from "../../hooks/hook-executions.store.js";
 import { parsePagination } from "../utils/parse-pagination.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 
@@ -123,6 +124,21 @@ export class ConversationsController {
     const debug = await conversationStore.getMessageDebug(id, messageId);
     if (!debug) throw new NotFoundException(`Message not found: ${messageId}`);
     return debug;
+  }
+
+  // GET /api/conversations/:conversationId/hooks — lifecycle hook execution
+  // telemetry for this conversation (timeline order), rendered in the detail UI.
+  @Get(":conversationId/hooks")
+  async getHookExecutions(
+    @Param("conversationId") conversationId: string,
+    @Query("instanceId") instanceId?: string,
+  ) {
+    const uid = requireInstanceId(instanceId);
+    const id = decodeURIComponent(conversationId);
+    await loadConversationScoped(id, uid);
+
+    const executions = await listHookExecutions(id);
+    return { executions };
   }
 
   // GET /api/conversations/:conversationId/state — the conversation state store snapshot

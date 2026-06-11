@@ -295,6 +295,27 @@
       "when": 1779580800000,
       "tag": "0045_add_debug_payload",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1779667200000,
+      "tag": "0046_add_instance_hooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1779753600000,
+      "tag": "0047_add_hook_executions",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1779840000000,
+      "tag": "0048_add_hook_execution_io",
+      "breakpoints": true
     }
   ]
 }

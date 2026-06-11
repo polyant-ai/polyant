@@ -7,6 +7,7 @@ import { conversations, conversationMessages, conversationState, type Attachment
 import { pipelineTraces } from "../analytics/traces.schema.js";
 import { aiLogs } from "../ai-gateway/logger.js";
 import { toolAuditLogs } from "../audit/audit.schema.js";
+import { hookExecutions } from "../hooks/hooks.schema.js";
 import { memories } from "../memory/schema.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 
@@ -803,6 +804,10 @@ export class ConversationStore {
       await tx
         .delete(toolAuditLogs)
         .where(eq(toolAuditLogs.conversationId, conversationId));
+      // Hook execution telemetry — per-conversation, dropped with it.
+      await tx
+        .delete(hookExecutions)
+        .where(eq(hookExecutions.conversationId, conversationId));
       // Memories extracted from this conversation: drop them too, so deleting a
       // conversation leaves no derived facts behind (right-to-be-forgotten).
       await tx
