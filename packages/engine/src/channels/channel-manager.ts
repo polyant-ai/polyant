@@ -12,6 +12,7 @@ import { config } from "../config.js";
 import { emitOutbound } from "../activity-stream/emitters/emit-outbound.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
+import { getOptoutStatus } from "../optout/index.js";
 
 /**
  * Channel types that should NOT produce `category: "outbound"` events:
@@ -71,7 +72,7 @@ export class ChannelManager {
         maxRestarts: config.coordinator.maxRestarts,
         handler: (msg, signal) => loggedPipeline(msg, signal),
         sendOutbound: (slug, channelType, channelId, text) =>
-          this.sendOutbound(slug, channelType, channelId, text),
+          this.sendOutbound(slug, channelType, channelId, text, { skipOptoutCheck: true }),
         sendTyping: (slug, channelType, channelId, messageSid) =>
           this.dispatchSendTyping(slug, channelType, channelId, messageSid),
       });
@@ -185,19 +186,41 @@ export class ChannelManager {
     await Promise.all(promises);
   }
 
+  /**
+   * True when a proactive send to this contact must be suppressed (GDPR opt-out).
+   * Reactive replies pass `skipOptoutCheck` because the inbound gate already
+   * enforced silence; only closing/resume confirmations reach an opted-out
+   * contact, and those must go through. Best-effort: a lookup error never blocks
+   * a legitimate send.
+   */
+  private async isOptoutSuppressed(instanceSlug: string, channelType: string, channelId: string): Promise<boolean> {
+    try {
+      const status = await getOptoutStatus(asInstanceSlug(instanceSlug), channelType, channelId);
+      return status === "opted_out";
+    } catch (err) {
+      console.error("[channel-manager] opt-out check failed (allowing send):", err);
+      return false;
+    }
+  }
+
   /** Send a proactive outbound message via a running channel adapter. */
   async sendOutbound(
     instanceSlug: string,
     channelType: string,
     channelId: string,
     message: string,
-    opts?: { mediaUrl?: string | string[] },
+    opts?: { mediaUrl?: string | string[]; skipOptoutCheck?: boolean },
   ): Promise<void> {
     const instanceMap = this.adapters.get(instanceSlug);
     if (!instanceMap) throw new Error(`No active channels for instance "${instanceSlug}"`);
 
     const adapter = instanceMap.get(channelType);
     if (!adapter) throw new Error(`Channel "${channelType}" not active for instance "${instanceSlug}"`);
+
+    if (!opts?.skipOptoutCheck && (await this.isOptoutSuppressed(instanceSlug, channelType, channelId))) {
+      console.log(`[channel-manager] outbound suppressed (opt-out): ${instanceSlug} ${channelType}:${channelId}`);
+      return;
+    }
 
     let ok = false;
     let errorMessage: string | undefined;
@@ -248,6 +271,11 @@ export class ChannelManager {
 
     const adapter = instanceMap.get(channelType);
     if (!adapter) throw new Error(`Channel "${channelType}" not active for instance "${instanceSlug}"`);
+
+    if (await this.isOptoutSuppressed(instanceSlug, channelType, channelId)) {
+      console.log(`[channel-manager] template suppressed (opt-out): ${instanceSlug} ${channelType}:${channelId}`);
+      throw new Error(`Outbound suppressed: contact ${channelType}:${channelId} has opted out`);
+    }
 
     if (!adapter.sendTemplate) {
       throw new Error(`Channel "${channelType}" does not support template messages`);
