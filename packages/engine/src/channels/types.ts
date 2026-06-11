@@ -109,7 +109,11 @@ export type MessageHandler = (msg: IncomingMessage, signal?: AbortSignal) => Pro
 export interface StreamOutgoingMessage {
   textStream: AsyncIterable<string>;
   fullStream: AsyncIterable<unknown>;
-  completed: Promise<{ text: string }>;
+  completed: Promise<{
+    text: string;
+    /** Post-LLM hook outcomes (response_generated + response_sent), for live SSE rendering. */
+    hookExecutions?: import("../hooks/hook-types.js").HookExecutionSummary[];
+  }>;
   /**
    * Stable identifiers for the persisted assistant turn, known synchronously when
    * the stream is created (the assistant message UUID is pre-generated). Lets a
@@ -117,6 +121,8 @@ export interface StreamOutgoingMessage {
    * can later fetch the per-message debug payload without ordinal-matching.
    */
   meta?: { conversationId: string; messageId: string };
+  /** Pre-LLM hook outcomes (conversation_start + message_received), known when the stream is created. */
+  hookExecutions?: import("../hooks/hook-types.js").HookExecutionSummary[];
 }
 
 export type StreamMessageHandler = (msg: IncomingMessage, signal?: AbortSignal) => Promise<StreamOutgoingMessage>;

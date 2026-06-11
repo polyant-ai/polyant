@@ -67,6 +67,21 @@ export interface InstanceHookRow {
   updatedAt: Date;
 }
 
+/**
+ * Outcome of a single hook execution, returned by `runHooks()` so first-party
+ * consumers (e.g. the typed SSE stream) can surface it live. Mirrors the
+ * persisted `hook_executions` row minus the DB-generated fields.
+ */
+export interface HookExecutionSummary {
+  hookId: string;
+  event: HookEvent;
+  actionType: HookActionType;
+  toolName: string;
+  success: boolean;
+  error?: string;
+  durationMs: number;
+}
+
 /** One executor per action type, resolved by the runner from a registry map. */
 export interface HookActionExecutor {
   execute(

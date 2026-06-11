@@ -127,7 +127,7 @@ describe("runHooks", () => {
 
   it("should_swallow_store_errors", async () => {
     getEnabledHooksMock.mockRejectedValue(new Error("db down"));
-    await expect(runHooks("message_received", payload, baseCtx)).resolves.toBeUndefined();
+    await expect(runHooks("message_received", payload, baseCtx)).resolves.toEqual([]);
   });
 
   it("should_record_execution_telemetry_for_success_and_failure", async () => {
@@ -157,7 +157,31 @@ describe("runHooks", () => {
   it("should_not_fail_the_run_when_telemetry_write_fails", async () => {
     getEnabledHooksMock.mockResolvedValue([hook("a")]);
     recordExecutionMock.mockRejectedValue(new Error("insert failed"));
-    await expect(runHooks("message_received", payload, baseCtx)).resolves.toBeUndefined();
+    await runHooks("message_received", payload, baseCtx);
     expect(executeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("should_return_execution_summaries", async () => {
+    getEnabledHooksMock.mockResolvedValue([hook("a"), hook("b")]);
+    executeMock
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("boom"));
+    const summaries = await runHooks("message_received", payload, baseCtx);
+    expect(summaries).toHaveLength(2);
+    expect(summaries[0]).toMatchObject({
+      hookId: "a",
+      event: "message_received",
+      actionType: "tool",
+      toolName: "tool-a",
+      success: true,
+    });
+    expect(summaries[1]).toMatchObject({ hookId: "b", success: false, error: "boom" });
+    expect(typeof summaries[0].durationMs).toBe("number");
+  });
+
+  it("should_return_empty_array_when_no_hooks_or_store_error", async () => {
+    expect(await runHooks("message_received", payload, baseCtx)).toEqual([]);
+    getEnabledHooksMock.mockRejectedValue(new Error("db down"));
+    expect(await runHooks("message_received", payload, baseCtx)).toEqual([]);
   });
 });

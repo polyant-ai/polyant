@@ -28,7 +28,7 @@ import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
 import { emitConversation } from "./activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "./activity-stream/emit-helpers.js";
 import { runHooks } from "./hooks/hook-runner.js";
-import type { HookEventPayload, HookRunContext } from "./hooks/hook-types.js";
+import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./hooks/hook-types.js";
 
 /**
  * Channel types that should NOT produce `category: "inbound"` events:
@@ -477,6 +477,8 @@ export interface PipelinePreResult {
   contextPrepMs: number;
   /** The message text to use for the supervisor call. */
   messageText: string;
+  /** Pre-LLM hook outcomes (conversation_start + message_received). */
+  hookExecutions: HookExecutionSummary[];
 }
 
 export async function runPipelinePre(
@@ -493,16 +495,17 @@ export async function runPipelinePre(
   // persisted turn, then message_received on every turn — state writes are
   // visible to the supervisor in the same turn. Runs after contextPrepMs is
   // measured so hook latency doesn't pollute the context-prep metric.
+  const hookExecutions: HookExecutionSummary[] = [];
   const hookPayload = buildHookPayload(ctx, msg.text);
   if (hookPayload) {
     const hookCtx = buildHookRunContext(ctx, abortSignal);
     if (ctx.isFirstTurn) {
-      await runHooks("conversation_start", hookPayload, hookCtx);
+      hookExecutions.push(...(await runHooks("conversation_start", hookPayload, hookCtx)));
     }
-    await runHooks("message_received", hookPayload, hookCtx);
+    hookExecutions.push(...(await runHooks("message_received", hookPayload, hookCtx)));
   }
 
-  return { ctx, contextPrepMs, messageText: msg.text };
+  return { ctx, contextPrepMs, messageText: msg.text, hookExecutions };
 }
 
 // ---------------------------------------------------------------------------
@@ -534,6 +537,8 @@ export interface PipelinePostOptions {
 
 export interface PipelinePostResult {
   finalText: string;
+  /** Post-LLM hook outcomes (response_generated + response_sent). */
+  hookExecutions: HookExecutionSummary[];
 }
 
 export async function runPipelinePost(opts: PipelinePostOptions): Promise<PipelinePostResult> {
@@ -542,10 +547,11 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // Aborted pipelines leave no trace: skip trace/afterResponse entirely.
   // The caller (MessageCoordinator) has already discarded the result.
   if (opts.abortSignal?.aborted) {
-    return { finalText: opts.resultText };
+    return { finalText: opts.resultText, hookExecutions: [] };
   }
 
   const finalText = opts.resultText;
+  const hookExecutions: HookExecutionSummary[] = [];
 
   // Lifecycle hooks: response_generated precedes outbound delivery on the
   // sync path (the adapter sends only after handleMessage returns) and the
@@ -554,7 +560,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   const hookPayload = buildHookPayload(ctx, opts.messageText, finalText);
   const hookCtx = hookPayload ? buildHookRunContext(ctx, opts.abortSignal) : undefined;
   if (hookPayload && hookCtx) {
-    await runHooks("response_generated", hookPayload, hookCtx);
+    hookExecutions.push(...(await runHooks("response_generated", hookPayload, hookCtx)));
   }
 
   const totalMs = Date.now() - ctx.pipelineStart;
@@ -629,7 +635,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // hooks design doc). The main flush already ran, so persist any state these
   // hooks wrote with a second flush (no-op when nothing changed).
   if (hookPayload && hookCtx) {
-    await runHooks("response_sent", hookPayload, hookCtx);
+    hookExecutions.push(...(await runHooks("response_sent", hookPayload, hookCtx)));
     if (ctx.stateBuffer) {
       try {
         await ctx.stateBuffer.flush();
@@ -639,5 +645,5 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     }
   }
 
-  return { finalText };
+  return { finalText, hookExecutions };
 }

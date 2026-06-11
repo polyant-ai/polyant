@@ -17,6 +17,7 @@ function makeCallbacks(): StreamCallbacks & { calls: Array<[string, unknown[]]> 
     onStepFinish: record("stepFinish") as StreamCallbacks["onStepFinish"],
     onToolCall: record("toolCall") as StreamCallbacks["onToolCall"],
     onToolResult: record("toolResult") as StreamCallbacks["onToolResult"],
+    onHookExecution: record("hookExecution") as StreamCallbacks["onHookExecution"],
     onDone: record("done") as StreamCallbacks["onDone"],
     onError: record("error") as StreamCallbacks["onError"],
   };
@@ -103,6 +104,29 @@ describe("dispatch", () => {
     const err = (cb.calls[0][1] as unknown[])[0] as Error;
     expect(err).toBeInstanceOf(Error);
     expect(err.message).toBe("bad");
+  });
+
+  it("hook-execution invokes onHookExecution with the parsed summary", () => {
+    const cb = makeCallbacks();
+    const data = {
+      hookId: "h1",
+      event: "message_received",
+      actionType: "tool",
+      toolName: "lookup",
+      success: true,
+      durationMs: 42,
+    };
+    expect(dispatch({ event: "hook-execution", data }, cb)).toBe(true);
+    expect(cb.calls).toEqual([["hookExecution", [
+      { hookId: "h1", event: "message_received", actionType: "tool", toolName: "lookup", success: true, error: undefined, durationMs: 42 },
+    ]]]);
+  });
+
+  it("hook-execution drops unknown event names", () => {
+    const cb = makeCallbacks();
+    const data = { hookId: "h1", event: "conversation_idle", toolName: "x", success: true, durationMs: 1 };
+    expect(dispatch({ event: "hook-execution", data }, cb)).toBe(true);
+    expect(cb.calls).toEqual([]);
   });
 
   it("unknown event types are ignored without throwing", () => {
