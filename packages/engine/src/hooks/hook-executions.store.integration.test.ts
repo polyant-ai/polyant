@@ -55,6 +55,8 @@ describe("hook executions store (integration)", () => {
         toolName: "lookup",
         success: true,
         durationMs: 42,
+        args: { query: "+39" },
+        result: '{"ok":true}',
       });
       await recordHookExecution({
         instanceId: asInstanceSlug("itest-hooks"),
@@ -76,12 +78,16 @@ describe("hook executions store (integration)", () => {
         success: true,
         durationMs: 42,
         error: null,
+        args: { query: "+39" },
+        result: '{"ok":true}',
       });
       expect(rows[1]).toMatchObject({
         event: "response_generated",
         toolName: "notify",
         success: false,
         error: "boom",
+        args: null,
+        result: null,
       });
       expect(rows[0].createdAt).toBeInstanceOf(Date);
 

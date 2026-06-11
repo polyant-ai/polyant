@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, Loader2, Info, Zap, Coins, Terminal, FileText, Mic, SearchCode, Database, Webhook, CheckCircle2, XCircle } from "lucide-react";
+import { Trash2, Loader2, Info, Zap, Coins, Terminal, FileText, Mic, SearchCode, Database } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -37,6 +37,7 @@ import {
 import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta, type HookExecution } from "@/lib/api";
 import { MarkdownRenderer } from "@/app/(admin)/playground/_components/markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
+import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
 import { formatRelativeTime, parseUTC } from "@/lib/format";
@@ -437,29 +438,12 @@ export default function ConversationDetailPage() {
 
         <TooltipProvider>
           {timeline.map((item) => {
-            // Hook execution → centered neutral pill in the timeline
+            // Hook execution → centered expandable pill in the timeline
             if (item.kind === "hook") {
               const exec = item.exec;
               return (
                 <div key={`hook-${exec.id}`} className="flex justify-center">
-                  <div
-                    className="inline-flex max-w-[85%] items-center gap-2 rounded-full border bg-muted/50 px-3 py-1 text-xs text-muted-foreground"
-                    title={exec.error ?? undefined}
-                  >
-                    <Webhook className="h-3 w-3 shrink-0" />
-                    <span>{t(`hooks.events.${exec.event}`)}</span>
-                    <code className="rounded bg-muted px-1 py-0.5">{exec.toolName}</code>
-                    <span className="tabular-nums">{exec.durationMs}ms</span>
-                    {exec.success ? (
-                      <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-destructive">
-                        <XCircle className="h-3 w-3 shrink-0" />
-                        {t("hooks.executionFailed")}
-                      </span>
-                    )}
-                    <span className="opacity-60">{formatTime(exec.createdAt)}</span>
-                  </div>
+                  <HookExecutionPill execution={exec} timestamp={formatTime(exec.createdAt)} />
                 </div>
               );
             }

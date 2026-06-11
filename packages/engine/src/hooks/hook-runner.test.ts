@@ -179,6 +179,27 @@ describe("runHooks", () => {
     expect(typeof summaries[0].durationMs).toBe("number");
   });
 
+  it("should_propagate_captured_args_and_result_to_summary_and_telemetry", async () => {
+    getEnabledHooksMock.mockResolvedValue([hook("a")]);
+    executeMock.mockImplementation(
+      async (
+        _h: InstanceHookRow,
+        _p: HookEventPayload,
+        _c: HookRunContext,
+        capture: (data: { args?: Record<string, unknown>; result?: string }) => void,
+      ) => {
+        capture({ args: { q: "+39" } });
+        capture({ result: '{"ok":true}' });
+      },
+    );
+    const summaries = await runHooks("message_received", payload, baseCtx);
+    expect(summaries[0]).toMatchObject({ args: { q: "+39" }, result: '{"ok":true}' });
+    expect(recordExecutionMock.mock.calls[0][0]).toMatchObject({
+      args: { q: "+39" },
+      result: '{"ok":true}',
+    });
+  });
+
   it("should_return_empty_array_when_no_hooks_or_store_error", async () => {
     expect(await runHooks("message_received", payload, baseCtx)).toEqual([]);
     getEnabledHooksMock.mockRejectedValue(new Error("db down"));

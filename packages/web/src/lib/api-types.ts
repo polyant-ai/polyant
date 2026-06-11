@@ -572,6 +572,10 @@ export interface HookExecution {
   success: boolean;
   error: string | null;
   durationMs: number;
+  /** Rendered tool args (post-template). */
+  args: Record<string, unknown> | null;
+  /** Tool result, JSON-stringified and truncated. */
+  result: string | null;
   createdAt: string;
 }
 

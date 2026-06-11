@@ -18,6 +18,10 @@ export interface HookExecutionRow {
   success: boolean;
   error: string | null;
   durationMs: number;
+  /** Rendered tool args (post-template). Same exposure class as message `steps`. */
+  args: Record<string, unknown> | null;
+  /** Tool result, JSON-stringified and truncated. */
+  result: string | null;
   createdAt: Date;
 }
 
@@ -31,6 +35,8 @@ export interface RecordHookExecutionInput {
   success: boolean;
   error?: string;
   durationMs: number;
+  args?: Record<string, unknown>;
+  result?: string;
 }
 
 function toRow(r: typeof hookExecutions.$inferSelect): HookExecutionRow {
@@ -45,6 +51,8 @@ function toRow(r: typeof hookExecutions.$inferSelect): HookExecutionRow {
     success: r.success,
     error: r.error,
     durationMs: r.durationMs,
+    args: r.args,
+    result: r.result,
     createdAt: r.createdAt,
   };
 }
@@ -61,6 +69,8 @@ export async function recordHookExecution(input: RecordHookExecutionInput): Prom
     success: input.success,
     error: input.error ?? null,
     durationMs: input.durationMs,
+    args: input.args ?? null,
+    result: input.result ?? null,
   });
 }
 

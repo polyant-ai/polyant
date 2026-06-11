@@ -80,6 +80,20 @@ export interface HookExecutionSummary {
   success: boolean;
   error?: string;
   durationMs: number;
+  /** Rendered tool args (post-template). Captured even when the execution fails. */
+  args?: Record<string, unknown>;
+  /** Tool result, JSON-stringified and truncated. */
+  result?: string;
+}
+
+/**
+ * Incremental capture of an execution's input/output, reported by the executor
+ * via the `capture` callback so the runner can persist them even when the
+ * execution later fails or times out.
+ */
+export interface HookExecutionCapture {
+  args?: Record<string, unknown>;
+  result?: string;
 }
 
 /** One executor per action type, resolved by the runner from a registry map. */
@@ -88,5 +102,6 @@ export interface HookActionExecutor {
     hook: InstanceHookRow,
     payload: HookEventPayload,
     ctx: HookRunContext,
+    capture: (data: HookExecutionCapture) => void,
   ): Promise<void>;
 }

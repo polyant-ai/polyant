@@ -10,6 +10,7 @@ import type {
   HookActionType,
   HookEvent,
   HookEventPayload,
+  HookExecutionCapture,
   HookExecutionSummary,
   HookRunContext,
   InstanceHookRow,
@@ -67,8 +68,12 @@ export async function runHooks(
     const started = Date.now();
     let success = true;
     let error: string | undefined;
+    // Input/output reported incrementally by the executor — args land before
+    // the tool runs, so they survive failures and timeouts.
+    const captured: HookExecutionCapture = {};
+    const capture = (data: HookExecutionCapture) => Object.assign(captured, data);
     try {
-      await withTimeout(executor.execute(hook, payload, ctx), hook.timeoutMs, `${event}/${toolName}`);
+      await withTimeout(executor.execute(hook, payload, ctx, capture), hook.timeoutMs, `${event}/${toolName}`);
     } catch (err) {
       success = false;
       error = errMsg(err);
@@ -83,6 +88,8 @@ export async function runHooks(
       success,
       error,
       durationMs,
+      args: captured.args,
+      result: captured.result,
     });
     audit.log({
       action: `hook:${event}`,
@@ -103,6 +110,8 @@ export async function runHooks(
       success,
       error,
       durationMs,
+      args: captured.args,
+      result: captured.result,
     }).catch((err) =>
       console.error(`[hooks] failed to record execution for hook ${hook.id}:`, errMsg(err)),
     );

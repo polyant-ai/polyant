@@ -48,6 +48,10 @@ export const hookExecutions = pgTable(
     success: boolean("success").notNull(),
     error: text("error"),
     durationMs: integer("duration_ms").notNull(),
+    /** Rendered tool args (post-template). Same exposure class as message `steps`. */
+    args: jsonb("args").$type<Record<string, unknown>>(),
+    /** Tool result, JSON-stringified and truncated. */
+    result: text("result"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
