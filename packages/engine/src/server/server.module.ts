@@ -30,6 +30,7 @@ import { AttachmentsController } from "./attachments/attachments.controller.js";
 import { SkillsModule } from "../skills/skills.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { ActivityStreamModule } from "../activity-stream/activity-stream.module.js";
+import { OptoutsModule } from "./optouts/optouts.module.js";
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { ActivityStreamModule } from "../activity-stream/activity-stream.module.
     UsersModule,
     AuthModule,
     ActivityStreamModule,
+    OptoutsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
