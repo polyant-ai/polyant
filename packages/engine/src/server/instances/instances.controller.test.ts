@@ -102,6 +102,7 @@ describe("InstancesController", () => {
         "id", "slug", "name", "description", "status", "provider", "model",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
         "authEnabled", "thinkingEnabled", "stateInPromptEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "icon", "createdAt", "updatedAt",
+        "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint",
       ]);
 
       for (const key of Object.keys(instance)) {
