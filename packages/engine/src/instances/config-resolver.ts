@@ -40,6 +40,15 @@ export interface InstanceConfig {
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
   debugEnabled: boolean;
+  /** GDPR opt-out feature config (per instance). */
+  optout: {
+    enabled: boolean;
+    stopKeywords: string[];
+    resumeKeywords: string[];
+    closingMessage: string | null;
+    resumeMessage: string | null;
+    injectPromptHint: boolean;
+  };
   stt: {
     provider: STTProviderName;
     credentials: STTCredentials;
@@ -101,6 +110,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       stateInPromptEnabled: false,
       toolResultsInHistoryEnabled: false,
       debugEnabled: false,
+      optout: { enabled: false, stopKeywords: ["STOP"], resumeKeywords: ["START"], closingMessage: null, resumeMessage: null, injectPromptHint: true },
       stt: { provider: "openai", credentials: {} },
     };
   }
@@ -163,6 +173,14 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     stateInPromptEnabled: instance.stateInPromptEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
+    optout: {
+      enabled: instance.optoutEnabled,
+      stopKeywords: instance.optoutStopKeywords,
+      resumeKeywords: instance.optoutResumeKeywords,
+      closingMessage: instance.optoutClosingMessage,
+      resumeMessage: instance.optoutResumeMessage,
+      injectPromptHint: instance.optoutInjectPromptHint,
+    },
     stt: { provider: sttProvider, credentials: sttCredentials },
   };
 
