@@ -26,9 +26,12 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Copy Next.js standalone output
+# Copy Next.js standalone output. The standalone build does NOT bundle the
+# public/ folder nor .next/static — both must be copied next to server.js
+# (which lives at packages/web/server.js in a monorepo standalone tree).
 COPY --from=build /app/packages/web/.next/standalone ./
 COPY --from=build /app/packages/web/.next/static ./packages/web/.next/static
+COPY --from=build /app/packages/web/public ./packages/web/public
 
 EXPOSE 3000
 
