@@ -18,6 +18,10 @@ export interface PlaygroundHookExecution {
   success: boolean;
   error?: string;
   durationMs: number;
+  /** Rendered tool args (post-template). */
+  args?: Record<string, unknown>;
+  /** Tool result, JSON-stringified and truncated. */
+  result?: string;
 }
 
 export interface StreamCallbacks {
@@ -235,6 +239,11 @@ export function dispatch(evt: SseEvent, cb: StreamCallbacks): boolean {
           success: data.success === true,
           error: typeof data.error === "string" ? data.error : undefined,
           durationMs: typeof data.durationMs === "number" ? data.durationMs : 0,
+          args:
+            data.args && typeof data.args === "object" && !Array.isArray(data.args)
+              ? (data.args as Record<string, unknown>)
+              : undefined,
+          result: typeof data.result === "string" ? data.result : undefined,
         });
       }
       return true;

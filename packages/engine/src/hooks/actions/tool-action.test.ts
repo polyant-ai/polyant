@@ -20,7 +20,7 @@ vi.mock("../../audit/audit-logger.js", () => ({
 }));
 
 import { toolActionExecutor } from "./tool-action.js";
-import type { HookEventPayload, HookRunContext, InstanceHookRow } from "../hook-types.js";
+import type { HookEventPayload, HookExecutionCapture, HookRunContext, InstanceHookRow } from "../hook-types.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 
 const payload: HookEventPayload = {
@@ -54,8 +54,11 @@ function hookFor(toolName: string, args: Record<string, unknown>): InstanceHookR
 
 describe("toolActionExecutor", () => {
   const executeMock = vi.fn();
+  let captured: HookExecutionCapture;
+  const capture = (data: HookExecutionCapture) => Object.assign(captured, data);
 
   beforeEach(() => {
+    captured = {};
     registryMock.clear();
     executeMock.mockReset().mockResolvedValue({ ok: true });
     registryMock.set("lookup", {
@@ -69,13 +72,19 @@ describe("toolActionExecutor", () => {
   });
 
   it("should_render_args_and_execute_tool", async () => {
-    await toolActionExecutor.execute(hookFor("lookup", { query: "{{channel.id}}" }), payload, ctx);
+    await toolActionExecutor.execute(hookFor("lookup", { query: "{{channel.id}}" }), payload, ctx, capture);
     expect(executeMock).toHaveBeenCalledWith({ query: "+39", limit: null });
+  });
+
+  it("should_capture_rendered_args_and_serialized_result", async () => {
+    await toolActionExecutor.execute(hookFor("lookup", { query: "{{channel.id}}" }), payload, ctx, capture);
+    expect(captured.args).toEqual({ query: "+39", limit: null });
+    expect(captured.result).toBe(JSON.stringify({ ok: true }));
   });
 
   it("should_throw_when_tool_not_registered", async () => {
     await expect(
-      toolActionExecutor.execute(hookFor("missing", {}), payload, ctx),
+      toolActionExecutor.execute(hookFor("missing", {}), payload, ctx, capture),
     ).rejects.toThrow(/not registered/);
   });
 
@@ -87,14 +96,15 @@ describe("toolActionExecutor", () => {
       create: () => ({ parameters: z.object({}), execute: executeMock }),
     });
     await expect(
-      toolActionExecutor.execute(hookFor("spawnTask", {}), payload, ctx),
+      toolActionExecutor.execute(hookFor("spawnTask", {}), payload, ctx, capture),
     ).rejects.toThrow(/meta-tool/);
   });
 
-  it("should_throw_when_rendered_args_fail_schema", async () => {
+  it("should_throw_when_rendered_args_fail_schema_but_still_capture_args", async () => {
     await expect(
-      toolActionExecutor.execute(hookFor("lookup", { query: 42 }), payload, ctx),
+      toolActionExecutor.execute(hookFor("lookup", { query: 42 }), payload, ctx, capture),
     ).rejects.toThrow(/schema/);
     expect(executeMock).not.toHaveBeenCalled();
+    expect(captured.args).toEqual({ query: 42 });
   });
 });

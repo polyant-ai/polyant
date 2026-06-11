@@ -2,9 +2,10 @@
 
 "use client";
 
-import { Terminal, SearchCode, Webhook, CheckCircle2, XCircle } from "lucide-react";
+import { Terminal, SearchCode } from "lucide-react";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
+import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { useI18n } from "@/lib/i18n/context";
 import type { ChatMessage } from "../_hooks/use-chat";
 
@@ -58,24 +59,7 @@ export function MessageBubble({ message, onDebugClick }: MessageBubbleProps) {
         {!isUser && message.hookExecutions.length > 0 && (
           <div className="mb-2 flex flex-col gap-1">
             {message.hookExecutions.map((exec, i) => (
-              <div
-                key={`${exec.hookId}-${exec.event}-${i}`}
-                className="inline-flex w-fit items-center gap-1.5 rounded-full border bg-background/60 px-2 py-0.5 text-xs text-muted-foreground"
-                title={exec.error ?? undefined}
-              >
-                <Webhook className="h-3 w-3 shrink-0" />
-                <span>{t(`hooks.events.${exec.event}`)}</span>
-                <code className="rounded bg-muted px-1">{exec.toolName}</code>
-                <span className="tabular-nums">{exec.durationMs}ms</span>
-                {exec.success ? (
-                  <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-destructive">
-                    <XCircle className="h-3 w-3 shrink-0" />
-                    {t("hooks.executionFailed")}
-                  </span>
-                )}
-              </div>
+              <HookExecutionPill key={`${exec.hookId}-${exec.event}-${i}`} execution={exec} />
             ))}
           </div>
         )}
