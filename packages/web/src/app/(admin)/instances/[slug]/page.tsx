@@ -266,7 +266,7 @@ export default function InstanceDetailPage() {
           <HooksTab slug={instance.slug} />
         </TabsContent>
         <TabsContent value="privacy" className="mt-6">
-          <PrivacyTab instance={instance} onSaved={() => setInstance((prev) => prev)} />
+          <PrivacyTab instance={instance} onSaved={() => { api.instances.get(params.slug).then((r) => setInstance(r.instance)).catch(() => {}); }} />
         </TabsContent>
       </Tabs>
     </div>
