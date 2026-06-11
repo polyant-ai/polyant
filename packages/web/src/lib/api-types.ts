@@ -53,6 +53,14 @@ export interface Instance {
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload is persisted per turn (debug/analysis). */
   debugEnabled: boolean;
+  /** When true, inbound STOP/START keyword handling is active for this instance. */
+  optoutEnabled: boolean;
+  optoutStopKeywords: string[];
+  optoutResumeKeywords: string[];
+  optoutClosingMessage: string | null;
+  optoutResumeMessage: string | null;
+  /** When true, a read-only opt-out hint is injected into the supervisor prompt. */
+  optoutInjectPromptHint: boolean;
   sttProvider: string | null;
   icon: string | null;
   createdAt: string | null;
@@ -595,4 +603,14 @@ export interface ActivityLogEntry {
   content: string;
   eventCount: number;
   createdAt: string;
+}
+
+// ── Opt-Out (GDPR) ────────────────────────────────────────────────────
+
+export interface OptoutContact {
+  channelType: string;
+  channelId: string;
+  status: "opted_out" | "opted_in";
+  source: string;
+  updatedAt: string | null;
 }
