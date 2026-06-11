@@ -6,6 +6,7 @@ import { useReducer, useCallback, useRef } from "react";
 import {
   streamChatCompletion,
   type ChatMessage as SSEMessage,
+  type PlaygroundHookExecution,
 } from "../_lib/stream-parser";
 import {
   api,
@@ -43,6 +44,8 @@ export interface ChatMessage {
   steps: LiveStep[];
   /** Reasoning text accumulated during the stream (signature attached on close). */
   reasoning: ReasoningDetail[];
+  /** Lifecycle hook outcomes for this turn (live SSE only — loaded conversations show them in the Conversations page). */
+  hookExecutions: PlaygroundHookExecution[];
   isStreaming: boolean;
   createdAt: string | null;
   /**
@@ -74,6 +77,7 @@ export type ChatAction =
   | { type: "STEP_FINISH"; index: number; finishReason: string }
   | { type: "TOOL_CALL"; id: string; name: string; args: unknown }
   | { type: "TOOL_RESULT"; id: string; result: unknown }
+  | { type: "HOOK_EXECUTION"; execution: PlaygroundHookExecution }
   | { type: "STREAM_DONE"; meta?: { conversationId?: string; messageId?: string } }
   | { type: "STREAM_ERROR"; error: string }
   | { type: "LOAD_CONVERSATION"; messages: ConversationMessage[]; conversationId: string; instanceSlug?: string }
@@ -131,6 +135,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         content: action.text,
         steps: [],
         reasoning: [],
+        hookExecutions: [],
         isStreaming: false,
         createdAt: now,
       };
@@ -140,6 +145,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         content: "",
         steps: [],
         reasoning: [],
+        hookExecutions: [],
         isStreaming: true,
         createdAt: null,
       };
@@ -286,6 +292,16 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       };
     }
 
+    case "HOOK_EXECUTION": {
+      return {
+        ...state,
+        messages: updateLastAssistant(state.messages, (m) => ({
+          ...m,
+          hookExecutions: [...m.hookExecutions, action.execution],
+        })),
+      };
+    }
+
     case "STREAM_DONE": {
       const now = new Date().toISOString();
       const msgs = state.messages.map((msg) =>
@@ -322,6 +338,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         content: msg.content,
         steps: (msg.steps ?? []).map(liveStepFromPersisted),
         reasoning: msg.reasoning ?? [],
+        hookExecutions: [],
         isStreaming: false,
         createdAt: msg.createdAt ?? null,
       }));
@@ -414,6 +431,8 @@ export function useChat(defaultInstanceSlug: string) {
             dispatch({ type: "TOOL_CALL", id, name, args }),
           onToolResult: (id, result) =>
             dispatch({ type: "TOOL_RESULT", id, result }),
+          onHookExecution: (execution) =>
+            dispatch({ type: "HOOK_EXECUTION", execution }),
           onDone: (meta) => {
             dispatch({ type: "STREAM_DONE", meta });
             abortRef.current = null;

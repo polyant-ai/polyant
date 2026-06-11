@@ -10,6 +10,7 @@ import type {
   HookActionType,
   HookEvent,
   HookEventPayload,
+  HookExecutionSummary,
   HookRunContext,
   InstanceHookRow,
 } from "./hook-types.js";
@@ -36,24 +37,26 @@ function withTimeout(promise: Promise<void>, ms: number, label: string): Promise
  * Run all enabled hooks for (instance, event), sequentially in position order.
  * Observe-only contract: every failure (load, executor, timeout) is logged and
  * swallowed — hooks never block the pipeline. Audit records the outcome but
- * never the rendered args (PII).
+ * never the rendered args (PII). Returns one summary per executed hook so
+ * first-party consumers (typed SSE stream) can surface the outcomes live.
  */
 export async function runHooks(
   event: HookEvent,
   payload: HookEventPayload,
   ctx: HookRunContext,
-): Promise<void> {
+): Promise<HookExecutionSummary[]> {
+  const summaries: HookExecutionSummary[] = [];
   let hooks: InstanceHookRow[];
   try {
     hooks = await getEnabledHooks(ctx.instanceId, event);
   } catch (err) {
     console.error(`[hooks] failed to load hooks for ${ctx.instanceId}/${event}:`, errMsg(err));
-    return;
+    return summaries;
   }
-  if (hooks.length === 0) return;
+  if (hooks.length === 0) return summaries;
 
   for (const hook of hooks) {
-    if (ctx.abortSignal?.aborted) return;
+    if (ctx.abortSignal?.aborted) return summaries;
     const executor = executors.get(hook.actionType);
     if (!executor) {
       console.warn(`[hooks] ${event} hook ${hook.id}: unknown action type "${hook.actionType}" — skipping`);
@@ -72,6 +75,15 @@ export async function runHooks(
       console.error(`[hooks] ${event} hook ${hook.id} (${toolName}) failed:`, error);
     }
     const durationMs = Date.now() - started;
+    summaries.push({
+      hookId: hook.id,
+      event,
+      actionType: hook.actionType,
+      toolName,
+      success,
+      error,
+      durationMs,
+    });
     audit.log({
       action: `hook:${event}`,
       success,
@@ -95,4 +107,5 @@ export async function runHooks(
       console.error(`[hooks] failed to record execution for hook ${hook.id}:`, errMsg(err)),
     );
   }
+  return summaries;
 }

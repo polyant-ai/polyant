@@ -304,7 +304,7 @@ async function main() {
 
     // Phase 4+5: Deferred — runs after stream completes (skipped on abort)
     const completed = stream.completed.then(async (result) => {
-      const { finalText } = await runPipelinePost({
+      const { finalText, hookExecutions } = await runPipelinePost({
         ctx,
         contextPrepMs,
         messageText,
@@ -323,7 +323,7 @@ async function main() {
         abortSignal,
       });
 
-      return { text: finalText };
+      return { text: finalText, hookExecutions };
     });
 
     return {
@@ -331,6 +331,7 @@ async function main() {
       fullStream: stream.fullStream,
       completed,
       meta: { conversationId: ctx.conversationId, messageId: assistantMessageId },
+      hookExecutions: pre.hookExecutions,
     };
   }
 
