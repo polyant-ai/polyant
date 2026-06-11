@@ -69,6 +69,12 @@ const fakeInstance = {
   debugEnabled: false,
   icon: null,
   sttProvider: "openai",
+  optoutEnabled: false,
+  optoutStopKeywords: ["STOP"],
+  optoutResumeKeywords: ["START"],
+  optoutClosingMessage: null,
+  optoutResumeMessage: null,
+  optoutInjectPromptHint: true,
   createdAt: new Date("2025-01-01"),
   updatedAt: new Date("2025-01-01"),
 };
@@ -118,6 +124,14 @@ describe("instances/config-resolver", () => {
         stateInPromptEnabled: false,
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
+        optout: {
+          enabled: false,
+          stopKeywords: ["STOP"],
+          resumeKeywords: ["START"],
+          closingMessage: null,
+          resumeMessage: null,
+          injectPromptHint: true,
+        },
         stt: { provider: "openai", credentials: {} },
       });
       expect(mockFindInstanceBySlug).toHaveBeenCalledWith("nonexistent");
@@ -141,6 +155,10 @@ describe("instances/config-resolver", () => {
         apiKeys: {
           openai: "sk-openai-test",
           anthropic: "sk-anthropic-test",
+          // bedrock secrets are absent from fakeSecrets → resolver returns undefined for each
+          bedrock_access_key_id: undefined,
+          bedrock_secret_access_key: undefined,
+          bedrock_region: undefined,
         },
         secrets: fakeSecrets,
         langsmith: {
@@ -158,6 +176,14 @@ describe("instances/config-resolver", () => {
         stateInPromptEnabled: false,
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
+        optout: {
+          enabled: false,
+          stopKeywords: ["STOP"],
+          resumeKeywords: ["START"],
+          closingMessage: null,
+          resumeMessage: null,
+          injectPromptHint: true,
+        },
         stt: {
           provider: "openai",
           credentials: { openai: { apiKey: "sk-openai-test" } },

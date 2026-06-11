@@ -72,7 +72,7 @@ export class OptoutsController {
       instanceId: instance.id,
       instanceSlug: instance.slug,
       channelType,
-      channelId: decodeURIComponent(channelId),
+      channelId,
       status: "opted_in",
       source: "admin",
     });
