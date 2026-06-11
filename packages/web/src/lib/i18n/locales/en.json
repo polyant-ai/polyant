@@ -583,6 +583,7 @@
   "hooks.deleteTitle": "Delete hook?",
   "hooks.deleteDescription": "The {tool} hook will no longer run. This cannot be undone.",
   "hooks.loadFailed": "Failed to load hooks",
+  "hooks.executionFailed": "failed",
   "hooks.events.conversation_start": "Conversation start",
   "hooks.events.message_received": "Message received",
   "hooks.events.response_generated": "Response generated",

@@ -58,6 +58,7 @@ export type {
   EventDefinition,
   HookEvent,
   InstanceHook,
+  HookExecution,
   BacklogEvent,
   ActivityLogEntry,
 } from "./api-types";
@@ -98,6 +99,7 @@ import type {
   EventDefinition,
   HookEvent,
   InstanceHook,
+  HookExecution,
   BacklogEvent,
   ActivityLogEntry,
 } from "./api-types";
@@ -367,6 +369,10 @@ export const api = {
     get: (conversationId: string, instanceId: string) =>
       request<{ conversation: ConversationListItem }>(
         `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,
+      ),
+    hookExecutions: (conversationId: string, instanceId: string) =>
+      request<{ executions: HookExecution[] }>(
+        `/api/conversations/${encodeURIComponent(conversationId)}/hooks?instanceId=${encodeURIComponent(instanceId)}`,
       ),
     messages: (
       conversationId: string,
