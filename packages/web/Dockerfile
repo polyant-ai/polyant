@@ -86,9 +86,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Copy public assets (if any)
-# COPY --from=builder /app/packages/web/public ./packages/web/public
-
 # Set correct permissions for prerender cache
 RUN mkdir -p .next && chown nextjs:nodejs .next
 
@@ -98,8 +95,12 @@ RUN mkdir -p .next && chown nextjs:nodejs .next
 COPY --from=builder --chown=nextjs:nodejs /app/packages/web/.next/standalone ./
 # Copy node_modules that standalone needs (traced deps from builder)
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
-# Static assets must sit next to server.js (packages/web/.next/static), not at root
+# Static assets AND public/ (logo, favicons, etc.) must sit next to server.js
+# (packages/web/.next/static + packages/web/public), NOT at the image root —
+# standalone output bundles neither, and the server resolves them relative to
+# its own directory.
 COPY --from=builder --chown=nextjs:nodejs /app/packages/web/.next/static ./packages/web/.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/packages/web/public ./packages/web/public
 
 USER nextjs
 
