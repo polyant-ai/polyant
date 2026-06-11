@@ -56,6 +56,8 @@ export interface SupervisorInput {
   thinkingEnabled?: boolean;
   /** When true, the current conversation state is rendered read-only into the system prompt. */
   stateInPromptEnabled?: boolean;
+  /** Informational opt-out hint to render into the prompt (set when the instance enables it). */
+  optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
   /** When true, the exact LLM request payload (system + messages + tools) is captured and returned for debug. */
   debugEnabled?: boolean;
   /** Harness categories to include (e.g. "room"). Tools with `harness: true` are only equipped when their category is in this set. */
@@ -403,6 +405,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     contextPrompt: input.contextPrompt,
     channelIdentity: input.channelIdentity,
     conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
+    optoutHint: input.optoutHint,
   });
 
   pipelineLog.systemPrompt(instanceSlug, systemPrompt);
