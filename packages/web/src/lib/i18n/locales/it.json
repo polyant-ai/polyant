@@ -582,6 +582,7 @@
   "hooks.deleteTitle": "Eliminare l'hook?",
   "hooks.deleteDescription": "L'hook {tool} non verrà più eseguito. L'operazione non è reversibile.",
   "hooks.loadFailed": "Caricamento hook non riuscito",
+  "hooks.executionFailed": "fallito",
   "hooks.events.conversation_start": "Inizio conversazione",
   "hooks.events.message_received": "Messaggio ricevuto",
   "hooks.events.response_generated": "Risposta generata",

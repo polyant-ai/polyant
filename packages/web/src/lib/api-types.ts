@@ -563,6 +563,18 @@ export interface InstanceHook {
   updatedAt: string;
 }
 
+export interface HookExecution {
+  id: string;
+  hookId: string;
+  event: HookEvent;
+  actionType: "tool";
+  toolName: string;
+  success: boolean;
+  error: string | null;
+  durationMs: number;
+  createdAt: string;
+}
+
 export interface BacklogEvent {
   id: string;
   status: string;
