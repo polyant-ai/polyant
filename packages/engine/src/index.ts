@@ -224,6 +224,10 @@ async function main() {
         stateBuffer: ctx.stateBuffer,
         stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
         debugEnabled: ctx.instanceConfig.debugEnabled,
+        optoutHint:
+          ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
+            ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
+            : undefined,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
@@ -305,6 +309,10 @@ async function main() {
         stateBuffer: ctx.stateBuffer,
         stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
         debugEnabled: ctx.instanceConfig.debugEnabled,
+        optoutHint:
+          ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
+            ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
+            : undefined,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
