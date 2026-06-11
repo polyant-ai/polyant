@@ -188,3 +188,16 @@ New **"Hooks" tab** on the instance page:
 - `conversation_idle` event (requires a dedicated scheduler).
 - Activation filters (channel type, expression-based conditions).
 - Per-hook `blocking: false` (fire-and-forget) and retry policies.
+
+---
+
+## 12. Addendum — per-execution telemetry (`hook_executions`)
+
+Added after the v1 implementation, to make hook runs visible in the conversation UI (audit logs alone are not tied to the conversation timeline).
+
+- **Table `hook_executions`** — slug-keyed telemetry, same trust class as `pipeline_traces`/`tool_audit_logs`: `instance_id`/`conversation_id` as `text`, `hook_id` as a plain `uuid` (intentionally NOT a FK — history outlives the hook), `event`, `action_type`, `tool_name`, `success`, `error`, `duration_ms`, `created_at`. Index on `(conversation_id, created_at)`.
+- **Writer** — the runner records every execution (success and failure) fire-and-forget right after the audit log; a failed insert never affects the run.
+- **Lifecycle** — dropped by the `deleteConversation` cascade; intentionally preserved on instance deletion (same policy as the other telemetry tables).
+- **API** — `GET /api/conversations/:conversationId/hooks?instanceId=…` (conversation-scoped, same IDOR guard as the other conversation endpoints) returns executions in timeline order.
+- **UI** — the conversation detail page merges executions with messages into one chronological timeline; each execution renders as a centered pill (event, tool, duration, outcome, error on hover). Executions older than the loaded message pagination window are hidden. Note: a `message_received` execution legitimately precedes its user message row in the timeline (the row is persisted commit-on-success at the end of the turn).
+- **Playground** — live rendering via custom SSE events is a future follow-up; the persisted conversation view covers the audit need today.
