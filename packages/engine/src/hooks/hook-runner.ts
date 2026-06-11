@@ -3,6 +3,7 @@
 import { errMsg } from "../utils/error.js";
 import { createAuditLogger } from "../audit/audit-logger.js";
 import { getEnabledHooks } from "./hooks.store.js";
+import { recordHookExecution } from "./hook-executions.store.js";
 import { toolActionExecutor } from "./actions/tool-action.js";
 import type {
   HookActionExecutor,
@@ -61,23 +62,37 @@ export async function runHooks(
     const toolName = hook.actionConfig.toolName;
     const audit = createAuditLogger(`hook:${toolName}`, ctx.instanceId, ctx.conversationId);
     const started = Date.now();
+    let success = true;
+    let error: string | undefined;
     try {
       await withTimeout(executor.execute(hook, payload, ctx), hook.timeoutMs, `${event}/${toolName}`);
-      audit.log({
-        action: `hook:${event}`,
-        success: true,
-        durationMs: Date.now() - started,
-        details: { actionType: hook.actionType },
-      });
     } catch (err) {
-      console.error(`[hooks] ${event} hook ${hook.id} (${toolName}) failed:`, errMsg(err));
-      audit.log({
-        action: `hook:${event}`,
-        success: false,
-        error: errMsg(err),
-        durationMs: Date.now() - started,
-        details: { actionType: hook.actionType },
-      });
+      success = false;
+      error = errMsg(err);
+      console.error(`[hooks] ${event} hook ${hook.id} (${toolName}) failed:`, error);
     }
+    const durationMs = Date.now() - started;
+    audit.log({
+      action: `hook:${event}`,
+      success,
+      error,
+      durationMs,
+      details: { actionType: hook.actionType },
+    });
+    // Per-conversation telemetry for the conversation detail UI — fire-and-forget,
+    // a failed insert never affects the run.
+    recordHookExecution({
+      instanceId: ctx.instanceId,
+      conversationId: ctx.conversationId,
+      hookId: hook.id,
+      event,
+      actionType: hook.actionType,
+      toolName,
+      success,
+      error,
+      durationMs,
+    }).catch((err) =>
+      console.error(`[hooks] failed to record execution for hook ${hook.id}:`, errMsg(err)),
+    );
   }
 }

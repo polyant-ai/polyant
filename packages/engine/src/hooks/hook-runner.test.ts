@@ -2,14 +2,19 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { getEnabledHooksMock, executeMock, auditLogMock } = vi.hoisted(() => ({
+const { getEnabledHooksMock, executeMock, auditLogMock, recordExecutionMock } = vi.hoisted(() => ({
   getEnabledHooksMock: vi.fn(),
   executeMock: vi.fn(),
   auditLogMock: vi.fn(),
+  recordExecutionMock: vi.fn(),
 }));
 
 vi.mock("./hooks.store.js", () => ({
   getEnabledHooks: getEnabledHooksMock,
+}));
+
+vi.mock("./hook-executions.store.js", () => ({
+  recordHookExecution: recordExecutionMock,
 }));
 
 vi.mock("./actions/tool-action.js", () => ({
@@ -59,6 +64,7 @@ describe("runHooks", () => {
     getEnabledHooksMock.mockReset().mockResolvedValue([]);
     executeMock.mockReset().mockResolvedValue(undefined);
     auditLogMock.mockReset();
+    recordExecutionMock.mockReset().mockResolvedValue(undefined);
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
@@ -122,5 +128,36 @@ describe("runHooks", () => {
   it("should_swallow_store_errors", async () => {
     getEnabledHooksMock.mockRejectedValue(new Error("db down"));
     await expect(runHooks("message_received", payload, baseCtx)).resolves.toBeUndefined();
+  });
+
+  it("should_record_execution_telemetry_for_success_and_failure", async () => {
+    getEnabledHooksMock.mockResolvedValue([hook("a"), hook("b")]);
+    executeMock
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("boom"));
+    await runHooks("message_received", payload, baseCtx);
+    expect(recordExecutionMock).toHaveBeenCalledTimes(2);
+    expect(recordExecutionMock.mock.calls[0][0]).toMatchObject({
+      instanceId: "demo",
+      conversationId: "c1",
+      hookId: "a",
+      event: "message_received",
+      actionType: "tool",
+      toolName: "tool-a",
+      success: true,
+    });
+    expect(recordExecutionMock.mock.calls[1][0]).toMatchObject({
+      hookId: "b",
+      toolName: "tool-b",
+      success: false,
+      error: "boom",
+    });
+  });
+
+  it("should_not_fail_the_run_when_telemetry_write_fails", async () => {
+    getEnabledHooksMock.mockResolvedValue([hook("a")]);
+    recordExecutionMock.mockRejectedValue(new Error("insert failed"));
+    await expect(runHooks("message_received", payload, baseCtx)).resolves.toBeUndefined();
+    expect(executeMock).toHaveBeenCalledTimes(1);
   });
 });
