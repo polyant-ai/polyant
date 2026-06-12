@@ -40,13 +40,11 @@ export interface RoomFormState {
 interface Props {
   form: RoomFormState;
   onChange: (form: RoomFormState) => void;
-  onSave: () => void;
   onDelete?: () => void;
-  saving: boolean;
   isNew: boolean;
 }
 
-export function RoomConfigSection({ form, onChange, onSave, onDelete, saving, isNew }: Props) {
+export function RoomConfigSection({ form, onChange, onDelete, isNew }: Props) {
   const { t } = useI18n();
   return (
     <section className="space-y-4 rounded-lg border p-4">
@@ -116,12 +114,6 @@ export function RoomConfigSection({ form, onChange, onSave, onDelete, saving, is
           value={form.evalIntervalMinutes}
           onChange={(e) => onChange({ ...form, evalIntervalMinutes: Number(e.target.value) })}
         />
-      </div>
-
-      <div className="flex justify-end">
-        <Button size="sm" onClick={onSave} disabled={saving}>
-          {saving ? t("common.saving") : t("common.save")}
-        </Button>
       </div>
     </section>
   );
