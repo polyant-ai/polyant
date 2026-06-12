@@ -44,11 +44,36 @@ vi.mock("../utils/pipeline-logger.js", () => ({
   },
 }));
 
+const mockEmitFromChatResponse = vi.fn();
+const mockTapAndForwardFullStream = vi.fn(async function* (
+  fullStream: AsyncIterable<unknown>,
+  _ctx: unknown,
+) {
+  for await (const c of fullStream) yield c;
+});
+vi.mock("../activity-stream/bus-emitter.js", () => ({
+  emitFromChatResponse: (...args: unknown[]) => mockEmitFromChatResponse(...args),
+  tapAndForwardFullStream: (s: AsyncIterable<unknown>, ctx: unknown) =>
+    mockTapAndForwardFullStream(s, ctx),
+}));
+
+vi.mock("../instances/store.js", () => ({
+  findInstanceBySlug: vi.fn().mockResolvedValue(null),
+}));
+
 import { chat, chatStream, initAIGateway } from "./index.js";
 import { aiLogger } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
+import { findInstanceBySlug } from "../instances/store.js";
 import type { ChatRequest } from "./types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
+
+const mockFindInstanceBySlug = vi.mocked(findInstanceBySlug);
+
+/** Flush the microtask queue so fire-and-forget bus emission settles. */
+async function flushMicrotasks(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 0));
+}
 
 function makeRequest(overrides: Partial<ChatRequest> = {}): ChatRequest {
   return {
@@ -163,6 +188,29 @@ describe("AI Gateway", () => {
       expect(result.steps).toHaveLength(1);
       expect(result.steps[0].toolCalls[0].toolName).toBe("search");
       expect(result.usage.totalTokens).toBe(150);
+    });
+
+    it("emits the instance icon to the activity bus as a URL, never the raw base64 data URI", async () => {
+      // Regression: buildBusContext used to pass `instance.icon` (a
+      // `data:image/...;base64,...` URI) straight through, so the activity
+      // feed rendered the base64 string as text. It MUST be a /api URL — the
+      // same conversion the per-category emitters and the REST DTO apply.
+      mockFindInstanceBySlug.mockResolvedValueOnce({
+        id: "uuid-1",
+        slug: "acme",
+        name: "Acme",
+        icon: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAE",
+        updatedAt: new Date(1700000000000),
+      } as unknown as Awaited<ReturnType<typeof findInstanceBySlug>>);
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+
+      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("acme") });
+      await flushMicrotasks();
+
+      expect(mockEmitFromChatResponse).toHaveBeenCalled();
+      const ctx = mockEmitFromChatResponse.mock.calls[0][1] as { instance?: { icon?: string | null } };
+      expect(ctx.instance?.icon).toBe("/api/instances/acme/icon?v=1700000000000");
+      expect(ctx.instance?.icon).not.toContain("base64");
     });
 
     it("passes langsmith providerOptions to provider when langsmith config is present", async () => {
