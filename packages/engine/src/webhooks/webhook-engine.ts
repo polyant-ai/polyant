@@ -15,6 +15,7 @@ import { webhookLog } from "./webhook-logger.js";
 import type { EventDefinition } from "./webhook-sources.store.js";
 import { emitConversation } from "../activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
+import { ConversationStateBuffer } from "../conversations/state.buffer.js";
 
 /**
  * Trigger an immediate conversation from a matched webhook event.
@@ -124,6 +125,20 @@ export async function triggerConversation(
     });
   }
 
+  // Conversation state buffer (commit-on-success), mirroring the inbound pipeline:
+  // tools invoked in the trigger turn can write trusted derived values via `ctx.state`
+  // (e.g. an instance's init tool seeding offerType/leadId), persisted only after
+  // supervise succeeds. Without this the trigger turn had no buffer and every state
+  // write silently no-opped. Seed the trusted channel identity in channel mode so
+  // tools also get `ctx.state.channel`.
+  const stateBuffer = await ConversationStateBuffer.load(conversationId, instanceSlug).catch((err) => {
+    webhookLog.error("TriggerEngine", `failed to load conversation state for ${conversationId}`, err);
+    return new ConversationStateBuffer(conversationId, instanceSlug);
+  });
+  if (hasChannel && renderedTarget) {
+    stateBuffer.seedChannel({ type: definition.outboundChannel!, id: renderedTarget });
+  }
+
   webhookLog.info("TriggerEngine", `triggering conversation ${conversationId} for "${definition.name}"${hasChannel ? "" : " (internal mode)"}`);
 
   // 4. Synthetic user message — the actual instructions are in the contextPrompt (system prompt)
@@ -169,11 +184,21 @@ export async function triggerConversation(
       thinkingEnabled: instanceConfig.thinkingEnabled,
       debugEnabled: instanceConfig.debugEnabled,
       includeHarness: harnessCategories,
+      stateBuffer,
     });
   } catch (err) {
     webhookLog.error("TriggerEngine", `supervise() failed for "${definition.name}"`, err);
     if (hasChannel) clearTriggerContext(conversationId);
     return;
+  }
+
+  // Commit conversation state (commit-on-success): reached only when supervise
+  // succeeded (the catch above returns). Awaited so a tool's derived value is
+  // durable before the next inbound turn reads it. Errors logged, not propagated.
+  try {
+    await stateBuffer.flush();
+  } catch (err) {
+    webhookLog.error("TriggerEngine", `failed to flush conversation state for ${conversationId}`, err);
   }
 
   // When a tool has already delivered the reply (e.g. send_whatsapp_template),
