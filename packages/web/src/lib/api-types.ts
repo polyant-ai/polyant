@@ -114,7 +114,7 @@ export interface PromptSection {
   content: string;
 }
 
-/** Per-instance config field declared by a tool. `text` is a masked input; `select` renders a dropdown over `choices`. */
+/** Per-instance config field declared by a tool. `text` is a masked input unless `sensitive: false` (readable cleartext); `select` renders a dropdown over `choices`. */
 export interface RequiredSecretSpec {
   key: string;
   type: "text" | "select";
@@ -122,7 +122,9 @@ export interface RequiredSecretSpec {
   description?: string;
   choices?: string[];
   optional?: boolean;
-  /** Cleartext value for non-sensitive `select` fields (so the UI can preselect). Never present for `text`. */
+  /** false → readable value (shown in cleartext, prefilled from `currentValue`); true/undefined → secret (masked input). */
+  sensitive?: boolean;
+  /** Cleartext value for non-sensitive fields (so the UI can preselect or prefill). Never present for sensitive fields. */
   currentValue?: string;
 }
 

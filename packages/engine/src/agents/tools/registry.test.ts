@@ -384,7 +384,7 @@ describe("registry", () => {
       registerTool(makeDef({ name, requiredSecrets: ["legacy_key"] }));
 
       const entry = listAvailableTools().find((t) => t.name === name)!;
-      expect(entry.requiredSecrets).toEqual([{ key: "legacy_key", type: "text" }]);
+      expect(entry.requiredSecrets).toEqual([{ key: "legacy_key", type: "text", sensitive: true }]);
     });
 
     it("passes through rich select specs untouched", () => {
@@ -400,7 +400,7 @@ describe("registry", () => {
 
       const entry = listAvailableTools().find((t) => t.name === name)!;
       expect(entry.requiredSecrets).toEqual([
-        { key: "search_provider", type: "select", choices: ["a", "b"], label: "Provider" },
+        { key: "search_provider", type: "select", choices: ["a", "b"], label: "Provider", sensitive: false },
       ]);
     });
 
@@ -418,8 +418,8 @@ describe("registry", () => {
 
       const entry = listAvailableTools().find((t) => t.name === name)!;
       expect(entry.requiredSecrets).toEqual([
-        { key: "plain_token", type: "text" },
-        { key: "provider", type: "select", choices: ["x"], optional: true },
+        { key: "plain_token", type: "text", sensitive: true },
+        { key: "provider", type: "select", choices: ["x"], optional: true, sensitive: false },
       ]);
     });
 
@@ -478,7 +478,7 @@ describe("registry", () => {
       expect("create" in entry).toBe(false);
       expect("requiredEnv" in entry).toBe(false);
       // requiredSecrets IS exposed in normalized form (UI uses type/choices/label to render)
-      expect(entry.requiredSecrets).toEqual([{ key: "key", type: "text" }]);
+      expect(entry.requiredSecrets).toEqual([{ key: "key", type: "text", sensitive: true }]);
     });
   });
 
@@ -497,14 +497,40 @@ describe("registry", () => {
 
     it("converts bare strings into text specs", () => {
       expect(normalizeRequiredSecrets(["a_key", "b_key"])).toEqual([
-        { key: "a_key", type: "text" },
-        { key: "b_key", type: "text" },
+        { key: "a_key", type: "text", sensitive: true },
+        { key: "b_key", type: "text", sensitive: true },
       ]);
     });
 
     it("passes through select specs with non-empty choices", () => {
       const input = [{ key: "provider", type: "select" as const, choices: ["x", "y"] }];
-      expect(normalizeRequiredSecrets(input)).toEqual(input);
+      expect(normalizeRequiredSecrets(input)).toEqual([
+        { key: "provider", type: "select", choices: ["x", "y"], sensitive: false },
+      ]);
+    });
+
+    it("defaults text fields to sensitive: true", () => {
+      expect(normalizeRequiredSecrets(["api_key"])).toEqual([
+        { key: "api_key", type: "text", sensitive: true },
+      ]);
+    });
+
+    it("defaults select fields to sensitive: false", () => {
+      expect(
+        normalizeRequiredSecrets([{ key: "provider", type: "select", choices: ["a"] }]),
+      ).toEqual([{ key: "provider", type: "select", choices: ["a"], sensitive: false }]);
+    });
+
+    it("preserves an explicit sensitive override on either type", () => {
+      expect(
+        normalizeRequiredSecrets([
+          { key: "base_url", type: "text", sensitive: false },
+          { key: "token", type: "select", choices: ["a"], sensitive: true },
+        ]),
+      ).toEqual([
+        { key: "base_url", type: "text", sensitive: false },
+        { key: "token", type: "select", choices: ["a"], sensitive: true },
+      ]);
     });
 
     it("throws on select spec with empty choices", () => {
