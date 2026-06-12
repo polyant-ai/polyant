@@ -316,6 +316,29 @@ export class ConversationStore {
   }
 
   /**
+   * Return the set of distinct `system` message contents already persisted in
+   * a conversation. Used to deduplicate incoming system messages at write time:
+   * any client that replays the conversation history (the admin playground, an
+   * OpenAI-compatible client like open-webui) re-sends the same `system` block
+   * every turn, which would otherwise accumulate one duplicate row per turn and
+   * surface as a repeated context card in the conversation UI. The canonical
+   * copy stays in history (loaded by getRecentMessages), so the model still
+   * sees the context — only the duplicate write is suppressed.
+   */
+  async getSystemMessageContents(conversationId: string): Promise<Set<string>> {
+    const rows = await db
+      .select({ content: conversationMessages.content })
+      .from(conversationMessages)
+      .where(
+        and(
+          eq(conversationMessages.conversationId, conversationId),
+          eq(conversationMessages.role, "system"),
+        ),
+      );
+    return new Set(rows.map((r) => r.content));
+  }
+
+  /**
    * Get the most recent N messages with full reasoning + steps detail.
    *
    * Used by the AI gateway's reasoning-injector to rebuild Anthropic

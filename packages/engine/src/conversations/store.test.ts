@@ -256,6 +256,33 @@ describe("ConversationStore", () => {
   });
 
   // =========================================================================
+  // getSystemMessageContents (system-message dedup at write time)
+  // =========================================================================
+  describe("getSystemMessageContents", () => {
+    it("returns a Set of distinct persisted system contents", async () => {
+      const selChain = createChainMock([
+        { content: "Context A" },
+        { content: "Context B" },
+        { content: "Context A" },
+      ]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      const result = await conversationStore.getSystemMessageContents(uid());
+      expect(result).toBeInstanceOf(Set);
+      expect([...result].sort()).toEqual(["Context A", "Context B"]);
+      expect(mockDb.select).toHaveBeenCalled();
+    });
+
+    it("returns an empty Set when no system messages exist", async () => {
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      const result = await conversationStore.getSystemMessageContents(uid());
+      expect(result.size).toBe(0);
+    });
+  });
+
+  // =========================================================================
   // getSummary / updateSummary
   // =========================================================================
   describe("getSummary", () => {

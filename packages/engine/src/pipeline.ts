@@ -360,13 +360,25 @@ export function afterResponse(opts: AfterResponseOptions): void {
   const work = async () => {
     // 0. Persist external system messages + user message (deferred from pre-pipeline
     // so that an aborted/restarted pipeline leaves no orphan rows in DB).
+    // Deduplicate against system messages already in the conversation: clients
+    // that replay history (playground, open-webui) re-send the same system block
+    // every turn, which would otherwise accumulate one duplicate row per turn
+    // (a repeated context card in the UI). Only genuinely new content is written.
     if (opts.incomingSystemMessages?.length) {
-      await conversationStore
-        .appendMessages(
-          opts.conversationId,
-          opts.incomingSystemMessages.map((sm) => ({ role: "system", content: sm.content })),
-        )
-        .catch((err) => console.error(`Failed to persist system messages for ${opts.conversationId}:`, err));
+      const seen = await conversationStore
+        .getSystemMessageContents(opts.conversationId)
+        .catch(() => new Set<string>());
+      const novel: Array<{ role: string; content: string }> = [];
+      for (const sm of opts.incomingSystemMessages) {
+        if (seen.has(sm.content)) continue;
+        seen.add(sm.content);
+        novel.push({ role: "system", content: sm.content });
+      }
+      if (novel.length > 0) {
+        await conversationStore
+          .appendMessages(opts.conversationId, novel)
+          .catch((err) => console.error(`Failed to persist system messages for ${opts.conversationId}:`, err));
+      }
     }
 
     let attachmentMetas: AttachmentMeta[] | undefined;
