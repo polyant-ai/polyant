@@ -36,6 +36,7 @@ import {
   runPipelinePre,
   runPipelinePost,
 } from "./pipeline.js";
+import { runOptoutGate } from "./optout/index.js";
 
 // ---------------------------------------------------------------------------
 // Module-level caches (kept in index.ts — they depend on DB lookups)
@@ -156,6 +157,14 @@ async function main() {
 
   // 3a. Synchronous message handler
   async function handleMessage(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<OutgoingMessage> {
+    // GDPR opt-out gate (deterministic, pre-LLM, before Room/task routing so
+    // STOP/START are always honored first). Returns a short-circuit reply
+    // (possibly empty = no outbound) or proceeds to the normal pipeline.
+    const optoutGate = await runOptoutGate(msg);
+    if (!optoutGate.proceed) {
+      return { text: optoutGate.reply };
+    }
+
     const effectiveInstanceId = msg.instanceId || DEFAULT_INSTANCE_ID;
 
     // Check if this is a reply to an active webhook-triggered conversation.
@@ -215,6 +224,10 @@ async function main() {
         stateBuffer: ctx.stateBuffer,
         stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
         debugEnabled: ctx.instanceConfig.debugEnabled,
+        optoutHint:
+          ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
+            ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
+            : undefined,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
@@ -251,6 +264,19 @@ async function main() {
 
   // 3b. Streaming message handler (for OpenAI-compatible SSE)
   async function handleMessageStream(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<StreamOutgoingMessage> {
+    // GDPR opt-out gate — same deterministic short-circuit as the sync path,
+    // wrapped as a single-chunk stream (reusing the missing-key pattern below).
+    const optoutGate = await runOptoutGate(msg);
+    if (!optoutGate.proceed) {
+      const reply = optoutGate.reply;
+      async function* singleChunk() { if (reply) yield reply; }
+      return {
+        textStream: singleChunk(),
+        fullStream: (async function* () { if (reply) yield { type: "text-delta", text: reply }; })(),
+        completed: Promise.resolve({ text: reply }),
+      };
+    }
+
     // Phase 1: Context preparation
     const pre = await runPipelinePre(msg, undefined, abortSignal);
 
@@ -283,6 +309,10 @@ async function main() {
         stateBuffer: ctx.stateBuffer,
         stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
         debugEnabled: ctx.instanceConfig.debugEnabled,
+        optoutHint:
+          ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
+            ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
+            : undefined,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {

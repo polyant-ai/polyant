@@ -42,6 +42,7 @@ import { AnalyticsTab } from "./analytics-tab";
 import { TriggersTab } from "./triggers-tab";
 import { RoomTab } from "./room-tab";
 import { HooksTab } from "./hooks-tab";
+import { PrivacyTab } from "./privacy-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { useI18n } from "@/lib/i18n/context";
 
@@ -215,6 +216,7 @@ export default function InstanceDetailPage() {
           <TabsTrigger value="triggers">{t("instances.detail.tabTriggers")}</TabsTrigger>
           <TabsTrigger value="room">{t("instances.detail.tabRoom")}</TabsTrigger>
           <TabsTrigger value="hooks">{t("instances.detail.tabHooks")}</TabsTrigger>
+          <TabsTrigger value="privacy">{t("instances.detail.tabPrivacy")}</TabsTrigger>
         </TabsList>
         <TabsContent value="general" className="mt-6">
           <GeneralTab instance={instance} onUpdate={setInstance} />
@@ -262,6 +264,9 @@ export default function InstanceDetailPage() {
         </TabsContent>
         <TabsContent value="hooks" className="mt-6">
           <HooksTab slug={instance.slug} />
+        </TabsContent>
+        <TabsContent value="privacy" className="mt-6">
+          <PrivacyTab instance={instance} onSaved={() => { api.instances.get(params.slug).then((r) => setInstance(r.instance)).catch(() => {}); }} />
         </TabsContent>
       </Tabs>
     </div>

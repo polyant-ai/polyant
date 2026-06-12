@@ -36,6 +36,13 @@ export interface Instance {
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
   debugEnabled: boolean;
+  /** GDPR opt-out feature toggle. */
+  optoutEnabled: boolean;
+  optoutStopKeywords: string[];
+  optoutResumeKeywords: string[];
+  optoutClosingMessage: string | null;
+  optoutResumeMessage: string | null;
+  optoutInjectPromptHint: boolean;
   icon: string | null;
   sttProvider: string;
   createdAt: Date | null;
@@ -117,7 +124,7 @@ export async function createInstance(data: {
 /** Update an instance by slug. Touches updatedAt. Returns the updated instance or undefined if not found. */
 export async function updateInstance(
   slug: InstanceSlug,
-  data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; stateInPromptEnabled?: boolean; toolResultsInHistoryEnabled?: boolean; debugEnabled?: boolean; icon?: string | null; sttProvider?: string },
+  data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; stateInPromptEnabled?: boolean; toolResultsInHistoryEnabled?: boolean; debugEnabled?: boolean; icon?: string | null; sttProvider?: string; optoutEnabled?: boolean; optoutStopKeywords?: string[]; optoutResumeKeywords?: string[]; optoutClosingMessage?: string | null; optoutResumeMessage?: string | null; optoutInjectPromptHint?: boolean },
 ): Promise<Instance | undefined> {
   const rows = await db
     .update(instances)

@@ -45,6 +45,12 @@ export interface PromptOptions {
    * only when the instance's `stateInPromptEnabled` flag is on. Undefined = not injected.
    */
   conversationState?: Record<string, unknown>;
+  /**
+   * When set, render an informational opt-out section so the agent can tell users
+   * how to stop/resume messages. The agent NEVER enforces this — handled by the
+   * deterministic gate. Undefined = not injected.
+   */
+  optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
 }
 
 /**
@@ -78,6 +84,23 @@ function renderChannelIdentitySection(
 function renderConversationStateSection(state: Record<string, unknown>): string {
   if (Object.keys(state).length === 0) return "";
   return [`## Conversation state`, ``, JSON.stringify(state)].join("\n");
+}
+
+/**
+ * Informational only: tells the agent the user may stop/resume messages with the
+ * configured keywords, so it can communicate this when appropriate. Enforcement
+ * is deterministic (opt-out gate) — the agent must not act on it itself.
+ */
+function renderOptoutHintSection(hint: NonNullable<PromptOptions["optoutHint"]>): string {
+  const stop = hint.stopKeywords.join(", ");
+  const resume = hint.resumeKeywords.join(", ");
+  return [
+    `## Messaging opt-out`,
+    ``,
+    `The user can stop receiving all messages by sending: ${stop}.` +
+      (resume ? ` They can resume later by sending: ${resume}.` : ``),
+    `If asked how to unsubscribe, share this. Do NOT try to process opt-out yourself — the system handles it automatically.`,
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +313,10 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
   if (options.conversationState) {
     const stateSection = renderConversationStateSection(options.conversationState);
     if (stateSection) sections.push(stateSection);
+  }
+
+  if (options.optoutHint) {
+    sections.push(renderOptoutHintSection(options.optoutHint));
   }
 
   return sections
