@@ -178,7 +178,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         if (!(spec.key in next)) {
           // Pre-fill `select` fields with their server-side current value so the
           // dropdown shows the saved choice. `text` (true secret) fields stay empty.
-          const initialValue = spec.type === "select" && spec.currentValue ? spec.currentValue : "";
+          const initialValue = spec.currentValue ?? "";
           next[spec.key] = { value: initialValue, initial: initialValue, visible: false };
         }
       }
@@ -690,6 +690,20 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                 />
               );
             }
+            if (spec.sensitive === false) {
+              return (
+                <ReadableField
+                  key={spec.key}
+                  label={label}
+                  sublabel={spec.description}
+                  value={secretValue(spec.key)}
+                  onChange={(v) => setSecretValue(spec.key, v)}
+                  configured={isConfigured(spec.key)}
+                  placeholder={isConfigured(spec.key) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
+                  onRemove={isConfigured(spec.key) ? () => handleRemoveSecret(spec.key) : undefined}
+                />
+              );
+            }
             return (
               <SecretField
                 key={spec.key}
@@ -790,6 +804,78 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         )}
       </section>
 
+    </div>
+  );
+}
+
+// ── Readable Field Component ────────────────────────────────────────
+// For tool config fields with sensitive === false (e.g. a base URL):
+// plain cleartext input, prefilled from currentValue. No eye toggle.
+
+interface ReadableFieldProps {
+  label: string;
+  sublabel?: string;
+  value: string;
+  onChange: (value: string) => void;
+  configured: boolean;
+  placeholder: string;
+  onRemove?: () => void;
+}
+
+function ReadableField({
+  label,
+  sublabel,
+  value,
+  onChange,
+  configured,
+  placeholder,
+  onRemove,
+}: ReadableFieldProps) {
+  const { t } = useI18n();
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Label>{label}</Label>
+        <Badge variant={configured ? "default" : "secondary"} className="text-xs">
+          {configured ? t("settings.tab.configured") : t("settings.tab.notConfigured")}
+        </Badge>
+      </div>
+      {sublabel && <p className="text-xs text-muted-foreground">{sublabel}</p>}
+      <div className="flex gap-2">
+        <Input
+          type="text"
+          className="flex-1"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+        {onRemove && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="icon" className="shrink-0 text-destructive">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t("settings.tab.removeKeyTitle")}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t("settings.tab.removeKeyDescription")}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={onRemove}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {t("settings.tab.removeKey")}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+      </div>
     </div>
   );
 }
