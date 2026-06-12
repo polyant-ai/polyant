@@ -287,6 +287,45 @@ describe("triggerConversation", () => {
     });
   });
 
+  describe("debug capture", () => {
+    it("threads debugEnabled from instance config into supervise", async () => {
+      mockResolveInstanceConfig.mockResolvedValue({
+        provider: "openai",
+        model: "gpt-4o",
+        apiKeys: { openai: "sk-test" },
+        secrets: {},
+        memoryEnabled: false,
+        knowledgeEnabled: false,
+        debugEnabled: true,
+      });
+
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+
+      expect(mockSupervise.mock.calls[0][0].debugEnabled).toBe(true);
+    });
+
+    it("persists debugPayload on the assistant message when supervise returns one", async () => {
+      const debugPayload = { system: "sys", messages: [], tools: [] };
+      mockSupervise.mockResolvedValue({ ...baseSuperviseResult, debugPayload });
+
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+
+      const assistantCall = mockAppendMessages.mock.calls.find(
+        ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
+      );
+      expect(assistantCall![1][0].debugPayload).toEqual(debugPayload);
+    });
+
+    it("omits debugPayload when supervise returns none (debug off)", async () => {
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+
+      const assistantCall = mockAppendMessages.mock.calls.find(
+        ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
+      );
+      expect(assistantCall![1][0]).not.toHaveProperty("debugPayload");
+    });
+  });
+
   describe("supervise failure", () => {
     it("returns early without sending when supervise throws (channel mode)", async () => {
       mockSupervise.mockRejectedValue(new Error("LLM exploded"));

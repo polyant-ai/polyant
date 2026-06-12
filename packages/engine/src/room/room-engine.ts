@@ -149,6 +149,7 @@ export async function executeRoomCycle(
       secrets: instanceConfig.secrets,
       memoryEnabled: instanceConfig.memoryEnabled,
       thinkingEnabled: instanceConfig.thinkingEnabled,
+      debugEnabled: instanceConfig.debugEnabled,
       includeHarness: new Set(["room"]),
     });
   } catch (err) {
@@ -178,7 +179,7 @@ export async function executeRoomCycle(
   const finalText = result.text;
 
   await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result.steps, ...(result.reasoning ? { reasoning: result.reasoning } : {}) },
+    { role: "assistant", content: finalText, steps: result.steps, ...(result.reasoning ? { reasoning: result.reasoning } : {}), ...(result.debugPayload ? { debugPayload: result.debugPayload } : {}) },
   ]);
 
   // Mark events as completed
