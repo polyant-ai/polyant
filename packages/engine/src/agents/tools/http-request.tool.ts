@@ -85,6 +85,7 @@ registerTool({
     {
       key: "http_allowed_domains",
       type: "text",
+      sensitive: false,
       label: "HTTP allowed domains (allowlist)",
       description:
         "Optional comma-separated FQDN allowlist (e.g. 'api.example.com,hooks.partner.io'). When set, requests to any other hostname are blocked. Subdomains are allowed: an entry 'example.com' matches 'api.example.com' but NOT 'badexample.com'. Leave empty to allow any public host (SSRF gates still apply).",
