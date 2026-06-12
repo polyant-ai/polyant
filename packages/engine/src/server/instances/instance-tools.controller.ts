@@ -2,16 +2,14 @@
 
 import { Controller, Get, Patch, Param, Body, BadRequestException } from "@nestjs/common";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
-import { listAvailableTools, type RequiredSecretSpec } from "../../agents/tools/registry.js";
+import { listAvailableTools } from "../../agents/tools/registry.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { getAllSecretsById } from "../../instances/secrets.store.js";
 import { db } from "../../database/client.js";
 import { instanceTools } from "../../instances/instance-tools.schema.js";
 import { tools } from "../../agents/tools/tools.schema.js";
 import { eq, and, inArray } from "drizzle-orm";
-
-/** Spec returned to the admin UI: includes `currentValue` for non-sensitive `select` fields. */
-type RequiredSecretSpecWithValue = RequiredSecretSpec & { currentValue?: string };
+import { collectEnabledToolSecrets, attachReadableValues } from "./instance-tools.secrets-view.js";
 
 @Controller("api/instances")
 export class InstanceToolsController {
@@ -19,38 +17,14 @@ export class InstanceToolsController {
   async getRequiredSecrets(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
     const enabledNames = await getEnabledToolNames(instance.id);
-    const allTools = listAvailableTools();
+    const specs = collectEnabledToolSecrets(listAvailableTools(), enabledNames);
 
-    // De-duplicate specs by key (first-seen wins). The UI needs the rich form
-    // (type, choices, label, description) so it can render <Select> vs <Input>.
-    const specsByKey = new Map<string, RequiredSecretSpec>();
-    for (const t of allTools) {
-      const isEnabled = enabledNames.size === 0 || enabledNames.has(t.name);
-      if (isEnabled && t.requiredSecrets) {
-        for (const spec of t.requiredSecrets) {
-          if (!specsByKey.has(spec.key)) {
-            specsByKey.set(spec.key, spec);
-          }
-        }
-      }
-    }
+    // Fetch stored values only when at least one field is readable (non-sensitive);
+    // true secrets are never echoed, so there is no reason to load them.
+    const hasReadable = specs.some((s) => s.sensitive === false);
+    const currentSecrets = hasReadable ? await getAllSecretsById(instance.id) : {};
 
-    // For `select` fields, surface the current value in cleartext — it's a non-sensitive
-    // choice (e.g. "tavily"), not a secret. `text` fields (true API keys) stay hidden.
-    const hasSelect = Array.from(specsByKey.values()).some((s) => s.type === "select");
-    const currentSecrets = hasSelect ? await getAllSecretsById(instance.id) : {};
-
-    const requiredSecrets: RequiredSecretSpecWithValue[] = Array.from(specsByKey.values())
-      .sort((a, b) => a.key.localeCompare(b.key))
-      .map((spec) => {
-        if (spec.type === "select") {
-          const currentValue = currentSecrets[spec.key];
-          return currentValue ? { ...spec, currentValue } : { ...spec };
-        }
-        return { ...spec };
-      });
-
-    return { requiredSecrets };
+    return { requiredSecrets: attachReadableValues(specs, currentSecrets) };
   }
 
   @Get(":slug/tools")
