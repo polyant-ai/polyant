@@ -11,6 +11,13 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -21,17 +28,35 @@ import {
 import { api, getUserErrorMessage, type Instance, type OptoutContact } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { formatDate } from "@/lib/format";
+import { usePageSaveAction } from "./page-actions-context";
 
 interface Props {
   instance: Instance;
   onSaved?: () => void;
 }
 
+// Channels whose inbound gate + outbound suppression actually honor opt-out
+// (agent/web/scheduled/room are excluded server-side). Kept separate from the
+// Room outbound list: same values today, distinct concepts that may diverge.
+const OPTOUT_CHANNELS = ["whatsapp", "telegram", "slack"] as const;
+
+// Example contact id per channel, to hint the admin what to type.
+const CHANNEL_ID_PLACEHOLDER: Record<string, string> = {
+  whatsapp: "+39123456789",
+  telegram: "chat id",
+  slack: "Uxxxx / Dxxxx",
+};
+
 function parseKeywords(s: string): string[] {
   return s
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
+}
+
+function sameKeywords(input: string, base: string[]): boolean {
+  const parsed = parseKeywords(input);
+  return parsed.length === base.length && parsed.every((k, i) => k === base[i]);
 }
 
 export function PrivacyTab({ instance, onSaved }: Props) {
@@ -55,7 +80,7 @@ export function PrivacyTab({ instance, onSaved }: Props) {
   const [loadingContacts, setLoadingContacts] = useState(true);
 
   // ── Opt-out-a-contact form state ───────────────────────────────────
-  const [newChannelType, setNewChannelType] = useState("");
+  const [newChannelType, setNewChannelType] = useState<string>(OPTOUT_CHANNELS[0]);
   const [newChannelId, setNewChannelId] = useState("");
   const [addingContact, setAddingContact] = useState(false);
 
@@ -96,6 +121,16 @@ export function PrivacyTab({ instance, onSaved }: Props) {
     }
   };
 
+  const isDirty =
+    enabled !== instance.optoutEnabled ||
+    !sameKeywords(stopKeywords, instance.optoutStopKeywords) ||
+    !sameKeywords(resumeKeywords, instance.optoutResumeKeywords) ||
+    closingMsg.trim() !== (instance.optoutClosingMessage ?? "") ||
+    resumeMsg.trim() !== (instance.optoutResumeMessage ?? "") ||
+    injectHint !== instance.optoutInjectPromptHint;
+
+  usePageSaveAction({ isDirty, saving, onSave: handleSave });
+
   const handleReEnable = async (contact: OptoutContact) => {
     try {
       await api.optouts.optIn(instance.slug, contact.channelType, contact.channelId);
@@ -114,7 +149,7 @@ export function PrivacyTab({ instance, onSaved }: Props) {
     try {
       await api.optouts.optOut(instance.slug, channelType, channelId);
       toast.success(t("privacy.optOutContactSuccess"));
-      setNewChannelType("");
+      setNewChannelType(OPTOUT_CHANNELS[0]);
       setNewChannelId("");
       await refreshContacts();
     } catch (err) {
@@ -128,16 +163,11 @@ export function PrivacyTab({ instance, onSaved }: Props) {
     <div className="max-w-2xl space-y-8">
       {/* ── GDPR opt-out config ──────────────────────────────────────── */}
       <section className="space-y-4 rounded-lg border p-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <Label className="text-base font-medium">{t("privacy.title")}</Label>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("privacy.description")}
-            </p>
-          </div>
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            {saving ? t("common.saving") : t("common.saveSingle")}
-          </Button>
+        <div>
+          <Label className="text-base font-medium">{t("privacy.title")}</Label>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t("privacy.description")}
+          </p>
         </div>
 
         {/* Enable toggle */}
@@ -275,19 +305,25 @@ export function PrivacyTab({ instance, onSaved }: Props) {
           <div className="mt-3 flex items-end gap-2">
             <div className="space-y-1">
               <Label className="text-xs">{t("privacy.channel")}</Label>
-              <Input
-                value={newChannelType}
-                onChange={(e) => setNewChannelType(e.target.value)}
-                placeholder="whatsapp"
-                className="w-32"
-              />
+              <Select value={newChannelType} onValueChange={setNewChannelType}>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {OPTOUT_CHANNELS.map((ch) => (
+                    <SelectItem key={ch} value={ch}>
+                      {ch}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex-1 space-y-1">
               <Label className="text-xs">{t("privacy.contact")}</Label>
               <Input
                 value={newChannelId}
                 onChange={(e) => setNewChannelId(e.target.value)}
-                placeholder="+39123456789"
+                placeholder={CHANNEL_ID_PLACEHOLDER[newChannelType] ?? ""}
               />
             </div>
             <Button
