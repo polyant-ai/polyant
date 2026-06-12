@@ -46,9 +46,11 @@ export interface ToolContext {
 /**
  * Describes a single per-instance config field that a tool needs to operate.
  *
- * `type === "text"` is the default secret/key case (free-text input, masked in UI).
+ * `type === "text"` is the default secret/key case (free-text input, masked in UI
+ * unless `sensitive: false` marks it as a readable value such as a base URL).
  * `type === "select"` exposes a fixed set of `choices` — used when the tool offers
  * a provider/engine/mode choice (e.g. webSearch provider: tavily | serpapi | duckduckgo).
+ * See the `sensitive` field for the masked-vs-readable contract and its type-based default.
  *
  * Stored as a row in `instance_secrets` like any other key. The framework does NOT
  * enforce `optional` cross-field semantics (e.g. "required only if another field
@@ -65,6 +67,16 @@ export interface RequiredSecretSpec {
   choices?: string[];
   /** When true, the field can be left empty without flagging the tool as misconfigured. */
   optional?: boolean;
+  /**
+   * Whether the value is a credential to be masked (`true`) or a readable config
+   * value such as a base URL or an allowlist (`false`). After
+   * `normalizeRequiredSecrets`, this is always set: `text` → `true`,
+   * `select` → `false`, unless the tool overrides it. `false` fields are shown
+   * in cleartext in the admin UI and their stored value is echoed by
+   * `/tools/required-secrets`; `true` fields are never echoed. Storage at rest
+   * is always encrypted regardless of this flag.
+   */
+  sensitive?: boolean;
 }
 
 /**
@@ -138,7 +150,7 @@ export function normalizeRequiredSecrets(
           `${prefix}requiredSecrets[${index}] is an empty string. Use a non-empty key (lowercase snake_case, e.g. "openai_api_key") or a full RequiredSecretSpec.`,
         );
       }
-      return { key: entry, type: "text" as const };
+      return { key: entry, type: "text" as const, sensitive: true };
     }
     if (!entry.key) {
       throw new Error(
@@ -152,7 +164,9 @@ export function normalizeRequiredSecrets(
         );
       }
     }
-    return entry;
+    // Default secrecy by type: text → secret (masked), select → readable (a
+    // public choice). An explicit `sensitive` on the spec always wins.
+    return { ...entry, sensitive: entry.sensitive ?? (entry.type === "select" ? false : true) };
   });
 }
 
