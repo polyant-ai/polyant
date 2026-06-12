@@ -65,6 +65,29 @@ vi.mock("../analytics/trace.store.js", () => ({
 vi.mock("../activity-stream/emitters/emit-conversation.js", () => ({ emitConversation: vi.fn() }));
 vi.mock("../activity-stream/emit-helpers.js", () => ({ resolveInstanceMeta: vi.fn(async () => ({})) }));
 
+// Conversation state buffer: a shared mock instance so we can assert seedChannel/flush.
+const { mockStateBufferLoad, mockSeedChannel, mockFlush, mockStateBuffer } = vi.hoisted(() => {
+  const seedChannel = vi.fn();
+  const flush = vi.fn(async () => {});
+  const buffer = {
+    seedChannel,
+    flush,
+    api: () => ({ get: () => undefined, set: () => {}, delete: () => {}, getAll: () => ({}), channel: undefined }),
+  };
+  return {
+    mockStateBufferLoad: vi.fn(async () => buffer),
+    mockSeedChannel: seedChannel,
+    mockFlush: flush,
+    mockStateBuffer: buffer,
+  };
+});
+vi.mock("../conversations/state.buffer.js", () => ({
+  ConversationStateBuffer: Object.assign(
+    function () { return mockStateBuffer; },
+    { load: mockStateBufferLoad },
+  ),
+}));
+
 /* ── import under test ─────────────────────────────────────────── */
 
 import { triggerConversation } from "./webhook-engine.js";
@@ -350,6 +373,42 @@ describe("triggerConversation", () => {
       expect(mockSendOutbound).not.toHaveBeenCalled();
       expect(mockClearTriggerContext).not.toHaveBeenCalled();
       expect(mockWebhookLog.error).toHaveBeenCalled();
+    });
+  });
+
+  describe("conversation state (commit-on-success)", () => {
+    const channelDef: EventDefinition = {
+      ...baseDefinition,
+      outboundChannel: "telegram",
+      outboundTarget: "{{payload.chat_id}}",
+    };
+
+    it("loads a state buffer for the conversation and passes it to supervise", async () => {
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "42" });
+      expect(mockStateBufferLoad).toHaveBeenCalledWith("test-slug:telegram:42", "test-slug");
+      expect(mockSupervise.mock.calls[0][0].stateBuffer).toBe(mockStateBuffer);
+    });
+
+    it("seeds the trusted channel identity in channel mode", async () => {
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "42" });
+      expect(mockSeedChannel).toHaveBeenCalledWith({ type: "telegram", id: "42" });
+    });
+
+    it("flushes the state buffer after supervise succeeds", async () => {
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "42" });
+      expect(mockFlush).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT flush when supervise throws (no commit on failure)", async () => {
+      mockSupervise.mockRejectedValue(new Error("boom"));
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "42" });
+      expect(mockFlush).not.toHaveBeenCalled();
+    });
+
+    it("internal mode: loads buffer but does NOT seed a channel", async () => {
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      expect(mockStateBufferLoad).toHaveBeenCalled();
+      expect(mockSeedChannel).not.toHaveBeenCalled();
     });
   });
 });
