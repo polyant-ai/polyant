@@ -167,6 +167,7 @@ export async function triggerConversation(
       memoryEnabled: instanceConfig.memoryEnabled,
       knowledgeEnabled: instanceConfig.knowledgeEnabled,
       thinkingEnabled: instanceConfig.thinkingEnabled,
+      debugEnabled: instanceConfig.debugEnabled,
       includeHarness: harnessCategories,
     });
   } catch (err) {
@@ -183,7 +184,7 @@ export async function triggerConversation(
 
   // Persist assistant response (tool-delivered content when replyHandled, else supervisor text)
   await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result.steps, ...(result.reasoning ? { reasoning: result.reasoning } : {}) },
+    { role: "assistant", content: finalText, steps: result.steps, ...(result.reasoning ? { reasoning: result.reasoning } : {}), ...(result.debugPayload ? { debugPayload: result.debugPayload } : {}) },
   ]);
 
   // Send response to the configured outbound channel — unless a tool has already
