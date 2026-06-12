@@ -401,3 +401,48 @@ describe("SettingsTab", () => {
     });
   });
 });
+
+describe("SettingsTab — tool secret rendering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSecretsList.mockResolvedValue({ secrets: [] });
+    mockModelsList.mockResolvedValue({ providers: { openai: { models: [] } } });
+  });
+
+  it("renders a readable (sensitive:false) tool secret as a prefilled cleartext input", async () => {
+    mockToolsRequiredSecrets.mockResolvedValue({
+      requiredSecrets: [
+        {
+          key: "service_base_url",
+          type: "text",
+          sensitive: false,
+          label: "Service base URL",
+          currentValue: "https://api.example.com",
+        },
+        { key: "service_api_key", type: "text", sensitive: true, label: "Service API key" },
+      ],
+    });
+
+    render(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    const readable = await screen.findByDisplayValue("https://api.example.com");
+    expect(readable).toHaveAttribute("type", "text");
+  });
+
+  it("renders a sensitive tool secret as a masked (password) input with no prefill", async () => {
+    mockToolsRequiredSecrets.mockResolvedValue({
+      requiredSecrets: [
+        { key: "service_api_key", type: "text", sensitive: true, label: "Service API key" },
+      ],
+    });
+
+    const { container } = render(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    await screen.findByText("Service API key");
+    expect(screen.queryByDisplayValue("https://api.example.com")).toBeNull();
+    const masked = Array.from(container.querySelectorAll("input")).filter(
+      (i) => i.getAttribute("type") === "password",
+    );
+    expect(masked.length).toBeGreaterThan(0);
+  });
+});

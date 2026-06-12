@@ -122,7 +122,9 @@ export interface RequiredSecretSpec {
   description?: string;
   choices?: string[];
   optional?: boolean;
-  /** Cleartext value for non-sensitive `select` fields (so the UI can preselect). Never present for `text`. */
+  /** false → readable value (shown in cleartext, prefilled from `currentValue`); true/undefined → secret (masked input). */
+  sensitive?: boolean;
+  /** Cleartext value for non-sensitive fields (so the UI can preselect or prefill). Never present for sensitive fields. */
   currentValue?: string;
 }
 
