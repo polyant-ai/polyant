@@ -360,6 +360,64 @@ describe("executeRoomCycle", () => {
     });
   });
 
+  describe("debug capture", () => {
+    it("threads debugEnabled from instance config into supervise", async () => {
+      mockResolveInstanceConfig.mockResolvedValue({ ...INSTANCE_CONFIG, debugEnabled: true });
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
+      ]);
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
+
+      expect(mockSupervise).toHaveBeenCalledWith(
+        expect.objectContaining({ debugEnabled: true }),
+      );
+    });
+
+    it("persists debugPayload on the assistant message when supervise returns one", async () => {
+      const debugPayload = { system: "sys", messages: [], tools: [] };
+      mockSupervise.mockResolvedValue({
+        text: "I've processed the events.",
+        steps: [],
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+        durationMs: 500,
+        toolBuildingMs: 10,
+        debugPayload,
+      });
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
+      ]);
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
+
+      const appendCalls = mockConversationStore.appendMessages.mock.calls;
+      const assistantCall = appendCalls.find(
+        ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
+      );
+      expect(assistantCall![1][0].debugPayload).toEqual(debugPayload);
+    });
+
+    it("omits debugPayload when supervise returns none (debug off)", async () => {
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
+      ]);
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
+
+      const appendCalls = mockConversationStore.appendMessages.mock.calls;
+      const assistantCall = appendCalls.find(
+        ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
+      );
+      expect(assistantCall![1][0]).not.toHaveProperty("debugPayload");
+    });
+  });
+
   describe("activity logging", () => {
     it("should log event count and response preview to daily activity", async () => {
       mockListAndMarkPendingEvents.mockResolvedValue([
