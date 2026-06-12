@@ -176,8 +176,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
       const next = { ...prev };
       for (const spec of toolSecretSpecs) {
         if (!(spec.key in next)) {
-          // Pre-fill `select` fields with their server-side current value so the
-          // dropdown shows the saved choice. `text` (true secret) fields stay empty.
+          // Pre-fill any non-sensitive field (select or readable text) from its
+          // echoed `currentValue`. Sensitive fields never carry one, so they
+          // initialize to empty.
           const initialValue = spec.currentValue ?? "";
           next[spec.key] = { value: initialValue, initial: initialValue, visible: false };
         }

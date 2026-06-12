@@ -114,7 +114,7 @@ export interface PromptSection {
   content: string;
 }
 
-/** Per-instance config field declared by a tool. `text` is a masked input; `select` renders a dropdown over `choices`. */
+/** Per-instance config field declared by a tool. `text` is a masked input unless `sensitive: false` (readable cleartext); `select` renders a dropdown over `choices`. */
 export interface RequiredSecretSpec {
   key: string;
   type: "text" | "select";
