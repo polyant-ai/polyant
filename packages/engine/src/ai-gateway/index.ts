@@ -14,6 +14,7 @@ import {
   type BusContext,
 } from "../activity-stream/bus-emitter.js";
 import { findInstanceBySlug } from "../instances/store.js";
+import { buildInstanceIconUrl } from "../instances/icon-url.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import type { InstanceMeta } from "../activity-stream/activity-stream.types.js";
 
@@ -278,7 +279,8 @@ async function buildBusContext(options?: ChatCallOptions): Promise<BusContext> {
       id: instance.id,
       slug: instance.slug,
       name: instance.name,
-      icon: instance.icon ?? null,
+      // Emit a URL, never the raw base64 data URI — see buildInstanceIconUrl.
+      icon: buildInstanceIconUrl(instance.slug, instance.icon, instance.updatedAt),
     };
     return { instance: meta, conversationId: options.conversationId };
   } catch {
