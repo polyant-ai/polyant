@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { pgTable, uuid, varchar, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
 
 export const instances = pgTable("instances", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -35,6 +35,21 @@ export const instances = pgTable("instances", {
    * Default false — this is heavy and stores PII at rest (see pipeline afterResponse).
    */
   debugEnabled: boolean("debug_enabled").notNull().default(false),
+  /**
+   * GDPR opt-out: when enabled, an end user who sends one of `optoutStopKeywords`
+   * is recorded as opted-out (per contact, in `contact_optouts`) and receives no
+   * further messages until they send one of `optoutResumeKeywords`. Enforcement is
+   * deterministic (pre-LLM gate + outbound suppression) — never the LLM.
+   */
+  optoutEnabled: boolean("optout_enabled").notNull().default(false),
+  optoutStopKeywords: jsonb("optout_stop_keywords").$type<string[]>().notNull().default(["STOP"]),
+  optoutResumeKeywords: jsonb("optout_resume_keywords").$type<string[]>().notNull().default(["START"]),
+  /** Sent once when a contact opts out. NULL/empty = no confirmation message. */
+  optoutClosingMessage: text("optout_closing_message"),
+  /** Sent once when a contact resumes. NULL/empty = no confirmation message. */
+  optoutResumeMessage: text("optout_resume_message"),
+  /** When true, an informational opt-out hint is injected into the supervisor prompt. */
+  optoutInjectPromptHint: boolean("optout_inject_prompt_hint").notNull().default(true),
   icon: text("icon"),
   sttProvider: text("stt_provider").notNull().default("openai"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

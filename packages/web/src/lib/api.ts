@@ -61,6 +61,7 @@ export type {
   HookExecution,
   BacklogEvent,
   ActivityLogEntry,
+  OptoutContact,
 } from "./api-types";
 
 // Internal import — only types used in the api object below (re-exports don't make types locally available)
@@ -102,6 +103,7 @@ import type {
   HookExecution,
   BacklogEvent,
   ActivityLogEntry,
+  OptoutContact,
 } from "./api-types";
 
 // ── HTTP Client ─────────────────────────────────────────────────────
@@ -213,6 +215,12 @@ export const api = {
         toolResultsInHistoryEnabled?: boolean;
         debugEnabled?: boolean;
         sttProvider?: "openai" | "aws" | "deepgram";
+        optoutEnabled?: boolean;
+        optoutStopKeywords?: string[];
+        optoutResumeKeywords?: string[];
+        optoutClosingMessage?: string | null;
+        optoutResumeMessage?: string | null;
+        optoutInjectPromptHint?: boolean;
       },
     ) =>
       request<{ instance: Instance }>(`/api/instances/${encodeURIComponent(slug)}`, {
@@ -625,6 +633,28 @@ export const api = {
     delete: (slug: string, id: string) =>
       request<{ deleted: boolean }>(
         `/api/instances/${encodeURIComponent(slug)}/hooks/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      ),
+  },
+
+  optouts: {
+    list: (slug: string, params?: { status?: string; page?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.status) q.set("status", params.status);
+      if (params?.page) q.set("page", String(params.page));
+      const qs = q.toString();
+      return request<{ optouts: OptoutContact[]; page: number }>(
+        `/api/instances/${encodeURIComponent(slug)}/optouts${qs ? `?${qs}` : ""}`,
+      );
+    },
+    optOut: (slug: string, channelType: string, channelId: string) =>
+      request<{ ok: boolean }>(`/api/instances/${encodeURIComponent(slug)}/optouts`, {
+        method: "POST",
+        body: JSON.stringify({ channelType, channelId }),
+      }),
+    optIn: (slug: string, channelType: string, channelId: string) =>
+      request<{ ok: boolean }>(
+        `/api/instances/${encodeURIComponent(slug)}/optouts/${encodeURIComponent(channelType)}/${encodeURIComponent(channelId)}`,
         { method: "DELETE" },
       ),
   },

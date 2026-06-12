@@ -59,6 +59,12 @@ function toInstanceDto(instance: Instance) {
     stateInPromptEnabled: instance.stateInPromptEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
+    optoutEnabled: instance.optoutEnabled,
+    optoutStopKeywords: instance.optoutStopKeywords,
+    optoutResumeKeywords: instance.optoutResumeKeywords,
+    optoutClosingMessage: instance.optoutClosingMessage,
+    optoutResumeMessage: instance.optoutResumeMessage,
+    optoutInjectPromptHint: instance.optoutInjectPromptHint,
     sttProvider: instance.sttProvider,
     icon: instance.icon
       ? `/api/instances/${instance.slug}/icon?v=${instance.updatedAt?.getTime() ?? 0}`
@@ -182,10 +188,18 @@ export class InstancesController {
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
       sttProvider?: "openai" | "aws" | "deepgram";
+      optoutEnabled?: boolean;
+      optoutStopKeywords?: string[];
+      optoutResumeKeywords?: string[];
+      optoutClosingMessage?: string | null;
+      optoutResumeMessage?: string | null;
+      optoutInjectPromptHint?: boolean;
     },
   ) {
     this.validateSlug(slug);
     this.validateModelConfig(body.provider, body.model);
+    body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
+    body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
     const instance = await updateInstance(asInstanceSlug(slug), body);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     invalidateInstanceConfigCache(asInstanceSlug(slug));
@@ -250,6 +264,25 @@ export class InstancesController {
         `Invalid slug format. Use lowercase alphanumeric, hyphens, or underscores (e.g. "my-assistant").`,
       );
     }
+  }
+
+  /** Validate + normalize a keyword list: non-empty trimmed strings, deduped (case-insensitive). */
+  private normalizeKeywords(keywords: string[] | undefined, field: string): string[] | undefined {
+    if (keywords === undefined) return undefined;
+    if (!Array.isArray(keywords)) throw new BadRequestException(`${field} must be an array of strings`);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of keywords) {
+      if (typeof raw !== "string") throw new BadRequestException(`${field} must contain only strings`);
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      const lower = trimmed.toLowerCase();
+      if (seen.has(lower)) continue;
+      seen.add(lower);
+      out.push(trimmed);
+    }
+    if (out.length === 0) throw new BadRequestException(`${field} must contain at least one non-empty keyword`);
+    return out;
   }
 
   /** Validate provider/model values against the configured providerConfigs. */
