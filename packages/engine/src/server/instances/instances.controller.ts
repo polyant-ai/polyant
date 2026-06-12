@@ -29,6 +29,7 @@ import { seedInstanceSkills } from "../../instances/instance-skills.store.js";
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
 import { providerConfigs, isThinkingCapable } from "../../ai-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
+import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
@@ -66,9 +67,7 @@ function toInstanceDto(instance: Instance) {
     optoutResumeMessage: instance.optoutResumeMessage,
     optoutInjectPromptHint: instance.optoutInjectPromptHint,
     sttProvider: instance.sttProvider,
-    icon: instance.icon
-      ? `/api/instances/${instance.slug}/icon?v=${instance.updatedAt?.getTime() ?? 0}`
-      : null,
+    icon: buildInstanceIconUrl(instance.slug, instance.icon, instance.updatedAt),
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
   };
