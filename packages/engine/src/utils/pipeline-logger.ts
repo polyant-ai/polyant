@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from "crypto";
-import { COLORS, ts as timestamp } from "./create-logger.js";
+import { COLORS, shouldLog, ts as timestamp } from "./create-logger.js";
 
 function truncate(text: string, maxLen = 80): string {
   const oneLine = text.replace(/\n/g, " ").trim();
@@ -26,6 +26,7 @@ export const pipelineLog = {
   /** New request entering the pipeline. Returns a unique requestId for tracing. */
   request(channel: string, instanceId: string, message: string): string {
     const requestId = randomUUID().slice(0, 8);
+    if (!shouldLog("info")) return requestId;
     console.log(
       `\n${COLORS.cyan}━━━ PIPELINE [${requestId}] ━━━━━━━━━━━━━━━━━━━━━━━━━━${COLORS.reset}`
     );
@@ -41,6 +42,7 @@ export const pipelineLog = {
 
   /** AI Gateway call */
   llmCall(instanceId: string, tier: string, model: string, hasTools: boolean) {
+    if (!shouldLog("debug")) return;
     console.log(
       `${COLORS.blue}[${timestamp()}] 🤖 LLM CALL${COLORS.reset} ${fmtInstance(instanceId)}tier=${tier} model=${model} tools=${hasTools}`
     );
@@ -48,6 +50,7 @@ export const pipelineLog = {
 
   /** AI Gateway response */
   llmResponse(instanceId: string, model: string, tokens: { prompt: number; completion: number }, durationMs: number, toolCallCount: number) {
+    if (!shouldLog("info")) return;
     console.log(
       `${COLORS.blue}[${timestamp()}] ✅ LLM DONE${COLORS.reset} ${fmtInstance(instanceId)}model=${model} tokens=${tokens.prompt}+${tokens.completion} duration=${durationMs}ms toolCalls=${toolCallCount}`
     );
@@ -55,6 +58,7 @@ export const pipelineLog = {
 
   /** Tool call executed */
   toolCall(instanceId: string, toolName: string, args: Record<string, unknown>) {
+    if (!shouldLog("debug")) return;
     const summary = Object.entries(args)
       .map(([k, v]) => {
         const val = typeof v === "string" ? truncate(v, 40) : JSON.stringify(v);
@@ -68,6 +72,7 @@ export const pipelineLog = {
 
   /** Tool result */
   toolResult(instanceId: string, toolName: string, success: boolean, summary?: string) {
+    if (!shouldLog("info")) return;
     const icon = success ? "✓" : "✗";
     const color = success ? COLORS.green : COLORS.red;
     console.log(
@@ -75,18 +80,22 @@ export const pipelineLog = {
     );
   },
 
-  /** Full system prompt dump (just before LLM call) — NOT truncated */
+  /**
+   * Concise system-prompt signal (just before LLM call): only the length, to
+   * catch prompt bloat. The full prompt body is intentionally NOT logged —
+   * use the per-instance `debug_enabled` flag (persists `{system, messages,
+   * tools}`) or the `DEBUG_LLM_PAYLOAD` env for full-payload inspection.
+   */
   systemPrompt(instanceId: string, prompt: string) {
+    if (!shouldLog("debug")) return;
     console.log(
       `${COLORS.yellow}[${timestamp()}] 📋 SYSTEM PROMPT${COLORS.reset} ${fmtInstance(instanceId)}length=${prompt.length} chars`
     );
-    console.log(`${COLORS.dim}${"─".repeat(80)}${COLORS.reset}`);
-    console.log(prompt);
-    console.log(`${COLORS.dim}${"─".repeat(80)}${COLORS.reset}`);
   },
 
   /** Supervisor starting */
   supervisorStart(instanceId: string, toolCount: number) {
+    if (!shouldLog("debug")) return;
     console.log(
       `${COLORS.magenta}[${timestamp()}] 🎯 SUPERVISOR${COLORS.reset} ${fmtInstance(instanceId)}starting with ${toolCount} tools available`
     );
@@ -94,6 +103,7 @@ export const pipelineLog = {
 
   /** Supervisor completed */
   supervisorDone(instanceId: string, durationMs: number, responsePreview: string) {
+    if (!shouldLog("info")) return;
     console.log(
       `${COLORS.magenta}[${timestamp()}] 🏁 SUPERVISOR DONE${COLORS.reset} ${fmtInstance(instanceId)}duration=${durationMs}ms`
     );
@@ -104,6 +114,7 @@ export const pipelineLog = {
 
   /** Pre-enrichment context loaded */
   preEnrichment(instanceId: string, hasSummary: boolean) {
+    if (!shouldLog("debug")) return;
     console.log(
       `${COLORS.yellow}[${timestamp()}] 🧠 CONTEXT${COLORS.reset} ${fmtInstance(instanceId)}summary=${hasSummary ? "yes" : "no"}`
     );
@@ -111,6 +122,7 @@ export const pipelineLog = {
 
   /** Pipeline complete */
   response(instanceId: string, durationMs: number) {
+    if (!shouldLog("info")) return;
     console.log(
       `${COLORS.cyan}[${timestamp()}] 📤 RESPONSE${COLORS.reset} ${fmtInstance(instanceId)}total=${durationMs}ms`
     );
