@@ -78,6 +78,17 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "global.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00 },
       "global.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00 },
       "global.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00 },
+      // Non-Anthropic alternatives (override-only — NOT wired to any tier).
+      // These are US-geo cross-region inference profiles; the engine default
+      // targets the eu.* family, so an instance using one must also set
+      // `bedrock_region` to a US region. Tool-use reliability on the agentic
+      // supervisor is below Claude — validate before production use.
+      "us.deepseek.v3.2": { input: 0.62, output: 1.85 },
+      "us.amazon.nova-premier-v1:0": { input: 2.50, output: 12.50 },
+      // Llama 4 prices are secondary-sourced and inconsistent across providers;
+      // reconcile against the live AWS Bedrock pricing page before relying on them.
+      "us.meta.llama4-maverick-17b-instruct-v1:0": { input: 0.24, output: 0.97 },
+      "us.meta.llama4-scout-17b-instruct-v1:0": { input: 0.17, output: 0.66 },
     },
   },
 };
