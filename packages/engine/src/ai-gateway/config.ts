@@ -57,8 +57,8 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     // `global.*` profile ID.
     tiers: {
       fast: "amazon.nova-lite-v1:0",
-      standard: "eu.anthropic.claude-sonnet-4-5-20250929-v1:0",
-      heavy: "eu.anthropic.claude-opus-4-6-v1",
+      standard: "eu.anthropic.claude-sonnet-4-6",
+      heavy: "eu.anthropic.claude-opus-4-7",
     },
     costPerMillionTokens: {
       // Amazon Nova (raw IDs — on-demand supported)
@@ -66,21 +66,35 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "amazon.nova-lite-v1:0": { input: 0.06, output: 0.24 },
       "amazon.nova-2-lite-v1:0": { input: 0.06, output: 0.24 },
       "amazon.nova-pro-v1:0": { input: 0.80, output: 3.20 },
-      // Anthropic via Bedrock — EU inference profiles
+      // Anthropic via Bedrock — EU inference profiles.
+      // Token rates match Anthropic first-party; the +10% regional-endpoint
+      // premium on eu.*/us.* profiles is intentionally not modeled (base rates,
+      // consistent across the table). Opus 4.5+ is $5/$25 (not the old $15/$75).
       "eu.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00 },
       "eu.anthropic.claude-sonnet-4-20250514-v1:0": { input: 3.00, output: 15.00 },
       "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00 },
       "eu.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00 },
-      "eu.anthropic.claude-opus-4-5-20251101-v1:0": { input: 15.00, output: 75.00 },
-      "eu.anthropic.claude-opus-4-6-v1": { input: 15.00, output: 75.00 },
-      "eu.anthropic.claude-opus-4-7": { input: 15.00, output: 75.00 },
+      "eu.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00 },
+      "eu.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00 },
+      "eu.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00 },
       // Anthropic via Bedrock — Global inference profiles (use-case form may be required)
       "global.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00 },
       "global.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00 },
       "global.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00 },
-      "global.anthropic.claude-opus-4-5-20251101-v1:0": { input: 15.00, output: 75.00 },
-      "global.anthropic.claude-opus-4-6-v1": { input: 15.00, output: 75.00 },
-      "global.anthropic.claude-opus-4-7": { input: 15.00, output: 75.00 },
+      "global.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00 },
+      "global.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00 },
+      "global.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00 },
+      // Non-Anthropic alternatives (override-only — NOT wired to any tier).
+      // These are US-geo cross-region inference profiles; the engine default
+      // targets the eu.* family, so an instance using one must also set
+      // `bedrock_region` to a US region. Tool-use reliability on the agentic
+      // supervisor is below Claude — validate before production use.
+      "us.deepseek.v3.2": { input: 0.62, output: 1.85 },
+      "us.amazon.nova-premier-v1:0": { input: 2.50, output: 12.50 },
+      // Llama 4 prices are secondary-sourced and inconsistent across providers;
+      // reconcile against the live AWS Bedrock pricing page before relying on them.
+      "us.meta.llama4-maverick-17b-instruct-v1:0": { input: 0.24, output: 0.97 },
+      "us.meta.llama4-scout-17b-instruct-v1:0": { input: 0.17, output: 0.66 },
     },
   },
 };
