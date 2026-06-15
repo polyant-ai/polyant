@@ -122,6 +122,20 @@ describe("pipelineLog", () => {
     });
   });
 
+  describe("systemPrompt", () => {
+    it("logs the prompt length", () => {
+      pipelineLog.systemPrompt("my-instance", "A".repeat(123));
+      expect(allOutput()).toContain("SYSTEM PROMPT");
+      expect(allOutput()).toContain("length=123 chars");
+    });
+
+    it("never logs the full prompt body", () => {
+      const body = "TOP-SECRET-PROMPT-BODY-" + "X".repeat(500);
+      pipelineLog.systemPrompt("my-instance", body);
+      expect(allOutput()).not.toContain("TOP-SECRET-PROMPT-BODY");
+    });
+  });
+
   describe("instanceId propagation", () => {
     it("includes instanceId in llmCall", () => {
       pipelineLog.llmCall("my-instance", "standard", "gpt-4o", true);

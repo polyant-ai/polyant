@@ -21,6 +21,42 @@ export function ts(): string {
   return new Date().toLocaleTimeString("en-GB", { hour12: false });
 }
 
+export type LogLevel = "debug" | "info" | "warn" | "error";
+
+const LEVEL_ORDER: Record<LogLevel | "silent", number> = {
+  debug: 10,
+  info: 20,
+  warn: 30,
+  error: 40,
+  silent: 100,
+};
+
+/**
+ * Resolve the configured verbosity from LOG_LEVEL, falling back to "info" for
+ * an unset or invalid value.
+ *
+ * CONVENTION-EXCEPTION: reads process.env directly instead of going through the
+ * Zod `config`. The logger is foundational infrastructure imported by nearly
+ * every module — including config.ts's own error path — so depending on the
+ * full config graph (which pulls in dotenv/fs) would invert the layering and
+ * make the logger fragile to partial `config`/`fs` mocks in tests. The value is
+ * validated against the closed set below.
+ */
+function resolveThreshold(): number {
+  const envLevel = process.env.LOG_LEVEL;
+  if (envLevel && envLevel in LEVEL_ORDER) {
+    return LEVEL_ORDER[envLevel as LogLevel | "silent"];
+  }
+  return LEVEL_ORDER.info;
+}
+
+const threshold = resolveThreshold();
+
+/** Whether a message at `level` should be emitted given the configured LOG_LEVEL. */
+export function shouldLog(level: LogLevel): boolean {
+  return LEVEL_ORDER[level] >= threshold;
+}
+
 export interface Logger {
   info(prefix: string, msg: string): void;
   warn(prefix: string, msg: string): void;
@@ -39,12 +75,15 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
 
   return {
     info(prefix: string, msg: string): void {
+      if (!shouldLog("info")) return;
       process.stdout.write(fmt("info", prefix, msg) + "\n");
     },
     warn(prefix: string, msg: string): void {
+      if (!shouldLog("warn")) return;
       process.stderr.write(fmt("warn", prefix, msg) + "\n");
     },
     error(prefix: string, msg: string, err?: unknown): void {
+      if (!shouldLog("error")) return;
       const errMsg = err instanceof Error ? err.message : String(err ?? "");
       const full = errMsg ? `${msg} — ${errMsg}` : msg;
       process.stderr.write(fmt("error", prefix, full) + "\n");
