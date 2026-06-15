@@ -59,10 +59,18 @@ function purgeOldLogs(): void {
   }
 }
 
+// eslint-disable-next-line no-control-regex -- ANSI SGR sequences are control chars by definition
+const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
+
+/** Strip ANSI color/style codes so on-disk logs stay plain-text and grep-able. */
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_PATTERN, "");
+}
+
 function formatLine(args: unknown[]): string {
   const ts = new Date().toISOString();
   const msg = args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
-  return `[${ts}] ${msg}\n`;
+  return `[${ts}] ${stripAnsi(msg)}\n`;
 }
 
 /** Install file logging — intercepts console.log/warn/error and tees to daily log files. */
