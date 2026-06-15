@@ -34,12 +34,18 @@ export const providerConfigs: Record<string, ProviderConfig> = {
   anthropic: {
     tiers: {
       fast: "claude-haiku-4-5-20251001",
-      standard: "claude-sonnet-4-5-20250929",
-      heavy: "claude-opus-4-6",
+      standard: "claude-sonnet-4-6",
+      heavy: "claude-opus-4-8",
     },
     costPerMillionTokens: {
+      // Haiku 4.5 (fast)
       "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00 },
+      // Sonnet family
+      "claude-sonnet-4-6": { input: 3.00, output: 15.00 },
       "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00 },
+      // Opus family
+      "claude-opus-4-8": { input: 5.00, output: 25.00 },
+      "claude-opus-4-7": { input: 5.00, output: 25.00 },
       "claude-opus-4-6": { input: 5.00, output: 25.00 },
     },
   },
