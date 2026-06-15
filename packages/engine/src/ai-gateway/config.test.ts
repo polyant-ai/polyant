@@ -21,11 +21,11 @@ describe("resolveModel", () => {
   });
 
   it("resolves anthropic standard tier", () => {
-    expect(resolveModel("anthropic", "standard")).toBe("claude-sonnet-4-5-20250929");
+    expect(resolveModel("anthropic", "standard")).toBe("claude-sonnet-4-6");
   });
 
   it("resolves anthropic heavy tier", () => {
-    expect(resolveModel("anthropic", "heavy")).toBe("claude-opus-4-6");
+    expect(resolveModel("anthropic", "heavy")).toBe("claude-opus-4-8");
   });
 
   it("throws for unknown provider", () => {
@@ -142,7 +142,9 @@ describe("isThinkingCapable", () => {
   describe("Anthropic", () => {
     it.each([
       ["claude-3-7-sonnet-20250219", true],
+      ["claude-sonnet-4-6", true],
       ["claude-sonnet-4-5-20250929", true],
+      ["claude-opus-4-8", true],
       ["claude-opus-4-6", true],
       ["claude-haiku-4-5-20251001", true],
       ["claude-3-5-sonnet-20241022", false],
