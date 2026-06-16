@@ -3,7 +3,7 @@
 import { createHash } from "crypto";
 import { eq, and, desc, sql, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
-import { db } from "../database/client.js";
+import { db, type DbExecutor, type DbTransaction } from "../database/client.js";
 import { knowledgeDocuments, knowledgeChunks } from "./schema.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
@@ -135,6 +135,34 @@ export async function deleteDocument(docId: string): Promise<boolean> {
     .where(eq(knowledgeDocuments.id, docId))
     .returning();
   return result.length > 0;
+}
+
+/**
+ * Delete the entire knowledge base for an instance — every document (including
+ * its raw content) and every chunk. Used by the destructive embedding reset on
+ * a provider switch, where existing vectors are abandoned rather than converted.
+ * Returns the counts removed.
+ *
+ * Accepts an optional transaction so the caller can wipe memories + knowledge +
+ * realign embedding_dim atomically. Standalone, it opens its own transaction so
+ * the chunk/document deletes never partially apply.
+ */
+export async function deleteAllKnowledgeForInstance(
+  instanceId: string,
+  tx?: DbTransaction,
+): Promise<{ documents: number; chunks: number }> {
+  const run = async (ex: DbExecutor) => {
+    const chunks = await ex
+      .delete(knowledgeChunks)
+      .where(eq(knowledgeChunks.instanceId, instanceId))
+      .returning({ id: knowledgeChunks.id });
+    const docs = await ex
+      .delete(knowledgeDocuments)
+      .where(eq(knowledgeDocuments.instanceId, instanceId))
+      .returning({ id: knowledgeDocuments.id });
+    return { documents: docs.length, chunks: chunks.length };
+  };
+  return tx ? run(tx) : db.transaction(run);
 }
 
 /** Get a document by (instanceId, filename). Relies on the UNIQUE constraint. */

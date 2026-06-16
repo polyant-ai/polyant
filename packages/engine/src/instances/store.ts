@@ -133,8 +133,8 @@ export async function createInstance(data: {
 }
 
 /** Fields a caller is allowed to PATCH. `embeddingDim` is deliberately excluded:
- * it is owned by the re-embed pipeline and must never be set directly, or it
- * desyncs from the actual populated vector column. */
+ * it is owned by the embedding-reset pipeline (set on a provider switch) and must
+ * never be set directly, or it desyncs from the actual populated vector column. */
 type UpdatableInstanceFields = {
   name?: string;
   description?: string | null;
