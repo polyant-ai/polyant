@@ -7,7 +7,6 @@ import { OpenAIModule } from "./openai/openai.module.js";
 import { AuthModule } from "../auth/auth.module.js";
 import { HealthController } from "./health/health.controller.js";
 import { MemoriesController } from "./memories/memories.controller.js";
-import { ReEmbedController } from "./memories/re-embed.controller.js";
 import { InstancesController } from "./instances/instances.controller.js";
 import { InstancePromptsController } from "./instances/instance-prompts.controller.js";
 import { InstanceToolsController } from "./instances/instance-tools.controller.js";
@@ -53,7 +52,6 @@ import { OptoutsModule } from "./optouts/optouts.module.js";
   controllers: [
     HealthController,
     MemoriesController,
-    ReEmbedController,
     InstancesController,
     InstancePromptsController,
     InstanceToolsController,

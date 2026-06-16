@@ -19,6 +19,10 @@ const {
   mockSeedSkills,
   mockInvalidateCache,
   mockProviderConfigs,
+  mockEmbeddingProviderChanged,
+  mockResetEmbeddings,
+  mockCountMemories,
+  mockCountDocuments,
 } = vi.hoisted(() => ({
   mockFindInstanceBySlug: vi.fn(),
   mockCreateInstance: vi.fn(),
@@ -28,11 +32,19 @@ const {
   mockSeedPrompts: vi.fn(),
   mockSeedTools: vi.fn(),
   mockSeedSkills: vi.fn(),
+  mockEmbeddingProviderChanged: vi.fn().mockReturnValue(false),
+  mockResetEmbeddings: vi.fn(),
+  mockCountMemories: vi.fn().mockResolvedValue(0),
+  mockCountDocuments: vi.fn().mockResolvedValue(0),
   mockInvalidateCache: vi.fn(),
   mockProviderConfigs: {
     openai: {
       tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o1" },
       costPerMillionTokens: { "gpt-4o-mini": { input: 0.15, output: 0.6 } },
+    },
+    bedrock: {
+      tiers: { fast: "titan", standard: "titan", heavy: "titan" },
+      costPerMillionTokens: {},
     },
   },
 }));
@@ -56,6 +68,12 @@ vi.mock("../../instances/icon-validator.js", () => ({ validateIconDataUri: vi.fn
 vi.mock("../../embeddings-gateway/provider-resolver.js", () => ({
   invalidateEmbeddingContext: vi.fn(),
 }));
+vi.mock("../../embeddings-gateway/embedding-reset.service.js", () => ({
+  embeddingProviderChanged: mockEmbeddingProviderChanged,
+  resetEmbeddingsForProviderSwitch: mockResetEmbeddings,
+}));
+vi.mock("../../memory/index.js", () => ({ countMemories: mockCountMemories }));
+vi.mock("../../knowledge/index.js", () => ({ countDocuments: mockCountDocuments }));
 // Stub the memory-status helper so getBySlug/update never touch the DB
 // (computeMemoryStatusFromInstance reads instance_secrets).
 vi.mock("../memories/memory-status.js", () => ({
@@ -234,6 +252,78 @@ describe("InstancesController", () => {
     it("rejects a valid-format slug that does not exist with 404 (not 400)", async () => {
       mockFindInstanceBySlug.mockResolvedValue(undefined);
       await expect(controller.getBySlug("nonexistent")).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Embedding-provider switch — destructive wipe guard
+  // -------------------------------------------------------------------------
+  describe("update — embedding wipe guard", () => {
+    it("rejects an embedding-provider switch with data and no confirmWipe (400)", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockEmbeddingProviderChanged.mockReturnValue(true);
+      mockCountMemories.mockResolvedValue(3);
+
+      await expect(controller.update("test-one", { provider: "bedrock" })).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+      expect(mockResetEmbeddings).not.toHaveBeenCalled();
+    });
+
+    it("allows the switch and wipes when confirmWipe is set", async () => {
+      mockFindInstanceBySlug
+        .mockResolvedValueOnce(fullInstance)
+        .mockResolvedValueOnce({ ...fullInstance, provider: "bedrock", embeddingDim: 1024 });
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, provider: "bedrock" });
+      mockEmbeddingProviderChanged.mockReturnValue(true);
+      mockResetEmbeddings.mockResolvedValue({
+        instanceId: "uuid-1",
+        memoriesDeleted: 3,
+        knowledgeDocumentsDeleted: 1,
+        knowledgeChunksDeleted: 5,
+        newEmbeddingDim: 1024,
+      });
+
+      const res = await controller.update("test-one", { provider: "bedrock", confirmWipe: true });
+
+      expect(mockResetEmbeddings).toHaveBeenCalledWith("uuid-1", "bedrock");
+      expect(res.wiped?.memoriesDeleted).toBe(3);
+      // No data lookup needed when the caller already confirmed.
+      expect(mockCountMemories).not.toHaveBeenCalled();
+    });
+
+    it("proceeds without confirmWipe when the switch leaves no data to lose", async () => {
+      mockFindInstanceBySlug
+        .mockResolvedValueOnce(fullInstance)
+        .mockResolvedValueOnce({ ...fullInstance, provider: "bedrock" });
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, provider: "bedrock" });
+      mockEmbeddingProviderChanged.mockReturnValue(true);
+      mockCountMemories.mockResolvedValue(0);
+      mockCountDocuments.mockResolvedValue(0);
+      mockResetEmbeddings.mockResolvedValue({
+        instanceId: "uuid-1",
+        memoriesDeleted: 0,
+        knowledgeDocumentsDeleted: 0,
+        knowledgeChunksDeleted: 0,
+        newEmbeddingDim: 1024,
+      });
+
+      const res = await controller.update("test-one", { provider: "bedrock" });
+
+      expect(mockResetEmbeddings).toHaveBeenCalled();
+      expect(res.wiped?.memoriesDeleted).toBe(0);
+    });
+
+    it("does not wipe when the embedding provider is unchanged", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+      mockEmbeddingProviderChanged.mockReturnValue(false);
+
+      const res = await controller.update("test-one", { model: "gpt-4o" });
+
+      expect(mockResetEmbeddings).not.toHaveBeenCalled();
+      expect(res.wiped).toBeNull();
     });
   });
 });

@@ -16,8 +16,6 @@ const {
   mockSecretsDelete,
   mockModelsList,
   mockToolsRequiredSecrets,
-  mockMemoriesList,
-  mockMemoriesReEmbed,
 } = vi.hoisted(() => ({
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
@@ -27,8 +25,6 @@ const {
   mockSecretsDelete: vi.fn(),
   mockModelsList: vi.fn(),
   mockToolsRequiredSecrets: vi.fn(),
-  mockMemoriesList: vi.fn(),
-  mockMemoriesReEmbed: vi.fn(),
 }));
 
 vi.mock("@/lib/i18n/context", () => ({
@@ -67,10 +63,6 @@ vi.mock("@/lib/api", () => ({
     },
     models: { list: (...args: unknown[]) => mockModelsList(...args) },
     tools: { requiredSecrets: (...args: unknown[]) => mockToolsRequiredSecrets(...args) },
-    memories: {
-      list: (...args: unknown[]) => mockMemoriesList(...args),
-      reEmbed: (...args: unknown[]) => mockMemoriesReEmbed(...args),
-    },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
@@ -126,12 +118,11 @@ function setupDefaultMocks() {
     providers: {
       openai: { models: [{ id: "gpt-4o", tier: "standard", costInput: 0.01, costOutput: 0.03 }] },
       anthropic: { models: [{ id: "claude-3-opus", tier: "heavy", costInput: 0.015, costOutput: 0.075 }] },
+      bedrock: { models: [{ id: "titan", tier: "standard", costInput: 0.01, costOutput: 0.03 }] },
     },
   });
   // New shape: array of RequiredSecretSpec, not plain strings.
   mockToolsRequiredSecrets.mockResolvedValue({ requiredSecrets: [] });
-  mockMemoriesList.mockResolvedValue({ memories: [], total: 0, limit: 1, offset: 0 });
-  mockMemoriesReEmbed.mockResolvedValue({ accepted: true, slug: "test-instance" });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -395,11 +386,10 @@ describe("SettingsTab", () => {
     expect(mockToastSuccess).toHaveBeenCalledWith("settings.tab.saved");
   });
 
-  it("prompts for re-embed and triggers it when the provider changes with existing memories", async () => {
+  it("prompts for a destructive wipe and confirms it when the embedding provider changes (openai→bedrock)", async () => {
     const user = userEvent.setup();
     const instance = makeInstance({ provider: "openai", model: "gpt-4o", memoryEnabled: true });
-    const updatedInstance = makeInstance({ provider: "anthropic", model: "claude-3-opus" });
-    mockMemoriesList.mockResolvedValue({ memories: [], total: 5, limit: 1, offset: 0 });
+    const updatedInstance = makeInstance({ provider: "bedrock", model: "titan" });
     mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
 
     render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
@@ -408,38 +398,36 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Switch provider to anthropic via the pricing dialog (a Table-row click,
+    // Switch provider to bedrock via the pricing dialog (a Table-row click,
     // which works under jsdom — unlike the Radix Select trigger which needs
     // pointer-capture APIs jsdom doesn't implement).
     await user.click(screen.getByText("settings.tab.viewPricing"));
-    await user.click(await screen.findByText("claude-3-opus"));
+    await user.click(await screen.findByText("titan"));
 
-    // Saving with a provider change + existing memories opens the migration dialog
+    // Saving with an embedding-provider change opens the destructive wipe dialog
     // instead of saving directly.
     await lastSaveAction.current!.onSave();
 
     await waitFor(() => {
-      expect(screen.getByText("memory.migrate.title")).toBeInTheDocument();
+      expect(screen.getByText("memory.wipe.title")).toBeInTheDocument();
     });
     expect(mockInstanceUpdate).not.toHaveBeenCalled();
 
-    // Confirming runs the save and fires the re-embed.
-    await user.click(screen.getByText("memory.migrate.primary"));
+    // Confirming runs the save and passes confirmWipe so the engine wipes the data.
+    await user.click(screen.getByText("memory.wipe.primary"));
 
     await waitFor(() => {
       expect(mockInstanceUpdate).toHaveBeenCalledWith(
         "test-instance",
-        expect.objectContaining({ provider: "anthropic" }),
+        expect.objectContaining({ provider: "bedrock", confirmWipe: true }),
       );
     });
-    expect(mockMemoriesReEmbed).toHaveBeenCalledWith("test-instance");
   });
 
-  it("does not prompt for re-embed when the provider is unchanged", async () => {
+  it("does not prompt for a wipe when the embedding provider is unchanged (openai→anthropic)", async () => {
     const user = userEvent.setup();
-    const instance = makeInstance({ provider: "openai", model: "gpt-4o", memoryEnabled: false });
-    const updatedInstance = makeInstance({ memoryEnabled: true });
-    mockMemoriesList.mockResolvedValue({ memories: [], total: 5, limit: 1, offset: 0 });
+    const instance = makeInstance({ provider: "openai", model: "gpt-4o", memoryEnabled: true });
+    const updatedInstance = makeInstance({ provider: "anthropic", model: "claude-3-opus" });
     mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
 
     render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
@@ -448,16 +436,18 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Toggle memory (no provider change) and save.
-    const switches = screen.getAllByRole("switch");
-    await user.click(switches[0]);
+    // openai → anthropic keeps the same embedding provider (openai), so no wipe.
+    await user.click(screen.getByText("settings.tab.viewPricing"));
+    await user.click(await screen.findByText("claude-3-opus"));
     await lastSaveAction.current!.onSave();
 
     await waitFor(() => {
-      expect(mockInstanceUpdate).toHaveBeenCalled();
+      expect(mockInstanceUpdate).toHaveBeenCalledWith(
+        "test-instance",
+        expect.objectContaining({ provider: "anthropic", confirmWipe: false }),
+      );
     });
-    expect(screen.queryByText("memory.migrate.title")).not.toBeInTheDocument();
-    expect(mockMemoriesReEmbed).not.toHaveBeenCalled();
+    expect(screen.queryByText("memory.wipe.title")).not.toBeInTheDocument();
   });
 
   it("saves secrets when api key fields are filled", async () => {
