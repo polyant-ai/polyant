@@ -2,7 +2,7 @@
 
 import { eq, desc, sql, gt, and, ilike, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
-import { db } from "../database/client.js";
+import { db, type DbExecutor } from "../database/client.js";
 import { memories } from "./schema.js";
 import { config } from "../config.js";
 import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
@@ -271,8 +271,23 @@ export async function deleteMemoryForInstance(memoryId: string, instanceId: stri
 }
 
 /**
- * Delete all memories for a user.
+ * Delete all memories for a user. Returns the number of rows removed. Accepts an
+ * optional executor (transaction) so the destructive embedding reset can wipe
+ * memories + knowledge + realign embedding_dim atomically.
  */
-export async function deleteAllMemories(instanceId: string): Promise<void> {
-  await db.delete(memories).where(eq(memories.instanceId, instanceId));
+export async function deleteAllMemories(instanceId: string, executor: DbExecutor = db): Promise<number> {
+  const deleted = await executor
+    .delete(memories)
+    .where(eq(memories.instanceId, instanceId))
+    .returning({ id: memories.id });
+  return deleted.length;
+}
+
+/** Count memories owned by an instance. */
+export async function countMemories(instanceId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: drizzleCount() })
+    .from(memories)
+    .where(eq(memories.instanceId, instanceId));
+  return Number(row.count);
 }

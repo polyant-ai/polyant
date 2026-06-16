@@ -70,6 +70,20 @@ export interface Instance {
   updatedAt: string | null;
 }
 
+/**
+ * Result of the destructive embedding reset that runs when an instance's
+ * embedding provider changes. Returned by `PATCH /api/instances/:slug` as
+ * `wiped` when the switch discarded existing data. Existing vectors are NOT
+ * converted — memories and the entire knowledge base are deleted.
+ */
+export interface EmbeddingWipeResult {
+  instanceId: string;
+  memoriesDeleted: number;
+  knowledgeDocumentsDeleted: number;
+  knowledgeChunksDeleted: number;
+  newEmbeddingDim: number;
+}
+
 export interface SecretStatus {
   key: string;
   configured: boolean;

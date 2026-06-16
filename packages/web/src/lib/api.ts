@@ -54,6 +54,7 @@ export type {
   EventDefinition,
   BacklogEvent,
   ActivityLogEntry,
+  EmbeddingWipeResult,
 } from "./api-types";
 
 // Internal import — only types used in the api object below (re-exports don't make types locally available)
@@ -91,6 +92,7 @@ import type {
   EventDefinition,
   BacklogEvent,
   ActivityLogEntry,
+  EmbeddingWipeResult,
 } from "./api-types";
 
 // ── HTTP Client ─────────────────────────────────────────────────────
@@ -199,12 +201,17 @@ export const api = {
         authEnabled?: boolean;
         thinkingEnabled?: boolean;
         sttProvider?: "openai" | "aws" | "deepgram";
+        /** Acknowledge the destructive memory/knowledge wipe on an embedding-provider switch. */
+        confirmWipe?: boolean;
       },
     ) =>
-      request<{ instance: Instance }>(`/api/instances/${encodeURIComponent(slug)}`, {
-        method: "PATCH",
-        body: JSON.stringify(data),
-      }),
+      request<{ instance: Instance; wiped?: EmbeddingWipeResult | null }>(
+        `/api/instances/${encodeURIComponent(slug)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(data),
+        },
+      ),
     delete: (slug: string) =>
       request<{ deleted: boolean }>(`/api/instances/${encodeURIComponent(slug)}`, {
         method: "DELETE",
@@ -416,11 +423,6 @@ export const api = {
       request<{ deleted: boolean }>(`/memories?instanceId=${encodeURIComponent(instanceId)}`, {
         method: "DELETE",
       }),
-    reEmbed: (slug: string) =>
-      request<{ accepted: true; slug: string }>(
-        `/api/instances/${encodeURIComponent(slug)}/memories/re-embed`,
-        { method: "POST" },
-      ),
   },
   skillLibrary: {
     list: () =>

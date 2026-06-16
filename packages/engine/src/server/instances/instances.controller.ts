@@ -28,7 +28,13 @@ import { seedInstanceTools } from "../../instances/instance-tools.store.js";
 import { seedInstanceSkills } from "../../instances/instance-skills.store.js";
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
 import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
-import { reEmbedInstance, shouldReEmbedAfterSwitch } from "../../embeddings-gateway/re-embed.service.js";
+import {
+  embeddingProviderChanged,
+  resetEmbeddingsForProviderSwitch,
+  type EmbeddingResetResult,
+} from "../../embeddings-gateway/embedding-reset.service.js";
+import { countMemories } from "../../memory/index.js";
+import { countDocuments } from "../../knowledge/index.js";
 import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
 import { providerConfigs, isThinkingCapable } from "../../ai-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
@@ -184,29 +190,48 @@ export class InstancesController {
       authEnabled?: boolean;
       thinkingEnabled?: boolean;
       sttProvider?: "openai" | "aws" | "deepgram";
+      /**
+       * Explicit acknowledgement that changing the embedding provider will
+       * permanently delete this instance's memories and knowledge base. Required
+       * when the switch would discard existing data — protects scripted callers
+       * from accidental data loss. The UI sets it after the user confirms.
+       */
+      confirmWipe?: boolean;
     },
   ) {
     this.validateSlug(slug);
     this.validateModelConfig(body.provider, body.model);
     // Capture the pre-update state to detect an embedding-relevant provider switch.
     const before = await findInstanceBySlug(slug);
-    const instance = await updateInstance(slug, body);
+    if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
+
+    // A provider switch that changes the embedding provider abandons the old
+    // embedding space (vectors become uninterpretable). We do NOT convert them —
+    // existing memories + knowledge are wiped. Require explicit confirmation when
+    // there is data to lose, so a Management-API caller can't destroy it silently.
+    const afterProvider = body.provider !== undefined ? body.provider : before.provider;
+    const willWipe = embeddingProviderChanged(before, { provider: afterProvider });
+    if (willWipe && !body.confirmWipe) {
+      const hasData =
+        (await countMemories(before.id)) > 0 || (await countDocuments(before.id)) > 0;
+      if (hasData) {
+        throw new BadRequestException(
+          "Changing the embedding provider permanently deletes all memories and the entire knowledge base for this instance (existing embeddings cannot be converted). Re-send the request with confirmWipe: true to proceed.",
+        );
+      }
+    }
+
+    let instance = await updateInstance(slug, body);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     invalidateInstanceConfigCache(slug);
     invalidateEmbeddingContext(instance.id, slug);
 
-    // Server-side re-embed guard: a provider switch via the Management API bypasses
-    // the UI's confirmation dialog. Mirror it here so scripted callers don't land
-    // in an unembeddable / silently-degraded state. The job is idempotent and a
-    // no-op when nothing needs migration.
-    const reEmbedTriggered = !!before && shouldReEmbedAfterSwitch(before, instance);
-    if (reEmbedTriggered) {
-      setImmediate(() => {
-        reEmbedInstance(instance.id).catch((err) => {
-          const message = err instanceof Error ? err.message : "unknown error";
-          console.error("[instances] auto re-embed after provider switch failed:", slug, message);
-        });
-      });
+    let wiped: EmbeddingResetResult | null = null;
+    if (willWipe) {
+      wiped = await resetEmbeddingsForProviderSwitch(instance.id, instance.provider);
+      // embedding_dim changed — drop the now-stale cached context and refresh the DTO.
+      invalidateEmbeddingContext(instance.id, slug);
+      instance = (await findInstanceBySlug(slug)) ?? instance;
     }
 
     return {
@@ -214,7 +239,7 @@ export class InstancesController {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
       },
-      reEmbedTriggered,
+      wiped,
     };
   }
 

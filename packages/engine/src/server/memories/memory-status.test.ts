@@ -104,9 +104,9 @@ describe("computeMemoryStatusFromInstance", () => {
   });
 
   it("reports canEnable:false when the dim is unsupported by the provider (bedrock + 1536)", async () => {
-    // Provider was switched to bedrock but a re-embed never completed, leaving
-    // embedding_dim=1536 which Titan v2 cannot emit → the instance is unembeddable.
-    // Credentials are present, so without the dim guard this would falsely report healthy.
+    // Defensive guard: should an instance ever end up bedrock + embedding_dim=1536
+    // (a dim Titan v2 cannot emit), it is unembeddable. Credentials are present,
+    // so without the dim guard this would falsely report healthy.
     mockGetAllSecretsById.mockResolvedValue({ aws_region: "eu-west-1" });
     const instance = makeInstance({ provider: "bedrock", embeddingDim: 1536 });
 

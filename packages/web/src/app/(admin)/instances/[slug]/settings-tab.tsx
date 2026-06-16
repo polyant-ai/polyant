@@ -135,10 +135,10 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // Pricing dialog
   const [pricingOpen, setPricingOpen] = useState(false);
 
-  // Re-embed migration dialog (shown when the provider changes while memory is
-  // enabled and the instance already has memories that must be re-embedded).
-  const [migrateOpen, setMigrateOpen] = useState(false);
-  const [migrateCount, setMigrateCount] = useState(0);
+  // Destructive-wipe dialog: shown when the chosen provider changes the embedding
+  // provider (openai↔bedrock). Existing embeddings live in a provider-specific
+  // space and are NOT converted — memories + knowledge are permanently deleted.
+  const [wipeOpen, setWipeOpen] = useState(false);
 
 
   // Instance-level settings
@@ -211,7 +211,11 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     langsmithProject !== (instance.langsmithProject ?? "") ||
     sttProvider !== ((instance.sttProvider as STTProvider | null) ?? "openai");
 
-  const performSave = async (triggerReEmbed: boolean) => {
+  // Map a chat provider to its embedding provider (mirrors the engine's
+  // embeddingProviderFor): bedrock → bedrock, everything else → openai.
+  const embeddingProviderOf = (p: string) => (p === "bedrock" ? "bedrock" : "openai");
+
+  const performSave = async (confirmWipe: boolean) => {
     setSaving(true);
     try {
       // 1. Save secrets (only fields whose value diverges from the loaded baseline).
@@ -235,7 +239,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         });
       }
 
-      // 2. Save instance-level settings
+      // 2. Save instance-level settings. `confirmWipe` acknowledges that an
+      // embedding-provider change permanently deletes memories + knowledge; the
+      // engine rejects the switch without it when there is data to lose.
       const { instance: updated } = await api.instances.update(instance.slug, {
         provider: provider || null,
         model: model || null,
@@ -246,20 +252,12 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         langsmithEnabled,
         langsmithProject: langsmithProject || null,
         sttProvider,
+        confirmWipe,
       });
       onUpdate(updated);
 
       // Clear input fields after save
       clearAllSecretValues();
-
-      // 3. When the provider changed, kick off a background re-embed of the
-      // instance's memories so their vectors match the new embeddings provider.
-      // Fire-and-forget: the engine returns 202 and processes asynchronously.
-      if (triggerReEmbed) {
-        api.memories.reEmbed(instance.slug).catch(() => {
-          toast.error(t("settings.tab.saveFailed"));
-        });
-      }
 
       toast.success(t("settings.tab.saved"));
     } catch (err) {
@@ -270,35 +268,25 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   };
 
   const handleSave = async () => {
-    const providerChanged = provider !== (instance.provider ?? "");
-    // A provider change requires re-embedding existing memories. Prompt for
-    // confirmation only when there is actually something to migrate.
-    if (providerChanged && memoryEnabled) {
-      try {
-        const { total } = await api.memories.list({ instanceId: instance.id, limit: 1 });
-        if (total > 0) {
-          setMigrateCount(total);
-          setMigrateOpen(true);
-          return;
-        }
-      } catch {
-        // If the count lookup fails, fall back to prompting so we never silently
-        // skip the required re-embed on a provider change.
-        setMigrateCount(0);
-        setMigrateOpen(true);
-        return;
-      }
+    // Switching the embedding provider (openai↔bedrock) abandons the old
+    // embedding space — existing memories + knowledge are wiped, not converted.
+    // Warn before saving so the loss is explicit and confirmed.
+    const embeddingChanged =
+      embeddingProviderOf(provider) !== embeddingProviderOf(instance.provider ?? "");
+    if (embeddingChanged) {
+      setWipeOpen(true);
+      return;
     }
     await performSave(false);
   };
 
-  const handleMigrateConfirm = async () => {
-    setMigrateOpen(false);
+  const handleWipeConfirm = async () => {
+    setWipeOpen(false);
     await performSave(true);
   };
 
-  const handleMigrateCancel = () => {
-    setMigrateOpen(false);
+  const handleWipeCancel = () => {
+    setWipeOpen(false);
     // Revert the provider/model selection back to the persisted instance values.
     setProvider(instance.provider ?? "");
     setModel(instance.model ?? "");
@@ -769,24 +757,23 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         )}
       </section>
 
-      {/* Provider-change re-embed confirmation */}
-      <AlertDialog open={migrateOpen} onOpenChange={setMigrateOpen}>
+      {/* Provider-change destructive wipe confirmation */}
+      <AlertDialog open={wipeOpen} onOpenChange={setWipeOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("memory.migrate.title")}</AlertDialogTitle>
+            <AlertDialogTitle>{t("memory.wipe.title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("memory.migrate.body", {
+              {t("memory.wipe.body", {
                 provider: BRAND_NAMES[provider] ?? provider,
-                count: migrateCount,
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleMigrateCancel}>
+            <AlertDialogCancel onClick={handleWipeCancel}>
               {t("common.cancel")}
             </AlertDialogCancel>
-            <AlertDialogAction onClick={handleMigrateConfirm}>
-              {t("memory.migrate.primary")}
+            <AlertDialogAction onClick={handleWipeConfirm}>
+              {t("memory.wipe.primary")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

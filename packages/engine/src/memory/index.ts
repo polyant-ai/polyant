@@ -35,6 +35,7 @@ export {
   getAllMemories,
   deleteMemoryForInstance,
   deleteAllMemories,
+  countMemories,
   searchByVector,
   upsertMemory,
 } from "./memory-store.js";

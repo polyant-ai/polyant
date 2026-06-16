@@ -17,6 +17,22 @@ export const SUPPORTED_DIMS: Record<EmbeddingProvider, readonly EmbeddingDim[]> 
 /** Default dimension for brand-new instances. */
 export const DEFAULT_EMBEDDING_DIM: EmbeddingDim = 1024;
 
+/**
+ * Map a chat provider to its embedding provider: `bedrock` → `bedrock`,
+ * everything else (openai, anthropic, …) → `openai` (Anthropic has no embedding
+ * API, so it falls back to OpenAI). Mirrors the resolution in `provider-resolver`.
+ */
+export function embeddingProviderFor(provider: string | null | undefined): EmbeddingProvider {
+  return provider === "bedrock" ? "bedrock" : "openai";
+}
+
+/** Dimension a fresh embedding space should use for a provider after a wipe. */
+export function defaultDimForProvider(provider: EmbeddingProvider): EmbeddingDim {
+  return SUPPORTED_DIMS[provider].includes(DEFAULT_EMBEDDING_DIM)
+    ? DEFAULT_EMBEDDING_DIM
+    : SUPPORTED_DIMS[provider][0];
+}
+
 export function assertDimSupported(
   provider: EmbeddingProvider,
   dim: EmbeddingDim,

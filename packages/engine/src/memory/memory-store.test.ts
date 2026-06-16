@@ -64,6 +64,8 @@ vi.mock("drizzle-orm", () => ({
   gt: vi.fn((...args: unknown[]) => ({ type: "gt", args })),
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
   isNotNull: vi.fn((c: unknown) => ({ type: "isNotNull", c })),
+  ilike: vi.fn((...args: unknown[]) => ({ type: "ilike", args })),
+  count: vi.fn(() => ({ type: "count" })),
 }));
 
 vi.mock("drizzle-orm/sql/functions", () => ({
@@ -76,6 +78,7 @@ import {
   getAllMemories,
   deleteMemoryForInstance,
   deleteAllMemories,
+  countMemories,
 } from "./memory-store.js";
 
 describe("memory-store", () => {
@@ -250,13 +253,25 @@ describe("memory-store", () => {
   });
 
   describe("deleteAllMemories", () => {
-    it("calls delete for user", async () => {
-      const delChain = createChainMock(undefined);
+    it("calls delete for user and returns the deleted count", async () => {
+      const delChain = createChainMock([{ id: "m1" }, { id: "m2" }]);
       mockDb.delete.mockReturnValue(delChain as any);
 
-      await deleteAllMemories("user-1");
+      const count = await deleteAllMemories("user-1");
 
       expect(mockDb.delete).toHaveBeenCalled();
+      expect(count).toBe(2);
+    });
+  });
+
+  describe("countMemories", () => {
+    it("returns the row count for an instance", async () => {
+      const selChain = createChainMock([{ count: 5 }]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      const count = await countMemories("user-1");
+
+      expect(count).toBe(5);
     });
   });
 });
