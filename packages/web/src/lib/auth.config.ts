@@ -121,6 +121,11 @@ export const authConfig = {
   providers: buildProviders(),
   session: {
     strategy: "jwt",
+    // 24h (was the Auth.js 30d default). A shorter TTL bounds the window in
+    // which a stale identity claim (e.g. revoked membership / platform-admin)
+    // survives in the JWT, since JWT sessions have no immediate server-side
+    // revocation.
+    maxAge: 24 * 60 * 60,
   },
   pages: {
     signIn: "/login",
@@ -186,6 +191,9 @@ export const authConfig = {
         (session.user as { role?: string }).role = (token.role as string) ?? "user";
         (session.user as { mustChangePassword?: boolean }).mustChangePassword =
           token.mustChangePassword === true;
+        // Surface the resolved org so server components / API proxying can read
+        // it. Stamped into the token by the Node-side jwt callback (auth.ts).
+        session.user.orgId = token.orgId;
       }
       return session;
     },
