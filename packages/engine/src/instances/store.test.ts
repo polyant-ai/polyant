@@ -117,9 +117,16 @@ const fakeInstance = {
   langsmithEnabled: false,
   langsmithProject: null,
   authEnabled: false,
+  workspaceId: "ws-default",
   createdAt: new Date("2025-01-01"),
   updatedAt: new Date("2025-01-01"),
 };
+
+/** Mock the default-workspace lookup that ensureInstance/createInstance run
+ *  before inserting (returns the seeded default workspace UUID). */
+function mockDefaultWorkspaceSelect() {
+  mockDb.select.mockReturnValue(createChainMock([{ id: "ws-default" }]) as any);
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -187,6 +194,7 @@ describe("instances/store", () => {
   // -----------------------------------------------------------------------
   describe("ensureInstance", () => {
     it("inserts with onConflictDoNothing", async () => {
+      mockDefaultWorkspaceSelect();
       const chain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(chain as any);
 
@@ -201,11 +209,13 @@ describe("instances/store", () => {
         slug: "default",
         name: "Default Assistant",
         description: "A default assistant",
+        workspaceId: "ws-default",
       });
       expect(chain.onConflictDoNothing).toHaveBeenCalled();
     });
 
     it("sets description to null when omitted", async () => {
+      mockDefaultWorkspaceSelect();
       const chain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(chain as any);
 
@@ -215,6 +225,7 @@ describe("instances/store", () => {
         slug: "test",
         name: "Test",
         description: null,
+        workspaceId: "ws-default",
       });
     });
   });
@@ -224,6 +235,7 @@ describe("instances/store", () => {
   // -----------------------------------------------------------------------
   describe("createInstance", () => {
     it("inserts and returns the created instance", async () => {
+      mockDefaultWorkspaceSelect();
       const chain = createChainMock([fakeInstance]);
       mockDb.insert.mockReturnValue(chain as any);
 
@@ -243,11 +255,13 @@ describe("instances/store", () => {
         description: "A default assistant",
         provider: "openai",
         model: "gpt-4o",
+        workspaceId: "ws-default",
       });
       expect(chain.returning).toHaveBeenCalled();
     });
 
     it("defaults description, provider, and model to null", async () => {
+      mockDefaultWorkspaceSelect();
       const chain = createChainMock([{ ...fakeInstance, description: null, provider: null, model: null }]);
       mockDb.insert.mockReturnValue(chain as any);
 
@@ -259,6 +273,7 @@ describe("instances/store", () => {
         description: null,
         provider: null,
         model: null,
+        workspaceId: "ws-default",
       });
     });
   });

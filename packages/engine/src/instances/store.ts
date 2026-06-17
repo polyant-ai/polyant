@@ -7,7 +7,12 @@ import { conversations, conversationMessages, conversationState } from "../conve
 import { memories } from "../memory/schema.js";
 import { knowledgeDocuments } from "../knowledge/schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
+import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
 import { asInstanceSlug, asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
+
+// Every instance must belong to a workspace. Until per-workspace creation
+// lands, new instances land in the default workspace — the same place the
+// migration backfilled pre-existing rows, so behaviour is unchanged.
 
 export interface Instance {
   id: InstanceUuid;
@@ -45,6 +50,8 @@ export interface Instance {
   optoutInjectPromptHint: boolean;
   icon: string | null;
   sttProvider: string;
+  /** Owning workspace UUID (RBAC tenancy). Every instance belongs to one. */
+  workspaceId: string;
   createdAt: Date | null;
   updatedAt: Date | null;
 }
@@ -76,6 +83,7 @@ export async function ensureInstance(data: {
       slug: data.slug,
       name: data.name,
       description: data.description ?? null,
+      workspaceId: await findDefaultWorkspaceId(),
     })
     .onConflictDoNothing({ target: instances.slug });
 }
@@ -116,6 +124,7 @@ export async function createInstance(data: {
       description: data.description ?? null,
       provider: data.provider ?? null,
       model: data.model ?? null,
+      workspaceId: await findDefaultWorkspaceId(),
     })
     .returning();
   return toInstance(rows[0]);

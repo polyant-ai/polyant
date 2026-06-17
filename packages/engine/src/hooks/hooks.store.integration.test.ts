@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
+import { workspaces } from "../organizations/organization.schema.js";
 import {
   listHooks,
   createHook,
@@ -25,10 +26,14 @@ let instanceUuid: InstanceUuid | undefined;
 
 async function setupInstance(): Promise<InstanceUuid | undefined> {
   try {
+    const [ws] = await Promise.race([
+      db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.isDefault, true)).limit(1),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("db timeout")), 3000)),
+    ]);
     const rows = await Promise.race([
       db
         .insert(instances)
-        .values({ slug: SLUG, name: "itest hooks" })
+        .values({ slug: SLUG, name: "itest hooks", workspaceId: ws.id })
         .onConflictDoNothing()
         .returning({ id: instances.id }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("db timeout")), 3000)),
