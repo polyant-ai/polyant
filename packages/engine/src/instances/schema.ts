@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { pgTable, uuid, varchar, text, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
+import { workspaces } from "../organizations/organization.schema.js";
 
 export const instances = pgTable("instances", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -52,6 +53,15 @@ export const instances = pgTable("instances", {
   optoutInjectPromptHint: boolean("optout_inject_prompt_hint").notNull().default(true),
   icon: text("icon"),
   sttProvider: text("stt_provider").notNull().default("openai"),
+  /**
+   * Owning workspace (RBAC tenancy). Backfilled to the default workspace by
+   * migration 0050 and set NOT NULL there. Every agent belongs to exactly one
+   * workspace; ON DELETE RESTRICT keeps a workspace undeletable while it holds
+   * agents. The `instance -> agent` table rename is deferred to a later stream.
+   */
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
