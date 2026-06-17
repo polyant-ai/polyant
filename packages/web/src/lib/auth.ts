@@ -27,6 +27,7 @@ import {
   resolveSignInOrgId,
   type OrgProvisioningPort,
 } from "./org-provisioning";
+import { isEmailDomainAllowed, parseAllowedDomains } from "./auth-domain-allowlist";
 
 const connectionString = process.env.DATABASE_URL ??
   `postgres://${process.env.POSTGRES_USER ?? "polyant"}:${process.env.POSTGRES_PASSWORD ?? ""}@${process.env.POSTGRES_HOST ?? "localhost"}:${process.env.POSTGRES_PORT ?? "5432"}/${process.env.POSTGRES_DB ?? "polyant"}`;
@@ -233,6 +234,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     ...authConfig.callbacks,
     jwt: jwtWithOrg,
+    /**
+     * Per-org sign-in domain allowlist (RBAC Stream 8 — OSS path).
+     *
+     * Runs in the Node runtime (this file is the full server-side config) so
+     * the allowlist env vars are read here, NOT in the Edge `auth.config.ts`.
+     * Restricts Google sign-in to the configured domain(s); credentials login
+     * (no `account.provider === "google"`) bypasses the check. There is no
+     * hardcoded domain — every tenant is configured via `AUTH_ALLOWED_DOMAIN`.
+     */
+    signIn(params) {
+      const { account, profile } = params;
+      if (account?.provider === "google") {
+        const allowList = parseAllowedDomains();
+        if (!isEmailDomainAllowed(profile?.email, allowList)) {
+          return false;
+        }
+      }
+      return true;
+    },
   },
   events: {
     /**
