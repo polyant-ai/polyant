@@ -276,7 +276,7 @@ polyant/                            # Monorepo root
 
 ### Current (Phase 1)
 
-- **Frontend**: Auth.js v5 with Google OAuth; optional domain allowlist via `AUTH_ALLOWED_DOMAINS` env var (comma-separated, empty = allow all)
+- **Frontend**: Auth.js v5 with Google OAuth; optional per-org sign-in domain allowlist. OSS path is one domain/org via `AUTH_ALLOWED_DOMAIN` (legacy comma-separated `AUTH_ALLOWED_DOMAINS` still honoured + merged; empty = allow all). The check lives in the **Node `signIn` callback in `lib/auth.ts`** (not the Edge `auth.config.ts`), backed by the pure helper `lib/auth-domain-allowlist.ts` (exact case-insensitive domain match — look-alike suffixes/prefixes are rejected). No domain is hardcoded; every tenant is env-configured. EE layers a per-org table + UI on top (out of OSS scope)
 - **Session strategy**: JWT (encrypted JWE with A256CBC-HS512). Chosen because Next.js middleware runs in Edge Runtime which cannot make TCP/DB connections
 - **JWT validation (engine)**: `auth-user.service.ts` decrypts Auth.js JWE using `jose` + `@panva/hkdf` with `AUTH_SECRET`. No DB query per request
 - **Engine guard**: Global NestJS `AuthGuard` (registered via `APP_GUARD`). Reads JWT from `Authorization: Bearer <token>` header OR `authjs.session-token` cookie. Uses `@Inject(Reflector)` explicitly (tsx doesn't support `emitDecoratorMetadata`)

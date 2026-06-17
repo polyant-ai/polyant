@@ -20,6 +20,7 @@ import {
   primaryKey,
 } from "drizzle-orm/pg-core";
 import { authConfig } from "./auth.config";
+import { isEmailDomainAllowed, parseAllowedDomains } from "./auth-domain-allowlist";
 
 const connectionString = process.env.DATABASE_URL ??
   `postgres://${process.env.POSTGRES_USER ?? "polyant"}:${process.env.POSTGRES_PASSWORD ?? ""}@${process.env.POSTGRES_HOST ?? "localhost"}:${process.env.POSTGRES_PORT ?? "5432"}/${process.env.POSTGRES_DB ?? "polyant"}`;
@@ -78,9 +79,31 @@ const verificationTokensTable = pgTable(
   (table) => [primaryKey({ columns: [table.identifier, table.token] })],
 );
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- DrizzleAdapter types conflict between drizzle-orm versions (engine 0.38 vs web 0.45)
+/* eslint-disable @typescript-eslint/no-explicit-any -- DrizzleAdapter types conflict between drizzle-orm versions (engine 0.38 vs web 0.45) */
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
+  callbacks: {
+    ...authConfig.callbacks,
+    /**
+     * Per-org sign-in domain allowlist (RBAC Stream 8 — OSS path).
+     *
+     * Runs in the Node runtime (this file is the full server-side config) so
+     * the allowlist env vars are read here, NOT in the Edge `auth.config.ts`.
+     * Restricts Google sign-in to the configured domain(s); credentials login
+     * (no `account.provider === "google"`) bypasses the check. There is no
+     * hardcoded domain — every tenant is configured via `AUTH_ALLOWED_DOMAIN`.
+     */
+    signIn(params) {
+      const { account, profile } = params;
+      if (account?.provider === "google") {
+        const allowList = parseAllowedDomains();
+        if (!isEmailDomainAllowed(profile?.email, allowList)) {
+          return false;
+        }
+      }
+      return true;
+    },
+  },
   adapter: DrizzleAdapter(db as any, {
     usersTable: usersTable as any,
     accountsTable: accountsTable as any,
@@ -88,3 +111,4 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     verificationTokensTable: verificationTokensTable as any,
   }),
 });
+/* eslint-enable @typescript-eslint/no-explicit-any */
