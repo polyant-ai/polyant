@@ -157,6 +157,8 @@ describe("AuthGuard", () => {
         name: "Paolo",
         role: "user",
         mustChangePassword: false,
+        principalType: "user",
+        orgId: undefined,
         source: "session",
       });
     });
@@ -194,6 +196,8 @@ describe("AuthGuard", () => {
         name: "Paolo",
         role: "user",
         mustChangePassword: false,
+        principalType: "user",
+        orgId: undefined,
         source: "session",
       });
     });

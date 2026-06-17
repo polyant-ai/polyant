@@ -60,6 +60,9 @@ export async function validateSessionToken(
 
       const role = payload.role === "superadmin" ? "superadmin" : "user";
       const mustChangePassword = payload.mustChangePassword === true;
+      // Only trust a string `orgId` claim; anything else is treated as absent so
+      // a malformed token never leaks a non-string value downstream.
+      const orgId = typeof payload.orgId === "string" ? payload.orgId : undefined;
 
       return {
         userId: (payload.sub ?? payload.id) as string,
@@ -67,6 +70,8 @@ export async function validateSessionToken(
         name: (payload.name as string) ?? undefined,
         role,
         mustChangePassword,
+        principalType: "user",
+        orgId,
       };
     } catch {
       // Try next salt
