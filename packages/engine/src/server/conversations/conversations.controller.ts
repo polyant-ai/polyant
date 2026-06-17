@@ -14,6 +14,8 @@ import { loadConversationState } from "../../conversations/state.store.js";
 import { listHookExecutions } from "../../hooks/hook-executions.store.js";
 import { parsePagination } from "../utils/parse-pagination.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import type { AuthenticatedUser } from "../../auth/auth.types.js";
 
 /** RFC-4122 UUID shape — guards the message-id path param before it hits the uuid column. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -30,8 +32,14 @@ function requireInstanceId(instanceId: string | undefined): InstanceSlug {
  * Look up a conversation and verify it belongs to the requested instance scope.
  * Returns 404 on either miss or mismatch — never reveals existence across instances.
  */
-async function loadConversationScoped(conversationId: string, instanceId: InstanceSlug) {
-  const conversation = await conversationStore.getConversation(conversationId);
+async function loadConversationScoped(
+  conversationId: string,
+  instanceId: InstanceSlug,
+  orgId?: string,
+) {
+  // The org filter scopes the lookup to the caller's org; the instanceId check
+  // narrows to the requested agent. A foreign-org id misses on both counts.
+  const conversation = await conversationStore.getConversation(conversationId, orgId);
   if (!conversation || conversation.instanceId !== instanceId) {
     throw new NotFoundException(`Conversation not found: ${conversationId}`);
   }
@@ -47,15 +55,18 @@ export class ConversationsController {
     @Query("search") search?: string,
     @Query("limit") limitStr?: string,
     @Query("offset") offsetStr?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const { limit, offset } = parsePagination(limitStr, offsetStr, { defaultLimit: 20, maxLimit: 100 });
     const instanceSlug = instanceId ? asInstanceSlug(instanceId) : undefined;
+    const orgId = user?.orgId;
 
     if (search) {
       const result = await conversationStore.searchConversations(search, {
         instanceId: instanceSlug,
         limit,
         offset,
+        orgId,
       });
       return { ...result, limit, offset };
     }
@@ -65,6 +76,7 @@ export class ConversationsController {
       source,
       limit,
       offset,
+      orgId,
     });
     return { ...result, limit, offset };
   }
@@ -73,10 +85,11 @@ export class ConversationsController {
   async getOne(
     @Param("conversationId") conversationId: string,
     @Query("instanceId") instanceId?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
     const id = decodeURIComponent(conversationId);
-    const conversation = await loadConversationScoped(id, uid);
+    const conversation = await loadConversationScoped(id, uid, user?.orgId);
     return { conversation };
   }
 
@@ -87,10 +100,11 @@ export class ConversationsController {
     @Query("limit") limitStr?: string,
     @Query("offset") offsetStr?: string,
     @Query("order") orderStr?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
     const id = decodeURIComponent(conversationId);
-    await loadConversationScoped(id, uid);
+    await loadConversationScoped(id, uid, user?.orgId);
 
     const { limit, offset } = parsePagination(limitStr, offsetStr);
     const order: "asc" | "desc" = orderStr === "desc" ? "desc" : "asc";
@@ -115,11 +129,12 @@ export class ConversationsController {
     @Param("conversationId") conversationId: string,
     @Param("messageId") messageId: string,
     @Query("instanceId") instanceId?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
     if (!UUID_RE.test(messageId)) throw new BadRequestException("messageId must be a UUID");
     const id = decodeURIComponent(conversationId);
-    await loadConversationScoped(id, uid);
+    await loadConversationScoped(id, uid, user?.orgId);
 
     const debug = await conversationStore.getMessageDebug(id, messageId);
     if (!debug) throw new NotFoundException(`Message not found: ${messageId}`);
@@ -132,10 +147,11 @@ export class ConversationsController {
   async getHookExecutions(
     @Param("conversationId") conversationId: string,
     @Query("instanceId") instanceId?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
     const id = decodeURIComponent(conversationId);
-    await loadConversationScoped(id, uid);
+    await loadConversationScoped(id, uid, user?.orgId);
 
     const executions = await listHookExecutions(id);
     return { executions };
@@ -147,10 +163,11 @@ export class ConversationsController {
   async getState(
     @Param("conversationId") conversationId: string,
     @Query("instanceId") instanceId?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
     const id = decodeURIComponent(conversationId);
-    await loadConversationScoped(id, uid);
+    await loadConversationScoped(id, uid, user?.orgId);
 
     const state = await loadConversationState(id);
     return { state };
@@ -160,10 +177,11 @@ export class ConversationsController {
   async remove(
     @Param("conversationId") conversationId: string,
     @Query("instanceId") instanceId?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
     const id = decodeURIComponent(conversationId);
-    await loadConversationScoped(id, uid);
+    await loadConversationScoped(id, uid, user?.orgId);
 
     const deleted = await conversationStore.deleteConversation(id);
     if (!deleted) {

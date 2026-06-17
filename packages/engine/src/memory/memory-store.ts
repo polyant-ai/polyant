@@ -6,6 +6,7 @@ import { db } from "../database/client.js";
 import { memories } from "./schema.js";
 import { config } from "../config.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
+import { buildOrgScopedAgentFilter } from "../authz/scope-filter.js";
 
 // ---- Types ----
 
@@ -222,7 +223,7 @@ export async function getAllMemories(instanceId: InstanceSlug): Promise<MemoryRe
  */
 export async function searchMemories(
   instanceId: InstanceSlug,
-  opts: { search?: string; category?: string; limit?: number; offset?: number } = {},
+  opts: { search?: string; category?: string; limit?: number; offset?: number; orgId?: string } = {},
 ): Promise<{ memories: MemoryRecord[]; total: number }> {
   const limit = opts.limit ?? 20;
   const offset = opts.offset ?? 0;
@@ -230,6 +231,9 @@ export async function searchMemories(
   const conditions = [eq(memories.instanceId, instanceId)];
   if (opts.search) conditions.push(ilike(memories.content, `%${escapeLikePattern(opts.search)}%`));
   if (opts.category) conditions.push(eq(memories.category, opts.category));
+  // Cross-org gate: even with a valid-looking instanceId, only return rows whose
+  // agent belongs to the caller's org (closes param-IDOR at the store layer).
+  if (opts.orgId) conditions.push(buildOrgScopedAgentFilter(opts.orgId));
 
   const where = and(...conditions);
 
@@ -263,10 +267,18 @@ export async function searchMemories(
  * Delete a memory by ID only if it belongs to the specified instance.
  * Returns true when a row was deleted, false when not found or owned by another instance.
  */
-export async function deleteMemoryForInstance(memoryId: string, instanceId: InstanceSlug): Promise<boolean> {
+export async function deleteMemoryForInstance(
+  memoryId: string,
+  instanceId: InstanceSlug,
+  orgId?: string,
+): Promise<boolean> {
+  const conditions = [eq(memories.id, memoryId), eq(memories.instanceId, instanceId)];
+  // Cross-org gate: a foreign-org instanceId never matches the org subquery, so
+  // an Org-A caller cannot delete an Org-B memory by id.
+  if (orgId) conditions.push(buildOrgScopedAgentFilter(orgId));
   const result = await db
     .delete(memories)
-    .where(and(eq(memories.id, memoryId), eq(memories.instanceId, instanceId)))
+    .where(and(...conditions))
     .returning({ id: memories.id });
   return result.length > 0;
 }
@@ -274,6 +286,8 @@ export async function deleteMemoryForInstance(memoryId: string, instanceId: Inst
 /**
  * Delete all memories for a user.
  */
-export async function deleteAllMemories(instanceId: InstanceSlug): Promise<void> {
-  await db.delete(memories).where(eq(memories.instanceId, instanceId));
+export async function deleteAllMemories(instanceId: InstanceSlug, orgId?: string): Promise<void> {
+  const conditions = [eq(memories.instanceId, instanceId)];
+  if (orgId) conditions.push(buildOrgScopedAgentFilter(orgId));
+  await db.delete(memories).where(and(...conditions));
 }

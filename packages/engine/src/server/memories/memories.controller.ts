@@ -5,6 +5,8 @@ import { searchMemories, deleteAllMemories, upsertMemory, deleteMemoryForInstanc
 import { generateEmbeddings } from "../../memory/embedder.js";
 import { getAllSecrets } from "../../instances/secrets.store.js";
 import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
+import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import type { AuthenticatedUser } from "../../auth/auth.types.js";
 
 function requireInstanceId(instanceId: string | undefined): InstanceSlug {
   const trimmed = instanceId?.trim();
@@ -21,12 +23,13 @@ export class MemoriesController {
     @Query("category") category?: string,
     @Query("limit") limitStr?: string,
     @Query("offset") offsetStr?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
     const limit = Math.min(Math.max(limitStr ? Number(limitStr) || 20 : 20, 1), 100);
     const offset = Math.max(offsetStr ? Number(offsetStr) || 0 : 0, 0);
 
-    const result = await searchMemories(uid, { search, category, limit, offset });
+    const result = await searchMemories(uid, { search, category, limit, offset, orgId: user?.orgId });
     return {
       total: result.total,
       limit,
@@ -72,17 +75,24 @@ export class MemoriesController {
   }
 
   @Delete(":id")
-  async remove(@Param("id") id: string, @Query("instanceId") instanceId?: string) {
+  async remove(
+    @Param("id") id: string,
+    @Query("instanceId") instanceId?: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
     const uid = requireInstanceId(instanceId);
-    const deleted = await deleteMemoryForInstance(id, uid);
+    const deleted = await deleteMemoryForInstance(id, uid, user?.orgId);
     if (!deleted) throw new NotFoundException(`Memory "${id}" not found`);
     return { deleted: true };
   }
 
   @Delete()
-  async removeAll(@Query("instanceId") instanceId?: string) {
+  async removeAll(
+    @Query("instanceId") instanceId?: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
     const uid = requireInstanceId(instanceId);
-    await deleteAllMemories(uid);
+    await deleteAllMemories(uid, user?.orgId);
     return { deleted: true };
   }
 }
