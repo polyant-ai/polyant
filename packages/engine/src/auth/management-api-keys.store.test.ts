@@ -14,10 +14,10 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockSelectRows, mockUpdate, mockBcryptCompare } = vi.hoisted(() => ({
+const { mockSelectRows, mockUpdate, mockVerifyPassword } = vi.hoisted(() => ({
   mockSelectRows: vi.fn(),
   mockUpdate: vi.fn(),
-  mockBcryptCompare: vi.fn(),
+  mockVerifyPassword: vi.fn(),
 }));
 
 vi.mock("../database/client.js", () => ({
@@ -33,8 +33,8 @@ vi.mock("../database/client.js", () => ({
   },
 }));
 
-vi.mock("bcryptjs", () => ({
-  default: { compare: mockBcryptCompare },
+vi.mock("../users/password.util.js", () => ({
+  verifyPassword: mockVerifyPassword,
 }));
 
 import {
@@ -100,7 +100,7 @@ describe("validateManagementApiKey", () => {
 
   it("returns null when the bcrypt secret does not match", async () => {
     mockSelectRows.mockResolvedValue([row()]);
-    mockBcryptCompare.mockResolvedValue(false);
+    mockVerifyPassword.mockResolvedValue(false);
     const result = await validateManagementApiKey(`pk_${VALID_ID}_wrong`);
     expect(result).toBeNull();
   });
@@ -108,14 +108,14 @@ describe("validateManagementApiKey", () => {
   it("returns null when the key is expired", async () => {
     const past = new Date(Date.now() - 60_000);
     mockSelectRows.mockResolvedValue([row({ expiresAt: past })]);
-    mockBcryptCompare.mockResolvedValue(true);
+    mockVerifyPassword.mockResolvedValue(true);
     const result = await validateManagementApiKey(`pk_${VALID_ID}_secret`);
     expect(result).toBeNull();
   });
 
   it("returns a service principal with orgId and a permission set on success", async () => {
     mockSelectRows.mockResolvedValue([row()]);
-    mockBcryptCompare.mockResolvedValue(true);
+    mockVerifyPassword.mockResolvedValue(true);
     wireUpdateChain();
 
     const result = await validateManagementApiKey(`pk_${VALID_ID}_secret`);
@@ -131,7 +131,7 @@ describe("validateManagementApiKey", () => {
   it("honours a future expiry (not expired)", async () => {
     const future = new Date(Date.now() + 60_000);
     mockSelectRows.mockResolvedValue([row({ expiresAt: future })]);
-    mockBcryptCompare.mockResolvedValue(true);
+    mockVerifyPassword.mockResolvedValue(true);
     wireUpdateChain();
 
     const result = await validateManagementApiKey(`pk_${VALID_ID}_secret`);
@@ -140,7 +140,7 @@ describe("validateManagementApiKey", () => {
 
   it("refreshes last_used_at on a successful validation", async () => {
     mockSelectRows.mockResolvedValue([row()]);
-    mockBcryptCompare.mockResolvedValue(true);
+    mockVerifyPassword.mockResolvedValue(true);
     const { set } = wireUpdateChain();
 
     await validateManagementApiKey(`pk_${VALID_ID}_secret`);

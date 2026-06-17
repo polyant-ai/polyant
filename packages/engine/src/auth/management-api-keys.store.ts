@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { eq } from "drizzle-orm";
-import bcrypt from "bcryptjs";
 import { db } from "../database/client.js";
 import { createLogger } from "../utils/create-logger.js";
+import { verifyPassword } from "../users/password.util.js";
 import { managementApiKeys } from "./management-api-keys.schema.js";
 import type { ServicePrincipal } from "./auth.types.js";
 import type { PermissionKey } from "../authz/permissions.js";
@@ -97,13 +97,9 @@ export async function validateManagementApiKey(
   if (!key) return null;
   if (isExpired(key.expiresAt)) return null;
 
-  let matches: boolean;
-  try {
-    matches = await bcrypt.compare(parsed.secret, key.keyHash);
-  } catch (error) {
-    logger.error(LOG_PREFIX, `bcrypt compare failed: ${String(error)}`);
-    return null;
-  }
+  // verifyPassword wraps bcrypt.compare and returns false (never throws) on a
+  // malformed hash, so a corrupt row degrades to a clean 401 instead of a 500.
+  const matches = await verifyPassword(parsed.secret, key.keyHash);
   if (!matches) return null;
 
   touchLastUsed(key.id);
