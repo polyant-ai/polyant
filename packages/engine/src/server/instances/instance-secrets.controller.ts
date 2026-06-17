@@ -6,6 +6,17 @@ import { setSecret, listSecretKeys, deleteSecret } from "../../instances/secrets
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import {
+  createManagementAuditLogger,
+  ManagementAuditAction,
+} from "../../management-audit/management-audit-logger.js";
+
+/** Map an authenticated user to the audit actor shape (undefined at the edge). */
+function toAuditActor(user: AuthenticatedUser | undefined) {
+  return user ? { userId: user.userId, email: user.email } : undefined;
+}
 
 const PutSecretsSchema = z.object({
   secrets: z
@@ -24,6 +35,8 @@ const PutSecretsSchema = z.object({
 
 @Controller("api/instances")
 export class InstanceSecretsController {
+  private readonly auditLogger = createManagementAuditLogger();
+
   @Get(":slug/secrets")
   async listSecrets(@Param("slug") slug: string) {
     await findInstanceOrFail(slug);
@@ -35,6 +48,7 @@ export class InstanceSecretsController {
   async setSecrets(
     @Param("slug") slug: string,
     @Body() body: unknown,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const parsed = PutSecretsSchema.safeParse(body);
     if (!parsed.success) {
@@ -44,10 +58,19 @@ export class InstanceSecretsController {
     }
 
     const instance = await findInstanceOrFail(slug);
+    const actor = toAuditActor(user);
 
     for (const entry of parsed.data.secrets) {
       if (!entry.value) continue;
       await setSecret(instance.id, entry.key, entry.value);
+      // Audit the key only — the secret value is never recorded.
+      this.auditLogger.log({
+        action: ManagementAuditAction.SecretWrite,
+        actor,
+        targetType: "secret",
+        targetId: entry.key,
+        metadata: { instanceSlug: slug },
+      });
     }
 
     invalidateInstanceConfigCache(asInstanceSlug(slug));
@@ -59,9 +82,17 @@ export class InstanceSecretsController {
   async removeSecret(
     @Param("slug") slug: string,
     @Param("key") key: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const instance = await findInstanceOrFail(slug);
     await deleteSecret(instance.id, key);
+    this.auditLogger.log({
+      action: ManagementAuditAction.SecretDelete,
+      actor: toAuditActor(user),
+      targetType: "secret",
+      targetId: key,
+      metadata: { instanceSlug: slug },
+    });
     invalidateInstanceConfigCache(asInstanceSlug(slug));
     return { deleted: true };
   }

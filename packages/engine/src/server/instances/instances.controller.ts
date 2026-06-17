@@ -33,6 +33,17 @@ import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import {
+  createManagementAuditLogger,
+  ManagementAuditAction,
+} from "../../management-audit/management-audit-logger.js";
+
+/** Map an authenticated user to the audit actor shape (undefined at the edge). */
+function toAuditActor(user: AuthenticatedUser | undefined) {
+  return user ? { userId: user.userId, email: user.email } : undefined;
+}
 
 /**
  * Explicit response DTO — never return the raw Drizzle entity so schema additions
@@ -86,6 +97,8 @@ function parseDataUri(dataUri: string): { contentType: string; body: Buffer } | 
 
 @Controller("api/instances")
 export class InstancesController {
+  private readonly auditLogger = createManagementAuditLogger();
+
   // GET /api/instances — list all instances
   @Get()
   async list() {
@@ -144,7 +157,10 @@ export class InstancesController {
 
   // POST /api/instances — create
   @Post()
-  async create(@Body() body: { slug: string; name: string; description?: string; provider?: string; model?: string }) {
+  async create(
+    @Body() body: { slug: string; name: string; description?: string; provider?: string; model?: string },
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
     this.validateSlug(body.slug);
     this.validateModelConfig(body.provider, body.model);
     // Rely on the DB unique constraint as the authoritative duplicate check.
@@ -163,6 +179,13 @@ export class InstancesController {
     await seedInstancePrompts(instance.id);
     await seedInstanceTools(instance.id);
     await seedInstanceSkills(instance.id);
+
+    this.auditLogger.log({
+      action: ManagementAuditAction.AgentCreate,
+      actor: toAuditActor(user),
+      targetType: "agent",
+      targetId: instance.slug,
+    });
 
     return { instance: toInstanceDto(instance) };
   }
@@ -207,7 +230,7 @@ export class InstancesController {
 
   // DELETE /api/instances/:slug — delete
   @Delete(":slug")
-  async remove(@Param("slug") slug: string) {
+  async remove(@Param("slug") slug: string, @CurrentUser() user?: AuthenticatedUser) {
     this.validateSlug(slug);
     // Stop running channel adapters BEFORE the DB row is removed. Otherwise
     // Telegram long-pollers and Slack socket workers keep calling
@@ -223,6 +246,12 @@ export class InstancesController {
     }
     const deleted = await deleteInstance(asInstanceSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
+    this.auditLogger.log({
+      action: ManagementAuditAction.AgentDelete,
+      actor: toAuditActor(user),
+      targetType: "agent",
+      targetId: slug,
+    });
     // deleteInstance() runs in a transaction: it explicitly removes operational
     // data keyed by slug (conversations, messages, memories, knowledge base,
     // scheduled tasks); the DB CASCADE removes config (prompts, tools, skills,

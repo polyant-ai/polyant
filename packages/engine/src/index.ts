@@ -21,6 +21,7 @@ import { loadAllTools, getToolRegistry } from "./agents/tools/registry.js";
 import { syncToolsToDb } from "./agents/tools/tools-sync.js";
 import { traceStore } from "./analytics/trace.store.js";
 import { auditStore } from "./audit/audit.store.js";
+import { managementAuditStore } from "./management-audit/management-audit.store.js";
 import { seedInitialAdmin } from "./users/seed.js";
 import { schedulerService } from "./scheduled-tasks/scheduler.service.js";
 import { roomScheduler } from "./room/room-scheduler.js";
@@ -106,6 +107,7 @@ async function main() {
   initAIGateway(db);
   traceStore.initialize(db);
   auditStore.initialize(db);
+  managementAuditStore.initialize(db);
 
   // 1b. Load tool registry (auto-discover *.tool.ts files)
   await loadAllTools();
@@ -413,6 +415,7 @@ async function main() {
     await channelManager.shutdownAll();
     await traceStore.shutdown();
     await auditStore.shutdown();
+    await managementAuditStore.shutdown();
     await shutdownGateway();
     shutdownFileLogger();
     process.exit(0);
