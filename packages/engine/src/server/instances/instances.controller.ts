@@ -38,12 +38,9 @@ import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import {
   createManagementAuditLogger,
   ManagementAuditAction,
+  ManagementAuditTarget,
+  toManagementAuditActor,
 } from "../../management-audit/management-audit-logger.js";
-
-/** Map an authenticated user to the audit actor shape (undefined at the edge). */
-function toAuditActor(user: AuthenticatedUser | undefined) {
-  return user ? { userId: user.userId, email: user.email } : undefined;
-}
 
 /**
  * Explicit response DTO — never return the raw Drizzle entity so schema additions
@@ -182,8 +179,8 @@ export class InstancesController {
 
     this.auditLogger.log({
       action: ManagementAuditAction.AgentCreate,
-      actor: toAuditActor(user),
-      targetType: "agent",
+      actor: toManagementAuditActor(user),
+      targetType: ManagementAuditTarget.Agent,
       targetId: instance.slug,
     });
 
@@ -248,8 +245,8 @@ export class InstancesController {
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
     this.auditLogger.log({
       action: ManagementAuditAction.AgentDelete,
-      actor: toAuditActor(user),
-      targetType: "agent",
+      actor: toManagementAuditActor(user),
+      targetType: ManagementAuditTarget.Agent,
       targetId: slug,
     });
     // deleteInstance() runs in a transaction: it explicitly removes operational

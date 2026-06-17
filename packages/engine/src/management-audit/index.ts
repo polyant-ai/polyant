@@ -8,8 +8,11 @@ export {
 } from "./management-audit.store.js";
 export {
   ManagementAuditAction,
+  ManagementAuditTarget,
   createManagementAuditLogger,
+  toManagementAuditActor,
   type ManagementAuditActionValue,
+  type ManagementAuditTargetValue,
   type ManagementAuditActor,
   type ManagementAuditInput,
   type ManagementAuditLogger,

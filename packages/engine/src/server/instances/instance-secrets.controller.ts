@@ -11,12 +11,9 @@ import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import {
   createManagementAuditLogger,
   ManagementAuditAction,
+  ManagementAuditTarget,
+  toManagementAuditActor,
 } from "../../management-audit/management-audit-logger.js";
-
-/** Map an authenticated user to the audit actor shape (undefined at the edge). */
-function toAuditActor(user: AuthenticatedUser | undefined) {
-  return user ? { userId: user.userId, email: user.email } : undefined;
-}
 
 const PutSecretsSchema = z.object({
   secrets: z
@@ -58,7 +55,7 @@ export class InstanceSecretsController {
     }
 
     const instance = await findInstanceOrFail(slug);
-    const actor = toAuditActor(user);
+    const actor = toManagementAuditActor(user);
 
     for (const entry of parsed.data.secrets) {
       if (!entry.value) continue;
@@ -67,7 +64,7 @@ export class InstanceSecretsController {
       this.auditLogger.log({
         action: ManagementAuditAction.SecretWrite,
         actor,
-        targetType: "secret",
+        targetType: ManagementAuditTarget.Secret,
         targetId: entry.key,
         metadata: { instanceSlug: slug },
       });
@@ -88,8 +85,8 @@ export class InstanceSecretsController {
     await deleteSecret(instance.id, key);
     this.auditLogger.log({
       action: ManagementAuditAction.SecretDelete,
-      actor: toAuditActor(user),
-      targetType: "secret",
+      actor: toManagementAuditActor(user),
+      targetType: ManagementAuditTarget.Secret,
       targetId: key,
       metadata: { instanceSlug: slug },
     });

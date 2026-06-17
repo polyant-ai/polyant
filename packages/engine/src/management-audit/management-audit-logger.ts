@@ -18,16 +18,43 @@ export const ManagementAuditAction = {
 export type ManagementAuditActionValue =
   (typeof ManagementAuditAction)[keyof typeof ManagementAuditAction];
 
+/** The kinds of target a destructive management mutation can act on. */
+export const ManagementAuditTarget = {
+  Agent: "agent",
+  Secret: "secret",
+  Member: "member",
+} as const;
+
+export type ManagementAuditTargetValue =
+  (typeof ManagementAuditTarget)[keyof typeof ManagementAuditTarget];
+
 /** The authenticated identity behind a mutation (may be absent at the edge). */
 export interface ManagementAuditActor {
   userId?: string;
   email?: string;
 }
 
+/** A minimal authenticated-identity shape (subset of AuthenticatedUser). */
+interface AuditableUser {
+  userId: string;
+  email: string;
+}
+
+/**
+ * Map an authenticated user to the audit actor shape. Returns undefined when
+ * there is no identity (gateway mode / unauthenticated edge), which the logger
+ * normalizes to explicit nulls.
+ */
+export function toManagementAuditActor(
+  user: AuditableUser | undefined,
+): ManagementAuditActor | undefined {
+  return user ? { userId: user.userId, email: user.email } : undefined;
+}
+
 export interface ManagementAuditInput {
   action: ManagementAuditActionValue;
   actor: ManagementAuditActor | undefined;
-  targetType: string;
+  targetType: ManagementAuditTargetValue;
   targetId: string;
   metadata?: Record<string, unknown>;
 }

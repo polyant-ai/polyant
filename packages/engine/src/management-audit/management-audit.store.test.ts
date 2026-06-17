@@ -69,6 +69,8 @@ describe("ManagementAuditStore", () => {
     for (let i = 0; i < 10; i++) {
       store.record({
         action: ManagementAuditAction.SecretWrite,
+        actorUserId: null,
+        actorEmail: null,
         targetType: "secret",
         targetId: `key-${i}`,
       });
@@ -77,7 +79,7 @@ describe("ManagementAuditStore", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    const total = captured.reduce(
+    const total = captured.reduce<number>(
       (n, batch) => n + (batch as unknown[]).length,
       0,
     );
@@ -87,6 +89,8 @@ describe("ManagementAuditStore", () => {
   it("never throws when no db is initialized (boot-order safety)", async () => {
     store.record({
       action: ManagementAuditAction.MemberRemove,
+      actorUserId: null,
+      actorEmail: null,
       targetType: "member",
       targetId: "user-2",
     });
@@ -107,6 +111,8 @@ describe("ManagementAuditStore", () => {
     store.initialize(failingDb);
     store.record({
       action: ManagementAuditAction.AgentCreate,
+      actorUserId: null,
+      actorEmail: null,
       targetType: "agent",
       targetId: "x",
     });
