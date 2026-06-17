@@ -219,7 +219,15 @@ async function jwtWithOrg(params: Parameters<NonNullable<typeof baseJwtCallback>
   return token;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- DrizzleAdapter types conflict between drizzle-orm versions (engine 0.38 vs web 0.45)
+/* eslint-disable @typescript-eslint/no-explicit-any -- DrizzleAdapter types conflict between drizzle-orm versions (engine 0.38 vs web 0.45) */
+const drizzleAuthAdapter = DrizzleAdapter(db as any, {
+  usersTable: usersTable as any,
+  accountsTable: accountsTable as any,
+  sessionsTable: sessionsTable as any,
+  verificationTokensTable: verificationTokensTable as any,
+});
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   callbacks: {
@@ -242,10 +250,5 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
     },
   },
-  adapter: DrizzleAdapter(db as any, {
-    usersTable: usersTable as any,
-    accountsTable: accountsTable as any,
-    sessionsTable: sessionsTable as any,
-    verificationTokensTable: verificationTokensTable as any,
-  }),
+  adapter: drizzleAuthAdapter,
 });
