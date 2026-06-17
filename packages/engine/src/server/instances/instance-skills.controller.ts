@@ -23,6 +23,7 @@ import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { setSkillEnv, getSkillEnv, deleteSkillEnv, hasAllRequiredEnvBatch } from "../../instances/skill-env.store.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { asInstanceSlug, type InstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 interface RequiredEnvEntry {
   name: string;
@@ -103,6 +104,7 @@ async function buildSkillsWithStatus(slug: InstanceSlug, instanceId: InstanceUui
 
 @Controller("api/instances")
 export class InstanceSkillsController {
+  @RequirePermission(Permission.SKILL_INSTANCE_READ)
   @Get(":slug/skills")
   async getSkills(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
@@ -110,6 +112,7 @@ export class InstanceSkillsController {
     return { skills };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Patch(":slug/skills")
   async updateSkills(
     @Param("slug") slug: string,
@@ -153,6 +156,7 @@ export class InstanceSkillsController {
     return { skills, toolsChanged };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Post(":slug/skills/:skillSlug/upgrade")
   async upgrade(
     @Param("slug") slug: string,
@@ -163,6 +167,7 @@ export class InstanceSkillsController {
     return { upgraded: true };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Post(":slug/skills/:skillSlug/auto-load")
   async toggleAutoLoad(
     @Param("slug") slug: string,
@@ -175,6 +180,7 @@ export class InstanceSkillsController {
     return { autoLoad: body.autoLoad };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Post(":slug/skills/:skillSlug/rollback")
   async rollback(
     @Param("slug") slug: string,
@@ -186,6 +192,7 @@ export class InstanceSkillsController {
     return { rolledBack: true };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_READ)
   @Get(":slug/skills/:skillSlug/env")
   async getSkillEnvVars(
     @Param("slug") slug: string,
@@ -209,6 +216,7 @@ export class InstanceSkillsController {
     return { env };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Put(":slug/skills/:skillSlug/env")
   async setSkillEnvVars(
     @Param("slug") slug: string,
@@ -243,6 +251,7 @@ export class InstanceSkillsController {
     return { env };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Delete(":slug/skills/:skillSlug/env/:key")
   async removeSkillEnvVar(
     @Param("slug") slug: string,

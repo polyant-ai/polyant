@@ -15,6 +15,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import type { Response } from "express";
+import { RequirePermission, Permission } from "../../authz/index.js";
 import {
   listAllInstances,
   findInstanceBySlug,
@@ -97,6 +98,7 @@ export class InstancesController {
   private readonly auditLogger = createManagementAuditLogger();
 
   // GET /api/instances — list all instances
+  @RequirePermission(Permission.AGENT_READ)
   @Get()
   async list() {
     const all = await listAllInstances();
@@ -104,6 +106,7 @@ export class InstancesController {
   }
 
   // GET /api/instances/models — list available providers and models
+  @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
     const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; supportsThinking: boolean }[] }> = {};
@@ -125,6 +128,7 @@ export class InstancesController {
   }
 
   // GET /api/instances/:slug — get by slug
+  @RequirePermission(Permission.AGENT_READ)
   @Get(":slug")
   async getBySlug(@Param("slug") slug: string) {
     this.validateSlug(slug);
@@ -135,6 +139,7 @@ export class InstancesController {
 
   // GET /api/instances/:slug/icon — serve the icon binary
   // Separated from the JSON DTO so list/detail responses stay small (#85 follow-up).
+  @RequirePermission(Permission.AGENT_READ)
   @Get(":slug/icon")
   async getIcon(@Param("slug") slug: string, @Res() res: Response): Promise<void> {
     this.validateSlug(slug);
@@ -153,6 +158,7 @@ export class InstancesController {
   }
 
   // POST /api/instances — create
+  @RequirePermission(Permission.AGENT_WRITE)
   @Post()
   async create(
     @Body() body: { slug: string; name: string; description?: string; provider?: string; model?: string },
@@ -188,6 +194,7 @@ export class InstancesController {
   }
 
   // PATCH /api/instances/:slug — update
+  @RequirePermission(Permission.AGENT_WRITE)
   @Patch(":slug")
   async update(
     @Param("slug") slug: string,
@@ -226,6 +233,7 @@ export class InstancesController {
   }
 
   // DELETE /api/instances/:slug — delete
+  @RequirePermission(Permission.AGENT_DELETE)
   @Delete(":slug")
   async remove(@Param("slug") slug: string, @CurrentUser() user?: AuthenticatedUser) {
     this.validateSlug(slug);
@@ -257,6 +265,7 @@ export class InstancesController {
   }
 
   // PUT /api/instances/:slug/icon — set icon
+  @RequirePermission(Permission.AGENT_WRITE)
   @Put(":slug/icon")
   async setIcon(@Param("slug") slug: string, @Body() body: { icon: string }) {
     this.validateSlug(slug);
@@ -268,6 +277,7 @@ export class InstancesController {
   }
 
   // DELETE /api/instances/:slug/icon — remove icon
+  @RequirePermission(Permission.AGENT_WRITE)
   @Delete(":slug/icon")
   async removeIcon(@Param("slug") slug: string) {
     this.validateSlug(slug);

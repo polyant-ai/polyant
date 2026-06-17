@@ -7,6 +7,7 @@ import { parsePagination } from "../utils/parse-pagination.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 // `instanceId` stays OPTIONAL here (unlike /memories and /api/conversations/:id
 // which require it): audit logs are an "all agents" view. Cross-org isolation is
@@ -16,6 +17,7 @@ import type { AuthenticatedUser } from "../../auth/auth.types.js";
 
 @Controller("api/audit-logs")
 export class AuditController {
+  @RequirePermission(Permission.AUDIT_LOG_READ)
   @Get()
   async list(
     @Query("instanceId") instanceId?: string,
@@ -44,6 +46,7 @@ export class AuditController {
     });
   }
 
+  @RequirePermission(Permission.AUDIT_LOG_READ)
   @Get("stats")
   async stats(
     @Query("instanceId") instanceId?: string,

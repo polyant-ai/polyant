@@ -14,6 +14,7 @@ import {
   ManagementAuditTarget,
   toManagementAuditActor,
 } from "../../management-audit/management-audit-logger.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 const PutSecretsSchema = z.object({
   secrets: z
@@ -34,6 +35,7 @@ const PutSecretsSchema = z.object({
 export class InstanceSecretsController {
   private readonly auditLogger = createManagementAuditLogger();
 
+  @RequirePermission(Permission.SECRET_READ)
   @Get(":slug/secrets")
   async listSecrets(@Param("slug") slug: string) {
     await findInstanceOrFail(slug);
@@ -41,6 +43,7 @@ export class InstanceSecretsController {
     return { secrets };
   }
 
+  @RequirePermission(Permission.SECRET_WRITE)
   @Put(":slug/secrets")
   async setSecrets(
     @Param("slug") slug: string,
@@ -75,6 +78,7 @@ export class InstanceSecretsController {
     return { secrets };
   }
 
+  @RequirePermission(Permission.SECRET_WRITE)
   @Delete(":slug/secrets/:key")
   async removeSecret(
     @Param("slug") slug: string,

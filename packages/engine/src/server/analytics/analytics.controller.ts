@@ -14,10 +14,12 @@ import { asInstanceSlug } from "../../instances/identifiers.js";
 import { parseDateRange } from "../utils/parse-date-range.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 @Controller("api")
 export class AnalyticsController {
   // GET /api/analytics — global dashboard
+  @RequirePermission(Permission.ANALYTICS_READ)
   @Get("analytics")
   async global(
     @Query("from") from?: string,
@@ -34,6 +36,7 @@ export class AnalyticsController {
   }
 
   // GET /api/instances/:slug/analytics — per-instance
+  @RequirePermission(Permission.ANALYTICS_READ)
   @Get("instances/:slug/analytics")
   async perInstance(
     @Param("slug") slug: string,
