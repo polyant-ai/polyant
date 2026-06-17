@@ -68,8 +68,12 @@ const ALL_CONTROLLERS = [
 type ControllerClass = new (...args: any[]) => object;
 
 interface RouteHandler {
-  readonly controller: string;
+  readonly controller: ControllerClass;
   readonly handler: string;
+}
+
+function describeHandler({ controller, handler }: RouteHandler): string {
+  return `${controller.name}.${handler}`;
 }
 
 /**
@@ -90,7 +94,7 @@ function collectRouteHandlers(controller: ControllerClass): RouteHandler[] {
     .filter((name) => name !== "constructor")
     .filter((name) => typeof prototype[name] === "function")
     .filter((name) => isRouteHandler(prototype[name] as object))
-    .map((name) => ({ controller: controller.name, handler: name }));
+    .map((name) => ({ controller, handler: name }));
 }
 
 /** Reads metadata from the handler first, then the controller class. */
@@ -131,16 +135,10 @@ describe("route authorization guardrail", () => {
     const undeclared = handlers
       .filter(
         ({ controller, handler }) =>
-          !isPublic(
-            ALL_CONTROLLERS.find((c) => c.name === controller)!,
-            handler,
-          ) &&
-          !hasRequiredPermission(
-            ALL_CONTROLLERS.find((c) => c.name === controller)!,
-            handler,
-          ),
+          !isPublic(controller, handler) &&
+          !hasRequiredPermission(controller, handler),
       )
-      .map(({ controller, handler }) => `${controller}.${handler}`);
+      .map(describeHandler);
 
     expect(undeclared).toEqual([]);
   });
@@ -149,16 +147,10 @@ describe("route authorization guardrail", () => {
     const conflicting = handlers
       .filter(
         ({ controller, handler }) =>
-          isPublic(
-            ALL_CONTROLLERS.find((c) => c.name === controller)!,
-            handler,
-          ) &&
-          hasRequiredPermission(
-            ALL_CONTROLLERS.find((c) => c.name === controller)!,
-            handler,
-          ),
+          isPublic(controller, handler) &&
+          hasRequiredPermission(controller, handler),
       )
-      .map(({ controller, handler }) => `${controller}.${handler}`);
+      .map(describeHandler);
 
     expect(conflicting).toEqual([]);
   });
