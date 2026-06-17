@@ -25,10 +25,21 @@ const logger = createLogger();
 const LOG_PREFIX = "authz";
 
 /** Shape of the per-instance API-key (service) principal set by AuthGuard. */
-interface ServicePrincipal {
+interface InstancePrincipal {
   kind: "instance";
   instanceSlug: string;
   instanceId?: string;
+}
+
+/**
+ * Shape of the org-scoped management-API-key (service) principal set by
+ * AuthGuard from the `X-Polyant-Key` header. Decided purely from its own
+ * permission set — never consults the user authorization service.
+ */
+interface ManagementKeyPrincipal {
+  principalType: "service";
+  orgId: string;
+  permissions: ReadonlySet<PermissionKey>;
 }
 
 /** Shape of the human-user principal (subset of AuthenticatedUser). */
@@ -38,10 +49,18 @@ interface UserPrincipal {
   orgId?: string;
 }
 
-type Principal = ServicePrincipal | UserPrincipal | undefined;
+type Principal =
+  | InstancePrincipal
+  | ManagementKeyPrincipal
+  | UserPrincipal
+  | undefined;
 
-function isServicePrincipal(p: Principal): p is ServicePrincipal {
-  return !!p && (p as ServicePrincipal).kind === "instance";
+function isInstancePrincipal(p: Principal): p is InstancePrincipal {
+  return !!p && (p as InstancePrincipal).kind === "instance";
+}
+
+function isManagementKeyPrincipal(p: Principal): p is ManagementKeyPrincipal {
+  return !!p && (p as ManagementKeyPrincipal).principalType === "service";
 }
 
 function isUserPrincipal(p: Principal): p is UserPrincipal {
@@ -59,10 +78,12 @@ function isUserPrincipal(p: Principal): p is UserPrincipal {
  *      hard capability gap and is enforced even in shadow mode.
  *   3. No `@RequirePermission()` (undeclared route) → log; deny ONLY when
  *      `AUTHZ_ENFORCE=true` (closes the fail-closed-undeclared-routes gap).
- *   4. Platform admin (DB-backed) → bypass all permission checks.
- *   5. ServicePrincipal (instance API key) → allow only for its own agent.
- *   6. Resolve the agent/org scope; a cross-org mismatch denies before `can()`.
- *   7. `can()` decides; a denial is enforced only when `AUTHZ_ENFORCE=true`.
+ *   4. ManagementKeyPrincipal (org API key) → allow iff the permission is in
+ *      the key's own permission set.
+ *   5. Platform admin (DB-backed) → bypass all permission checks.
+ *   6. InstancePrincipal (per-instance API key) → allow only for its own agent.
+ *   7. Resolve the agent/org scope; a cross-org mismatch denies before `can()`.
+ *   8. `can()` decides; a denial is enforced only when `AUTHZ_ENFORCE=true`.
  *
  * SHADOW MODE (`AUTHZ_ENFORCE` unset/false, the default): every would-be denial
  * is logged but downgraded to allow, so the guard observes traffic without
@@ -108,8 +129,12 @@ export class PermissionGuard implements CanActivate {
     const principal = request.user as Principal;
     const agentSlug = this.extractAgentSlug(request);
 
-    if (isServicePrincipal(principal)) {
-      return this.evaluateServicePrincipal(principal, agentSlug, permission);
+    if (isManagementKeyPrincipal(principal)) {
+      return this.evaluateManagementKeyPrincipal(principal, permission);
+    }
+
+    if (isInstancePrincipal(principal)) {
+      return this.evaluateInstancePrincipal(principal, agentSlug, permission);
     }
 
     if (!isUserPrincipal(principal)) {
@@ -136,14 +161,27 @@ export class PermissionGuard implements CanActivate {
     return true;
   }
 
-  private evaluateServicePrincipal(
-    principal: ServicePrincipal,
+  private evaluateInstancePrincipal(
+    principal: InstancePrincipal,
     agentSlug: string | undefined,
     permission: PermissionKey,
   ): boolean {
-    // A service principal acts only on its own agent. Any other target denies.
+    // An instance principal acts only on its own agent. Any other target denies.
     const ownsTarget = !agentSlug || agentSlug === principal.instanceSlug;
-    return this.decide(ownsTarget, permission, `service principal ${principal.instanceSlug}`);
+    return this.decide(ownsTarget, permission, `instance principal ${principal.instanceSlug}`);
+  }
+
+  /**
+   * A management-API-key principal carries an explicit permission set. The
+   * decision is membership in that set — it grants exactly what was issued,
+   * regardless of agent target, and never touches the user authz service.
+   */
+  private evaluateManagementKeyPrincipal(
+    principal: ManagementKeyPrincipal,
+    permission: PermissionKey,
+  ): boolean {
+    const granted = principal.permissions.has(permission);
+    return this.decide(granted, permission, `management key (org ${principal.orgId})`);
   }
 
   private async evaluateUser(

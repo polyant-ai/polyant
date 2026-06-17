@@ -13,6 +13,7 @@ import { IS_PUBLIC_KEY } from "./decorators/public.decorator.js";
 import { ALLOW_INSTANCE_API_KEY } from "./decorators/allow-instance-api-key.decorator.js";
 import { validateSessionToken } from "./auth-user.service.js";
 import { findInstanceByAuthApiKey } from "../instances/secrets.store.js";
+import { validateManagementApiKey } from "./management-api-keys.store.js";
 import { parseAlbOidcData } from "./alb-oidc.service.js";
 import type { AuthenticatedUser } from "./auth.types.js";
 
@@ -22,6 +23,9 @@ const SESSION_COOKIE_NAMES = [
 ];
 
 const ALB_OIDC_HEADER = "x-amzn-oidc-data";
+
+/** Header carrying a management API key for non-human (service) callers. */
+const MANAGEMENT_API_KEY_HEADER = "x-polyant-key";
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -35,6 +39,19 @@ export class AuthGuard implements CanActivate {
     if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest();
+
+    // Management API key: a non-human caller (CI, cron, SaaS connector) presents
+    // the X-Polyant-Key header instead of an OAuth session. Checked before the
+    // session/gateway branches because a machine principal carries no JWT.
+    const managementKey = request.headers[MANAGEMENT_API_KEY_HEADER];
+    if (managementKey) {
+      const principal = await validateManagementApiKey(managementKey);
+      if (!principal) {
+        throw new UnauthorizedException("Invalid management API key");
+      }
+      request.user = principal;
+      return true;
+    }
 
     // Gateway-authenticated mode: trust the cloud auth gateway's identity header.
     // ECS security group must restrict ingress to the ALB SG so the header can't be spoofed.

@@ -1,5 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { UserRole } from "./users.schema.js";
+import type { PermissionKey } from "../authz/permissions.js";
+
+/**
+ * Machine principal behind a request authenticated with a management API key
+ * (`X-Polyant-Key`). Org-scoped and carries an explicit permission set, so the
+ * PermissionGuard allows a request only when its required permission is a
+ * member of `permissions`. Distinct from the per-instance API-key principal
+ * (`{ kind: "instance" }`) the PermissionGuard already handles.
+ */
+export interface ServicePrincipal {
+  principalType: "service";
+  orgId: string;
+  permissions: ReadonlySet<PermissionKey>;
+}
 
 export interface AuthenticatedUser {
   userId: string;
