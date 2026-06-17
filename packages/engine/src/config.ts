@@ -88,6 +88,11 @@ const configSchema = z.object({
      *  Use "alb-oidc" when deployed behind an AWS ALB with OIDC authentication — the ALB
      *  has already authenticated the user, so the engine trusts the forwarded claims. */
     mode: z.enum(["session", "alb-oidc"]).default("session"),
+    /** RBAC: the user with this email is promoted to Platform Superadmin
+     *  (is_platform_admin=true) by the OrganizationsModule bootstrap on boot.
+     *  Idempotent; unset = no promotion (the migration already promotes
+     *  pre-existing role='superadmin' users). */
+    platformAdminEmail: z.string().email().optional(),
   }),
 
   // Initial admin user — created on first boot if the users table is empty.
@@ -217,6 +222,7 @@ function loadConfig(): Config {
       secret: process.env.AUTH_SECRET,
       internalSecret: process.env.AUTH_INTERNAL_SECRET,
       mode: process.env.AUTH_MODE,
+      platformAdminEmail: process.env.PLATFORM_ADMIN_EMAIL,
     },
     initialAdmin: {
       email: process.env.INITIAL_ADMIN_EMAIL,

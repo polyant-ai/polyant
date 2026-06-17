@@ -44,6 +44,10 @@ export default defineConfig({
     "./src/webhooks/webhooks.schema.ts",
     "./src/analytics/traces.schema.ts",
     "./src/optout/optout.schema.ts",
+    "./src/organizations/organization.schema.ts",
+    "./src/authz/role.schema.ts",
+    "./src/authz/role-binding.schema.ts",
+    "./src/authz/authz-audit-log.schema.ts",
   ],
   dialect: "postgresql",
   dbCredentials: {

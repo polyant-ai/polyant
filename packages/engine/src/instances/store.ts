@@ -8,7 +8,12 @@ import { conversations, conversationMessages, conversationState } from "../conve
 import { memories } from "../memory/schema.js";
 import { knowledgeDocuments } from "../knowledge/schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
+import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
 import { asInstanceSlug, asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
+
+// Every instance must belong to a workspace. Until per-workspace creation
+// lands, new instances land in the default workspace — the same place the
+// migration backfilled pre-existing rows, so behaviour is unchanged.
 
 export interface Instance {
   id: InstanceUuid;
@@ -47,6 +52,8 @@ export interface Instance {
   icon: string | null;
   sttProvider: string;
   embeddingDim: number;
+  /** Owning workspace UUID (RBAC tenancy). Every instance belongs to one. */
+  workspaceId: string;
   createdAt: Date | null;
   updatedAt: Date | null;
 }
@@ -85,6 +92,7 @@ export async function ensureInstance(data: {
       name: data.name,
       description: data.description ?? null,
       embeddingDim: DEFAULT_EMBEDDING_DIM,
+      workspaceId: await findDefaultWorkspaceId(),
     })
     .onConflictDoNothing({ target: instances.slug });
 }
@@ -127,6 +135,7 @@ export async function createInstance(data: {
       model: data.model ?? null,
       // New instances default to 1024d; the DB default (1536) stays for legacy rows.
       embeddingDim: DEFAULT_EMBEDDING_DIM,
+      workspaceId: await findDefaultWorkspaceId(),
     })
     .returning();
   return toInstance(rows[0]);

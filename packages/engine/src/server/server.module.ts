@@ -31,6 +31,7 @@ import { SkillsModule } from "../skills/skills.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { ActivityStreamModule } from "../activity-stream/activity-stream.module.js";
 import { OptoutsModule } from "./optouts/optouts.module.js";
+import { OrganizationsModule } from "../organizations/organizations.module.js";
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { OptoutsModule } from "./optouts/optouts.module.js";
     AuthModule,
     ActivityStreamModule,
     OptoutsModule,
+    OrganizationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
