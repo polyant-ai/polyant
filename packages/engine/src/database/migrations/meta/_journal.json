@@ -330,6 +330,13 @@
       "when": 1780012800000,
       "tag": "0050_add_rbac_tenancy_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1780099200000,
+      "tag": "0051_add_management_audit_logs",
+      "breakpoints": true
     }
   ]
 }
