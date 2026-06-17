@@ -5,6 +5,7 @@ import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { OpenAIModule } from "./openai/openai.module.js";
 import { AuthModule } from "../auth/auth.module.js";
+import { AuthzModule } from "../authz/authz.module.js";
 import { HealthController } from "./health/health.controller.js";
 import { MemoriesController } from "./memories/memories.controller.js";
 import { InstancesController } from "./instances/instances.controller.js";
@@ -44,6 +45,10 @@ import { OrganizationsModule } from "../organizations/organizations.module.js";
     SkillsModule,
     UsersModule,
     AuthModule,
+    // MUST be imported after AuthModule: the PermissionGuard (APP_GUARD #3)
+    // reads request.user which AuthGuard (#2) populates. Registration order
+    // across the module graph is the global-guard execution order.
+    AuthzModule,
     ActivityStreamModule,
     OptoutsModule,
     OrganizationsModule,
