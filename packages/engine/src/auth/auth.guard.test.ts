@@ -39,6 +39,16 @@ vi.mock("../instances/secrets.store.js", () => ({
   findInstanceByAuthApiKey: vi.fn().mockResolvedValue(null),
 }));
 
+// The X-Polyant-Key branch validates against management-api-keys.store, which
+// pulls in database/client.ts. Mock it so tests can drive the validation result
+// per-case without a live DB.
+const { mockValidateManagementApiKey } = vi.hoisted(() => ({
+  mockValidateManagementApiKey: vi.fn().mockResolvedValue(null),
+}));
+vi.mock("./management-api-keys.store.js", () => ({
+  validateManagementApiKey: mockValidateManagementApiKey,
+}));
+
 interface MockRequest {
   headers: Record<string, string | undefined>;
   cookies?: Record<string, string>;
@@ -293,6 +303,52 @@ describe("AuthGuard", () => {
       });
 
       await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Management API key (X-Polyant-Key — service principal)
+  // -----------------------------------------------------------------------
+  describe("management API key (X-Polyant-Key)", () => {
+    const servicePrincipal = {
+      principalType: "service" as const,
+      orgId: "org-1",
+      permissions: new Set(["agent:read"]),
+    };
+
+    it("attaches the service principal when the key is valid", async () => {
+      mockValidateManagementApiKey.mockResolvedValueOnce(servicePrincipal);
+      const guard = new AuthGuard(makeReflector(false));
+      const request: MockRequest = { headers: { "x-polyant-key": "pk_id_secret" } };
+      const ctx = buildExecutionContext(request);
+
+      const result = await guard.canActivate(ctx);
+
+      expect(result).toBe(true);
+      expect(request.user).toBe(servicePrincipal);
+      expect(mockValidateManagementApiKey).toHaveBeenCalledWith("pk_id_secret");
+    });
+
+    it("throws UnauthorizedException when the key is invalid", async () => {
+      mockValidateManagementApiKey.mockResolvedValueOnce(null);
+      const guard = new AuthGuard(makeReflector(false));
+      const ctx = buildExecutionContext({
+        headers: { "x-polyant-key": "pk_bad_key" },
+      });
+
+      await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException);
+    });
+
+    it("does not consult the management key store when the header is absent", async () => {
+      const token = await createJweToken(userPayload, TEST_SECRET, HTTP_SALT);
+      const guard = new AuthGuard(makeReflector(false));
+      const ctx = buildExecutionContext({
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      await guard.canActivate(ctx);
+
+      expect(mockValidateManagementApiKey).not.toHaveBeenCalled();
     });
   });
 });

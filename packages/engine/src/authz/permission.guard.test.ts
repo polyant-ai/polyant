@@ -153,6 +153,57 @@ describe("PermissionGuard", () => {
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  it("allows a management-key ServicePrincipal whose permission set contains the required permission", async () => {
+    mockConfig.authz.enforce = true;
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_READ },
+      {
+        user: {
+          principalType: "service",
+          orgId: "org-1",
+          permissions: new Set([Permission.AGENT_READ]),
+        },
+        params: { slug: "agent-1" },
+      },
+    );
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    // The org-scoped service principal is decided purely from its own set —
+    // it never consults the user-scoped authorization service.
+    expect(authz.can).not.toHaveBeenCalled();
+  });
+
+  it("denies a management-key ServicePrincipal lacking the required permission (enforce)", async () => {
+    mockConfig.authz.enforce = true;
+    const { guard, context } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_DELETE },
+      {
+        user: {
+          principalType: "service",
+          orgId: "org-1",
+          permissions: new Set([Permission.AGENT_READ]),
+        },
+        params: { slug: "agent-1" },
+      },
+    );
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("never throws on a management-key ServicePrincipal denial in shadow mode", async () => {
+    mockConfig.authz.enforce = false;
+    const { guard, context } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_DELETE },
+      {
+        user: {
+          principalType: "service",
+          orgId: "org-1",
+          permissions: new Set([Permission.AGENT_READ]),
+        },
+        params: { slug: "agent-1" },
+      },
+    );
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
   it("grants a declared permission when can() is true (enforce)", async () => {
     mockConfig.authz.enforce = true;
     const { guard, context, authz } = setup(
