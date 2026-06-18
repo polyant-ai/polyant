@@ -21,6 +21,7 @@ import type { AuthenticatedUser } from "../../auth/auth.types.js";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 import { type InstanceSlug } from "../../instances/identifiers.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 function requireInstanceId(instanceId: string | undefined): InstanceSlug {
   const trimmed = instanceId?.trim();
@@ -48,6 +49,7 @@ async function loadConversationScoped(
 
 @Controller("api/conversations")
 export class ConversationsController {
+  @RequirePermission(Permission.CONVERSATION_READ)
   @Get()
   async list(
     @Query("instanceId") instanceId?: string,
@@ -81,6 +83,7 @@ export class ConversationsController {
     return { ...result, limit, offset };
   }
 
+  @RequirePermission(Permission.CONVERSATION_READ)
   @Get(":conversationId")
   async getOne(
     @Param("conversationId") conversationId: string,
@@ -93,6 +96,7 @@ export class ConversationsController {
     return { conversation };
   }
 
+  @RequirePermission(Permission.CONVERSATION_READ)
   @Get(":conversationId/messages")
   async getMessages(
     @Param("conversationId") conversationId: string,
@@ -124,6 +128,7 @@ export class ConversationsController {
   // GET /api/conversations/:conversationId/messages/:messageId/debug — heavy per-turn
   // debug data (captured LLM request payload + step trace), fetched on-demand so the
   // message-list payload stays light. Returns 404 if the message isn't in the conversation.
+  @RequirePermission(Permission.CONVERSATION_READ)
   @Get(":conversationId/messages/:messageId/debug")
   async getMessageDebug(
     @Param("conversationId") conversationId: string,
@@ -143,6 +148,7 @@ export class ConversationsController {
 
   // GET /api/conversations/:conversationId/hooks — lifecycle hook execution
   // telemetry for this conversation (timeline order), rendered in the detail UI.
+  @RequirePermission(Permission.CONVERSATION_READ)
   @Get(":conversationId/hooks")
   async getHookExecutions(
     @Param("conversationId") conversationId: string,
@@ -159,6 +165,7 @@ export class ConversationsController {
 
   // GET /api/conversations/:conversationId/state — the conversation state store snapshot
   // (latest, not versioned per turn). Includes the server-seeded `_channel` identity.
+  @RequirePermission(Permission.CONVERSATION_READ)
   @Get(":conversationId/state")
   async getState(
     @Param("conversationId") conversationId: string,
@@ -173,6 +180,7 @@ export class ConversationsController {
     return { state };
   }
 
+  @RequirePermission(Permission.CONVERSATION_DELETE)
   @Delete(":conversationId")
   async remove(
     @Param("conversationId") conversationId: string,

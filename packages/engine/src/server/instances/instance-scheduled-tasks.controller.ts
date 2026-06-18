@@ -19,9 +19,11 @@ import * as runLogStore from "../../scheduled-tasks/run-log.store.js";
 import { parseRelativeDuration, formatScheduleHuman } from "../../scheduled-tasks/schedule-utils.js";
 import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
 import type { ScheduleConfig, RunStatus } from "../../scheduled-tasks/schema.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 @Controller("api/instances")
 export class InstanceScheduledTasksController {
+  @RequirePermission(Permission.TASK_READ)
   @Get(":slug/scheduled-tasks")
   async list(
     @Param("slug") slug: string,
@@ -71,6 +73,7 @@ export class InstanceScheduledTasksController {
     };
   }
 
+  @RequirePermission(Permission.TASK_READ)
   @Get(":slug/scheduled-tasks/runs")
   async listRuns(
     @Param("slug") slug: string,
@@ -125,6 +128,7 @@ export class InstanceScheduledTasksController {
     };
   }
 
+  @RequirePermission(Permission.TASK_READ)
   @Get(":slug/scheduled-tasks/:id")
   async getOne(@Param("slug") slug: string, @Param("id") id: string) {
     const instance = await findInstanceOrFail(slug);
@@ -146,6 +150,7 @@ export class InstanceScheduledTasksController {
     };
   }
 
+  @RequirePermission(Permission.TASK_WRITE)
   @Post(":slug/scheduled-tasks")
   async create(
     @Param("slug") slug: string,
@@ -211,6 +216,7 @@ export class InstanceScheduledTasksController {
     };
   }
 
+  @RequirePermission(Permission.TASK_WRITE)
   @Patch(":slug/scheduled-tasks/:id")
   async update(
     @Param("slug") slug: string,
@@ -263,6 +269,7 @@ export class InstanceScheduledTasksController {
     };
   }
 
+  @RequirePermission(Permission.TASK_WRITE)
   @Delete(":slug/scheduled-tasks/:id")
   async remove(@Param("slug") slug: string, @Param("id") id: string) {
     const instance = await findInstanceOrFail(slug);
@@ -278,6 +285,7 @@ export class InstanceScheduledTasksController {
     return { deleted: true };
   }
 
+  @RequirePermission(Permission.TASK_WRITE)
   @Post(":slug/scheduled-tasks/:id/run")
   async runNow(@Param("slug") slug: string, @Param("id") id: string) {
     const instance = await findInstanceOrFail(slug);

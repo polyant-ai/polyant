@@ -14,6 +14,7 @@ import {
 import { findInstanceBySlug } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { listOptouts, setOptoutStatus, type OptoutStatus } from "../../optout/index.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 /**
  * Admin management of opt-out contacts. All operations are instance-scoped:
@@ -22,6 +23,7 @@ import { listOptouts, setOptoutStatus, type OptoutStatus } from "../../optout/in
 @Controller("api/instances/:slug/optouts")
 export class OptoutsController {
   // GET — paginated list (default: currently opted-out contacts)
+  @RequirePermission(Permission.GOVERNANCE_READ)
   @Get()
   async list(
     @Param("slug") slug: string,
@@ -42,6 +44,7 @@ export class OptoutsController {
   }
 
   // POST — manually opt a contact OUT (admin override)
+  @RequirePermission(Permission.GOVERNANCE_WRITE)
   @Post()
   async optOut(
     @Param("slug") slug: string,
@@ -61,6 +64,7 @@ export class OptoutsController {
   }
 
   // DELETE — manually opt a contact back IN (admin override)
+  @RequirePermission(Permission.GOVERNANCE_WRITE)
   @Delete(":channelType/:channelId")
   async optIn(
     @Param("slug") slug: string,

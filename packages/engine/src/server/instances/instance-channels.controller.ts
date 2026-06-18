@@ -17,9 +17,11 @@ import { channelManager } from "../../channels/channel-manager.js";
 import { syncAgentTool } from "../../instances/agent-tool-sync.js";
 import { findInstanceOrFail, maskSensitiveConfig } from "./instance-helpers.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 @Controller("api/instances")
 export class InstanceChannelsController {
+  @RequirePermission(Permission.CHANNEL_READ)
   @Get(":slug/channels")
   async listChannels(@Param("slug") slug: string) {
     await findInstanceOrFail(slug);
@@ -32,6 +34,7 @@ export class InstanceChannelsController {
     return { channels: masked };
   }
 
+  @RequirePermission(Permission.CHANNEL_WRITE)
   @Put(":slug/channels/:type")
   async setChannel(
     @Param("slug") slug: string,
@@ -86,6 +89,7 @@ export class InstanceChannelsController {
     };
   }
 
+  @RequirePermission(Permission.CHANNEL_WRITE)
   @Delete(":slug/channels/:type")
   async removeChannel(
     @Param("slug") slug: string,

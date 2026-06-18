@@ -7,6 +7,7 @@ import { getAllSecrets } from "../../instances/secrets.store.js";
 import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 function requireInstanceId(instanceId: string | undefined): InstanceSlug {
   const trimmed = instanceId?.trim();
@@ -16,6 +17,7 @@ function requireInstanceId(instanceId: string | undefined): InstanceSlug {
 
 @Controller("memories")
 export class MemoriesController {
+  @RequirePermission(Permission.MEMORY_READ)
   @Get()
   async listAll(
     @Query("instanceId") instanceId?: string,
@@ -47,6 +49,7 @@ export class MemoriesController {
     };
   }
 
+  @RequirePermission(Permission.MEMORY_WRITE)
   @Post()
   async create(
     @Body() body: { instanceId?: string; content: string; category?: string; importance?: number },
@@ -74,6 +77,7 @@ export class MemoriesController {
     return { memory: result };
   }
 
+  @RequirePermission(Permission.MEMORY_WRITE)
   @Delete(":id")
   async remove(
     @Param("id") id: string,
@@ -86,6 +90,7 @@ export class MemoriesController {
     return { deleted: true };
   }
 
+  @RequirePermission(Permission.MEMORY_WRITE)
   @Delete()
   async removeAll(
     @Query("instanceId") instanceId?: string,
