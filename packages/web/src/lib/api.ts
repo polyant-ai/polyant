@@ -6,6 +6,8 @@ export type {
   UserRole,
   CreateUserResponse,
   ResetPasswordResponse,
+  MemberRole,
+  OrganizationMember,
   Instance,
   SecretStatus,
   ChannelConfig,
@@ -64,6 +66,9 @@ export type {
   OptoutContact,
 } from "./api-types";
 
+// Re-export value-level constants (the `export type` block above only carries types).
+export { MEMBER_ROLES } from "./api-types";
+
 // Internal import — only types used in the api object below (re-exports don't make types locally available)
 import type {
   AdminUser,
@@ -104,9 +109,17 @@ import type {
   BacklogEvent,
   ActivityLogEntry,
   OptoutContact,
+  OrganizationMember,
 } from "./api-types";
 
 // ── HTTP Client ─────────────────────────────────────────────────────
+
+/**
+ * The single OSS organization slug. The OSS build is single-org (the migration
+ * seeds one default org); the management plane addresses it by this slug. When
+ * multi-org lands (Phase 2) this becomes a route param instead of a constant.
+ */
+export const DEFAULT_ORG_SLUG = "default";
 
 // API calls go through Next.js rewrites (which proxy to engine and forward cookies)
 // In client components, relative paths are resolved against the browser origin (the Next.js app)
@@ -187,6 +200,22 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+  },
+  members: {
+    list: (orgSlug: string = DEFAULT_ORG_SLUG) =>
+      request<{ members: OrganizationMember[] }>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/members`,
+      ),
+    assign: (userId: string, roleKey: string, orgSlug: string = DEFAULT_ORG_SLUG) =>
+      request<{ assigned: boolean }>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
+        { method: "PUT", body: JSON.stringify({ roleKey }) },
+      ),
+    remove: (userId: string, orgSlug: string = DEFAULT_ORG_SLUG) =>
+      request<{ removed: boolean }>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
+        { method: "DELETE" },
+      ),
   },
   instances: {
     list: () => request<{ instances: Instance[] }>("/api/instances"),

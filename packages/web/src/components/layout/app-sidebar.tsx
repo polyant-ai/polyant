@@ -12,6 +12,7 @@ import {
   ScrollText,
   Settings,
   Activity,
+  Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -47,6 +48,7 @@ const overviewDefs: NavItemDef[] = [
 // Settings is superadmin-only: it hosts both general system settings and the
 // users management tab. Non-superadmins don't see this section at all.
 const superadminDefs: NavItemDef[] = [
+  { titleKey: "nav.members", url: "/members", icon: Users },
   { titleKey: "nav.settings", url: "/settings", icon: Settings },
 ];
 
