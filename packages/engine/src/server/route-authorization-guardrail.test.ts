@@ -30,6 +30,7 @@ import { AttachmentsController } from "./attachments/attachments.controller.js";
 import { OptoutsController } from "./optouts/optouts.controller.js";
 import { OpenAIController } from "./openai/openai.controller.js";
 import { InstanceChatStreamController } from "./openai/instance-chat-stream.controller.js";
+import { MembersController } from "./members/members.controller.js";
 
 /**
  * The authoritative list of every controller registered in the NestJS server.
@@ -62,6 +63,7 @@ const ALL_CONTROLLERS = [
   OptoutsController,
   OpenAIController,
   InstanceChatStreamController,
+  MembersController,
 ] as const;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -32,6 +32,7 @@ import { SkillsModule } from "../skills/skills.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { ActivityStreamModule } from "../activity-stream/activity-stream.module.js";
 import { OptoutsModule } from "./optouts/optouts.module.js";
+import { MembersModule } from "./members/members.module.js";
 import { OrganizationsModule } from "../organizations/organizations.module.js";
 
 @Module({
@@ -51,6 +52,7 @@ import { OrganizationsModule } from "../organizations/organizations.module.js";
     AuthzModule,
     ActivityStreamModule,
     OptoutsModule,
+    MembersModule,
     OrganizationsModule,
   ],
   providers: [
