@@ -93,7 +93,13 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // eu-south-1 these are In-Region / ON_DEMAND, so the raw model ID is used.
       // Prices are the Europe (Milan) Standard tier from the AWS pricing page.
       // (DeepSeek and Meta Llama 4 are intentionally omitted: not available in
-      // eu-south-1.) Reasoning toggle stays Claude-only — see isThinkingCapable.
+      // eu-south-1.) Google Gemma 3 and Mistral (Ministral 3 8B/14B, Magistral
+      // Small) are also omitted: verified via Bedrock Converse, their chat
+      // templates reject a tool-result turn (ValidationException, "The model
+      // returned the following errors: ... roles must alternate"), so they
+      // cannot drive the agentic tool loop — only single-turn chat. Every model
+      // kept below passes a multi-turn tool round-trip.
+      // Reasoning toggle stays Claude-only — see isThinkingCapable.
       // Qwen3 — dense + MoE, three sizes
       "qwen.qwen3-32b-v1:0": { input: 0.20, output: 0.79 },
       "qwen.qwen3-coder-30b-a3b-v1:0": { input: 0.20, output: 0.79 },
@@ -101,14 +107,6 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // OpenAI open-weight (gpt-oss)
       "openai.gpt-oss-20b-1:0": { input: 0.09, output: 0.40 },
       "openai.gpt-oss-120b-1:0": { input: 0.20, output: 0.79 },
-      // Google Gemma 3
-      "google.gemma-3-4b-it": { input: 0.05, output: 0.09 },
-      "google.gemma-3-12b-it": { input: 0.11, output: 0.34 },
-      "google.gemma-3-27b-it": { input: 0.27, output: 0.45 },
-      // Mistral — two instruct sizes + a reasoning variant
-      "mistral.ministral-3-8b-instruct": { input: 0.18, output: 0.18 },
-      "mistral.ministral-3-14b-instruct": { input: 0.24, output: 0.24 },
-      "mistral.magistral-small-2509": { input: 0.59, output: 1.76 },
       // MiniMax
       "minimax.minimax-m2.5": { input: 0.36, output: 1.44 },
     },
