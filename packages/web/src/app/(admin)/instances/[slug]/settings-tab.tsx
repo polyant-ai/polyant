@@ -312,7 +312,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                   {t("settings.tab.viewPricing")}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-h-[80vh] w-[95vw] max-w-4xl overflow-y-auto">
+              <DialogContent className="max-h-[80vh] w-[95vw] max-w-5xl overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{t("settings.tab.pricingTitle")}</DialogTitle>
                   <p className="text-sm text-muted-foreground">{t("settings.tab.pricingClickHint")}</p>
@@ -327,8 +327,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                         <TableHeader>
                           <TableRow>
                             <TableHead>{t("settings.tab.model")}</TableHead>
-                            <TableHead className="w-20 text-right">{t("settings.tab.pricingInput")}</TableHead>
-                            <TableHead className="w-20 text-right">{t("settings.tab.pricingOutput")}</TableHead>
+                            <TableHead className="w-24 whitespace-nowrap text-right">{t("settings.tab.pricingInput")}</TableHead>
+                            <TableHead className="w-24 whitespace-nowrap text-right">{t("settings.tab.pricingOutput")}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -344,18 +344,20 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                                   setPricingOpen(false);
                                 }}
                               >
-                                <TableCell className="max-w-0">
-                                  <span className="block break-all font-mono text-xs">{m.id}</span>
-                                  {m.tier && (
-                                    <Badge variant="secondary" className="mt-1 text-[10px]">
-                                      {m.tier}
-                                    </Badge>
-                                  )}
+                                <TableCell>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="break-words font-mono text-xs">{m.id}</span>
+                                    {m.tier && (
+                                      <Badge variant="secondary" className="text-[10px]">
+                                        {m.tier}
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </TableCell>
-                                <TableCell className="text-right text-xs tabular-nums">
+                                <TableCell className="whitespace-nowrap text-right text-xs tabular-nums">
                                   ${m.costInput.toFixed(2)}
                                 </TableCell>
-                                <TableCell className="text-right text-xs tabular-nums">
+                                <TableCell className="whitespace-nowrap text-right text-xs tabular-nums">
                                   ${m.costOutput.toFixed(2)}
                                 </TableCell>
                               </TableRow>

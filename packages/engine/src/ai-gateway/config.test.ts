@@ -159,7 +159,12 @@ describe("isThinkingCapable", () => {
     it.each([
       ["anthropic.claude-sonnet-4-20250514-v1:0", true],
       ["anthropic.claude-opus-4-20250514-v1:0", true],
+      // Cross-region inference profiles (the form actually invoked) must still match.
+      ["eu.anthropic.claude-sonnet-4-6", true],
+      ["eu.anthropic.claude-opus-4-8", true],
+      ["global.anthropic.claude-sonnet-4-5-20250929-v1:0", true],
       ["anthropic.claude-3-5-haiku-20241022-v1:0", false],
+      ["eu.amazon.nova-lite-v1:0", false],
       ["amazon.nova-lite-v1:0", false],
       ["amazon.nova-pro-v1:0", false],
       ["meta.llama4-scout-17b-instruct-v1:0", false],
