@@ -140,6 +140,15 @@ const configSchema = z.object({
   analytics: z.object({
     retentionDays: z.coerce.number().int().positive().default(90),
   }),
+
+  // SendGrid (optional). When SENDGRID_API_KEY + SENDGRID_FROM_EMAIL are set,
+  // the `sendEmail` agent tool is available on all instances.
+  sendgrid: z.object({
+    apiKey: z.string().min(1),
+    fromEmail: z.string().email(),
+    fromName: z.string().optional(),
+    defaultSubject: z.string().optional(),
+  }).optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -230,6 +239,12 @@ function loadConfig(): Config {
     analytics: {
       retentionDays: process.env.ANALYTICS_RETENTION_DAYS,
     },
+    sendgrid: process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL ? {
+      apiKey: process.env.SENDGRID_API_KEY.trim(),
+      fromEmail: process.env.SENDGRID_FROM_EMAIL.trim(),
+      fromName: process.env.SENDGRID_FROM_NAME?.trim() || undefined,
+      defaultSubject: process.env.SENDGRID_DEFAULT_SUBJECT?.trim() || undefined,
+    } : undefined,
   });
 
   if (!result.success) {

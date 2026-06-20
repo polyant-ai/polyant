@@ -41,6 +41,7 @@
     "@nestjs/platform-express": "^11.1.13",
     "@nestjs/throttler": "^6.5.0",
     "@panva/hkdf": "^1.2.1",
+    "@sendgrid/mail": "^8.1.6",
     "@slack/bolt": "^4.6.0",
     "@tavily/core": "^0.0.3",
     "ai": "^4.0.0",

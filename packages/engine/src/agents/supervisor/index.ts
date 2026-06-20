@@ -254,7 +254,7 @@ async function buildTools(opts: BuildToolsOptions) {
   // inserted on the next line — the factory itself also strips spawnTask
   // defensively (no self-recursion).
   if (allEnabled || enabledNames.has("spawnTask")) {
-    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId);
+    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId, provider);
     tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);
   }
 

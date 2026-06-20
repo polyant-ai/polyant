@@ -80,6 +80,9 @@ export interface OutgoingMessage {
   /** Response text */
   text: string;
 
+  /** Optional email subject (consumed by channel adapters that support it, e.g. SendGrid). */
+  subject?: string;
+
   /** Optional structured attachments */
   attachments?: Attachment[];
 

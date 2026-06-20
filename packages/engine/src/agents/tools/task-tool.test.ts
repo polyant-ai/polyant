@@ -49,7 +49,7 @@ describe("createTaskTool", () => {
       provider: "openai",
     });
 
-    const tool = createTaskTool({ someOtherTool: {} as any });
+    const tool = createTaskTool({ someOtherTool: {} as any }, undefined, undefined, undefined, "anthropic");
     const result = await tool.execute(
       { task: "Research the latest AI trends", label: null },
       { toolCallId: "tc-1", messages: [] } as any,
@@ -58,6 +58,7 @@ describe("createTaskTool", () => {
     expect(mockChat).toHaveBeenCalledWith(
       expect.objectContaining({
         tier: "standard",
+        provider: "anthropic",
         system: expect.stringContaining("Research the latest AI trends"),
         maxSteps: 10,
       }),

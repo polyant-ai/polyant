@@ -102,9 +102,21 @@ export async function recomputeInstanceTools(instanceId: string): Promise<void> 
       ),
     );
 
-  // 6. Build desired set: globals(source:global) + skill(source:skill) + manuals(source:manual)
+  // 6. Build desired set. Manual rows are processed FIRST so their source is
+  //    never overwritten by a skill or global entry for the same tool — this
+  //    prevents the following data-loss sequence:
+  //      a) tool manually enabled (source=manual)
+  //      b) skill enabled that also requires the tool → recompute changes source to "skill"
+  //      c) skill disabled → recompute queries WHERE source='manual', finds nothing, deletes the tool
   const desiredRows: { instanceId: string; toolId: string; source: string }[] = [];
   const seenToolIds = new Set<string>();
+
+  for (const row of manualRows) {
+    if (!seenToolIds.has(row.toolId)) {
+      seenToolIds.add(row.toolId);
+      desiredRows.push({ instanceId, toolId: row.toolId, source: "manual" });
+    }
+  }
 
   for (const row of globalToolRows) {
     if (!seenToolIds.has(row.id)) {
@@ -117,13 +129,6 @@ export async function recomputeInstanceTools(instanceId: string): Promise<void> 
     if (!seenToolIds.has(row.id)) {
       seenToolIds.add(row.id);
       desiredRows.push({ instanceId, toolId: row.id, source: "skill" });
-    }
-  }
-
-  for (const row of manualRows) {
-    if (!seenToolIds.has(row.toolId)) {
-      seenToolIds.add(row.toolId);
-      desiredRows.push({ instanceId, toolId: row.toolId, source: "manual" });
     }
   }
 
