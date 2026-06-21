@@ -125,7 +125,7 @@ describe("InstancesController", () => {
     it("returns only whitelisted fields — future internal columns must not leak", async () => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
 
-      const { instance } = await controller.getBySlug("test-one");
+      const { agent } = await controller.getBySlug("test-one");
 
       // Allowed fields
       const allowed = new Set([
@@ -136,30 +136,30 @@ describe("InstancesController", () => {
         "memory",
       ]);
 
-      for (const key of Object.keys(instance)) {
+      for (const key of Object.keys(agent)) {
         expect(allowed.has(key)).toBe(true);
       }
       // The leak canary must be excluded.
-      expect("internalSecretFlag" in instance).toBe(false);
+      expect("internalSecretFlag" in agent).toBe(false);
     });
 
     it("emits icon as a URL + cache-busting query, never as the raw data URI", async () => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
 
-      const { instance } = await controller.getBySlug("test-one");
+      const { agent } = await controller.getBySlug("test-one");
 
-      expect(instance.icon).toBe(
-        `/api/instances/test-one/icon?v=${fullInstance.updatedAt.getTime()}`,
+      expect(agent.icon).toBe(
+        `/api/agents/test-one/icon?v=${fullInstance.updatedAt.getTime()}`,
       );
-      expect(instance.icon).not.toMatch(/^data:/);
+      expect(agent.icon).not.toMatch(/^data:/);
     });
 
     it("icon is null when the instance has no icon stored", async () => {
       mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, icon: null });
 
-      const { instance } = await controller.getBySlug("test-one");
+      const { agent } = await controller.getBySlug("test-one");
 
-      expect(instance.icon).toBeNull();
+      expect(agent.icon).toBeNull();
     });
   });
 
@@ -332,7 +332,7 @@ describe("InstancesController", () => {
 });
 
 describe("InstancesController dual-prefix back-compat", () => {
-  it("serves on both /api/agents and the deprecated /api/instances alias", () => {
+  it("serves on both /api/agents and the deprecated /api/agents alias", () => {
     const path = Reflect.getMetadata(PATH_METADATA, InstancesController) as
       | string
       | string[];

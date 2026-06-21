@@ -16,7 +16,7 @@ import type { AgentSlug } from "../instances/identifiers.js";
  * - `ChannelType` (from `instances/channels.store.ts`) — the NARROW/closed
  *   set: only channels with a config row in `instance_channels`, validated
  *   by Zod and exposed via the management API (`PUT/DELETE
- *   /api/instances/:slug/channels/:type`). Today: telegram, slack, whatsapp.
+ *   /api/agents/:slug/channels/:type`). Today: telegram, slack, whatsapp.
  *
  * Adding a new API-configurable channel: extend `CHANNEL_TYPES` in
  * `instances/channels.store.ts` — this union automatically widens.

@@ -669,7 +669,7 @@ describe("ConversationStore", () => {
           summary: "Sum 1",
           channel: "telegram",
           agent_id: "inst-a",
-          instance_name: "Agent A",
+          agent_name: "Agent A",
           message_count: 5,
           total_tokens: 1500,
           total_cost: 0.005,
@@ -698,7 +698,7 @@ describe("ConversationStore", () => {
           title: "Chat 1",
           channel: "telegram",
           agentId: "inst-a",
-          instanceName: "Agent A",
+          agentName: "Agent A",
           messageCount: 5,
           totalTokens: 1500,
           totalCost: 0.005,
@@ -731,7 +731,7 @@ describe("ConversationStore", () => {
           title: null,
           summary: null,
           agent_id: null,
-          instance_name: null,
+          agent_name: null,
           message_count: null,
           total_tokens: null,
           total_cost: null,
@@ -753,7 +753,7 @@ describe("ConversationStore", () => {
       expect(conv.title).toBeNull();
       expect(conv.summary).toBeNull();
       expect(conv.agentId).toBeNull();
-      expect(conv.instanceName).toBeNull();
+      expect(conv.agentName).toBeNull();
       expect(conv.messageCount).toBe(0);
       expect(conv.totalTokens).toBe(0);
       expect(conv.totalCost).toBe(0);
@@ -803,7 +803,7 @@ describe("ConversationStore", () => {
           summary: "Sum 1",
           channel: "telegram",
           agent_id: "inst-a",
-          instance_name: "Agent A",
+          agent_name: "Agent A",
           match_count: 3,
           best_snippet: "hello world",
           message_count: 7,
@@ -842,7 +842,7 @@ describe("ConversationStore", () => {
           title: null,
           summary: null,
           agent_id: null,
-          instance_name: null,
+          agent_name: null,
           match_count: 0,
           best_snippet: null,
           message_count: 2,
@@ -895,7 +895,7 @@ describe("ConversationStore", () => {
         title: "My Chat",
         summary: "A summary",
         agent_id: "inst-1",
-        instance_name: "Bot 1",
+        agent_name: "Bot 1",
         message_count: 10,
         total_tokens: 2000,
         total_cost: 0.008,
@@ -913,7 +913,7 @@ describe("ConversationStore", () => {
       expect(result).not.toBeNull();
       expect(result!.conversationId).toBe("conv-abc");
       expect(result!.title).toBe("My Chat");
-      expect(result!.instanceName).toBe("Bot 1");
+      expect(result!.agentName).toBe("Bot 1");
       expect(result!.messageCount).toBe(10);
       expect(result!.totalTokens).toBe(2000);
       expect(result!.totalCost).toBe(0.008);
@@ -939,7 +939,7 @@ describe("ConversationStore", () => {
         title: null,
         summary: null,
         agent_id: null,
-        instance_name: null,
+        agent_name: null,
         message_count: 0,
         total_tokens: 0,
         total_cost: 0,

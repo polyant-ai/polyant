@@ -72,7 +72,7 @@ export interface ConversationListItem {
   summary: string | null;
   channel: string | null;
   agentId: AgentSlug | null;
-  instanceName: string | null;
+  agentName: string | null;
   messageCount: number;
   totalTokens: number;
   totalCost: number;
@@ -439,7 +439,7 @@ export class ConversationStore {
           c.summary,
           c.channel,
           c.agent_id,
-          i.name AS instance_name,
+          i.name AS agent_name,
           COUNT(cm.id)::int AS message_count,
           COALESCE(al_agg.total_tokens, 0)::int AS total_tokens,
           COALESCE(al_agg.total_cost, 0)::real AS total_cost,
@@ -482,7 +482,7 @@ export class ConversationStore {
         summary: (r.summary as string) ?? null,
         channel: (r.channel as string) ?? null,
         agentId: r.agent_id ? asAgentSlug(r.agent_id as string) : null,
-        instanceName: (r.instance_name as string) ?? null,
+        agentName: (r.agent_name as string) ?? null,
         messageCount: (r.message_count as number) ?? 0,
         totalTokens: (r.total_tokens as number) ?? 0,
         totalCost: (r.total_cost as number) ?? 0,
@@ -510,7 +510,7 @@ export class ConversationStore {
         c.summary,
         c.channel,
         c.agent_id,
-        i.name AS instance_name,
+        i.name AS agent_name,
         COUNT(cm.id)::int AS message_count,
         COALESCE(al_agg.total_tokens, 0)::int AS total_tokens,
         COALESCE(al_agg.total_cost, 0)::real AS total_cost,
@@ -547,7 +547,7 @@ export class ConversationStore {
       summary: (r.summary as string) ?? null,
       channel: (r.channel as string) ?? null,
       agentId: r.agent_id ? asAgentSlug(r.agent_id as string) : null,
-      instanceName: (r.instance_name as string) ?? null,
+      agentName: (r.agent_name as string) ?? null,
       messageCount: (r.message_count as number) ?? 0,
       totalTokens: (r.total_tokens as number) ?? 0,
       totalCost: (r.total_cost as number) ?? 0,
@@ -672,7 +672,7 @@ export class ConversationStore {
           c.summary,
           c.channel,
           c.agent_id,
-          i.name AS instance_name,
+          i.name AS agent_name,
           COUNT(cm.id)::int AS match_count,
           (SELECT cm2.content FROM conversation_messages cm2
            WHERE cm2.conversation_id = c.conversation_id
@@ -727,7 +727,7 @@ export class ConversationStore {
         summary: (r.summary as string) ?? null,
         channel: (r.channel as string) ?? null,
         agentId: r.agent_id ? asAgentSlug(r.agent_id as string) : null,
-        instanceName: (r.instance_name as string) ?? null,
+        agentName: (r.agent_name as string) ?? null,
         matchCount: (r.match_count as number) ?? 0,
         bestSnippet: (r.best_snippet as string) ?? "",
         messageCount: (r.message_count as number) ?? 0,

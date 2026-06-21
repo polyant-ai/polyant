@@ -35,7 +35,7 @@ export class AnalyticsController {
     return { ...analytics, latency };
   }
 
-  // GET /api/instances/:slug/analytics — per-instance
+  // GET /api/agents/:slug/analytics — per-instance
   @RequirePermission(Permission.ANALYTICS_READ)
   @Get("instances/:slug/analytics")
   async perInstance(

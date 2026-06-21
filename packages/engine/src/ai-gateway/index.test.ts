@@ -209,7 +209,7 @@ describe("AI Gateway", () => {
 
       expect(mockEmitFromChatResponse).toHaveBeenCalled();
       const ctx = mockEmitFromChatResponse.mock.calls[0][1] as { instance?: { icon?: string | null } };
-      expect(ctx.instance?.icon).toBe("/api/instances/acme/icon?v=1700000000000");
+      expect(ctx.instance?.icon).toBe("/api/agents/acme/icon?v=1700000000000");
       expect(ctx.instance?.icon).not.toContain("base64");
     });
 

@@ -57,7 +57,7 @@ import {
  * (e.g. internal flags) are not accidentally exposed via the API.
  *
  * Note: `icon` is returned as a URL (not a data URI) to keep list payloads small —
- * the binary is served separately by GET /api/instances/:slug/icon.  A cache-busting
+ * the binary is served separately by GET /api/agents/:slug/icon.  A cache-busting
  * `v=<updatedAt>` query param ensures the browser reloads after an icon change.
  */
 function toInstanceDto(instance: Agent) {
@@ -108,7 +108,7 @@ function parseDataUri(dataUri: string): { contentType: string; body: Buffer } | 
 export class InstancesController {
   private readonly auditLogger = createManagementAuditLogger();
 
-  // GET /api/instances — list all agents
+  // GET /api/agents — list all agents
   @RequirePermission(Permission.AGENT_READ)
   @Get()
   async list() {
@@ -116,7 +116,7 @@ export class InstancesController {
     return { agents: all.map(toInstanceDto) };
   }
 
-  // GET /api/instances/models — list available providers and models
+  // GET /api/agents/models — list available providers and models
   @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
@@ -138,7 +138,7 @@ export class InstancesController {
     return { providers };
   }
 
-  // GET /api/instances/:slug — get by slug
+  // GET /api/agents/:slug — get by slug
   @RequirePermission(Permission.AGENT_READ)
   @Get(":slug")
   async getBySlug(@Param("slug") slug: string) {
@@ -146,14 +146,14 @@ export class InstancesController {
     const instance = await findInstanceBySlug(asAgentSlug(slug));
     if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
     return {
-      instance: {
+      agent: {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
       },
     };
   }
 
-  // GET /api/instances/:slug/icon — serve the icon binary
+  // GET /api/agents/:slug/icon — serve the icon binary
   // Separated from the JSON DTO so list/detail responses stay small (#85 follow-up).
   @RequirePermission(Permission.AGENT_READ)
   @Get(":slug/icon")
@@ -173,7 +173,7 @@ export class InstancesController {
     res.end(parsed.body);
   }
 
-  // POST /api/instances — create
+  // POST /api/agents — create
   @RequirePermission(Permission.AGENT_WRITE)
   @Post()
   async create(
@@ -206,10 +206,10 @@ export class InstancesController {
       targetId: instance.slug,
     });
 
-    return { instance: toInstanceDto(instance) };
+    return { agent: toInstanceDto(instance) };
   }
 
-  // PATCH /api/instances/:slug — update
+  // PATCH /api/agents/:slug — update
   @RequirePermission(Permission.AGENT_WRITE)
   @Patch(":slug")
   async update(
@@ -291,7 +291,7 @@ export class InstancesController {
     }
 
     return {
-      instance: {
+      agent: {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
       },
@@ -299,7 +299,7 @@ export class InstancesController {
     };
   }
 
-  // DELETE /api/instances/:slug — delete
+  // DELETE /api/agents/:slug — delete
   @RequirePermission(Permission.AGENT_DELETE)
   @Delete(":slug")
   async remove(@Param("slug") slug: string, @CurrentUser() user?: AuthenticatedUser) {
@@ -331,7 +331,7 @@ export class InstancesController {
     return { deleted: true };
   }
 
-  // PUT /api/instances/:slug/icon — set icon
+  // PUT /api/agents/:slug/icon — set icon
   @RequirePermission(Permission.AGENT_WRITE)
   @Put(":slug/icon")
   async setIcon(@Param("slug") slug: string, @Body() body: { icon: string }) {
@@ -340,17 +340,17 @@ export class InstancesController {
     validateIconDataUri(body.icon);
     const instance = await updateInstance(asAgentSlug(slug), { icon: body.icon });
     if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
-    return { instance: toInstanceDto(instance) };
+    return { agent: toInstanceDto(instance) };
   }
 
-  // DELETE /api/instances/:slug/icon — remove icon
+  // DELETE /api/agents/:slug/icon — remove icon
   @RequirePermission(Permission.AGENT_WRITE)
   @Delete(":slug/icon")
   async removeIcon(@Param("slug") slug: string) {
     this.validateSlug(slug);
     const instance = await updateInstance(asAgentSlug(slug), { icon: null });
     if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
-    return { instance: toInstanceDto(instance) };
+    return { agent: toInstanceDto(instance) };
   }
 
   /**

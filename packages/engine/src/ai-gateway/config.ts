@@ -152,7 +152,7 @@ export function estimateSttCost(
  *   - Bedrock   : Anthropic-hosted Claude 4 family (sonnet-4, opus-4)
  *
  * The capability flag is consumed in two places:
- *   - GET /api/instances/models (frontend hint to show/hide the toggle)
+ *   - GET /api/agents/models (frontend hint to show/hide the toggle)
  *   - config-resolver (runtime gate so a stale `thinkingEnabled=true` in DB
  *     cannot leak into a non-capable model's request)
  */

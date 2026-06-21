@@ -10,14 +10,14 @@ describe("buildInstanceIconUrl", () => {
     // Regression: the activity stream used to emit the raw data URI, which the
     // web guard `isSafeImageSrc` rejects, so the base64 leaked through as text.
     const url = buildInstanceIconUrl("acme", DATA_URI, new Date(1700000000000));
-    expect(url).toBe("/api/instances/acme/icon?v=1700000000000");
+    expect(url).toBe("/api/agents/acme/icon?v=1700000000000");
     expect(url).not.toContain("base64");
     expect(url?.startsWith("/")).toBe(true);
     expect(url?.startsWith("//")).toBe(false);
   });
 
   it("should_use_zero_version_when_updatedAt_is_null", () => {
-    expect(buildInstanceIconUrl("acme", DATA_URI, null)).toBe("/api/instances/acme/icon?v=0");
+    expect(buildInstanceIconUrl("acme", DATA_URI, null)).toBe("/api/agents/acme/icon?v=0");
   });
 
   it("should_return_null_when_there_is_no_icon", () => {

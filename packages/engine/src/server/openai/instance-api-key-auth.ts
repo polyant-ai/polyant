@@ -10,7 +10,7 @@ import { asAgentSlug } from "../../instances/identifiers.js";
  * Per-instance API key authentication for chat endpoints.
  *
  * Used by both `POST /v1/chat/completions` (OpenAI-compatible) and
- * `POST /api/instances/:slug/chat/stream` (admin playground typed SSE).
+ * `POST /api/agents/:slug/chat/stream` (admin playground typed SSE).
  * Both endpoints are marked `@Public()` so the global JWT `AuthGuard` is
  * skipped — they identify the caller via the instance slug + a Bearer token
  * matched against the secret stored in `instance_secrets.auth_api_key`.
