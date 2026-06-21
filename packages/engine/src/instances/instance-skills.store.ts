@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // ---------------------------------------------------------------------------
-// Instance skills data store — instance <-> skill assignments
+// Agent skills data store — instance <-> skill assignments
 // ---------------------------------------------------------------------------
 
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instanceSkills } from "./instance-skills.schema.js";
+import { agentSkills } from "./instance-skills.schema.js";
 import { skills, skillVersions } from "../skills/schema.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { DEFAULT_SKILL_SLUGS } from "./defaults.js";
-import { asInstanceUuid, type InstanceUuid } from "./identifiers.js";
+import { asAgentUuid, type AgentUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,7 +18,7 @@ import { asInstanceUuid, type InstanceUuid } from "./identifiers.js";
 
 export interface InstanceSkillRow {
   id: string;
-  instanceId: InstanceUuid;
+  agentId: AgentUuid;
   skillId: string;
   skillSlug: string;
   skillName: string;
@@ -37,29 +37,29 @@ export interface InstanceSkillRow {
 // ---------------------------------------------------------------------------
 
 /** Get all skills for an instance with version info and upgrade availability. */
-export async function getInstanceSkills(instanceId: InstanceUuid): Promise<InstanceSkillRow[]> {
+export async function getInstanceSkills(agentId: AgentUuid): Promise<InstanceSkillRow[]> {
   // Alias for pinned version
   const pinnedVer = skillVersions;
 
   const rows = await db
     .select({
-      id: instanceSkills.id,
-      instanceId: instanceSkills.instanceId,
-      skillId: instanceSkills.skillId,
+      id: agentSkills.id,
+      agentId: agentSkills.agentId,
+      skillId: agentSkills.skillId,
       skillSlug: skills.slug,
       skillName: skills.name,
-      skillVersionId: instanceSkills.skillVersionId,
+      skillVersionId: agentSkills.skillVersionId,
       pinnedVersion: pinnedVer.version,
       currentVersionId: skills.currentVersionId,
-      enabled: instanceSkills.enabled,
-      autoLoad: instanceSkills.autoLoad,
-      createdAt: instanceSkills.createdAt,
-      updatedAt: instanceSkills.updatedAt,
+      enabled: agentSkills.enabled,
+      autoLoad: agentSkills.autoLoad,
+      createdAt: agentSkills.createdAt,
+      updatedAt: agentSkills.updatedAt,
     })
-    .from(instanceSkills)
-    .innerJoin(skills, eq(instanceSkills.skillId, skills.id))
-    .innerJoin(pinnedVer, eq(instanceSkills.skillVersionId, pinnedVer.id))
-    .where(eq(instanceSkills.instanceId, instanceId));
+    .from(agentSkills)
+    .innerJoin(skills, eq(agentSkills.skillId, skills.id))
+    .innerJoin(pinnedVer, eq(agentSkills.skillVersionId, pinnedVer.id))
+    .where(eq(agentSkills.agentId, agentId));
 
   // Batch-fetch current version strings to avoid N+1
   const currentVersionIds = [...new Set(
@@ -79,7 +79,7 @@ export async function getInstanceSkills(instanceId: InstanceUuid): Promise<Insta
 
   return rows.map((row) => ({
     id: row.id,
-    instanceId: asInstanceUuid(row.instanceId),
+    agentId: asAgentUuid(row.agentId),
     skillId: row.skillId,
     skillSlug: row.skillSlug,
     skillName: row.skillName,
@@ -102,7 +102,7 @@ export async function getInstanceSkills(instanceId: InstanceUuid): Promise<Insta
  * Enable a skill for an instance.
  * Pins to the skill's current_version_id, then recomputes instance tools.
  */
-export async function enableSkill(instanceId: InstanceUuid, skillSlug: string): Promise<void> {
+export async function enableSkill(agentId: AgentUuid, skillSlug: string): Promise<void> {
   const [skill] = await db
     .select({ id: skills.id, currentVersionId: skills.currentVersionId })
     .from(skills)
@@ -113,26 +113,26 @@ export async function enableSkill(instanceId: InstanceUuid, skillSlug: string): 
   if (!skill.currentVersionId) throw new Error(`Skill "${skillSlug}" has no published version`);
 
   await db
-    .insert(instanceSkills)
+    .insert(agentSkills)
     .values({
-      instanceId,
+      agentId,
       skillId: skill.id,
       skillVersionId: skill.currentVersionId,
       enabled: true,
     })
     .onConflictDoUpdate({
-      target: [instanceSkills.instanceId, instanceSkills.skillId],
+      target: [agentSkills.agentId, agentSkills.skillId],
       set: { enabled: true, updatedAt: sql`now()` },
     });
 
-  await recomputeInstanceTools(instanceId);
+  await recomputeInstanceTools(agentId);
 }
 
 /**
  * Disable a skill for an instance.
  * Marks as disabled (keeps the row for history), then recomputes instance tools.
  */
-export async function disableSkill(instanceId: InstanceUuid, skillSlug: string): Promise<void> {
+export async function disableSkill(agentId: AgentUuid, skillSlug: string): Promise<void> {
   const [skill] = await db
     .select({ id: skills.id })
     .from(skills)
@@ -142,16 +142,16 @@ export async function disableSkill(instanceId: InstanceUuid, skillSlug: string):
   if (!skill) return;
 
   await db
-    .update(instanceSkills)
+    .update(agentSkills)
     .set({ enabled: false, updatedAt: sql`now()` })
     .where(
       and(
-        eq(instanceSkills.instanceId, instanceId),
-        eq(instanceSkills.skillId, skill.id),
+        eq(agentSkills.agentId, agentId),
+        eq(agentSkills.skillId, skill.id),
       ),
     );
 
-  await recomputeInstanceTools(instanceId);
+  await recomputeInstanceTools(agentId);
 }
 
 /**
@@ -159,7 +159,7 @@ export async function disableSkill(instanceId: InstanceUuid, skillSlug: string):
  * `resolveTargetVersionId` receives the skill row and returns the target version ID (or null to abort).
  */
 async function pinSkillVersion(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   skillSlug: string,
   resolveTargetVersionId: (skill: { id: string; currentVersionId: string | null }) => Promise<string | null>,
 ): Promise<void> {
@@ -175,12 +175,12 @@ async function pinSkillVersion(
   if (!targetVersionId) return;
 
   const [assignment] = await db
-    .select({ skillVersionId: instanceSkills.skillVersionId })
-    .from(instanceSkills)
+    .select({ skillVersionId: agentSkills.skillVersionId })
+    .from(agentSkills)
     .where(
       and(
-        eq(instanceSkills.instanceId, instanceId),
-        eq(instanceSkills.skillId, skill.id),
+        eq(agentSkills.agentId, agentId),
+        eq(agentSkills.skillId, skill.id),
       ),
     )
     .limit(1);
@@ -190,17 +190,17 @@ async function pinSkillVersion(
   const oldVersionId = assignment.skillVersionId;
 
   await db
-    .update(instanceSkills)
+    .update(agentSkills)
     .set({ skillVersionId: targetVersionId, updatedAt: sql`now()` })
     .where(
       and(
-        eq(instanceSkills.instanceId, instanceId),
-        eq(instanceSkills.skillId, skill.id),
+        eq(agentSkills.agentId, agentId),
+        eq(agentSkills.skillId, skill.id),
       ),
     );
 
   if (oldVersionId !== targetVersionId) {
-    await recomputeInstanceTools(instanceId);
+    await recomputeInstanceTools(agentId);
   }
 }
 
@@ -208,8 +208,8 @@ async function pinSkillVersion(
  * Upgrade a skill to the latest version.
  * Updates skill_version_id to current_version_id, recomputes tools if deps changed.
  */
-export async function upgradeSkill(instanceId: InstanceUuid, skillSlug: string): Promise<void> {
-  await pinSkillVersion(instanceId, skillSlug, async (skill) => skill.currentVersionId);
+export async function upgradeSkill(agentId: AgentUuid, skillSlug: string): Promise<void> {
+  await pinSkillVersion(agentId, skillSlug, async (skill) => skill.currentVersionId);
 }
 
 /**
@@ -217,11 +217,11 @@ export async function upgradeSkill(instanceId: InstanceUuid, skillSlug: string):
  * Sets skill_version_id to the specified version, recomputes if deps changed.
  */
 export async function rollbackSkill(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   skillSlug: string,
   versionId: string,
 ): Promise<void> {
-  await pinSkillVersion(instanceId, skillSlug, async (skill) => {
+  await pinSkillVersion(agentId, skillSlug, async (skill) => {
     // Verify the version exists and belongs to this skill
     const [version] = await db
       .select({ id: skillVersions.id })
@@ -244,7 +244,7 @@ export async function rollbackSkill(
  * When autoLoad is true, the full skill content is injected into the system prompt.
  */
 export async function setAutoLoad(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   skillSlug: string,
   autoLoad: boolean,
 ): Promise<void> {
@@ -257,12 +257,12 @@ export async function setAutoLoad(
   if (!skill) throw new Error(`Skill "${skillSlug}" not found`);
 
   await db
-    .update(instanceSkills)
+    .update(agentSkills)
     .set({ autoLoad, updatedAt: sql`now()` })
     .where(
       and(
-        eq(instanceSkills.instanceId, instanceId),
-        eq(instanceSkills.skillId, skill.id),
+        eq(agentSkills.agentId, agentId),
+        eq(agentSkills.skillId, skill.id),
       ),
     );
 }
@@ -272,7 +272,7 @@ export async function setAutoLoad(
  * Enables DEFAULT_SKILL_SLUGS, pinning each to the current version.
  * Silently skips skills that don't exist in DB yet.
  */
-export async function seedInstanceSkills(instanceId: InstanceUuid): Promise<void> {
+export async function seedInstanceSkills(agentId: AgentUuid): Promise<void> {
   if (DEFAULT_SKILL_SLUGS.length === 0) return;
 
   const defaultSkills = await db
@@ -284,18 +284,18 @@ export async function seedInstanceSkills(instanceId: InstanceUuid): Promise<void
     if (!skill.currentVersionId) continue;
 
     await db
-      .insert(instanceSkills)
+      .insert(agentSkills)
       .values({
-        instanceId,
+        agentId,
         skillId: skill.id,
         skillVersionId: skill.currentVersionId,
         enabled: true,
       })
       .onConflictDoUpdate({
-        target: [instanceSkills.instanceId, instanceSkills.skillId],
+        target: [agentSkills.agentId, agentSkills.skillId],
         set: { enabled: true, updatedAt: sql`now()` },
       });
   }
 
-  await recomputeInstanceTools(instanceId);
+  await recomputeInstanceTools(agentId);
 }

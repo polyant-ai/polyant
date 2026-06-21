@@ -5,7 +5,7 @@ import type { ChannelAdapter, IncomingMessage, MessageHandler, OutgoingMessage }
 import { CHANNEL_MAX_LENGTH, METADATA_CONVERSATION_ID_OVERRIDE } from "../../types.js";
 import { toSlackMrkdwn } from "./slack-mrkdwn.js";
 import { splitMessage } from "../../split-message.js";
-import type { InstanceSlug } from "../../../instances/identifiers.js";
+import type { AgentSlug } from "../../../instances/identifiers.js";
 
 export interface SlackConfig {
   botToken: string;
@@ -23,7 +23,7 @@ export class SlackAdapter implements ChannelAdapter {
   private readonly userCache = new Map<string, { name: string; expiresAt: number }>();
 
   constructor(
-    private readonly instanceId: InstanceSlug,
+    private readonly agentId: AgentSlug,
     private readonly cfg: SlackConfig,
   ) {}
 
@@ -63,14 +63,14 @@ export class SlackAdapter implements ChannelAdapter {
       const incoming: IncomingMessage = {
         channelType: "slack",
         channelId: channel,
-        instanceId: this.instanceId,
+        agentId: this.agentId,
         userName,
         text,
         metadata: {
           ts,
           threadTs,
           // DM = single ongoing 1:1 conversation, keyed on channel only.
-          [METADATA_CONVERSATION_ID_OVERRIDE]: `${this.instanceId}:slack:${channel}`,
+          [METADATA_CONVERSATION_ID_OVERRIDE]: `${this.agentId}:slack:${channel}`,
         },
       };
 
@@ -101,7 +101,7 @@ export class SlackAdapter implements ChannelAdapter {
       const incoming: IncomingMessage = {
         channelType: "slack",
         channelId: event.channel,
-        instanceId: this.instanceId,
+        agentId: this.agentId,
         userName,
         text: cleanText,
         metadata: {
@@ -109,7 +109,7 @@ export class SlackAdapter implements ChannelAdapter {
           threadTs,
           // One conversation per thread, so different mentions in the same
           // channel don't collapse into a single mixed history.
-          [METADATA_CONVERSATION_ID_OVERRIDE]: `${this.instanceId}:slack:${event.channel}:${threadTs}`,
+          [METADATA_CONVERSATION_ID_OVERRIDE]: `${this.agentId}:slack:${event.channel}:${threadTs}`,
         },
       };
 
@@ -122,7 +122,7 @@ export class SlackAdapter implements ChannelAdapter {
     });
 
     await this.app.start();
-    console.log(`Slack bot started for instance "${this.instanceId}" (socket mode, botUserId=${this.botUserId})`);
+    console.log(`Slack bot started for instance "${this.agentId}" (socket mode, botUserId=${this.botUserId})`);
   }
 
   async sendMessage(channelId: string, msg: OutgoingMessage): Promise<void> {

@@ -7,7 +7,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { errMsg } from "../../utils/error.js";
-import type { InstanceSlug } from "../../instances/identifiers.js";
+import type { AgentSlug } from "../../instances/identifiers.js";
 // ---------------------------------------------------------------------------
 // Directory where *.tool.(ts|js) files live (same dir as this registry file)
 // ---------------------------------------------------------------------------
@@ -20,8 +20,8 @@ const __toolsDir = dirname(fileURLToPath(import.meta.url));
 
 /** Runtime context passed to every tool factory. */
 export interface ToolContext {
-  /** Instance identifier (slug, not UUID). Used by tool-level operations. */
-  instanceId: InstanceSlug;
+  /** Agent identifier (slug, not UUID). Used by tool-level operations. */
+  agentId: AgentSlug;
   /** Per-instance decrypted secrets. */
   secrets?: Record<string, string>;
   /** Audit logger scoped to this tool + instance + conversation. */
@@ -263,13 +263,13 @@ export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
   }
 
   const wrappedExecute = async (params: unknown) => {
-    pipelineLog.toolCall(ctx.instanceId, def.name, params as Record<string, unknown>);
+    pipelineLog.toolCall(ctx.agentId, def.name, params as Record<string, unknown>);
     try {
       const result = await execute(params);
-      pipelineLog.toolResult(ctx.instanceId, def.name, true);
+      pipelineLog.toolResult(ctx.agentId, def.name, true);
       return result;
     } catch (err) {
-      pipelineLog.toolResult(ctx.instanceId, def.name, false, errMsg(err));
+      pipelineLog.toolResult(ctx.agentId, def.name, false, errMsg(err));
       throw err;
     }
   };

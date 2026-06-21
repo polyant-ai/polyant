@@ -29,16 +29,16 @@ describe("getWorkspacePaths", () => {
     expect(paths.conversationsDir).toBe(`${OA_SANDBOX_ROOT}/my-instance/conversations`);
   });
 
-  it("rejects invalid instanceId with uppercase", () => {
-    expect(() => getWorkspacePaths("MY-INSTANCE")).toThrow(/Invalid instanceId/);
+  it("rejects invalid agentId with uppercase", () => {
+    expect(() => getWorkspacePaths("MY-INSTANCE")).toThrow(/Invalid agentId/);
   });
 
-  it("rejects instanceId starting with hyphen", () => {
-    expect(() => getWorkspacePaths("-my-instance")).toThrow(/Invalid instanceId/);
+  it("rejects agentId starting with hyphen", () => {
+    expect(() => getWorkspacePaths("-my-instance")).toThrow(/Invalid agentId/);
   });
 
-  it("rejects instanceId with spaces or special chars", () => {
-    expect(() => getWorkspacePaths("my instance!")).toThrow(/Invalid instanceId/);
+  it("rejects agentId with spaces or special chars", () => {
+    expect(() => getWorkspacePaths("my instance!")).toThrow(/Invalid agentId/);
   });
 
   it("accepts alphanumeric + hyphen + digits", () => {
@@ -65,8 +65,8 @@ describe("getConversationWorkspacePath", () => {
     expect(path).toBe(`${OA_SANDBOX_ROOT}/my-instance/conversations/foo_.._bar`);
   });
 
-  it("validates the instanceId", () => {
-    expect(() => getConversationWorkspacePath("BAD!", "conv-1")).toThrow(/Invalid instanceId/);
+  it("validates the agentId", () => {
+    expect(() => getConversationWorkspacePath("BAD!", "conv-1")).toThrow(/Invalid agentId/);
   });
 
   it("rejects empty conversationId", () => {
@@ -90,8 +90,8 @@ describe("deleteWorkspace", () => {
     expect(mockRmSync).not.toHaveBeenCalled();
   });
 
-  it("validates the instanceId", () => {
-    expect(() => deleteWorkspace("BAD!")).toThrow(/Invalid instanceId/);
+  it("validates the agentId", () => {
+    expect(() => deleteWorkspace("BAD!")).toThrow(/Invalid agentId/);
     expect(mockRmSync).not.toHaveBeenCalled();
   });
 });
@@ -121,8 +121,8 @@ describe("deleteConversationWorkspace", () => {
     );
   });
 
-  it("validates the instanceId", () => {
-    expect(() => deleteConversationWorkspace("BAD!", "conv-1")).toThrow(/Invalid instanceId/);
+  it("validates the agentId", () => {
+    expect(() => deleteConversationWorkspace("BAD!", "conv-1")).toThrow(/Invalid agentId/);
     expect(mockRmSync).not.toHaveBeenCalled();
   });
 

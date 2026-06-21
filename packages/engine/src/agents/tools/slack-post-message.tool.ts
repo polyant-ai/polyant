@@ -91,7 +91,7 @@ registerTool({
       }
 
       try {
-        await channelManager.sendOutbound(ctx.instanceId, "slack", trimmedChannel, trimmedMessage);
+        await channelManager.sendOutbound(ctx.agentId, "slack", trimmedChannel, trimmedMessage);
 
         ctx.audit.log({
           action: "slack.postMessage",

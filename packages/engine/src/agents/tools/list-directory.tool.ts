@@ -62,11 +62,11 @@ registerTool({
         }
 
         if (isRelativePath(path)) {
-          resolvedPath = await resolveWorkspacePath(path, ctx.instanceId, ctx.conversationId);
+          resolvedPath = await resolveWorkspacePath(path, ctx.agentId, ctx.conversationId);
           source = "workspace-relative";
         } else {
           resolvedPath = resolve(path);
-          await assertInsideConversationWorkspace(resolvedPath, ctx.instanceId, ctx.conversationId);
+          await assertInsideConversationWorkspace(resolvedPath, ctx.agentId, ctx.conversationId);
           source = "workspace-absolute";
         }
 

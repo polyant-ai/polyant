@@ -9,7 +9,7 @@ import type { IncomingMessage, MessageChannelType } from "./channels/types.js";
 import type { ChatResponse, AILogEntry, ModelTier } from "./ai-gateway/types.js";
 import type { AuditLogger } from "./audit/audit-logger.js";
 import type { ConversationStateApi, ChannelStateIdentity } from "./conversations/state.buffer.js";
-import { asInstanceSlug } from "./instances/identifiers.js";
+import { asAgentSlug } from "./instances/identifiers.js";
 
 export function createMockIncomingMessage(
   overrides: Partial<IncomingMessage> = {},
@@ -17,7 +17,7 @@ export function createMockIncomingMessage(
   return {
     channelType: "telegram" as MessageChannelType,
     channelId: "test-channel-1",
-    instanceId: asInstanceSlug("test-user-1"),
+    agentId: asAgentSlug("test-user-1"),
     userName: "Test User",
     text: "Hello",
     metadata: {},

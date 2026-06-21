@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { pipelineTraces, type ToolCallTrace } from "./traces.schema.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 export interface PipelineTraceEntry {
   conversationId: string;
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   channel: string;
   contextPrepMs?: number;
   toolBuildingMs?: number;

@@ -58,7 +58,7 @@ vi.mock("../crypto/index.js", () => ({
 }));
 
 import { setSkillEnv, getSkillEnv, hasAllRequiredEnv, deleteSkillEnv } from "./skill-env.store.js";
-import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
+import { asAgentSlug, asAgentUuid } from "./identifiers.js";
 
 /** Create a thenable query-builder mock that supports .limit() */
 function thenable(rows: unknown[]) {
@@ -89,7 +89,7 @@ describe("skill-env.store", () => {
   describe("setSkillEnv", () => {
     it("encrypts sensitive values before storing", async () => {
       await setSkillEnv({
-        instanceId: asInstanceUuid("inst-1"),
+        agentId: asAgentUuid("inst-1"),
         skillSlug: "weather",
         key: "API_KEY",
         value: "secret-123",
@@ -99,7 +99,7 @@ describe("skill-env.store", () => {
       expect(encryptMock).toHaveBeenCalledWith("secret-123");
       expect(valuesMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          instanceId: "inst-1",
+          agentId: "inst-1",
           skillSlug: "weather",
           key: "API_KEY",
           value: "encrypted:secret-123",
@@ -111,7 +111,7 @@ describe("skill-env.store", () => {
 
     it("stores plaintext for non-sensitive values", async () => {
       await setSkillEnv({
-        instanceId: asInstanceUuid("inst-1"),
+        agentId: asAgentUuid("inst-1"),
         skillSlug: "weather",
         key: "BASE_URL",
         value: "https://api.example.com",
@@ -132,7 +132,7 @@ describe("skill-env.store", () => {
 
   describe("getSkillEnv", () => {
     it("decrypts encrypted rows and returns plaintext rows as-is", async () => {
-      // First call: resolveInstanceId → returns UUID
+      // First call: resolveAgentId → returns UUID
       whereMock.mockReturnValueOnce(thenable([{ id: "uuid-123" }]));
       // Second call: main env query
       whereMock.mockReturnValueOnce(thenable([
@@ -140,7 +140,7 @@ describe("skill-env.store", () => {
         { key: "BASE_URL", value: "https://api.example.com", encrypted: false },
       ]));
 
-      const result = await getSkillEnv(asInstanceSlug("inst-1"), "weather");
+      const result = await getSkillEnv(asAgentSlug("inst-1"), "weather");
 
       expect(decryptMock).toHaveBeenCalledWith("encrypted:secret-123");
       expect(decryptMock).not.toHaveBeenCalledWith("https://api.example.com");
@@ -151,10 +151,10 @@ describe("skill-env.store", () => {
     });
 
     it("returns empty object when instance not found", async () => {
-      // resolveInstanceId returns no rows → undefined → early return {}
+      // resolveAgentId returns no rows → undefined → early return {}
       whereMock.mockReturnValueOnce(thenable([]));
 
-      const result = await getSkillEnv(asInstanceSlug("inst-1"), "weather");
+      const result = await getSkillEnv(asAgentSlug("inst-1"), "weather");
 
       expect(result).toEqual({});
     });
@@ -163,7 +163,7 @@ describe("skill-env.store", () => {
       whereMock.mockReturnValueOnce(thenable([{ id: "uuid-123" }]));
       whereMock.mockReturnValueOnce(thenable([]));
 
-      const result = await getSkillEnv(asInstanceSlug("inst-1"), "weather");
+      const result = await getSkillEnv(asAgentSlug("inst-1"), "weather");
 
       expect(result).toEqual({});
     });
@@ -176,7 +176,7 @@ describe("skill-env.store", () => {
       whereMock.mockReturnValueOnce(thenable([{ id: "uuid-123" }]));
       whereMock.mockReturnValueOnce(thenable([{ key: "API_KEY" }, { key: "SECRET" }]));
 
-      const result = await hasAllRequiredEnv(asInstanceSlug("inst-1"), "weather", ["API_KEY", "SECRET"]);
+      const result = await hasAllRequiredEnv(asAgentSlug("inst-1"), "weather", ["API_KEY", "SECRET"]);
 
       expect(result).toBe(true);
     });
@@ -185,7 +185,7 @@ describe("skill-env.store", () => {
       whereMock.mockReturnValueOnce(thenable([{ id: "uuid-123" }]));
       whereMock.mockReturnValueOnce(thenable([{ key: "API_KEY" }]));
 
-      const result = await hasAllRequiredEnv(asInstanceSlug("inst-1"), "weather", ["API_KEY", "SECRET"]);
+      const result = await hasAllRequiredEnv(asAgentSlug("inst-1"), "weather", ["API_KEY", "SECRET"]);
 
       expect(result).toBe(false);
     });
@@ -193,13 +193,13 @@ describe("skill-env.store", () => {
     it("returns false when instance not found", async () => {
       whereMock.mockReturnValueOnce(thenable([]));
 
-      const result = await hasAllRequiredEnv(asInstanceSlug("inst-1"), "weather", ["API_KEY"]);
+      const result = await hasAllRequiredEnv(asAgentSlug("inst-1"), "weather", ["API_KEY"]);
 
       expect(result).toBe(false);
     });
 
     it("returns true for empty keys array without querying DB", async () => {
-      const result = await hasAllRequiredEnv(asInstanceSlug("inst-1"), "weather", []);
+      const result = await hasAllRequiredEnv(asAgentSlug("inst-1"), "weather", []);
 
       expect(result).toBe(true);
       expect(selectMock).not.toHaveBeenCalled();
@@ -210,7 +210,7 @@ describe("skill-env.store", () => {
 
   describe("deleteSkillEnv", () => {
     it("calls db.delete with correct where clause", async () => {
-      await deleteSkillEnv(asInstanceUuid("inst-1"), "weather", "API_KEY");
+      await deleteSkillEnv(asAgentUuid("inst-1"), "weather", "API_KEY");
 
       expect(deleteMock).toHaveBeenCalled();
       expect(deleteWhereMock).toHaveBeenCalled();

@@ -26,7 +26,7 @@ registerTool({
         const embCtx = await resolveEmbeddingContext(ctx.instanceId);
         const embedding = await embed(content, embCtx);
         const result = await upsertMemory({
-          instanceId: ctx.instanceId,
+          agentId: ctx.agentId,
           content,
           category: "general",
           importance: 7,

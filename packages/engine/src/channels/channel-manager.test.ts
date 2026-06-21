@@ -106,7 +106,7 @@ describe("ChannelManager", () => {
   });
 
   describe("shutdownAll", () => {
-    it("shuts down all channels across all instances", async () => {
+    it("shuts down all channels across all agents", async () => {
       await manager.startChannel("inst1", "telegram", { botToken: "t" });
       await manager.startChannel("inst2", "slack", { botToken: "t", appToken: "a", signingSecret: "s" });
 

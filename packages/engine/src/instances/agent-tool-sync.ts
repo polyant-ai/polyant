@@ -14,7 +14,7 @@ export interface SyncAgentToolArgs {
  * Sync the `tools` catalog row for an `agent:{slug}` virtual tool.
  *
  * Enable → upsert a row so the target instance becomes selectable as a tool
- * from OTHER instances' `instance_tools` admin panel.
+ * from OTHER agents' `instance_tools` admin panel.
  * Disable → remove the row.
  *
  * The actual `ask_{slug}` tool wrapper is synthesised at runtime in

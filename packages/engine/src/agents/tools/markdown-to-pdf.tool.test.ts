@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { Semaphore } from "./markdown-to-pdf.tool.js";
 import { loadAllTools, getToolRegistry, type ToolContext } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 // Pause a microtask so any pending acquire() Promises get a chance to run.
 function tick(): Promise<void> {
@@ -115,7 +115,7 @@ describe("Semaphore", () => {
 
 function stubCtx(): ToolContext {
   return {
-    instanceId: asInstanceSlug("markdown-to-pdf-test"),
+    agentId: asAgentSlug("markdown-to-pdf-test"),
     secrets: {},
     audit: createMockAudit(),
     conversationId: "markdown-to-pdf-test-conv",

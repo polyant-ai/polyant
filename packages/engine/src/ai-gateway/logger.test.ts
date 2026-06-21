@@ -3,7 +3,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { AILogger, aiLogs } from "./logger.js";
 import type { AILogEntry } from "./types.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 
 function makeEntry(overrides: Partial<AILogEntry> = {}): AILogEntry {
   return {
@@ -41,7 +41,7 @@ describe("AILogger", () => {
         "openai", "gpt-4o", "standard", false,
         100, 50, 150, 0.0075, 500,
         42, 3, // reasoningChars, stepCount
-        "conv-1", asInstanceSlug("user-1"),
+        "conv-1", asAgentSlug("user-1"),
       );
       expect(entry).toEqual({
         provider: "openai",
@@ -56,19 +56,19 @@ describe("AILogger", () => {
         reasoningChars: 42,
         stepCount: 3,
         conversationId: "conv-1",
-        instanceId: "user-1",
+        agentId: "user-1",
         callType: "conversation",
       });
     });
 
-    it("allows optional conversationId and instanceId", () => {
+    it("allows optional conversationId and agentId", () => {
       const entry = logger.createEntry(
         "anthropic", "claude-sonnet-4-5-20250929", "standard", true,
         200, 100, 300, 0.015, 1000,
         500, 5,
       );
       expect(entry.conversationId).toBeUndefined();
-      expect(entry.instanceId).toBeUndefined();
+      expect(entry.agentId).toBeUndefined();
       expect(entry.callType).toBe("conversation");
       expect(entry.reasoningChars).toBe(500);
       expect(entry.stepCount).toBe(5);
@@ -79,7 +79,7 @@ describe("AILogger", () => {
         "openai", "gpt-4o-mini", "fast", false,
         50, 20, 70, 0.001, 200,
         0, 0,
-        "conv-1", asInstanceSlug("inst-1"), "service",
+        "conv-1", asAgentSlug("inst-1"), "service",
       );
       expect(entry.callType).toBe("service");
     });

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Chain mock: each chained method returns the chain itself; awaiting resolves
@@ -47,7 +47,7 @@ vi.mock("./schema.js", () => ({
     conversationId: "conversation_id",
     title: "title",
     summary: "summary",
-    instanceId: "instance_id",
+    agentId: "instance_id",
     channel: "channel",
     userIdentifier: "user_identifier",
     createdAt: "created_at",
@@ -67,7 +67,7 @@ vi.mock("./schema.js", () => ({
   conversationState: {
     scope: "scope",
     scopeKey: "scope_key",
-    instanceId: "instance_id",
+    agentId: "instance_id",
     data: "data",
   },
 }));
@@ -383,7 +383,7 @@ describe("ConversationStore", () => {
       const insChain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(insChain as any);
 
-      await conversationStore.ensureConversation(id, asInstanceSlug("instance-1"));
+      await conversationStore.ensureConversation(id, asAgentSlug("instance-1"));
 
       expect(mockDb.insert).toHaveBeenCalled();
       // The chain should have called .values and .onConflictDoUpdate
@@ -401,7 +401,7 @@ describe("ConversationStore", () => {
       expect(insChain.values).toHaveBeenCalledWith(
         expect.objectContaining({
           conversationId: id,
-          instanceId: null,
+          agentId: null,
           channel: "web",
           userIdentifier: null,
         }),
@@ -413,7 +413,7 @@ describe("ConversationStore", () => {
       const insChain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(insChain as any);
 
-      await conversationStore.ensureConversation(id, asInstanceSlug("inst-x"), {
+      await conversationStore.ensureConversation(id, asAgentSlug("inst-x"), {
         channel: "telegram",
         userIdentifier: "user-42",
       });
@@ -421,7 +421,7 @@ describe("ConversationStore", () => {
       expect(insChain.values).toHaveBeenCalledWith(
         expect.objectContaining({
           conversationId: id,
-          instanceId: "inst-x",
+          agentId: "inst-x",
           channel: "telegram",
           userIdentifier: "user-42",
         }),
@@ -669,7 +669,7 @@ describe("ConversationStore", () => {
           summary: "Sum 1",
           channel: "telegram",
           agent_id: "inst-a",
-          instance_name: "Instance A",
+          instance_name: "Agent A",
           message_count: 5,
           total_tokens: 1500,
           total_cost: 0.005,
@@ -697,8 +697,8 @@ describe("ConversationStore", () => {
           conversationId: "conv-1",
           title: "Chat 1",
           channel: "telegram",
-          instanceId: "inst-a",
-          instanceName: "Instance A",
+          agentId: "inst-a",
+          instanceName: "Agent A",
           messageCount: 5,
           totalTokens: 1500,
           totalCost: 0.005,
@@ -752,7 +752,7 @@ describe("ConversationStore", () => {
       const conv = result.conversations[0];
       expect(conv.title).toBeNull();
       expect(conv.summary).toBeNull();
-      expect(conv.instanceId).toBeNull();
+      expect(conv.agentId).toBeNull();
       expect(conv.instanceName).toBeNull();
       expect(conv.messageCount).toBe(0);
       expect(conv.totalTokens).toBe(0);
@@ -803,7 +803,7 @@ describe("ConversationStore", () => {
           summary: "Sum 1",
           channel: "telegram",
           agent_id: "inst-a",
-          instance_name: "Instance A",
+          instance_name: "Agent A",
           match_count: 3,
           best_snippet: "hello world",
           message_count: 7,

@@ -8,7 +8,7 @@ import { sql, type SQL } from "drizzle-orm";
  * Every tenant-scoped store keys its rows by the agent *slug* (the `agent_id`
  * text column on conversations, memories, pipeline_traces, tool_audit_logs).
  * An agent belongs to exactly one workspace, and a workspace to exactly one
- * organization (`instances.workspace_id -> workspaces.organization_id`).
+ * organization (`agents.workspace_id -> workspaces.organization_id`).
  *
  * `buildOrgScopedAgentFilter(orgId)` returns a predicate that restricts the slug
  * column to the agents owned by the caller's organization:
@@ -21,9 +21,9 @@ import { sql, type SQL } from "drizzle-orm";
  *
  * Applied (AND-ed) in every list/read path it closes BOTH cross-org leak vectors
  * at the store layer rather than the guard:
- *  - param-IDOR: an Org-A caller passing an Org-B `instanceId` query param gets
+ *  - param-IDOR: an Org-A caller passing an Org-B `agentId` query param gets
  *    zero rows, because the foreign slug is not in the org subquery.
- *  - aggregate leak: an aggregate list with no `instanceId` returns only the
+ *  - aggregate leak: an aggregate list with no `agentId` returns only the
  *    caller-org rows, never the whole deployment.
  *
  * The `orgId` always travels as a bound parameter (never string-interpolated),

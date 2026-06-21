@@ -4,7 +4,7 @@ import { describe, it, expect } from "vitest";
 import { instanceFilter, pctChange } from "./query-helpers.js";
 
 describe("instanceFilter", () => {
-  it("returns empty SQL when instanceId is undefined", () => {
+  it("returns empty SQL when agentId is undefined", () => {
     const result = instanceFilter(undefined);
     // sql`` template produces an object; just verify no throw
     expect(result).toBeDefined();

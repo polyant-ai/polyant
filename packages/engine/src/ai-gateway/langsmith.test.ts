@@ -66,14 +66,14 @@ describe("langsmith", () => {
     it("omits ls_provider and ls_model_name from metadata to prevent auto-pricing conflicts", () => {
       buildLangSmithProviderOptions(
         { apiKey: "ls-key", project: "my-project" },
-        { conversationId: "conv-123", instanceId: "inst-456", providerName: "openai", modelId: "gpt-4o-mini" },
+        { conversationId: "conv-123", agentId: "inst-456", providerName: "openai", modelId: "gpt-4o-mini" },
       );
 
       const call = (createLangSmithProviderOptions as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(call.metadata).toEqual({
         oa_conversation_id: "conv-123",
         thread_id: "conv-123",
-        instance_id: "inst-456",
+        agent_id: "inst-456",
       });
       // ls_provider and ls_model_name must NOT be present — our processOutputs
       // sends explicit costs; auto-pricing would conflict with our config.ts
@@ -84,14 +84,14 @@ describe("langsmith", () => {
     it("appends -service suffix to thread_id for service call type", () => {
       buildLangSmithProviderOptions(
         { apiKey: "ls-key", project: "proj" },
-        { conversationId: "conv-123", instanceId: "inst-456", callType: "service" },
+        { conversationId: "conv-123", agentId: "inst-456", callType: "service" },
       );
 
       const call = (createLangSmithProviderOptions as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(call.metadata).toEqual({
         oa_conversation_id: "conv-123",
         thread_id: "conv-123-service",
-        instance_id: "inst-456",
+        agent_id: "inst-456",
       });
     });
 

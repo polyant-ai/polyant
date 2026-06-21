@@ -16,11 +16,11 @@ const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours — repos older than t
 
 /**
  * Cloned repos live inside the per-conversation workspace under `.repos/`.
- * Layout: workspaces/{instanceId}/conversations/{convId}/.repos/{owner}/{repo}-{suffix}/
+ * Layout: workspaces/{agentId}/conversations/{convId}/.repos/{owner}/{repo}-{suffix}/
  * This keeps all filesystem activity for a conversation inside a single sandbox.
  */
-export function reposDirForConversation(instanceId: string, conversationId: string): string {
-  return join(getConversationWorkspaceDir(instanceId, conversationId), ".repos");
+export function reposDirForConversation(agentId: string, conversationId: string): string {
+  return join(getConversationWorkspaceDir(agentId, conversationId), ".repos");
 }
 
 /** Generate a short random session suffix (8 hex chars). */
@@ -55,14 +55,14 @@ function gitExec(
 
 /** Resolve the local path for a cloned repo (with unique session suffix), scoped to a conversation. */
 export function repoLocalPath(
-  instanceId: string,
+  agentId: string,
   conversationId: string,
   repo: string,
   suffix?: string,
 ): string {
   const [owner, name] = repo.split("/");
   const dirName = suffix ? `${name}-${suffix}` : name;
-  return join(reposDirForConversation(instanceId, conversationId), owner, dirName);
+  return join(reposDirForConversation(agentId, conversationId), owner, dirName);
 }
 
 /**
@@ -75,8 +75,8 @@ export function repoLocalPath(
  * when we detect one because the presence past the stale threshold is a
  * signal that the cleanup contract was violated (likely a prior crash).
  */
-export function cleanupStaleRepos(instanceId: string, conversationId: string): void {
-  const reposDir = reposDirForConversation(instanceId, conversationId);
+export function cleanupStaleRepos(agentId: string, conversationId: string): void {
+  const reposDir = reposDirForConversation(agentId, conversationId);
   if (!existsSync(reposDir)) return;
 
   const now = Date.now();
@@ -116,7 +116,7 @@ export function cleanupStaleRepos(instanceId: string, conversationId: string): v
 export async function cloneRepoFresh(
   repo: string,
   token: string,
-  instanceId: string,
+  agentId: string,
   conversationId: string,
   branch?: string | null,
 ): Promise<{ path: string; branch: string; lastCommit: string } | { error: string }> {
@@ -144,10 +144,10 @@ export async function cloneRepoFresh(
   }
 
   // Clean up stale workspaces from previous crashed/timed-out runs in this conversation
-  cleanupStaleRepos(instanceId, conversationId);
+  cleanupStaleRepos(agentId, conversationId);
 
   const suffix = sessionSuffix();
-  const basePath = repoLocalPath(instanceId, conversationId, repo, suffix);
+  const basePath = repoLocalPath(agentId, conversationId, repo, suffix);
 
   console.log(`[gitCloneRepo] Preparing workspace ${basePath}`);
   if (existsSync(basePath)) {
@@ -305,7 +305,7 @@ registerTool({
       const startMs = Date.now();
 
       try {
-        const result = await cloneRepoFresh(repo, token, ctx.instanceId, ctx.conversationId, branch);
+        const result = await cloneRepoFresh(repo, token, ctx.agentId, ctx.conversationId, branch);
         const durationMs = Date.now() - startMs;
 
         if ("error" in result) {

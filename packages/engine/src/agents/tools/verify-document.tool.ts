@@ -101,7 +101,7 @@ registerTool({
           },
           {
             conversationId: ctx.conversationId,
-            instanceId: ctx.instanceId,
+            agentId: ctx.agentId,
             callType: "service",
           },
         );

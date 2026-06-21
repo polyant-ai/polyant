@@ -35,7 +35,7 @@ describe("ConversationsController — debug + state endpoints", () => {
 
   describe("getMessageDebug", () => {
     it("returns the debug payload for a message in an owned conversation", async () => {
-      mockStore.getConversation.mockResolvedValue({ instanceId: "acme" });
+      mockStore.getConversation.mockResolvedValue({ agentId: "acme" });
       const debug = { debugPayload: { system: "s", messages: [], tools: [] }, steps: null };
       mockStore.getMessageDebug.mockResolvedValue(debug);
 
@@ -51,7 +51,7 @@ describe("ConversationsController — debug + state endpoints", () => {
     });
 
     it("returns 404 when the message is not in the conversation", async () => {
-      mockStore.getConversation.mockResolvedValue({ instanceId: "acme" });
+      mockStore.getConversation.mockResolvedValue({ agentId: "acme" });
       mockStore.getMessageDebug.mockResolvedValue(null);
 
       await expect(
@@ -60,7 +60,7 @@ describe("ConversationsController — debug + state endpoints", () => {
     });
 
     it("returns 404 (IDOR guard) when the conversation belongs to another instance", async () => {
-      mockStore.getConversation.mockResolvedValue({ instanceId: "other" });
+      mockStore.getConversation.mockResolvedValue({ agentId: "other" });
 
       await expect(
         controller.getMessageDebug("acme:web:api-1", VALID_UUID, "acme"),
@@ -68,7 +68,7 @@ describe("ConversationsController — debug + state endpoints", () => {
       expect(mockStore.getMessageDebug).not.toHaveBeenCalled();
     });
 
-    it("requires an instanceId", async () => {
+    it("requires an agentId", async () => {
       await expect(
         controller.getMessageDebug("acme:web:api-1", VALID_UUID, undefined),
       ).rejects.toBeInstanceOf(BadRequestException);
@@ -77,7 +77,7 @@ describe("ConversationsController — debug + state endpoints", () => {
 
   describe("getState", () => {
     it("returns the conversation state snapshot for an owned conversation", async () => {
-      mockStore.getConversation.mockResolvedValue({ instanceId: "acme" });
+      mockStore.getConversation.mockResolvedValue({ agentId: "acme" });
       mockLoadConversationState.mockResolvedValue({ _channel: { type: "web", id: "u1" }, foo: "bar" });
 
       const result = await controller.getState("acme:web:api-1", "acme");
@@ -85,7 +85,7 @@ describe("ConversationsController — debug + state endpoints", () => {
     });
 
     it("returns 404 (IDOR guard) for a conversation owned by another instance", async () => {
-      mockStore.getConversation.mockResolvedValue({ instanceId: "other" });
+      mockStore.getConversation.mockResolvedValue({ agentId: "other" });
 
       await expect(controller.getState("acme:web:api-1", "acme")).rejects.toBeInstanceOf(NotFoundException);
       expect(mockLoadConversationState).not.toHaveBeenCalled();

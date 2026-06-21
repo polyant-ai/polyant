@@ -8,7 +8,7 @@ import type {
   MessageHandler,
   OutgoingMessage,
 } from "../types.js";
-import type { InstanceSlug } from "../../instances/identifiers.js";
+import type { AgentSlug } from "../../instances/identifiers.js";
 
 /**
  * Inputs for an in-process agent-to-agent call. The adapter wraps these
@@ -17,7 +17,7 @@ import type { InstanceSlug } from "../../instances/identifiers.js";
  * channel turn.
  */
 export interface AgentDispatchInput {
-  targetInstanceId: InstanceSlug;
+  targetInstanceId: AgentSlug;
   prompt: string;
   callerSlug: string;
   callerConversationId: string;
@@ -64,7 +64,7 @@ export class AgentChannelAdapter implements ChannelAdapter {
     const msg: IncomingMessage = {
       channelType: "agent",
       channelId: `agent:${input.callerSlug}`,
-      instanceId: input.targetInstanceId,
+      agentId: input.targetInstanceId,
       userName: input.callerSlug,
       text: input.prompt,
       metadata: {

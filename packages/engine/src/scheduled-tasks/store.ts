@@ -2,13 +2,13 @@
 
 import { eq, and, lte, or, isNull, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instances } from "../instances/schema.js";
+import { agents } from "../instances/schema.js";
 import { scheduledTasks, type ScheduledTask, type ScheduleConfig } from "./schema.js";
 import { computeNextRun, computeRetryDelay, MAX_CONSECUTIVE_ERRORS } from "./schedule-utils.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 export interface CreateTaskInput {
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   name: string;
   prompt: string;
   schedule: ScheduleConfig;
@@ -38,7 +38,7 @@ export interface UpdateTaskInput {
  *  previous unbounded behaviour from the API's perspective except for the
  *  built-in `limit = 100` safety cap.
  *
- *  The cap is a defence against unbounded payloads on instances that
+ *  The cap is a defence against unbounded payloads on agents that
  *  accumulate many tasks (cron + one-shot). Callers that genuinely need to
  *  paginate the full set should pass `limit` + `offset` explicitly. The
  *  underlying ordering (`createdAt ASC`) is stable across pages. */
@@ -59,15 +59,15 @@ export const LIST_BY_INSTANCE_DEFAULT_LIMIT = 100;
  *  backward-compatibility — existing callers transparently pick up the
  *  default cap. */
 export async function listByInstance(
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   options: ListByInstanceOptions = {},
 ): Promise<ScheduledTask[]> {
   const limit = options.limit ?? LIST_BY_INSTANCE_DEFAULT_LIMIT;
   const offset = options.offset ?? 0;
 
   const whereClause = options.enabledOnly
-    ? and(eq(scheduledTasks.instanceId, instanceId), eq(scheduledTasks.enabled, true))
-    : eq(scheduledTasks.instanceId, instanceId);
+    ? and(eq(scheduledTasks.agentId, agentId), eq(scheduledTasks.enabled, true))
+    : eq(scheduledTasks.agentId, agentId);
 
   return db
     .select()
@@ -95,7 +95,7 @@ export async function create(input: CreateTaskInput): Promise<ScheduledTask> {
   const rows = await db
     .insert(scheduledTasks)
     .values({
-      instanceId: input.instanceId,
+      agentId: input.agentId,
       name: input.name,
       prompt: input.prompt,
       schedule: input.schedule,
@@ -162,7 +162,7 @@ export async function remove(id: string): Promise<void> {
 
 /** Get all tasks that are due for execution.
  *
- *  Joins `instances` on slug and filters by `status = 'active'` so tasks whose
+ *  Joins `agents` on slug and filters by `status = 'active'` so tasks whose
  *  parent instance is disabled never fire (security guard: an operator disabling
  *  an instance immediately silences its scheduled jobs without touching the
  *  `enabled` flag on each task). The join is non-N+1: a single SELECT per tick.
@@ -171,11 +171,11 @@ export async function getDueTasks(now: Date): Promise<ScheduledTask[]> {
   const rows = await db
     .select({ task: scheduledTasks })
     .from(scheduledTasks)
-    .innerJoin(instances, eq(instances.slug, scheduledTasks.instanceId))
+    .innerJoin(agents, eq(agents.slug, scheduledTasks.agentId))
     .where(
       and(
         eq(scheduledTasks.enabled, true),
-        eq(instances.status, "active"),
+        eq(agents.status, "active"),
         lte(scheduledTasks.nextRunAt, now),
         or(
           isNull(scheduledTasks.lastRunStatus),
@@ -278,7 +278,7 @@ export async function disableTask(id: string): Promise<void> {
 /** Find an active task whose outbound matches the given channel + target for an instance.
  *  Used to detect if an incoming channel message is a reply to a scheduled task's output. */
 export async function findActiveTaskByOutbound(
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   channelType: string,
   channelId: string,
 ): Promise<ScheduledTask | undefined> {
@@ -287,7 +287,7 @@ export async function findActiveTaskByOutbound(
     .from(scheduledTasks)
     .where(
       and(
-        eq(scheduledTasks.instanceId, instanceId),
+        eq(scheduledTasks.agentId, agentId),
         eq(scheduledTasks.outboundChannel, channelType),
         eq(scheduledTasks.outboundTarget, channelId),
         eq(scheduledTasks.enabled, true),

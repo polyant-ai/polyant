@@ -8,7 +8,7 @@ import { extractMemories } from "../memory/extractor.js";
 import { generateConversationTitle } from "../utils/title-generator.js";
 import { channelManager } from "../channels/channel-manager.js";
 import { renderTemplate } from "./template-renderer.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 import { registerTrigger } from "./active-triggers.js";
 import { setTriggerContext, clearTriggerContext } from "./trigger-context.js";
 import { webhookLog } from "./webhook-logger.js";
@@ -28,8 +28,8 @@ import { ConversationStateBuffer } from "../conversations/state.buffer.js";
  *   Used for one-shot agent actions whose history is consulted in the admin UI.
  */
 export async function triggerConversation(
-  instanceId: string,
-  instanceSlug: InstanceSlug,
+  agentId: string,
+  instanceSlug: AgentSlug,
   definition: EventDefinition,
   payload: Record<string, unknown>,
 ): Promise<void> {
@@ -168,7 +168,7 @@ export async function triggerConversation(
   try {
     result = await supervise({
       message: messageToSupervise,
-      instanceId: instanceSlug,
+      agentId: instanceSlug,
       conversationId,
       conversationSummary: undefined,
       contextPrompt: safeContextPrompt,
@@ -241,7 +241,7 @@ export async function triggerConversation(
   const postProcess = async () => {
     await generateConversationTitle({
       conversationId,
-      instanceId: instanceSlug,
+      agentId: instanceSlug,
       provider: instanceConfig.provider,
       apiKeys: instanceConfig.apiKeys,
       content: `Webhook trigger: ${definition.name}\nAssistant: ${finalText.slice(0, 300)}`,
@@ -259,7 +259,7 @@ export async function triggerConversation(
   // Record trace
   traceStore.record({
     conversationId,
-    instanceId: instanceSlug,
+    agentId: instanceSlug,
     channel: channelLabel,
     contextPrepMs,
     toolBuildingMs: result.toolBuildingMs,

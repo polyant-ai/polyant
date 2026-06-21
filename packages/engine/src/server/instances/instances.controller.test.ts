@@ -84,6 +84,7 @@ vi.mock("../memories/memory-status.js", () => ({
 
 import { InstancesController } from "./instances.controller.js";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import { PATH_METADATA } from "@nestjs/common/constants.js";
 
 const fullInstance = {
   id: "uuid-1",
@@ -327,5 +328,18 @@ describe("InstancesController", () => {
       expect(mockResetEmbeddings).not.toHaveBeenCalled();
       expect(res.wiped).toBeNull();
     });
+  });
+});
+
+describe("InstancesController dual-prefix back-compat", () => {
+  it("serves on both /api/agents and the deprecated /api/instances alias", () => {
+    const path = Reflect.getMetadata(PATH_METADATA, InstancesController) as
+      | string
+      | string[];
+    expect(Array.isArray(path)).toBe(true);
+    expect(path).toContain("api/agents");
+    expect(path).toContain("api/instances");
+    // agents is the canonical prefix (listed first); instances is the alias.
+    expect((path as string[])[0]).toBe("api/agents");
   });
 });

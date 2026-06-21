@@ -55,7 +55,7 @@ vi.mock("../database/client.js", () => ({ db: mockDb }));
 vi.mock("./schema.js", () => ({
   scheduledTasks: {
     id: "id",
-    instanceId: "instance_id",
+    agentId: "instance_id",
     name: "name",
     enabled: "enabled",
     nextRunAt: "next_run_at",

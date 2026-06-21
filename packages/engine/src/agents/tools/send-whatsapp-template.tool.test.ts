@@ -29,7 +29,7 @@ const def = vi.mocked(registerTool).mock.calls[0][0];
 
 function buildExecute(conversationId: string | undefined = "conv-1") {
   const ctx = {
-    instanceId: "inst-1",
+    agentId: "inst-1",
     secrets: {},
     audit: createMockAudit(),
     conversationId,
@@ -171,7 +171,7 @@ describe("send_whatsapp_template tool (Twilio Content API mode)", () => {
     mockSendOutboundTemplate.mockResolvedValueOnce("SM1");
 
     const ctx = {
-      instanceId: "inst-1",
+      agentId: "inst-1",
       secrets: {},
       audit: createMockAudit(),
       conversationId: "conv-1",
@@ -196,7 +196,7 @@ describe("send_whatsapp_template tool (Twilio Content API mode)", () => {
 
   it("rejects non-HX contentSid via strict regex", () => {
     const ctx = {
-      instanceId: "inst-1",
+      agentId: "inst-1",
       secrets: {},
       audit: createMockAudit(),
       conversationId: "conv-1",

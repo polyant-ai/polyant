@@ -6,7 +6,7 @@ import { conversationStore } from "../../conversations/index.js";
 import { chat } from "../../ai-gateway/index.js";
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { getRoomByInstanceId } from "../../room/room.store.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
 
 registerTool({
   name: "compact_room_history",
@@ -24,10 +24,10 @@ registerTool({
     }),
     execute: async ({ keepRecent }) => {
       const recentToKeep = keepRecent ?? 10;
-      const instanceId = await resolveInstanceId(ctx.instanceId);
-      if (!instanceId) return { error: "Instance not found" };
+      const agentId = await resolveAgentId(ctx.agentId);
+      if (!agentId) return { error: "Agent not found" };
 
-      const room = await getRoomByInstanceId(instanceId);
+      const room = await getRoomByInstanceId(agentId);
       if (!room?.conversationId) return { error: "No room conversation to compact" };
 
       const allMessages = await conversationStore.getRecentMessages(room.conversationId, 100);
@@ -40,7 +40,7 @@ registerTool({
         .map((m) => `${m.role === "user" ? "Human" : "Assistant"}: ${m.content}`)
         .join("\n");
 
-      const instanceConfig = await resolveInstanceConfig(ctx.instanceId);
+      const instanceConfig = await resolveInstanceConfig(ctx.agentId);
 
       const summaryResponse = await chat(
         {
@@ -50,7 +50,7 @@ registerTool({
           system: "Summarize the following conversation in 3-5 concise sentences, preserving key facts, decisions, and open items. Respond ONLY with the summary.",
           messages: [{ role: "user", content: compactText }],
         },
-        { conversationId: room.conversationId, instanceId: ctx.instanceId, callType: "service" },
+        { conversationId: room.conversationId, agentId: ctx.agentId, callType: "service" },
       );
 
       await conversationStore.replaceOldestMessages(

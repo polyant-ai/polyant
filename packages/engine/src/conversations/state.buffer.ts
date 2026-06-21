@@ -63,7 +63,7 @@ export class ConversationStateBuffer {
 
   constructor(
     private readonly conversationId: string,
-    private readonly instanceId: string | null,
+    private readonly agentId: string | null,
     initial: Record<string, unknown> = {},
   ) {
     this.data = { ...initial };
@@ -72,10 +72,10 @@ export class ConversationStateBuffer {
   /** Load the persisted state and build a buffer. Awaited once per pipeline run. */
   static async load(
     conversationId: string,
-    instanceId: string | null,
+    agentId: string | null,
   ): Promise<ConversationStateBuffer> {
     const initial = await loadConversationState(conversationId);
-    return new ConversationStateBuffer(conversationId, instanceId, initial);
+    return new ConversationStateBuffer(conversationId, agentId, initial);
   }
 
   /**
@@ -151,7 +151,7 @@ export class ConversationStateBuffer {
     if (this.dirty.size === 0 && this.removed.size === 0) return;
     const set: Record<string, unknown> = {};
     for (const key of this.dirty) set[key] = this.data[key];
-    await flushConversationState(this.conversationId, this.instanceId, set, [...this.removed]);
+    await flushConversationState(this.conversationId, this.agentId, set, [...this.removed]);
     this.dirty.clear();
     this.removed.clear();
   }

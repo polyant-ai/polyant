@@ -6,15 +6,15 @@
 
 import { eq, and } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { findInstanceBySlug, type Instance } from "./store.js";
-import { asInstanceSlug, type InstanceUuid } from "./identifiers.js";
+import { findInstanceBySlug, type Agent } from "./store.js";
+import { asAgentSlug, type AgentUuid } from "./identifiers.js";
 import { getPrompts } from "./prompts.store.js";
 import { getInstanceSkills } from "./instance-skills.store.js";
-import { instanceTools } from "./instance-tools.schema.js";
+import { agentTools } from "./instance-tools.schema.js";
 import { tools } from "../agents/tools/tools.schema.js";
-import { instanceSecrets } from "./secrets.schema.js";
-import { instanceChannels } from "./channels.schema.js";
-import { instanceSkillEnv } from "./skill-env.schema.js";
+import { agentSecrets } from "./secrets.schema.js";
+import { agentChannels } from "./channels.schema.js";
+import { agentSkillEnv } from "./skill-env.schema.js";
 import { getRoomByInstanceId } from "../room/room.store.js";
 import { listEventSourcesWithDefinitions } from "../webhooks/webhook-sources.store.js";
 import { listByInstance as listScheduledTasks } from "../scheduled-tasks/store.js";
@@ -25,8 +25,8 @@ import type { InstanceBundle, ExportInstanceData } from "./export.schema.js";
 // ---------------------------------------------------------------------------
 
 export async function exportInstance(slug: string): Promise<InstanceBundle> {
-  const instance = await findInstanceBySlug(asInstanceSlug(slug));
-  if (!instance) throw new Error(`Instance "${slug}" not found`);
+  const instance = await findInstanceBySlug(asAgentSlug(slug));
+  if (!instance) throw new Error(`Agent "${slug}" not found`);
 
   const data = await assembleInstanceData(instance);
 
@@ -42,7 +42,7 @@ export async function exportInstance(slug: string): Promise<InstanceBundle> {
 // Assembly helpers
 // ---------------------------------------------------------------------------
 
-async function assembleInstanceData(instance: Instance): Promise<ExportInstanceData> {
+async function assembleInstanceData(instance: Agent): Promise<ExportInstanceData> {
   // Parallel reads — all independent queries
   const [
     prompts,
@@ -124,8 +124,8 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
   };
 }
 
-async function exportPrompts(instanceId: InstanceUuid) {
-  const rows = await getPrompts(instanceId);
+async function exportPrompts(agentId: AgentUuid) {
+  const rows = await getPrompts(agentId);
   return rows.map((r) => ({
     sectionKey: r.sectionKey,
     title: r.title,
@@ -133,8 +133,8 @@ async function exportPrompts(instanceId: InstanceUuid) {
   }));
 }
 
-async function exportSkillAssignments(instanceId: InstanceUuid) {
-  const rows = await getInstanceSkills(instanceId);
+async function exportSkillAssignments(agentId: AgentUuid) {
+  const rows = await getInstanceSkills(agentId);
   return rows.map((r) => ({
     skillSlug: r.skillSlug,
     enabled: r.enabled,
@@ -143,52 +143,52 @@ async function exportSkillAssignments(instanceId: InstanceUuid) {
   }));
 }
 
-async function exportManualTools(instanceId: string): Promise<string[]> {
+async function exportManualTools(agentId: string): Promise<string[]> {
   const rows = await db
     .select({ name: tools.name })
-    .from(instanceTools)
-    .innerJoin(tools, eq(instanceTools.toolId, tools.id))
+    .from(agentTools)
+    .innerJoin(tools, eq(agentTools.toolId, tools.id))
     .where(
       and(
-        eq(instanceTools.instanceId, instanceId),
-        eq(instanceTools.source, "manual"),
+        eq(agentTools.agentId, agentId),
+        eq(agentTools.source, "manual"),
       ),
     );
   return rows.map((r) => r.name);
 }
 
-async function exportSecretKeys(instanceId: string) {
+async function exportSecretKeys(agentId: string) {
   const rows = await db
-    .select({ key: instanceSecrets.key })
-    .from(instanceSecrets)
-    .where(eq(instanceSecrets.instanceId, instanceId));
+    .select({ key: agentSecrets.key })
+    .from(agentSecrets)
+    .where(eq(agentSecrets.agentId, agentId));
   return rows.map((r) => ({ key: r.key, configured: true }));
 }
 
-async function exportChannels(instanceId: string) {
+async function exportChannels(agentId: string) {
   const rows = await db
     .select({
-      channelType: instanceChannels.channelType,
-      enabled: instanceChannels.enabled,
+      channelType: agentChannels.channelType,
+      enabled: agentChannels.enabled,
     })
-    .from(instanceChannels)
-    .where(eq(instanceChannels.instanceId, instanceId));
+    .from(agentChannels)
+    .where(eq(agentChannels.agentId, agentId));
   return rows.map((r) => ({
     channelType: r.channelType,
     enabled: r.enabled,
   }));
 }
 
-async function exportSkillEnv(instanceId: string) {
+async function exportSkillEnv(agentId: string) {
   const rows = await db
     .select({
-      skillSlug: instanceSkillEnv.skillSlug,
-      key: instanceSkillEnv.key,
-      value: instanceSkillEnv.value,
-      encrypted: instanceSkillEnv.encrypted,
+      skillSlug: agentSkillEnv.skillSlug,
+      key: agentSkillEnv.key,
+      value: agentSkillEnv.value,
+      encrypted: agentSkillEnv.encrypted,
     })
-    .from(instanceSkillEnv)
-    .where(eq(instanceSkillEnv.instanceId, instanceId));
+    .from(agentSkillEnv)
+    .where(eq(agentSkillEnv.agentId, agentId));
 
   return rows.map((r) => ({
     skillSlug: r.skillSlug,

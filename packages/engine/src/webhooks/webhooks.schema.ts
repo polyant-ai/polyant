@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { pgTable, uuid, varchar, text, boolean, timestamp, jsonb, unique, index } from "drizzle-orm/pg-core";
-import { instances } from "../instances/schema.js";
+import { agents } from "../instances/schema.js";
 
 export const eventSources = pgTable(
   "event_sources",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("agent_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 255 }).notNull(),
     sourceType: varchar("source_type", { length: 50 }).notNull(),
     config: text("config").notNull(),
@@ -18,7 +18,7 @@ export const eventSources = pgTable(
   },
   (table) => [
     unique("uq_event_source_webhook_token").on(table.webhookToken),
-    index("idx_event_sources_instance").on(table.instanceId),
+    index("idx_event_sources_instance").on(table.agentId),
   ],
 );
 
@@ -47,7 +47,7 @@ export const eventBacklog = pgTable(
   "event_backlog",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("agent_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
     eventDefinitionId: uuid("event_definition_id").notNull().references(() => eventDefinitions.id, { onDelete: "cascade" }),
     rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>().notNull(),
     matchedAt: timestamp("matched_at", { withTimezone: true }).notNull().defaultNow(),
@@ -57,7 +57,7 @@ export const eventBacklog = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index("idx_event_backlog_instance_status").on(table.instanceId, table.status),
+    index("idx_event_backlog_instance_status").on(table.agentId, table.status),
     index("idx_event_backlog_definition").on(table.eventDefinitionId),
   ],
 );

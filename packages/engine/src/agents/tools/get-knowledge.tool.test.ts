@@ -13,7 +13,7 @@ import "./get-knowledge.tool.js";
 import { getToolRegistry, buildTool } from "./registry.js";
 
 const ctx = {
-  instanceId: "inst-1",
+  agentId: "inst-1",
   audit: createMockAudit(),
 } as any;
 
@@ -50,7 +50,7 @@ describe("getKnowledge tool", () => {
     const updatedAt = new Date("2026-04-17T10:00:00Z");
     mockGetDocumentByFilename.mockResolvedValue({
       id: "doc-1",
-      instanceId: "inst-1",
+      agentId: "inst-1",
       filename: "policy.md",
       mimeType: "text/markdown",
       sizeBytes: 42,

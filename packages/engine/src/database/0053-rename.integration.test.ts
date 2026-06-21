@@ -9,7 +9,7 @@ import { queryClient } from "./client.js";
  * agent_id across all tenant-scoped tables. Slug *values* are untouched.
  */
 describe("0053 instance→agent rename", () => {
-  it("renames the agents table and removes the instances table", async () => {
+  it("renames the agents table and removes the legacy instances table", async () => {
     const rows = await queryClient`
       SELECT table_name FROM information_schema.tables
       WHERE table_schema = 'public' AND table_name IN ('agents', 'instances')`;

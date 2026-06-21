@@ -25,10 +25,10 @@ const SANDBOX_ROOT = sandboxRootEnv
 
 const INSTANCE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-function validateInstanceId(instanceId: string): void {
-  if (!INSTANCE_ID_RE.test(instanceId)) {
+function validateInstanceId(agentId: string): void {
+  if (!INSTANCE_ID_RE.test(agentId)) {
     throw new Error(
-      `Invalid instanceId "${instanceId}". Must match ${INSTANCE_ID_RE} (lowercase alphanumeric and hyphens, starting with alphanumeric).`,
+      `Invalid agentId "${agentId}". Must match ${INSTANCE_ID_RE} (lowercase alphanumeric and hyphens, starting with alphanumeric).`,
     );
   }
 }
@@ -53,9 +53,9 @@ export interface WorkspacePaths {
  * All agent configuration — including knowledge documents — is stored in
  * PostgreSQL.
  */
-export function getWorkspacePaths(instanceId: string): WorkspacePaths {
-  validateInstanceId(instanceId);
-  const root = resolve(SANDBOX_ROOT, instanceId);
+export function getWorkspacePaths(agentId: string): WorkspacePaths {
+  validateInstanceId(agentId);
+  const root = resolve(SANDBOX_ROOT, agentId);
   return {
     root,
     conversationsDir: resolve(root, "conversations"),
@@ -67,20 +67,20 @@ export function getWorkspacePaths(instanceId: string): WorkspacePaths {
  * The conversationId is sanitized for filesystem safety.
  */
 export function getConversationWorkspacePath(
-  instanceId: string,
+  agentId: string,
   conversationId: string,
 ): string {
-  validateInstanceId(instanceId);
+  validateInstanceId(agentId);
   return resolve(
-    getWorkspacePaths(instanceId).conversationsDir,
+    getWorkspacePaths(agentId).conversationsDir,
     sanitizeConversationId(conversationId),
   );
 }
 
 /** Delete an instance workspace (knowledge files + all conversation workspaces). */
-export function deleteWorkspace(instanceId: string): void {
-  validateInstanceId(instanceId);
-  const paths = getWorkspacePaths(instanceId);
+export function deleteWorkspace(agentId: string): void {
+  validateInstanceId(agentId);
+  const paths = getWorkspacePaths(agentId);
   if (existsSync(paths.root)) {
     rmSync(paths.root, { recursive: true, force: true });
   }
@@ -88,10 +88,10 @@ export function deleteWorkspace(instanceId: string): void {
 
 /** Delete the sandboxed workspace for a specific conversation. */
 export function deleteConversationWorkspace(
-  instanceId: string,
+  agentId: string,
   conversationId: string,
 ): void {
-  const dir = getConversationWorkspacePath(instanceId, conversationId);
+  const dir = getConversationWorkspacePath(agentId, conversationId);
   if (existsSync(dir)) {
     rmSync(dir, { recursive: true, force: true });
   }

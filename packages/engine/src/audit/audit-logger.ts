@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { auditStore } from "./audit.store.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 /** Tool-facing audit API. Each tool receives its own logger instance. */
 export interface AuditLogger {
@@ -18,14 +18,14 @@ export interface AuditLogger {
 /** Create an AuditLogger scoped to a specific tool + instance + conversation. */
 export function createAuditLogger(
   toolName: string,
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   conversationId?: string,
 ): AuditLogger {
   return {
     log({ action, details, success, error, durationMs, output }) {
       auditStore.record({
         toolName,
-        instanceId,
+        agentId,
         conversationId,
         action,
         details,

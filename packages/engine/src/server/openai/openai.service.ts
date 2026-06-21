@@ -10,8 +10,8 @@ import type {
   ChatCompletionMessage,
 } from "./openai.types.js";
 import { DEFAULT_INSTANCE_ID } from "../../config.js";
-import { listActiveInstances, type Instance } from "../../instances/store.js";
-import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
+import { listActiveInstances, type Agent } from "../../instances/store.js";
+import { asAgentSlug, type AgentSlug } from "../../instances/identifiers.js";
 
 @Injectable()
 export class OpenAIService {
@@ -26,21 +26,21 @@ export class OpenAIService {
     this.streamMessageHandler = handler;
   }
 
-  async listInstances(): Promise<Instance[]> {
+  async listInstances(): Promise<Agent[]> {
     return listActiveInstances();
   }
 
   async chatCompletion(
     request: ChatCompletionRequest,
   ): Promise<ChatCompletionResponse> {
-    const { text, conversationHistory, systemMessages, instanceId, channelId } =
+    const { text, conversationHistory, systemMessages, agentId, channelId } =
       this.prepareRequest(request);
 
     // Call the pipeline via messageHandler
     const result = await this.messageHandler({
       channelType: "web",
       channelId,
-      instanceId,
+      agentId,
       text,
       metadata: { conversationHistory, systemMessages },
     });
@@ -70,13 +70,13 @@ export class OpenAIService {
   async chatCompletionStream(
     request: ChatCompletionRequest,
   ): Promise<StreamOutgoingMessage> {
-    const { text, conversationHistory, systemMessages, instanceId, channelId } =
+    const { text, conversationHistory, systemMessages, agentId, channelId } =
       this.prepareRequest(request);
 
     return this.streamMessageHandler({
       channelType: "web",
       channelId,
-      instanceId,
+      agentId,
       text,
       metadata: { conversationHistory, systemMessages },
     });
@@ -86,7 +86,7 @@ export class OpenAIService {
     text: string;
     conversationHistory: ModelMessage[];
     systemMessages: Array<{ role: "system"; content: string }>;
-    instanceId: InstanceSlug;
+    agentId: AgentSlug;
     channelId: string;
   } {
     const { messages, chat_id } = request;
@@ -112,11 +112,11 @@ export class OpenAIService {
 
     // Use the model field as instance slug (falls back to default).
     // `request.model` is the client-chosen instance slug; its existence is validated downstream by findInstanceBySlug.
-    const instanceId = request.model ? asInstanceSlug(request.model) : DEFAULT_INSTANCE_ID;
+    const agentId = request.model ? asAgentSlug(request.model) : DEFAULT_INSTANCE_ID;
 
     const channelId = this.deriveChannelId(messages, chat_id);
 
-    return { text, conversationHistory, systemMessages, instanceId, channelId };
+    return { text, conversationHistory, systemMessages, agentId, channelId };
   }
 
   /**

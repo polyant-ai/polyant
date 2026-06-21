@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 
 /* ── hoisted mocks ─────────────────────────────────────────────── */
 
@@ -144,7 +144,7 @@ describe("triggerConversation", () => {
     it("returns early when contextPrompt is missing", async () => {
       const def: EventDefinition = { ...baseDefinition, contextPrompt: null };
 
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), def, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), def, { foo: "bar" });
 
       expect(mockEnsureConversation).not.toHaveBeenCalled();
       expect(mockSupervise).not.toHaveBeenCalled();
@@ -163,7 +163,7 @@ describe("triggerConversation", () => {
     };
 
     it("builds channel-keyed conversationId and registers trigger", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "12345" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), channelDef, { chat_id: "12345" });
 
       const expectedId = "test-slug:telegram:12345";
       expect(mockEnsureConversation).toHaveBeenCalledWith(
@@ -181,7 +181,7 @@ describe("triggerConversation", () => {
     it("invokes channelManager.sendOutbound with rendered target", async () => {
       mockSupervise.mockResolvedValue({ ...baseSuperviseResult, text: "Hello user" });
 
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "9999" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), channelDef, { chat_id: "9999" });
 
       expect(mockSendOutbound).toHaveBeenCalledWith("test-slug", "telegram", "9999", "Hello user");
     });
@@ -194,7 +194,7 @@ describe("triggerConversation", () => {
         replyText: "actual reply",
       });
 
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "9999" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), channelDef, { chat_id: "9999" });
 
       expect(mockSendOutbound).not.toHaveBeenCalled();
       // assistant message persisted with replyText, not text
@@ -205,7 +205,7 @@ describe("triggerConversation", () => {
     });
 
     it("clears trigger context after successful run", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "1" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), channelDef, { chat_id: "1" });
       expect(mockClearTriggerContext).toHaveBeenCalledWith("test-slug:telegram:1");
     });
 
@@ -215,7 +215,7 @@ describe("triggerConversation", () => {
         outboundTarget: "{{payload.missing}}",
       };
 
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), def, { chat_id: "1" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), def, { chat_id: "1" });
 
       expect(mockEnsureConversation).not.toHaveBeenCalled();
       expect(mockSupervise).not.toHaveBeenCalled();
@@ -226,7 +226,7 @@ describe("triggerConversation", () => {
     });
 
     it("records trace with the channel name", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "x" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), channelDef, { chat_id: "x" });
       expect(mockTraceRecord).toHaveBeenCalledWith(
         expect.objectContaining({ channel: "telegram" }),
       );
@@ -236,7 +236,7 @@ describe("triggerConversation", () => {
   describe("internal mode (no outboundChannel)", () => {
     it("builds fresh per-event conversationId with definition id and timestamp", async () => {
       const before = Date.now();
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: "bar" });
       const after = Date.now();
 
       const calls = mockEnsureConversation.mock.calls;
@@ -253,7 +253,7 @@ describe("triggerConversation", () => {
     });
 
     it("does NOT register active trigger or set trigger context", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: "bar" });
 
       expect(mockRegisterTrigger).not.toHaveBeenCalled();
       expect(mockSetTriggerContext).not.toHaveBeenCalled();
@@ -263,7 +263,7 @@ describe("triggerConversation", () => {
     it("does NOT call channelManager.sendOutbound", async () => {
       mockSupervise.mockResolvedValue({ ...baseSuperviseResult, text: "Internal action complete" });
 
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: "bar" });
 
       expect(mockSendOutbound).not.toHaveBeenCalled();
     });
@@ -271,7 +271,7 @@ describe("triggerConversation", () => {
     it("still persists assistant response to conversation", async () => {
       mockSupervise.mockResolvedValue({ ...baseSuperviseResult, text: "Internal action complete" });
 
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: "bar" });
 
       const assistantCall = mockAppendMessages.mock.calls.find(
         ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
@@ -281,7 +281,7 @@ describe("triggerConversation", () => {
     });
 
     it("calls supervise with empty harness categories and undefined channelIdentity", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: "bar" });
 
       const superviseArg = mockSupervise.mock.calls[0][0];
       expect(superviseArg.channelIdentity).toBeUndefined();
@@ -290,17 +290,17 @@ describe("triggerConversation", () => {
     });
 
     it("records trace with channel='webhook'", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: "bar" });
       expect(mockTraceRecord).toHaveBeenCalledWith(
         expect.objectContaining({ channel: "webhook" }),
       );
     });
 
     it("creates a new conversationId on each call (one-shot semantics)", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: 1 });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: 1 });
       // Force a different timestamp
       await new Promise((r) => setTimeout(r, 5));
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: 2 });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: 2 });
 
       const ids = mockEnsureConversation.mock.calls.map((c) => c[0]);
       expect(ids).toHaveLength(2);
@@ -322,7 +322,7 @@ describe("triggerConversation", () => {
         debugEnabled: true,
       });
 
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: "bar" });
 
       expect(mockSupervise.mock.calls[0][0].debugEnabled).toBe(true);
     });
@@ -331,7 +331,7 @@ describe("triggerConversation", () => {
       const debugPayload = { system: "sys", messages: [], tools: [] };
       mockSupervise.mockResolvedValue({ ...baseSuperviseResult, debugPayload });
 
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: "bar" });
 
       const assistantCall = mockAppendMessages.mock.calls.find(
         ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
@@ -340,7 +340,7 @@ describe("triggerConversation", () => {
     });
 
     it("omits debugPayload when supervise returns none (debug off)", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: "bar" });
 
       const assistantCall = mockAppendMessages.mock.calls.find(
         ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
@@ -358,7 +358,7 @@ describe("triggerConversation", () => {
         outboundTarget: "C123",
       };
 
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), def, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), def, { foo: "bar" });
 
       expect(mockSendOutbound).not.toHaveBeenCalled();
       expect(mockClearTriggerContext).toHaveBeenCalled();
@@ -368,7 +368,7 @@ describe("triggerConversation", () => {
     it("returns early when supervise throws (internal mode)", async () => {
       mockSupervise.mockRejectedValue(new Error("LLM exploded"));
 
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: "bar" });
 
       expect(mockSendOutbound).not.toHaveBeenCalled();
       expect(mockClearTriggerContext).not.toHaveBeenCalled();
@@ -384,29 +384,29 @@ describe("triggerConversation", () => {
     };
 
     it("loads a state buffer for the conversation and passes it to supervise", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "42" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), channelDef, { chat_id: "42" });
       expect(mockStateBufferLoad).toHaveBeenCalledWith("test-slug:telegram:42", "test-slug");
       expect(mockSupervise.mock.calls[0][0].stateBuffer).toBe(mockStateBuffer);
     });
 
     it("seeds the trusted channel identity in channel mode", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "42" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), channelDef, { chat_id: "42" });
       expect(mockSeedChannel).toHaveBeenCalledWith({ type: "telegram", id: "42" });
     });
 
     it("flushes the state buffer after supervise succeeds", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "42" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), channelDef, { chat_id: "42" });
       expect(mockFlush).toHaveBeenCalledTimes(1);
     });
 
     it("does NOT flush when supervise throws (no commit on failure)", async () => {
       mockSupervise.mockRejectedValue(new Error("boom"));
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "42" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), channelDef, { chat_id: "42" });
       expect(mockFlush).not.toHaveBeenCalled();
     });
 
     it("internal mode: loads buffer but does NOT seed a channel", async () => {
-      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { foo: "bar" });
+      await triggerConversation("inst-1", asAgentSlug("test-slug"), baseDefinition, { foo: "bar" });
       expect(mockStateBufferLoad).toHaveBeenCalled();
       expect(mockSeedChannel).not.toHaveBeenCalled();
     });

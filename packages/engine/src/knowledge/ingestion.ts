@@ -8,7 +8,7 @@ import {
   updateDocumentStatus,
 } from "./store.js";
 import { embedMany, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 /**
  * Process a document: chunk the text, generate embeddings, store chunks.
@@ -24,7 +24,7 @@ import { type InstanceSlug } from "../instances/identifiers.js";
  */
 export async function processDocument(
   docId: string,
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   textContent: string,
 ): Promise<{ chunkCount: number }> {
   try {
@@ -52,7 +52,7 @@ export async function processDocument(
     );
 
     // Resolve the provider-aware embedding context once for the whole document.
-    const ctx = await resolveEmbeddingContext(instanceId);
+    const ctx = await resolveEmbeddingContext(agentId);
 
     // Generate embeddings in batches
     const BATCH_SIZE = 100;
@@ -67,7 +67,7 @@ export async function processDocument(
     // Build chunk records with absolute cumulative chunkIndex (array index, not per-batch)
     const chunkRecords = chunkContents.map((content, i) => ({
       documentId: docId,
-      instanceId,
+      agentId,
       content,
       embedding: allEmbeddings[i],
       chunkIndex: i,

@@ -57,7 +57,7 @@ const importBundleSchema = z.object({
     .min(1),
 });
 
-@Controller("api/instances/:slug/knowledge")
+@Controller(["api/agents/:slug/knowledge", "api/instances/:slug/knowledge"])
 export class InstanceKnowledgeController {
   /** GET /api/instances/:slug/knowledge — list documents (no rawContent) */
   @RequirePermission(Permission.KNOWLEDGE_READ)
@@ -106,7 +106,7 @@ export class InstanceKnowledgeController {
     const instance = await findInstanceOrFail(slug);
 
     const doc = await getDocument(docId);
-    if (!doc || doc.instanceId !== instance.slug) {
+    if (!doc || doc.agentId !== instance.slug) {
       throw new NotFoundException(`Document "${docId}" not found`);
     }
 
@@ -180,7 +180,7 @@ export class InstanceKnowledgeController {
     });
 
     const doc = await createDocument({
-      instanceId: instance.slug,
+      agentId: instance.slug,
       filename: sanitizedFilename,
       mimeType: mimeForFilename(sanitizedFilename),
       sizeBytes,
@@ -298,7 +298,7 @@ export class InstanceKnowledgeController {
     const instance = await findInstanceOrFail(slug);
 
     const doc = await getDocument(docId);
-    if (!doc || doc.instanceId !== instance.slug) {
+    if (!doc || doc.agentId !== instance.slug) {
       throw new NotFoundException(`Document "${docId}" not found`);
     }
 

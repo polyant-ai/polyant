@@ -15,8 +15,8 @@ vi.mock("../../instances/prompts.store.js", () => ({
   upsertPrompt: mockUpsertPrompt,
   invalidatePromptsCache: mockInvalidatePromptsCache,
 }));
-vi.mock("../../instances/resolve-instance-id.js", () => ({
-  resolveInstanceId: mockResolveInstanceId,
+vi.mock("../../instances/resolve-agent-id.js", () => ({
+  resolveAgentId: mockResolveInstanceId,
 }));
 vi.mock("./registry.js", () => ({
   registerTool: vi.fn(),
@@ -34,7 +34,7 @@ beforeEach(() => {
 
 function buildUpdateUserProfileTool() {
   const ctx = {
-    instanceId: "instance-1",
+    agentId: "instance-1",
     secrets: {
       openai_api_key: "sk-test-openai",
       anthropic_api_key: "sk-test-anthropic",
@@ -116,7 +116,7 @@ describe("updateUserProfile tool", () => {
     const execute = buildUpdateUserProfileTool();
     const result = await execute({ instruction: "update the profile" });
 
-    expect(result).toEqual({ updated: false, error: "Instance not found" });
+    expect(result).toEqual({ updated: false, error: "Agent not found" });
     expect(mockChat).not.toHaveBeenCalled();
   });
 
@@ -154,7 +154,7 @@ describe("updateUserProfile tool", () => {
     mockChat.mockResolvedValue({ text: "# Updated" });
 
     const ctx = {
-      instanceId: "instance-2",
+      agentId: "instance-2",
       secrets: {
         openai_api_key: "sk-custom-openai",
         anthropic_api_key: "sk-custom-anthropic",

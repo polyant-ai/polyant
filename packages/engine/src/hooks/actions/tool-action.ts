@@ -46,9 +46,9 @@ export const toolActionExecutor: HookActionExecutor = {
     capture({ args: rendered });
 
     const { parameters, execute } = def.create({
-      instanceId: ctx.instanceId,
+      agentId: ctx.agentId,
       secrets: ctx.secrets,
-      audit: createAuditLogger(toolName, ctx.instanceId, ctx.conversationId),
+      audit: createAuditLogger(toolName, ctx.agentId, ctx.conversationId),
       conversationId: ctx.conversationId,
       apiKeys: ctx.apiKeys,
       provider: ctx.provider,

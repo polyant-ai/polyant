@@ -5,7 +5,7 @@ import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db, type DbExecutor } from "../database/client.js";
 import { memories } from "./schema.js";
 import { config } from "../config.js";
-import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "../instances/identifiers.js";
 import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
 import { vectorColumnValues } from "../embeddings-gateway/dim-columns.js";
 import { buildOrgScopedAgentFilter } from "../authz/scope-filter.js";
@@ -14,7 +14,7 @@ import { buildOrgScopedAgentFilter } from "../authz/scope-filter.js";
 
 export interface MemoryRecord {
   id: string;
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   content: string;
   category: string;
   importance: number;
@@ -24,7 +24,7 @@ export interface MemoryRecord {
 }
 
 export interface InsertMemoryInput {
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   content: string;
   category?: string;
   importance?: number;
@@ -102,7 +102,7 @@ async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult
       })
       .from(memories)
       .where(and(
-        eq(memories.instanceId, input.instanceId),
+        eq(memories.agentId, input.agentId),
         gt(sql<number>`1 - (${distance})`, DEDUP_SIMILARITY_THRESHOLD),
       ))
       .orderBy(distance)
@@ -129,7 +129,7 @@ async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult
     const [inserted] = await tx
       .insert(memories)
       .values({
-        instanceId: input.instanceId,
+        agentId: input.agentId,
         content: input.content,
         category: input.category ?? "general",
         importance: input.importance ?? 5,
@@ -176,7 +176,7 @@ export async function upsertMemory(input: InsertMemoryInput): Promise<UpsertResu
  */
 export async function searchByVector(
   queryEmbedding: number[],
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   limit = 10,
   dimensions: EmbeddingDim,
 ): Promise<Array<MemoryRecord & { similarity: number }>> {
@@ -186,7 +186,7 @@ export async function searchByVector(
   const rows = await db
     .select({
       id: memories.id,
-      instanceId: memories.instanceId,
+      agentId: memories.agentId,
       content: memories.content,
       category: memories.category,
       importance: memories.importance,
@@ -199,13 +199,13 @@ export async function searchByVector(
     // Exclude rows whose active vector column is NULL: their cosine distance is
     // NULL → `1 - NULL` = NaN, which would otherwise leak into search results
     // (and to the model via the memory tools) when fewer than `limit` rows match.
-    .where(and(eq(memories.instanceId, instanceId), isNotNull(activeCol)))
+    .where(and(eq(memories.agentId, agentId), isNotNull(activeCol)))
     .orderBy(distance)
     .limit(limit);
 
   return rows.map((r) => ({
     id: r.id,
-    instanceId: asInstanceSlug(r.instanceId),
+    agentId: asAgentSlug(r.agentId),
     content: r.content,
     category: r.category,
     importance: r.importance,
@@ -219,11 +219,11 @@ export async function searchByVector(
 /**
  * Get all memories for a user, ordered by most recent first.
  */
-export async function getAllMemories(instanceId: InstanceSlug): Promise<MemoryRecord[]> {
+export async function getAllMemories(agentId: AgentSlug): Promise<MemoryRecord[]> {
   const rows = await db
     .select({
       id: memories.id,
-      instanceId: memories.instanceId,
+      agentId: memories.agentId,
       content: memories.content,
       category: memories.category,
       importance: memories.importance,
@@ -232,26 +232,26 @@ export async function getAllMemories(instanceId: InstanceSlug): Promise<MemoryRe
       updatedAt: memories.updatedAt,
     })
     .from(memories)
-    .where(eq(memories.instanceId, instanceId))
+    .where(eq(memories.agentId, agentId))
     .orderBy(desc(memories.updatedAt));
 
-  return rows.map((r) => ({ ...r, instanceId: asInstanceSlug(r.instanceId) }));
+  return rows.map((r) => ({ ...r, agentId: asAgentSlug(r.agentId) }));
 }
 
 /**
  * Search memories with pagination, text filtering (ILIKE), and category filtering.
  */
 export async function searchMemories(
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   opts: { search?: string; category?: string; limit?: number; offset?: number; orgId?: string } = {},
 ): Promise<{ memories: MemoryRecord[]; total: number }> {
   const limit = opts.limit ?? 20;
   const offset = opts.offset ?? 0;
 
-  const conditions = [eq(memories.instanceId, instanceId)];
+  const conditions = [eq(memories.agentId, agentId)];
   if (opts.search) conditions.push(ilike(memories.content, `%${escapeLikePattern(opts.search)}%`));
   if (opts.category) conditions.push(eq(memories.category, opts.category));
-  // Cross-org gate: even with a valid-looking instanceId, only return rows whose
+  // Cross-org gate: even with a valid-looking agentId, only return rows whose
   // agent belongs to the caller's org (closes param-IDOR at the store layer).
   if (opts.orgId) conditions.push(buildOrgScopedAgentFilter(opts.orgId));
 
@@ -262,7 +262,7 @@ export async function searchMemories(
     db
       .select({
         id: memories.id,
-        instanceId: memories.instanceId,
+        agentId: memories.agentId,
         content: memories.content,
         category: memories.category,
         importance: memories.importance,
@@ -278,7 +278,7 @@ export async function searchMemories(
   ]);
 
   return {
-    memories: rows.map((r) => ({ ...r, instanceId: asInstanceSlug(r.instanceId) })),
+    memories: rows.map((r) => ({ ...r, agentId: asAgentSlug(r.agentId) })),
     total: Number(totalRow.count),
   };
 }
@@ -289,11 +289,11 @@ export async function searchMemories(
  */
 export async function deleteMemoryForInstance(
   memoryId: string,
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   orgId?: string,
 ): Promise<boolean> {
-  const conditions = [eq(memories.id, memoryId), eq(memories.instanceId, instanceId)];
-  // Cross-org gate: a foreign-org instanceId never matches the org subquery, so
+  const conditions = [eq(memories.id, memoryId), eq(memories.agentId, agentId)];
+  // Cross-org gate: a foreign-org agentId never matches the org subquery, so
   // an Org-A caller cannot delete an Org-B memory by id.
   if (orgId) conditions.push(buildOrgScopedAgentFilter(orgId));
   const result = await db
@@ -311,11 +311,11 @@ export async function deleteMemoryForInstance(
  * via a foreign-org instanceId (param-IDOR closed at the store layer).
  */
 export async function deleteAllMemories(
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   orgId?: string,
   executor: DbExecutor = db,
 ): Promise<number> {
-  const conditions = [eq(memories.instanceId, instanceId)];
+  const conditions = [eq(memories.agentId, agentId)];
   if (orgId) conditions.push(buildOrgScopedAgentFilter(orgId));
   const deleted = await executor
     .delete(memories)
@@ -324,11 +324,11 @@ export async function deleteAllMemories(
   return deleted.length;
 }
 
-/** Count memories owned by an instance. */
-export async function countMemories(instanceId: string): Promise<number> {
+/** Count memories owned by an agent. */
+export async function countMemories(agentId: string): Promise<number> {
   const [row] = await db
     .select({ count: drizzleCount() })
     .from(memories)
-    .where(eq(memories.instanceId, instanceId));
+    .where(eq(memories.agentId, agentId));
   return Number(row.count);
 }

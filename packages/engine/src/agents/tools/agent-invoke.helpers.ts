@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import {
   emitAgentHandoffStart,
   emitAgentHandoffEnd,
@@ -27,7 +27,7 @@ export interface AgentTarget {
  * helper module has no runtime dependency on the channel layer.
  */
 export interface AgentDispatchInput {
-  targetInstanceId: import("../../instances/identifiers.js").InstanceSlug;
+  targetInstanceId: import("../../instances/identifiers.js").AgentSlug;
   prompt: string;
   callerSlug: string;
   callerConversationId: string;
@@ -127,11 +127,11 @@ export function buildAgentInvokeTool(opts: {
 
       try {
         const text = await opts.dispatch({
-          // The pipeline (and the rest of the codebase) treats `instanceId`
+          // The pipeline (and the rest of the codebase) treats `agentId`
           // as the SLUG, not the UUID — see CLAUDE.md "Identified by
-          // instanceId throughout". Pass slug here so prepareSupervisor
+          // agentId throughout". Pass slug here so prepareSupervisor
           // can resolve the target instance.
-          targetInstanceId: asInstanceSlug(opts.target.slug),
+          targetInstanceId: asAgentSlug(opts.target.slug),
           prompt,
           callerSlug: opts.callerSlug,
           callerConversationId: opts.callerConversationId,

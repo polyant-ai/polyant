@@ -7,7 +7,7 @@ import type { ChatRequest } from "../../ai-gateway/types.js";
 import { createAuditLogger, auditPreview } from "../../audit/audit-logger.js";
 import { registerTool } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
-import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "../../instances/identifiers.js";
 
 // Register metadata so spawnTask appears in the admin tool management UI.
 // Actual build is handled by the supervisor (needs other built tools + apiKeys).
@@ -27,8 +27,8 @@ registerTool({
  * Defensive filter: spawnTask is stripped from the sub-agent's tool set so a
  * sub-agent can never re-invoke itself (depth max = 0 from the sub's POV).
  */
-export function createTaskTool(subAgentTools: Record<string, Tool>, apiKeys?: ChatRequest["apiKeys"], instanceId?: InstanceSlug, conversationId?: string) {
-  const audit = createAuditLogger("spawnTask", instanceId ?? asInstanceSlug("unknown"), conversationId);
+export function createTaskTool(subAgentTools: Record<string, Tool>, apiKeys?: ChatRequest["apiKeys"], agentId?: AgentSlug, conversationId?: string) {
+  const audit = createAuditLogger("spawnTask", agentId ?? asAgentSlug("unknown"), conversationId);
   const { spawnTask: _drop, ...isolatedTools } = subAgentTools;
   void _drop;
   return tool({
@@ -62,7 +62,7 @@ Rules:
             tools: isolatedTools,
             maxSteps: 10,
           },
-          { instanceId, conversationId, callType: "service" },
+          { agentId, conversationId, callType: "service" },
         );
 
         const toolsUsed = response.steps.flatMap((s) => s.toolCalls.map((tc) => tc.toolName));

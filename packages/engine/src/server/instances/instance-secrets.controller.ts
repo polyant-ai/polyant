@@ -6,7 +6,7 @@ import { setSecret, listSecretKeys, deleteSecret } from "../../instances/secrets
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
 import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import {
@@ -32,7 +32,7 @@ const PutSecretsSchema = z.object({
     .max(64),
 });
 
-@Controller("api/instances")
+@Controller(["api/agents", "api/instances"])
 export class InstanceSecretsController {
   private readonly auditLogger = createManagementAuditLogger();
 
@@ -40,7 +40,7 @@ export class InstanceSecretsController {
   @Get(":slug/secrets")
   async listSecrets(@Param("slug") slug: string) {
     await findInstanceOrFail(slug);
-    const secrets = await listSecretKeys(asInstanceSlug(slug));
+    const secrets = await listSecretKeys(asAgentSlug(slug));
     return { secrets };
   }
 
@@ -74,11 +74,11 @@ export class InstanceSecretsController {
       });
     }
 
-    invalidateInstanceConfigCache(asInstanceSlug(slug));
+    invalidateInstanceConfigCache(asAgentSlug(slug));
     // Embedding context (provider credentials, e.g. aws_region / openai_api_key)
     // is cached separately; invalidate it too or embeds can fail for up to 30s.
     invalidateEmbeddingContext(instance.id, slug);
-    const secrets = await listSecretKeys(asInstanceSlug(slug));
+    const secrets = await listSecretKeys(asAgentSlug(slug));
     return { secrets };
   }
 
@@ -98,7 +98,7 @@ export class InstanceSecretsController {
       targetId: key,
       metadata: { instanceSlug: slug },
     });
-    invalidateInstanceConfigCache(asInstanceSlug(slug));
+    invalidateInstanceConfigCache(asAgentSlug(slug));
     invalidateEmbeddingContext(instance.id, slug);
     return { deleted: true };
   }

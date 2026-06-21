@@ -35,7 +35,7 @@ const def = vi.mocked(registerTool).mock.calls[0][0];
 
 function buildTool(opts: { conversationId?: string | undefined } = { conversationId: "conv-1" }) {
   const ctx = {
-    instanceId: "test-instance",
+    agentId: "test-instance",
     secrets: {},
     audit: createMockAudit(),
     conversationId: opts.conversationId,
@@ -237,7 +237,7 @@ describe("writeFile tool", () => {
 
   it("sanitizes conversationId with unsafe chars for directory layout", async () => {
     const ctx = {
-      instanceId: "test-instance",
+      agentId: "test-instance",
       secrets: {},
       audit: createMockAudit(),
       conversationId: "inst:web:chat-1",

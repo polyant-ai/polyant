@@ -46,7 +46,7 @@ export async function uploadAttachment(
     type: "image" | "file" | "audio" | "video";
     mimeType?: string;
     fileName?: string;
-    instanceId: string;
+    agentId: string;
     conversationId: string;
   },
 ): Promise<AttachmentMeta | null> {
@@ -57,7 +57,7 @@ export async function uploadAttachment(
   // Sanitize filename: strip path separators to prevent key injection
   const rawName = opts.fileName ?? `${randomUUID()}.${ext}`;
   const filename = rawName.replace(/[/\\]/g, "_");
-  const s3Key = `attachments/${opts.instanceId}/${opts.conversationId}/${filename}`;
+  const s3Key = `attachments/${opts.agentId}/${opts.conversationId}/${filename}`;
 
   await client.send(new PutObjectCommand({
     Bucket: config.platformS3.bucket,

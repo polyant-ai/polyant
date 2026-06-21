@@ -3,14 +3,14 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { users } from "../auth/users.schema.js";
-import { instances } from "../instances/schema.js";
+import { agents } from "../instances/schema.js";
 import { workspaces } from "../organizations/organization.schema.js";
 import { roleBindings, type ScopeType } from "./role-binding.schema.js";
 import { rolePermissions } from "./role.schema.js";
 import type { PermissionKey } from "./permissions.js";
 
 /**
- * The resolved tenancy coordinates of an agent (live table: `instances`). The
+ * The resolved tenancy coordinates of an agent (live table: `agents`). The
  * choke-point every scope-bound permission check runs through so an agent slug
  * is translated to its owning workspace + organization exactly once.
  */
@@ -49,13 +49,13 @@ export async function readPlatformAdminFlag(userId: string): Promise<boolean> {
 export async function readAgentScope(agentSlug: string): Promise<AgentScope | null> {
   const [row] = await db
     .select({
-      agentId: instances.id,
-      workspaceId: instances.workspaceId,
+      agentId: agents.id,
+      workspaceId: agents.workspaceId,
       organizationId: workspaces.organizationId,
     })
-    .from(instances)
-    .innerJoin(workspaces, eq(instances.workspaceId, workspaces.id))
-    .where(eq(instances.slug, agentSlug))
+    .from(agents)
+    .innerJoin(workspaces, eq(agents.workspaceId, workspaces.id))
+    .where(eq(agents.slug, agentSlug))
     .limit(1);
   return row ?? null;
 }

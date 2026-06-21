@@ -28,7 +28,7 @@ const mockExecFile = vi.mocked(execFile);
 const toolCtx = { toolCallId: "tc-1", messages: [] } as any;
 
 const dummyCtx = {
-  instanceId: "test-instance",
+  agentId: "test-instance",
   secrets: { github_token: "ghp_test123" },
   audit: createMockAudit(),
   conversationId: "conv-1",
@@ -129,7 +129,7 @@ describe("gitCloneRepo", () => {
     const tool = buildTool(def, dummyCtx) as any;
     const result = await tool.execute({ repo: "owner/my-repo" }, toolCtx);
 
-    // Path should live under workspaces/{instanceId}/conversations/{convId}/.repos/
+    // Path should live under workspaces/{agentId}/conversations/{convId}/.repos/
     expect(result.path).toContain("/workspaces/test-instance/conversations/conv-1/.repos/owner/my-repo-");
     expect(result.path).not.toContain("/.repos/test-instance/"); // old layout gone
   });

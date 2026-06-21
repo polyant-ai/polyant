@@ -4,7 +4,7 @@ import { z } from "zod";
 import { registerTool } from "./registry.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { getRoomByInstanceId } from "../../room/room.store.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
 
 registerTool({
   name: "send_message_to_human",
@@ -21,16 +21,16 @@ registerTool({
       message: z.string().describe("The message to send to the human"),
     }),
     execute: async ({ message }) => {
-      const instanceId = await resolveInstanceId(ctx.instanceId);
-      if (!instanceId) return { error: "Instance not found" };
+      const agentId = await resolveAgentId(ctx.agentId);
+      if (!agentId) return { error: "Agent not found" };
 
-      const room = await getRoomByInstanceId(instanceId);
+      const room = await getRoomByInstanceId(agentId);
       if (!room) return { error: "Room not configured for this instance" };
       if (!room.outboundChannel || !room.outboundTarget) {
         return { error: "Outbound channel not configured in room settings" };
       }
 
-      await channelManager.sendOutbound(ctx.instanceId, room.outboundChannel, room.outboundTarget, message);
+      await channelManager.sendOutbound(ctx.agentId, room.outboundChannel, room.outboundTarget, message);
 
       return { success: true, channel: room.outboundChannel, target: room.outboundTarget };
     },

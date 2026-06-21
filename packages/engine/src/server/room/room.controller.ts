@@ -3,21 +3,21 @@
 import { Controller, Get, Put, Delete, Param, Body, BadRequestException, NotFoundException } from "@nestjs/common";
 import { getRoomBySlug, upsertRoom, deleteRoom } from "../../room/room.store.js";
 import { countPendingEvents } from "../../webhooks/webhook-backlog.store.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 import { upsertRoomSchema } from "../../room/room.validators.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-@Controller("api/instances/:slug/room")
+@Controller(["api/agents/:slug/room", "api/instances/:slug/room"])
 export class RoomController {
   @RequirePermission(Permission.ROOM_READ)
   @Get()
   async getRoom(@Param("slug") slug: string) {
-    const room = await getRoomBySlug(asInstanceSlug(slug));
+    const room = await getRoomBySlug(asAgentSlug(slug));
     if (!room) return { configured: false };
 
-    const pendingCount = await countPendingEvents(room.instanceId);
+    const pendingCount = await countPendingEvents(room.agentId);
     return { configured: true, ...room, pendingEventCount: pendingCount };
   }
 
@@ -32,20 +32,20 @@ export class RoomController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    const agentId = await resolveAgentId(asAgentSlug(slug));
+    if (!agentId) throw new NotFoundException("Agent not found");
 
-    await upsertRoom(instanceId, parsed.data);
+    await upsertRoom(agentId, parsed.data);
     return { success: true };
   }
 
   @RequirePermission(Permission.ROOM_WRITE)
   @Delete()
   async deleteRoomConfig(@Param("slug") slug: string) {
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    const agentId = await resolveAgentId(asAgentSlug(slug));
+    if (!agentId) throw new NotFoundException("Agent not found");
 
-    await deleteRoom(instanceId);
+    await deleteRoom(agentId);
     return { deleted: true };
   }
 }

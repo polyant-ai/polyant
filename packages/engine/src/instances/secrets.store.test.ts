@@ -4,7 +4,7 @@
  * Unit tests for packages/engine/src/instances/secrets.store.ts
  *
  * Tests: setSecret, getSecret, getAllSecrets, getAllSecretsById,
- * listSecretKeys, deleteSecret, and the resolveInstanceId helper (indirectly).
+ * listSecretKeys, deleteSecret, and the resolveAgentId helper (indirectly).
  */
 
 // ---------------------------------------------------------------------------
@@ -49,16 +49,16 @@ vi.mock("../crypto/index.js", () => ({
 }));
 
 vi.mock("./schema.js", () => ({
-  instances: {
+  agents: {
     id: "id",
     slug: "slug",
   },
 }));
 
 vi.mock("./secrets.schema.js", () => ({
-  instanceSecrets: {
+  agentSecrets: {
     id: "id",
-    instanceId: "instance_id",
+    agentId: "instance_id",
     key: "key",
     value: "value",
     createdAt: "created_at",
@@ -83,13 +83,13 @@ import {
   listSecretKeys,
   deleteSecret,
 } from "./secrets.store.js";
-import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
+import { asAgentSlug, asAgentUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const INSTANCE_UUID = asInstanceUuid("uuid-instance-1");
-const INSTANCE_SLUG = asInstanceSlug("default");
+const INSTANCE_UUID = asAgentUuid("uuid-instance-1");
+const INSTANCE_SLUG = asAgentSlug("default");
 
 /** Creates a select chain that resolves the slug to the UUID.
  *  Kept as a helper for future tests; silenced to avoid an unused-warning. */
@@ -142,7 +142,7 @@ describe("instances/secrets.store", () => {
       expect(mockEncrypt).toHaveBeenCalledWith("sk-test-key");
       expect(mockDb.insert).toHaveBeenCalled();
       expect(chain.values).toHaveBeenCalledWith({
-        instanceId: INSTANCE_UUID,
+        agentId: INSTANCE_UUID,
         key: "openai_api_key",
         value: "encrypted:sk-test-key",
       });
@@ -155,7 +155,7 @@ describe("instances/secrets.store", () => {
   // -----------------------------------------------------------------------
   describe("getSecret", () => {
     it("resolves slug, fetches, and decrypts the secret", async () => {
-      // First call: resolveInstanceId -> found
+      // First call: resolveAgentId -> found
       const resolveChain = createChainMock([{ id: INSTANCE_UUID }]);
       // Second call: select the secret row
       const secretChain = createChainMock([{ value: "encrypted:sk-real-key" }]);
@@ -175,7 +175,7 @@ describe("instances/secrets.store", () => {
       const resolveChain = createChainMock([]);
       mockDb.select.mockReturnValue(resolveChain as any);
 
-      const result = await getSecret(asInstanceSlug("nonexistent"), "openai_api_key");
+      const result = await getSecret(asAgentSlug("nonexistent"), "openai_api_key");
 
       expect(result).toBeUndefined();
       expect(mockDecrypt).not.toHaveBeenCalled();
@@ -223,7 +223,7 @@ describe("instances/secrets.store", () => {
       const resolveChain = createChainMock([]);
       mockDb.select.mockReturnValue(resolveChain as any);
 
-      const result = await getAllSecrets(asInstanceSlug("nonexistent"));
+      const result = await getAllSecrets(asAgentSlug("nonexistent"));
 
       expect(result).toEqual({});
     });
@@ -301,7 +301,7 @@ describe("instances/secrets.store", () => {
       const resolveChain = createChainMock([]);
       mockDb.select.mockReturnValue(resolveChain as any);
 
-      const result = await listSecretKeys(asInstanceSlug("nonexistent"));
+      const result = await listSecretKeys(asAgentSlug("nonexistent"));
 
       expect(result).toEqual([]);
     });
@@ -311,7 +311,7 @@ describe("instances/secrets.store", () => {
   // deleteSecret
   // -----------------------------------------------------------------------
   describe("deleteSecret", () => {
-    it("deletes the secret by instanceId and key", async () => {
+    it("deletes the secret by agentId and key", async () => {
       const chain = createChainMock(undefined);
       mockDb.delete.mockReturnValue(chain as any);
 

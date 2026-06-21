@@ -6,7 +6,7 @@ import {
   type KnowledgeSearchResult as StoreResult,
 } from "./store.js";
 import { embed, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 export interface KnowledgeSearchResult {
   content: string;
@@ -35,20 +35,20 @@ export interface KnowledgeSearchResult {
  */
 export async function searchKnowledge(
   query: string,
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   limit = 5,
 ): Promise<KnowledgeSearchResult[]> {
   const fetchLimit = Math.max(limit * 2, 20);
 
-  const ctx = await resolveEmbeddingContext(instanceId);
+  const ctx = await resolveEmbeddingContext(agentId);
   const queryEmbedding = await embed(query, ctx);
 
   const [semanticResults, keywordResults] = await Promise.all([
-    searchByVector(queryEmbedding, instanceId, fetchLimit, ctx.dimensions).catch((err) => {
+    searchByVector(queryEmbedding, agentId, fetchLimit, ctx.dimensions).catch((err) => {
       console.error("Knowledge hybrid search: pgvector backend failed:", err);
       return [] as StoreResult[];
     }),
-    searchByKeyword(query, instanceId, fetchLimit).catch((err) => {
+    searchByKeyword(query, agentId, fetchLimit).catch((err) => {
       console.error("Knowledge hybrid search: FTS backend failed:", err);
       return [] as StoreResult[];
     }),

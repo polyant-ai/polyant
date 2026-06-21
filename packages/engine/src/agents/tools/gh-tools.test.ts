@@ -24,7 +24,7 @@ import { createMockAudit } from "../../test-utils.js";
 
 const toolCtx = { toolCallId: "tc-1", messages: [] } as any;
 const dummyCtx = {
-  instanceId: "test-instance",
+  agentId: "test-instance",
   secrets: { github_token: "ghp_test" },
   audit: createMockAudit(),
 } as any;

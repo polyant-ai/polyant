@@ -59,7 +59,7 @@ registerTool({
 
       try {
         await channelManager.sendOutbound(
-          ctx.instanceId,
+          ctx.agentId,
           "whatsapp",
           trimmedTo,
           trimmedMessage,

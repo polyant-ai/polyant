@@ -3,8 +3,8 @@
 import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { contactOptouts } from "./optout.schema.js";
-import { resolveInstanceId } from "../instances/resolve-instance-id.js";
-import { asInstanceSlug, type InstanceSlug, type InstanceUuid } from "../instances/identifiers.js";
+import { resolveAgentId } from "../instances/resolve-agent-id.js";
+import { asAgentSlug, type AgentSlug, type AgentUuid } from "../instances/identifiers.js";
 import { TtlCache } from "../utils/ttl-cache.js";
 import type { OptoutStatus } from "./optout.types.js";
 
@@ -47,14 +47,14 @@ async function loadStatusFromDb(
   channelType: string,
   channelId: string,
 ): Promise<OptoutStatus> {
-  const instanceId = await resolveInstanceId(asInstanceSlug(instanceSlug));
-  if (!instanceId) return "opted_in";
+  const agentId = await resolveAgentId(asAgentSlug(instanceSlug));
+  if (!agentId) return "opted_in";
   const rows = await db
     .select({ status: contactOptouts.status })
     .from(contactOptouts)
     .where(
       and(
-        eq(contactOptouts.instanceId, instanceId),
+        eq(contactOptouts.agentId, agentId),
         eq(contactOptouts.channelType, channelType),
         eq(contactOptouts.channelId, channelId),
       ),
@@ -67,7 +67,7 @@ const statusCache = new OptoutStatusCache(loadStatusFromDb);
 
 /** Resolve the current opt-out status for a contact (cached). */
 export async function getOptoutStatus(
-  instanceSlug: InstanceSlug,
+  instanceSlug: AgentSlug,
   channelType: string,
   channelId: string,
 ): Promise<OptoutStatus> {
@@ -76,8 +76,8 @@ export async function getOptoutStatus(
 
 /** Upsert the status for a contact and invalidate the cache. */
 export async function setOptoutStatus(args: {
-  instanceId: InstanceUuid;
-  instanceSlug: InstanceSlug;
+  agentId: AgentUuid;
+  instanceSlug: AgentSlug;
   channelType: string;
   channelId: string;
   status: OptoutStatus;
@@ -86,14 +86,14 @@ export async function setOptoutStatus(args: {
   await db
     .insert(contactOptouts)
     .values({
-      instanceId: args.instanceId,
+      agentId: args.agentId,
       channelType: args.channelType,
       channelId: args.channelId,
       status: args.status,
       source: args.source,
     })
     .onConflictDoUpdate({
-      target: [contactOptouts.instanceId, contactOptouts.channelType, contactOptouts.channelId],
+      target: [contactOptouts.agentId, contactOptouts.channelType, contactOptouts.channelId],
       set: { status: args.status, source: args.source, updatedAt: sql`now()` },
     });
   statusCache.invalidate(args.instanceSlug, args.channelType, args.channelId);
@@ -109,14 +109,14 @@ export interface OptoutContactRow {
 
 /** Paginated list of opt-out rows for an instance (admin UI), default opted_out only. */
 export async function listOptouts(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   opts: { status?: OptoutStatus; limit?: number; offset?: number } = {},
 ): Promise<OptoutContactRow[]> {
   const limit = Math.min(opts.limit ?? 50, 200);
   const offset = opts.offset ?? 0;
   const where = opts.status
-    ? and(eq(contactOptouts.instanceId, instanceId), eq(contactOptouts.status, opts.status))
-    : eq(contactOptouts.instanceId, instanceId);
+    ? and(eq(contactOptouts.agentId, agentId), eq(contactOptouts.status, opts.status))
+    : eq(contactOptouts.agentId, agentId);
   const rows = await db
     .select({
       channelType: contactOptouts.channelType,

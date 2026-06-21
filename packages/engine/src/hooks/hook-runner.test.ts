@@ -27,7 +27,7 @@ vi.mock("../audit/audit-logger.js", () => ({
 
 import { runHooks } from "./hook-runner.js";
 import type { HookEventPayload, HookRunContext, InstanceHookRow } from "./hook-types.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 
 const payload: HookEventPayload = {
   instance: { slug: "demo" },
@@ -38,7 +38,7 @@ const payload: HookEventPayload = {
 };
 
 const baseCtx: HookRunContext = {
-  instanceId: asInstanceSlug("demo"),
+  agentId: asAgentSlug("demo"),
   conversationId: "c1",
   secrets: {},
 };
@@ -46,7 +46,7 @@ const baseCtx: HookRunContext = {
 function hook(id: string, overrides: Partial<InstanceHookRow> = {}): InstanceHookRow {
   return {
     id,
-    instanceId: "u1",
+    agentId: "u1",
     event: "message_received",
     actionType: "tool",
     actionConfig: { toolName: `tool-${id}`, args: {} },
@@ -138,7 +138,7 @@ describe("runHooks", () => {
     await runHooks("message_received", payload, baseCtx);
     expect(recordExecutionMock).toHaveBeenCalledTimes(2);
     expect(recordExecutionMock.mock.calls[0][0]).toMatchObject({
-      instanceId: "demo",
+      agentId: "demo",
       conversationId: "c1",
       hookId: "a",
       event: "message_received",

@@ -5,9 +5,9 @@ import { eq, and } from "drizzle-orm";
 import { registerTool } from "./registry.js";
 import { getSkillEnv } from "../../instances/skill-env.store.js";
 import { db } from "../../database/client.js";
-import { instanceSkills } from "../../instances/instance-skills.schema.js";
+import { agentSkills } from "../../instances/instance-skills.schema.js";
 import { skills, skillVersions } from "../../skills/schema.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
 
 registerTool({
   name: "readSkill",
@@ -28,25 +28,25 @@ registerTool({
       if (!identifier) {
         return { found: false, error: "Missing required parameter 'name'." };
       }
-      const instanceId = await resolveInstanceId(ctx.instanceId);
-      if (!instanceId) {
-        return { found: false, error: "Instance not found" };
+      const agentId = await resolveAgentId(ctx.agentId);
+      if (!agentId) {
+        return { found: false, error: "Agent not found" };
       }
 
       // Query instance_skills JOIN skills JOIN skill_versions for this instance.
       // Internally the identifier is stored in skills.slug; the tool exposes it as `name`.
       const [row] = await db
         .select({
-          enabled: instanceSkills.enabled,
+          enabled: agentSkills.enabled,
           content: skillVersions.content,
           version: skillVersions.version,
         })
-        .from(instanceSkills)
-        .innerJoin(skills, eq(instanceSkills.skillId, skills.id))
-        .innerJoin(skillVersions, eq(instanceSkills.skillVersionId, skillVersions.id))
+        .from(agentSkills)
+        .innerJoin(skills, eq(agentSkills.skillId, skills.id))
+        .innerJoin(skillVersions, eq(agentSkills.skillVersionId, skillVersions.id))
         .where(
           and(
-            eq(instanceSkills.instanceId, instanceId),
+            eq(agentSkills.agentId, agentId),
             eq(skills.slug, identifier),
           ),
         )
@@ -64,7 +64,7 @@ registerTool({
       let finalContent = row.content;
 
       // Inject skill env vars
-      const envVars = await getSkillEnv(ctx.instanceId, identifier);
+      const envVars = await getSkillEnv(ctx.agentId, identifier);
       if (Object.keys(envVars).length > 0) {
         const envBlock = Object.entries(envVars)
           .map(([k, value]) => `  <var name="${k}">${value}</var>`)

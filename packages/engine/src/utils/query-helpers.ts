@@ -37,12 +37,12 @@ const ALLOWED_INSTANCE_COLUMNS = new Set([
 
 /**
  * Build an optional `AND <column> = <value>` SQL fragment.
- * @param instanceId - when undefined the fragment is empty (no filter)
+ * @param agentId - when undefined the fragment is empty (no filter)
  * @param columnName - defaults to `"agent_id"`
  */
-export function instanceFilter(instanceId?: string, columnName = "agent_id") {
+export function instanceFilter(agentId?: string, columnName = "agent_id") {
   if (!ALLOWED_INSTANCE_COLUMNS.has(columnName)) {
     throw new Error(`instanceFilter: column "${columnName}" is not in the allowlist`);
   }
-  return instanceId ? sql`AND ${sql.raw(columnName)} = ${instanceId}` : sql``;
+  return agentId ? sql`AND ${sql.raw(columnName)} = ${agentId}` : sql``;
 }

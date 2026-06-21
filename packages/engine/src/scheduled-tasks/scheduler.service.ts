@@ -8,7 +8,7 @@ import { computeNextRun } from "./schedule-utils.js";
 import { channelManager } from "../channels/channel-manager.js";
 import { scheduledTaskLog } from "./scheduled-task-logger.js";
 import { emitCron } from "../activity-stream/emitters/emit-cron.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { findInstanceBySlug } from "../instances/store.js";
 
@@ -86,11 +86,11 @@ class SchedulerService {
     // via JOIN in `getDueTasks`, but `runNow` (manual trigger) bypasses that
     // query — and a race could let a task slip through between the tick query
     // and lock acquisition. We re-check here defensively.
-    const instance = await findInstanceBySlug(asInstanceSlug(task.instanceId));
+    const instance = await findInstanceBySlug(asAgentSlug(task.agentId));
     if (!instance || instance.status !== "active") {
       scheduledTaskLog.info(
         "SchedulerService",
-        `skipping task "${task.name}" (${task.id}): parent instance "${task.instanceId}" is not active (status=${instance?.status ?? "missing"})`,
+        `skipping task "${task.name}" (${task.id}): parent instance "${task.agentId}" is not active (status=${instance?.status ?? "missing"})`,
       );
       return;
     }
@@ -107,13 +107,13 @@ class SchedulerService {
     const channelId = task.keepHistory
       ? `scheduled-task:${task.id}`
       : `${task.id}:${timestamp}`;
-    // Must match preEnrich format: `${instanceId}:${channelType}:${channelId}`
-    const conversationId = `${task.instanceId}:scheduled:${channelId}`;
+    // Must match preEnrich format: `${agentId}:${channelType}:${channelId}`
+    const conversationId = `${task.agentId}:scheduled:${channelId}`;
 
     // Create run log entry
     let runId: string | undefined;
     try {
-      runId = await runLog.createRun(task.id, asInstanceSlug(task.instanceId), triggerType);
+      runId = await runLog.createRun(task.id, asAgentSlug(task.agentId), triggerType);
     } catch (logErr) {
       scheduledTaskLog.error("SchedulerService", `failed to create run log for "${task.name}":`, logErr);
     }
@@ -124,7 +124,7 @@ class SchedulerService {
       // Activity-stream emit: surface the "task is starting" signal BEFORE the
       // pipeline runs, so the panel reflects the trigger immediately rather than
       // after completion. Fire-and-forget; failures never block execution.
-      resolveInstanceMeta(task.instanceId)
+      resolveInstanceMeta(task.agentId)
         .then((instance) => {
           emitCron({
             taskName: task.name,
@@ -143,7 +143,7 @@ class SchedulerService {
       const result = await this.messageHandler!({
         channelType: "scheduled",
         channelId,
-        instanceId: asInstanceSlug(task.instanceId),
+        agentId: asAgentSlug(task.agentId),
         userName: "scheduler",
         text: task.prompt,
         metadata: {
@@ -171,7 +171,7 @@ class SchedulerService {
       if (task.outboundChannel && task.outboundTarget && result.text) {
         try {
           await channelManager.sendOutbound(
-            task.instanceId,
+            task.agentId,
             task.outboundChannel,
             task.outboundTarget,
             result.text,

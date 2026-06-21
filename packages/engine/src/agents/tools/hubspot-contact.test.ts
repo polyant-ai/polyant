@@ -25,7 +25,7 @@ function createMockResponse(
 }
 
 const ctxWithKey = {
-  instanceId: "test",
+  agentId: "test",
   secrets: { hubspot_api_key: "test-api-key" },
   audit: createMockAudit(),
 } as any;

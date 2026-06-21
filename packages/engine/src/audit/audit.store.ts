@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { toolAuditLogs } from "./audit.schema.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 export interface AuditEntry {
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   conversationId?: string;
   toolName: string;
   action: string;
@@ -39,10 +39,10 @@ class AuditStore {
   }
 
   /** Patch durationMs on the most recent buffered entry for a given tool+instance. */
-  patchDuration(toolName: string, instanceId: InstanceSlug, durationMs: number) {
+  patchDuration(toolName: string, agentId: AgentSlug, durationMs: number) {
     for (let i = this.buffer.length - 1; i >= 0; i--) {
       const e = this.buffer[i];
-      if (e.toolName === toolName && e.instanceId === instanceId && e.durationMs == null) {
+      if (e.toolName === toolName && e.agentId === agentId && e.durationMs == null) {
         e.durationMs = durationMs;
         return;
       }
@@ -50,10 +50,10 @@ class AuditStore {
   }
 
   /** Patch output preview on the most recent buffered entry for a given tool+instance. */
-  patchOutput(toolName: string, instanceId: InstanceSlug, output: string) {
+  patchOutput(toolName: string, agentId: AgentSlug, output: string) {
     for (let i = this.buffer.length - 1; i >= 0; i--) {
       const e = this.buffer[i];
-      if (e.toolName === toolName && e.instanceId === instanceId && e.output == null) {
+      if (e.toolName === toolName && e.agentId === agentId && e.output == null) {
         e.output = output;
         return;
       }

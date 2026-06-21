@@ -2,14 +2,14 @@
 
 import { NotFoundException } from "@nestjs/common";
 import { findInstanceBySlug } from "../../instances/store.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 export { errMsg } from "../../utils/error.js";
 
 /** Find instance or throw 404. Returns the instance record with id + slug. */
 export async function findInstanceOrFail(slug: string) {
-  const instance = await findInstanceBySlug(asInstanceSlug(slug));
-  if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
+  const instance = await findInstanceBySlug(asAgentSlug(slug));
+  if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
   return instance;
 }
 

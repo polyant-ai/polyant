@@ -26,7 +26,7 @@ import type {
   ModelsListResponse,
 } from "./openai.types.js";
 
-// Restrict model to the instance-slug shape — same pattern as instances.controller.ts.
+// Restrict model to the instance-slug shape — same pattern as agents.controller.ts.
 // This is the only user-controlled value that we echo back into the SSE stream
 // (role chunk, finish chunk, every text/think chunk) so it MUST be a safe identifier
 // to neutralise reflected-XSS taint.
@@ -58,10 +58,10 @@ export class OpenAIController {
   @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   async listModels(): Promise<ModelsListResponse> {
-    const instances = await this.openaiService.listInstances();
+    const agents = await this.openaiService.listInstances();
     return {
       object: "list",
-      data: instances.map((inst) => ({
+      data: agents.map((inst) => ({
         id: inst.slug,
         object: "model" as const,
         created: Math.floor(Date.now() / 1000),

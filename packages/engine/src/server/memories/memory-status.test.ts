@@ -15,7 +15,7 @@ vi.mock("../../instances/secrets.store.js", () => ({
   },
 }));
 
-vi.mock("../../instances/resolve-instance-id.js", () => ({
+vi.mock("../../instances/resolve-agent-id.js", () => ({
   findInstanceByIdOrSlug: mockFindInstanceByIdOrSlug,
 }));
 

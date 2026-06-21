@@ -15,7 +15,7 @@
  *   - Per-user cap: `SSE_MAX_CONNECTIONS_PER_USER` per authenticated user
  *                   (default 5). Both excess cases return HTTP 503 with a
  *                   `Retry-After: 60` header so clients can back off.
- *   - Server-side `?instance=<slug>` filter — events for other instances are
+ *   - Server-side `?instance=<slug>` filter — events for other agents are
  *     never emitted on this socket (no client-side trust).
  */
 

@@ -5,10 +5,10 @@ import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import { getChannelConfig } from "../../instances/channels.store.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { WhatsAppAdapter } from "../../channels/adapters/whatsapp/index.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 interface TwilioWebhookBody {
   MessageSid: string;
@@ -36,11 +36,11 @@ export class TwilioWebhookController {
     @Req() req: Request,
   ): Promise<string> {
     // 1. Resolve instance
-    const instanceId = await resolveInstanceId(asInstanceSlug(instanceSlug));
-    if (!instanceId) throw new NotFoundException(`Instance "${instanceSlug}" not found`);
+    const agentId = await resolveAgentId(asAgentSlug(instanceSlug));
+    if (!agentId) throw new NotFoundException(`Agent "${instanceSlug}" not found`);
 
     // 2. Load channel config
-    const channelConfig = await getChannelConfig(asInstanceSlug(instanceSlug), "whatsapp");
+    const channelConfig = await getChannelConfig(asAgentSlug(instanceSlug), "whatsapp");
     if (!channelConfig || !channelConfig.enabled) {
       throw new NotFoundException(`WhatsApp channel not configured for "${instanceSlug}"`);
     }
@@ -71,7 +71,7 @@ export class TwilioWebhookController {
     const from = body.From?.replace(/^whatsapp:/, "") || "";
 
     // 6. Process inbound message (fire-and-forget to avoid Twilio timeout)
-    // Note: the pipeline uses instanceId as slug (not UUID) — pass the slug
+    // Note: the pipeline uses agentId as slug (not UUID) — pass the slug
     // Collect media URLs (Twilio sends MediaUrl0, MediaUrl1, ...)
     const mediaItems: Array<{ url: string; contentType: string }> = [];
     const numMedia = parseInt(body.NumMedia ?? "0", 10);
@@ -86,7 +86,7 @@ export class TwilioWebhookController {
       body: body.Body || "",
       profileName: body.ProfileName,
       messageSid: body.MessageSid,
-      instanceId: asInstanceSlug(instanceSlug),
+      agentId: asAgentSlug(instanceSlug),
       media: mediaItems.length > 0 ? mediaItems : undefined,
     }).catch((err) =>
       // Pass the user-controlled slug as a separate argument so it is never

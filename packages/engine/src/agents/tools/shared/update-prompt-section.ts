@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { chat } from "../../../ai-gateway/index.js";
 import { getPromptSection, upsertPrompt } from "../../../instances/prompts.store.js";
-import { resolveInstanceId } from "../../../instances/resolve-instance-id.js";
+import { resolveAgentId } from "../../../instances/resolve-agent-id.js";
 import { registerTool, type ToolContext } from "../registry.js";
 import { errMsg } from "../../../utils/error.js";
 import { auditPreview } from "../../../audit/audit-logger.js";
@@ -31,12 +31,12 @@ export function createPromptUpdaterTool(config: PromptUpdaterConfig): void {
       }),
       execute: async ({ instruction }: { instruction: string }) => {
         try {
-          const instanceId = await resolveInstanceId(ctx.instanceId);
-          if (!instanceId) {
-            return { updated: false, error: "Instance not found" };
+          const agentId = await resolveAgentId(ctx.agentId);
+          if (!agentId) {
+            return { updated: false, error: "Agent not found" };
           }
 
-          const section = await getPromptSection(instanceId, config.sectionId);
+          const section = await getPromptSection(agentId, config.sectionId);
           const current = section?.content ?? config.defaultContent;
 
           const response = await chat(
@@ -54,11 +54,11 @@ export function createPromptUpdaterTool(config: PromptUpdaterConfig): void {
                 },
               ],
             },
-            { instanceId: ctx.instanceId, callType: "service" },
+            { agentId: ctx.agentId, callType: "service" },
           );
 
           const newContent = response.text.trim() + "\n";
-          await upsertPrompt(instanceId, config.sectionId, config.displayName, newContent);
+          await upsertPrompt(agentId, config.sectionId, config.displayName, newContent);
           ctx.audit.log({
             action: config.auditAction,
             details: { instructionPreview: auditPreview(instruction) },

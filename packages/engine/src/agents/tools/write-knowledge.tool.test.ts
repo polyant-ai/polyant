@@ -27,7 +27,7 @@ import { getToolRegistry, buildTool } from "./registry.js";
 import { DocumentSizeExceededError } from "../../knowledge/store.js";
 
 const ctx = {
-  instanceId: "inst-1",
+  agentId: "inst-1",
   secrets: { openai_api_key: "sk-test" },
   audit: createMockAudit(),
 } as any;
@@ -70,7 +70,7 @@ describe("writeKnowledge tool", () => {
     );
 
     expect(mockUpsert).toHaveBeenCalledWith({
-      instanceId: "inst-1",
+      agentId: "inst-1",
       filename: "a.md",
       content: "hello",
       mimeType: undefined,
@@ -102,7 +102,7 @@ describe("writeKnowledge tool", () => {
     );
 
     expect(mockAppend).toHaveBeenCalledWith({
-      instanceId: "inst-1",
+      agentId: "inst-1",
       filename: "log.md",
       content: "bar",
       mimeType: undefined,

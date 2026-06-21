@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 import { OpenAIService } from "./openai.service.js";
 import type { ChatCompletionMessage, ChatCompletionRequest } from "./openai.types.js";
 
-// Mock the instances store (listActiveInstances) to avoid DB dependency
+// Mock the agents store (listActiveInstances) to avoid DB dependency
 vi.mock("../../instances/store.js", () => ({
   listActiveInstances: vi.fn().mockResolvedValue([]),
 }));
@@ -112,7 +112,7 @@ describe("OpenAIService", () => {
       ]);
     });
 
-    it("uses model field as instanceId", () => {
+    it("uses model field as agentId", () => {
       const service = new OpenAIService();
       const request = makeRequest(
         [{ role: "user", content: "hi" }],
@@ -120,7 +120,7 @@ describe("OpenAIService", () => {
       );
 
       const result = callPrepareRequest(service, request);
-      expect(result.instanceId).toBe("my-custom-instance");
+      expect(result.agentId).toBe("my-custom-instance");
     });
 
     it("falls back to DEFAULT_INSTANCE_ID when model is empty", () => {
@@ -131,7 +131,7 @@ describe("OpenAIService", () => {
       );
 
       const result = callPrepareRequest(service, request);
-      expect(result.instanceId).toBe("default-instance");
+      expect(result.agentId).toBe("default-instance");
     });
 
     it("returns empty text when no user messages exist", () => {

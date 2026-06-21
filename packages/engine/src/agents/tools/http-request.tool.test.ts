@@ -30,7 +30,7 @@ const def = vi.mocked(registerTool).mock.calls[0][0];
 
 function buildTool(secretOverrides?: Record<string, string>) {
   const ctx = {
-    instanceId: "test-instance",
+    agentId: "test-instance",
     secrets: { http_api_key: "test-api-key-123", ...secretOverrides },
     audit: createMockAudit(),
     conversationId: "conv-1",
@@ -160,7 +160,7 @@ describe("httpRequest tool", () => {
   it("sends request without auth header when authStyle is null and no secret is configured", async () => {
     mockFetch.mockResolvedValue(mockResponse({ ok: true }));
     const ctx = {
-      instanceId: "test",
+      agentId: "test",
       secrets: {},
       audit: createMockAudit(),
     } as any;
@@ -183,7 +183,7 @@ describe("httpRequest tool", () => {
   // authStyle "none" string — accepted as synonym of null via Zod preprocess
   it("accepts authStyle string 'none' as equivalent to null (via Zod preprocess)", () => {
     const ctx = {
-      instanceId: "test",
+      agentId: "test",
       secrets: {},
       audit: createMockAudit(),
     } as any;
@@ -215,7 +215,7 @@ describe("httpRequest tool", () => {
   it("sends request without auth header when authStyle is bearer but secret is missing", async () => {
     mockFetch.mockResolvedValue(mockResponse({ ok: true }));
     const ctx = {
-      instanceId: "test",
+      agentId: "test",
       secrets: {},
       audit: createMockAudit(),
     } as any;

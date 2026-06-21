@@ -26,7 +26,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 const ctxWithKey = {
-  instanceId: "test",
+  agentId: "test",
   secrets: { hubspot_api_key: "test-api-key" },
   audit: createMockAudit(),
 } as any;
@@ -210,7 +210,7 @@ describe("hubspotFile", () => {
 
   it("rejects when hubspot_api_key secret is missing", async () => {
     const tool = buildTool(def, {
-      instanceId: "test",
+      agentId: "test",
       secrets: {},
       audit: createMockAudit(),
     } as any) as any;

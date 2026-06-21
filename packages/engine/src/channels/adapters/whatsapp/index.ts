@@ -6,7 +6,7 @@ import { renderTemplateBody } from "./render-template.js";
 import type { ChannelAdapter, Attachment, MessageHandler, OutgoingMessage } from "../../types.js";
 import { transcribeAudio } from "../../audio-transcription.js";
 import { createSafeDispatcher } from "../../../utils/safe-http.js";
-import type { InstanceSlug } from "../../../instances/identifiers.js";
+import type { AgentSlug } from "../../../instances/identifiers.js";
 
 export interface WhatsAppConfig {
   accountSid: string;
@@ -20,7 +20,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
   private onMessage: MessageHandler | null = null;
 
   constructor(
-    private readonly instanceSlug: InstanceSlug,
+    private readonly instanceSlug: AgentSlug,
     private readonly cfg: WhatsAppConfig,
   ) {}
 
@@ -40,7 +40,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
     body: string;
     profileName?: string;
     messageSid: string;
-    instanceId: InstanceSlug;
+    agentId: AgentSlug;
     media?: Array<{ url: string; contentType: string }>;
   }): Promise<string> {
     if (!this.onMessage) throw new Error("WhatsApp adapter not initialized");
@@ -70,7 +70,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
           audio: a.data,
           mimeType: a.mimeType ?? "audio/ogg",
           instanceSlug: this.instanceSlug,
-          conversationId: `${params.instanceId}:whatsapp:${params.from}`,
+          conversationId: `${params.agentId}:whatsapp:${params.from}`,
         });
         if (!result.ok) {
           await this.sendMessage(params.from, { text: result.userReply });
@@ -91,7 +91,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
     const response = await this.onMessage({
       channelType: "whatsapp",
       channelId: params.from,
-      instanceId: params.instanceId,
+      agentId: params.agentId,
       userName: params.profileName || params.from,
       text: body,
       attachments,

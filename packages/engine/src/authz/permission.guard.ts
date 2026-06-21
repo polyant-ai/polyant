@@ -28,7 +28,7 @@ const LOG_PREFIX = "authz";
 interface InstancePrincipal {
   kind: "instance";
   instanceSlug: string;
-  instanceId?: string;
+  agentId?: string;
 }
 
 /**

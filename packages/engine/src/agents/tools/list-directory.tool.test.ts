@@ -32,7 +32,7 @@ const def = vi.mocked(registerTool).mock.calls[0][0];
 
 function buildTool(opts: { conversationId?: string | undefined } = { conversationId: "conv-1" }) {
   const ctx = {
-    instanceId: "test-instance",
+    agentId: "test-instance",
     secrets: {},
     audit: createMockAudit(),
     conversationId: opts.conversationId,

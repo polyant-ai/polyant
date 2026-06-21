@@ -12,7 +12,7 @@ import "./web-search.tool.js";
 import { getToolRegistry, buildTool } from "./registry.js";
 
 const dummyCtx = {
-  instanceId: "test",
+  agentId: "test",
   secrets: { tavily_api_key: "test-tavily-key" },
   audit: createMockAudit(),
 } as any;

@@ -28,7 +28,7 @@ export async function findDefaultWorkspaceId(executor: Executor = db): Promise<s
     .limit(1);
   if (!row) {
     throw new Error(
-      "No default workspace found — run migration 0051 before creating instances.",
+      "No default workspace found — run migration 0051 before creating agents.",
     );
   }
   return row.id;

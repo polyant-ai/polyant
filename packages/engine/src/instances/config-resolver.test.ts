@@ -45,7 +45,7 @@ import {
   invalidateInstanceConfigCache,
   invalidateAllInstanceConfigCache,
 } from "./config-resolver.js";
-import { asInstanceSlug } from "./identifiers.js";
+import { asAgentSlug } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -103,13 +103,13 @@ describe("instances/config-resolver", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Instance not found
+  // Agent not found
   // -----------------------------------------------------------------------
   describe("when instance is not found", () => {
     it("returns a minimal config with safe defaults", async () => {
       mockFindInstanceBySlug.mockResolvedValue(undefined);
 
-      const config = await resolveInstanceConfig(asInstanceSlug("nonexistent"));
+      const config = await resolveInstanceConfig(asAgentSlug("nonexistent"));
 
       expect(config).toEqual({
         provider: undefined,
@@ -140,14 +140,14 @@ describe("instances/config-resolver", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Instance found — full config assembly
+  // Agent found — full config assembly
   // -----------------------------------------------------------------------
   describe("when instance is found", () => {
     it("assembles the full config from instance + secrets", async () => {
       mockFindInstanceBySlug.mockResolvedValue(fakeInstance);
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      const config = await resolveInstanceConfig(asInstanceSlug("default"));
+      const config = await resolveInstanceConfig(asAgentSlug("default"));
 
       expect(config).toEqual({
         provider: "openai",
@@ -201,7 +201,7 @@ describe("instances/config-resolver", () => {
       });
       mockGetAllSecretsById.mockResolvedValue({});
 
-      const config = await resolveInstanceConfig(asInstanceSlug("default"));
+      const config = await resolveInstanceConfig(asAgentSlug("default"));
 
       expect(config.provider).toBeUndefined();
       expect(config.model).toBeUndefined();
@@ -220,7 +220,7 @@ describe("instances/config-resolver", () => {
       mockFindInstanceBySlug.mockResolvedValue(fakeInstance);
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      await resolveInstanceConfig(asInstanceSlug("default"));
+      await resolveInstanceConfig(asAgentSlug("default"));
 
       expect(mockFindInstanceBySlug).toHaveBeenCalledTimes(1);
       expect(mockGetAllSecretsById).toHaveBeenCalledTimes(1);
@@ -235,12 +235,12 @@ describe("instances/config-resolver", () => {
       mockFindInstanceBySlug.mockResolvedValue(fakeInstance);
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      const first = await resolveInstanceConfig(asInstanceSlug("default"));
+      const first = await resolveInstanceConfig(asAgentSlug("default"));
 
       // Advance time, but stay within the 30s TTL
       vi.advanceTimersByTime(15_000);
 
-      const second = await resolveInstanceConfig(asInstanceSlug("default"));
+      const second = await resolveInstanceConfig(asAgentSlug("default"));
 
       expect(first).toEqual(second);
       // DB should only be called once (the first call)
@@ -257,7 +257,7 @@ describe("instances/config-resolver", () => {
       mockFindInstanceBySlug.mockResolvedValue(fakeInstance);
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      await resolveInstanceConfig(asInstanceSlug("default"));
+      await resolveInstanceConfig(asAgentSlug("default"));
 
       // Advance time past the 30s TTL
       vi.advanceTimersByTime(31_000);
@@ -266,7 +266,7 @@ describe("instances/config-resolver", () => {
       const updatedSecrets = { ...fakeSecrets, openai_api_key: "sk-new-key" };
       mockGetAllSecretsById.mockResolvedValue(updatedSecrets);
 
-      const config = await resolveInstanceConfig(asInstanceSlug("default"));
+      const config = await resolveInstanceConfig(asAgentSlug("default"));
 
       expect(config.apiKeys.openai).toBe("sk-new-key");
       expect(mockFindInstanceBySlug).toHaveBeenCalledTimes(2);
@@ -282,12 +282,12 @@ describe("instances/config-resolver", () => {
       mockFindInstanceBySlug.mockResolvedValue(fakeInstance);
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      await resolveInstanceConfig(asInstanceSlug("default"));
+      await resolveInstanceConfig(asAgentSlug("default"));
       expect(mockFindInstanceBySlug).toHaveBeenCalledTimes(1);
 
-      invalidateInstanceConfigCache(asInstanceSlug("default"));
+      invalidateInstanceConfigCache(asAgentSlug("default"));
 
-      await resolveInstanceConfig(asInstanceSlug("default"));
+      await resolveInstanceConfig(asAgentSlug("default"));
       expect(mockFindInstanceBySlug).toHaveBeenCalledTimes(2);
     });
 
@@ -299,15 +299,15 @@ describe("instances/config-resolver", () => {
         .mockResolvedValueOnce(fakeInstance);
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      await resolveInstanceConfig(asInstanceSlug("default"));
-      await resolveInstanceConfig(asInstanceSlug("creative"));
+      await resolveInstanceConfig(asAgentSlug("default"));
+      await resolveInstanceConfig(asAgentSlug("creative"));
 
-      invalidateInstanceConfigCache(asInstanceSlug("default"));
+      invalidateInstanceConfigCache(asAgentSlug("default"));
 
       // "creative" should still be cached
-      await resolveInstanceConfig(asInstanceSlug("creative"));
+      await resolveInstanceConfig(asAgentSlug("creative"));
       // "default" should re-query
-      await resolveInstanceConfig(asInstanceSlug("default"));
+      await resolveInstanceConfig(asAgentSlug("default"));
 
       // findInstanceBySlug: 1 (default) + 1 (creative) + 1 (default re-query) = 3
       expect(mockFindInstanceBySlug).toHaveBeenCalledTimes(3);
@@ -327,15 +327,15 @@ describe("instances/config-resolver", () => {
         .mockResolvedValueOnce(otherInstance);
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      await resolveInstanceConfig(asInstanceSlug("default"));
-      await resolveInstanceConfig(asInstanceSlug("creative"));
+      await resolveInstanceConfig(asAgentSlug("default"));
+      await resolveInstanceConfig(asAgentSlug("creative"));
 
       expect(mockFindInstanceBySlug).toHaveBeenCalledTimes(2);
 
       invalidateAllInstanceConfigCache();
 
-      await resolveInstanceConfig(asInstanceSlug("default"));
-      await resolveInstanceConfig(asInstanceSlug("creative"));
+      await resolveInstanceConfig(asAgentSlug("default"));
+      await resolveInstanceConfig(asAgentSlug("creative"));
 
       // Both should re-query: 2 (initial) + 2 (after clear) = 4
       expect(mockFindInstanceBySlug).toHaveBeenCalledTimes(4);
@@ -356,7 +356,7 @@ describe("instances/config-resolver", () => {
       });
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      const config = await resolveInstanceConfig(asInstanceSlug("thinking-on"));
+      const config = await resolveInstanceConfig(asAgentSlug("thinking-on"));
       expect(config.thinkingEnabled).toBe(true);
     });
 
@@ -370,7 +370,7 @@ describe("instances/config-resolver", () => {
       });
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      const config = await resolveInstanceConfig(asInstanceSlug("thinking-stale"));
+      const config = await resolveInstanceConfig(asAgentSlug("thinking-stale"));
       expect(config.thinkingEnabled).toBe(false);
     });
 
@@ -384,7 +384,7 @@ describe("instances/config-resolver", () => {
       });
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      const config = await resolveInstanceConfig(asInstanceSlug("thinking-off"));
+      const config = await resolveInstanceConfig(asAgentSlug("thinking-off"));
       expect(config.thinkingEnabled).toBe(false);
     });
 
@@ -399,7 +399,7 @@ describe("instances/config-resolver", () => {
       });
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      const config = await resolveInstanceConfig(asInstanceSlug("thinking-default-anthropic"));
+      const config = await resolveInstanceConfig(asAgentSlug("thinking-default-anthropic"));
       expect(config.thinkingEnabled).toBe(true);
     });
 
@@ -413,7 +413,7 @@ describe("instances/config-resolver", () => {
       });
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      const config = await resolveInstanceConfig(asInstanceSlug("thinking-no-model"));
+      const config = await resolveInstanceConfig(asAgentSlug("thinking-no-model"));
       expect(config.thinkingEnabled).toBe(false);
     });
   });

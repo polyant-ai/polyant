@@ -23,7 +23,7 @@ const def = vi.mocked(registerTool).mock.calls[0][0];
 
 function buildTool(opts?: { attachments?: any[]; state?: ConversationStateApi }) {
   const ctx = {
-    instanceId: "test-instance",
+    agentId: "test-instance",
     secrets: {},
     audit: createMockAudit(),
     conversationId: "conv-1",
@@ -75,7 +75,7 @@ describe("verifyDocument tool", () => {
       }),
       expect.objectContaining({
         conversationId: "conv-1",
-        instanceId: "test-instance",
+        agentId: "test-instance",
         callType: "service",
       }),
     );

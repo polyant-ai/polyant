@@ -6,10 +6,10 @@
 
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instancePrompts } from "./prompts.schema.js";
+import { agentPrompts } from "./prompts.schema.js";
 import { DEFAULT_PROMPTS } from "./defaults.js";
 import { TtlCache } from "../utils/ttl-cache.js";
-import { asInstanceUuid, type InstanceUuid } from "./identifiers.js";
+import { asAgentUuid, type AgentUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,7 +17,7 @@ import { asInstanceUuid, type InstanceUuid } from "./identifiers.js";
 
 export interface PromptRow {
   id: string;
-  instanceId: InstanceUuid;
+  agentId: AgentUuid;
   sectionKey: string;
   title: string;
   content: string;
@@ -30,8 +30,8 @@ export interface PromptRow {
 
 const cache = new TtlCache<string, PromptRow[]>({ maxSize: 200, ttlMs: 60_000 });
 
-export function invalidatePromptsCache(instanceId: InstanceUuid): void {
-  cache.delete(instanceId);
+export function invalidatePromptsCache(agentId: AgentUuid): void {
+  cache.delete(agentId);
 }
 
 // ---------------------------------------------------------------------------
@@ -39,39 +39,39 @@ export function invalidatePromptsCache(instanceId: InstanceUuid): void {
 // ---------------------------------------------------------------------------
 
 /** Get all prompt sections for an instance. Cached with 60s TTL. */
-export async function getPrompts(instanceId: InstanceUuid): Promise<PromptRow[]> {
-  const cached = cache.get(instanceId);
+export async function getPrompts(agentId: AgentUuid): Promise<PromptRow[]> {
+  const cached = cache.get(agentId);
   if (cached) {
     return cached;
   }
 
   const rawRows = await db
     .select()
-    .from(instancePrompts)
-    .where(eq(instancePrompts.instanceId, instanceId))
-    .orderBy(instancePrompts.sectionKey);
+    .from(agentPrompts)
+    .where(eq(agentPrompts.agentId, agentId))
+    .orderBy(agentPrompts.sectionKey);
 
-  const rows: PromptRow[] = rawRows.map((r) => ({ ...r, instanceId: asInstanceUuid(r.instanceId) }));
-  cache.set(instanceId, rows);
+  const rows: PromptRow[] = rawRows.map((r) => ({ ...r, agentId: asAgentUuid(r.agentId) }));
+  cache.set(agentId, rows);
   return rows;
 }
 
 /** Get a single prompt section. */
 export async function getPromptSection(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   sectionKey: string,
 ): Promise<PromptRow | null> {
   const [row] = await db
     .select()
-    .from(instancePrompts)
+    .from(agentPrompts)
     .where(
       and(
-        eq(instancePrompts.instanceId, instanceId),
-        eq(instancePrompts.sectionKey, sectionKey),
+        eq(agentPrompts.agentId, agentId),
+        eq(agentPrompts.sectionKey, sectionKey),
       ),
     )
     .limit(1);
-  return row ? { ...row, instanceId: asInstanceUuid(row.instanceId) } : null;
+  return row ? { ...row, agentId: asAgentUuid(row.agentId) } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,37 +80,37 @@ export async function getPromptSection(
 
 /** Upsert a single prompt section. Invalidates cache. */
 export async function upsertPrompt(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   sectionKey: string,
   title: string,
   content: string,
 ): Promise<void> {
   await db
-    .insert(instancePrompts)
-    .values({ instanceId, sectionKey, title, content })
+    .insert(agentPrompts)
+    .values({ agentId, sectionKey, title, content })
     .onConflictDoUpdate({
-      target: [instancePrompts.instanceId, instancePrompts.sectionKey],
+      target: [agentPrompts.agentId, agentPrompts.sectionKey],
       set: { title, content, updatedAt: sql`now()` },
     });
-  invalidatePromptsCache(instanceId);
+  invalidatePromptsCache(agentId);
 }
 
 /**
  * Seed all 8 default prompt sections for an instance.
- * Idempotent: uses ON CONFLICT DO NOTHING on the (instanceId, sectionKey) unique constraint
+ * Idempotent: uses ON CONFLICT DO NOTHING on the (agentId, sectionKey) unique constraint
  * so concurrent calls cannot produce duplicates (no count+insert TOCTOU).
  */
-export async function seedInstancePrompts(instanceId: InstanceUuid): Promise<void> {
+export async function seedInstancePrompts(agentId: AgentUuid): Promise<void> {
   await db
-    .insert(instancePrompts)
+    .insert(agentPrompts)
     .values(
       DEFAULT_PROMPTS.map((p) => ({
-        instanceId,
+        agentId,
         sectionKey: p.sectionKey,
         title: p.title,
         content: p.content,
       })),
     )
-    .onConflictDoNothing({ target: [instancePrompts.instanceId, instancePrompts.sectionKey] });
-  invalidatePromptsCache(instanceId);
+    .onConflictDoNothing({ target: [agentPrompts.agentId, agentPrompts.sectionKey] });
+  invalidatePromptsCache(agentId);
 }

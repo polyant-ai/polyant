@@ -25,7 +25,7 @@ describe("buildOrgScopedAgentFilter", () => {
   });
 
   it("should_bind_orgId_as_a_parameter_not_interpolate_it", () => {
-    const malicious = "x'; DROP TABLE instances;--";
+    const malicious = "x'; DROP TABLE agents;--";
     const { sql: text, params } = render(buildOrgScopedAgentFilter(malicious));
     // The org id must travel as a bound param, never inlined into the SQL text.
     expect(text).not.toContain(malicious);

@@ -146,5 +146,5 @@ export const DEFAULT_TOOL_NAMES: string[] = [
   "spawnTask",
 ];
 
-/** Default skills for new instances. */
+/** Default skills for new agents. */
 export const DEFAULT_SKILL_SLUGS: string[] = [];

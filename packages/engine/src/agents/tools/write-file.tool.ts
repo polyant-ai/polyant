@@ -72,7 +72,7 @@ registerTool({
 
         const resolvedPath = await resolveWorkspacePath(
           path,
-          ctx.instanceId,
+          ctx.agentId,
           ctx.conversationId,
         );
 
@@ -91,7 +91,7 @@ registerTool({
         }
 
         // Ensure workspace root exists and create any parent directories for nested paths
-        await ensureWorkspaceDir(ctx.instanceId, ctx.conversationId);
+        await ensureWorkspaceDir(ctx.agentId, ctx.conversationId);
         await mkdir(dirname(resolvedPath), { recursive: true });
 
         await writeFile(resolvedPath, content, "utf-8");

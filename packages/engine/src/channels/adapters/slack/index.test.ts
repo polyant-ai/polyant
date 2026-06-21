@@ -2,7 +2,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { MessageHandler, OutgoingMessage } from "../../types.js";
-import { asInstanceSlug } from "../../../instances/identifiers.js";
+import { asAgentSlug } from "../../../instances/identifiers.js";
 
 type CapturedHandlers = {
   message?: (args: { message: unknown; say: ReturnType<typeof vi.fn>; client: unknown }) => Promise<void>;
@@ -46,7 +46,7 @@ const { SlackAdapter } = await import("./index.js");
 const BOT_USER_ID = "UBOT123";
 
 const makeAdapter = (onMessage: MessageHandler) => {
-  const adapter = new SlackAdapter(asInstanceSlug("inst-test"), {
+  const adapter = new SlackAdapter(asAgentSlug("inst-test"), {
     botToken: "xoxb-test",
     appToken: "xapp-test",
     signingSecret: "secret",
@@ -160,7 +160,7 @@ describe("SlackAdapter — DM handling (.message)", () => {
     expect(incoming).toMatchObject({
       channelType: "slack",
       channelId: "D1",
-      instanceId: "inst-test",
+      agentId: "inst-test",
       userName: "mario",
       text: "ciao",
     });

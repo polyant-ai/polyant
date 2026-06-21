@@ -26,7 +26,7 @@ import { seedInitialAdmin } from "./users/seed.js";
 import { schedulerService } from "./scheduled-tasks/scheduler.service.js";
 import { roomScheduler } from "./room/room-scheduler.js";
 import { getRoomBySlug, type RoomConfig } from "./room/room.store.js";
-import { asInstanceSlug, type InstanceSlug } from "./instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "./instances/identifiers.js";
 import { getActiveTrigger } from "./webhooks/active-triggers.js";
 import { findActiveTaskByOutbound } from "./scheduled-tasks/store.js";
 import { isPlatformStorageConfigured } from "./attachments/platform-storage.js";
@@ -48,7 +48,7 @@ const roomCache = new TtlCache<string, RoomConfig | null>({ maxSize: 500, ttlMs:
 
 async function getCachedRoom(slug: string): Promise<RoomConfig | null> {
   if (roomCache.has(slug)) return roomCache.get(slug)!;
-  const room = await getRoomBySlug(asInstanceSlug(slug));
+  const room = await getRoomBySlug(asAgentSlug(slug));
   roomCache.set(slug, room);
   return room;
 }
@@ -58,13 +58,13 @@ type TaskOutboundResult = { lastConversationId: string | null } | null | undefin
 const taskOutboundCache = new TtlCache<string, TaskOutboundResult>({ maxSize: 500, ttlMs: 30_000 });
 
 async function getCachedTaskOutbound(
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   channelType: string,
   channelId: string,
 ): Promise<TaskOutboundResult> {
-  const key = `${instanceId}:${channelType}:${channelId}`;
+  const key = `${agentId}:${channelType}:${channelId}`;
   if (taskOutboundCache.has(key)) return taskOutboundCache.get(key);
-  const result = await findActiveTaskByOutbound(instanceId, channelType, channelId);
+  const result = await findActiveTaskByOutbound(agentId, channelType, channelId);
   taskOutboundCache.set(key, result);
   return result;
 }
@@ -167,7 +167,7 @@ async function main() {
       return { text: optoutGate.reply };
     }
 
-    const effectiveInstanceId = msg.instanceId || DEFAULT_INSTANCE_ID;
+    const effectiveInstanceId = msg.agentId || DEFAULT_INSTANCE_ID;
 
     // Check if this is a reply to an active webhook-triggered conversation.
     // Active triggers take priority over Room interception.
@@ -188,7 +188,7 @@ async function main() {
     // Check if this message is a reply to a scheduled task's outbound channel.
     // Resolved internally — never read the override from msg.metadata (untrusted channel data).
     const taskMatch = await getCachedTaskOutbound(
-      msg.instanceId || DEFAULT_INSTANCE_ID,
+      msg.agentId || DEFAULT_INSTANCE_ID,
       msg.channelType,
       msg.channelId,
     );
@@ -206,7 +206,7 @@ async function main() {
       result = await supervise({
         message: messageText,
         conversationHistory: ctx.history,
-        instanceId: ctx.instanceId,
+        agentId: ctx.agentId,
         conversationId: ctx.conversationId,
         conversationSummary: ctx.conversationSummary,
         contextPrompt: ctx.contextPrompt,
@@ -233,7 +233,7 @@ async function main() {
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
-        pipelineLog.response(ctx.instanceId, Date.now() - ctx.pipelineStart);
+        pipelineLog.response(ctx.agentId, Date.now() - ctx.pipelineStart);
         return { text: MISSING_KEY_RESPONSE };
       }
       throw err;
@@ -292,7 +292,7 @@ async function main() {
       stream = await superviseStream({
         message: messageText,
         conversationHistory: ctx.history,
-        instanceId: ctx.instanceId,
+        agentId: ctx.agentId,
         conversationId: ctx.conversationId,
         conversationSummary: ctx.conversationSummary,
         contextPrompt: ctx.contextPrompt,
@@ -319,7 +319,7 @@ async function main() {
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
-        pipelineLog.response(ctx.instanceId, Date.now() - ctx.pipelineStart);
+        pipelineLog.response(ctx.agentId, Date.now() - ctx.pipelineStart);
         async function* singleChunk() { yield MISSING_KEY_RESPONSE; }
         return {
           textStream: singleChunk(),

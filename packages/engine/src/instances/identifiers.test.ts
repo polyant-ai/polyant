@@ -2,30 +2,30 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  asInstanceSlug,
-  asInstanceUuid,
-  type InstanceSlug,
-  type InstanceUuid,
+  asAgentSlug,
+  asAgentUuid,
+  type AgentSlug,
+  type AgentUuid,
 } from "./identifiers.js";
 
 describe("instance identifiers", () => {
-  it("asInstanceSlug returns the input unchanged at runtime", () => {
-    expect(asInstanceSlug("my-assistant")).toBe("my-assistant");
+  it("asAgentSlug returns the input unchanged at runtime", () => {
+    expect(asAgentSlug("my-assistant")).toBe("my-assistant");
   });
 
-  it("asInstanceUuid returns the input unchanged at runtime", () => {
-    expect(asInstanceUuid("3f2a1b4c-5d6e-7f80-9a1b-2c3d4e5f6071")).toBe(
+  it("asAgentUuid returns the input unchanged at runtime", () => {
+    expect(asAgentUuid("3f2a1b4c-5d6e-7f80-9a1b-2c3d4e5f6071")).toBe(
       "3f2a1b4c-5d6e-7f80-9a1b-2c3d4e5f6071",
     );
   });
 
   it("brands are type-incompatible (compile-time)", () => {
-    const slug: InstanceSlug = asInstanceSlug("x");
-    const uuid: InstanceUuid = asInstanceUuid("y");
-    // @ts-expect-error a plain string is not assignable to InstanceSlug
-    const _bad1: InstanceSlug = "plain";
-    // @ts-expect-error InstanceUuid is not assignable to InstanceSlug
-    const _bad2: InstanceSlug = uuid;
+    const slug: AgentSlug = asAgentSlug("x");
+    const uuid: AgentUuid = asAgentUuid("y");
+    // @ts-expect-error a plain string is not assignable to AgentSlug
+    const _bad1: AgentSlug = "plain";
+    // @ts-expect-error AgentUuid is not assignable to AgentSlug
+    const _bad2: AgentSlug = uuid;
     expect(slug).not.toBe(uuid);
     void _bad1;
     void _bad2;

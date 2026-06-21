@@ -9,7 +9,7 @@ import { aiLogs } from "../ai-gateway/logger.js";
 import { toolAuditLogs } from "../audit/audit.schema.js";
 import { hookExecutions } from "../hooks/hooks.schema.js";
 import { memories } from "../memory/schema.js";
-import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilter, buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
 
 export interface MessageRow {
@@ -71,7 +71,7 @@ export interface ConversationListItem {
   title: string | null;
   summary: string | null;
   channel: string | null;
-  instanceId: InstanceSlug | null;
+  agentId: AgentSlug | null;
   instanceName: string | null;
   messageCount: number;
   totalTokens: number;
@@ -229,7 +229,7 @@ export class ConversationStore {
    */
   async ensureConversation(
     conversationId: string,
-    instanceId?: InstanceSlug,
+    agentId?: AgentSlug,
     options?: { channel?: string; userIdentifier?: string; source?: string; contextPrompt?: string },
   ): Promise<{ created: boolean }> {
     const channel = options?.channel ?? "web";
@@ -241,7 +241,7 @@ export class ConversationStore {
       .insert(conversations)
       .values({
         conversationId,
-        instanceId: instanceId ?? null,
+        agentId: agentId ?? null,
         channel,
         source,
         userIdentifier,
@@ -372,15 +372,15 @@ export class ConversationStore {
   /** Full-text search across all conversation messages for an instance. */
   async searchByKeyword(
     query: string,
-    instanceId: InstanceSlug | undefined,
+    agentId: AgentSlug | undefined,
     limit = 20,
   ): Promise<KeywordSearchResult[]> {
     // Build the tsquery from the user query (websearch syntax handles natural language)
     const tsQuery = sql`websearch_to_tsquery('simple', ${query})`;
 
-    // Join with conversations to filter by instanceId if provided
-    const instanceFilter = instanceId
-      ? sql`AND c.agent_id = ${instanceId}`
+    // Join with conversations to filter by agentId if provided
+    const instanceFilter = agentId
+      ? sql`AND c.agent_id = ${agentId}`
       : sql``;
 
     const results = await db.execute(sql`
@@ -411,7 +411,7 @@ export class ConversationStore {
 
   /** List conversations with message count, optionally filtered by instance. */
   async listConversations(options: {
-    instanceId?: InstanceSlug;
+    agentId?: AgentSlug;
     source?: string;
     limit?: number;
     offset?: number;
@@ -421,10 +421,10 @@ export class ConversationStore {
     const offset = options.offset ?? 0;
 
     const conditions: ReturnType<typeof sql>[] = [];
-    if (options.instanceId) conditions.push(sql`c.agent_id = ${options.instanceId}`);
+    if (options.agentId) conditions.push(sql`c.agent_id = ${options.agentId}`);
     if (options.source) conditions.push(sql`c.source = ${options.source}`);
-    // Cross-org gate: an aggregate list (no instanceId) returns only caller-org
-    // rows; a foreign-org instanceId param yields zero rows (ANDed at the store).
+    // Cross-org gate: an aggregate list (no agentId) returns only caller-org
+    // rows; a foreign-org agentId param yields zero rows (ANDed at the store).
     if (options.orgId) conditions.push(buildOrgScopedAgentFilter(options.orgId, "c.agent_id"));
     const instanceFilter = conditions.length > 0
       ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
@@ -481,7 +481,7 @@ export class ConversationStore {
         title: (r.title as string) ?? null,
         summary: (r.summary as string) ?? null,
         channel: (r.channel as string) ?? null,
-        instanceId: r.agent_id ? asInstanceSlug(r.agent_id as string) : null,
+        agentId: r.agent_id ? asAgentSlug(r.agent_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         messageCount: (r.message_count as number) ?? 0,
         totalTokens: (r.total_tokens as number) ?? 0,
@@ -546,7 +546,7 @@ export class ConversationStore {
       title: (r.title as string) ?? null,
       summary: (r.summary as string) ?? null,
       channel: (r.channel as string) ?? null,
-      instanceId: r.agent_id ? asInstanceSlug(r.agent_id as string) : null,
+      agentId: r.agent_id ? asAgentSlug(r.agent_id as string) : null,
       instanceName: (r.instance_name as string) ?? null,
       messageCount: (r.message_count as number) ?? 0,
       totalTokens: (r.total_tokens as number) ?? 0,
@@ -640,18 +640,18 @@ export class ConversationStore {
    */
   async searchConversations(
     query: string,
-    options: { instanceId?: InstanceSlug; limit?: number; offset?: number; orgId?: string } = {},
+    options: { agentId?: AgentSlug; limit?: number; offset?: number; orgId?: string } = {},
   ): Promise<{ conversations: ConversationSearchResult[]; total: number }> {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
     const tsQuery = sql`websearch_to_tsquery('simple', ${query})`;
     const idPattern = `%${escapeLikePattern(query)}%`;
 
-    // Cross-org gate: a search with no instanceId stays scoped to the caller-org
-    // rows; a foreign-org instanceId param yields zero rows.
+    // Cross-org gate: a search with no agentId stays scoped to the caller-org
+    // rows; a foreign-org agentId param yields zero rows.
     const orgFilter = buildOrgScopedAgentFilterFragment(options.orgId, "c.agent_id");
-    const instanceFilter = options.instanceId
-      ? sql`AND c.agent_id = ${options.instanceId} ${orgFilter}`
+    const instanceFilter = options.agentId
+      ? sql`AND c.agent_id = ${options.agentId} ${orgFilter}`
       : orgFilter;
 
     const matchFilter = sql`(
@@ -726,7 +726,7 @@ export class ConversationStore {
         title: (r.title as string) ?? null,
         summary: (r.summary as string) ?? null,
         channel: (r.channel as string) ?? null,
-        instanceId: r.agent_id ? asInstanceSlug(r.agent_id as string) : null,
+        agentId: r.agent_id ? asAgentSlug(r.agent_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         matchCount: (r.match_count as number) ?? 0,
         bestSnippet: (r.best_snippet as string) ?? "",

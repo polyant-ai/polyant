@@ -20,8 +20,8 @@ vi.mock("../../instances/channels.store.js", () => ({
   CHANNEL_TYPES: ["telegram", "slack", "whatsapp", "agent"],
 }));
 
-vi.mock("../../instances/resolve-instance-id.js", () => ({
-  resolveInstanceId: mockResolveInstanceId,
+vi.mock("../../instances/resolve-agent-id.js", () => ({
+  resolveAgentId: mockResolveInstanceId,
 }));
 
 vi.mock("../../channels/channel-manager.js", () => ({
@@ -100,7 +100,7 @@ describe("TwilioWebhookController", () => {
         body: "Hello agent",
         profileName: "Paolo",
         messageSid: "SM123",
-        instanceId: "test-instance",
+        agentId: "test-instance",
       }),
     );
   });

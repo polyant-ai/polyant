@@ -19,7 +19,7 @@ vi.mock("../../memory/memory-store.js", () => ({
 
 import { MemoriesController } from "./memories.controller.js";
 import { upsertMemory } from "../../memory/memory-store.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 describe("MemoriesController.create", () => {
   beforeEach(() => {
@@ -39,15 +39,15 @@ describe("MemoriesController.create", () => {
     vi.mocked(upsertMemory).mockResolvedValue({ id: "mem-1", content: "hello", event: "ADD" });
 
     const controller = new MemoriesController();
-    const result = await controller.create({ instanceId: "my-assistant", content: "hello" });
+    const result = await controller.create({ agentId: "my-assistant", content: "hello" });
 
-    expect(mockResolveEmbeddingContext).toHaveBeenCalledWith(asInstanceSlug("my-assistant"));
+    expect(mockResolveEmbeddingContext).toHaveBeenCalledWith(asAgentSlug("my-assistant"));
     expect(mockEmbedMany).toHaveBeenCalledWith(
       ["hello"],
       expect.objectContaining({ dimensions: 1024 }),
     );
     expect(upsertMemory).toHaveBeenCalledWith(
-      expect.objectContaining({ instanceId: asInstanceSlug("my-assistant"), content: "hello" }),
+      expect.objectContaining({ agentId: asAgentSlug("my-assistant"), content: "hello" }),
     );
     expect(result).toEqual({ memory: { id: "mem-1", content: "hello", event: "ADD" } });
   });
@@ -58,7 +58,7 @@ describe("MemoriesController.create", () => {
     const controller = new MemoriesController();
 
     await expect(
-      controller.create({ instanceId: "my-assistant", content: "hello" }),
+      controller.create({ agentId: "my-assistant", content: "hello" }),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(mockEmbedMany).not.toHaveBeenCalled();
   });

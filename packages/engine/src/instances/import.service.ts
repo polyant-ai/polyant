@@ -1,28 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // ---------------------------------------------------------------------------
-// Import service — creates/overwrites instances from exported bundles
+// Import service — creates/overwrites agents from exported bundles
 // ---------------------------------------------------------------------------
 
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instances } from "./schema.js";
+import { agents } from "./schema.js";
 import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
-import { instancePrompts } from "./prompts.schema.js";
-import { instanceSkills } from "./instance-skills.schema.js";
-import { instanceTools } from "./instance-tools.schema.js";
-import { instanceChannels } from "./channels.schema.js";
-import { instanceSkillEnv } from "./skill-env.schema.js";
+import { agentPrompts } from "./prompts.schema.js";
+import { agentSkills } from "./instance-skills.schema.js";
+import { agentTools } from "./instance-tools.schema.js";
+import { agentChannels } from "./channels.schema.js";
+import { agentSkillEnv } from "./skill-env.schema.js";
 import { skills, skillVersions } from "../skills/schema.js";
 import { tools } from "../agents/tools/tools.schema.js";
-import { instanceRoom } from "../room/room.schema.js";
+import { agentRoom } from "../room/room.schema.js";
 import { eventSources, eventDefinitions } from "../webhooks/webhooks.schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { computeNextRun } from "../scheduled-tasks/schedule-utils.js";
 import { generateToken } from "../crypto/index.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
-import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
+import { asAgentSlug, asAgentUuid } from "./identifiers.js";
 import { invalidateInstanceConfigCache } from "./config-resolver.js";
 import {
   instanceBundleSchema,
@@ -40,7 +40,7 @@ export interface ImportWarning {
 
 export interface ImportResult {
   slug: string;
-  instanceId: string;
+  agentId: string;
   warnings: ImportWarning[];
 }
 
@@ -57,11 +57,11 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
   const slug = await resolveUniqueSlug(data.slug);
 
   // Run everything in a transaction
-  const instanceId = await db.transaction(async (tx) => {
+  const agentId = await db.transaction(async (tx) => {
     // 1. Create instance (in the default workspace — see store.ts rationale).
     const workspaceId = await findDefaultWorkspaceId(tx);
     const [inst] = await tx
-      .insert(instances)
+      .insert(agents)
       .values({
         slug,
         name: data.name,
@@ -76,9 +76,9 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
         icon: data.icon ?? null,
         workspaceId,
       })
-      .returning({ id: instances.id });
+      .returning({ id: agents.id });
 
-    const id = asInstanceUuid(inst.id);
+    const id = asAgentUuid(inst.id);
 
     // 2. Import prompts
     await importPrompts(tx, id, data.prompts);
@@ -134,10 +134,10 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
   });
 
   // Recompute tools outside transaction (uses its own transaction internally)
-  await recomputeInstanceTools(instanceId);
-  invalidatePromptsCache(instanceId);
+  await recomputeInstanceTools(agentId);
+  invalidatePromptsCache(agentId);
 
-  return { slug, instanceId, warnings };
+  return { slug, agentId, warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -154,18 +154,18 @@ export async function importOverwriteInstance(
 
   // Verify target exists
   const [existing] = await db
-    .select({ id: instances.id })
-    .from(instances)
-    .where(eq(instances.slug, targetSlug))
+    .select({ id: agents.id })
+    .from(agents)
+    .where(eq(agents.slug, targetSlug))
     .limit(1);
 
-  if (!existing) throw new Error(`Instance "${targetSlug}" not found`);
-  const instanceId = asInstanceUuid(existing.id);
+  if (!existing) throw new Error(`Agent "${targetSlug}" not found`);
+  const agentId = asAgentUuid(existing.id);
 
   await db.transaction(async (tx) => {
     // 1. Update instance metadata
     await tx
-      .update(instances)
+      .update(agents)
       .set({
         name: data.name,
         description: data.description,
@@ -179,32 +179,32 @@ export async function importOverwriteInstance(
         icon: data.icon ?? null,
         updatedAt: sql`now()`,
       })
-      .where(eq(instances.id, instanceId));
+      .where(eq(agents.id, agentId));
 
     // 2. Replace prompts (upsert by sectionKey)
-    await importPrompts(tx, instanceId, data.prompts);
+    await importPrompts(tx, agentId, data.prompts);
 
     // 3. Replace skill assignments
-    await tx.delete(instanceSkills).where(eq(instanceSkills.instanceId, instanceId));
-    const skillWarnings = await importSkillAssignments(tx, instanceId, data.skills);
+    await tx.delete(agentSkills).where(eq(agentSkills.agentId, agentId));
+    const skillWarnings = await importSkillAssignments(tx, agentId, data.skills);
     warnings.push(...skillWarnings);
 
     // 4. Delete manual tools (recompute will handle the rest)
     await tx
-      .delete(instanceTools)
+      .delete(agentTools)
       .where(
         and(
-          eq(instanceTools.instanceId, instanceId),
-          eq(instanceTools.source, "manual"),
+          eq(agentTools.agentId, agentId),
+          eq(agentTools.source, "manual"),
         ),
       );
-    const toolWarnings = await importManualTools(tx, instanceId, data.manualTools);
+    const toolWarnings = await importManualTools(tx, agentId, data.manualTools);
     warnings.push(...toolWarnings);
 
     // 5. Replace channels
-    await tx.delete(instanceChannels).where(eq(instanceChannels.instanceId, instanceId));
+    await tx.delete(agentChannels).where(eq(agentChannels.agentId, agentId));
     if (data.channels.length > 0) {
-      await importChannels(tx, instanceId, data.channels);
+      await importChannels(tx, agentId, data.channels);
       for (const ch of data.channels) {
         warnings.push({
           type: "channel_credentials",
@@ -214,7 +214,7 @@ export async function importOverwriteInstance(
     }
 
     // 6. Replace skill env (non-encrypted only; keep existing encrypted)
-    await importSkillEnvOverwrite(tx, instanceId, data.skillEnv);
+    await importSkillEnvOverwrite(tx, agentId, data.skillEnv);
     const envWarnings = data.skillEnv
       .filter((e) => e.encrypted)
       .map((e) => ({
@@ -224,20 +224,20 @@ export async function importOverwriteInstance(
     warnings.push(...envWarnings);
 
     // 7. Replace room config
-    await tx.delete(instanceRoom).where(eq(instanceRoom.instanceId, instanceId));
+    await tx.delete(agentRoom).where(eq(agentRoom.agentId, agentId));
     if (data.room) {
-      await importRoom(tx, instanceId, data.room);
+      await importRoom(tx, agentId, data.room);
     }
 
     // 8. Replace event sources + definitions
-    await tx.delete(eventSources).where(eq(eventSources.instanceId, instanceId));
-    const esWarnings = await importEventSources(tx, instanceId, data.eventSources);
+    await tx.delete(eventSources).where(eq(eventSources.agentId, agentId));
+    const esWarnings = await importEventSources(tx, agentId, data.eventSources);
     warnings.push(...esWarnings);
 
     // 9. Replace scheduled tasks
     // NB: scheduled_tasks.agent_id is the SLUG, not the UUID — see the
     // export service for the rationale.
-    await tx.delete(scheduledTasks).where(eq(scheduledTasks.instanceId, targetSlug));
+    await tx.delete(scheduledTasks).where(eq(scheduledTasks.agentId, targetSlug));
     if (data.scheduledTasks && data.scheduledTasks.length > 0) {
       await importScheduledTasks(tx, targetSlug, data.scheduledTasks);
     }
@@ -251,11 +251,11 @@ export async function importOverwriteInstance(
     }
   });
 
-  await recomputeInstanceTools(instanceId);
-  invalidatePromptsCache(instanceId);
-  invalidateInstanceConfigCache(asInstanceSlug(targetSlug));
+  await recomputeInstanceTools(agentId);
+  invalidatePromptsCache(agentId);
+  invalidateInstanceConfigCache(asAgentSlug(targetSlug));
 
-  return { slug: targetSlug, instanceId, warnings };
+  return { slug: targetSlug, agentId, warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -266,9 +266,9 @@ type TxClient = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 async function resolveUniqueSlug(desired: string): Promise<string> {
   const [existing] = await db
-    .select({ slug: instances.slug })
-    .from(instances)
-    .where(eq(instances.slug, desired))
+    .select({ slug: agents.slug })
+    .from(agents)
+    .where(eq(agents.slug, desired))
     .limit(1);
 
   if (!existing) return desired;
@@ -277,9 +277,9 @@ async function resolveUniqueSlug(desired: string): Promise<string> {
   for (let i = 1; i <= 100; i++) {
     const candidate = i === 1 ? `${desired}-imported` : `${desired}-imported-${i}`;
     const [conflict] = await db
-      .select({ slug: instances.slug })
-      .from(instances)
-      .where(eq(instances.slug, candidate))
+      .select({ slug: agents.slug })
+      .from(agents)
+      .where(eq(agents.slug, candidate))
       .limit(1);
     if (!conflict) return candidate;
   }
@@ -289,20 +289,20 @@ async function resolveUniqueSlug(desired: string): Promise<string> {
 
 async function importPrompts(
   tx: TxClient,
-  instanceId: string,
+  agentId: string,
   prompts: ExportInstanceData["prompts"],
 ): Promise<void> {
   for (const p of prompts) {
     await tx
-      .insert(instancePrompts)
+      .insert(agentPrompts)
       .values({
-        instanceId,
+        agentId,
         sectionKey: p.sectionKey,
         title: p.title,
         content: p.content,
       })
       .onConflictDoUpdate({
-        target: [instancePrompts.instanceId, instancePrompts.sectionKey],
+        target: [agentPrompts.agentId, agentPrompts.sectionKey],
         set: { title: p.title, content: p.content, updatedAt: sql`now()` },
       });
   }
@@ -310,7 +310,7 @@ async function importPrompts(
 
 async function importSkillAssignments(
   tx: TxClient,
-  instanceId: string,
+  agentId: string,
   assignments: ExportInstanceData["skills"],
 ): Promise<ImportWarning[]> {
   const warnings: ImportWarning[] = [];
@@ -362,16 +362,16 @@ async function importSkillAssignments(
     }
 
     await tx
-      .insert(instanceSkills)
+      .insert(agentSkills)
       .values({
-        instanceId,
+        agentId,
         skillId: skill.id,
         skillVersionId: versionId,
         enabled: assignment.enabled,
         autoLoad: assignment.autoLoad,
       })
       .onConflictDoUpdate({
-        target: [instanceSkills.instanceId, instanceSkills.skillId],
+        target: [agentSkills.agentId, agentSkills.skillId],
         set: {
           skillVersionId: versionId,
           enabled: assignment.enabled,
@@ -386,7 +386,7 @@ async function importSkillAssignments(
 
 async function importManualTools(
   tx: TxClient,
-  instanceId: string,
+  agentId: string,
   toolNames: string[],
 ): Promise<ImportWarning[]> {
   const warnings: ImportWarning[] = [];
@@ -409,10 +409,10 @@ async function importManualTools(
 
   if (toolRows.length > 0) {
     await tx
-      .insert(instanceTools)
+      .insert(agentTools)
       .values(
         toolRows.map((t) => ({
-          instanceId,
+          agentId,
           toolId: t.id,
           source: "manual" as const,
         })),
@@ -425,16 +425,16 @@ async function importManualTools(
 
 async function importChannels(
   tx: TxClient,
-  instanceId: string,
+  agentId: string,
   channels: ExportInstanceData["channels"],
 ): Promise<void> {
   for (const ch of channels) {
     // Insert channel entry with empty encrypted config — user must configure
     // We store a minimal placeholder so the channel row exists
     await tx
-      .insert(instanceChannels)
+      .insert(agentChannels)
       .values({
-        instanceId,
+        agentId,
         channelType: ch.channelType,
         enabled: false, // always disabled on import (no credentials)
         config: "", // empty — will fail validation if enabled without config
@@ -445,7 +445,7 @@ async function importChannels(
 
 async function importSkillEnv(
   tx: TxClient,
-  instanceId: string,
+  agentId: string,
   envVars: ExportInstanceData["skillEnv"],
 ): Promise<ImportWarning[]> {
   const warnings: ImportWarning[] = [];
@@ -461,16 +461,16 @@ async function importSkillEnv(
 
     // Non-encrypted values can be imported directly
     await tx
-      .insert(instanceSkillEnv)
+      .insert(agentSkillEnv)
       .values({
-        instanceId,
+        agentId,
         skillSlug: env.skillSlug,
         key: env.key,
         value: env.value ?? "",
         encrypted: false,
       })
       .onConflictDoUpdate({
-        target: [instanceSkillEnv.instanceId, instanceSkillEnv.skillSlug, instanceSkillEnv.key],
+        target: [agentSkillEnv.agentId, agentSkillEnv.skillSlug, agentSkillEnv.key],
         set: { value: env.value ?? "", encrypted: false, updatedAt: new Date() },
       });
   }
@@ -480,28 +480,28 @@ async function importSkillEnv(
 
 async function importSkillEnvOverwrite(
   tx: TxClient,
-  instanceId: string,
+  agentId: string,
   envVars: ExportInstanceData["skillEnv"],
 ): Promise<void> {
   // Delete only non-encrypted env vars (keep encrypted ones intact)
   // Then import non-encrypted values from bundle
   const nonEncryptedRows = await tx
-    .select({ id: instanceSkillEnv.id })
-    .from(instanceSkillEnv)
+    .select({ id: agentSkillEnv.id })
+    .from(agentSkillEnv)
     .where(
       and(
-        eq(instanceSkillEnv.instanceId, instanceId),
-        eq(instanceSkillEnv.encrypted, false),
+        eq(agentSkillEnv.agentId, agentId),
+        eq(agentSkillEnv.encrypted, false),
       ),
     );
 
   if (nonEncryptedRows.length > 0) {
     await tx
-      .delete(instanceSkillEnv)
+      .delete(agentSkillEnv)
       .where(
         and(
-          eq(instanceSkillEnv.instanceId, instanceId),
-          eq(instanceSkillEnv.encrypted, false),
+          eq(agentSkillEnv.agentId, agentId),
+          eq(agentSkillEnv.encrypted, false),
         ),
       );
   }
@@ -510,9 +510,9 @@ async function importSkillEnvOverwrite(
     if (env.encrypted) continue;
 
     await tx
-      .insert(instanceSkillEnv)
+      .insert(agentSkillEnv)
       .values({
-        instanceId,
+        agentId,
         skillSlug: env.skillSlug,
         key: env.key,
         value: env.value ?? "",
@@ -524,13 +524,13 @@ async function importSkillEnvOverwrite(
 
 async function importRoom(
   tx: TxClient,
-  instanceId: string,
+  agentId: string,
   room: NonNullable<ExportInstanceData["room"]>,
 ): Promise<void> {
   await tx
-    .insert(instanceRoom)
+    .insert(agentRoom)
     .values({
-      instanceId,
+      agentId,
       enabled: room.enabled,
       prompt: room.prompt,
       outboundChannel: room.outboundChannel,
@@ -538,7 +538,7 @@ async function importRoom(
       evalIntervalMinutes: room.evalIntervalMinutes,
     })
     .onConflictDoUpdate({
-      target: [instanceRoom.instanceId],
+      target: [agentRoom.agentId],
       set: {
         enabled: room.enabled,
         prompt: room.prompt,
@@ -552,7 +552,7 @@ async function importRoom(
 
 async function importEventSources(
   tx: TxClient,
-  instanceId: string,
+  agentId: string,
   sources: ExportInstanceData["eventSources"],
 ): Promise<ImportWarning[]> {
   const warnings: ImportWarning[] = [];
@@ -563,7 +563,7 @@ async function importEventSources(
     const [created] = await tx
       .insert(eventSources)
       .values({
-        instanceId,
+        agentId,
         name: source.name,
         sourceType: source.sourceType,
         config: "", // empty — user must configure credentials
@@ -594,7 +594,7 @@ async function importEventSources(
 
 async function importScheduledTasks(
   tx: TxClient,
-  instanceId: string,
+  agentId: string,
   tasks: NonNullable<ExportInstanceData["scheduledTasks"]>,
 ): Promise<void> {
   for (const task of tasks) {
@@ -602,7 +602,7 @@ async function importScheduledTasks(
     const nextRunAt = task.enabled ? computeNextRun(schedule) : null;
 
     await tx.insert(scheduledTasks).values({
-      instanceId,
+      agentId,
       name: task.name,
       description: task.description,
       enabled: task.enabled,

@@ -9,7 +9,7 @@ export const conversations = pgTable(
     conversationId: text("conversation_id").notNull().unique(),
     summary: text("summary"),
     title: text("title"),
-    instanceId: text("agent_id"),
+    agentId: text("agent_id"),
     channel: text("channel").default("web"),
     source: text("source").default("user"),
     userIdentifier: text("user_identifier"),
@@ -18,7 +18,7 @@ export const conversations = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
-    index("idx_conversations_instance_created").on(table.instanceId, table.createdAt),
+    index("idx_conversations_instance_created").on(table.agentId, table.createdAt),
   ],
 );
 
@@ -128,7 +128,7 @@ export const conversationMessages = pgTable(
  *
  * `scope` / `scopeKey` are an abstraction: today only `scope = "conversation"`
  * is used (`scopeKey` = conversationId). A future "principal" tier can be added
- * without a schema change. `instanceId` is the denormalized slug, kept only for
+ * without a schema change. `agentId` is the denormalized slug, kept only for
  * the instance-delete cascade — operational/PII tier (slug-text, no UUID FK).
  */
 export const conversationState = pgTable(
@@ -136,7 +136,7 @@ export const conversationState = pgTable(
   {
     scope: text("scope").notNull().default("conversation"),
     scopeKey: text("scope_key").notNull(),
-    instanceId: text("agent_id"),
+    agentId: text("agent_id"),
     data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -144,6 +144,6 @@ export const conversationState = pgTable(
   (table) => [
     primaryKey({ columns: [table.scope, table.scopeKey] }),
     index("idx_conversation_state_scope_key").on(table.scopeKey),
-    index("idx_conversation_state_instance").on(table.instanceId),
+    index("idx_conversation_state_instance").on(table.agentId),
   ],
 );

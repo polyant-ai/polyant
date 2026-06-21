@@ -3,11 +3,11 @@
 import { timingSafeEqual } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instanceSecrets } from "./secrets.schema.js";
-import { instances } from "./schema.js";
+import { agentSecrets } from "./secrets.schema.js";
+import { agents } from "./schema.js";
 import { encrypt, decrypt } from "../crypto/index.js";
-import { resolveInstanceId } from "./resolve-instance-id.js";
-import { asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
+import { resolveAgentId } from "./resolve-agent-id.js";
+import { asAgentUuid, type AgentSlug, type AgentUuid } from "./identifiers.js";
 
 /** Well-known secret key names. */
 export const SECRET_KEYS = {
@@ -26,40 +26,40 @@ export const SECRET_KEYS = {
 } as const;
 
 /** Encrypt and upsert a secret for an instance (by UUID). */
-export async function setSecret(instanceId: InstanceUuid, key: string, value: string): Promise<void> {
+export async function setSecret(agentId: AgentUuid, key: string, value: string): Promise<void> {
   const encrypted = encrypt(value);
   await db
-    .insert(instanceSecrets)
-    .values({ instanceId, key, value: encrypted })
+    .insert(agentSecrets)
+    .values({ agentId, key, value: encrypted })
     .onConflictDoUpdate({
-      target: [instanceSecrets.instanceId, instanceSecrets.key],
+      target: [agentSecrets.agentId, agentSecrets.key],
       set: { value: encrypted, updatedAt: new Date() },
     });
 }
 
 /** Get a single decrypted secret by instance slug + key. */
-export async function getSecret(instanceSlug: InstanceSlug, key: string): Promise<string | undefined> {
-  const instanceId = await resolveInstanceId(instanceSlug);
-  if (!instanceId) return undefined;
+export async function getSecret(instanceSlug: AgentSlug, key: string): Promise<string | undefined> {
+  const agentId = await resolveAgentId(instanceSlug);
+  if (!agentId) return undefined;
 
   const rows = await db
-    .select({ value: instanceSecrets.value })
-    .from(instanceSecrets)
-    .where(and(eq(instanceSecrets.instanceId, instanceId), eq(instanceSecrets.key, key)))
+    .select({ value: agentSecrets.value })
+    .from(agentSecrets)
+    .where(and(eq(agentSecrets.agentId, agentId), eq(agentSecrets.key, key)))
     .limit(1);
 
   return rows[0] ? decrypt(rows[0].value) : undefined;
 }
 
 /** Get all decrypted secrets for an instance (by slug). */
-export async function getAllSecrets(instanceSlug: InstanceSlug): Promise<Record<string, string>> {
-  const instanceId = await resolveInstanceId(instanceSlug);
-  if (!instanceId) return {};
+export async function getAllSecrets(instanceSlug: AgentSlug): Promise<Record<string, string>> {
+  const agentId = await resolveAgentId(instanceSlug);
+  if (!agentId) return {};
 
   const rows = await db
-    .select({ key: instanceSecrets.key, value: instanceSecrets.value })
-    .from(instanceSecrets)
-    .where(eq(instanceSecrets.instanceId, instanceId));
+    .select({ key: agentSecrets.key, value: agentSecrets.value })
+    .from(agentSecrets)
+    .where(eq(agentSecrets.agentId, agentId));
 
   const result: Record<string, string> = {};
   for (const row of rows) {
@@ -69,11 +69,11 @@ export async function getAllSecrets(instanceSlug: InstanceSlug): Promise<Record<
 }
 
 /** Get all decrypted secrets for an instance (by UUID). */
-export async function getAllSecretsById(instanceId: InstanceUuid): Promise<Record<string, string>> {
+export async function getAllSecretsById(agentId: AgentUuid): Promise<Record<string, string>> {
   const rows = await db
-    .select({ key: instanceSecrets.key, value: instanceSecrets.value })
-    .from(instanceSecrets)
-    .where(eq(instanceSecrets.instanceId, instanceId));
+    .select({ key: agentSecrets.key, value: agentSecrets.value })
+    .from(agentSecrets)
+    .where(eq(agentSecrets.agentId, agentId));
 
   const result: Record<string, string> = {};
   for (const row of rows) {
@@ -83,14 +83,14 @@ export async function getAllSecretsById(instanceId: InstanceUuid): Promise<Recor
 }
 
 /** List secret key names + configured status (never exposes values). */
-export async function listSecretKeys(instanceSlug: InstanceSlug): Promise<Array<{ key: string; configured: boolean }>> {
-  const instanceId = await resolveInstanceId(instanceSlug);
-  if (!instanceId) return [];
+export async function listSecretKeys(instanceSlug: AgentSlug): Promise<Array<{ key: string; configured: boolean }>> {
+  const agentId = await resolveAgentId(instanceSlug);
+  if (!agentId) return [];
 
   const rows = await db
-    .select({ key: instanceSecrets.key })
-    .from(instanceSecrets)
-    .where(eq(instanceSecrets.instanceId, instanceId));
+    .select({ key: agentSecrets.key })
+    .from(agentSecrets)
+    .where(eq(agentSecrets.agentId, agentId));
 
   const configuredKeys = new Set(rows.map((r) => r.key));
   const wellKnown = new Set<string>(Object.values(SECRET_KEYS));
@@ -111,10 +111,10 @@ export async function listSecretKeys(instanceSlug: InstanceSlug): Promise<Array<
 }
 
 /** Delete a secret by instance UUID + key. */
-export async function deleteSecret(instanceId: InstanceUuid, key: string): Promise<void> {
+export async function deleteSecret(agentId: AgentUuid, key: string): Promise<void> {
   await db
-    .delete(instanceSecrets)
-    .where(and(eq(instanceSecrets.instanceId, instanceId), eq(instanceSecrets.key, key)));
+    .delete(agentSecrets)
+    .where(and(eq(agentSecrets.agentId, agentId), eq(agentSecrets.key, key)));
 }
 
 /**
@@ -122,29 +122,29 @@ export async function deleteSecret(instanceId: InstanceUuid, key: string): Promi
  *
  * Iterates every active instance with an `auth_api_key` row, decrypts each
  * value, and compares with `timingSafeEqual` so the comparison itself is not
- * leaky. Linear scan is acceptable at our cardinality (few dozen instances at
+ * leaky. Linear scan is acceptable at our cardinality (few dozen agents at
  * most); callers must not invoke this on hot paths without their own cache.
  *
  * Returns the matched instance slug or `null` when no key matches.
  */
-export async function findInstanceByAuthApiKey(token: string): Promise<{ slug: string; instanceId: InstanceUuid } | null> {
+export async function findInstanceByAuthApiKey(token: string): Promise<{ slug: string; agentId: AgentUuid } | null> {
   if (!token) return null;
 
   const rows = await db
     .select({
-      slug: instances.slug,
-      instanceId: instances.id,
-      value: instanceSecrets.value,
+      slug: agents.slug,
+      agentId: agents.id,
+      value: agentSecrets.value,
     })
-    .from(instanceSecrets)
-    .innerJoin(instances, eq(instances.id, instanceSecrets.instanceId))
+    .from(agentSecrets)
+    .innerJoin(agents, eq(agents.id, agentSecrets.agentId))
     .where(and(
-      eq(instanceSecrets.key, SECRET_KEYS.AUTH_API_KEY),
-      eq(instances.status, "active"),
+      eq(agentSecrets.key, SECRET_KEYS.AUTH_API_KEY),
+      eq(agents.status, "active"),
     ));
 
   const tokBuf = Buffer.from(token, "utf-8");
-  let match: { slug: string; instanceId: InstanceUuid } | null = null;
+  let match: { slug: string; agentId: AgentUuid } | null = null;
 
   for (const row of rows) {
     let plaintext: string;
@@ -160,7 +160,7 @@ export async function findInstanceByAuthApiKey(token: string): Promise<{ slug: s
     if (tokBuf.length === expBuf.length && timingSafeEqual(tokBuf, expBuf)) {
       // Don't early-return: keep iterating to keep the wall-clock time
       // independent of which row matched.
-      match = { slug: row.slug, instanceId: asInstanceUuid(row.instanceId) };
+      match = { slug: row.slug, agentId: asAgentUuid(row.agentId) };
     }
   }
 
