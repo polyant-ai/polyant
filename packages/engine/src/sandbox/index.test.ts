@@ -16,7 +16,7 @@ import {
   deleteWorkspace,
   deleteConversationWorkspace,
 } from "./index.js";
-import { OA_WORKSPACES_ROOT } from "../agents/tools/shared/workspace-utils.js";
+import { OA_SANDBOX_ROOT } from "../agents/tools/shared/workspace-utils.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -25,8 +25,8 @@ beforeEach(() => {
 describe("getWorkspacePaths", () => {
   it("returns root and conversationsDir", () => {
     const paths = getWorkspacePaths("my-instance");
-    expect(paths.root).toBe(`${OA_WORKSPACES_ROOT}/my-instance`);
-    expect(paths.conversationsDir).toBe(`${OA_WORKSPACES_ROOT}/my-instance/conversations`);
+    expect(paths.root).toBe(`${OA_SANDBOX_ROOT}/my-instance`);
+    expect(paths.conversationsDir).toBe(`${OA_SANDBOX_ROOT}/my-instance/conversations`);
   });
 
   it("rejects invalid instanceId with uppercase", () => {
@@ -51,18 +51,18 @@ describe("getWorkspacePaths", () => {
 describe("getConversationWorkspacePath", () => {
   it("returns path under conversationsDir using a safe conversationId", () => {
     const path = getConversationWorkspacePath("my-instance", "conv-1");
-    expect(path).toBe(`${OA_WORKSPACES_ROOT}/my-instance/conversations/conv-1`);
+    expect(path).toBe(`${OA_SANDBOX_ROOT}/my-instance/conversations/conv-1`);
   });
 
   it("sanitizes conversationId with colons (typical real-world format)", () => {
     const path = getConversationWorkspacePath("my-instance", "inst:web:chat-123");
-    expect(path).toBe(`${OA_WORKSPACES_ROOT}/my-instance/conversations/inst_web_chat-123`);
+    expect(path).toBe(`${OA_SANDBOX_ROOT}/my-instance/conversations/inst_web_chat-123`);
   });
 
   it("sanitizes conversationId with slashes (path injection attempt)", () => {
     const path = getConversationWorkspacePath("my-instance", "foo/../bar");
     // slashes and dots from traversal are replaced by _ — resulting dir is safe
-    expect(path).toBe(`${OA_WORKSPACES_ROOT}/my-instance/conversations/foo_.._bar`);
+    expect(path).toBe(`${OA_SANDBOX_ROOT}/my-instance/conversations/foo_.._bar`);
   });
 
   it("validates the instanceId", () => {
@@ -79,7 +79,7 @@ describe("deleteWorkspace", () => {
     mockExistsSync.mockReturnValue(true);
     deleteWorkspace("my-instance");
     expect(mockRmSync).toHaveBeenCalledWith(
-      `${OA_WORKSPACES_ROOT}/my-instance`,
+      `${OA_SANDBOX_ROOT}/my-instance`,
       { recursive: true, force: true },
     );
   });
@@ -101,7 +101,7 @@ describe("deleteConversationWorkspace", () => {
     mockExistsSync.mockReturnValue(true);
     deleteConversationWorkspace("my-instance", "conv-1");
     expect(mockRmSync).toHaveBeenCalledWith(
-      `${OA_WORKSPACES_ROOT}/my-instance/conversations/conv-1`,
+      `${OA_SANDBOX_ROOT}/my-instance/conversations/conv-1`,
       { recursive: true, force: true },
     );
   });
@@ -116,7 +116,7 @@ describe("deleteConversationWorkspace", () => {
     mockExistsSync.mockReturnValue(true);
     deleteConversationWorkspace("my-instance", "inst:web:chat-1");
     expect(mockRmSync).toHaveBeenCalledWith(
-      `${OA_WORKSPACES_ROOT}/my-instance/conversations/inst_web_chat-1`,
+      `${OA_SANDBOX_ROOT}/my-instance/conversations/inst_web_chat-1`,
       { recursive: true, force: true },
     );
   });

@@ -8,11 +8,16 @@ const __sharedDir = dirname(fileURLToPath(import.meta.url));
 const ENGINE_ROOT = resolve(__sharedDir, "../../../..");
 
 /**
- * Root directory for per-conversation sandboxed workspaces.
- * Layout: {OA_WORKSPACES_ROOT}/{instanceId}/conversations/{conversationId}/
+ * Root directory for per-conversation sandboxes.
+ * Layout: {OA_SANDBOX_ROOT}/{instanceId}/conversations/{conversationId}/
+ *
+ * CONVENTION-EXCEPTION: dual env read during the sandbox rename deprecation
+ * window. SANDBOX_ROOT is the new var; WORKSPACES_ROOT is kept as a deprecated
+ * alias and removed next release. Default on-disk path value is unchanged.
  */
-export const OA_WORKSPACES_ROOT = process.env.WORKSPACES_ROOT
-  ? resolve(process.env.WORKSPACES_ROOT)
+const sandboxRootEnv = process.env.SANDBOX_ROOT ?? process.env.WORKSPACES_ROOT;
+export const OA_SANDBOX_ROOT = sandboxRootEnv
+  ? resolve(sandboxRootEnv)
   : resolve(ENGINE_ROOT, "workspaces");
 
 const INSTANCE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -47,7 +52,7 @@ export function getConversationWorkspaceDir(
 ): string {
   validateInstanceId(instanceId);
   const safeConv = sanitizeConversationId(conversationId);
-  return resolve(OA_WORKSPACES_ROOT, instanceId, "conversations", safeConv);
+  return resolve(OA_SANDBOX_ROOT, instanceId, "conversations", safeConv);
 }
 
 /**
