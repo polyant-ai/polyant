@@ -22,6 +22,44 @@ These apply to **every** task below. Copy them into each PR's checklist.
 
 ---
 
+## Environment Setup (REQUIRED on a fresh clone / remote box)
+
+This plan's verification is **local-only**: the PRs target `feat/rbac-epic`, which is not CI-gated (CI runs only for PRs targeting `main`). So the local gates below are the sole verification — they MUST run, which means a working local env and database.
+
+A fresh clone has **no `.env`** (it is gitignored). Before any task, bootstrap one:
+
+- [ ] **Step 0a: Create `.env` from the example with local docker values**
+
+```bash
+cp .env.example .env
+# Local postgres (matches docker-compose defaults) + generated secrets:
+{
+  echo "POSTGRES_HOST=localhost"
+  echo "POSTGRES_PORT=5432"
+  echo "POSTGRES_DB=polyant"
+  echo "POSTGRES_USER=polyant"
+  echo "POSTGRES_PASSWORD=polyant"
+  echo "DATABASE_URL=postgres://polyant:polyant@localhost:5432/polyant"
+  echo "ENCRYPTION_KEY=$(openssl rand -hex 32)"
+  echo "AUTH_SECRET=$(openssl rand -hex 32)"
+  echo "AUTH_INTERNAL_SECRET=$(openssl rand -hex 32)"
+} >> .env
+```
+(Channel/OAuth/S3 secrets stay as `.env.example` placeholders — the rename touches none of them.)
+
+- [ ] **Step 0b: Bring up postgres + install + migrate to current head**
+
+```bash
+docker compose up -d                 # pgvector/pgvector:pg16 on :5432
+until docker compose exec -T postgres pg_isready -U polyant -d polyant; do sleep 2; done
+npm install
+npm run db:migrate -w @polyant/engine   # applies 0001…0052 onto the fresh DB
+```
+
+Only after this baseline is green do the track tasks (which add migration 0053 etc.) make sense. If `docker compose` is unavailable, STOP and report — the DB gates cannot be skipped.
+
+---
+
 ## Ground-Truth Inventory (verified against the codebase 2026-06-21)
 
 The original design §8 predates hooks (0046–48), GDPR opt-out (0049) and RBAC (0050–52), so its table list is **stale**. This is the authoritative OSS list.
