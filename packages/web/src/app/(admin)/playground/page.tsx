@@ -61,12 +61,12 @@ export default function PlaygroundPage() {
 
   const handleSelectConversation = useCallback(
     (conversationId: string) => {
-      // Find the conversation to get the instanceId (slug)
+      // Find the conversation to get the agentId (slug)
       const conv = conversations.find(
         (c) => c.conversationId === conversationId,
       );
       // Pass instanceSlug directly to loadConversation — avoids setInstance resetting state
-      chat.loadConversation(conversationId, conv?.instanceId ?? undefined);
+      chat.loadConversation(conversationId, conv?.agentId ?? undefined);
     },
     [chat, conversations],
   );

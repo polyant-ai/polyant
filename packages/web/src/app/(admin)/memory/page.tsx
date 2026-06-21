@@ -61,7 +61,7 @@ export default function MemoryPage() {
 
   // Fetch instances for filter dropdown
   useEffect(() => {
-    api.instances.list().then(({ instances }) => setInstances(instances)).catch(() => {});
+    api.instances.list().then(({ agents }) => setInstances(agents)).catch(() => {});
   }, []);
 
   // Fetch memories
@@ -75,7 +75,7 @@ export default function MemoryPage() {
     setLoading(true);
     try {
       const result = await api.memories.list({
-        instanceId: instanceFilter,
+        agentId: instanceFilter,
         search: debouncedSearch || undefined,
         category: categoryFilter || undefined,
         limit: PAGE_SIZE,
@@ -105,7 +105,7 @@ export default function MemoryPage() {
     }
   };
 
-  // Map instanceId to instance name
+  // Map agentId to instance name
   const instanceMap = new Map(instances.map((i) => [i.slug, i.name]));
 
   return (

@@ -161,7 +161,7 @@ describe("CreateInstanceDialog", () => {
   it("calls api.instances.create on confirm and navigates to instance page", async () => {
     const user = userEvent.setup();
     const onCreated = vi.fn();
-    createMock.mockResolvedValueOnce({ instance: { slug: "my-bot" } });
+    createMock.mockResolvedValueOnce({ agent: { slug: "my-bot" } });
 
     renderDialog({ onCreated });
 
@@ -181,13 +181,13 @@ describe("CreateInstanceDialog", () => {
 
     await waitFor(() => {
       expect(onCreated).toHaveBeenCalled();
-      expect(pushMock).toHaveBeenCalledWith("/instances/my-bot");
+      expect(pushMock).toHaveBeenCalledWith("/agents/my-bot");
     });
   });
 
   it("omits description from API call when empty", async () => {
     const user = userEvent.setup();
-    createMock.mockResolvedValueOnce({ instance: { slug: "bot" } });
+    createMock.mockResolvedValueOnce({ agent: { slug: "bot" } });
 
     renderDialog();
 

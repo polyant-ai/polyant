@@ -36,7 +36,7 @@ interface NavItemDef {
 
 const overviewDefs: NavItemDef[] = [
   { titleKey: "nav.dashboard", url: "/", icon: LayoutDashboard },
-  { titleKey: "nav.instances", url: "/instances", icon: Bot },
+  { titleKey: "nav.instances", url: "/agents", icon: Bot },
   { titleKey: "nav.conversations", url: "/conversations", icon: MessageSquare },
   { titleKey: "nav.playground", url: "/playground", icon: MessageSquareCode },
   { titleKey: "nav.activity", url: "/activity", icon: Activity },

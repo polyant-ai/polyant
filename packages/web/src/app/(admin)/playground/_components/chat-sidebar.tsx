@@ -104,9 +104,9 @@ export function ChatHistoryDialog({
                   >
                     <p className="text-sm font-medium line-clamp-1">{displayTitle}</p>
                     <div className="mt-1.5 flex items-center gap-2">
-                      {conv.instanceName && (
+                      {conv.agentName && (
                         <Badge variant="secondary" className="h-5 px-1.5 text-[11px]">
-                          {conv.instanceName}
+                          {conv.agentName}
                         </Badge>
                       )}
                       <span className="text-xs text-muted-foreground">

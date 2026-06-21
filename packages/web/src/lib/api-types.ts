@@ -321,8 +321,8 @@ export interface ConversationListItem {
   title: string | null;
   summary: string | null;
   channel: string | null;
-  instanceId: string | null;
-  instanceName: string | null;
+  agentId: string | null;
+  agentName: string | null;
   messageCount: number;
   totalTokens: number;
   totalCost: number;
@@ -404,7 +404,7 @@ export interface MessageDebug {
 
 export interface Memory {
   id: string;
-  instanceId: string;
+  agentId: string;
   content: string;
   category: string;
   importance: number;
@@ -474,7 +474,7 @@ export interface ToolRow {
 }
 
 export interface InstanceComparisonRow {
-  instanceId: string;
+  agentId: string;
   name: string;
   conversations: number;
   cost: number;
@@ -562,7 +562,7 @@ export interface KnowledgeDocumentDetail extends KnowledgeDocument {
 
 export interface AuditLogEntry {
   id: string;
-  instanceId: string;
+  agentId: string;
   conversationId: string | null;
   toolName: string;
   action: string;

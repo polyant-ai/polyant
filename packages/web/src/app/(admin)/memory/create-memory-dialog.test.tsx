@@ -173,7 +173,7 @@ describe("CreateMemoryDialog", () => {
 
     await waitFor(() => {
       expect(createMock).toHaveBeenCalledWith({
-        instanceId: "bot-alpha",
+        agentId: "bot-alpha",
         content: "User likes coffee",
         category: "general",
         importance: 5,

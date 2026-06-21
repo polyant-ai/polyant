@@ -358,7 +358,7 @@ describe("SettingsTab", () => {
     const user = userEvent.setup();
     const instance = makeInstance({ memoryEnabled: false });
     const updatedInstance = makeInstance({ memoryEnabled: true });
-    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+    mockInstanceUpdate.mockResolvedValueOnce({ agent: updatedInstance });
 
     render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
 
@@ -458,7 +458,7 @@ describe("SettingsTab", () => {
     mockSecretsSet.mockResolvedValueOnce({
       secrets: [{ key: "openai_api_key", configured: true }],
     });
-    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+    mockInstanceUpdate.mockResolvedValueOnce({ agent: updatedInstance });
 
     render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
 

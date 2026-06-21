@@ -69,7 +69,7 @@ export interface StreamRequestOptions {
 
 /**
  * Connects to the engine's native typed SSE streaming endpoint
- * (`POST /api/instances/:slug/chat/stream`) and dispatches typed callbacks.
+ * (`POST /api/agents/:slug/chat/stream`) and dispatches typed callbacks.
  *
  * The endpoint emits structured SSE events:
  *   step-start, reasoning-delta, reasoning-signature, reasoning-redacted,
@@ -89,7 +89,7 @@ export async function streamChatCompletion(
   let response: Response;
   try {
     response = await fetch(
-      `${API_BASE}/api/instances/${encodeURIComponent(instanceSlug)}/chat/stream`,
+      `${API_BASE}/api/agents/${encodeURIComponent(instanceSlug)}/chat/stream`,
       {
         method: "POST",
         headers,

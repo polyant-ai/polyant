@@ -105,7 +105,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 function makeMemory(overrides: Partial<Memory> = {}): Memory {
   return {
     id: "mem-1",
-    instanceId: "my-instance",
+    agentId: "my-instance",
     content: "User prefers dark mode",
     category: "preference",
     importance: 7,
@@ -121,7 +121,7 @@ function makeMemory(overrides: Partial<Memory> = {}): Memory {
 describe("MemoryPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockInstancesList.mockResolvedValue({ instances: [] });
+    mockInstancesList.mockResolvedValue({ agents: [] });
     mockMemoriesList.mockResolvedValue({
       memories: [],
       total: 0,

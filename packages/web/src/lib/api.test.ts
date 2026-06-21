@@ -71,7 +71,7 @@ describe("request() via api methods", () => {
   });
 
   it("returns parsed JSON on successful response", async () => {
-    const data = { instances: [{ id: "1", slug: "test" }] };
+    const data = { agents: [{ id: "1", slug: "test" }] };
     mockFetch(mockResponse(data));
 
     const result = await api.instances.list();
@@ -79,7 +79,7 @@ describe("request() via api methods", () => {
   });
 
   it("sets Content-Type: application/json header", async () => {
-    const fetchFn = mockFetch(mockResponse({ instances: [] }));
+    const fetchFn = mockFetch(mockResponse({ agents: [] }));
 
     await api.instances.list();
 
@@ -124,7 +124,7 @@ describe("request() via api methods", () => {
   });
 
   it("merges custom headers with Content-Type", async () => {
-    const fetchFn = mockFetch(mockResponse({ instance: {} }));
+    const fetchFn = mockFetch(mockResponse({ agent: {} }));
 
     // Use a method that supports custom options - we test by calling create
     // which uses POST (the request function spreads headers)
@@ -144,48 +144,48 @@ describe("api.instances", () => {
     vi.restoreAllMocks();
   });
 
-  it("list() calls GET /api/instances", async () => {
-    const fetchFn = mockFetch(mockResponse({ instances: [] }));
+  it("list() calls GET /api/agents", async () => {
+    const fetchFn = mockFetch(mockResponse({ agents: [] }));
 
     await api.instances.list();
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
     const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances`);
+    expect(url).toBe(`${API_BASE}/api/agents`);
     expect(init?.method).toBeUndefined(); // GET is default
   });
 
-  it("create() calls POST /api/instances with JSON body", async () => {
-    const fetchFn = mockFetch(mockResponse({ instance: { id: "1" } }));
+  it("create() calls POST /api/agents with JSON body", async () => {
+    const fetchFn = mockFetch(mockResponse({ agent: { id: "1" } }));
     const payload = { slug: "my-bot", name: "My Bot", description: "A helpful bot" };
 
     await api.instances.create(payload);
 
     const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances`);
+    expect(url).toBe(`${API_BASE}/api/agents`);
     expect(init?.method).toBe("POST");
     expect(JSON.parse(init?.body as string)).toEqual(payload);
   });
 
-  it("update() calls PATCH /api/instances/:slug with JSON body", async () => {
-    const fetchFn = mockFetch(mockResponse({ instance: { id: "1" } }));
+  it("update() calls PATCH /api/agents/:slug with JSON body", async () => {
+    const fetchFn = mockFetch(mockResponse({ agent: { id: "1" } }));
     const payload = { name: "Updated Name", status: "active" };
 
     await api.instances.update("my-bot", payload);
 
     const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances/my-bot`);
+    expect(url).toBe(`${API_BASE}/api/agents/my-bot`);
     expect(init?.method).toBe("PATCH");
     expect(JSON.parse(init?.body as string)).toEqual(payload);
   });
 
-  it("delete() calls DELETE /api/instances/:slug", async () => {
+  it("delete() calls DELETE /api/agents/:slug", async () => {
     const fetchFn = mockFetch(mockResponse({ deleted: true }));
 
     await api.instances.delete("my-bot");
 
     const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances/my-bot`);
+    expect(url).toBe(`${API_BASE}/api/agents/my-bot`);
     expect(init?.method).toBe("DELETE");
   });
 });
@@ -214,7 +214,7 @@ describe("api.conversations", () => {
     );
 
     await api.conversations.list({
-      instanceId: "inst-1",
+      agentId: "inst-1",
       search: "hello",
       limit: 10,
       offset: 5,
@@ -222,45 +222,45 @@ describe("api.conversations", () => {
 
     const [url] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.searchParams.get("instanceId")).toBe("inst-1");
+    expect(parsed.searchParams.get("agentId")).toBe("inst-1");
     expect(parsed.searchParams.get("search")).toBe("hello");
     expect(parsed.searchParams.get("limit")).toBe("10");
     expect(parsed.searchParams.get("offset")).toBe("5");
   });
 
-  it("list() with only instanceId includes only that param", async () => {
+  it("list() with only agentId includes only that param", async () => {
     const fetchFn = mockFetch(
       mockResponse({ conversations: [], total: 0, limit: 20, offset: 0 }),
     );
 
-    await api.conversations.list({ instanceId: "inst-1" });
+    await api.conversations.list({ agentId: "inst-1" });
 
     const [url] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.searchParams.get("instanceId")).toBe("inst-1");
+    expect(parsed.searchParams.get("agentId")).toBe("inst-1");
     expect(parsed.searchParams.has("search")).toBe(false);
     expect(parsed.searchParams.has("limit")).toBe(false);
     expect(parsed.searchParams.has("offset")).toBe(false);
   });
 
-  it("get() encodes conversationId and includes instanceId scope", async () => {
+  it("get() encodes conversationId and includes agentId scope", async () => {
     const fetchFn = mockFetch(mockResponse({ conversation: {} }));
 
     await api.conversations.get("conv/special id", "inst-1");
 
     const [url] = fetchFn.mock.calls[0];
     expect(url).toBe(
-      `${API_BASE}/api/conversations/${encodeURIComponent("conv/special id")}?instanceId=inst-1`,
+      `${API_BASE}/api/conversations/${encodeURIComponent("conv/special id")}?agentId=inst-1`,
     );
   });
 
-  it("delete() calls DELETE with encoded conversationId and instanceId scope", async () => {
+  it("delete() calls DELETE with encoded conversationId and agentId scope", async () => {
     const fetchFn = mockFetch(mockResponse({ deleted: true }));
 
     await api.conversations.delete("conv-123", "inst-1");
 
     const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/conversations/conv-123?instanceId=inst-1`);
+    expect(url).toBe(`${API_BASE}/api/conversations/conv-123?agentId=inst-1`);
     expect(init?.method).toBe("DELETE");
   });
 });
@@ -278,7 +278,7 @@ describe("api.memories", () => {
     );
 
     await api.memories.list({
-      instanceId: "inst-1",
+      agentId: "inst-1",
       search: "rome",
       category: "preference",
       limit: 10,
@@ -287,7 +287,7 @@ describe("api.memories", () => {
 
     const [url] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.searchParams.get("instanceId")).toBe("inst-1");
+    expect(parsed.searchParams.get("agentId")).toBe("inst-1");
     expect(parsed.searchParams.get("search")).toBe("rome");
     expect(parsed.searchParams.get("category")).toBe("preference");
     expect(parsed.searchParams.get("limit")).toBe("10");
@@ -310,7 +310,7 @@ describe("api.memories", () => {
       mockResponse({ memory: { id: "m-1", content: "test", event: "created" } }),
     );
     const payload = {
-      instanceId: "inst-1",
+      agentId: "inst-1",
       content: "User prefers Italian",
       category: "preference",
       importance: 8,
@@ -334,13 +334,13 @@ describe("api.memories", () => {
     expect(init?.method).toBe("DELETE");
   });
 
-  it("deleteAll() calls DELETE /memories with instanceId param", async () => {
+  it("deleteAll() calls DELETE /memories with agentId param", async () => {
     const fetchFn = mockFetch(mockResponse({ deleted: true }));
 
     await api.memories.deleteAll("inst-1");
 
     const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/memories?instanceId=inst-1`);
+    expect(url).toBe(`${API_BASE}/memories?agentId=inst-1`);
     expect(init?.method).toBe("DELETE");
   });
 });
@@ -371,7 +371,7 @@ describe("api.analytics", () => {
 
     const [url] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/instances/my-bot/analytics");
+    expect(parsed.pathname).toBe("/api/agents/my-bot/analytics");
     expect(parsed.searchParams.get("from")).toBe("2026-02-01");
     expect(parsed.searchParams.get("to")).toBe("2026-02-28");
   });

@@ -59,7 +59,7 @@ export function CreateInstanceDialog({ open, onOpenChange, onCreated }: Props) {
   const handleCreate = async () => {
     setCreating(true);
     try {
-      const { instance } = await api.instances.create({
+      const { agent } = await api.instances.create({
         name: name.trim(),
         slug,
         description: description.trim() || undefined,
@@ -67,7 +67,7 @@ export function CreateInstanceDialog({ open, onOpenChange, onCreated }: Props) {
       toast.success(t("instances.create.success"));
       resetForm();
       onCreated();
-      router.push(`/instances/${instance.slug}`);
+      router.push(`/agents/${agent.slug}`);
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("instances.create.error")));
     } finally {

@@ -28,7 +28,7 @@ export function GeneralTab({ instance, onUpdate }: Props) {
 
   const handleIconUpload = useCallback(async (dataUri: string) => {
     try {
-      const { instance: updated } = await api.instances.setIcon(instance.slug, dataUri);
+      const { agent: updated } = await api.instances.setIcon(instance.slug, dataUri);
       setIcon(updated.icon);
       onUpdate(updated);
       toast.success(t("general.iconUploaded"));
@@ -39,7 +39,7 @@ export function GeneralTab({ instance, onUpdate }: Props) {
 
   const handleIconRemove = useCallback(async () => {
     try {
-      const { instance: updated } = await api.instances.deleteIcon(instance.slug);
+      const { agent: updated } = await api.instances.deleteIcon(instance.slug);
       setIcon(updated.icon);
       onUpdate(updated);
       toast.success(t("general.iconRemoved"));
@@ -56,7 +56,7 @@ export function GeneralTab({ instance, onUpdate }: Props) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const { instance: updated } = await api.instances.update(instance.slug, {
+      const { agent: updated } = await api.instances.update(instance.slug, {
         name,
         description: description || null,
         status,

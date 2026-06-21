@@ -61,7 +61,7 @@ export function InstanceComparisonTable({ data }: InstanceComparisonTableProps) 
           </TableHeader>
           <TableBody>
             {data.map((row) => (
-              <TableRow key={row.instanceId}>
+              <TableRow key={row.agentId}>
                 <TableCell className="font-medium">{row.name}</TableCell>
                 <TableCell className="text-right">{row.conversations}</TableCell>
                 <TableCell className="text-right">

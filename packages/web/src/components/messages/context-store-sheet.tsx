@@ -29,10 +29,10 @@ export interface ContextStoreSheetProps {
   onOpenChange: (open: boolean) => void;
   /** Conversation to load state for. Null disables fetching. */
   conversationId: string | null;
-  instanceId: string;
+  agentId: string;
 }
 
-export function ContextStoreSheet({ open, onOpenChange, conversationId, instanceId }: ContextStoreSheetProps) {
+export function ContextStoreSheet({ open, onOpenChange, conversationId, agentId }: ContextStoreSheetProps) {
   const { t } = useI18n();
   const [state, setState] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
@@ -45,7 +45,7 @@ export function ContextStoreSheet({ open, onOpenChange, conversationId, instance
     setError(false);
     setState(null);
     api.conversations
-      .state(conversationId, instanceId)
+      .state(conversationId, agentId)
       .then((res) => {
         if (!cancelled) setState(res.state);
       })
@@ -58,7 +58,7 @@ export function ContextStoreSheet({ open, onOpenChange, conversationId, instance
     return () => {
       cancelled = true;
     };
-  }, [open, conversationId, instanceId]);
+  }, [open, conversationId, agentId]);
 
   const isEmpty = state != null && Object.keys(state).length === 0;
 

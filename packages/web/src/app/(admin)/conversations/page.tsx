@@ -55,7 +55,7 @@ export default function ConversationsPage() {
 
   // Fetch instances for filter dropdown
   useEffect(() => {
-    api.instances.list().then(({ instances }) => setInstances(instances)).catch(() => {});
+    api.instances.list().then(({ agents }) => setInstances(agents)).catch(() => {});
   }, []);
 
   // Fetch conversations
@@ -63,7 +63,7 @@ export default function ConversationsPage() {
     setLoading(true);
     try {
       const result = await api.conversations.list({
-        instanceId: instanceFilter || undefined,
+        agentId: instanceFilter || undefined,
         search: debouncedSearch || undefined,
         limit: PAGE_SIZE,
         offset,
@@ -208,8 +208,8 @@ export default function ConversationsPage() {
                       )}
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
-                      {conv.instanceName ? (
-                        <Badge variant="secondary">{conv.instanceName}</Badge>
+                      {conv.agentName ? (
+                        <Badge variant="secondary">{conv.agentName}</Badge>
                       ) : (
                         <span className="text-muted-foreground">&mdash;</span>
                       )}
