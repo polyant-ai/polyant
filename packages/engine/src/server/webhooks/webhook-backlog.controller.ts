@@ -6,6 +6,7 @@ import { listBacklog, BACKLOG_STATUS } from "../../webhooks/webhook-backlog.stor
 import { listActivity } from "../../room/activity-log.store.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -24,6 +25,7 @@ const activityQuerySchema = paginationSchema.extend({
 
 @Controller("api/instances/:slug/room")
 export class WebhookBacklogController {
+  @RequirePermission(Permission.ROOM_READ)
   @Get("backlog")
   async getBacklog(
     @Param("slug") slug: string,
@@ -46,6 +48,7 @@ export class WebhookBacklogController {
     });
   }
 
+  @RequirePermission(Permission.ROOM_READ)
   @Get("activity")
   async getActivity(
     @Param("slug") slug: string,

@@ -15,6 +15,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import type { Response } from "express";
+import { RequirePermission, Permission } from "../../authz/index.js";
 import {
   listAllInstances,
   findInstanceBySlug,
@@ -42,6 +43,14 @@ import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import {
+  createManagementAuditLogger,
+  ManagementAuditAction,
+  ManagementAuditTarget,
+  toManagementAuditActor,
+} from "../../management-audit/management-audit-logger.js";
 
 /**
  * Explicit response DTO — never return the raw Drizzle entity so schema additions
@@ -97,7 +106,10 @@ function parseDataUri(dataUri: string): { contentType: string; body: Buffer } | 
 
 @Controller("api/instances")
 export class InstancesController {
+  private readonly auditLogger = createManagementAuditLogger();
+
   // GET /api/instances — list all instances
+  @RequirePermission(Permission.AGENT_READ)
   @Get()
   async list() {
     const all = await listAllInstances();
@@ -105,6 +117,7 @@ export class InstancesController {
   }
 
   // GET /api/instances/models — list available providers and models
+  @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
     const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; supportsThinking: boolean }[] }> = {};
@@ -126,6 +139,7 @@ export class InstancesController {
   }
 
   // GET /api/instances/:slug — get by slug
+  @RequirePermission(Permission.AGENT_READ)
   @Get(":slug")
   async getBySlug(@Param("slug") slug: string) {
     this.validateSlug(slug);
@@ -141,6 +155,7 @@ export class InstancesController {
 
   // GET /api/instances/:slug/icon — serve the icon binary
   // Separated from the JSON DTO so list/detail responses stay small (#85 follow-up).
+  @RequirePermission(Permission.AGENT_READ)
   @Get(":slug/icon")
   async getIcon(@Param("slug") slug: string, @Res() res: Response): Promise<void> {
     this.validateSlug(slug);
@@ -159,8 +174,12 @@ export class InstancesController {
   }
 
   // POST /api/instances — create
+  @RequirePermission(Permission.AGENT_WRITE)
   @Post()
-  async create(@Body() body: { slug: string; name: string; description?: string; provider?: string; model?: string }) {
+  async create(
+    @Body() body: { slug: string; name: string; description?: string; provider?: string; model?: string },
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
     this.validateSlug(body.slug);
     this.validateModelConfig(body.provider, body.model);
     // Rely on the DB unique constraint as the authoritative duplicate check.
@@ -180,10 +199,18 @@ export class InstancesController {
     await seedInstanceTools(instance.id);
     await seedInstanceSkills(instance.id);
 
+    this.auditLogger.log({
+      action: ManagementAuditAction.AgentCreate,
+      actor: toManagementAuditActor(user),
+      targetType: ManagementAuditTarget.Agent,
+      targetId: instance.slug,
+    });
+
     return { instance: toInstanceDto(instance) };
   }
 
   // PATCH /api/instances/:slug — update
+  @RequirePermission(Permission.AGENT_WRITE)
   @Patch(":slug")
   async update(
     @Param("slug") slug: string,
@@ -273,8 +300,9 @@ export class InstancesController {
   }
 
   // DELETE /api/instances/:slug — delete
+  @RequirePermission(Permission.AGENT_DELETE)
   @Delete(":slug")
-  async remove(@Param("slug") slug: string) {
+  async remove(@Param("slug") slug: string, @CurrentUser() user?: AuthenticatedUser) {
     this.validateSlug(slug);
     // Stop running channel adapters BEFORE the DB row is removed. Otherwise
     // Telegram long-pollers and Slack socket workers keep calling
@@ -290,6 +318,12 @@ export class InstancesController {
     }
     const deleted = await deleteInstance(asInstanceSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
+    this.auditLogger.log({
+      action: ManagementAuditAction.AgentDelete,
+      actor: toManagementAuditActor(user),
+      targetType: ManagementAuditTarget.Agent,
+      targetId: slug,
+    });
     // deleteInstance() runs in a transaction: it explicitly removes operational
     // data keyed by slug (conversations, messages, memories, knowledge base,
     // scheduled tasks); the DB CASCADE removes config (prompts, tools, skills,
@@ -298,6 +332,7 @@ export class InstancesController {
   }
 
   // PUT /api/instances/:slug/icon — set icon
+  @RequirePermission(Permission.AGENT_WRITE)
   @Put(":slug/icon")
   async setIcon(@Param("slug") slug: string, @Body() body: { icon: string }) {
     this.validateSlug(slug);
@@ -309,6 +344,7 @@ export class InstancesController {
   }
 
   // DELETE /api/instances/:slug/icon — remove icon
+  @RequirePermission(Permission.AGENT_WRITE)
   @Delete(":slug/icon")
   async removeIcon(@Param("slug") slug: string) {
     this.validateSlug(slug);

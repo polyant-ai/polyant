@@ -12,6 +12,7 @@ import {
   createEventSourceSchema, updateEventSourceSchema,
   createDefinitionSchema, updateDefinitionSchema,
 } from "../../webhooks/webhook.validators.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 function buildWebhookUrl(token: string): string {
   const base = config.server.baseUrl ?? `http://localhost:${config.server.port}`;
@@ -20,6 +21,7 @@ function buildWebhookUrl(token: string): string {
 
 @Controller("api/instances/:slug/event-sources")
 export class EventSourcesController {
+  @RequirePermission(Permission.ROOM_READ)
   @Get()
   async list(@Param("slug") slug: string) {
     const sources = await listEventSourcesWithDefinitions(asInstanceSlug(slug));
@@ -32,6 +34,7 @@ export class EventSourcesController {
     }));
   }
 
+  @RequirePermission(Permission.ROOM_WRITE)
   @Post()
   async create(
     @Param("slug") slug: string,
@@ -52,6 +55,7 @@ export class EventSourcesController {
     };
   }
 
+  @RequirePermission(Permission.ROOM_WRITE)
   @Put(":id")
   async update(
     @Param("slug") slug: string,
@@ -79,6 +83,7 @@ export class EventSourcesController {
     return { success: true };
   }
 
+  @RequirePermission(Permission.ROOM_WRITE)
   @Delete(":id")
   async remove(
     @Param("slug") slug: string,
@@ -91,6 +96,7 @@ export class EventSourcesController {
     return { deleted: true };
   }
 
+  @RequirePermission(Permission.ROOM_WRITE)
   @Post(":id/rotate-token")
   async rotate(
     @Param("slug") slug: string,
@@ -106,6 +112,7 @@ export class EventSourcesController {
     };
   }
 
+  @RequirePermission(Permission.ROOM_READ)
   @Get(":id/definitions")
   async listDefs(
     @Param("slug") slug: string,
@@ -117,6 +124,7 @@ export class EventSourcesController {
     return listDefinitions(id, instanceId);
   }
 
+  @RequirePermission(Permission.ROOM_WRITE)
   @Post(":id/definitions")
   async createDef(
     @Param("slug") slug: string,
@@ -134,6 +142,7 @@ export class EventSourcesController {
     return createDefinition(id, instanceId, parsed.data);
   }
 
+  @RequirePermission(Permission.ROOM_WRITE)
   @Put(":id/definitions/:defId")
   async updateDef(
     @Param("slug") slug: string,
@@ -153,6 +162,7 @@ export class EventSourcesController {
     return { success: true };
   }
 
+  @RequirePermission(Permission.ROOM_WRITE)
   @Delete(":id/definitions/:defId")
   async removeDef(
     @Param("slug") slug: string,

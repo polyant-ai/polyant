@@ -4,6 +4,9 @@ import { Controller, Get, Post, Delete, Param, Query, Body, BadRequestException,
 import { searchMemories, deleteAllMemories, upsertMemory, deleteMemoryForInstance } from "../../memory/memory-store.js";
 import { embedMany, resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
 import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
+import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 function requireInstanceId(instanceId: string | undefined): InstanceSlug {
   const trimmed = instanceId?.trim();
@@ -13,6 +16,7 @@ function requireInstanceId(instanceId: string | undefined): InstanceSlug {
 
 @Controller("memories")
 export class MemoriesController {
+  @RequirePermission(Permission.MEMORY_READ)
   @Get()
   async listAll(
     @Query("instanceId") instanceId?: string,
@@ -20,12 +24,13 @@ export class MemoriesController {
     @Query("category") category?: string,
     @Query("limit") limitStr?: string,
     @Query("offset") offsetStr?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
     const limit = Math.min(Math.max(limitStr ? Number(limitStr) || 20 : 20, 1), 100);
     const offset = Math.max(offsetStr ? Number(offsetStr) || 0 : 0, 0);
 
-    const result = await searchMemories(uid, { search, category, limit, offset });
+    const result = await searchMemories(uid, { search, category, limit, offset, orgId: user?.orgId });
     return {
       total: result.total,
       limit,
@@ -43,6 +48,7 @@ export class MemoriesController {
     };
   }
 
+  @RequirePermission(Permission.MEMORY_WRITE)
   @Post()
   async create(
     @Body() body: { instanceId?: string; content: string; category?: string; importance?: number },
@@ -69,18 +75,27 @@ export class MemoriesController {
     return { memory: result };
   }
 
+  @RequirePermission(Permission.MEMORY_WRITE)
   @Delete(":id")
-  async remove(@Param("id") id: string, @Query("instanceId") instanceId?: string) {
+  async remove(
+    @Param("id") id: string,
+    @Query("instanceId") instanceId?: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
     const uid = requireInstanceId(instanceId);
-    const deleted = await deleteMemoryForInstance(id, uid);
+    const deleted = await deleteMemoryForInstance(id, uid, user?.orgId);
     if (!deleted) throw new NotFoundException(`Memory "${id}" not found`);
     return { deleted: true };
   }
 
+  @RequirePermission(Permission.MEMORY_WRITE)
   @Delete()
-  async removeAll(@Query("instanceId") instanceId?: string) {
+  async removeAll(
+    @Query("instanceId") instanceId?: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
     const uid = requireInstanceId(instanceId);
-    await deleteAllMemories(uid);
+    await deleteAllMemories(uid, user?.orgId);
     return { deleted: true };
   }
 }

@@ -7,9 +7,11 @@ import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 
 import { upsertRoomSchema } from "../../room/room.validators.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 @Controller("api/instances/:slug/room")
 export class RoomController {
+  @RequirePermission(Permission.ROOM_READ)
   @Get()
   async getRoom(@Param("slug") slug: string) {
     const room = await getRoomBySlug(asInstanceSlug(slug));
@@ -19,6 +21,7 @@ export class RoomController {
     return { configured: true, ...room, pendingEventCount: pendingCount };
   }
 
+  @RequirePermission(Permission.ROOM_WRITE)
   @Put()
   async upsertRoomConfig(
     @Param("slug") slug: string,
@@ -36,6 +39,7 @@ export class RoomController {
     return { success: true };
   }
 
+  @RequirePermission(Permission.ROOM_WRITE)
   @Delete()
   async deleteRoomConfig(@Param("slug") slug: string) {
     const instanceId = await resolveInstanceId(asInstanceSlug(slug));

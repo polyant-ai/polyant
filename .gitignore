@@ -44,3 +44,10 @@ infra/cdk.out/
 infra/cdk.context.json
 infra/node_modules/
 infra/dist/
+
+# Playwright E2E (packages/web)
+packages/web/test-results/
+packages/web/playwright-report/
+packages/web/.playwright/
+packages/web/blob-report/
+packages/web/.next-e2e/

@@ -121,29 +121,21 @@ export const authConfig = {
   providers: buildProviders(),
   session: {
     strategy: "jwt",
+    // 24h (was the Auth.js 30d default). A shorter TTL bounds the window in
+    // which a stale identity claim (e.g. revoked membership / platform-admin)
+    // survives in the JWT, since JWT sessions have no immediate server-side
+    // revocation.
+    maxAge: 24 * 60 * 60,
   },
   pages: {
     signIn: "/login",
   },
   callbacks: {
-    signIn({ account, profile }) {
-      // Optional domain allowlist: set AUTH_ALLOWED_DOMAINS to a comma-separated
-      // list (e.g. "mycompany.com,partner.com") to restrict Google sign-in to
-      // users whose email ends with one of those domains. Leave unset to allow
-      // any Google account. Credentials login bypasses this check.
-      if (account?.provider === "google") {
-        const allowList = (process.env.AUTH_ALLOWED_DOMAINS ?? "")
-          .split(",")
-          .map((d) => d.trim().toLowerCase())
-          .filter(Boolean);
-        if (allowList.length > 0) {
-          const email = (profile?.email ?? "").toLowerCase();
-          const allowed = allowList.some((domain) => email.endsWith(`@${domain}`));
-          if (!allowed) return false;
-        }
-      }
-      return true;
-    },
+    // NOTE: the per-org sign-in domain allowlist (RBAC Stream 8) lives in the
+    // Node `auth.ts` `signIn` callback, NOT here. This Edge config runs in the
+    // Edge Runtime (middleware) where reading allowlist env + onboarding logic
+    // belongs in the Node runtime. `auth.ts` overrides `signIn` with the
+    // authoritative check; this file intentionally omits it.
     jwt({ token, user, trigger, session }) {
       // `user` is only present on the first call (right after sign-in).
       // We snapshot id, role, mustChangePassword into the token so subsequent
@@ -186,6 +178,9 @@ export const authConfig = {
         (session.user as { role?: string }).role = (token.role as string) ?? "user";
         (session.user as { mustChangePassword?: boolean }).mustChangePassword =
           token.mustChangePassword === true;
+        // Surface the resolved org so server components / API proxying can read
+        // it. Stamped into the token by the Node-side jwt callback (auth.ts).
+        session.user.orgId = token.orgId;
       }
       return session;
     },

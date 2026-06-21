@@ -61,7 +61,7 @@ If you run Polyant in production, please review:
 - [ ] Strong randomly-generated `ENCRYPTION_KEY` (32 bytes, hex-encoded) — lost key = lost instance secrets
 - [ ] Strong randomly-generated `AUTH_SECRET` — rotating this invalidates all existing sessions
 - [ ] `AUTH_TRUST_HOST=true` only when behind a trusted reverse proxy
-- [ ] `AUTH_ALLOWED_DOMAINS` set to restrict sign-in to your organization's domain
+- [ ] `AUTH_ALLOWED_DOMAIN` set to restrict sign-in to your organization's domain (legacy `AUTH_ALLOWED_DOMAINS` still honoured)
 - [ ] PostgreSQL not exposed to the public internet
 - [ ] HTTPS terminated at the edge (Render / Fly.io / Cloudflare / your reverse proxy)
 - [ ] Regular `npm audit` on the lockfile; Dependabot enabled

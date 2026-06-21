@@ -27,8 +27,20 @@ const eslintConfig = [
   },
   {
     // next-env.d.ts is a Next.js generated file (triple-slash refs, not meant to
-    // be edited) — exclude it from lint.
-    ignores: [".next/", "node_modules/", "dist/", "out/", "next-env.d.ts"],
+    // be edited) — exclude it from lint. The e2e harness (Playwright/Node, not
+    // React/Next) has its own tsconfig and is linted separately if at all.
+    ignores: [
+      ".next/",
+      ".next-e2e/",
+      "node_modules/",
+      "dist/",
+      "out/",
+      "next-env.d.ts",
+      "e2e/",
+      "playwright.config.ts",
+      "test-results/",
+      "playwright-report/",
+    ],
   },
 ];
 
