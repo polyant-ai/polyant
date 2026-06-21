@@ -12,7 +12,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { collectEnabledToolSecrets, attachReadableValues } from "./instance-tools.secrets-view.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-@Controller(["api/agents", "api/instances"])
+@Controller("api/agents")
 export class InstanceToolsController {
   @RequirePermission(Permission.TOOL_READ)
   @Get(":slug/tools/required-secrets")

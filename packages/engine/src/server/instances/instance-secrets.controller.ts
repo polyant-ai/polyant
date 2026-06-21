@@ -32,7 +32,7 @@ const PutSecretsSchema = z.object({
     .max(64),
 });
 
-@Controller(["api/agents", "api/instances"])
+@Controller("api/agents")
 export class InstanceSecretsController {
   private readonly auditLogger = createManagementAuditLogger();
 

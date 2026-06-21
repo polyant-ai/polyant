@@ -24,8 +24,6 @@ const nextConfig: NextConfig = {
     return [
       // Proxy engine API calls — forwards cookies (including Auth.js session token)
       { source: "/api/agents/:path*", destination: `${ENGINE_URL}/api/agents/:path*` },
-      // Deprecated alias — remove in the alias-removal PR once no client calls it.
-      { source: "/api/instances/:path*", destination: `${ENGINE_URL}/api/instances/:path*` },
       { source: "/api/organizations/:path*", destination: `${ENGINE_URL}/api/organizations/:path*` },
       { source: "/api/conversations/:path*", destination: `${ENGINE_URL}/api/conversations/:path*` },
       { source: "/api/analytics/:path*", destination: `${ENGINE_URL}/api/analytics/:path*` },

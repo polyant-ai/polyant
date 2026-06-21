@@ -9,7 +9,7 @@ import { asAgentSlug } from "../../instances/identifiers.js";
 import { upsertRoomSchema } from "../../room/room.validators.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-@Controller(["api/agents/:slug/room", "api/instances/:slug/room"])
+@Controller("api/agents/:slug/room")
 export class RoomController {
   @RequirePermission(Permission.ROOM_READ)
   @Get()

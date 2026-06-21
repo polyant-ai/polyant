@@ -18,7 +18,7 @@ import { findInstanceBySlug } from "../instances/store.js";
 import { asAgentSlug } from "../instances/identifiers.js";
 import { errMsg } from "../utils/error.js";
 
-@Controller(["api/agents/:slug/skills", "api/instances/:slug/skills"])
+@Controller("api/agents/:slug/skills")
 export class InstanceSkillsController {
   @Get()
   async list(@Param("slug") slug: string) {

@@ -104,7 +104,7 @@ function parseDataUri(dataUri: string): { contentType: string; body: Buffer } | 
   }
 }
 
-@Controller(["api/agents", "api/instances"])
+@Controller("api/agents")
 export class InstancesController {
   private readonly auditLogger = createManagementAuditLogger();
 

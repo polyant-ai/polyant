@@ -21,7 +21,7 @@ import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
 import type { ScheduleConfig, RunStatus } from "../../scheduled-tasks/schema.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-@Controller(["api/agents", "api/instances"])
+@Controller("api/agents")
 export class InstanceScheduledTasksController {
   @RequirePermission(Permission.TASK_READ)
   @Get(":slug/scheduled-tasks")

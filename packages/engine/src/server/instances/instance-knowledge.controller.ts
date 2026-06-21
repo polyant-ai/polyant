@@ -57,7 +57,7 @@ const importBundleSchema = z.object({
     .min(1),
 });
 
-@Controller(["api/agents/:slug/knowledge", "api/instances/:slug/knowledge"])
+@Controller("api/agents/:slug/knowledge")
 export class InstanceKnowledgeController {
   /** GET /api/agents/:slug/knowledge — list documents (no rawContent) */
   @RequirePermission(Permission.KNOWLEDGE_READ)

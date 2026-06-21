@@ -19,7 +19,7 @@ function buildWebhookUrl(token: string): string {
   return `${base}/webhooks/${token}`;
 }
 
-@Controller(["api/agents/:slug/event-sources", "api/instances/:slug/event-sources"])
+@Controller("api/agents/:slug/event-sources")
 export class EventSourcesController {
   @RequirePermission(Permission.ROOM_READ)
   @Get()

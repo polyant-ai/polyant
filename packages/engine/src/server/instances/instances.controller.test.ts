@@ -331,15 +331,13 @@ describe("InstancesController", () => {
   });
 });
 
-describe("InstancesController dual-prefix back-compat", () => {
-  it("serves on both /api/agents and the deprecated /api/agents alias", () => {
+describe("InstancesController canonical prefix", () => {
+  it("serves only on /api/agents — the deprecated /api/instances alias is gone", () => {
     const path = Reflect.getMetadata(PATH_METADATA, InstancesController) as
       | string
       | string[];
-    expect(Array.isArray(path)).toBe(true);
-    expect(path).toContain("api/agents");
-    expect(path).toContain("api/instances");
-    // agents is the canonical prefix (listed first); instances is the alias.
-    expect((path as string[])[0]).toBe("api/agents");
+    // Single canonical prefix after alias removal.
+    expect(path).toBe("api/agents");
+    expect(JSON.stringify(path)).not.toContain("api/instances");
   });
 });

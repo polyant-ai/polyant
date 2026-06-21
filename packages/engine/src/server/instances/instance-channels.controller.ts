@@ -19,7 +19,7 @@ import { findInstanceOrFail, maskSensitiveConfig } from "./instance-helpers.js";
 import { asAgentSlug } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-@Controller(["api/agents", "api/instances"])
+@Controller("api/agents")
 export class InstanceChannelsController {
   @RequirePermission(Permission.CHANNEL_READ)
   @Get(":slug/channels")

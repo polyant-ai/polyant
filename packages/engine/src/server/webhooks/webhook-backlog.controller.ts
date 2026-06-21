@@ -23,7 +23,7 @@ const activityQuerySchema = paginationSchema.extend({
   logType: z.enum(activityLogTypes).optional(),
 });
 
-@Controller(["api/agents/:slug/room", "api/instances/:slug/room"])
+@Controller("api/agents/:slug/room")
 export class WebhookBacklogController {
   @RequirePermission(Permission.ROOM_READ)
   @Get("backlog")

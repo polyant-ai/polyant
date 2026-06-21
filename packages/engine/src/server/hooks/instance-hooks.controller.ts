@@ -29,7 +29,7 @@ import { RequirePermission, Permission } from "../../authz/index.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-@Controller(["api/agents/:slug/hooks", "api/instances/:slug/hooks"])
+@Controller("api/agents/:slug/hooks")
 export class InstanceHooksController {
   @RequirePermission(Permission.GOVERNANCE_READ)
   @Get()
