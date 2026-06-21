@@ -18,7 +18,7 @@ export const scheduledTasks = pgTable(
   "scheduled_tasks",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: text("instance_id").notNull(),
+    instanceId: text("agent_id").notNull(),
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description"),
     enabled: boolean("enabled").notNull().default(true),
@@ -84,7 +84,7 @@ export const scheduledTaskRuns = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     taskId: uuid("task_id").notNull().references(() => scheduledTasks.id, { onDelete: "cascade" }),
-    instanceId: text("instance_id").notNull(),
+    instanceId: text("agent_id").notNull(),
     status: varchar("status", { length: 20 }).$type<RunStatus>().notNull(),
     triggerType: varchar("trigger_type", { length: 20 }).$type<TriggerType>().notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),

@@ -35,11 +35,11 @@ export async function insertEvent(
   rawPayload: Record<string, unknown>,
 ): Promise<string | null> {
   const rows = await db.execute<{ id: string }>(sql`
-    INSERT INTO event_backlog (instance_id, event_definition_id, raw_payload)
+    INSERT INTO event_backlog (agent_id, event_definition_id, raw_payload)
     SELECT ${instanceId}, ${eventDefinitionId}, ${JSON.stringify(rawPayload)}::jsonb
     WHERE (
       SELECT count(*) FROM event_backlog
-      WHERE instance_id = ${instanceId} AND status = 'pending'
+      WHERE agent_id = ${instanceId} AND status = 'pending'
     ) < ${BACKLOG_CAP}
     RETURNING id
   `);

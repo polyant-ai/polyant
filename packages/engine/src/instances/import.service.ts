@@ -116,7 +116,7 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
     warnings.push(...esWarnings);
 
     // 9. Import scheduled tasks
-    // NB: scheduled_tasks.instance_id is the SLUG, not the UUID — see the
+    // NB: scheduled_tasks.agent_id is the SLUG, not the UUID — see the
     // export service for the rationale.
     if (data.scheduledTasks && data.scheduledTasks.length > 0) {
       await importScheduledTasks(tx, slug, data.scheduledTasks);
@@ -235,7 +235,7 @@ export async function importOverwriteInstance(
     warnings.push(...esWarnings);
 
     // 9. Replace scheduled tasks
-    // NB: scheduled_tasks.instance_id is the SLUG, not the UUID — see the
+    // NB: scheduled_tasks.agent_id is the SLUG, not the UUID — see the
     // export service for the rationale.
     await tx.delete(scheduledTasks).where(eq(scheduledTasks.instanceId, targetSlug));
     if (data.scheduledTasks && data.scheduledTasks.length > 0) {

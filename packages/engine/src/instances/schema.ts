@@ -3,7 +3,7 @@
 import { pgTable, uuid, varchar, text, timestamp, boolean, jsonb, integer } from "drizzle-orm/pg-core";
 import { workspaces } from "../organizations/organization.schema.js";
 
-export const instances = pgTable("instances", {
+export const instances = pgTable("agents", {
   id: uuid("id").primaryKey().defaultRandom(),
   slug: varchar("slug", { length: 100 }).notNull().unique(),
   name: varchar("name", { length: 255 }).notNull(),

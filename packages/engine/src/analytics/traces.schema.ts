@@ -14,7 +14,7 @@ export const pipelineTraces = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     conversationId: text("conversation_id").notNull(),
     messageId: uuid("message_id"),
-    instanceId: text("instance_id").notNull(),
+    instanceId: text("agent_id").notNull(),
     channel: text("channel").notNull(),
     contextPrepMs: integer("context_prep_ms"),
     toolBuildingMs: integer("tool_building_ms"),

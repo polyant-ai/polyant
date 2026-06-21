@@ -231,14 +231,14 @@ export async function updateInstance(
  * `text` columns with no FK to `instances`, so the DB cascade never reaches it —
  * it must be deleted explicitly here. Config/lifecycle tables (secrets, channels,
  * prompts, tools, skills, room, webhooks) use a `uuid` FK with ON DELETE CASCADE
- * and are cleaned up automatically by the final `DELETE FROM instances`.
+ * and are cleaned up automatically by the final `DELETE FROM agents`.
  *
  * Audit/telemetry (`tool_audit_logs`, `pipeline_traces`, `ai_logs`) is
  * INTENTIONALLY PRESERVED as a historical record and is left untouched.
  */
 export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
   return db.transaction(async (tx) => {
-    // conversation_messages has no instance_id — delete via the instance's conversations.
+    // conversation_messages has no agent_id — delete via the instance's conversations.
     const convRows = await tx
       .select({ conversationId: conversations.conversationId })
       .from(conversations)

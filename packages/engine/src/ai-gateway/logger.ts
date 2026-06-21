@@ -20,7 +20,7 @@ export const aiLogs = pgTable(
     reasoningChars: integer("reasoning_chars").notNull().default(0),
     stepCount: integer("step_count").notNull().default(0),
     conversationId: text("conversation_id"),
-    instanceId: text("instance_id"),
+    instanceId: text("agent_id"),
     callType: text("call_type").notNull().default("conversation"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },

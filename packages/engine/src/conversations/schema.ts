@@ -9,7 +9,7 @@ export const conversations = pgTable(
     conversationId: text("conversation_id").notNull().unique(),
     summary: text("summary"),
     title: text("title"),
-    instanceId: text("instance_id"),
+    instanceId: text("agent_id"),
     channel: text("channel").default("web"),
     source: text("source").default("user"),
     userIdentifier: text("user_identifier"),
@@ -136,7 +136,7 @@ export const conversationState = pgTable(
   {
     scope: text("scope").notNull().default("conversation"),
     scopeKey: text("scope_key").notNull(),
-    instanceId: text("instance_id"),
+    instanceId: text("agent_id"),
     data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

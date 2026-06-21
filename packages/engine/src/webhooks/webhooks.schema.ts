@@ -7,7 +7,7 @@ export const eventSources = pgTable(
   "event_sources",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    instanceId: uuid("agent_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 255 }).notNull(),
     sourceType: varchar("source_type", { length: 50 }).notNull(),
     config: text("config").notNull(),
@@ -47,7 +47,7 @@ export const eventBacklog = pgTable(
   "event_backlog",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    instanceId: uuid("agent_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
     eventDefinitionId: uuid("event_definition_id").notNull().references(() => eventDefinitions.id, { onDelete: "cascade" }),
     rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>().notNull(),
     matchedAt: timestamp("matched_at", { withTimezone: true }).notNull().defaultNow(),

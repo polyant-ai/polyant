@@ -25,7 +25,7 @@ export const knowledgeDocuments = pgTable(
   "knowledge_documents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: text("instance_id").notNull(),
+    instanceId: text("agent_id").notNull(),
     filename: text("filename").notNull(),
     mimeType: text("mime_type").notNull(),
     sizeBytes: integer("size_bytes").notNull().default(0),
@@ -51,7 +51,7 @@ export const knowledgeChunks = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     documentId: uuid("document_id").notNull(),
-    instanceId: text("instance_id").notNull(),
+    instanceId: text("agent_id").notNull(),
     content: text("content").notNull(),
     embedding: vector("embedding", { dimensions: 1536 }),
     embedding1024: vector("embedding_1024", { dimensions: 1024 }),

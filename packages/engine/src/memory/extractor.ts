@@ -107,7 +107,7 @@ export async function extractMemories(
   // 6. Upsert each memory sequentially (with deduplication via cosine similarity).
   //    Sequential — not Promise.all — to avoid SERIALIZABLE serialization_failure
   //    (40001) on the predicate scan inside `upsertMemory`. Two concurrent
-  //    transactions reading the same `WHERE instance_id=$1` predicate range get
+  //    transactions reading the same `WHERE agent_id=$1` predicate range get
   //    flagged as a r/w pivot by Postgres and aborted; even with retries+jitter
   //    they re-collide. Sequential upsert costs ~10-30 ms more in a fire-and-forget
   //    path that doesn't block the user-facing response, in exchange for zero

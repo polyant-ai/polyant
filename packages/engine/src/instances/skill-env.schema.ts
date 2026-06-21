@@ -7,10 +7,10 @@ import { instances } from "./schema.js";
 // Must populate `skills` table before adding FK constraint, otherwise
 // existing rows in instance_skill_env will violate the FK.
 export const instanceSkillEnv = pgTable(
-  "instance_skill_env",
+  "agent_skill_env",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    instanceId: uuid("agent_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
     skillSlug: varchar("skill_slug", { length: 100 }).notNull(),
     key: varchar("key", { length: 255 }).notNull(),
     value: text("value").notNull(),

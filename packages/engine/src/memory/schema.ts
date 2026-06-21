@@ -16,7 +16,7 @@ export const memories = pgTable(
   "memories",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: text("instance_id").notNull(),
+    instanceId: text("agent_id").notNull(),
     content: text("content").notNull(),
     category: text("category").notNull().default("general"),
     importance: integer("importance").notNull().default(5),

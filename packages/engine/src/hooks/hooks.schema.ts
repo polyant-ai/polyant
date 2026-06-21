@@ -10,10 +10,10 @@ import type { HookActionConfig } from "./hook-types.js";
  * docs/superpowers/specs/2026-06-10-hook-system-design.md.
  */
 export const instanceHooks = pgTable(
-  "instance_hooks",
+  "agent_hooks",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    instanceId: uuid("agent_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
     event: varchar("event", { length: 32 }).notNull(),
     actionType: varchar("action_type", { length: 32 }).notNull().default("tool"),
     actionConfig: jsonb("action_config").$type<HookActionConfig>().notNull(),
@@ -38,7 +38,7 @@ export const hookExecutions = pgTable(
   "hook_executions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: text("instance_id").notNull(),
+    instanceId: text("agent_id").notNull(),
     conversationId: text("conversation_id").notNull(),
     /** The instance_hooks row that fired — intentionally NOT a FK (history outlives the hook). */
     hookId: uuid("hook_id").notNull(),

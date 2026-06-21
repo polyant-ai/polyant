@@ -6,7 +6,7 @@ export const toolAuditLogs = pgTable(
   "tool_audit_logs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: text("instance_id").notNull(),
+    instanceId: text("agent_id").notNull(),
     conversationId: text("conversation_id"),
     toolName: varchar("tool_name", { length: 100 }).notNull(),
     action: varchar("action", { length: 100 }).notNull(),

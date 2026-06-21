@@ -5,10 +5,10 @@ import { instances } from "./schema.js";
 import { skills, skillVersions } from "../skills/schema.js";
 
 export const instanceSkills = pgTable(
-  "instance_skills",
+  "agent_skills",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id")
+    instanceId: uuid("agent_id")
       .notNull()
       .references(() => instances.id, { onDelete: "cascade" }),
     skillId: uuid("skill_id")

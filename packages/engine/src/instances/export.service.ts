@@ -63,7 +63,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     exportSkillEnv(instance.id),
     getRoomByInstanceId(instance.id),
     listEventSourcesWithDefinitions(instance.slug),
-    // scheduled_tasks.instance_id is stored as the SLUG (text column, not
+    // scheduled_tasks.agent_id is stored as the SLUG (text column, not
     // a UUID FK) — every other caller in the system (controller, scheduler,
     // schedule-task tool) reads/writes it as the slug. The export must
     // match or it would always return an empty array.

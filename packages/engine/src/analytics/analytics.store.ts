@@ -94,7 +94,7 @@ async function getOverviewStats(
 ): Promise<OverviewStats> {
   const instFilter = instanceFilter(instanceId);
   const orgInst = buildOrgScopedAgentFilterFragment(orgId);
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.agent_id");
 
   // Current period — ai_logs
   const [aiStats] = asRows<{
@@ -120,7 +120,7 @@ async function getOverviewStats(
   );
 
   // Current period — conversations
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
+  const convFilter = instanceFilter(instanceId, "c.agent_id");
   const [convStats] = asRows<{
     total_conversations: number;
     total_messages: number;
@@ -210,9 +210,9 @@ async function getDailyTrend(
   orgId?: string,
 ): Promise<DailyTrendRow[]> {
   const instFilter = instanceFilter(instanceId);
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
+  const convFilter = instanceFilter(instanceId, "c.agent_id");
   const orgInst = buildOrgScopedAgentFilterFragment(orgId);
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.agent_id");
 
   const rows = asRows<{
     date: string;
@@ -283,8 +283,8 @@ async function getHourlyDistribution(
   instanceId?: InstanceSlug,
   orgId?: string,
 ): Promise<HourlyRow[]> {
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const convFilter = instanceFilter(instanceId, "c.agent_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.agent_id");
 
   const rows = asRows<{ hour: number; count: number }>(
     await db.execute(sql`
@@ -316,8 +316,8 @@ async function getChannelDistribution(
   instanceId?: InstanceSlug,
   orgId?: string,
 ): Promise<ChannelRow[]> {
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const convFilter = instanceFilter(instanceId, "c.agent_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.agent_id");
 
   return asRows<ChannelRow>(
     await db.execute(sql`
@@ -414,8 +414,8 @@ async function getToolUsage(
   instanceId?: InstanceSlug,
   orgId?: string,
 ): Promise<ToolRow[]> {
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const convFilter = instanceFilter(instanceId, "c.agent_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.agent_id");
 
   // NOTE: migration 0038 renamed conversation_messages.tool_calls -> steps and
   // changed the shape from `[{toolName, args, result}]` to `StepDetail[]` where
@@ -449,9 +449,9 @@ async function getInstanceComparison(
   range: DateRange,
   orgId?: string,
 ): Promise<InstanceComparisonRow[]> {
-  const orgInst = buildOrgScopedAgentFilterFragment(orgId, "al.instance_id");
+  const orgInst = buildOrgScopedAgentFilterFragment(orgId, "al.agent_id");
   return asRows<{
-    instance_id: string;
+    agent_id: string;
     name: string;
     conversations: number;
     cost: number;
@@ -459,21 +459,21 @@ async function getInstanceComparison(
   }>(
     await db.execute(sql`
       SELECT
-        al.instance_id,
-        COALESCE(i.name, al.instance_id) AS name,
+        al.agent_id,
+        COALESCE(i.name, al.agent_id) AS name,
         COUNT(DISTINCT al.conversation_id)::int AS conversations,
         COALESCE(SUM(al.estimated_cost_usd), 0)::float AS cost,
         COALESCE(SUM(al.total_tokens), 0)::int AS tokens
       FROM ai_logs al
-      LEFT JOIN instances i ON i.slug = al.instance_id
+      LEFT JOIN agents i ON i.slug = al.agent_id
       WHERE al.created_at >= ${toISO(range.from)} AND al.created_at <= ${toISO(range.to)}
-        AND al.instance_id IS NOT NULL
+        AND al.agent_id IS NOT NULL
         ${orgInst}
-      GROUP BY al.instance_id, i.name
+      GROUP BY al.agent_id, i.name
       ORDER BY cost DESC
     `),
   ).map((r) => ({
-    instanceId: asInstanceSlug(r.instance_id),
+    instanceId: asInstanceSlug(r.agent_id),
     name: r.name,
     conversations: r.conversations,
     cost: r.cost,

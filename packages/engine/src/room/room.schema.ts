@@ -4,10 +4,10 @@ import { pgTable, uuid, varchar, text, boolean, timestamp, integer, date, unique
 import { instances } from "../instances/schema.js";
 
 export const instanceRoom = pgTable(
-  "instance_room",
+  "agent_room",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    instanceId: uuid("agent_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
     enabled: boolean("enabled").notNull().default(false),
     prompt: text("prompt").notNull().default(""),
     outboundChannel: varchar("outbound_channel", { length: 50 }),
@@ -26,7 +26,7 @@ export const roomActivityLog = pgTable(
   "room_activity_log",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    instanceId: uuid("agent_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
     logDate: date("log_date").notNull(),
     logType: varchar("log_type", { length: 10 }).notNull(),
     content: text("content").notNull(),

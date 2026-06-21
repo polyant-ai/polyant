@@ -10,12 +10,12 @@ describe("instanceFilter", () => {
     expect(result).toBeDefined();
   });
 
-  it("accepts allowed column 'instance_id'", () => {
-    expect(() => instanceFilter("my-bot", "instance_id")).not.toThrow();
+  it("accepts allowed column 'agent_id'", () => {
+    expect(() => instanceFilter("my-bot", "agent_id")).not.toThrow();
   });
 
-  it("accepts allowed column 'c.instance_id'", () => {
-    expect(() => instanceFilter("my-bot", "c.instance_id")).not.toThrow();
+  it("accepts allowed column 'c.agent_id'", () => {
+    expect(() => instanceFilter("my-bot", "c.agent_id")).not.toThrow();
   });
 
   it("throws for SQL injection attempt via column name", () => {

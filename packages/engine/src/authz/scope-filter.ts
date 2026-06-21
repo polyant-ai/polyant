@@ -5,7 +5,7 @@ import { sql, type SQL } from "drizzle-orm";
 /**
  * Store-layer org-scoping (RBAC Stream 2 — release gate).
  *
- * Every tenant-scoped store keys its rows by the agent *slug* (the `instance_id`
+ * Every tenant-scoped store keys its rows by the agent *slug* (the `agent_id`
  * text column on conversations, memories, pipeline_traces, tool_audit_logs).
  * An agent belongs to exactly one workspace, and a workspace to exactly one
  * organization (`instances.workspace_id -> workspaces.organization_id`).
@@ -13,8 +13,8 @@ import { sql, type SQL } from "drizzle-orm";
  * `buildOrgScopedAgentFilter(orgId)` returns a predicate that restricts the slug
  * column to the agents owned by the caller's organization:
  *
- *   instance_id IN (
- *     SELECT i.slug FROM instances i
+ *   agent_id IN (
+ *     SELECT i.slug FROM agents i
  *     JOIN workspaces w ON w.id = i.workspace_id
  *     WHERE w.organization_id = <orgId>
  *   )
@@ -36,9 +36,9 @@ import { sql, type SQL } from "drizzle-orm";
  * any caller-controlled text. Mirrors `utils/query-helpers.ts` `instanceFilter`.
  */
 export const ORG_SCOPED_AGENT_COLUMNS = [
-  "instance_id",
-  "c.instance_id",
-  "al.instance_id",
+  "agent_id",
+  "c.agent_id",
+  "al.agent_id",
 ] as const;
 
 export type OrgScopedAgentColumn = (typeof ORG_SCOPED_AGENT_COLUMNS)[number];
@@ -46,9 +46,9 @@ export type OrgScopedAgentColumn = (typeof ORG_SCOPED_AGENT_COLUMNS)[number];
 const ALLOWED_COLUMNS = new Set<string>(ORG_SCOPED_AGENT_COLUMNS);
 
 /**
- * Render `<column>` as a safe SQL identifier fragment. A bare `instance_id`
- * becomes `"instance_id"`; a qualified `c.instance_id` becomes
- * `"c"."instance_id"` so the predicate is usable inside aliased raw-SQL joins.
+ * Render `<column>` as a safe SQL identifier fragment. A bare `agent_id`
+ * becomes `"agent_id"`; a qualified `c.agent_id` becomes
+ * `"c"."agent_id"` so the predicate is usable inside aliased raw-SQL joins.
  */
 function columnFragment(columnName: OrgScopedAgentColumn): SQL {
   if (!ALLOWED_COLUMNS.has(columnName)) {
@@ -68,16 +68,16 @@ function columnFragment(columnName: OrgScopedAgentColumn): SQL {
  * inside a raw `sql\`...\`` block — a Drizzle `SQL` value composes in both.
  *
  * @param orgId      the caller's resolved organization id (bound parameter).
- * @param columnName the slug column to constrain (allowlisted; default `instance_id`).
+ * @param columnName the slug column to constrain (allowlisted; default `agent_id`).
  */
 export function buildOrgScopedAgentFilter(
   orgId: string,
-  columnName: OrgScopedAgentColumn = "instance_id",
+  columnName: OrgScopedAgentColumn = "agent_id",
 ): SQL {
   const column = columnFragment(columnName);
   return sql`${column} in (
     select i.slug
-    from instances i
+    from agents i
     join workspaces w on w.id = i.workspace_id
     where w.organization_id = ${orgId}
   )`;
@@ -96,7 +96,7 @@ export function buildOrgScopedAgentFilter(
  */
 export function buildOrgScopedAgentFilterFragment(
   orgId: string | undefined,
-  columnName: OrgScopedAgentColumn = "instance_id",
+  columnName: OrgScopedAgentColumn = "agent_id",
 ): SQL {
   if (!orgId) return sql``;
   return sql`and ${buildOrgScopedAgentFilter(orgId, columnName)}`;

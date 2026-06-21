@@ -63,16 +63,16 @@ async function seedTenant(label: string): Promise<Tenant> {
     VALUES (${orgId}, ${slug}, ${`ws ${label}`}, false)
     RETURNING id`;
   await queryClient`
-    INSERT INTO instances (slug, name, workspace_id)
+    INSERT INTO agents (slug, name, workspace_id)
     VALUES (${slug}, ${`agent ${label}`}, ${workspaceId})`;
 
   const convId = `${slug}-conv`;
   await queryClient`
-    INSERT INTO conversations (conversation_id, instance_id, channel, source)
+    INSERT INTO conversations (conversation_id, agent_id, channel, source)
     VALUES (${convId}, ${slug}, 'web', 'user')`;
 
   const [{ id: memoryId }] = await queryClient<{ id: string }[]>`
-    INSERT INTO memories (instance_id, content, category, importance, embedding)
+    INSERT INTO memories (agent_id, content, category, importance, embedding)
     VALUES (${slug}, ${`secret of ${label}`}, 'general', 5, ${ZERO_EMBEDDING}::vector)
     RETURNING id`;
 
@@ -81,9 +81,9 @@ async function seedTenant(label: string): Promise<Tenant> {
 
 async function teardown(): Promise<void> {
   // Children first (FK order), all keyed by the run marker.
-  await queryClient`DELETE FROM memories WHERE instance_id LIKE ${MARKER + "%"}`;
-  await queryClient`DELETE FROM conversations WHERE instance_id LIKE ${MARKER + "%"}`;
-  await queryClient`DELETE FROM instances WHERE slug LIKE ${MARKER + "%"}`;
+  await queryClient`DELETE FROM memories WHERE agent_id LIKE ${MARKER + "%"}`;
+  await queryClient`DELETE FROM conversations WHERE agent_id LIKE ${MARKER + "%"}`;
+  await queryClient`DELETE FROM agents WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM workspaces WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
 }
