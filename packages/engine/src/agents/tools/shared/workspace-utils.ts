@@ -20,7 +20,7 @@ export const OA_SANDBOX_ROOT = sandboxRootEnv
   ? resolve(sandboxRootEnv)
   : resolve(ENGINE_ROOT, "workspaces");
 
-const INSTANCE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /**
  * Sanitize a conversationId for safe use as a filesystem directory name.
@@ -35,10 +35,10 @@ export function sanitizeConversationId(conversationId: string): string {
   return conversationId.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-function validateInstanceId(agentId: string): void {
-  if (!INSTANCE_ID_RE.test(agentId)) {
+function validateAgentId(agentId: string): void {
+  if (!AGENT_ID_RE.test(agentId)) {
     throw new Error(
-      `Invalid agentId "${agentId}". Must match ${INSTANCE_ID_RE}.`,
+      `Invalid agentId "${agentId}". Must match ${AGENT_ID_RE}.`,
     );
   }
 }
@@ -50,7 +50,7 @@ export function getConversationWorkspaceDir(
   agentId: string,
   conversationId: string,
 ): string {
-  validateInstanceId(agentId);
+  validateAgentId(agentId);
   const safeConv = sanitizeConversationId(conversationId);
   return resolve(OA_SANDBOX_ROOT, agentId, "conversations", safeConv);
 }

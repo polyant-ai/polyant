@@ -67,9 +67,9 @@ registerTool({
   description:
     "Execute an HTTP POST, PUT, PATCH or DELETE request to an external URL.\n" +
     "Use to integrate external systems via HTTP: webhooks, REST APIs, third-party services.\n" +
-    "Auth is optional: pass authStyle 'bearer' or 'api-key' to inject the 'http_api_key' secret configured on the instance. " +
+    "Auth is optional: pass authStyle 'bearer' or 'api-key' to inject the 'http_api_key' secret configured on the agent. " +
     "If authStyle is omitted or the secret is missing, the request is sent without auth (useful for public webhooks).\n" +
-    "Do NOT pass credentials in the body or URL — auth is managed by instance secrets.\n" +
+    "Do NOT pass credentials in the body or URL — auth is managed by agent secrets.\n" +
     "Internal/private URLs are blocked (SSRF protection). Timeout 15s.\n" +
     "For GET requests use the `curl` tool. Returns HTTP status, body, and relevant headers.",
   category: "integration",
@@ -217,9 +217,9 @@ registerTool({
                 decision: "blocked_by_allowlist",
               },
               success: false,
-              error: "Hostname not in instance allowlist",
+              error: "Hostname not in agent allowlist",
             });
-            return { success: false, error: "Hostname not in instance allowlist" };
+            return { success: false, error: "Hostname not in agent allowlist" };
           }
         }
 

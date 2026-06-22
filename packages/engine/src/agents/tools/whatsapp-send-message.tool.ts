@@ -9,11 +9,11 @@ import { channelManager } from "../../channels/channel-manager.js";
 registerTool({
   name: "whatsappSendMessage",
   description:
-    "Send a WhatsApp message (text and/or a media attachment) using the Twilio WhatsApp channel configured on the current instance.\n" +
+    "Send a WhatsApp message (text and/or a media attachment) using the Twilio WhatsApp channel configured on the current agent.\n" +
     "The 'to' parameter is the recipient's number in E.164 format (e.g. '+14155550100'). " +
     "To reply to the same user as this conversation, use the sender's number.\n" +
     "Optional 'mediaUrl' parameter: a public HTTPS URL (e.g. the publicUrl returned by hubspotFile) that Twilio downloads and delivers as an attachment (PDF, image, etc.).\n" +
-    "Caveat: requires the instance to have the 'whatsapp' channel active. The body may be empty when only mediaUrl is passed.",
+    "Caveat: requires the agent to have the 'whatsapp' channel active. The body may be empty when only mediaUrl is passed.",
   category: "messaging",
   inputExamples: [
     {

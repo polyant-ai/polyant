@@ -6,9 +6,9 @@ This directory contains minimal, working examples you can copy into your own Pol
 
 ```
 examples/
-├── instances/             # Example instance configurations
+├── agents/                # Example agent configurations
 │   └── hello-world/       # Bare-minimum assistant
-│       ├── instance.json     # Instance metadata
+│       ├── agent.json        # Agent metadata
 │       └── prompts/          # 8 system prompt sections
 ├── skills/                # Reusable skill definitions
 │   └── weather/           # Skill with an API-key env var
@@ -32,11 +32,11 @@ examples/
 
 These are **reference examples**, not runnable scripts. To use one:
 
-### An instance
+### An agent
 
-1. Create the instance through the admin panel (or `POST /api/instances`).
-2. Copy the prompt sections from `examples/instances/hello-world/prompts/*.md` into the admin panel's **Prompts** tab.
-3. Copy `instance.json` values (description, provider, model) into the **Settings** tab.
+1. Create the agent through the admin panel (or `POST /api/agents`).
+2. Copy the prompt sections from `examples/agents/hello-world/prompts/*.md` into the admin panel's **Prompts** tab.
+3. Copy `agent.json` values (description, provider, model) into the **Settings** tab.
 
 ### A skill
 
@@ -55,6 +55,6 @@ See [Quickstart](https://docs.polyant.ai/getting-started/quickstart) for an end-
 ## Bootstrap
 
 If you just want to try Polyant quickly, the project ships a `demo-agent`
-instance created automatically at first boot by the database seed migration.
+agent created automatically at first boot by the database seed migration.
 See the **Quickstart with demo-agent** section in
 [Quickstart](https://docs.polyant.ai/getting-started/quickstart).

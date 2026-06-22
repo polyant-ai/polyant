@@ -13,7 +13,7 @@ registerTool({
     "Use to notify the user about events, send reminders, or communicate proactive insights.\n" +
     "Do NOT use inside regular conversations — this is for the Room (event-driven) context only.\n" +
     "Returns confirmation that the message was sent.\n" +
-    "Caveat: requires a configured outbound channel (Telegram, Slack, or WhatsApp) on the instance's Room. Message is plain text.",
+    "Caveat: requires a configured outbound channel (Telegram, Slack, or WhatsApp) on the agent's Room. Message is plain text.",
   category: "room",
   harness: true,
   create: (ctx) => ({
@@ -25,7 +25,7 @@ registerTool({
       if (!agentId) return { error: "Agent not found" };
 
       const room = await getRoomByInstanceId(agentId);
-      if (!room) return { error: "Room not configured for this instance" };
+      if (!room) return { error: "Room not configured for this agent" };
       if (!room.outboundChannel || !room.outboundTarget) {
         return { error: "Outbound channel not configured in room settings" };
       }

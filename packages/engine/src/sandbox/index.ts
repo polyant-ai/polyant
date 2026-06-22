@@ -23,12 +23,12 @@ const SANDBOX_ROOT = sandboxRootEnv
 // Validation
 // ---------------------------------------------------------------------------
 
-const INSTANCE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-function validateInstanceId(agentId: string): void {
-  if (!INSTANCE_ID_RE.test(agentId)) {
+function validateAgentId(agentId: string): void {
+  if (!AGENT_ID_RE.test(agentId)) {
     throw new Error(
-      `Invalid agentId "${agentId}". Must match ${INSTANCE_ID_RE} (lowercase alphanumeric and hyphens, starting with alphanumeric).`,
+      `Invalid agentId "${agentId}". Must match ${AGENT_ID_RE} (lowercase alphanumeric and hyphens, starting with alphanumeric).`,
     );
   }
 }
@@ -54,7 +54,7 @@ export interface WorkspacePaths {
  * PostgreSQL.
  */
 export function getWorkspacePaths(agentId: string): WorkspacePaths {
-  validateInstanceId(agentId);
+  validateAgentId(agentId);
   const root = resolve(SANDBOX_ROOT, agentId);
   return {
     root,
@@ -70,7 +70,7 @@ export function getConversationWorkspacePath(
   agentId: string,
   conversationId: string,
 ): string {
-  validateInstanceId(agentId);
+  validateAgentId(agentId);
   return resolve(
     getWorkspacePaths(agentId).conversationsDir,
     sanitizeConversationId(conversationId),
@@ -79,7 +79,7 @@ export function getConversationWorkspacePath(
 
 /** Delete an instance workspace (knowledge files + all conversation workspaces). */
 export function deleteWorkspace(agentId: string): void {
-  validateInstanceId(agentId);
+  validateAgentId(agentId);
   const paths = getWorkspacePaths(agentId);
   if (existsSync(paths.root)) {
     rmSync(paths.root, { recursive: true, force: true });

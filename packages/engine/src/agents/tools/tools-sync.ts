@@ -60,7 +60,7 @@ export async function syncToolsToDb(): Promise<void> {
     // EXCLUDE virtual `agent:*` rows: they are not in the static registry
     // (they are upserted by `syncAgentTool` when the callee enables its
     // `agent` channel). Deleting them here would cascade through
-    // instance_tools FK and wipe per-instance agent invocation bindings.
+    // agent_tools FK and wipe per-agent agent invocation bindings.
     if (registryNames.length > 0) {
       await tx
         .delete(tools)

@@ -20,7 +20,7 @@ You are a helpful AI assistant.
 
 Describe here who you are, who you help, and the context in which you operate.
 This content is the first section of the system prompt — customize it from the
-admin panel to give your instance a clear identity.`,
+admin panel to give your agent a clear identity.`,
   },
   {
     sectionKey: "02-soul",

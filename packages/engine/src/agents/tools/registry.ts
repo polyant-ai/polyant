@@ -52,7 +52,7 @@ export interface ToolContext {
  * a provider/engine/mode choice (e.g. webSearch provider: tavily | serpapi | duckduckgo).
  * See the `sensitive` field for the masked-vs-readable contract and its type-based default.
  *
- * Stored as a row in `instance_secrets` like any other key. The framework does NOT
+ * Stored as a row in `agent_secrets` like any other key. The framework does NOT
  * enforce `optional` cross-field semantics (e.g. "required only if another field
  * equals X") — that conditional logic stays inside the tool's `execute()`.
  */

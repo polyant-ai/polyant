@@ -296,7 +296,7 @@ registerTool({
     execute: async ({ repo, branch }: { repo: string; branch: string | null }) => {
       const token = ctx.secrets?.github_token;
       if (!token) {
-        return { error: "GitHub token not configured for this instance." };
+        return { error: "GitHub token not configured for this agent." };
       }
       if (!ctx.conversationId) {
         return { error: "gitCloneRepo requires an active conversation (conversationId missing from context)." };

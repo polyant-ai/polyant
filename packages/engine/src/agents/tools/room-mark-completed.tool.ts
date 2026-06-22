@@ -12,7 +12,7 @@ registerTool({
     "Use after you have finished processing events and they no longer require action.\n" +
     "Do NOT use for events that still need follow-up — leave them in the backlog.\n" +
     "Returns confirmation with the number of events marked as completed.\n" +
-    "Caveat: requires event IDs from the backlog. Optional notes field for resolution details. Events are scoped to the current instance.",
+    "Caveat: requires event IDs from the backlog. Optional notes field for resolution details. Events are scoped to the current agent.",
   category: "room",
   harness: true,
   create: (ctx) => ({
