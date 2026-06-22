@@ -47,7 +47,7 @@ vi.mock("./schema.js", () => ({
     conversationId: "conversation_id",
     title: "title",
     summary: "summary",
-    agentId: "instance_id",
+    agentId: "agent_id",
     channel: "channel",
     userIdentifier: "user_identifier",
     createdAt: "created_at",
@@ -67,7 +67,7 @@ vi.mock("./schema.js", () => ({
   conversationState: {
     scope: "scope",
     scopeKey: "scope_key",
-    agentId: "instance_id",
+    agentId: "agent_id",
     data: "data",
   },
 }));

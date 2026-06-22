@@ -58,7 +58,7 @@ vi.mock("./schema.js", () => ({
 vi.mock("./secrets.schema.js", () => ({
   agentSecrets: {
     id: "id",
-    agentId: "instance_id",
+    agentId: "agent_id",
     key: "key",
     value: "value",
     createdAt: "created_at",

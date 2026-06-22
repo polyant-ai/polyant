@@ -37,7 +37,7 @@ export class AnalyticsController {
 
   // GET /api/agents/:slug/analytics — per-instance
   @RequirePermission(Permission.ANALYTICS_READ)
-  @Get("instances/:slug/analytics")
+  @Get("agents/:slug/analytics")
   async perInstance(
     @Param("slug") slug: string,
     @Query("from") from?: string,

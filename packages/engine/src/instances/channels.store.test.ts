@@ -59,7 +59,7 @@ vi.mock("./schema.js", () => ({
 vi.mock("./channels.schema.js", () => ({
   agentChannels: {
     id: "id",
-    agentId: "instance_id",
+    agentId: "agent_id",
     channelType: "channel_type",
     enabled: "enabled",
     config: "config",

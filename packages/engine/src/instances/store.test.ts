@@ -64,21 +64,21 @@ vi.mock("./schema.js", () => ({
 }));
 
 vi.mock("../conversations/schema.js", () => ({
-  conversations: { conversationId: "conversation_id", agentId: "instance_id" },
+  conversations: { conversationId: "conversation_id", agentId: "agent_id" },
   conversationMessages: { conversationId: "conversation_id" },
-  conversationState: { agentId: "instance_id", scope: "scope", scopeKey: "scope_key" },
+  conversationState: { agentId: "agent_id", scope: "scope", scopeKey: "scope_key" },
 }));
 
 vi.mock("../memory/schema.js", () => ({
-  memories: { agentId: "instance_id", sourceConversationId: "source_conversation_id" },
+  memories: { agentId: "agent_id", sourceConversationId: "source_conversation_id" },
 }));
 
 vi.mock("../knowledge/schema.js", () => ({
-  knowledgeDocuments: { agentId: "instance_id" },
+  knowledgeDocuments: { agentId: "agent_id" },
 }));
 
 vi.mock("../scheduled-tasks/schema.js", () => ({
-  scheduledTasks: { agentId: "instance_id" },
+  scheduledTasks: { agentId: "agent_id" },
 }));
 
 vi.mock("drizzle-orm", () => ({

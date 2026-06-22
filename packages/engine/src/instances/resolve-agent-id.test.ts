@@ -6,7 +6,7 @@
  * resolveAgentId(slug) → uuid | undefined
  * resolveAgentSlug(uuid) → slug | undefined
  *
- * These helpers are critical: 10 DB tables use `instance_id uuid` with FK,
+ * These helpers are critical: 10 DB tables use `agent_id uuid` with FK,
  * but ToolContext.agentId is the slug. Mismatches return zero rows silently.
  */
 

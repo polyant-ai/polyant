@@ -42,7 +42,7 @@ vi.mock("../database/client.js", () => ({
 vi.mock("./schema.js", () => ({
   memories: {
     id: "id",
-    agentId: "instance_id",
+    agentId: "agent_id",
     content: "content",
     category: "category",
     importance: "importance",

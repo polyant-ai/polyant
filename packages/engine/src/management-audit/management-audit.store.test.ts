@@ -136,7 +136,7 @@ describe("createManagementAuditLogger", () => {
       actor: { userId: "u-9", email: "owner@example.com" },
       targetType: "secret",
       targetId: "openai_api_key",
-      metadata: { instanceSlug: "support-bot" },
+      metadata: { agentSlug: "support-bot" },
     });
 
     await store.flush();
@@ -148,7 +148,7 @@ describe("createManagementAuditLogger", () => {
       actorEmail: "owner@example.com",
       targetType: "secret",
       targetId: "openai_api_key",
-      metadata: { instanceSlug: "support-bot" },
+      metadata: { agentSlug: "support-bot" },
     });
   });
 

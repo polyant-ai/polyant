@@ -70,7 +70,7 @@ export class InstanceSecretsController {
         actor,
         targetType: ManagementAuditTarget.Secret,
         targetId: entry.key,
-        metadata: { instanceSlug: slug },
+        metadata: { agentSlug: slug },
       });
     }
 
@@ -96,7 +96,7 @@ export class InstanceSecretsController {
       actor: toManagementAuditActor(user),
       targetType: ManagementAuditTarget.Secret,
       targetId: key,
-      metadata: { instanceSlug: slug },
+      metadata: { agentSlug: slug },
     });
     invalidateInstanceConfigCache(asAgentSlug(slug));
     invalidateEmbeddingContext(instance.id, slug);
