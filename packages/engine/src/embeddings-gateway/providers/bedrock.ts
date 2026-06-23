@@ -29,18 +29,19 @@ function buildModel(opts: BedrockCallOptions) {
           region: opts.region,
           credentialProvider: fromNodeProviderChain(),
         });
-  // Titan v2 settings type only allows 256 | 512 | 1024. assertDimSupported()
-  // guarantees a supported value here, but the union still includes 1536 (OpenAI),
-  // so narrow with a cast.
-  return provider.embedding(EMBEDDING_MODEL_IDS.bedrock, {
-    dimensions: opts.dimensions as 1024,
-  });
+  // AI SDK v6: the embedding factory takes only the model id; per-call settings
+  // (e.g. `dimensions`) are passed via `providerOptions` on embed()/embedMany().
+  return provider.embedding(EMBEDDING_MODEL_IDS.bedrock);
 }
 
 export async function embedBedrock(text: string, opts: BedrockCallOptions): Promise<number[]> {
   assertDimSupported("bedrock", opts.dimensions);
   const model = buildModel(opts);
-  const { embedding } = await embed({ model, value: text });
+  const { embedding } = await embed({
+    model,
+    value: text,
+    providerOptions: { bedrock: { dimensions: opts.dimensions } },
+  });
   return embedding;
 }
 
@@ -52,6 +53,10 @@ export async function embedManyBedrock(texts: string[], opts: BedrockCallOptions
   }
   assertDimSupported("bedrock", opts.dimensions);
   const model = buildModel(opts);
-  const { embeddings } = await embedMany({ model, values: texts });
+  const { embeddings } = await embedMany({
+    model,
+    values: texts,
+    providerOptions: { bedrock: { dimensions: opts.dimensions } },
+  });
   return embeddings;
 }

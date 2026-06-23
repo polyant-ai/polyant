@@ -233,7 +233,7 @@ export class InstancesController {
     const willWipe = embeddingProviderChanged(before, { provider: afterProvider });
     if (willWipe && !body.confirmWipe) {
       const hasData =
-        (await countMemories(before.id)) > 0 || (await countDocuments(before.id)) > 0;
+        (await countMemories(before.slug)) > 0 || (await countDocuments(before.slug)) > 0;
       if (hasData) {
         throw new BadRequestException(
           "Changing the embedding provider permanently deletes all memories and the entire knowledge base for this instance (existing embeddings cannot be converted). Re-send the request with confirmWipe: true to proceed.",
@@ -251,7 +251,7 @@ export class InstancesController {
       wiped = await resetEmbeddingsForProviderSwitch(instance.id, instance.provider);
       // embedding_dim changed — drop the now-stale cached context and refresh the DTO.
       invalidateEmbeddingContext(instance.id, slug);
-      instance = (await findInstanceBySlug(slug)) ?? instance;
+      instance = (await findInstanceBySlug(asInstanceSlug(slug))) ?? instance;
     }
 
     return {

@@ -120,7 +120,7 @@ describe("memory-store", () => {
       mockDb.insert.mockReturnValue(insChain as any);
 
       await upsertMemory({
-        instanceId: "user-1",
+        instanceId: asInstanceSlug("user-1"),
         content: "User likes pizza",
         embedding: [0.1, 0.2],
         dimensions: 1536,
@@ -140,7 +140,7 @@ describe("memory-store", () => {
       mockDb.insert.mockReturnValue(insChain as any);
 
       await upsertMemory({
-        instanceId: "user-1",
+        instanceId: asInstanceSlug("user-1"),
         content: "User likes pizza",
         embedding: [0.3, 0.4],
         dimensions: 1024,
@@ -205,6 +205,8 @@ describe("memory-store", () => {
         instanceId: asInstanceSlug("user-1"),
         content: "Recovered after retries",
         embedding: [0.1, 0.2],
+        dimensions: 1536,
+        provider: "openai",
       });
 
       expect(result.id).toBe("after-retry");
@@ -222,6 +224,8 @@ describe("memory-store", () => {
           instanceId: asInstanceSlug("user-1"),
           content: "Should fail",
           embedding: [0.1, 0.2],
+          dimensions: 1536,
+          provider: "openai",
         }),
       ).rejects.toThrow("permission denied");
 
@@ -249,6 +253,8 @@ describe("memory-store", () => {
           instanceId: asInstanceSlug("user-1"),
           content: "Will give up",
           embedding: [0.1, 0.2],
+          dimensions: 1536,
+          provider: "openai",
         }),
       ).rejects.toThrow("DrizzleQueryError");
 

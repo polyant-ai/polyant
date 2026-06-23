@@ -22,9 +22,15 @@ beforeEach(() => {
 });
 
 describe("embedOpenAI", () => {
-  it("passes the configured dimensions to the model factory", async () => {
+  it("passes the model id to the factory and dimensions via providerOptions (AI SDK v6)", async () => {
     await embedOpenAI("hi", { apiKey: "k", dimensions: 1024 });
-    expect(embeddingFactory).toHaveBeenCalledWith("text-embedding-3-small", { dimensions: 1024 });
+    expect(embeddingFactory).toHaveBeenCalledWith("text-embedding-3-small");
+    expect(embedMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        value: "hi",
+        providerOptions: { openai: { dimensions: 1024 } },
+      }),
+    );
   });
   it("throws without an api key", async () => {
     await expect(embedOpenAI("hi", { apiKey: "", dimensions: 1024 })).rejects.toThrow(/OpenAI API key/);

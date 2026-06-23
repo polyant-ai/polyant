@@ -21,7 +21,13 @@ describe("embedBedrock", () => {
   it("uses Titan v2 with 1024 dims and explicit creds when provided", async () => {
     await embedBedrock("hi", { accessKeyId: "id", secretAccessKey: "sec", region: "eu-west-1", dimensions: 1024 });
     expect(createBedrock).toHaveBeenCalledWith(expect.objectContaining({ accessKeyId: "id", region: "eu-west-1" }));
-    expect(embeddingFactory).toHaveBeenCalledWith("amazon.titan-embed-text-v2:0", { dimensions: 1024 });
+    expect(embeddingFactory).toHaveBeenCalledWith("amazon.titan-embed-text-v2:0");
+    expect(embedMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        value: "hi",
+        providerOptions: { bedrock: { dimensions: 1024 } },
+      }),
+    );
   });
   it("falls back to the AWS provider chain without explicit creds", async () => {
     await embedBedrock("hi", { region: "eu-west-1", dimensions: 1024 });

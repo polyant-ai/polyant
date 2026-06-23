@@ -35,7 +35,7 @@ export async function resolveInstanceSlug(instanceId: InstanceUuid): Promise<Ins
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function findInstanceByIdOrSlug(idOrSlug: string): Promise<Instance | undefined> {
   if (UUID_RE.test(idOrSlug)) {
-    return (await findInstanceById(idOrSlug)) ?? (await findInstanceBySlug(idOrSlug));
+    return (await findInstanceById(idOrSlug)) ?? (await findInstanceBySlug(asInstanceSlug(idOrSlug)));
   }
-  return (await findInstanceBySlug(idOrSlug)) ?? (await findInstanceById(idOrSlug));
+  return (await findInstanceBySlug(asInstanceSlug(idOrSlug))) ?? (await findInstanceById(idOrSlug));
 }
