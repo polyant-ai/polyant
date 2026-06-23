@@ -98,6 +98,10 @@ export async function insertUser(input: CreateUserInput): Promise<UserWithSecret
       name: input.name?.trim() || null,
       passwordHash: input.passwordHash,
       role: input.role,
+      // Keep the platform-admin bypass in lockstep with the superadmin role at
+      // the write boundary, so a fresh-install superadmin gets the bypass without
+      // depending on PLATFORM_ADMIN_EMAIL (mirrors migration 0051's backfill).
+      isPlatformAdmin: input.role === "superadmin",
       mustChangePassword: input.mustChangePassword,
     })
     .returning();
@@ -115,7 +119,12 @@ export async function updateUserMeta(
 ): Promise<UserWithSecret | null> {
   const patch: Record<string, unknown> = { updatedAt: sql`now()` };
   if (input.name !== undefined) patch.name = input.name?.trim() || null;
-  if (input.role !== undefined) patch.role = input.role;
+  if (input.role !== undefined) {
+    patch.role = input.role;
+    // Role and platform-admin bypass move together: promoting to superadmin
+    // grants it, demoting revokes it.
+    patch.isPlatformAdmin = input.role === "superadmin";
+  }
 
   const [row] = await db
     .update(users)
