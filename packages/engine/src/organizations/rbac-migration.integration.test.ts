@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Integration test for migration 0050 (RBAC tenancy schema). Exercises the live
+ * Integration test for migration 0051 (RBAC tenancy schema). Exercises the live
  * seed, backfill, scope trigger and idempotency against a migrated Postgres.
  *
  * Self-skips when no migrated database is reachable (so a bare `npm test`
@@ -12,6 +12,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { sql } from "drizzle-orm";
 import { db, queryClient } from "../database/client.js";
+import { SYSTEM_ROLE_PERMISSIONS, SYSTEM_ROLE_KEYS } from "../authz/permissions.js";
 
 async function dbReachable(): Promise<boolean> {
   try {
@@ -46,7 +47,7 @@ async function ownerRoleId(): Promise<string> {
   return rows[0].id;
 }
 
-describe.skipIf(!DB_AVAILABLE)("migration 0050 — RBAC tenancy schema", () => {
+describe.skipIf(!DB_AVAILABLE)("migration 0051 — RBAC tenancy schema", () => {
   it("seeds exactly one default organization and one default workspace", async () => {
     const orgs = await queryClient<{ n: number }[]>`
       SELECT count(*)::int AS n FROM organizations WHERE is_default = true`;
@@ -68,6 +69,21 @@ describe.skipIf(!DB_AVAILABLE)("migration 0050 — RBAC tenancy schema", () => {
       WHERE r.is_system = true GROUP BY r.key`;
     const byKey = Object.fromEntries(counts.map((c) => [c.key, c.n]));
     expect(byKey).toEqual({ owner: 33, admin: 32, member: 24, viewer: 14 });
+  });
+
+  it("seeds the exact permission STRINGS that SYSTEM_ROLE_PERMISSIONS declares", async () => {
+    // Count alone would let a same-count swap slip through; compare the actual
+    // strings so permissions.ts stays the single source of truth for the seed.
+    const rows = await queryClient<{ key: string; permission: string }[]>`
+      SELECT r.key, rp.permission
+      FROM roles r JOIN role_permissions rp ON rp.role_id = r.id
+      WHERE r.is_system = true`;
+    const seeded: Record<string, string[]> = {};
+    for (const { key, permission } of rows) (seeded[key] ??= []).push(permission);
+
+    for (const key of SYSTEM_ROLE_KEYS) {
+      expect(new Set(seeded[key])).toEqual(new Set(SYSTEM_ROLE_PERMISSIONS[key]));
+    }
   });
 
   it("gives every workspace_id on instances the default workspace (NOT NULL)", async () => {
@@ -169,6 +185,32 @@ describe.skipIf(!DB_AVAILABLE)("migration 0050 — RBAC tenancy schema", () => {
           INSERT INTO role_bindings (user_id, role_id, scope_type, scope_id, organization_id)
           VALUES (${userId}, ${ownerId}, 'workspace', gen_random_uuid(), ${orgId})`,
       ).rejects.toThrow(/workspace belonging to the binding organization/);
+    });
+  });
+
+  describe("uq_role_bindings_user_role_scope unique constraint", () => {
+    afterEach(async () => {
+      await queryClient`DELETE FROM users WHERE email LIKE 'itest-rbac-uniq-%'`;
+    });
+
+    it("rejects a duplicate (user, role, scope) binding at the DB level", async () => {
+      const orgId = await defaultOrgId();
+      const ownerId = await ownerRoleId();
+      const [{ id: userId }] = await queryClient<{ id: string }[]>`
+        INSERT INTO users (email, name) VALUES (${`itest-rbac-uniq-${Date.now()}@x.local`}, 'itest')
+        RETURNING id`;
+
+      await queryClient`
+        INSERT INTO role_bindings (user_id, role_id, scope_type, scope_id, organization_id)
+        VALUES (${userId}, ${ownerId}, 'organization', ${orgId}, ${orgId})`;
+
+      // Second identical insert must be rejected by the unique index — the DB,
+      // not a select-then-insert guard, is the idempotency mechanism.
+      await expect(
+        queryClient`
+          INSERT INTO role_bindings (user_id, role_id, scope_type, scope_id, organization_id)
+          VALUES (${userId}, ${ownerId}, 'organization', ${orgId}, ${orgId})`,
+      ).rejects.toThrow(/uq_role_bindings_user_role_scope|duplicate key/);
     });
   });
 });

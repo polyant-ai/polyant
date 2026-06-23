@@ -13,6 +13,11 @@ import {
  * Management-plane authorization audit log. The `audit_log:read` permission is
  * defined but inactive by default. The table is created up front so that
  * enabling read access later requires no additional migration.
+ *
+ * TODO(#110, RBAC Stream 7): nothing writes to this table yet — there is no
+ * audit trail for RBAC mutations, so granting `audit_log:read` today only
+ * exposes an always-empty table. The write path lands in the OSS
+ * management-write-audit-log stream. Until then this is NOT an active control.
  */
 export const authzAuditLogs = pgTable(
   "authz_audit_logs",

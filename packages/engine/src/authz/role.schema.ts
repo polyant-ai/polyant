@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -35,7 +36,16 @@ export const roles = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("uq_roles_org_key").on(t.organizationId, t.key),
+    // Partial unique indexes (mirror migration 0051). System roles
+    // (organization_id IS NULL) are unique by key alone — so 'owner' etc. can be
+    // seeded only once; per-org custom roles are unique by (org, key). Declared
+    // partial here so the schema matches the SQL and db:generate stays a no-op.
+    uniqueIndex("uq_roles_system_key")
+      .on(t.key)
+      .where(sql`${t.organizationId} IS NULL`),
+    uniqueIndex("uq_roles_org_key")
+      .on(t.organizationId, t.key)
+      .where(sql`${t.organizationId} IS NOT NULL`),
     index("idx_roles_org").on(t.organizationId),
     index("idx_roles_system").on(t.isSystem),
   ],

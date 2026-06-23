@@ -9,16 +9,21 @@ vi.mock("../config.js", () => ({
 }));
 
 vi.mock("./organizations.store.js", () => ({
-  countUsers: vi.fn(),
   findDefaultOrganization: vi.fn(),
   promotePlatformAdminByEmail: vi.fn(),
 }));
 
+vi.mock("../users/users.store.js", () => ({
+  countUsers: vi.fn(),
+}));
+
 import * as store from "./organizations.store.js";
+import * as usersStore from "../users/users.store.js";
 import { config } from "../config.js";
 import { bootstrapOrganizations } from "./bootstrap.js";
 
 const mockedStore = store as unknown as Record<string, ReturnType<typeof vi.fn>>;
+const mockedUsers = usersStore as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const mutableConfig = config as unknown as { auth: { platformAdminEmail?: string } };
 
 describe("bootstrapOrganizations", () => {
@@ -26,7 +31,7 @@ describe("bootstrapOrganizations", () => {
     vi.clearAllMocks();
     mutableConfig.auth = {};
     mockedStore.findDefaultOrganization.mockResolvedValue({ id: "org-1" });
-    mockedStore.countUsers.mockResolvedValue(0);
+    mockedUsers.countUsers.mockResolvedValue(0);
     mockedStore.promotePlatformAdminByEmail.mockResolvedValue(0);
   });
 
@@ -37,13 +42,13 @@ describe("bootstrapOrganizations", () => {
     await bootstrapOrganizations();
 
     expect(mockedStore.promotePlatformAdminByEmail).not.toHaveBeenCalled();
-    expect(mockedStore.countUsers).not.toHaveBeenCalled();
+    expect(mockedUsers.countUsers).not.toHaveBeenCalled();
     expect(warn.mock.calls[0][0]).toContain("Default organization not found");
     warn.mockRestore();
   });
 
   it("is a no-op on a fresh install (zero users)", async () => {
-    mockedStore.countUsers.mockResolvedValueOnce(0);
+    mockedUsers.countUsers.mockResolvedValueOnce(0);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await bootstrapOrganizations();
@@ -56,7 +61,7 @@ describe("bootstrapOrganizations", () => {
   it("promotes the configured PLATFORM_ADMIN_EMAIL (idempotent UPDATE)", async () => {
     mutableConfig.auth.platformAdminEmail = "boss@acme.com";
     mockedStore.promotePlatformAdminByEmail.mockResolvedValueOnce(1);
-    mockedStore.countUsers.mockResolvedValueOnce(2);
+    mockedUsers.countUsers.mockResolvedValueOnce(2);
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await bootstrapOrganizations();
@@ -76,7 +81,7 @@ describe("bootstrapOrganizations", () => {
   });
 
   it("does not promote when PLATFORM_ADMIN_EMAIL is unset", async () => {
-    mockedStore.countUsers.mockResolvedValueOnce(5);
+    mockedUsers.countUsers.mockResolvedValueOnce(5);
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await bootstrapOrganizations();

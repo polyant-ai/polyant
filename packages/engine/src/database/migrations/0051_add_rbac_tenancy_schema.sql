@@ -6,10 +6,11 @@
 -- log. Seeds exactly one default organization + workspace and the four system
 -- roles, then backfills every pre-existing user into the default org as Owner.
 --
--- The whole file runs in a single transaction (the Drizzle postgres-js migrator
--- wraps each migration file in BEGIN/COMMIT). Every seed/backfill step is
--- idempotent (ON CONFLICT / NOT EXISTS) so re-running is a no-op, and a fresh
--- install with zero users performs no backfill.
+-- This file runs atomically: the Drizzle postgres-js migrator wraps the entire
+-- pending batch (every unapplied migration) in one transaction, so a failure
+-- here rolls back this migration in full. Every seed/backfill step is also
+-- idempotent (ON CONFLICT) so re-running is a no-op, and a fresh install with
+-- zero users performs no backfill.
 
 CREATE TABLE IF NOT EXISTS "organizations" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -124,6 +125,14 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 --> statement-breakpoint
 -- Indexes.
+-- Exactly one default organization / workspace (Stream 0 is single-org). These
+-- partial unique indexes make the "one default" invariant a DB guarantee, so the
+-- unguarded `(SELECT id FROM … WHERE is_default = true)` backfill subqueries
+-- below can never hit "more than one row returned by a subquery".
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_organizations_one_default" ON "organizations" ("is_default") WHERE "is_default" = true;
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_workspaces_one_default" ON "workspaces" ("is_default") WHERE "is_default" = true;
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_workspaces_org_slug" ON "workspaces" ("organization_id","slug");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_workspaces_org" ON "workspaces" ("organization_id");
@@ -146,6 +155,10 @@ CREATE INDEX IF NOT EXISTS "idx_roles_org" ON "roles" ("organization_id");
 CREATE INDEX IF NOT EXISTS "idx_roles_system" ON "roles" ("is_system");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_role_permissions_role" ON "role_permissions" ("role_id");
+--> statement-breakpoint
+-- One binding per (user, role, scope): makes idempotency a DB invariant instead
+-- of a select-then-insert guard, closing the TOCTOU race on concurrent sign-in.
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_role_bindings_user_role_scope" ON "role_bindings" ("user_id","role_id","scope_type","scope_id","organization_id");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_role_bindings_user_org" ON "role_bindings" ("user_id","organization_id");
 --> statement-breakpoint
@@ -276,7 +289,7 @@ ON CONFLICT DO NOTHING;
 ALTER TABLE "instances" ADD COLUMN IF NOT EXISTS "workspace_id" uuid;
 --> statement-breakpoint
 UPDATE "instances"
-  SET "workspace_id" = (SELECT id FROM "workspaces" WHERE is_default = true)
+  SET "workspace_id" = (SELECT id FROM "workspaces" WHERE is_default = true LIMIT 1)
   WHERE "workspace_id" IS NULL;
 --> statement-breakpoint
 ALTER TABLE "instances" ALTER COLUMN "workspace_id" SET NOT NULL;
@@ -290,28 +303,22 @@ CREATE INDEX IF NOT EXISTS "idx_instances_workspace" ON "instances" ("workspace_
 --> statement-breakpoint
 -- Backfill: every pre-existing user gets exactly one default-org membership.
 INSERT INTO "organization_memberships" ("organization_id", "user_id")
-  SELECT (SELECT id FROM "organizations" WHERE is_default = true), u.id
+  SELECT (SELECT id FROM "organizations" WHERE is_default = true LIMIT 1), u.id
   FROM "users" u
 ON CONFLICT ("organization_id","user_id") DO NOTHING;
 --> statement-breakpoint
 -- Backfill: every pre-existing user gets exactly one Owner org-scope binding.
--- Guarded by NOT EXISTS so re-running adds nothing (no unique constraint on the
--- binding tuple — the guard is the idempotency mechanism).
+-- Idempotent via the uq_role_bindings_user_role_scope unique index (ON CONFLICT
+-- DO NOTHING), the same mechanism the runtime ensureOwnerBinding path relies on.
 INSERT INTO "role_bindings" ("user_id", "role_id", "scope_type", "scope_id", "organization_id")
   SELECT
     u.id,
-    (SELECT id FROM "roles" WHERE key = 'owner' AND is_system = true),
+    (SELECT id FROM "roles" WHERE key = 'owner' AND is_system = true LIMIT 1),
     'organization',
-    (SELECT id FROM "organizations" WHERE is_default = true),
-    (SELECT id FROM "organizations" WHERE is_default = true)
+    (SELECT id FROM "organizations" WHERE is_default = true LIMIT 1),
+    (SELECT id FROM "organizations" WHERE is_default = true LIMIT 1)
   FROM "users" u
-  WHERE NOT EXISTS (
-    SELECT 1 FROM "role_bindings" rb
-    WHERE rb.user_id = u.id
-      AND rb.scope_type = 'organization'
-      AND rb.organization_id = (SELECT id FROM "organizations" WHERE is_default = true)
-      AND rb.role_id = (SELECT id FROM "roles" WHERE key = 'owner' AND is_system = true)
-  );
+ON CONFLICT ("user_id","role_id","scope_type","scope_id","organization_id") DO NOTHING;
 --> statement-breakpoint
 -- Promote existing superadmins to Platform Superadmin.
 UPDATE "users" SET "is_platform_admin" = true WHERE "role" = 'superadmin';

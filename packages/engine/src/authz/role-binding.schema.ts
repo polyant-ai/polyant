@@ -6,13 +6,13 @@ import {
   varchar,
   timestamp,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { users } from "../auth/users.schema.js";
 import { roles } from "./role.schema.js";
 import { organizations } from "../organizations/organization.schema.js";
 
-export const SCOPE_TYPES = ["organization", "workspace"] as const;
-export type ScopeType = (typeof SCOPE_TYPES)[number];
+export type ScopeType = "organization" | "workspace";
 
 /**
  * A binding grants a user a role over a scope (organization or workspace).
@@ -43,6 +43,16 @@ export const roleBindings = pgTable(
     createdBy: uuid("created_by").references(() => users.id),
   },
   (t) => [
+    // One binding per (user, role, scope) — makes idempotency a DB invariant
+    // instead of a select-then-insert guard, closing the TOCTOU race under
+    // concurrent sign-in / rolling restart. Callers use onConflictDoNothing.
+    uniqueIndex("uq_role_bindings_user_role_scope").on(
+      t.userId,
+      t.roleId,
+      t.scopeType,
+      t.scopeId,
+      t.organizationId,
+    ),
     index("idx_role_bindings_user_org").on(t.userId, t.organizationId),
     index("idx_role_bindings_scope").on(t.scopeType, t.scopeId),
   ],

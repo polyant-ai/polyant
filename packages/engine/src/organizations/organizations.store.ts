@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { users } from "../auth/users.schema.js";
 import {
@@ -11,13 +11,11 @@ import {
 import { roles } from "../authz/role.schema.js";
 import { roleBindings } from "../authz/role-binding.schema.js";
 
-export const DEFAULT_ORG_SLUG = "default";
-
 /** Anything that can run a `select` — the shared `db` or a transaction handle. */
 type Executor = Pick<typeof db, "select">;
 
 /**
- * Resolve the UUID of the default workspace seeded by migration 0050. Accepts a
+ * Resolve the UUID of the default workspace seeded by migration 0051. Accepts a
  * transaction handle so callers inside a tx stay consistent. Throws when the
  * seed is missing (migration not run) — the single source of this lookup for
  * the instance create/import paths and tests.
@@ -30,19 +28,13 @@ export async function findDefaultWorkspaceId(executor: Executor = db): Promise<s
     .limit(1);
   if (!row) {
     throw new Error(
-      "No default workspace found — run migration 0050 before creating instances.",
+      "No default workspace found — run migration 0051 before creating instances.",
     );
   }
   return row.id;
 }
 
-/** Count of users in the deployment (0 = fresh install). */
-export async function countUsers(): Promise<number> {
-  const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(users);
-  return row?.count ?? 0;
-}
-
-/** The single default organization seeded by migration 0050, if present. */
+/** The single default organization seeded by migration 0051, if present. */
 export async function findDefaultOrganization(): Promise<{ id: string } | null> {
   const [row] = await db
     .select({ id: organizations.id })
@@ -63,7 +55,8 @@ export async function promotePlatformAdminByEmail(email: string): Promise<number
   return updated.length;
 }
 
-/** Ensure a user has the default-org membership (idempotent). */
+/** Ensure a user has the default-org membership (idempotent).
+ *  TODO(#109): not yet wired into any user-creation path — see bootstrap.ts. */
 export async function ensureDefaultMembership(
   organizationId: string,
   userId: string,
@@ -80,7 +73,10 @@ export async function ensureDefaultMembership(
 }
 
 /** Ensure a user holds the Owner org-scope binding on the default org
- *  (idempotent — guarded by an existence check, no unique constraint exists). */
+ *  (idempotent — relies on the uq_role_bindings_user_role_scope unique index,
+ *  so concurrent calls can't create duplicate Owner bindings).
+ *  TODO(#109): not yet wired into any user-creation path — see bootstrap.ts.
+ *  New users must NOT all become Owner; the default-role policy lands in #109. */
 export async function ensureOwnerBinding(
   organizationId: string,
   userId: string,
@@ -92,25 +88,22 @@ export async function ensureOwnerBinding(
     .limit(1);
   if (!ownerRole) return;
 
-  const existing = await db
-    .select({ id: roleBindings.id })
-    .from(roleBindings)
-    .where(
-      and(
-        eq(roleBindings.userId, userId),
-        eq(roleBindings.organizationId, organizationId),
-        eq(roleBindings.scopeType, "organization"),
-        eq(roleBindings.roleId, ownerRole.id),
-      ),
-    )
-    .limit(1);
-  if (existing.length > 0) return;
-
-  await db.insert(roleBindings).values({
-    userId,
-    roleId: ownerRole.id,
-    scopeType: "organization",
-    scopeId: organizationId,
-    organizationId,
-  });
+  await db
+    .insert(roleBindings)
+    .values({
+      userId,
+      roleId: ownerRole.id,
+      scopeType: "organization",
+      scopeId: organizationId,
+      organizationId,
+    })
+    .onConflictDoNothing({
+      target: [
+        roleBindings.userId,
+        roleBindings.roleId,
+        roleBindings.scopeType,
+        roleBindings.scopeId,
+        roleBindings.organizationId,
+      ],
+    });
 }

@@ -35,7 +35,7 @@ export const users = pgTable("users", {
    * Platform Superadmin flag (RBAC). Acts at the Deployment level, above every
    * organization, and bypasses all RBAC checks. Deliberately NOT carried in the
    * JWT (revocation must be near-immediate) — it is read from the DB per request.
-   * Backfilled to `true` for `role='superadmin'` users by migration 0050.
+   * Backfilled to `true` for `role='superadmin'` users by migration 0051.
    */
   isPlatformAdmin: boolean("is_platform_admin").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
