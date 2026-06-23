@@ -3,15 +3,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockSearchByVector = vi.fn();
-const mockGenerateEmbedding = vi.fn();
+const mockEmbed = vi.fn();
+const mockResolveEmbeddingContext = vi.fn();
 const mockSearchByKeyword = vi.fn();
 
 vi.mock("./memory-store.js", () => ({
   searchByVector: (...args: unknown[]) => mockSearchByVector(...args),
 }));
 
-vi.mock("./embedder.js", () => ({
-  generateEmbedding: (...args: unknown[]) => mockGenerateEmbedding(...args),
+vi.mock("../embeddings-gateway/index.js", () => ({
+  embed: (...args: unknown[]) => mockEmbed(...args),
+  embedMany: (...args: unknown[]) => mockEmbed(...args),
+  resolveEmbeddingContext: (...args: unknown[]) => mockResolveEmbeddingContext(...args),
 }));
 
 vi.mock("../conversations/index.js", () => ({
@@ -54,7 +57,12 @@ function makePgResult(id: string, content: string, rank: number) {
 describe("hybridSearch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGenerateEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockEmbed.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockResolveEmbeddingContext.mockResolvedValue({
+      instanceId: "user-1",
+      dimensions: 1024,
+      credentials: { provider: "openai", apiKey: "k" },
+    });
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
@@ -141,11 +149,12 @@ describe("hybridSearch", () => {
 
     await hybridSearch("test query");
 
-    expect(mockGenerateEmbedding).toHaveBeenCalledWith("test query", undefined);
+    expect(mockEmbed).toHaveBeenCalledWith("test query", expect.objectContaining({ dimensions: 1024 }));
     expect(mockSearchByVector).toHaveBeenCalledWith(
       [0.1, 0.2, 0.3],
       "test-default-user",
       expect.any(Number),
+      1024,
     );
     expect(mockSearchByKeyword).toHaveBeenCalledWith(
       "test query",
@@ -198,11 +207,17 @@ describe("hybridSearch", () => {
       [0.1, 0.2, 0.3],
       "user-1",
       20,
+      1024,
     );
     expect(mockSearchByKeyword).toHaveBeenCalledWith("test query", "user-1", 20);
 
     vi.clearAllMocks();
-    mockGenerateEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockEmbed.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockResolveEmbeddingContext.mockResolvedValue({
+      instanceId: "user-1",
+      dimensions: 1024,
+      credentials: { provider: "openai", apiKey: "k" },
+    });
 
     await hybridSearch("test query", "user-1", 15);
     // fetchLimit = Math.max(15*2, 20) = 30
@@ -210,6 +225,7 @@ describe("hybridSearch", () => {
       [0.1, 0.2, 0.3],
       "user-1",
       30,
+      1024,
     );
     expect(mockSearchByKeyword).toHaveBeenCalledWith("test query", "user-1", 30);
   });

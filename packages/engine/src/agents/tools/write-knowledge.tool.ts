@@ -89,10 +89,9 @@ registerTool({
         }
 
         // Fire-and-forget reindex: drop old chunks, re-chunk + embed, mark "ready".
-        const openaiKey = ctx.secrets?.["openai_api_key"];
         const { docId, rawContent } = result;
         setImmediate(() => {
-          processDocument(docId, ctx.instanceId, rawContent, openaiKey).catch((err) => {
+          processDocument(docId, ctx.instanceId, rawContent).catch((err) => {
             console.error(
               `writeKnowledge reindex failed for doc ${docId}: ${errMsg(err)}`,
             );

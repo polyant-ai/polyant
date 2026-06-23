@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { generateEmbedding } from "../../memory/embedder.js";
+import { embed, resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
 import { upsertMemory } from "../../memory/memory-store.js";
 import { registerTool } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
@@ -23,14 +23,16 @@ registerTool({
     }),
     execute: async ({ content }: { content: string }) => {
       try {
-        const openaiKey = ctx.secrets?.["openai_api_key"];
-        const embedding = await generateEmbedding(content, openaiKey);
+        const embCtx = await resolveEmbeddingContext(ctx.instanceId);
+        const embedding = await embed(content, embCtx);
         const result = await upsertMemory({
           instanceId: ctx.instanceId,
           content,
           category: "general",
           importance: 7,
           embedding,
+          dimensions: embCtx.dimensions,
+          provider: embCtx.credentials.provider,
         });
         ctx.audit.log({
           action: "memory.save",

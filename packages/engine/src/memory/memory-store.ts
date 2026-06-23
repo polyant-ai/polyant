@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, desc, sql, gt, and, ilike, count as drizzleCount } from "drizzle-orm";
+import { eq, desc, sql, gt, and, ilike, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
-import { db } from "../database/client.js";
+import { db, type DbExecutor } from "../database/client.js";
 import { memories } from "./schema.js";
 import { config } from "../config.js";
+import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
+import { vectorColumnValues } from "../embeddings-gateway/dim-columns.js";
 
 // ---- Types ----
 
@@ -26,6 +28,10 @@ export interface InsertMemoryInput {
   importance?: number;
   sourceConversationId?: string;
   embedding: number[];
+  /** Dimension of `embedding` — chooses DB column. */
+  dimensions: EmbeddingDim;
+  /** Provider that produced the embedding. Stored as `embedding_provider`. */
+  provider: EmbeddingProvider;
 }
 
 export type MemoryEvent = "ADD" | "UPDATE";
@@ -41,6 +47,11 @@ export interface UpsertResult {
 /** Escape special LIKE pattern characters so user input is treated as literal text. */
 function escapeLikePattern(input: string): string {
   return input.replace(/[%_\\]/g, (ch) => `\\${ch}`);
+}
+
+/** Pick the active Drizzle column based on dim. */
+function activeEmbeddingColumn(dim: EmbeddingDim) {
+  return dim === 1024 ? memories.embedding1024 : memories.embedding;
 }
 
 // ---- Constants ----
@@ -64,7 +75,9 @@ async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult
   // SERIALIZABLE isolation prevents phantom reads: two concurrent calls cannot both
   // miss the similarity check and both insert, creating duplicates.
   return db.transaction(async (tx) => {
-    const distance = cosineDistance(memories.embedding, input.embedding);
+    const activeCol = activeEmbeddingColumn(input.dimensions);
+    const vectorCols = vectorColumnValues(input.dimensions, input.embedding);
+    const distance = cosineDistance(activeCol, input.embedding);
 
     // Find the closest existing memory for this user with similarity above threshold
     const [closest] = await tx
@@ -89,7 +102,8 @@ async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult
           content: input.content,
           category: input.category ?? "general",
           importance: input.importance ?? 5,
-          embedding: input.embedding,
+          ...vectorCols,
+          embeddingProvider: input.provider,
           updatedAt: new Date(),
         })
         .where(eq(memories.id, closest.id));
@@ -106,7 +120,8 @@ async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult
         category: input.category ?? "general",
         importance: input.importance ?? 5,
         sourceConversationId: input.sourceConversationId ?? null,
-        embedding: input.embedding,
+        ...vectorCols,
+        embeddingProvider: input.provider,
       })
       .returning({ id: memories.id });
 
@@ -146,8 +161,10 @@ export async function searchByVector(
   queryEmbedding: number[],
   instanceId: string,
   limit = 10,
+  dimensions: EmbeddingDim,
 ): Promise<Array<MemoryRecord & { similarity: number }>> {
-  const distance = cosineDistance(memories.embedding, queryEmbedding);
+  const activeCol = activeEmbeddingColumn(dimensions);
+  const distance = cosineDistance(activeCol, queryEmbedding);
 
   const rows = await db
     .select({
@@ -162,7 +179,10 @@ export async function searchByVector(
       distance: sql<number>`${distance}`,
     })
     .from(memories)
-    .where(eq(memories.instanceId, instanceId))
+    // Exclude rows whose active vector column is NULL: their cosine distance is
+    // NULL → `1 - NULL` = NaN, which would otherwise leak into search results
+    // (and to the model via the memory tools) when fewer than `limit` rows match.
+    .where(and(eq(memories.instanceId, instanceId), isNotNull(activeCol)))
     .orderBy(distance)
     .limit(limit);
 
@@ -251,8 +271,23 @@ export async function deleteMemoryForInstance(memoryId: string, instanceId: stri
 }
 
 /**
- * Delete all memories for a user.
+ * Delete all memories for a user. Returns the number of rows removed. Accepts an
+ * optional executor (transaction) so the destructive embedding reset can wipe
+ * memories + knowledge + realign embedding_dim atomically.
  */
-export async function deleteAllMemories(instanceId: string): Promise<void> {
-  await db.delete(memories).where(eq(memories.instanceId, instanceId));
+export async function deleteAllMemories(instanceId: string, executor: DbExecutor = db): Promise<number> {
+  const deleted = await executor
+    .delete(memories)
+    .where(eq(memories.instanceId, instanceId))
+    .returning({ id: memories.id });
+  return deleted.length;
+}
+
+/** Count memories owned by an instance. */
+export async function countMemories(instanceId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: drizzleCount() })
+    .from(memories)
+    .where(eq(memories.instanceId, instanceId));
+  return Number(row.count);
 }

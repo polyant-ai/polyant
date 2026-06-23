@@ -49,8 +49,39 @@ export interface Instance {
   thinkingEnabled: boolean;
   sttProvider: string | null;
   icon: string | null;
+  /**
+   * Embedding vector dimension for this instance (1024 for Bedrock Titan v2,
+   * 1536 for OpenAI text-embedding-3-small). Decides which vector column the
+   * `memories` / `knowledge_chunks` rows are written to.
+   */
+  embeddingDim?: number;
+  /**
+   * Provider-aware memory readiness, computed server-side. `needsOpenAIKey` is
+   * true when memory is enabled but the embeddings provider lacks the required
+   * credentials (e.g. an Anthropic-provider instance without an OpenAI key, or
+   * a Bedrock instance without AWS credentials). `canEnable` reflects whether
+   * the instance currently has everything it needs to run memory.
+   */
+  memory?: {
+    needsOpenAIKey: boolean;
+    canEnable: boolean;
+  };
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+/**
+ * Result of the destructive embedding reset that runs when an instance's
+ * embedding provider changes. Returned by `PATCH /api/instances/:slug` as
+ * `wiped` when the switch discarded existing data. Existing vectors are NOT
+ * converted — memories and the entire knowledge base are deleted.
+ */
+export interface EmbeddingWipeResult {
+  instanceId: string;
+  memoriesDeleted: number;
+  knowledgeDocumentsDeleted: number;
+  knowledgeChunksDeleted: number;
+  newEmbeddingDim: number;
 }
 
 export interface SecretStatus {

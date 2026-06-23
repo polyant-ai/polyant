@@ -274,6 +274,13 @@
       "when": 1779321600000,
       "tag": "0042_knowledge_fts",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1779408000000,
+      "tag": "0043_embedding_dims_1024",
+      "breakpoints": true
     }
   ]
 }
