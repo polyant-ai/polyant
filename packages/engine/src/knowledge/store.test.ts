@@ -252,7 +252,7 @@ describe("searchByVector", () => {
       ]),
     );
 
-    const results = await searchByVector([0.1, 0.2], "inst-1", 5, 1024);
+    const results = await searchByVector([0.1, 0.2], asInstanceSlug("inst-1"), 5, 1024);
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ id: "c1", source: "a.md", score: 0.85, chunkIndex: 0 });

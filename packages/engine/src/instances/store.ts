@@ -69,7 +69,7 @@ export async function findInstanceBySlug(slug: InstanceSlug): Promise<Instance |
 /** Find an instance by id (UUID). Returns undefined if not found. */
 export async function findInstanceById(id: string): Promise<Instance | undefined> {
   const rows = await db.select().from(instances).where(eq(instances.id, id)).limit(1);
-  return rows[0];
+  return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
 /** Insert an instance if the slug doesn't already exist. */

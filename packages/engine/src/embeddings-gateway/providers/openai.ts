@@ -10,20 +10,26 @@ interface OpenAICallOptions {
   readonly dimensions: EmbeddingDim;
 }
 
-function buildModel(apiKey: string, dimensions: EmbeddingDim) {
+function buildModel(apiKey: string) {
   if (!apiKey) {
     throw new Error(
       "OpenAI API key required for embeddings. Configure it in admin panel under Settings → AI Provider.",
     );
   }
   const provider = createOpenAI({ apiKey });
-  return provider.embedding(EMBEDDING_MODEL_IDS.openai, { dimensions });
+  // AI SDK v6: the embedding factory takes only the model id; per-call settings
+  // (e.g. `dimensions`) are passed via `providerOptions` on embed()/embedMany().
+  return provider.embedding(EMBEDDING_MODEL_IDS.openai);
 }
 
 export async function embedOpenAI(text: string, opts: OpenAICallOptions): Promise<number[]> {
   assertDimSupported("openai", opts.dimensions);
-  const model = buildModel(opts.apiKey, opts.dimensions);
-  const { embedding } = await embed({ model, value: text });
+  const model = buildModel(opts.apiKey);
+  const { embedding } = await embed({
+    model,
+    value: text,
+    providerOptions: { openai: { dimensions: opts.dimensions } },
+  });
   return embedding;
 }
 
@@ -34,7 +40,11 @@ export async function embedManyOpenAI(texts: string[], opts: OpenAICallOptions):
     return [single];
   }
   assertDimSupported("openai", opts.dimensions);
-  const model = buildModel(opts.apiKey, opts.dimensions);
-  const { embeddings } = await embedMany({ model, values: texts });
+  const model = buildModel(opts.apiKey);
+  const { embeddings } = await embedMany({
+    model,
+    values: texts,
+    providerOptions: { openai: { dimensions: opts.dimensions } },
+  });
   return embeddings;
 }
