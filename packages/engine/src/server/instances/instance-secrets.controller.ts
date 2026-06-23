@@ -4,6 +4,7 @@ import { Controller, Get, Put, Delete, Param, Body, BadRequestException } from "
 import { z } from "zod";
 import { setSecret, listSecretKeys, deleteSecret } from "../../instances/secrets.store.js";
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
+import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 
@@ -51,6 +52,9 @@ export class InstanceSecretsController {
     }
 
     invalidateInstanceConfigCache(asInstanceSlug(slug));
+    // Embedding context (provider credentials, e.g. aws_region / openai_api_key)
+    // is cached separately; invalidate it too or embeds can fail for up to 30s.
+    invalidateEmbeddingContext(instance.id, slug);
     const secrets = await listSecretKeys(asInstanceSlug(slug));
     return { secrets };
   }
@@ -63,6 +67,7 @@ export class InstanceSecretsController {
     const instance = await findInstanceOrFail(slug);
     await deleteSecret(instance.id, key);
     invalidateInstanceConfigCache(asInstanceSlug(slug));
+    invalidateEmbeddingContext(instance.id, slug);
     return { deleted: true };
   }
 }

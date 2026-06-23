@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "./schema.js";
 import { asInstanceUuid, asInstanceSlug, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
+import { findInstanceById, findInstanceBySlug } from "./store.js";
+import type { Instance } from "./store.js";
 
 /** Resolve an instance slug to its UUID. */
 export async function resolveInstanceId(slug: InstanceSlug): Promise<InstanceUuid | undefined> {
@@ -23,4 +25,17 @@ export async function resolveInstanceSlug(instanceId: InstanceUuid): Promise<Ins
     .where(eq(instances.id, instanceId))
     .limit(1);
   return rows[0] ? asInstanceSlug(rows[0].slug) : undefined;
+}
+
+/**
+ * Resolve an instance by either its UUID or its slug. Tries id first when the
+ * value looks like a UUID, otherwise slug; falls back to the other form so a
+ * caller passing either alias always succeeds. Returns undefined if not found.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export async function findInstanceByIdOrSlug(idOrSlug: string): Promise<Instance | undefined> {
+  if (UUID_RE.test(idOrSlug)) {
+    return (await findInstanceById(idOrSlug)) ?? (await findInstanceBySlug(asInstanceSlug(idOrSlug)));
+  }
+  return (await findInstanceBySlug(asInstanceSlug(idOrSlug))) ?? (await findInstanceById(idOrSlug));
 }

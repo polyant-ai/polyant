@@ -2,6 +2,7 @@
 
 import { eq, sql, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
+import { DEFAULT_EMBEDDING_DIM } from "../embeddings-gateway/config.js";
 import { instances } from "./schema.js";
 import { conversations, conversationMessages, conversationState } from "../conversations/schema.js";
 import { memories } from "../memory/schema.js";
@@ -45,6 +46,7 @@ export interface Instance {
   optoutInjectPromptHint: boolean;
   icon: string | null;
   sttProvider: string;
+  embeddingDim: number;
   createdAt: Date | null;
   updatedAt: Date | null;
 }
@@ -64,6 +66,12 @@ export async function findInstanceBySlug(slug: InstanceSlug): Promise<Instance |
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
+/** Find an instance by id (UUID). Returns undefined if not found. */
+export async function findInstanceById(id: string): Promise<Instance | undefined> {
+  const rows = await db.select().from(instances).where(eq(instances.id, id)).limit(1);
+  return rows[0] ? toInstance(rows[0]) : undefined;
+}
+
 /** Insert an instance if the slug doesn't already exist. */
 export async function ensureInstance(data: {
   slug: InstanceSlug;
@@ -76,6 +84,7 @@ export async function ensureInstance(data: {
       slug: data.slug,
       name: data.name,
       description: data.description ?? null,
+      embeddingDim: DEFAULT_EMBEDDING_DIM,
     })
     .onConflictDoNothing({ target: instances.slug });
 }
@@ -116,19 +125,82 @@ export async function createInstance(data: {
       description: data.description ?? null,
       provider: data.provider ?? null,
       model: data.model ?? null,
+      // New instances default to 1024d; the DB default (1536) stays for legacy rows.
+      embeddingDim: DEFAULT_EMBEDDING_DIM,
     })
     .returning();
   return toInstance(rows[0]);
 }
 
+/** Fields a caller is allowed to PATCH. `embeddingDim` is deliberately excluded:
+ * it is owned by the embedding-reset pipeline (set on a provider switch) and must
+ * never be set directly, or it desyncs from the actual populated vector column. */
+type UpdatableInstanceFields = {
+  name?: string;
+  description?: string | null;
+  status?: string;
+  provider?: string | null;
+  model?: string | null;
+  memoryEnabled?: boolean;
+  knowledgeEnabled?: boolean;
+  langsmithEnabled?: boolean;
+  langsmithProject?: string | null;
+  authEnabled?: boolean;
+  thinkingEnabled?: boolean;
+  stateInPromptEnabled?: boolean;
+  toolResultsInHistoryEnabled?: boolean;
+  debugEnabled?: boolean;
+  icon?: string | null;
+  sttProvider?: string;
+  optoutEnabled?: boolean;
+  optoutStopKeywords?: string[];
+  optoutResumeKeywords?: string[];
+  optoutClosingMessage?: string | null;
+  optoutResumeMessage?: string | null;
+  optoutInjectPromptHint?: boolean;
+};
+
+const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
+  "name",
+  "description",
+  "status",
+  "provider",
+  "model",
+  "memoryEnabled",
+  "knowledgeEnabled",
+  "langsmithEnabled",
+  "langsmithProject",
+  "authEnabled",
+  "thinkingEnabled",
+  "stateInPromptEnabled",
+  "toolResultsInHistoryEnabled",
+  "debugEnabled",
+  "icon",
+  "sttProvider",
+  "optoutEnabled",
+  "optoutStopKeywords",
+  "optoutResumeKeywords",
+  "optoutClosingMessage",
+  "optoutResumeMessage",
+  "optoutInjectPromptHint",
+];
+
 /** Update an instance by slug. Touches updatedAt. Returns the updated instance or undefined if not found. */
 export async function updateInstance(
   slug: InstanceSlug,
-  data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; stateInPromptEnabled?: boolean; toolResultsInHistoryEnabled?: boolean; debugEnabled?: boolean; icon?: string | null; sttProvider?: string; optoutEnabled?: boolean; optoutStopKeywords?: string[]; optoutResumeKeywords?: string[]; optoutClosingMessage?: string | null; optoutResumeMessage?: string | null; optoutInjectPromptHint?: boolean },
+  data: UpdatableInstanceFields,
 ): Promise<Instance | undefined> {
+  // Runtime whitelist: TS types do not protect against extra keys arriving via
+  // a JSON body (NestJS does not strip them), so only known columns are written.
+  const patch: Partial<UpdatableInstanceFields> = {};
+  for (const key of UPDATABLE_INSTANCE_KEYS) {
+    if (data[key] !== undefined) {
+      (patch as Record<string, unknown>)[key] = data[key];
+    }
+  }
   const rows = await db
     .update(instances)
-    .set({ ...data, updatedAt: sql`now()` })
+    .set({ ...patch, updatedAt: sql`now()` })
     .where(eq(instances.slug, slug))
     .returning();
   return rows[0] ? toInstance(rows[0]) : undefined;

@@ -5,7 +5,7 @@ import {
   searchByKeyword,
   type KnowledgeSearchResult as StoreResult,
 } from "./store.js";
-import { generateEmbedding } from "../memory/embedder.js";
+import { embed, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 
 export interface KnowledgeSearchResult {
@@ -37,14 +37,14 @@ export async function searchKnowledge(
   query: string,
   instanceId: InstanceSlug,
   limit = 5,
-  openaiApiKey?: string,
 ): Promise<KnowledgeSearchResult[]> {
   const fetchLimit = Math.max(limit * 2, 20);
 
-  const queryEmbedding = await generateEmbedding(query, openaiApiKey);
+  const ctx = await resolveEmbeddingContext(instanceId);
+  const queryEmbedding = await embed(query, ctx);
 
   const [semanticResults, keywordResults] = await Promise.all([
-    searchByVector(queryEmbedding, instanceId, fetchLimit).catch((err) => {
+    searchByVector(queryEmbedding, instanceId, fetchLimit, ctx.dimensions).catch((err) => {
       console.error("Knowledge hybrid search: pgvector backend failed:", err);
       return [] as StoreResult[];
     }),

@@ -24,12 +24,10 @@ registerTool({
     }),
     execute: async ({ query, limit }: { query: string; limit: number | null }) => {
       try {
-        const openaiKey = ctx.secrets?.["openai_api_key"];
         const results = await searchKnowledge(
           query,
           ctx.instanceId,
           limit ?? undefined,
-          openaiKey,
         );
         ctx.audit.log({
           action: "knowledge.search",

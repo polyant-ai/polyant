@@ -22,7 +22,7 @@ import {
   countDocuments,
 } from "../../knowledge/index.js";
 import { processDocument } from "../../knowledge/ingestion.js";
-import { resolveInstanceConfig } from "../../instances/config-resolver.js";
+import { resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
 import { config } from "../../config.js";
 
 /** Maximum allowed document size in bytes (5 MB). */
@@ -129,16 +129,15 @@ export class InstanceKnowledgeController {
       html: "text/html",
     };
 
-    // Resolve OpenAI API key (required for embedding generation)
-    const instanceConfig = await resolveInstanceConfig(instance.slug);
-    const openaiKey = instanceConfig.secrets["openai_api_key"];
-    if (!openaiKey) {
-      throw new BadRequestException(
-        "OpenAI API key is not configured for this instance. " +
-        "Knowledge ingestion requires an OpenAI key for embedding generation. " +
-        "Set it via the instance secrets API.",
-      );
-    }
+    // Verify the embedding provider is configured before accepting the upload.
+    // The gateway resolves provider-specific credentials (OpenAI key or Bedrock region).
+    await resolveEmbeddingContext(instance.slug).catch((err: unknown) => {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Embedding provider is not configured for this instance.";
+      throw new BadRequestException(message);
+    });
 
     const doc = await createDocument({
       instanceId: instance.slug,
@@ -151,7 +150,7 @@ export class InstanceKnowledgeController {
     });
 
     // Ingest asynchronously
-    processDocument(doc.id, instance.slug, content, openaiKey).catch((err) => {
+    processDocument(doc.id, instance.slug, content).catch((err) => {
       console.error(
         `[Knowledge] Ingestion failed for doc ${doc.id}: ${err instanceof Error ? err.message : String(err)}`,
       );

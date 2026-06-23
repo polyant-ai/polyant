@@ -323,6 +323,13 @@
       "when": 1779926400000,
       "tag": "0049_add_gdpr_optout",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1780012800000,
+      "tag": "0050_embedding_dims_1024",
+      "breakpoints": true
     }
   ]
 }

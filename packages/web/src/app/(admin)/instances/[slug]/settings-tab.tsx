@@ -146,6 +146,11 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // Pricing dialog
   const [pricingOpen, setPricingOpen] = useState(false);
 
+  // Destructive-wipe dialog: shown when the chosen provider changes the embedding
+  // provider (openai↔bedrock). Existing embeddings live in a provider-specific
+  // space and are NOT converted — memories + knowledge are permanently deleted.
+  const [wipeOpen, setWipeOpen] = useState(false);
+
 
   // Instance-level settings
   const [authEnabled, setAuthEnabled] = useState(instance.authEnabled);
@@ -221,7 +226,11 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     langsmithProject !== (instance.langsmithProject ?? "") ||
     sttProvider !== ((instance.sttProvider as STTProvider | null) ?? "openai");
 
-  const handleSave = async () => {
+  // Map a chat provider to its embedding provider (mirrors the engine's
+  // embeddingProviderFor): bedrock → bedrock, everything else → openai.
+  const embeddingProviderOf = (p: string) => (p === "bedrock" ? "bedrock" : "openai");
+
+  const performSave = async (confirmWipe: boolean) => {
     setSaving(true);
     try {
       // 1. Save secrets (only fields whose value diverges from the loaded baseline).
@@ -245,7 +254,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         });
       }
 
-      // 2. Save instance-level settings
+      // 2. Save instance-level settings. `confirmWipe` acknowledges that an
+      // embedding-provider change permanently deletes memories + knowledge; the
+      // engine rejects the switch without it when there is data to lose.
       const { instance: updated } = await api.instances.update(instance.slug, {
         provider: provider || null,
         model: model || null,
@@ -259,6 +270,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         langsmithEnabled,
         langsmithProject: langsmithProject || null,
         sttProvider,
+        confirmWipe,
       });
       onUpdate(updated);
 
@@ -271,6 +283,31 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = async () => {
+    // Switching the embedding provider (openai↔bedrock) abandons the old
+    // embedding space — existing memories + knowledge are wiped, not converted.
+    // Warn before saving so the loss is explicit and confirmed.
+    const embeddingChanged =
+      embeddingProviderOf(provider) !== embeddingProviderOf(instance.provider ?? "");
+    if (embeddingChanged) {
+      setWipeOpen(true);
+      return;
+    }
+    await performSave(false);
+  };
+
+  const handleWipeConfirm = async () => {
+    setWipeOpen(false);
+    await performSave(true);
+  };
+
+  const handleWipeCancel = () => {
+    setWipeOpen(false);
+    // Revert the provider/model selection back to the persisted instance values.
+    setProvider(instance.provider ?? "");
+    setModel(instance.model ?? "");
   };
 
   usePageSaveAction({ isDirty, saving, onSave: handleSave });
@@ -596,10 +633,18 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           />
         </div>
 
-        {memoryEnabled && !isConfigured(SECRET_KEYS.OPENAI) && secretValue(SECRET_KEYS.OPENAI) === "" && (
+        {memoryEnabled && instance.memory?.needsOpenAIKey && (
           <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p className="text-sm">{t("settings.tab.memoryOpenaiWarning")}</p>
+            <p className="text-sm">
+              {t(
+                provider === "bedrock"
+                  ? "memory.banner.bedrockNeedsAws"
+                  : provider === "anthropic"
+                    ? "memory.banner.anthropicNeedsOpenAI"
+                    : "memory.banner.openaiNeedsKey",
+              )}
+            </p>
           </div>
         )}
       </section>
@@ -807,6 +852,27 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         )}
       </section>
 
+      {/* Provider-change destructive wipe confirmation */}
+      <AlertDialog open={wipeOpen} onOpenChange={setWipeOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("memory.wipe.title")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("memory.wipe.body", {
+                provider: BRAND_NAMES[provider] ?? provider,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleWipeCancel}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleWipeConfirm}>
+              {t("memory.wipe.primary")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

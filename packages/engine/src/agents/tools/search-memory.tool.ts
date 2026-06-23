@@ -26,8 +26,7 @@ registerTool({
     }),
     execute: async ({ query, limit }: { query: string; limit: number | null }) => {
       try {
-        const openaiKey = ctx.secrets?.["openai_api_key"];
-        const results = await hybridSearch(query, ctx.instanceId, limit ?? undefined, openaiKey);
+        const results = await hybridSearch(query, ctx.instanceId, limit ?? undefined);
         ctx.audit.log({
           action: "memory.search",
           details: {
