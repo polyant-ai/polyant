@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createHash } from "crypto";
-import { eq, and, desc, sql, count as drizzleCount } from "drizzle-orm";
+import { eq, and, desc, sql, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
-import { db } from "../database/client.js";
+import { db, type DbExecutor, type DbTransaction } from "../database/client.js";
 import { knowledgeDocuments, knowledgeChunks } from "./schema.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
+import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
+import { vectorColumnValues } from "../embeddings-gateway/dim-columns.js";
 
 // Size caps enforced on agent-originated writes.
 export const MAX_WRITE_BYTES = 1 * 1024 * 1024; // 1MB per call
@@ -133,6 +135,34 @@ export async function deleteDocument(docId: string): Promise<boolean> {
     .where(eq(knowledgeDocuments.id, docId))
     .returning();
   return result.length > 0;
+}
+
+/**
+ * Delete the entire knowledge base for an instance — every document (including
+ * its raw content) and every chunk. Used by the destructive embedding reset on
+ * a provider switch, where existing vectors are abandoned rather than converted.
+ * Returns the counts removed.
+ *
+ * Accepts an optional transaction so the caller can wipe memories + knowledge +
+ * realign embedding_dim atomically. Standalone, it opens its own transaction so
+ * the chunk/document deletes never partially apply.
+ */
+export async function deleteAllKnowledgeForInstance(
+  instanceId: string,
+  tx?: DbTransaction,
+): Promise<{ documents: number; chunks: number }> {
+  const run = async (ex: DbExecutor) => {
+    const chunks = await ex
+      .delete(knowledgeChunks)
+      .where(eq(knowledgeChunks.instanceId, instanceId))
+      .returning({ id: knowledgeChunks.id });
+    const docs = await ex
+      .delete(knowledgeDocuments)
+      .where(eq(knowledgeDocuments.instanceId, instanceId))
+      .returning({ id: knowledgeDocuments.id });
+    return { documents: docs.length, chunks: chunks.length };
+  };
+  return tx ? run(tx) : db.transaction(run);
 }
 
 /** Get a document by (instanceId, filename). Relies on the UNIQUE constraint. */
@@ -356,25 +386,40 @@ export async function resetStuckProcessingAll(minutes = 5): Promise<number> {
 
 // ── Chunk operations ───────────────────────────────────────────────
 
+/** Pick the active Drizzle column based on embedding dim. */
+function activeKnowledgeChunkColumn(dim: EmbeddingDim) {
+  return dim === 1024 ? knowledgeChunks.embedding1024 : knowledgeChunks.embedding;
+}
+
+export interface InsertChunkInput {
+  documentId: string;
+  instanceId: string;
+  content: string;
+  embedding: number[];
+  chunkIndex: number;
+}
+
+/** Build row values for a chunk insert — populates the active column, NULLs the other. */
+function chunkRowValues(c: InsertChunkInput, dimensions: EmbeddingDim, provider: EmbeddingProvider) {
+  return {
+    documentId: c.documentId,
+    instanceId: c.instanceId,
+    content: c.content,
+    ...vectorColumnValues(dimensions, c.embedding),
+    embeddingProvider: provider,
+    chunkIndex: c.chunkIndex,
+  };
+}
+
 export async function insertChunks(
-  chunks: Array<{
-    documentId: string;
-    instanceId: InstanceSlug;
-    content: string;
-    embedding: number[];
-    chunkIndex: number;
-  }>,
+  chunks: InsertChunkInput[],
+  dimensions: EmbeddingDim,
+  provider: EmbeddingProvider,
 ): Promise<number> {
   if (chunks.length === 0) return 0;
 
   await db.insert(knowledgeChunks).values(
-    chunks.map((c) => ({
-      documentId: c.documentId,
-      instanceId: c.instanceId,
-      content: c.content,
-      embedding: c.embedding,
-      chunkIndex: c.chunkIndex,
-    })),
+    chunks.map((c) => chunkRowValues(c, dimensions, provider)),
   );
   return chunks.length;
 }
@@ -385,13 +430,9 @@ export async function insertChunks(
  */
 export async function insertChunksAndFinalize(
   docId: string,
-  chunks: Array<{
-    documentId: string;
-    instanceId: InstanceSlug;
-    content: string;
-    embedding: number[];
-    chunkIndex: number;
-  }>,
+  chunks: InsertChunkInput[],
+  dimensions: EmbeddingDim,
+  provider: EmbeddingProvider,
 ): Promise<number> {
   if (chunks.length === 0) {
     await updateDocumentStatus(docId, "ready", { chunkCount: 0 });
@@ -400,13 +441,7 @@ export async function insertChunksAndFinalize(
 
   return await db.transaction(async (tx) => {
     await tx.insert(knowledgeChunks).values(
-      chunks.map((c) => ({
-        documentId: c.documentId,
-        instanceId: c.instanceId,
-        content: c.content,
-        embedding: c.embedding,
-        chunkIndex: c.chunkIndex,
-      })),
+      chunks.map((c) => chunkRowValues(c, dimensions, provider)),
     );
 
     await tx
@@ -432,8 +467,10 @@ export async function searchByVector(
   queryEmbedding: number[],
   instanceId: InstanceSlug,
   limit = 5,
+  dimensions: EmbeddingDim,
 ): Promise<KnowledgeSearchResult[]> {
-  const distance = cosineDistance(knowledgeChunks.embedding, queryEmbedding);
+  const activeCol = activeKnowledgeChunkColumn(dimensions);
+  const distance = cosineDistance(activeCol, queryEmbedding);
 
   const rows = await db
     .select({
@@ -445,7 +482,10 @@ export async function searchByVector(
     })
     .from(knowledgeChunks)
     .innerJoin(knowledgeDocuments, eq(knowledgeChunks.documentId, knowledgeDocuments.id))
-    .where(eq(knowledgeChunks.instanceId, instanceId))
+    // Exclude rows whose active vector column is NULL: their cosine distance is
+    // NULL → `1 - NULL` = NaN, which would otherwise leak a NaN score into the
+    // knowledge search results when fewer than `limit` rows match.
+    .where(and(eq(knowledgeChunks.instanceId, instanceId), isNotNull(activeCol)))
     .orderBy(distance)
     .limit(limit);
 

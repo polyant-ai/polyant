@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -10,6 +11,7 @@ import {
   uniqueIndex,
   vector,
   pgEnum,
+  check,
 } from "drizzle-orm/pg-core";
 
 export const knowledgeDocumentStatusEnum = pgEnum("knowledge_document_status", [
@@ -51,12 +53,18 @@ export const knowledgeChunks = pgTable(
     documentId: uuid("document_id").notNull(),
     instanceId: text("instance_id").notNull(),
     content: text("content").notNull(),
-    embedding: vector("embedding", { dimensions: 1536 }).notNull(),
+    embedding: vector("embedding", { dimensions: 1536 }),
+    embedding1024: vector("embedding_1024", { dimensions: 1024 }),
+    embeddingProvider: text("embedding_provider"),
     chunkIndex: integer("chunk_index").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
     index("idx_knowledge_chunks_instance_id").on(table.instanceId),
     index("idx_knowledge_chunks_document_id").on(table.documentId),
+    check(
+      "knowledge_chunks_embedding_xor",
+      sql`(${table.embedding} IS NULL) <> (${table.embedding1024} IS NULL)`,
+    ),
   ],
 );

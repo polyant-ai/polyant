@@ -5,15 +5,18 @@ import { asInstanceSlug } from "../instances/identifiers.js";
 
 const mockChat = vi.fn();
 const mockGetRecentMessages = vi.fn();
-const mockGenerateEmbeddings = vi.fn();
+const mockEmbedMany = vi.fn();
+const mockResolveEmbeddingContext = vi.fn();
 const mockUpsertMemory = vi.fn();
 
 vi.mock("../ai-gateway/index.js", () => ({
   chat: (...args: unknown[]) => mockChat(...args),
 }));
 
-vi.mock("./embedder.js", () => ({
-  generateEmbeddings: (...args: unknown[]) => mockGenerateEmbeddings(...args),
+vi.mock("../embeddings-gateway/index.js", () => ({
+  embed: (...args: unknown[]) => mockEmbedMany(...args),
+  embedMany: (...args: unknown[]) => mockEmbedMany(...args),
+  resolveEmbeddingContext: (...args: unknown[]) => mockResolveEmbeddingContext(...args),
 }));
 
 vi.mock("./memory-store.js", () => ({
@@ -33,6 +36,11 @@ describe("extractMemories", () => {
     vi.clearAllMocks();
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
+    mockResolveEmbeddingContext.mockResolvedValue({
+      instanceId: "user-1",
+      dimensions: 1024,
+      credentials: { provider: "openai", apiKey: "k" },
+    });
   });
 
   it("loads recent messages, calls LLM, embeds, and upserts results", async () => {
@@ -45,7 +53,7 @@ describe("extractMemories", () => {
       text: '[{"content":"The user lives in Rome","category":"fact","importance":8}]',
     });
 
-    mockGenerateEmbeddings.mockResolvedValue([[0.1, 0.2, 0.3]]);
+    mockEmbedMany.mockResolvedValue([[0.1, 0.2, 0.3]]);
 
     mockUpsertMemory.mockResolvedValue({
       id: "m1",
@@ -63,7 +71,10 @@ describe("extractMemories", () => {
       }),
       { conversationId: "conv-1", instanceId: "user-1", callType: "service" },
     );
-    expect(mockGenerateEmbeddings).toHaveBeenCalledWith(["The user lives in Rome"], undefined);
+    expect(mockEmbedMany).toHaveBeenCalledWith(
+      ["The user lives in Rome"],
+      expect.objectContaining({ dimensions: 1024 }),
+    );
     expect(mockUpsertMemory).toHaveBeenCalledWith({
       instanceId: "user-1",
       content: "The user lives in Rome",
@@ -71,6 +82,8 @@ describe("extractMemories", () => {
       importance: 8,
       sourceConversationId: "conv-1",
       embedding: [0.1, 0.2, 0.3],
+      dimensions: 1024,
+      provider: "openai",
     });
     expect(results).toHaveLength(1);
     expect(results[0]).toEqual({
@@ -103,7 +116,7 @@ describe("extractMemories", () => {
 
     expect(results).toEqual([]);
     expect(mockChat).not.toHaveBeenCalled();
-    expect(mockGenerateEmbeddings).not.toHaveBeenCalled();
+    expect(mockEmbedMany).not.toHaveBeenCalled();
     expect(mockUpsertMemory).not.toHaveBeenCalled();
   });
 
@@ -117,7 +130,7 @@ describe("extractMemories", () => {
       text: '[{"content":"The user said hello","category":"general","importance":2}]',
     });
 
-    mockGenerateEmbeddings.mockResolvedValue([[0.1, 0.2]]);
+    mockEmbedMany.mockResolvedValue([[0.1, 0.2]]);
     mockUpsertMemory.mockResolvedValue({
       id: "m1",
       content: "The user said hello",
@@ -155,7 +168,7 @@ describe("extractMemories", () => {
       text: '[{"content":"The user received a reply","category":"general","importance":3}]',
     });
 
-    mockGenerateEmbeddings.mockResolvedValue([[0.4, 0.5]]);
+    mockEmbedMany.mockResolvedValue([[0.4, 0.5]]);
     mockUpsertMemory.mockResolvedValue({
       id: "m1",
       content: "The user received a reply",
@@ -184,7 +197,7 @@ describe("extractMemories", () => {
     const results = await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     expect(results).toEqual([]);
-    expect(mockGenerateEmbeddings).not.toHaveBeenCalled();
+    expect(mockEmbedMany).not.toHaveBeenCalled();
     expect(mockUpsertMemory).not.toHaveBeenCalled();
 
     // No summary log when there are zero facts
@@ -202,7 +215,7 @@ describe("extractMemories", () => {
       text: '[{"content":"The user likes pizza","category":"preference","importance":6}]',
     });
 
-    mockGenerateEmbeddings.mockResolvedValue([[0.1, 0.2]]);
+    mockEmbedMany.mockResolvedValue([[0.1, 0.2]]);
     mockUpsertMemory.mockResolvedValue({
       id: "m1",
       content: "The user likes pizza",
@@ -229,7 +242,7 @@ describe("extractMemories", () => {
     const results = await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     expect(results).toEqual([]);
-    expect(mockGenerateEmbeddings).not.toHaveBeenCalled();
+    expect(mockEmbedMany).not.toHaveBeenCalled();
     expect(mockUpsertMemory).not.toHaveBeenCalled();
   });
 
@@ -245,7 +258,7 @@ describe("extractMemories", () => {
       ]),
     });
 
-    mockGenerateEmbeddings.mockResolvedValue([
+    mockEmbedMany.mockResolvedValue([
       [0.1, 0.2],
       [0.3, 0.4],
     ]);
@@ -257,11 +270,11 @@ describe("extractMemories", () => {
     const results = await extractMemories("conv-1", asInstanceSlug("user-1"));
 
     // All facts embedded in a single batch call
-    expect(mockGenerateEmbeddings).toHaveBeenCalledTimes(1);
-    expect(mockGenerateEmbeddings).toHaveBeenCalledWith([
-      "The user lives in Rome",
-      "The user likes pasta",
-    ], undefined);
+    expect(mockEmbedMany).toHaveBeenCalledTimes(1);
+    expect(mockEmbedMany).toHaveBeenCalledWith(
+      ["The user lives in Rome", "The user likes pasta"],
+      expect.objectContaining({ dimensions: 1024 }),
+    );
 
     // Each fact upserted with its corresponding embedding
     expect(mockUpsertMemory).toHaveBeenCalledTimes(2);

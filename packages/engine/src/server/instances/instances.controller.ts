@@ -27,6 +27,15 @@ import { seedInstancePrompts } from "../../instances/prompts.store.js";
 import { seedInstanceTools } from "../../instances/instance-tools.store.js";
 import { seedInstanceSkills } from "../../instances/instance-skills.store.js";
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
+import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
+import {
+  embeddingProviderChanged,
+  resetEmbeddingsForProviderSwitch,
+  type EmbeddingResetResult,
+} from "../../embeddings-gateway/embedding-reset.service.js";
+import { countMemories } from "../../memory/index.js";
+import { countDocuments } from "../../knowledge/index.js";
+import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
 import { providerConfigs, isThinkingCapable } from "../../ai-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
@@ -67,6 +76,7 @@ function toInstanceDto(instance: Instance) {
     optoutResumeMessage: instance.optoutResumeMessage,
     optoutInjectPromptHint: instance.optoutInjectPromptHint,
     sttProvider: instance.sttProvider,
+    embeddingDim: instance.embeddingDim,
     icon: buildInstanceIconUrl(instance.slug, instance.icon, instance.updatedAt),
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
@@ -120,7 +130,12 @@ export class InstancesController {
     this.validateSlug(slug);
     const instance = await findInstanceBySlug(asInstanceSlug(slug));
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    return { instance: toInstanceDto(instance) };
+    return {
+      instance: {
+        ...toInstanceDto(instance),
+        memory: await computeMemoryStatusFromInstance(instance),
+      },
+    };
   }
 
   // GET /api/instances/:slug/icon — serve the icon binary
@@ -193,16 +208,59 @@ export class InstancesController {
       optoutClosingMessage?: string | null;
       optoutResumeMessage?: string | null;
       optoutInjectPromptHint?: boolean;
+      /**
+       * Explicit acknowledgement that changing the embedding provider will
+       * permanently delete this instance's memories and knowledge base. Required
+       * when the switch would discard existing data — protects scripted callers
+       * from accidental data loss. The UI sets it after the user confirms.
+       */
+      confirmWipe?: boolean;
     },
   ) {
     this.validateSlug(slug);
     this.validateModelConfig(body.provider, body.model);
     body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
     body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
-    const instance = await updateInstance(asInstanceSlug(slug), body);
+    // Capture the pre-update state to detect an embedding-relevant provider switch.
+    const before = await findInstanceBySlug(asInstanceSlug(slug));
+    if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
+
+    // A provider switch that changes the embedding provider abandons the old
+    // embedding space (vectors become uninterpretable). We do NOT convert them —
+    // existing memories + knowledge are wiped. Require explicit confirmation when
+    // there is data to lose, so a Management-API caller can't destroy it silently.
+    const afterProvider = body.provider !== undefined ? body.provider : before.provider;
+    const willWipe = embeddingProviderChanged(before, { provider: afterProvider });
+    if (willWipe && !body.confirmWipe) {
+      const hasData =
+        (await countMemories(before.slug)) > 0 || (await countDocuments(before.slug)) > 0;
+      if (hasData) {
+        throw new BadRequestException(
+          "Changing the embedding provider permanently deletes all memories and the entire knowledge base for this instance (existing embeddings cannot be converted). Re-send the request with confirmWipe: true to proceed.",
+        );
+      }
+    }
+
+    let instance = await updateInstance(asInstanceSlug(slug), body);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     invalidateInstanceConfigCache(asInstanceSlug(slug));
-    return { instance: toInstanceDto(instance) };
+    invalidateEmbeddingContext(instance.id, slug);
+
+    let wiped: EmbeddingResetResult | null = null;
+    if (willWipe) {
+      wiped = await resetEmbeddingsForProviderSwitch(instance.id, instance.provider);
+      // embedding_dim changed — drop the now-stale cached context and refresh the DTO.
+      invalidateEmbeddingContext(instance.id, slug);
+      instance = (await findInstanceBySlug(asInstanceSlug(slug))) ?? instance;
+    }
+
+    return {
+      instance: {
+        ...toInstanceDto(instance),
+        memory: await computeMemoryStatusFromInstance(instance),
+      },
+      wiped,
+    };
   }
 
   // DELETE /api/instances/:slug — delete
