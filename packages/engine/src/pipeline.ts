@@ -14,6 +14,7 @@ import { chat } from "./ai-gateway/index.js";
 import { conversationStore } from "./conversations/index.js";
 import { ConversationStateBuffer } from "./conversations/state.buffer.js";
 import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
+import { hookExecutionsToModelMessages, hookExecutionsToSteps } from "./hooks/hook-history.js";
 import type { MessageRow } from "./conversations/store.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
@@ -517,6 +518,15 @@ export async function runPipelinePre(
     hookExecutions.push(...(await runHooks("message_received", hookPayload, hookCtx)));
   }
 
+  // Same-turn visibility (opt-in): a pre-LLM hook's tool call+result is injected into
+  // the history sent to the supervisor, so the model sees what the hook's tool returned
+  // (e.g. a conversation_start lookup's candidates). Gated by the same flag as the
+  // cross-turn replay; no-op when off or when no hook ran a tool.
+  if (ctx.instanceConfig.toolResultsInHistoryEnabled) {
+    const hookMessages = hookExecutionsToModelMessages(hookExecutions);
+    if (hookMessages.length > 0) ctx.history = [...(ctx.history ?? []), ...hookMessages];
+  }
+
   return { ctx, contextPrepMs, messageText: msg.text, hookExecutions };
 }
 
@@ -531,6 +541,9 @@ export interface PipelinePostOptions {
   channel: string;
   resultText: string;
   steps?: StepDetail[];
+  /** Pre-LLM hook outcomes (from runPipelinePre): persisted as leading steps when
+   *  tool-results-in-history is on, so later turns replay the hook's tool result. */
+  preHookExecutions?: HookExecutionSummary[];
   /** Message-level reasoning from supervisor. */
   reasoning?: ReasoningDetail[];
   /** Exact LLM request payload — persisted on the assistant row when DEBUG is on. */
@@ -612,12 +625,21 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     }
   }
 
+  // Cross-turn replay (opt-in): persist pre-LLM hook tool executions as leading steps
+  // on this turn's assistant message, so subsequent turns replay them via
+  // buildHistoryWithToolResults. No-op when off or when no hook ran a tool.
+  let steps = opts.steps;
+  if (ctx.instanceConfig.toolResultsInHistoryEnabled && opts.preHookExecutions?.length) {
+    const hookSteps = hookExecutionsToSteps(opts.preHookExecutions);
+    if (hookSteps.length > 0) steps = [...hookSteps, ...(opts.steps ?? [])];
+  }
+
   afterResponse({
     conversationId: ctx.conversationId,
     instanceId: ctx.instanceId,
     userMessage: opts.messageText,
     assistantResponse: finalText,
-    steps: opts.steps,
+    steps,
     reasoning: opts.reasoning,
     debugPayload: opts.debugPayload,
     assistantMessageId: opts.assistantMessageId,
