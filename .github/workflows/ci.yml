@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -45,6 +45,44 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:unit -w @polyant/engine
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector image: migration 0000 runs `CREATE EXTENSION vector`.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: polyant
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: polyant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U polyant"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # migrate.ts runs outside vitest, so it does not load test-setup.ts —
+      # supply the config.ts-required vars (and DB coordinates) at the job level.
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: polyant
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: polyant
+      AUTH_SECRET: test-secret-at-least-32-chars-long-yes
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate -w @polyant/engine
+      - run: npm run test:integration -w @polyant/engine
 
   build:
     name: Build

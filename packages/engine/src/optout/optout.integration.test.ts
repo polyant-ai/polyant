@@ -3,6 +3,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
+import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
 import { contactOptouts } from "./optout.schema.js";
 import { eq } from "drizzle-orm";
 import { asInstanceSlug, asInstanceUuid } from "../instances/identifiers.js";
@@ -10,9 +11,14 @@ import { getOptoutStatus, setOptoutStatus, listOptouts } from "./index.js";
 
 const SLUG = asInstanceSlug("optout-itest");
 let instanceId: ReturnType<typeof asInstanceUuid>;
+let workspaceId: string;
 
 beforeAll(async () => {
-  const [row] = await db.insert(instances).values({ slug: SLUG, name: "Optout ITest" }).returning();
+  workspaceId = await findDefaultWorkspaceId();
+  const [row] = await db
+    .insert(instances)
+    .values({ slug: SLUG, name: "Optout ITest", workspaceId })
+    .returning();
   instanceId = asInstanceUuid(row.id);
 });
 
@@ -41,7 +47,10 @@ describe("contact opt-out lifecycle (integration)", () => {
     const remaining = await db.select().from(contactOptouts).where(eq(contactOptouts.instanceId, instanceId));
     expect(remaining).toHaveLength(0);
     // Re-create for afterAll idempotency
-    const [row] = await db.insert(instances).values({ slug: SLUG, name: "Optout ITest" }).returning();
+    const [row] = await db
+      .insert(instances)
+      .values({ slug: SLUG, name: "Optout ITest", workspaceId })
+      .returning();
     instanceId = asInstanceUuid(row.id);
   });
 });

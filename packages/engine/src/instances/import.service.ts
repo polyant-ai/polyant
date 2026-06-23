@@ -7,6 +7,7 @@
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "./schema.js";
+import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
 import { instancePrompts } from "./prompts.schema.js";
 import { instanceSkills } from "./instance-skills.schema.js";
 import { instanceTools } from "./instance-tools.schema.js";
@@ -57,7 +58,8 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
 
   // Run everything in a transaction
   const instanceId = await db.transaction(async (tx) => {
-    // 1. Create instance
+    // 1. Create instance (in the default workspace — see store.ts rationale).
+    const workspaceId = await findDefaultWorkspaceId(tx);
     const [inst] = await tx
       .insert(instances)
       .values({
@@ -72,6 +74,7 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
         langsmithEnabled: data.langsmithEnabled,
         authEnabled: data.authEnabled,
         icon: data.icon ?? null,
+        workspaceId,
       })
       .returning({ id: instances.id });
 
