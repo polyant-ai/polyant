@@ -31,9 +31,9 @@
     "test:functional": "vitest run --fileParallelism=false 'functional'"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "^2.2.12",
-    "@ai-sdk/anthropic": "^1.0.0",
-    "@ai-sdk/openai": "^1.0.0",
+    "@ai-sdk/amazon-bedrock": "^4.0.120",
+    "@ai-sdk/anthropic": "^3.0.85",
+    "@ai-sdk/openai": "^3.0.74",
     "@aws-sdk/client-s3": "^3.1052.0",
     "@aws-sdk/client-transcribe-streaming": "^3.1052.0",
     "@aws-sdk/credential-providers": "^3.1065.0",
@@ -44,7 +44,7 @@
     "@panva/hkdf": "^1.2.1",
     "@slack/bolt": "^4.6.0",
     "@tavily/core": "^0.0.3",
-    "ai": "^4.0.0",
+    "ai": "^6.0.208",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "croner": "^10.0.1",
