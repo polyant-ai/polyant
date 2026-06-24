@@ -93,6 +93,7 @@ const fullInstance = {
   status: "active",
   provider: "openai",
   model: "gpt-4o-mini",
+  embeddingProvider: "openai",
   memoryEnabled: true,
   knowledgeEnabled: false,
   langsmithEnabled: false,
@@ -129,7 +130,7 @@ describe("InstancesController", () => {
       const allowed = new Set([
         "id", "slug", "name", "description", "status", "provider", "model",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
-        "authEnabled", "thinkingEnabled", "stateInPromptEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "icon", "createdAt", "updatedAt",
+        "authEnabled", "thinkingEnabled", "stateInPromptEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint",
         "memory",
       ]);
@@ -264,7 +265,7 @@ describe("InstancesController", () => {
       mockEmbeddingProviderChanged.mockReturnValue(true);
       mockCountMemories.mockResolvedValue(3);
 
-      await expect(controller.update("test-one", { provider: "bedrock" })).rejects.toThrow(
+      await expect(controller.update("test-one", { embeddingProvider: "bedrock" })).rejects.toThrow(
         BadRequestException,
       );
       expect(mockUpdateInstance).not.toHaveBeenCalled();
@@ -274,8 +275,8 @@ describe("InstancesController", () => {
     it("allows the switch and wipes when confirmWipe is set", async () => {
       mockFindInstanceBySlug
         .mockResolvedValueOnce(fullInstance)
-        .mockResolvedValueOnce({ ...fullInstance, provider: "bedrock", embeddingDim: 1024 });
-      mockUpdateInstance.mockResolvedValue({ ...fullInstance, provider: "bedrock" });
+        .mockResolvedValueOnce({ ...fullInstance, embeddingProvider: "bedrock", embeddingDim: 1024 });
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, embeddingProvider: "bedrock" });
       mockEmbeddingProviderChanged.mockReturnValue(true);
       mockResetEmbeddings.mockResolvedValue({
         instanceId: "uuid-1",
@@ -285,9 +286,10 @@ describe("InstancesController", () => {
         newEmbeddingDim: 1024,
       });
 
-      const res = await controller.update("test-one", { provider: "bedrock", confirmWipe: true });
+      const res = await controller.update("test-one", { embeddingProvider: "bedrock", confirmWipe: true });
 
-      expect(mockResetEmbeddings).toHaveBeenCalledWith("uuid-1", "bedrock");
+      // Reset is called with (slug, uuid, newEmbeddingProvider).
+      expect(mockResetEmbeddings).toHaveBeenCalledWith("test-one", "uuid-1", "bedrock");
       expect(res.wiped?.memoriesDeleted).toBe(3);
       // No data lookup needed when the caller already confirmed.
       expect(mockCountMemories).not.toHaveBeenCalled();
@@ -296,8 +298,8 @@ describe("InstancesController", () => {
     it("proceeds without confirmWipe when the switch leaves no data to lose", async () => {
       mockFindInstanceBySlug
         .mockResolvedValueOnce(fullInstance)
-        .mockResolvedValueOnce({ ...fullInstance, provider: "bedrock" });
-      mockUpdateInstance.mockResolvedValue({ ...fullInstance, provider: "bedrock" });
+        .mockResolvedValueOnce({ ...fullInstance, embeddingProvider: "bedrock" });
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, embeddingProvider: "bedrock" });
       mockEmbeddingProviderChanged.mockReturnValue(true);
       mockCountMemories.mockResolvedValue(0);
       mockCountDocuments.mockResolvedValue(0);
@@ -309,7 +311,7 @@ describe("InstancesController", () => {
         newEmbeddingDim: 1024,
       });
 
-      const res = await controller.update("test-one", { provider: "bedrock" });
+      const res = await controller.update("test-one", { embeddingProvider: "bedrock" });
 
       expect(mockResetEmbeddings).toHaveBeenCalled();
       expect(res.wiped?.memoriesDeleted).toBe(0);
