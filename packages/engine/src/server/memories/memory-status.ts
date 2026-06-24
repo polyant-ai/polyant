@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { Instance } from "../../instances/store.js";
+import type { Agent } from "../../instances/store.js";
 import { findInstanceByIdOrSlug } from "../../instances/resolve-agent-id.js";
 import { getAllSecretsById, SECRET_KEYS } from "../../instances/secrets.store.js";
 import { SUPPORTED_DIMS } from "../../embeddings-gateway/config.js";
@@ -19,8 +19,8 @@ export interface MemoryStatus {
 
 const OFF: MemoryStatus = { needsOpenAIKey: false, canEnable: false };
 
-/** Core logic given a loaded Instance (avoids a second DB round trip). */
-export async function computeMemoryStatusFromInstance(instance: Instance): Promise<MemoryStatus> {
+/** Core logic given a loaded Agent (avoids a second DB round trip). */
+export async function computeMemoryStatusFromInstance(instance: Agent): Promise<MemoryStatus> {
   if (!instance.memoryEnabled) return OFF;
   const secrets = await getAllSecretsById(instance.id);
   // Embedding provider is an independent field (decoupled from the chat provider).

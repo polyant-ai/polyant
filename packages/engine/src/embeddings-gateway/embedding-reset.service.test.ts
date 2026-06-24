@@ -27,7 +27,7 @@ const {
 });
 
 vi.mock("../database/client.js", () => ({ db: { transaction: mockTransaction } }));
-vi.mock("../instances/schema.js", () => ({ instances: { id: "id", embeddingDim: "embedding_dim" } }));
+vi.mock("../instances/schema.js", () => ({ agents: { id: "id", embeddingDim: "embedding_dim" } }));
 vi.mock("../memory/memory-store.js", () => ({ deleteAllMemories: mockDeleteAllMemories }));
 vi.mock("../knowledge/store.js", () => ({ deleteAllKnowledgeForInstance: mockDeleteAllKnowledge }));
 

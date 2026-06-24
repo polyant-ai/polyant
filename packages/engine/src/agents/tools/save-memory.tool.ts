@@ -23,7 +23,7 @@ registerTool({
     }),
     execute: async ({ content }: { content: string }) => {
       try {
-        const embCtx = await resolveEmbeddingContext(ctx.instanceId);
+        const embCtx = await resolveEmbeddingContext(ctx.agentId);
         const embedding = await embed(content, embCtx);
         const result = await upsertMemory({
           agentId: ctx.agentId,

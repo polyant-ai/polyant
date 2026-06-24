@@ -194,7 +194,7 @@ describe("appendAgentDocument", () => {
 describe("insertChunks", () => {
   const chunk: InsertChunkInput = {
     documentId: "doc-1",
-    instanceId: "inst-1",
+    agentId: asAgentSlug("inst-1"),
     content: "hello world",
     embedding: [0.1, 0.2],
     chunkIndex: 0,
@@ -236,7 +236,7 @@ describe("insertChunks", () => {
 describe("insertChunksAndFinalize", () => {
   const chunk: InsertChunkInput = {
     documentId: "doc-1",
-    instanceId: "inst-1",
+    agentId: asAgentSlug("inst-1"),
     content: "hello world",
     embedding: [0.5, 0.6],
     chunkIndex: 0,
@@ -276,7 +276,7 @@ describe("searchByVector", () => {
       ]),
     );
 
-    const results = await searchByVector([0.1, 0.2], asInstanceSlug("inst-1"), 5, 1024);
+    const results = await searchByVector([0.1, 0.2], asAgentSlug("inst-1"), 5, 1024);
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ id: "c1", source: "a.md", score: 0.85, chunkIndex: 0 });

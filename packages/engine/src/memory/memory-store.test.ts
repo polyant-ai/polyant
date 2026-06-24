@@ -120,7 +120,7 @@ describe("memory-store", () => {
       mockDb.insert.mockReturnValue(insChain as any);
 
       await upsertMemory({
-        instanceId: asInstanceSlug("user-1"),
+        agentId: asAgentSlug("user-1"),
         content: "User likes pizza",
         embedding: [0.1, 0.2],
         dimensions: 1536,
@@ -140,7 +140,7 @@ describe("memory-store", () => {
       mockDb.insert.mockReturnValue(insChain as any);
 
       await upsertMemory({
-        instanceId: asInstanceSlug("user-1"),
+        agentId: asAgentSlug("user-1"),
         content: "User likes pizza",
         embedding: [0.3, 0.4],
         dimensions: 1024,

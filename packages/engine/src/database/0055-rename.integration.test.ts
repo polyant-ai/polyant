@@ -4,11 +4,11 @@ import { describe, it, expect } from "vitest";
 import { queryClient } from "./client.js";
 
 /**
- * Migration 0053 renames the core domain entity instance → agent at the DB-name
+ * Migration 0055 renames the core domain entity instance → agent at the DB-name
  * layer: 9 instance_* tables become agent_*, and the instance_id column becomes
  * agent_id across all tenant-scoped tables. Slug *values* are untouched.
  */
-describe("0053 instance→agent rename", () => {
+describe("0055 instance→agent rename", () => {
   it("renames the agents table and removes the legacy instances table", async () => {
     const rows = await queryClient`
       SELECT table_name FROM information_schema.tables

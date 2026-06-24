@@ -101,7 +101,7 @@ export async function extractMemories(
 
   // 5. Generate embeddings for all extracted facts (batched)
   const contents = facts.map((f) => f.content);
-  const ctx = await resolveEmbeddingContext(instanceId);
+  const ctx = await resolveEmbeddingContext(agentId);
   const embeddings = await embedMany(contents, ctx);
 
   // 6. Upsert each memory sequentially (with deduplication via cosine similarity).
