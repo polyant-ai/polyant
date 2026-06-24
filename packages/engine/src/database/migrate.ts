@@ -18,6 +18,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // final success line below is preserved so the operator still gets a signal.
 const sql = postgres(config.postgres.databaseUrl, {
   max: 1,
+  // Match the runtime client (client.ts): Aurora/managed Postgres requires SSL
+  // (pg_hba rejects unencrypted connections with "no encryption"). Driven by
+  // POSTGRES_SSL; rejectUnauthorized:false accepts the managed CA chain.
+  ssl: config.postgres.ssl ? { rejectUnauthorized: false } : false,
   onnotice: () => {
     /* swallow NOTICE during migration */
   },

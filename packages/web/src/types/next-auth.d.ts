@@ -12,6 +12,7 @@ declare module "next-auth" {
       image?: string | null;
       role: "superadmin" | "user";
       mustChangePassword: boolean;
+      orgId?: string;
     };
   }
 
@@ -26,5 +27,6 @@ declare module "next-auth/jwt" {
     id?: string;
     role?: "superadmin" | "user";
     mustChangePassword?: boolean;
+    orgId?: string;
   }
 }

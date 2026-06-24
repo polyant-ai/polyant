@@ -28,6 +28,7 @@ import {
 import { processDocument } from "../../knowledge/ingestion.js";
 import { resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
 import { config } from "../../config.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 /** Maximum allowed document size in bytes (5 MB). */
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -59,6 +60,7 @@ const importBundleSchema = z.object({
 @Controller("api/instances/:slug/knowledge")
 export class InstanceKnowledgeController {
   /** GET /api/instances/:slug/knowledge — list documents (no rawContent) */
+  @RequirePermission(Permission.KNOWLEDGE_READ)
   @Get()
   async list(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
@@ -85,6 +87,7 @@ export class InstanceKnowledgeController {
    * content) as a JSON bundle. Declared BEFORE the :docId route so "export" is
    * not captured as a document id.
    */
+  @RequirePermission(Permission.KNOWLEDGE_READ)
   @Get("export")
   async export(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
@@ -97,6 +100,7 @@ export class InstanceKnowledgeController {
   }
 
   /** GET /api/instances/:slug/knowledge/:docId — full document with rawContent */
+  @RequirePermission(Permission.KNOWLEDGE_READ)
   @Get(":docId")
   async getById(@Param("slug") slug: string, @Param("docId") docId: string) {
     const instance = await findInstanceOrFail(slug);
@@ -124,6 +128,7 @@ export class InstanceKnowledgeController {
   }
 
   /** POST /api/instances/:slug/knowledge — upload a document (text) */
+  @RequirePermission(Permission.KNOWLEDGE_WRITE)
   @Post()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async upload(
@@ -207,6 +212,7 @@ export class InstanceKnowledgeController {
    * progressive suffix ("manuale.txt" → "manuale (1).txt") — never overwritten.
    * The whole bundle is validated up front so the import is all-or-nothing.
    */
+  @RequirePermission(Permission.KNOWLEDGE_WRITE)
   @Post("import")
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async import(@Param("slug") slug: string, @Body() body: unknown) {
@@ -286,6 +292,7 @@ export class InstanceKnowledgeController {
   }
 
   /** DELETE /api/instances/:slug/knowledge/:docId */
+  @RequirePermission(Permission.KNOWLEDGE_WRITE)
   @Delete(":docId")
   async remove(@Param("slug") slug: string, @Param("docId") docId: string) {
     const instance = await findInstanceOrFail(slug);

@@ -2,7 +2,7 @@
 set -e
 
 echo "Running database migrations..."
-node --import tsx packages/engine/src/database/migrate.ts
+node packages/engine/dist/database/migrate.js
 
 echo "Starting engine..."
 exec node packages/engine/dist/index.js

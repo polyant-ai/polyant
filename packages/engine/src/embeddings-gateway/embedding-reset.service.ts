@@ -58,7 +58,7 @@ export async function resetEmbeddingsForProviderSwitch(
     // slug, not the UUID) — they MUST be filtered by slug or the delete matches
     // zero rows. The instances table is keyed by UUID. Passing the wrong one was
     // the bug that left the data orphaned while only realigning embedding_dim.
-    const memoriesDeleted = await deleteAllMemories(slug, tx);
+    const memoriesDeleted = await deleteAllMemories(slug, undefined, tx);
     const { documents, chunks } = await deleteAllKnowledgeForInstance(slug, tx);
 
     await tx

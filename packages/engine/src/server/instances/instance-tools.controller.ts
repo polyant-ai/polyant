@@ -10,9 +10,11 @@ import { instanceTools } from "../../instances/instance-tools.schema.js";
 import { tools } from "../../agents/tools/tools.schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { collectEnabledToolSecrets, attachReadableValues } from "./instance-tools.secrets-view.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 @Controller("api/instances")
 export class InstanceToolsController {
+  @RequirePermission(Permission.TOOL_READ)
   @Get(":slug/tools/required-secrets")
   async getRequiredSecrets(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
@@ -27,6 +29,7 @@ export class InstanceToolsController {
     return { requiredSecrets: attachReadableValues(specs, currentSecrets) };
   }
 
+  @RequirePermission(Permission.TOOL_READ)
   @Get(":slug/tools")
   async getTools(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
@@ -48,6 +51,7 @@ export class InstanceToolsController {
     return { tools: result };
   }
 
+  @RequirePermission(Permission.TOOL_WRITE)
   @Patch(":slug/tools")
   async updateTools(
     @Param("slug") slug: string,

@@ -10,6 +10,7 @@ import { toolAuditLogs } from "../audit/audit.schema.js";
 import { hookExecutions } from "../hooks/hooks.schema.js";
 import { memories } from "../memory/schema.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
+import { buildOrgScopedAgentFilter, buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
 
 export interface MessageRow {
   role: string;
@@ -414,6 +415,7 @@ export class ConversationStore {
     source?: string;
     limit?: number;
     offset?: number;
+    orgId?: string;
   } = {}): Promise<{ conversations: ConversationListItem[]; total: number }> {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
@@ -421,6 +423,9 @@ export class ConversationStore {
     const conditions: ReturnType<typeof sql>[] = [];
     if (options.instanceId) conditions.push(sql`c.instance_id = ${options.instanceId}`);
     if (options.source) conditions.push(sql`c.source = ${options.source}`);
+    // Cross-org gate: an aggregate list (no instanceId) returns only caller-org
+    // rows; a foreign-org instanceId param yields zero rows (ANDed at the store).
+    if (options.orgId) conditions.push(buildOrgScopedAgentFilter(options.orgId, "c.instance_id"));
     const instanceFilter = conditions.length > 0
       ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
       : sql``;
@@ -493,7 +498,10 @@ export class ConversationStore {
   }
 
   /** Get a single conversation with metadata. */
-  async getConversation(conversationId: string): Promise<ConversationDetail | null> {
+  async getConversation(conversationId: string, orgId?: string): Promise<ConversationDetail | null> {
+    // Cross-org gate: scoping the lookup to the caller's org turns a foreign-org
+    // conversation id into a "not found" (the controller maps null → 404).
+    const orgFilter = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
     const rows = await db.execute(sql`
       SELECT
         c.id,
@@ -525,7 +533,7 @@ export class ConversationStore {
         FROM ai_logs al
         WHERE al.conversation_id = c.conversation_id
       ) al_agg ON true
-      WHERE c.conversation_id = ${conversationId}
+      WHERE c.conversation_id = ${conversationId} ${orgFilter}
       GROUP BY c.id, i.name, al_agg.total_tokens, al_agg.total_cost, al_agg.conversation_tokens, al_agg.conversation_cost, al_agg.service_tokens, al_agg.service_cost
     `);
 
@@ -632,16 +640,19 @@ export class ConversationStore {
    */
   async searchConversations(
     query: string,
-    options: { instanceId?: InstanceSlug; limit?: number; offset?: number } = {},
+    options: { instanceId?: InstanceSlug; limit?: number; offset?: number; orgId?: string } = {},
   ): Promise<{ conversations: ConversationSearchResult[]; total: number }> {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
     const tsQuery = sql`websearch_to_tsquery('simple', ${query})`;
     const idPattern = `%${escapeLikePattern(query)}%`;
 
+    // Cross-org gate: a search with no instanceId stays scoped to the caller-org
+    // rows; a foreign-org instanceId param yields zero rows.
+    const orgFilter = buildOrgScopedAgentFilterFragment(options.orgId, "c.instance_id");
     const instanceFilter = options.instanceId
-      ? sql`AND c.instance_id = ${options.instanceId}`
-      : sql``;
+      ? sql`AND c.instance_id = ${options.instanceId} ${orgFilter}`
+      : orgFilter;
 
     const matchFilter = sql`(
       c.conversation_id ILIKE ${idPattern}

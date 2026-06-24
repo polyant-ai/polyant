@@ -27,6 +27,7 @@ describe("parseAlbOidcData", () => {
       name: "Alice",
       groups: ["admins", "readers"],
       source: "alb-oidc",
+      principalType: "user",
     });
   });
 

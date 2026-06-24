@@ -8,6 +8,10 @@ const ENGINE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Build output directory. Overridable via NEXT_DIST_DIR so the E2E harness can
+  // build+start into an isolated `.next-e2e` dir and coexist with a running
+  // `next dev` (which holds `.next`). Defaults to the standard `.next`.
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   // Pin the Turbopack workspace root to the monorepo root. In the Docker build
   // the builder stage copies the hoisted node_modules to /app/node_modules but
   // not the lockfile, so Next 16's automatic root inference fails to resolve
@@ -20,9 +24,13 @@ const nextConfig: NextConfig = {
     return [
       // Proxy engine API calls — forwards cookies (including Auth.js session token)
       { source: "/api/instances/:path*", destination: `${ENGINE_URL}/api/instances/:path*` },
+      { source: "/api/organizations/:path*", destination: `${ENGINE_URL}/api/organizations/:path*` },
       { source: "/api/conversations/:path*", destination: `${ENGINE_URL}/api/conversations/:path*` },
       { source: "/api/analytics/:path*", destination: `${ENGINE_URL}/api/analytics/:path*` },
       { source: "/api/skills/:path*", destination: `${ENGINE_URL}/api/skills/:path*` },
+      { source: "/api/tools/:path*", destination: `${ENGINE_URL}/api/tools/:path*` },
+      { source: "/api/tools", destination: `${ENGINE_URL}/api/tools` },
+      { source: "/api/attachments/:path*", destination: `${ENGINE_URL}/api/attachments/:path*` },
       { source: "/api/audit-logs/:path*", destination: `${ENGINE_URL}/api/audit-logs/:path*` },
       { source: "/api/users/:path*", destination: `${ENGINE_URL}/api/users/:path*` },
       { source: "/api/users", destination: `${ENGINE_URL}/api/users` },

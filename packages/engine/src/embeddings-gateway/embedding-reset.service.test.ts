@@ -70,8 +70,10 @@ describe("resetEmbeddingsForProviderSwitch", () => {
       "bedrock",
     );
 
-    // Both deletes run inside the shared transaction (second arg is the tx handle).
-    expect(mockDeleteAllMemories).toHaveBeenCalledWith("acme", expect.anything());
+    // Both deletes run inside the shared transaction. deleteAllMemories takes an
+    // optional orgId before the executor, so the reset (no org gate) passes
+    // undefined then the tx handle; deleteAllKnowledge still takes the tx second.
+    expect(mockDeleteAllMemories).toHaveBeenCalledWith("acme", undefined, expect.anything());
     expect(mockDeleteAllKnowledge).toHaveBeenCalledWith("acme", expect.anything());
     // The instances row is updated by UUID, not slug.
     expect(mockWhere).toHaveBeenCalledWith(expect.anything());

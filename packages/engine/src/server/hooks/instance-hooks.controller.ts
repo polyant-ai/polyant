@@ -25,11 +25,13 @@ import {
 } from "../../hooks/hooks.validators.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Controller("api/instances/:slug/hooks")
 export class InstanceHooksController {
+  @RequirePermission(Permission.GOVERNANCE_READ)
   @Get()
   async list(@Param("slug") slug: string) {
     const instanceId = await resolveInstanceId(asInstanceSlug(slug));
@@ -37,6 +39,7 @@ export class InstanceHooksController {
     return { hooks: await listHooks(instanceId) };
   }
 
+  @RequirePermission(Permission.GOVERNANCE_WRITE)
   @Post()
   async create(@Param("slug") slug: string, @Body() body: unknown) {
     const parsed = createHookSchema.safeParse(body);
@@ -54,6 +57,7 @@ export class InstanceHooksController {
     return { hook };
   }
 
+  @RequirePermission(Permission.GOVERNANCE_WRITE)
   @Patch(":id")
   async update(@Param("slug") slug: string, @Param("id") id: string, @Body() body: unknown) {
     if (!UUID_RE.test(id)) throw new BadRequestException("Invalid hook id");
@@ -75,6 +79,7 @@ export class InstanceHooksController {
     return { hook };
   }
 
+  @RequirePermission(Permission.GOVERNANCE_WRITE)
   @Delete(":id")
   async remove(@Param("slug") slug: string, @Param("id") id: string) {
     if (!UUID_RE.test(id)) throw new BadRequestException("Invalid hook id");

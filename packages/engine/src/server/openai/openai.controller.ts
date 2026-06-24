@@ -19,6 +19,7 @@ import { OpenAIService } from "./openai.service.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import { AllowInstanceApiKey } from "../../auth/decorators/allow-instance-api-key.decorator.js";
 import { validateInstanceApiKey } from "./instance-api-key-auth.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 import type {
   ChatCompletionRequest,
   ChatCompletionChunk,
@@ -54,6 +55,7 @@ export class OpenAIController {
   ) {}
 
   @AllowInstanceApiKey()
+  @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   async listModels(): Promise<ModelsListResponse> {
     const instances = await this.openaiService.listInstances();

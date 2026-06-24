@@ -24,6 +24,7 @@ import {
   validatePassword,
   verifyPassword,
 } from "./password.util.js";
+import { isLastOwnerOfAnyOrg } from "../organizations/members.store.js";
 import type { UserRole } from "../auth/users.schema.js";
 import { generateToken } from "../crypto/index.js";
 import { isUniqueViolation } from "../utils/db-errors.js";
@@ -155,6 +156,15 @@ export class UsersService {
       if (count <= 1) {
         throw new ConflictException("Cannot delete the last superadmin");
       }
+    }
+
+    // Owner-last guard: a user-delete cascades their role bindings, so deleting
+    // the sole Owner of an organization would orphan it (same protection the
+    // RoleBindingService enforces on a direct binding removal).
+    if (await isLastOwnerOfAnyOrg(id)) {
+      throw new ConflictException(
+        "Cannot delete the last Owner of an organization: assign another Owner first.",
+      );
     }
 
     await deleteSessionsForUser(id);

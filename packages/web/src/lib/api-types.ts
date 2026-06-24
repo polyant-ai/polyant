@@ -26,6 +26,26 @@ export interface ResetPasswordResponse {
   generatedPassword: string;
 }
 
+// ── Organization members (RBAC) ─────────────────────────────────────
+
+/** The four OSS system roles, highest-privilege first. */
+export type MemberRole = "owner" | "admin" | "member" | "viewer";
+
+export const MEMBER_ROLES: readonly MemberRole[] = [
+  "owner",
+  "admin",
+  "member",
+  "viewer",
+];
+
+export interface OrganizationMember {
+  userId: string;
+  email: string;
+  name: string | null;
+  /** Org-scope system role key, or null when the user holds no org-scope role. */
+  roleKey: MemberRole | null;
+}
+
 // ── Instances ───────────────────────────────────────────────────────
 
 export interface Instance {

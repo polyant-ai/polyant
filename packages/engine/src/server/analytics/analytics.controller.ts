@@ -12,37 +12,48 @@ import { getLatencyAnalytics } from "../../analytics/latency.store.js";
 import { findInstanceBySlug } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { parseDateRange } from "../utils/parse-date-range.js";
+import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 @Controller("api")
 export class AnalyticsController {
   // GET /api/analytics — global dashboard
+  @RequirePermission(Permission.ANALYTICS_READ)
   @Get("analytics")
   async global(
     @Query("from") from?: string,
     @Query("to") to?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const range = parseDateRange(from, to);
+    const orgId = user?.orgId;
     const [analytics, latency] = await Promise.all([
-      getAnalytics(range, undefined, true),
-      getLatencyAnalytics(range),
+      getAnalytics(range, undefined, true, orgId),
+      getLatencyAnalytics(range, undefined, orgId),
     ]);
     return { ...analytics, latency };
   }
 
   // GET /api/instances/:slug/analytics — per-instance
+  @RequirePermission(Permission.ANALYTICS_READ)
   @Get("instances/:slug/analytics")
   async perInstance(
     @Param("slug") slug: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const instance = await findInstanceBySlug(asInstanceSlug(slug));
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
 
     const range = parseDateRange(from, to);
+    const orgId = user?.orgId;
+    // orgId is ANDed in the store: a foreign-org slug yields empty analytics
+    // (param-IDOR closed at the store layer, not by an extra ownership check).
     const [analytics, latency] = await Promise.all([
-      getAnalytics(range, instance.slug),
-      getLatencyAnalytics(range, instance.slug),
+      getAnalytics(range, instance.slug, false, orgId),
+      getLatencyAnalytics(range, instance.slug, orgId),
     ]);
     return { ...analytics, latency };
   }

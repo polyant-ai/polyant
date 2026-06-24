@@ -95,6 +95,18 @@ const configSchema = z.object({
     platformAdminEmail: z.string().email().optional(),
   }),
 
+  // RBAC authorization (Stream 3). Ships in SHADOW mode by default: the
+  // PermissionGuard resolves scope and logs decisions but never denies unless
+  // `enforce` is true. Flip `AUTHZ_ENFORCE=true` to fail-closed on undeclared
+  // routes and denied permissions. Any value other than the literal "true"
+  // (including unset and "false") keeps shadow mode — no behaviour change.
+  authz: z.object({
+    enforce: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v): boolean => v === "true"),
+  }),
+
   // Initial admin user — created on first boot if the users table is empty.
   // Both fields optional: defaults are administrator@local + a random password
   // logged once at first boot.
@@ -223,6 +235,9 @@ function loadConfig(): Config {
       internalSecret: process.env.AUTH_INTERNAL_SECRET,
       mode: process.env.AUTH_MODE,
       platformAdminEmail: process.env.PLATFORM_ADMIN_EMAIL,
+    },
+    authz: {
+      enforce: process.env.AUTHZ_ENFORCE,
     },
     initialAdmin: {
       email: process.env.INITIAL_ADMIN_EMAIL,

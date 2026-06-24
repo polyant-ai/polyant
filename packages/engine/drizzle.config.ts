@@ -48,6 +48,7 @@ export default defineConfig({
     "./src/authz/role.schema.ts",
     "./src/authz/role-binding.schema.ts",
     "./src/authz/authz-audit-log.schema.ts",
+    "./src/auth/management-api-keys.schema.ts",
   ],
   dialect: "postgresql",
   dbCredentials: {

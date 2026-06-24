@@ -4,6 +4,7 @@ import { Controller, Get, Param, Res, NotFoundException, Inject } from "@nestjs/
 import { Reflector } from "@nestjs/core";
 import type { Response } from "express";
 import { getAttachmentStream, isPlatformStorageConfigured } from "../../attachments/platform-storage.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 /** Expected key format: attachments/{instanceId}/{conversationId}/{filename} */
 const KEY_PATTERN = /^attachments\/[^/]+\/[^/]+\/[^/]+$/;
@@ -16,6 +17,7 @@ export class AttachmentsController {
    * Proxy endpoint for serving conversation attachments from platform S3.
    * The s3Key is the full path under the bucket: attachments/{instanceId}/{conversationId}/{filename}
    */
+  @RequirePermission(Permission.CONVERSATION_READ)
   @Get("*key")
   async getAttachment(
     @Param("key") s3Key: string,
