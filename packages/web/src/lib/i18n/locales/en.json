@@ -316,6 +316,8 @@
   "settings.tab.aiModelHelp": "Choose the AI provider and model for this agent.",
   "settings.tab.provider": "Provider",
   "settings.tab.model": "Model",
+  "settings.tab.embedder": "Embedder",
+  "settings.tab.embedderHint": "Provider used for memory and knowledge-base embeddings, independent of the chat model. Changing it permanently deletes existing memories and the knowledge base (embeddings are not portable across providers).",
   "settings.tab.systemDefault": "System Default",
   "settings.tab.viewPricing": "View pricing",
   "settings.tab.pricingTitle": "Model Pricing (per 1M tokens)",

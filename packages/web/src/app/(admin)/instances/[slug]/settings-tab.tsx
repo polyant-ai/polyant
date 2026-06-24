@@ -98,6 +98,12 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // AI Model settings
   const [provider, setProvider] = useState(instance.provider ?? "");
   const [model, setModel] = useState(instance.model ?? "");
+  // Embedder provider — chosen INDEPENDENTLY of the chat LLM. Only OpenAI and
+  // Bedrock embed (Anthropic has no embeddings API). Changing it wipes memories
+  // + knowledge (vectors are provider-specific), hence the confirmation below.
+  const [embeddingProvider, setEmbeddingProvider] = useState<"openai" | "bedrock">(
+    (instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai",
+  );
   // Persisted user preference; the toggle below is hidden when the selected
   // model is not thinking-capable, but the state is preserved so that
   // switching back to a capable model reapplies the preference.
@@ -146,9 +152,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // Pricing dialog
   const [pricingOpen, setPricingOpen] = useState(false);
 
-  // Destructive-wipe dialog: shown when the chosen provider changes the embedding
-  // provider (openai↔bedrock). Existing embeddings live in a provider-specific
-  // space and are NOT converted — memories + knowledge are permanently deleted.
+  // Destructive-wipe dialog: shown when the chosen EMBEDDER changes (openai↔bedrock).
+  // Existing embeddings live in a provider-specific space and are NOT converted —
+  // memories + knowledge are permanently deleted. Changing the chat LLM is unaffected.
   const [wipeOpen, setWipeOpen] = useState(false);
 
 
@@ -214,6 +220,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   const isDirty =
     provider !== (instance.provider ?? "") ||
     model !== (instance.model ?? "") ||
+    embeddingProvider !== ((instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai") ||
     thinkingEnabled !== instance.thinkingEnabled ||
     stateInPromptEnabled !== instance.stateInPromptEnabled ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
@@ -225,10 +232,6 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     langsmithEnabled !== instance.langsmithEnabled ||
     langsmithProject !== (instance.langsmithProject ?? "") ||
     sttProvider !== ((instance.sttProvider as STTProvider | null) ?? "openai");
-
-  // Map a chat provider to its embedding provider (mirrors the engine's
-  // embeddingProviderFor): bedrock → bedrock, everything else → openai.
-  const embeddingProviderOf = (p: string) => (p === "bedrock" ? "bedrock" : "openai");
 
   const performSave = async (confirmWipe: boolean) => {
     setSaving(true);
@@ -260,6 +263,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
       const { instance: updated } = await api.instances.update(instance.slug, {
         provider: provider || null,
         model: model || null,
+        embeddingProvider,
         memoryEnabled,
         knowledgeEnabled,
         authEnabled,
@@ -286,11 +290,12 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   };
 
   const handleSave = async () => {
-    // Switching the embedding provider (openai↔bedrock) abandons the old
-    // embedding space — existing memories + knowledge are wiped, not converted.
-    // Warn before saving so the loss is explicit and confirmed.
+    // Switching the embedder (openai↔bedrock) abandons the old embedding space —
+    // existing memories + knowledge are wiped, not converted. Warn before saving
+    // so the loss is explicit and confirmed. Changing only the chat LLM never
+    // triggers this.
     const embeddingChanged =
-      embeddingProviderOf(provider) !== embeddingProviderOf(instance.provider ?? "");
+      embeddingProvider !== ((instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai");
     if (embeddingChanged) {
       setWipeOpen(true);
       return;
@@ -305,9 +310,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
 
   const handleWipeCancel = () => {
     setWipeOpen(false);
-    // Revert the provider/model selection back to the persisted instance values.
-    setProvider(instance.provider ?? "");
-    setModel(instance.model ?? "");
+    // Revert the embedder selection back to the persisted instance value.
+    setEmbeddingProvider((instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai");
   };
 
   usePageSaveAction({ isDirty, saving, onSave: handleSave });
@@ -443,6 +447,28 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               </SelectContent>
             </Select>
           </div>
+        </div>
+
+        {/*
+          Embedder provider — independent of the chat LLM above. Only OpenAI and
+          Bedrock embed (Anthropic has no embeddings API). Changing it permanently
+          wipes memories + knowledge (vectors are provider-specific).
+        */}
+        <div className="space-y-2">
+          <Label>{t("settings.tab.embedder")}</Label>
+          <Select
+            value={embeddingProvider}
+            onValueChange={(v) => setEmbeddingProvider(v as "openai" | "bedrock")}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="openai">{BRAND_NAMES["openai"] ?? "OpenAI"}</SelectItem>
+              <SelectItem value="bedrock">{BRAND_NAMES["bedrock"] ?? "Bedrock"}</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">{t("settings.tab.embedderHint")}</p>
         </div>
 
         {/*

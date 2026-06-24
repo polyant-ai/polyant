@@ -70,6 +70,12 @@ export interface Instance {
    */
   embeddingDim?: number;
   /**
+   * Embedder provider, chosen independently of the chat `provider`:
+   * "openai" | "bedrock" (Anthropic has no embeddings API). Changing it wipes
+   * memories + knowledge, since vectors are not portable across providers.
+   */
+  embeddingProvider?: "openai" | "bedrock";
+  /**
    * Provider-aware memory readiness, computed server-side. `needsOpenAIKey` is
    * true when memory is enabled but the embeddings provider lacks the required
    * credentials (e.g. an Anthropic-provider instance without an OpenAI key, or
