@@ -20,25 +20,25 @@ beforeEach(() => {
 
 describe("resolveEmbeddingContext", () => {
   it("resolves openai with key", async () => {
-    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "openai", embeddingDim: 1536 });
+    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "openai", embeddingProvider: "openai", embeddingDim: 1536 });
     getSecrets.mockResolvedValue({ openai_api_key: "k" });
     const ctx = await resolveEmbeddingContext("s");
     expect(ctx.credentials).toEqual({ provider: "openai", apiKey: "k" });
     expect(ctx.dimensions).toBe(1536);
   });
   it("throws when openai key missing", async () => {
-    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "openai", embeddingDim: 1024 });
+    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "openai", embeddingProvider: "openai", embeddingDim: 1024 });
     await expect(resolveEmbeddingContext("s")).rejects.toThrow(/OpenAI API key required/);
   });
   it("resolves bedrock with region from secrets", async () => {
-    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "bedrock", embeddingDim: 1024 });
+    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "bedrock", embeddingProvider: "bedrock", embeddingDim: 1024 });
     getSecrets.mockResolvedValue({ aws_region: "eu-west-1" });
     const ctx = await resolveEmbeddingContext("s");
     expect(ctx.credentials.provider).toBe("bedrock");
     expect(ctx.dimensions).toBe(1024);
   });
-  it("falls anthropic back to openai", async () => {
-    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "anthropic", embeddingDim: 1024 });
+  it("resolves an openai embedder even when the chat provider is anthropic (decoupled)", async () => {
+    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "anthropic", embeddingProvider: "openai", embeddingDim: 1024 });
     getSecrets.mockResolvedValue({ openai_api_key: "k" });
     const ctx = await resolveEmbeddingContext("s");
     expect(ctx.credentials.provider).toBe("openai");

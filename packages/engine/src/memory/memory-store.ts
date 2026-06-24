@@ -296,7 +296,7 @@ export async function deleteMemoryForInstance(memoryId: string, instanceId: Inst
  * optional executor (transaction) so the destructive embedding reset can wipe
  * memories + knowledge + realign embedding_dim atomically.
  */
-export async function deleteAllMemories(instanceId: string, executor: DbExecutor = db): Promise<number> {
+export async function deleteAllMemories(instanceId: InstanceSlug, executor: DbExecutor = db): Promise<number> {
   const deleted = await executor
     .delete(memories)
     .where(eq(memories.instanceId, instanceId))

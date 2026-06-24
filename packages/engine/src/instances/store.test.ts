@@ -259,6 +259,7 @@ describe("instances/store", () => {
         provider: "openai",
         model: "gpt-4o",
         embeddingDim: DEFAULT_EMBEDDING_DIM,
+        embeddingProvider: "openai",
         workspaceId: "ws-default",
       });
       expect(chain.returning).toHaveBeenCalled();
@@ -278,6 +279,7 @@ describe("instances/store", () => {
         provider: null,
         model: null,
         embeddingDim: DEFAULT_EMBEDDING_DIM,
+        embeddingProvider: "openai",
         workspaceId: "ws-default",
       });
     });

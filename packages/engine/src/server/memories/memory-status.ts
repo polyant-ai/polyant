@@ -23,9 +23,8 @@ const OFF: MemoryStatus = { needsOpenAIKey: false, canEnable: false };
 export async function computeMemoryStatusFromInstance(instance: Instance): Promise<MemoryStatus> {
   if (!instance.memoryEnabled) return OFF;
   const secrets = await getAllSecretsById(instance.id);
-  // Embedding provider mirrors resolveEmbeddingContext: bedrock → bedrock,
-  // openai/anthropic → openai (Anthropic has no embedding API).
-  const embeddingProvider: EmbeddingProvider = instance.provider === "bedrock" ? "bedrock" : "openai";
+  // Embedding provider is an independent field (decoupled from the chat provider).
+  const embeddingProvider: EmbeddingProvider = instance.embeddingProvider;
 
   // The instance is only usable if the embedding provider can emit its stored
   // dimension. A provider switch that left embedding_dim incompatible (e.g.

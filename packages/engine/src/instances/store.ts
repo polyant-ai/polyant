@@ -2,7 +2,8 @@
 
 import { eq, sql, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { DEFAULT_EMBEDDING_DIM } from "../embeddings-gateway/config.js";
+import { DEFAULT_EMBEDDING_DIM, embeddingProviderFor } from "../embeddings-gateway/config.js";
+import type { EmbeddingProvider } from "../embeddings-gateway/types.js";
 import { instances } from "./schema.js";
 import { conversations, conversationMessages, conversationState } from "../conversations/schema.js";
 import { memories } from "../memory/schema.js";
@@ -52,6 +53,8 @@ export interface Instance {
   icon: string | null;
   sttProvider: string;
   embeddingDim: number;
+  /** Embedding provider, independent of the chat `provider`: "openai" | "bedrock". */
+  embeddingProvider: EmbeddingProvider;
   /** Owning workspace UUID (RBAC tenancy). Every instance belongs to one. */
   workspaceId: string;
   createdAt: Date | null;
@@ -135,6 +138,9 @@ export async function createInstance(data: {
       model: data.model ?? null,
       // New instances default to 1024d; the DB default (1536) stays for legacy rows.
       embeddingDim: DEFAULT_EMBEDDING_DIM,
+      // Default the embedder to match the chat provider (bedrock chat → bedrock
+      // embeddings, else openai). It is independently changeable afterwards.
+      embeddingProvider: embeddingProviderFor(data.provider),
       workspaceId: await findDefaultWorkspaceId(),
     })
     .returning();
@@ -161,6 +167,8 @@ type UpdatableInstanceFields = {
   debugEnabled?: boolean;
   icon?: string | null;
   sttProvider?: string;
+  /** Embedder choice (openai|bedrock). Changing it triggers a destructive wipe in the controller. */
+  embeddingProvider?: EmbeddingProvider;
   optoutEnabled?: boolean;
   optoutStopKeywords?: string[];
   optoutResumeKeywords?: string[];
@@ -186,6 +194,7 @@ const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
   "debugEnabled",
   "icon",
   "sttProvider",
+  "embeddingProvider",
   "optoutEnabled",
   "optoutStopKeywords",
   "optoutResumeKeywords",

@@ -207,6 +207,7 @@ export const api = {
         status?: string;
         provider?: string | null;
         model?: string | null;
+        embeddingProvider?: "openai" | "bedrock";
         memoryEnabled?: boolean;
         knowledgeEnabled?: boolean;
         langsmithEnabled?: boolean;
@@ -347,6 +348,17 @@ export const api = {
       request<{ deleted: boolean }>(
         `/api/instances/${encodeURIComponent(slug)}/knowledge/${encodeURIComponent(docId)}`,
         { method: "DELETE" },
+      ),
+    export: (slug: string) =>
+      request<{
+        version: number;
+        instanceSlug: string;
+        documents: { filename: string; content: string; mimeType: string; source: string; contentHash: string }[];
+      }>(`/api/instances/${encodeURIComponent(slug)}/knowledge/export`),
+    import: (slug: string, data: { version?: number; documents: { filename: string; content: string }[] }) =>
+      request<{ imported: number; documents: { filename: string; renamedFrom?: string }[] }>(
+        `/api/instances/${encodeURIComponent(slug)}/knowledge/import`,
+        { method: "POST", body: JSON.stringify(data) },
       ),
   },
   analytics: {
