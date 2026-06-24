@@ -55,6 +55,14 @@ export const instances = pgTable("instances", {
   sttProvider: text("stt_provider").notNull().default("openai"),
   embeddingDim: integer("embedding_dim").notNull().default(1536),
   /**
+   * Embedding provider, chosen INDEPENDENTLY of the chat `provider`. Allowed
+   * values: "openai" | "bedrock" (Anthropic has no embeddings API). Backfilled
+   * from the chat provider by migration 0052 so existing instances keep their
+   * embedding space. Changing it abandons the old vectors and wipes memories +
+   * knowledge (vectors are provider-specific) — see embedding-reset.service.ts.
+   */
+  embeddingProvider: varchar("embedding_provider", { length: 20 }).notNull().default("openai"),
+  /**
    * Owning workspace (RBAC tenancy). Backfilled to the default workspace by
    * migration 0051 and set NOT NULL there. Every agent belongs to exactly one
    * workspace; ON DELETE RESTRICT keeps a workspace undeletable while it holds

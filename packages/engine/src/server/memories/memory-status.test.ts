@@ -28,6 +28,7 @@ function makeInstance(overrides: Partial<Instance>): Instance {
   return {
     id: "uuid-1",
     provider: "openai",
+    embeddingProvider: "openai",
     memoryEnabled: true,
     embeddingDim: 1024, // compatible with both openai and bedrock by default
     ...overrides,
@@ -60,7 +61,7 @@ describe("computeMemoryStatusFromInstance", () => {
 
   it("enables Bedrock memory when aws_region is configured", async () => {
     mockGetAllSecretsById.mockResolvedValue({ aws_region: "eu-west-1" });
-    const instance = makeInstance({ provider: "bedrock" });
+    const instance = makeInstance({ provider: "bedrock", embeddingProvider: "bedrock" });
 
     const status = await computeMemoryStatusFromInstance(instance);
 
@@ -69,7 +70,7 @@ describe("computeMemoryStatusFromInstance", () => {
 
   it("flags Bedrock memory as needing config when aws_region is missing", async () => {
     mockGetAllSecretsById.mockResolvedValue({});
-    const instance = makeInstance({ provider: "bedrock" });
+    const instance = makeInstance({ provider: "bedrock", embeddingProvider: "bedrock" });
 
     const status = await computeMemoryStatusFromInstance(instance);
 
@@ -108,7 +109,7 @@ describe("computeMemoryStatusFromInstance", () => {
     // (a dim Titan v2 cannot emit), it is unembeddable. Credentials are present,
     // so without the dim guard this would falsely report healthy.
     mockGetAllSecretsById.mockResolvedValue({ aws_region: "eu-west-1" });
-    const instance = makeInstance({ provider: "bedrock", embeddingDim: 1536 });
+    const instance = makeInstance({ provider: "bedrock", embeddingProvider: "bedrock", embeddingDim: 1536 });
 
     const status = await computeMemoryStatusFromInstance(instance);
 
@@ -118,7 +119,7 @@ describe("computeMemoryStatusFromInstance", () => {
   it("enables Bedrock memory via the engine-level AWS_REGION fallback when no per-instance region is set", async () => {
     // Mirrors resolveEmbeddingContext: a region on the engine env is sufficient.
     mockGetAllSecretsById.mockResolvedValue({});
-    const instance = makeInstance({ provider: "bedrock" });
+    const instance = makeInstance({ provider: "bedrock", embeddingProvider: "bedrock" });
     const prev = process.env.AWS_REGION;
     process.env.AWS_REGION = "us-east-1";
     try {
