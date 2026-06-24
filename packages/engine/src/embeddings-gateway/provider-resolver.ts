@@ -43,7 +43,9 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
 
   const dimensions = assertDim(instance.embeddingDim);
   const secrets = await getAllSecretsById(instance.id);
-  const provider = instance.provider ?? "openai";
+  // The embedding provider is independent of the chat `provider`. Credentials are
+  // resolved for the embedder regardless of which LLM the instance chats with.
+  const provider = instance.embeddingProvider;
 
   let ctx: EmbeddingContext;
   if (provider === "bedrock") {

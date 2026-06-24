@@ -5,21 +5,22 @@ import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
 import { deleteAllMemories } from "../memory/memory-store.js";
 import { deleteAllKnowledgeForInstance } from "../knowledge/store.js";
-import { embeddingProviderFor, defaultDimForProvider } from "./config.js";
-import type { EmbeddingDim } from "./types.js";
+import { defaultDimForProvider } from "./config.js";
+import type { EmbeddingDim, EmbeddingProvider } from "./types.js";
 import type { InstanceSlug, InstanceUuid } from "../instances/identifiers.js";
 
 /**
- * Whether switching an instance's chat provider also changes its EMBEDDING
- * provider (openai↔bedrock). Anthropic↔OpenAI keeps the same embedding provider
- * (openai) and therefore needs no reset. The embedding space is provider-specific:
- * a change makes existing vectors uninterpretable by the new provider.
+ * Whether the instance's EMBEDDING provider changed (openai↔bedrock). The
+ * embedding provider is now an independent field, decoupled from the chat
+ * `provider`: changing only the chat LLM never touches embeddings. The embedding
+ * space is provider-specific, so a change makes existing vectors uninterpretable
+ * by the new provider and forces a wipe.
  */
 export function embeddingProviderChanged(
-  before: { provider?: string | null },
-  after: { provider?: string | null },
+  before: { embeddingProvider: EmbeddingProvider },
+  after: { embeddingProvider: EmbeddingProvider },
 ): boolean {
-  return embeddingProviderFor(before.provider) !== embeddingProviderFor(after.provider);
+  return before.embeddingProvider !== after.embeddingProvider;
 }
 
 export interface EmbeddingResetResult {
@@ -45,10 +46,9 @@ export interface EmbeddingResetResult {
 export async function resetEmbeddingsForProviderSwitch(
   slug: InstanceSlug,
   uuid: InstanceUuid,
-  newProvider: string | null | undefined,
+  newEmbeddingProvider: EmbeddingProvider,
 ): Promise<EmbeddingResetResult> {
-  const embeddingProvider = embeddingProviderFor(newProvider);
-  const newEmbeddingDim = defaultDimForProvider(embeddingProvider);
+  const newEmbeddingDim = defaultDimForProvider(newEmbeddingProvider);
 
   // Single transaction: deleting the data and realigning embedding_dim must be
   // all-or-nothing. A partial apply (data gone, dim still on the old value)

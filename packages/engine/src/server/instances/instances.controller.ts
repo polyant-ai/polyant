@@ -77,6 +77,7 @@ function toInstanceDto(instance: Instance) {
     optoutInjectPromptHint: instance.optoutInjectPromptHint,
     sttProvider: instance.sttProvider,
     embeddingDim: instance.embeddingDim,
+    embeddingProvider: instance.embeddingProvider,
     icon: buildInstanceIconUrl(instance.slug, instance.icon, instance.updatedAt),
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
@@ -192,6 +193,8 @@ export class InstancesController {
       status?: string;
       provider?: string | null;
       model?: string | null;
+      /** Embedder provider (openai|bedrock), independent of the chat provider. Changing it wipes data. */
+      embeddingProvider?: "openai" | "bedrock";
       memoryEnabled?: boolean;
       knowledgeEnabled?: boolean;
       langsmithEnabled?: boolean;
@@ -219,18 +222,24 @@ export class InstancesController {
   ) {
     this.validateSlug(slug);
     this.validateModelConfig(body.provider, body.model);
+    this.validateEmbeddingProvider(body.embeddingProvider);
     body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
     body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
-    // Capture the pre-update state to detect an embedding-relevant provider switch.
+    // Capture the pre-update state to detect an embedding-provider switch.
     const before = await findInstanceBySlug(asInstanceSlug(slug));
     if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
 
-    // A provider switch that changes the embedding provider abandons the old
-    // embedding space (vectors become uninterpretable). We do NOT convert them —
-    // existing memories + knowledge are wiped. Require explicit confirmation when
-    // there is data to lose, so a Management-API caller can't destroy it silently.
-    const afterProvider = body.provider !== undefined ? body.provider : before.provider;
-    const willWipe = embeddingProviderChanged(before, { provider: afterProvider });
+    // Changing the embedding provider abandons the old embedding space (vectors
+    // become uninterpretable) — existing memories + knowledge are wiped, never
+    // converted. Changing only the chat provider/model does NOT trigger this.
+    // Require explicit confirmation when there is data to lose, so a Management-API
+    // caller can't destroy it silently.
+    const afterEmbeddingProvider =
+      body.embeddingProvider !== undefined ? body.embeddingProvider : before.embeddingProvider;
+    const willWipe = embeddingProviderChanged(
+      { embeddingProvider: before.embeddingProvider },
+      { embeddingProvider: afterEmbeddingProvider },
+    );
     if (willWipe && !body.confirmWipe) {
       const hasData =
         (await countMemories(before.slug)) > 0 || (await countDocuments(before.slug)) > 0;
@@ -248,7 +257,7 @@ export class InstancesController {
 
     let wiped: EmbeddingResetResult | null = null;
     if (willWipe) {
-      wiped = await resetEmbeddingsForProviderSwitch(before.slug, instance.id, instance.provider);
+      wiped = await resetEmbeddingsForProviderSwitch(before.slug, instance.id, instance.embeddingProvider);
       // embedding_dim changed — drop the now-stale cached context and refresh the DTO.
       invalidateEmbeddingContext(instance.id, slug);
       instance = (await findInstanceBySlug(asInstanceSlug(slug))) ?? instance;
@@ -340,6 +349,15 @@ export class InstancesController {
     }
     if (out.length === 0) throw new BadRequestException(`${field} must contain at least one non-empty keyword`);
     return out;
+  }
+
+  /** Validate the embedder provider. Only OpenAI and Bedrock embed (Anthropic has no embeddings API). */
+  private validateEmbeddingProvider(embeddingProvider?: string) {
+    if (embeddingProvider !== undefined && embeddingProvider !== "openai" && embeddingProvider !== "bedrock") {
+      throw new BadRequestException(
+        `Invalid embeddingProvider "${embeddingProvider}". Valid embedding providers: openai, bedrock.`,
+      );
+    }
   }
 
   /** Validate provider/model values against the configured providerConfigs. */

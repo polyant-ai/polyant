@@ -37,18 +37,14 @@ import {
 } from "./embedding-reset.service.js";
 
 describe("embeddingProviderChanged", () => {
-  it("is true for openai↔bedrock (embedding space changes)", () => {
-    expect(embeddingProviderChanged({ provider: "openai" }, { provider: "bedrock" })).toBe(true);
-    expect(embeddingProviderChanged({ provider: "bedrock" }, { provider: "openai" })).toBe(true);
+  it("is true when the embedding provider changes (openai↔bedrock)", () => {
+    expect(embeddingProviderChanged({ embeddingProvider: "openai" }, { embeddingProvider: "bedrock" })).toBe(true);
+    expect(embeddingProviderChanged({ embeddingProvider: "bedrock" }, { embeddingProvider: "openai" })).toBe(true);
   });
 
-  it("is false for openai↔anthropic (both embed via openai)", () => {
-    expect(embeddingProviderChanged({ provider: "openai" }, { provider: "anthropic" })).toBe(false);
-    expect(embeddingProviderChanged({ provider: "anthropic" }, { provider: null })).toBe(false);
-  });
-
-  it("is false when the provider is unchanged", () => {
-    expect(embeddingProviderChanged({ provider: "bedrock" }, { provider: "bedrock" })).toBe(false);
+  it("is false when the embedding provider is unchanged (chat LLM may still differ)", () => {
+    expect(embeddingProviderChanged({ embeddingProvider: "openai" }, { embeddingProvider: "openai" })).toBe(false);
+    expect(embeddingProviderChanged({ embeddingProvider: "bedrock" }, { embeddingProvider: "bedrock" })).toBe(false);
   });
 });
 
