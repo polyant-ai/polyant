@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   Loader2,
   Eye,
+  Download,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -100,6 +102,9 @@ export function KnowledgeTab({ slug }: Props) {
   const [viewContent, setViewContent] = useState<string>("");
   const [viewFilename, setViewFilename] = useState<string>("");
   const [viewLoading, setViewLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -171,6 +176,49 @@ export function KnowledgeTab({ slug }: Props) {
     }
   };
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const bundle = await api.knowledge.export(slug);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${slug}-knowledge.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(getUserErrorMessage(err, t("knowledge.tab.exportFailed")));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // reset so the same file can be picked again
+    if (!file) return;
+
+    setImporting(true);
+    try {
+      const text = await file.text();
+      let bundle: { version?: number; documents: { filename: string; content: string }[] };
+      try {
+        bundle = JSON.parse(text);
+      } catch {
+        throw new Error(t("knowledge.tab.importInvalidJson"));
+      }
+      const res = await api.knowledge.import(slug, bundle);
+      const renamed = res.documents.filter((d) => d.renamedFrom).length;
+      toast.success(t("knowledge.tab.imported", { count: res.imported, renamed }));
+      load();
+    } catch (err) {
+      toast.error(getUserErrorMessage(err, t("knowledge.tab.importFailed")));
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleDelete = async (docId: string) => {
     try {
       await api.knowledge.delete(slug, docId);
@@ -214,6 +262,31 @@ export function KnowledgeTab({ slug }: Props) {
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={load}>
             <RefreshCw className="size-4" />
+          </Button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={handleImportFile}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => importInputRef.current?.click()}
+            disabled={importing}
+          >
+            {importing ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : <Upload className="mr-1.5 size-4" />}
+            {t("knowledge.tab.import")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={exporting || documents.length === 0}
+          >
+            {exporting ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : <Download className="mr-1.5 size-4" />}
+            {t("knowledge.tab.export")}
           </Button>
           <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
             <DialogTrigger asChild>
