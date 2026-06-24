@@ -207,6 +207,7 @@ export const api = {
         status?: string;
         provider?: string | null;
         model?: string | null;
+        embeddingProvider?: "openai" | "bedrock";
         memoryEnabled?: boolean;
         knowledgeEnabled?: boolean;
         langsmithEnabled?: boolean;
