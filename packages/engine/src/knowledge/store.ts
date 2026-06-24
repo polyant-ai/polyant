@@ -148,7 +148,7 @@ export async function deleteDocument(docId: string): Promise<boolean> {
  * the chunk/document deletes never partially apply.
  */
 export async function deleteAllKnowledgeForInstance(
-  instanceId: string,
+  instanceId: InstanceSlug,
   tx?: DbTransaction,
 ): Promise<{ documents: number; chunks: number }> {
   const run = async (ex: DbExecutor) => {

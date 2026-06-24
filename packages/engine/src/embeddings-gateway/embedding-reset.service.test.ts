@@ -61,20 +61,29 @@ describe("resetEmbeddingsForProviderSwitch", () => {
     mockTransaction.mockImplementation(async (cb: (tx: unknown) => unknown) => cb({ update: mockUpdate }));
   });
 
-  it("wipes memories + knowledge and realigns embedding_dim to the new provider's default", async () => {
+  it("deletes memories + knowledge by SLUG (not the UUID) and realigns embedding_dim", async () => {
     mockDeleteAllMemories.mockResolvedValue(7);
     mockDeleteAllKnowledge.mockResolvedValue({ documents: 2, chunks: 11 });
 
-    const result = await resetEmbeddingsForProviderSwitch("inst-1", "bedrock");
+    // Distinct slug + uuid: this is the regression guard. The old signature
+    // passed the UUID to slug-keyed deletes, matching zero rows. The deletes
+    // MUST receive the slug; only the instances-table update gets the UUID.
+    const result = await resetEmbeddingsForProviderSwitch(
+      "acme" as never,
+      "uuid-123" as never,
+      "bedrock",
+    );
 
     // Both deletes run inside the shared transaction (second arg is the tx handle).
-    expect(mockDeleteAllMemories).toHaveBeenCalledWith("inst-1", expect.anything());
-    expect(mockDeleteAllKnowledge).toHaveBeenCalledWith("inst-1", expect.anything());
+    expect(mockDeleteAllMemories).toHaveBeenCalledWith("acme", expect.anything());
+    expect(mockDeleteAllKnowledge).toHaveBeenCalledWith("acme", expect.anything());
+    // The instances row is updated by UUID, not slug.
+    expect(mockWhere).toHaveBeenCalledWith(expect.anything());
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({ embeddingDim: 1024 }),
     );
     expect(result).toEqual({
-      instanceId: "inst-1",
+      instanceId: "uuid-123",
       memoriesDeleted: 7,
       knowledgeDocumentsDeleted: 2,
       knowledgeChunksDeleted: 11,
@@ -86,7 +95,7 @@ describe("resetEmbeddingsForProviderSwitch", () => {
     mockDeleteAllMemories.mockResolvedValue(0);
     mockDeleteAllKnowledge.mockResolvedValue({ documents: 0, chunks: 0 });
 
-    const result = await resetEmbeddingsForProviderSwitch("inst-2", "openai");
+    const result = await resetEmbeddingsForProviderSwitch("inst-2" as never, "uuid-2" as never, "openai");
 
     expect(result.newEmbeddingDim).toBe(1024);
     expect(mockUpdate).toHaveBeenCalledOnce();
