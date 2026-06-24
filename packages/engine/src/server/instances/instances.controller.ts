@@ -248,7 +248,7 @@ export class InstancesController {
 
     let wiped: EmbeddingResetResult | null = null;
     if (willWipe) {
-      wiped = await resetEmbeddingsForProviderSwitch(instance.id, instance.provider);
+      wiped = await resetEmbeddingsForProviderSwitch(before.slug, instance.id, instance.provider);
       // embedding_dim changed — drop the now-stale cached context and refresh the DTO.
       invalidateEmbeddingContext(instance.id, slug);
       instance = (await findInstanceBySlug(asInstanceSlug(slug))) ?? instance;

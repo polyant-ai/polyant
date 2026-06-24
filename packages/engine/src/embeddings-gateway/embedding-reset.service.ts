@@ -7,6 +7,7 @@ import { deleteAllMemories } from "../memory/memory-store.js";
 import { deleteAllKnowledgeForInstance } from "../knowledge/store.js";
 import { embeddingProviderFor, defaultDimForProvider } from "./config.js";
 import type { EmbeddingDim } from "./types.js";
+import type { InstanceSlug, InstanceUuid } from "../instances/identifiers.js";
 
 /**
  * Whether switching an instance's chat provider also changes its EMBEDDING
@@ -42,7 +43,8 @@ export interface EmbeddingResetResult {
  * keyword (FTS) search over raw messages keeps working.
  */
 export async function resetEmbeddingsForProviderSwitch(
-  instanceId: string,
+  slug: InstanceSlug,
+  uuid: InstanceUuid,
   newProvider: string | null | undefined,
 ): Promise<EmbeddingResetResult> {
   const embeddingProvider = embeddingProviderFor(newProvider);
@@ -52,16 +54,20 @@ export async function resetEmbeddingsForProviderSwitch(
   // all-or-nothing. A partial apply (data gone, dim still on the old value)
   // would strand the instance in an unembeddable state.
   return db.transaction(async (tx) => {
-    const memoriesDeleted = await deleteAllMemories(instanceId, tx);
-    const { documents, chunks } = await deleteAllKnowledgeForInstance(instanceId, tx);
+    // memories + knowledge are SLUG-keyed (their instance_id columns store the
+    // slug, not the UUID) — they MUST be filtered by slug or the delete matches
+    // zero rows. The instances table is keyed by UUID. Passing the wrong one was
+    // the bug that left the data orphaned while only realigning embedding_dim.
+    const memoriesDeleted = await deleteAllMemories(slug, tx);
+    const { documents, chunks } = await deleteAllKnowledgeForInstance(slug, tx);
 
     await tx
       .update(instances)
       .set({ embeddingDim: newEmbeddingDim, updatedAt: new Date() })
-      .where(eq(instances.id, instanceId));
+      .where(eq(instances.id, uuid));
 
     return {
-      instanceId,
+      instanceId: uuid,
       memoriesDeleted,
       knowledgeDocumentsDeleted: documents,
       knowledgeChunksDeleted: chunks,
