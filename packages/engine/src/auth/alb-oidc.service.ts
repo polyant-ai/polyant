@@ -36,7 +36,9 @@ export function parseAlbOidcData(headerValue: string): AuthenticatedUser | null 
       ? rawGroups.filter((g): g is string => typeof g === "string")
       : undefined;
 
-    return { userId, email, name, groups, source: "alb-oidc" };
+    // Gateway-forwarded identities are always human end-users; `orgId` is not
+    // resolved in gateway mode yet (no local user row to map), so it stays absent.
+    return { userId, email, name, groups, source: "alb-oidc", principalType: "user" };
   } catch {
     return null;
   }

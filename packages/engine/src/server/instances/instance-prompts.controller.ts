@@ -4,6 +4,7 @@ import { Controller, Get, Patch, Param, Body, BadRequestException } from "@nestj
 import { z } from "zod";
 import { getPrompts, getPromptSection, upsertPrompt, invalidatePromptsCache } from "../../instances/prompts.store.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 const PromptSectionKeys = z.enum([
   "01-identity",
@@ -30,6 +31,7 @@ const PatchPromptsSchema = z.object({
 
 @Controller("api/instances")
 export class InstancePromptsController {
+  @RequirePermission(Permission.PROMPT_READ)
   @Get(":slug/prompts")
   async getPrompts(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
@@ -43,6 +45,7 @@ export class InstancePromptsController {
     return { prompts };
   }
 
+  @RequirePermission(Permission.PROMPT_WRITE)
   @Patch(":slug/prompts")
   async updatePrompts(
     @Param("slug") slug: string,

@@ -4,6 +4,13 @@ import { Suspense } from "react";
 import { isGoogleAuthEnabled } from "@/lib/auth.config";
 import { LoginFormClient } from "./login-form-client";
 
+// Render at request time, not build time. `isGoogleAuthEnabled` reads
+// GOOGLE_CLIENT_ID/SECRET from the server env, which are injected into the
+// container at runtime — absent during the Docker build. Without this, Next
+// statically prerenders the page with the flag baked to `false`, so the Google
+// button never appears even when the provider is configured at runtime.
+export const dynamic = "force-dynamic";
+
 /**
  * Server entry: reads the (server-side) `isGoogleAuthEnabled` flag from
  * `auth.config` and passes it down so the Google sign-in button is only

@@ -124,6 +124,7 @@ polyant/                            # Monorepo root
 │   │   │   ├── hooks/                # Conversation lifecycle hooks (event → tool action)
 │   │   │   ├── crypto/               # AES-256-GCM encryption module
 │   │   │   ├── channels/adapters/    # Telegram, Slack, WhatsApp
+│   │   │   ├── management-audit/      # OSS management write-audit log (destructive mutations)
 │   │   │   ├── auth/                  # Authentication module (guard, schema, decorators)
 │   │   │   ├── server/               # NestJS controllers + modules
 │   │   │   │   ├── openai/           # /v1/chat/completions, /v1/models, /api/instances/:slug/chat/stream (typed SSE)
@@ -234,6 +235,7 @@ polyant/                            # Monorepo root
 - **Channel boot is fire-and-forget**: `channelManager.startAllForInstance()` is NOT awaited at boot — Slack socket mode can hang and block the entire startup sequence (schedulers, room scheduler). Errors are logged, not thrown
 - **Title generation is shared**: `packages/engine/src/utils/title-generator.ts` provides `generateConversationTitle()` used by both the main pipeline (`index.ts`) and the room engine. Never duplicate the title prompt inline
 - **GDPR opt-out (STOP/START)**: deterministic keyword gate runs at two chokepoints — a pre-LLM inbound gate at the top of `handleMessage`/`handleMessageStream` (short-circuits opted-out contacts; `runOptoutGate` in `packages/engine/src/optout/optout-gate.ts`) and outbound suppression inside `channelManager.sendOutbound`/`sendOutboundTemplate` (blocks proactive sends, coordinator bypasses with `skipOptoutCheck`). Opt-out state persisted per `(instanceId, channelType, channelId)` in `contact_optouts` table (cascade on instance delete, NOT on conversation delete). Config lives as six columns on `instances` (opt-out enabled, stop/resume keywords, closing/resuming messages, prompt-hint enabled). The LLM is never the enforcer; the keyword is injected into the supervisor prompt purely as informational context. Admin endpoints: `GET/POST/DELETE /api/instances/:slug/optouts`. v1 limitation: STOP as a reply to a Room broadcast is not honored. Spec: `docs/superpowers/specs/2026-06-11-gdpr-optout-design.md`
+- **Management write-audit log** (`packages/engine/src/management-audit/`, RBAC Stream 7): destructive management-plane mutations (`agent.create`/`agent.delete`, `secret.write`/`secret.delete`, `member.remove`) leave a forensic row in `management_audit_logs` carrying actor (`actor_user_id` + `actor_email`, both nullable for gateway/edge identities) + target (`target_type` + free-form `target_id`, FK-free so rows survive target deletion) + action. Controllers obtain the actor via `@CurrentUser()` and call `createManagementAuditLogger().log({ action, actor, targetType, targetId })`; actions and target types are closed-set constants (`ManagementAuditAction` / `ManagementAuditTarget`) — never magic strings. The secret VALUE is never audited (key only). The buffered `ManagementAuditStore` (init/shutdown wired in `index.ts`, batch on 10 / flush 5s, re-buffer-on-failure capped) mirrors the AI-runtime `AuditStore`. **Distinct from** the EE `authz_audit_logs` (authorization read/access — has NO OSS write path, guarded by a regression test) and the AI-runtime `tool_audit_logs` (per-tool-call pipeline audit). `member.remove` constant exists ahead of its (later RBAC stream) OSS endpoint.
 
 ## Development Workflow
 
@@ -278,7 +280,7 @@ polyant/                            # Monorepo root
 
 ### Current (Phase 1)
 
-- **Frontend**: Auth.js v5 with Google OAuth; optional domain allowlist via `AUTH_ALLOWED_DOMAINS` env var (comma-separated, empty = allow all)
+- **Frontend**: Auth.js v5 with Google OAuth; optional per-org sign-in domain allowlist. OSS path is one domain/org via `AUTH_ALLOWED_DOMAIN` (legacy comma-separated `AUTH_ALLOWED_DOMAINS` still honoured + merged; empty = allow all). The check lives in the **Node `signIn` callback in `lib/auth.ts`** (not the Edge `auth.config.ts`), backed by the pure helper `lib/auth-domain-allowlist.ts` (exact case-insensitive domain match — look-alike suffixes/prefixes are rejected). No domain is hardcoded; every tenant is env-configured. EE layers a per-org table + UI on top (out of OSS scope)
 - **Session strategy**: JWT (encrypted JWE with A256CBC-HS512). Chosen because Next.js middleware runs in Edge Runtime which cannot make TCP/DB connections
 - **JWT validation (engine)**: `auth-user.service.ts` decrypts Auth.js JWE using `jose` + `@panva/hkdf` with `AUTH_SECRET`. No DB query per request
 - **Engine guard**: Global NestJS `AuthGuard` (registered via `APP_GUARD`). Reads JWT from `Authorization: Bearer <token>` header OR `authjs.session-token` cookie. Uses `@Inject(Reflector)` explicitly (tsx doesn't support `emitDecoratorMetadata`)

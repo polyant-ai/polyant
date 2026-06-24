@@ -31,12 +31,12 @@ COPY --from=build /app/packages/engine/dist ./packages/engine/dist
 COPY packages/engine/package.json packages/engine/
 COPY package.json ./
 
-# Copy migration files (needed by entrypoint)
-COPY packages/engine/src/database/migrations packages/engine/src/database/migrations
-COPY packages/engine/src/database/migrate.ts packages/engine/src/database/
-
-# tsx is needed for running migrate.ts at startup
-RUN npm install -g tsx
+# Copy migration SQL next to the COMPILED migrate.js. The entrypoint runs
+# dist/database/migrate.js (not the src .ts via tsx), so config.js and all its
+# transitive imports resolve from dist/ — src is not shipped in the runtime image.
+# migrate.js reads migrationsFolder = resolve(__dirname, "migrations"), i.e.
+# packages/engine/dist/database/migrations.
+COPY packages/engine/src/database/migrations packages/engine/dist/database/migrations
 
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
