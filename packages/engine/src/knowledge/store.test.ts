@@ -42,6 +42,7 @@ import {
   insertChunks,
   insertChunksAndFinalize,
   searchByVector,
+  resolveUniqueFilename,
   DocumentSizeExceededError,
   MAX_DOCUMENT_BYTES,
   MAX_WRITE_BYTES,
@@ -54,6 +55,29 @@ beforeEach(() => {
   mockDb.transaction.mockImplementation(
     async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb),
   );
+});
+
+describe("resolveUniqueFilename", () => {
+  it("returns the name unchanged when there is no collision", () => {
+    expect(resolveUniqueFilename("manuale.txt", new Set())).toBe("manuale.txt");
+  });
+
+  it("appends a progressive suffix before the extension on collision", () => {
+    expect(resolveUniqueFilename("manuale.txt", new Set(["manuale.txt"]))).toBe("manuale (1).txt");
+  });
+
+  it("increments the suffix until the name is free", () => {
+    const taken = new Set(["manuale.txt", "manuale (1).txt", "manuale (2).txt"]);
+    expect(resolveUniqueFilename("manuale.txt", taken)).toBe("manuale (3).txt");
+  });
+
+  it("handles filenames without an extension", () => {
+    expect(resolveUniqueFilename("README", new Set(["README"]))).toBe("README (1)");
+  });
+
+  it("only treats the final segment as the extension (multi-dot names)", () => {
+    expect(resolveUniqueFilename("doc.v2.md", new Set(["doc.v2.md"]))).toBe("doc.v2 (1).md");
+  });
 });
 
 describe("upsertAgentDocument", () => {

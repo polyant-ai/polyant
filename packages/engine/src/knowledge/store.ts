@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createHash } from "crypto";
+import { extname } from "path";
 import { eq, and, desc, sql, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db, type DbExecutor, type DbTransaction } from "../database/client.js";
@@ -163,6 +164,61 @@ export async function deleteAllKnowledgeForInstance(
     return { documents: docs.length, chunks: chunks.length };
   };
   return tx ? run(tx) : db.transaction(run);
+}
+
+/** A single document in an export bundle — filename + raw content + metadata. */
+export interface ExportedDocument {
+  filename: string;
+  content: string;
+  mimeType: string;
+  source: string;
+  contentHash: string;
+}
+
+/**
+ * Return every document for an instance with its raw content, for export.
+ * Ordered oldest-first so a re-import preserves the original upload order.
+ */
+export async function getKnowledgeForExport(instanceId: InstanceSlug): Promise<ExportedDocument[]> {
+  const rows = await db
+    .select({
+      filename: knowledgeDocuments.filename,
+      content: knowledgeDocuments.rawContent,
+      mimeType: knowledgeDocuments.mimeType,
+      source: knowledgeDocuments.source,
+      contentHash: knowledgeDocuments.contentHash,
+    })
+    .from(knowledgeDocuments)
+    .where(eq(knowledgeDocuments.instanceId, instanceId))
+    .orderBy(knowledgeDocuments.createdAt);
+  return rows;
+}
+
+/** All existing filenames for an instance — used to resolve import collisions. */
+export async function listDocumentFilenames(instanceId: InstanceSlug): Promise<string[]> {
+  const rows = await db
+    .select({ filename: knowledgeDocuments.filename })
+    .from(knowledgeDocuments)
+    .where(eq(knowledgeDocuments.instanceId, instanceId));
+  return rows.map((r) => r.filename);
+}
+
+/**
+ * Resolve a collision-free filename by appending " (n)" before the extension
+ * (e.g. "manuale.txt" → "manuale (1).txt" → "manuale (2).txt"). Pure — `taken`
+ * is the set of names already in use (existing + earlier in the same batch).
+ */
+export function resolveUniqueFilename(filename: string, taken: Set<string>): string {
+  if (!taken.has(filename)) return filename;
+  const ext = extname(filename);
+  const base = filename.slice(0, filename.length - ext.length);
+  let n = 1;
+  let candidate = `${base} (${n})${ext}`;
+  while (taken.has(candidate)) {
+    n += 1;
+    candidate = `${base} (${n})${ext}`;
+  }
+  return candidate;
 }
 
 /** Get a document by (instanceId, filename). Relies on the UNIQUE constraint. */
