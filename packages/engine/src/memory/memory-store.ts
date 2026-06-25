@@ -325,7 +325,7 @@ export async function deleteAllMemories(
 }
 
 /** Count memories owned by an agent. */
-export async function countMemories(agentId: string): Promise<number> {
+export async function countMemories(agentId: AgentSlug): Promise<number> {
   const [row] = await db
     .select({ count: drizzleCount() })
     .from(memories)

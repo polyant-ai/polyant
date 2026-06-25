@@ -76,8 +76,8 @@ export async function findInstanceBySlug(slug: AgentSlug): Promise<Agent | undef
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
-/** Find an agent by id (UUID). Returns undefined if not found. */
-export async function findInstanceById(id: string): Promise<Agent | undefined> {
+/** Find an agent by its UUID primary key. Returns undefined if not found. */
+export async function findInstanceById(id: AgentUuid): Promise<Agent | undefined> {
   const rows = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
   return rows[0] ? toInstance(rows[0]) : undefined;
 }

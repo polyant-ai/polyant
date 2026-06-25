@@ -352,7 +352,7 @@ describe("memory-store", () => {
       const selChain = createChainMock([{ count: 5 }]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      const count = await countMemories("user-1");
+      const count = await countMemories(asAgentSlug("user-1"));
 
       expect(count).toBe(5);
     });

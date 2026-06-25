@@ -27,14 +27,15 @@ export async function resolveAgentSlug(agentId: AgentUuid): Promise<AgentSlug | 
 }
 
 /**
- * Resolve an agent by either its UUID or its slug. Tries id first when the
- * value looks like a UUID, otherwise slug; falls back to the other form so a
- * caller passing either alias always succeeds. Returns undefined if not found.
+ * Resolve an agent by either its UUID or its slug. When the value is
+ * UUID-shaped it is looked up by id first (then slug as a defensive fallback);
+ * otherwise it is resolved by slug only — a non-UUID-shaped value can never be
+ * a UUID primary key. Returns undefined if not found.
  */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function findInstanceByIdOrSlug(idOrSlug: string): Promise<Agent | undefined> {
   if (UUID_RE.test(idOrSlug)) {
-    return (await findInstanceById(idOrSlug)) ?? (await findInstanceBySlug(asAgentSlug(idOrSlug)));
+    return (await findInstanceById(asAgentUuid(idOrSlug))) ?? (await findInstanceBySlug(asAgentSlug(idOrSlug)));
   }
-  return (await findInstanceBySlug(asAgentSlug(idOrSlug))) ?? (await findInstanceById(idOrSlug));
+  return findInstanceBySlug(asAgentSlug(idOrSlug));
 }
