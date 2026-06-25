@@ -381,12 +381,12 @@ export const api = {
     export: (slug: string) =>
       request<{
         version: number;
-        instanceSlug: string;
+        agentSlug: string;
         documents: { filename: string; content: string; mimeType: string; source: string; contentHash: string }[];
-      }>(`/api/instances/${encodeURIComponent(slug)}/knowledge/export`),
+      }>(`/api/agents/${encodeURIComponent(slug)}/knowledge/export`),
     import: (slug: string, data: { version?: number; documents: { filename: string; content: string }[] }) =>
       request<{ imported: number; documents: { filename: string; renamedFrom?: string }[] }>(
-        `/api/instances/${encodeURIComponent(slug)}/knowledge/import`,
+        `/api/agents/${encodeURIComponent(slug)}/knowledge/import`,
         { method: "POST", body: JSON.stringify(data) },
       ),
   },

@@ -190,6 +190,47 @@ describe("api.instances", () => {
   });
 });
 
+// ── api.knowledge ──────────────────────────────────────────────────────
+
+describe("api.knowledge", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("export() calls GET /api/agents/:slug/knowledge/export", async () => {
+    const fetchFn = mockFetch(mockResponse({ version: 1, agentSlug: "my-bot", documents: [] }));
+
+    await api.knowledge.export("my-bot");
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url).toBe(`${API_BASE}/api/agents/my-bot/knowledge/export`);
+    expect(init?.method).toBeUndefined(); // GET is default
+  });
+
+  it("import() calls POST /api/agents/:slug/knowledge/import with JSON body", async () => {
+    const fetchFn = mockFetch(mockResponse({ imported: 1, documents: [] }));
+    const bundle = { version: 1, documents: [{ filename: "doc.txt", content: "hello" }] };
+
+    await api.knowledge.import("my-bot", bundle);
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url).toBe(`${API_BASE}/api/agents/my-bot/knowledge/import`);
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(init?.body as string)).toEqual(bundle);
+  });
+
+  it("export() encodes the slug", async () => {
+    const fetchFn = mockFetch(mockResponse({ version: 1, agentSlug: "a/b", documents: [] }));
+
+    await api.knowledge.export("a/b");
+
+    const [url] = fetchFn.mock.calls[0];
+    expect(url).toBe(`${API_BASE}/api/agents/a%2Fb/knowledge/export`);
+  });
+});
+
 // ── api.conversations ──────────────────────────────────────────────────
 
 describe("api.conversations", () => {
