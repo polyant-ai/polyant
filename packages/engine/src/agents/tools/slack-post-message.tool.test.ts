@@ -17,7 +17,7 @@ import { createMockAudit } from "../../test-utils.js";
 const mockSendOutbound = channelManager.sendOutbound as unknown as ReturnType<typeof vi.fn>;
 
 const ctx = {
-  instanceId: "my-instance",
+  agentId: "my-instance",
   secrets: {},
   audit: createMockAudit(),
 } as any;

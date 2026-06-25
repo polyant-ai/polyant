@@ -17,7 +17,7 @@ import { findInstanceOrFail } from "./instance-helpers.js";
 import { errMsg } from "./instance-helpers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-@Controller("api/instances")
+@Controller("api/agents")
 export class InstanceExportController {
   @RequirePermission(Permission.EXPORT_READ)
   @Get(":slug/export")

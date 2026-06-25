@@ -12,7 +12,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { findInstanceBySlug } from "../../instances/store.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { listOptouts, setOptoutStatus, type OptoutStatus } from "../../optout/index.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
@@ -20,7 +20,7 @@ import { RequirePermission, Permission } from "../../authz/index.js";
  * Admin management of opt-out contacts. All operations are instance-scoped:
  * the slug is resolved to a uuid and every query is constrained by it (IDOR-safe).
  */
-@Controller("api/instances/:slug/optouts")
+@Controller("api/agents/:slug/optouts")
 export class OptoutsController {
   // GET — paginated list (default: currently opted-out contacts)
   @RequirePermission(Permission.GOVERNANCE_READ)
@@ -53,7 +53,7 @@ export class OptoutsController {
     const instance = await this.resolve(slug);
     const { channelType, channelId } = this.validateContact(body);
     await setOptoutStatus({
-      instanceId: instance.id,
+      agentId: instance.id,
       instanceSlug: instance.slug,
       channelType,
       channelId,
@@ -73,7 +73,7 @@ export class OptoutsController {
   ) {
     const instance = await this.resolve(slug);
     await setOptoutStatus({
-      instanceId: instance.id,
+      agentId: instance.id,
       instanceSlug: instance.slug,
       channelType,
       channelId,
@@ -84,8 +84,8 @@ export class OptoutsController {
   }
 
   private async resolve(slug: string) {
-    const instance = await findInstanceBySlug(asInstanceSlug(slug));
-    if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
+    const instance = await findInstanceBySlug(asAgentSlug(slug));
+    if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
     return instance;
   }
 

@@ -31,7 +31,7 @@ const DEFAULT_SECRETS = {
 
 function buildTool(opts?: { secrets?: Record<string, string>; attachments?: any[]; state?: ConversationStateApi }) {
   const ctx = {
-    instanceId: "test-instance",
+    agentId: "test-instance",
     secrets: opts?.secrets ?? DEFAULT_SECRETS,
     audit: createMockAudit(),
     conversationId: "conv-1",

@@ -61,25 +61,25 @@ export default function AuditLogsPage() {
   useEffect(() => {
     api.instances
       .list()
-      .then(({ instances }) => setInstances(instances))
+      .then(({ agents }) => setInstances(agents))
       .catch((err) => toast.error(getUserErrorMessage(err, t("common.loadFailed"))));
   }, [t]);
 
-  // Fetch stats — `instanceId` is optional: when the dropdown is on "all
+  // Fetch stats — `agentId` is optional: when the dropdown is on "all
   // agents" we send `undefined` and the backend returns system-wide stats.
   useEffect(() => {
     api.auditLogs
-      .stats({ instanceId: instanceFilter || undefined })
+      .stats({ agentId: instanceFilter || undefined })
       .then(setStats)
       .catch((err) => toast.error(getUserErrorMessage(err, t("common.loadFailed"))));
   }, [instanceFilter, t]);
 
-  // Fetch audit logs — same: `undefined` instanceId means "show every instance".
+  // Fetch audit logs — same: `undefined` agentId means "show every instance".
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
       const result = await api.auditLogs.list({
-        instanceId: instanceFilter || undefined,
+        agentId: instanceFilter || undefined,
         toolName: toolFilter || undefined,
         search: debouncedSearch || undefined,
         limit: PAGE_SIZE,
@@ -263,7 +263,7 @@ export default function AuditLogsPage() {
                         {formatDateTime(log.createdAt)}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
-                        <Badge variant="secondary">{log.instanceId}</Badge>
+                        <Badge variant="secondary">{log.agentId}</Badge>
                       </TableCell>
                       <TableCell className="font-mono text-sm">
                         {log.toolName}

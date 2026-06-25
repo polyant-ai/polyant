@@ -21,7 +21,7 @@ vi.mock("../../audit/audit-logger.js", () => ({
 
 import { toolActionExecutor } from "./tool-action.js";
 import type { HookEventPayload, HookExecutionCapture, HookRunContext, InstanceHookRow } from "../hook-types.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 const payload: HookEventPayload = {
   instance: { slug: "demo" },
@@ -32,7 +32,7 @@ const payload: HookEventPayload = {
 };
 
 const ctx: HookRunContext = {
-  instanceId: asInstanceSlug("demo"),
+  agentId: asAgentSlug("demo"),
   conversationId: "demo:whatsapp:+39",
   secrets: { some_key: "v" },
 };
@@ -40,7 +40,7 @@ const ctx: HookRunContext = {
 function hookFor(toolName: string, args: Record<string, unknown>): InstanceHookRow {
   return {
     id: "h1",
-    instanceId: "u1",
+    agentId: "u1",
     event: "conversation_start",
     actionType: "tool",
     actionConfig: { toolName, args },

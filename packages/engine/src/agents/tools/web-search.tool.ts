@@ -38,7 +38,7 @@ registerTool({
     "Do NOT use to search information already in the knowledge base — use searchKnowledge first.\n" +
     "Do NOT use to access specific URLs — use curl.\n" +
     "Returns title, URL, snippet, and (when available) a relevance score for each result.\n" +
-    "The search backend is configured per-instance (Tavily, SerpAPI, or DuckDuckGo) — you do not choose it.\n" +
+    "The search backend is configured per-agent (Tavily, SerpAPI, or DuckDuckGo) — you do not choose it.\n" +
     "Caveat: searchDepth 'advanced' is slower but more accurate; 'basic' is sufficient for simple queries. Some providers ignore searchDepth.",
   category: "research",
   requiredSecrets: [
@@ -48,7 +48,7 @@ registerTool({
       choices: [...SUPPORTED_PROVIDERS],
       label: "Search provider",
       description:
-        "Search backend used by webSearch for this instance. Tavily/SerpAPI need the matching API key; DuckDuckGo is free but limited (Instant Answers only).",
+        "Search backend used by webSearch for this agent. Tavily/SerpAPI need the matching API key; DuckDuckGo is free but limited (Instant Answers only).",
       optional: true,
     },
     {
@@ -156,7 +156,7 @@ async function searchTavily(ctx: ToolContext, input: SearchInput): Promise<Provi
   if (!apiKey) {
     return {
       results: [],
-      error: "Tavily provider selected but 'tavily_api_key' is not configured for this instance.",
+      error: "Tavily provider selected but 'tavily_api_key' is not configured for this agent.",
     };
   }
   const client = tavily({ apiKey });
@@ -184,7 +184,7 @@ async function searchSerpapi(ctx: ToolContext, input: SearchInput): Promise<Prov
   if (!apiKey) {
     return {
       results: [],
-      error: "SerpAPI provider selected but 'serpapi_api_key' is not configured for this instance.",
+      error: "SerpAPI provider selected but 'serpapi_api_key' is not configured for this agent.",
     };
   }
   const params = new URLSearchParams({

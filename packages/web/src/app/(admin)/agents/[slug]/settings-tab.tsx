@@ -260,7 +260,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
       // 2. Save instance-level settings. `confirmWipe` acknowledges that an
       // embedding-provider change permanently deletes memories + knowledge; the
       // engine rejects the switch without it when there is data to lose.
-      const { instance: updated } = await api.instances.update(instance.slug, {
+      const { agent: updated } = await api.instances.update(instance.slug, {
         provider: provider || null,
         model: model || null,
         embeddingProvider,

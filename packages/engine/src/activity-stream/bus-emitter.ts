@@ -282,7 +282,7 @@ export function emitFromChatResponse(response: ChatResponse, ctx: BusContext): v
  * "success" so the spotlight pill stays positive.
  *
  * Catches:
- *   - thrown Error instances surfaced by the SDK as the `result` payload
+ *   - thrown Error agents surfaced by the SDK as the `result` payload
  *   - the `{ error: "...", ... }` envelope our own tools use
  *   - explicit `isError: true` flag (Vercel AI SDK v5+ convention)
  *   - explicit `success: false` flag (Polyant tool convention)

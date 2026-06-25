@@ -43,7 +43,7 @@ export function TriggersRunsTab({ slug }: Props) {
     try {
       const [tasksRes, convRes] = await Promise.all([
         (runType === "webhook") ? Promise.resolve({ tasks: [] }) : api.scheduledTasks.list(slug),
-        (runType === "scheduled") ? Promise.resolve({ conversations: [] }) : api.conversations.list({ instanceId: slug, source: "webhook", limit: 50 }),
+        (runType === "scheduled") ? Promise.resolve({ conversations: [] }) : api.conversations.list({ agentId: slug, source: "webhook", limit: 50 }),
       ]);
       setTasks(tasksRes.tasks ?? []);
       setWebhookConversations(convRes.conversations ?? []);

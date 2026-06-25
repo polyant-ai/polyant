@@ -358,7 +358,7 @@ describe("SettingsTab", () => {
     const user = userEvent.setup();
     const instance = makeInstance({ memoryEnabled: false });
     const updatedInstance = makeInstance({ memoryEnabled: true });
-    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+    mockInstanceUpdate.mockResolvedValueOnce({ agent: updatedInstance });
 
     render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
 
@@ -390,7 +390,7 @@ describe("SettingsTab", () => {
     const user = userEvent.setup();
     const instance = makeInstance({ provider: "openai", model: "gpt-4o", memoryEnabled: true });
     const updatedInstance = makeInstance({ provider: "bedrock", model: "titan" });
-    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+    mockInstanceUpdate.mockResolvedValueOnce({ agent: updatedInstance });
 
     render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
 
@@ -428,7 +428,7 @@ describe("SettingsTab", () => {
     const user = userEvent.setup();
     const instance = makeInstance({ provider: "openai", model: "gpt-4o", memoryEnabled: true });
     const updatedInstance = makeInstance({ provider: "anthropic", model: "claude-3-opus" });
-    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+    mockInstanceUpdate.mockResolvedValueOnce({ agent: updatedInstance });
 
     render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
 
@@ -458,7 +458,7 @@ describe("SettingsTab", () => {
     mockSecretsSet.mockResolvedValueOnce({
       secrets: [{ key: "openai_api_key", configured: true }],
     });
-    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+    mockInstanceUpdate.mockResolvedValueOnce({ agent: updatedInstance });
 
     render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
 

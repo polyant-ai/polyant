@@ -103,7 +103,7 @@ describe("PrivacyTab", () => {
     mockOptoutsList.mockResolvedValue({ optouts: [] });
     mockOptoutsOptOut.mockResolvedValue({ ok: true });
     mockOptoutsOptIn.mockResolvedValue({ ok: true });
-    mockInstanceUpdate.mockResolvedValue({ instance: makeInstance() });
+    mockInstanceUpdate.mockResolvedValue({ agent: makeInstance() });
   });
 
   it("loads opted-out contacts on mount", async () => {

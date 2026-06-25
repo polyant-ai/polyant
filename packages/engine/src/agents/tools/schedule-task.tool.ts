@@ -154,7 +154,7 @@ registerTool({
             const schedule = scheduleOrError;
 
             const task = await scheduledTaskStore.create({
-              instanceId: ctx.instanceId,
+              agentId: ctx.agentId,
               name: params.name,
               prompt: params.prompt,
               schedule,
@@ -192,7 +192,7 @@ registerTool({
             // model needs to inspect more, it must paginate via a future
             // `offset` argument. The admin API exposes the full list via
             // explicit pagination.
-            const tasks = await scheduledTaskStore.listByInstance(ctx.instanceId, { limit: 50 });
+            const tasks = await scheduledTaskStore.listByInstance(ctx.agentId, { limit: 50 });
             ctx.audit.log({
               action: "task.schedule",
               details: { subAction: "list", resultCount: tasks.length },

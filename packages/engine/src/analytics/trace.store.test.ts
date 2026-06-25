@@ -3,7 +3,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { pipelineTraces } from "./traces.schema.js";
 import type { PipelineTraceEntry } from "./trace.store.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 
 // We need to test the class directly, so reimport a fresh instance approach
 // by importing the module and working with the exported singleton pattern.
@@ -12,7 +12,7 @@ import { asInstanceSlug } from "../instances/identifiers.js";
 function makeEntry(overrides: Partial<PipelineTraceEntry> = {}): PipelineTraceEntry {
   return {
     conversationId: "web:test-conv-1",
-    instanceId: asInstanceSlug("test-instance"),
+    agentId: asAgentSlug("test-instance"),
     channel: "web",
     totalMs: 1500,
     isStreaming: false,

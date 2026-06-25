@@ -74,14 +74,14 @@ registerTool({
         let result: AgentWriteResult;
         if (action === "write") {
           result = await upsertAgentDocument({
-            instanceId: ctx.instanceId,
+            agentId: ctx.agentId,
             filename,
             content,
             mimeType: effectiveMime,
           });
         } else {
           result = await appendAgentDocument({
-            instanceId: ctx.instanceId,
+            agentId: ctx.agentId,
             filename,
             content,
             mimeType: effectiveMime,
@@ -91,7 +91,7 @@ registerTool({
         // Fire-and-forget reindex: drop old chunks, re-chunk + embed, mark "ready".
         const { docId, rawContent } = result;
         setImmediate(() => {
-          processDocument(docId, ctx.instanceId, rawContent).catch((err) => {
+          processDocument(docId, ctx.agentId, rawContent).catch((err) => {
             console.error(
               `writeKnowledge reindex failed for doc ${docId}: ${errMsg(err)}`,
             );

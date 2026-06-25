@@ -40,7 +40,7 @@ import { MessageExtras } from "./message-extras";
 export interface DebugSheetTarget {
   conversationId: string;
   messageId: string;
-  instanceId: string;
+  agentId: string;
 }
 
 export interface DebugSheetProps {
@@ -86,7 +86,7 @@ export function DebugSheet({ open, onOpenChange, target }: DebugSheetProps) {
     setError(false);
     setData(null);
     api.conversations
-      .messageDebug(target.conversationId, target.messageId, target.instanceId)
+      .messageDebug(target.conversationId, target.messageId, target.agentId)
       .then((res) => {
         if (!cancelled) setData(res);
       })

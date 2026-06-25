@@ -2,12 +2,12 @@
 
 import { describe, it, expect } from "vitest";
 import { buildHookPayload, type PipelineContext } from "./pipeline.js";
-import { asInstanceSlug } from "./instances/identifiers.js";
+import { asAgentSlug } from "./instances/identifiers.js";
 
 function ctxWith(overrides: Partial<PipelineContext>): PipelineContext {
   return {
     pipelineStart: 0,
-    instanceId: asInstanceSlug("demo"),
+    agentId: asAgentSlug("demo"),
     conversationId: "demo:whatsapp:+39",
     conversationSummary: undefined,
     contextPrompt: undefined,

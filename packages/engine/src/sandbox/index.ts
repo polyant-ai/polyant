@@ -11,20 +11,24 @@ import { sanitizeConversationId } from "../agents/tools/shared/workspace-utils.j
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT
-  ? resolve(process.env.WORKSPACES_ROOT)
+// CONVENTION-EXCEPTION: dual env read during the sandbox rename deprecation
+// window. SANDBOX_ROOT is the new var; WORKSPACES_ROOT is kept as a deprecated
+// alias and removed next release. Default on-disk path value is unchanged.
+const sandboxRootEnv = process.env.SANDBOX_ROOT ?? process.env.WORKSPACES_ROOT;
+const SANDBOX_ROOT = sandboxRootEnv
+  ? resolve(sandboxRootEnv)
   : resolve(__dirname, "../../workspaces");
 
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
 
-const INSTANCE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
-function validateInstanceId(instanceId: string): void {
-  if (!INSTANCE_ID_RE.test(instanceId)) {
+function validateAgentId(agentId: string): void {
+  if (!AGENT_ID_RE.test(agentId)) {
     throw new Error(
-      `Invalid instanceId "${instanceId}". Must match ${INSTANCE_ID_RE} (lowercase alphanumeric and hyphens, starting with alphanumeric).`,
+      `Invalid agentId "${agentId}". Must match ${AGENT_ID_RE} (lowercase alphanumeric and hyphens, starting with alphanumeric).`,
     );
   }
 }
@@ -49,9 +53,9 @@ export interface WorkspacePaths {
  * All agent configuration — including knowledge documents — is stored in
  * PostgreSQL.
  */
-export function getWorkspacePaths(instanceId: string): WorkspacePaths {
-  validateInstanceId(instanceId);
-  const root = resolve(WORKSPACES_ROOT, instanceId);
+export function getWorkspacePaths(agentId: string): WorkspacePaths {
+  validateAgentId(agentId);
+  const root = resolve(SANDBOX_ROOT, agentId);
   return {
     root,
     conversationsDir: resolve(root, "conversations"),
@@ -63,20 +67,20 @@ export function getWorkspacePaths(instanceId: string): WorkspacePaths {
  * The conversationId is sanitized for filesystem safety.
  */
 export function getConversationWorkspacePath(
-  instanceId: string,
+  agentId: string,
   conversationId: string,
 ): string {
-  validateInstanceId(instanceId);
+  validateAgentId(agentId);
   return resolve(
-    getWorkspacePaths(instanceId).conversationsDir,
+    getWorkspacePaths(agentId).conversationsDir,
     sanitizeConversationId(conversationId),
   );
 }
 
 /** Delete an instance workspace (knowledge files + all conversation workspaces). */
-export function deleteWorkspace(instanceId: string): void {
-  validateInstanceId(instanceId);
-  const paths = getWorkspacePaths(instanceId);
+export function deleteWorkspace(agentId: string): void {
+  validateAgentId(agentId);
+  const paths = getWorkspacePaths(agentId);
   if (existsSync(paths.root)) {
     rmSync(paths.root, { recursive: true, force: true });
   }
@@ -84,10 +88,10 @@ export function deleteWorkspace(instanceId: string): void {
 
 /** Delete the sandboxed workspace for a specific conversation. */
 export function deleteConversationWorkspace(
-  instanceId: string,
+  agentId: string,
   conversationId: string,
 ): void {
-  const dir = getConversationWorkspacePath(instanceId, conversationId);
+  const dir = getConversationWorkspacePath(agentId, conversationId);
   if (existsSync(dir)) {
     rmSync(dir, { recursive: true, force: true });
   }

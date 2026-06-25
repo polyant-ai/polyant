@@ -26,7 +26,7 @@ registerTool({
       try {
         const results = await searchKnowledge(
           query,
-          ctx.instanceId,
+          ctx.agentId,
           limit ?? undefined,
         );
         ctx.audit.log({

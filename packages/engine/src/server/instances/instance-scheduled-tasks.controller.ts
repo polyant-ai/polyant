@@ -21,7 +21,7 @@ import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
 import type { ScheduleConfig, RunStatus } from "../../scheduled-tasks/schema.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-@Controller("api/instances")
+@Controller("api/agents")
 export class InstanceScheduledTasksController {
   @RequirePermission(Permission.TASK_READ)
   @Get(":slug/scheduled-tasks")
@@ -93,7 +93,7 @@ export class InstanceScheduledTasksController {
         throw new BadRequestException("Invalid taskId format");
       }
       const task = await scheduledTaskStore.getById(taskId);
-      if (!task || task.instanceId !== instance.slug) {
+      if (!task || task.agentId !== instance.slug) {
         throw new NotFoundException(`Task "${taskId}" not found`);
       }
     }
@@ -134,7 +134,7 @@ export class InstanceScheduledTasksController {
     const instance = await findInstanceOrFail(slug);
 
     const task = await scheduledTaskStore.getById(id);
-    if (!task || task.instanceId !== instance.slug) {
+    if (!task || task.agentId !== instance.slug) {
       throw new NotFoundException(`Scheduled task "${id}" not found`);
     }
 
@@ -185,7 +185,7 @@ export class InstanceScheduledTasksController {
     }
 
     const task = await scheduledTaskStore.create({
-      instanceId: instance.slug,
+      agentId: instance.slug,
       name: body.name,
       prompt: body.prompt,
       schedule,
@@ -238,7 +238,7 @@ export class InstanceScheduledTasksController {
     const instance = await findInstanceOrFail(slug);
 
     const existing = await scheduledTaskStore.getById(id);
-    if (!existing || existing.instanceId !== instance.slug) {
+    if (!existing || existing.agentId !== instance.slug) {
       throw new NotFoundException(`Scheduled task "${id}" not found`);
     }
 
@@ -275,7 +275,7 @@ export class InstanceScheduledTasksController {
     const instance = await findInstanceOrFail(slug);
 
     const existing = await scheduledTaskStore.getById(id);
-    if (!existing || existing.instanceId !== instance.slug) {
+    if (!existing || existing.agentId !== instance.slug) {
       throw new NotFoundException(`Scheduled task "${id}" not found`);
     }
 
@@ -291,7 +291,7 @@ export class InstanceScheduledTasksController {
     const instance = await findInstanceOrFail(slug);
 
     const task = await scheduledTaskStore.getById(id);
-    if (!task || task.instanceId !== instance.slug) {
+    if (!task || task.agentId !== instance.slug) {
       throw new NotFoundException(`Scheduled task "${id}" not found`);
     }
 

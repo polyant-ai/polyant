@@ -84,6 +84,7 @@ vi.mock("../memories/memory-status.js", () => ({
 
 import { InstancesController } from "./instances.controller.js";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import { PATH_METADATA } from "@nestjs/common/constants.js";
 
 const fullInstance = {
   id: "uuid-1",
@@ -124,7 +125,7 @@ describe("InstancesController", () => {
     it("returns only whitelisted fields — future internal columns must not leak", async () => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
 
-      const { instance } = await controller.getBySlug("test-one");
+      const { agent } = await controller.getBySlug("test-one");
 
       // Allowed fields
       const allowed = new Set([
@@ -135,30 +136,30 @@ describe("InstancesController", () => {
         "memory",
       ]);
 
-      for (const key of Object.keys(instance)) {
+      for (const key of Object.keys(agent)) {
         expect(allowed.has(key)).toBe(true);
       }
       // The leak canary must be excluded.
-      expect("internalSecretFlag" in instance).toBe(false);
+      expect("internalSecretFlag" in agent).toBe(false);
     });
 
     it("emits icon as a URL + cache-busting query, never as the raw data URI", async () => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
 
-      const { instance } = await controller.getBySlug("test-one");
+      const { agent } = await controller.getBySlug("test-one");
 
-      expect(instance.icon).toBe(
-        `/api/instances/test-one/icon?v=${fullInstance.updatedAt.getTime()}`,
+      expect(agent.icon).toBe(
+        `/api/agents/test-one/icon?v=${fullInstance.updatedAt.getTime()}`,
       );
-      expect(instance.icon).not.toMatch(/^data:/);
+      expect(agent.icon).not.toMatch(/^data:/);
     });
 
     it("icon is null when the instance has no icon stored", async () => {
       mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, icon: null });
 
-      const { instance } = await controller.getBySlug("test-one");
+      const { agent } = await controller.getBySlug("test-one");
 
-      expect(instance.icon).toBeNull();
+      expect(agent.icon).toBeNull();
     });
   });
 
@@ -194,7 +195,7 @@ describe("InstancesController", () => {
       const driverError = Object.assign(new Error("duplicate key value violates unique constraint"), {
         code: "23505",
       });
-      const wrapped = Object.assign(new Error("Failed query: insert into instances ..."), {
+      const wrapped = Object.assign(new Error("Failed query: insert into agents ..."), {
         cause: driverError,
       });
       mockCreateInstance.mockRejectedValue(wrapped);
@@ -327,5 +328,16 @@ describe("InstancesController", () => {
       expect(mockResetEmbeddings).not.toHaveBeenCalled();
       expect(res.wiped).toBeNull();
     });
+  });
+});
+
+describe("InstancesController canonical prefix", () => {
+  it("serves only on /api/agents — the deprecated /api/instances alias is gone", () => {
+    const path = Reflect.getMetadata(PATH_METADATA, InstancesController) as
+      | string
+      | string[];
+    // Single canonical prefix after alias removal.
+    expect(path).toBe("api/agents");
+    expect(JSON.stringify(path)).not.toContain("api/instances");
   });
 });

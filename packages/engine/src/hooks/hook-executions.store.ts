@@ -3,13 +3,13 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { hookExecutions } from "./hooks.schema.js";
-import type { InstanceSlug } from "../instances/identifiers.js";
+import type { AgentSlug } from "../instances/identifiers.js";
 import type { HookActionType, HookEvent } from "./hook-types.js";
 
 /** One hook execution outcome, as persisted for the conversation UI. */
 export interface HookExecutionRow {
   id: string;
-  instanceId: string;
+  agentId: string;
   conversationId: string;
   hookId: string;
   event: HookEvent;
@@ -26,7 +26,7 @@ export interface HookExecutionRow {
 }
 
 export interface RecordHookExecutionInput {
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   conversationId: string;
   hookId: string;
   event: HookEvent;
@@ -42,7 +42,7 @@ export interface RecordHookExecutionInput {
 function toRow(r: typeof hookExecutions.$inferSelect): HookExecutionRow {
   return {
     id: r.id,
-    instanceId: r.instanceId,
+    agentId: r.agentId,
     conversationId: r.conversationId,
     hookId: r.hookId,
     event: r.event as HookEvent,
@@ -60,7 +60,7 @@ function toRow(r: typeof hookExecutions.$inferSelect): HookExecutionRow {
 /** Insert one execution record. The runner calls this fire-and-forget. */
 export async function recordHookExecution(input: RecordHookExecutionInput): Promise<void> {
   await db.insert(hookExecutions).values({
-    instanceId: input.instanceId,
+    agentId: input.agentId,
     conversationId: input.conversationId,
     hookId: input.hookId,
     event: input.event,

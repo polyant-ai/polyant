@@ -40,7 +40,7 @@ export async function loadConversationState(
  */
 export async function flushConversationState(
   conversationId: string,
-  instanceId: string | null,
+  agentId: string | null,
   set: Record<string, unknown>,
   remove: string[],
 ): Promise<void> {
@@ -60,7 +60,7 @@ export async function flushConversationState(
     .values({
       scope: CONVERSATION_SCOPE,
       scopeKey: conversationId,
-      instanceId: instanceId ?? null,
+      agentId: agentId ?? null,
       // On a fresh row there is nothing to merge/remove from, so the new row's
       // data is exactly the dirty `set` (deleted keys simply never existed).
       data: set,

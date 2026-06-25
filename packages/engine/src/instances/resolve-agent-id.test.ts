@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Unit tests for packages/engine/src/instances/resolve-instance-id.ts
+ * Unit tests for packages/engine/src/instances/resolve-agent-id.ts
  *
- * resolveInstanceId(slug) → uuid | undefined
- * resolveInstanceSlug(uuid) → slug | undefined
+ * resolveAgentId(slug) → uuid | undefined
+ * resolveAgentSlug(uuid) → slug | undefined
  *
- * These helpers are critical: 10 DB tables use `instance_id uuid` with FK,
- * but ToolContext.instanceId is the slug. Mismatches return zero rows silently.
+ * These helpers are critical: 10 DB tables use `agent_id uuid` with FK,
+ * but ToolContext.agentId is the slug. Mismatches return zero rows silently.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -43,7 +43,7 @@ const { mockDb } = vi.hoisted(() => ({
 vi.mock("../database/client.js", () => ({ db: mockDb }));
 
 vi.mock("./schema.js", () => ({
-  instances: {
+  agents: {
     id: "id",
     slug: "slug",
   },
@@ -57,15 +57,15 @@ vi.mock("drizzle-orm", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 import {
-  resolveInstanceId,
-  resolveInstanceSlug,
-} from "./resolve-instance-id.js";
-import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
+  resolveAgentId,
+  resolveAgentSlug,
+} from "./resolve-agent-id.js";
+import { asAgentSlug, asAgentUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-describe("resolveInstanceId / resolveInstanceSlug", () => {
+describe("resolveAgentId / resolveAgentSlug", () => {
   const SLUG = "default";
   const UUID = "00000000-0000-0000-0000-000000000001";
 
@@ -74,13 +74,13 @@ describe("resolveInstanceId / resolveInstanceSlug", () => {
   });
 
   // -----------------------------------------------------------------------
-  // resolveInstanceId
+  // resolveAgentId
   // -----------------------------------------------------------------------
-  describe("resolveInstanceId", () => {
+  describe("resolveAgentId", () => {
     it("returns the uuid when slug matches an existing instance", async () => {
       mockDb.select.mockReturnValue(createChainMock([{ id: UUID }]) as never);
 
-      const result = await resolveInstanceId(asInstanceSlug(SLUG));
+      const result = await resolveAgentId(asAgentSlug(SLUG));
 
       expect(result).toBe(UUID);
     });
@@ -88,7 +88,7 @@ describe("resolveInstanceId / resolveInstanceSlug", () => {
     it("returns undefined when slug does not exist (never throws)", async () => {
       mockDb.select.mockReturnValue(createChainMock([]) as never);
 
-      const result = await resolveInstanceId(asInstanceSlug("nonexistent-slug"));
+      const result = await resolveAgentId(asAgentSlug("nonexistent-slug"));
 
       expect(result).toBeUndefined();
     });
@@ -96,20 +96,20 @@ describe("resolveInstanceId / resolveInstanceSlug", () => {
     it("returns undefined for an empty-string slug (zero rows)", async () => {
       mockDb.select.mockReturnValue(createChainMock([]) as never);
 
-      const result = await resolveInstanceId(asInstanceSlug(""));
+      const result = await resolveAgentId(asAgentSlug(""));
 
       expect(result).toBeUndefined();
     });
   });
 
   // -----------------------------------------------------------------------
-  // resolveInstanceSlug
+  // resolveAgentSlug
   // -----------------------------------------------------------------------
-  describe("resolveInstanceSlug", () => {
+  describe("resolveAgentSlug", () => {
     it("returns the slug when uuid matches an existing instance", async () => {
       mockDb.select.mockReturnValue(createChainMock([{ slug: SLUG }]) as never);
 
-      const result = await resolveInstanceSlug(asInstanceUuid(UUID));
+      const result = await resolveAgentSlug(asAgentUuid(UUID));
 
       expect(result).toBe(SLUG);
     });
@@ -117,7 +117,7 @@ describe("resolveInstanceId / resolveInstanceSlug", () => {
     it("returns undefined when uuid does not exist (never throws)", async () => {
       mockDb.select.mockReturnValue(createChainMock([]) as never);
 
-      const result = await resolveInstanceSlug(asInstanceUuid("00000000-0000-0000-0000-000000000099"));
+      const result = await resolveAgentSlug(asAgentUuid("00000000-0000-0000-0000-000000000099"));
 
       expect(result).toBeUndefined();
     });
@@ -128,16 +128,16 @@ describe("resolveInstanceId / resolveInstanceSlug", () => {
   // -----------------------------------------------------------------------
   describe("round-trip", () => {
     it("slug → uuid → slug returns the original slug", async () => {
-      // First call: resolveInstanceId returns UUID
-      // Second call: resolveInstanceSlug returns SLUG
+      // First call: resolveAgentId returns UUID
+      // Second call: resolveAgentSlug returns SLUG
       mockDb.select
         .mockReturnValueOnce(createChainMock([{ id: UUID }]) as never)
         .mockReturnValueOnce(createChainMock([{ slug: SLUG }]) as never);
 
-      const uuid = await resolveInstanceId(asInstanceSlug(SLUG));
+      const uuid = await resolveAgentId(asAgentSlug(SLUG));
       expect(uuid).toBe(UUID);
 
-      const slug = await resolveInstanceSlug(uuid!);
+      const slug = await resolveAgentSlug(uuid!);
       expect(slug).toBe(SLUG);
     });
   });

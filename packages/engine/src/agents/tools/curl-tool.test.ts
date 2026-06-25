@@ -28,7 +28,7 @@ import { getToolRegistry, buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 const dummyCtx = {
-  instanceId: "test",
+  agentId: "test",
   audit: createMockAudit(),
 } as any;
 

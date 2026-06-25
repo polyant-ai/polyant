@@ -49,10 +49,10 @@ export interface LatencyData {
 
 async function getLatencyOverview(
   range: DateRange,
-  instanceId?: string,
+  agentId?: string,
   orgId?: string,
 ): Promise<LatencyOverview> {
-  const instFilter = instanceFilter(instanceId);
+  const instFilter = instanceFilter(agentId);
   const orgInst = buildOrgScopedAgentFilterFragment(orgId);
 
   const [row] = asRows<{
@@ -91,10 +91,10 @@ async function getLatencyOverview(
 
 async function getDailyLatency(
   range: DateRange,
-  instanceId?: string,
+  agentId?: string,
   orgId?: string,
 ): Promise<LatencyDailyRow[]> {
-  const instFilter = instanceFilter(instanceId);
+  const instFilter = instanceFilter(agentId);
   const orgInst = buildOrgScopedAgentFilterFragment(orgId);
 
   return asRows<{ date: string; p50: number; p95: number; p99: number }>(
@@ -122,10 +122,10 @@ async function getDailyLatency(
 
 async function getPhaseBreakdown(
   range: DateRange,
-  instanceId?: string,
+  agentId?: string,
   orgId?: string,
 ): Promise<PhaseBreakdownRow[]> {
-  const instFilter = instanceFilter(instanceId);
+  const instFilter = instanceFilter(agentId);
   const orgInst = buildOrgScopedAgentFilterFragment(orgId);
 
   return asRows<{
@@ -158,10 +158,10 @@ async function getPhaseBreakdown(
 
 async function getSlowestTools(
   range: DateRange,
-  instanceId?: string,
+  agentId?: string,
   orgId?: string,
 ): Promise<ToolLatencyRow[]> {
-  const instFilter = instanceFilter(instanceId);
+  const instFilter = instanceFilter(agentId);
   const orgInst = buildOrgScopedAgentFilterFragment(orgId);
 
   return asRows<{
@@ -201,14 +201,14 @@ async function getSlowestTools(
 
 export async function getLatencyAnalytics(
   range: DateRange,
-  instanceId?: string,
+  agentId?: string,
   orgId?: string,
 ): Promise<LatencyData> {
   const [overview, dailyLatency, phaseBreakdown, slowestTools] = await Promise.all([
-    getLatencyOverview(range, instanceId, orgId),
-    getDailyLatency(range, instanceId, orgId),
-    getPhaseBreakdown(range, instanceId, orgId),
-    getSlowestTools(range, instanceId, orgId),
+    getLatencyOverview(range, agentId, orgId),
+    getDailyLatency(range, agentId, orgId),
+    getPhaseBreakdown(range, agentId, orgId),
+    getSlowestTools(range, agentId, orgId),
   ]);
 
   return { overview, dailyLatency, phaseBreakdown, slowestTools };

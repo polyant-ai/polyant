@@ -16,7 +16,7 @@ export interface LangSmithConfig {
 /** Context for grouping traces by conversation/instance. */
 export interface TraceContext {
   conversationId?: string;
-  instanceId?: string;
+  agentId?: string;
   /** When "service", thread_id gets a "-service" suffix to separate from conversation traces. */
   callType?: "conversation" | "service";
   /** Provider name (e.g. "openai") — used for ls_provider metadata and cost. */
@@ -121,8 +121,8 @@ export function buildLangSmithProviderOptions(
       ? `${context.conversationId}-service`
       : context.conversationId;
   }
-  if (context?.instanceId) {
-    metadata.instance_id = context.instanceId;
+  if (context?.agentId) {
+    metadata.agent_id = context.agentId;
   }
   if (context?.agentCall) {
     metadata.caller_slug = context.agentCall.callerSlug;

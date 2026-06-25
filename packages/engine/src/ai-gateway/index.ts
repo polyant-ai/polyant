@@ -15,7 +15,7 @@ import {
 } from "../activity-stream/bus-emitter.js";
 import { findInstanceBySlug } from "../instances/store.js";
 import { buildInstanceIconUrl } from "../instances/icon-url.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 import type { InstanceMeta } from "../activity-stream/activity-stream.types.js";
 
 const DEFAULT_PROVIDER = "openai";
@@ -60,14 +60,14 @@ function resolveCallConfig(
 
   const modelId = request.model ?? resolveModel(providerName, request.tier);
 
-  pipelineLog.llmCall(options?.instanceId ?? "", request.tier, modelId, !!request.tools);
+  pipelineLog.llmCall(options?.agentId ?? "", request.tier, modelId, !!request.tools);
 
   // Build LangSmith providerOptions when tracing is enabled
   let providerOptions = request.providerOptions;
   if (request.langsmith) {
     const lsOptions = buildLangSmithProviderOptions(request.langsmith, {
       conversationId: options?.conversationId,
-      instanceId: options?.instanceId,
+      agentId: options?.agentId,
       callType: options?.callType,
       providerName,
       modelId,
@@ -120,7 +120,7 @@ function resolveCallConfig(
 /** Options shared by chat() and chatStream(). */
 export interface ChatCallOptions {
   conversationId?: string;
-  instanceId?: InstanceSlug;
+  agentId?: AgentSlug;
   callType?: "conversation" | "service";
   /**
    * Agent-to-agent call metadata forwarded from IncomingMessage.metadata.agentCall.
@@ -153,7 +153,7 @@ function logAndRecordUsage(
   options?: ChatCallOptions,
 ): void {
   pipelineLog.llmResponse(
-    options?.instanceId ?? "",
+    options?.agentId ?? "",
     config.modelId,
     { prompt: response.usage.promptTokens, completion: response.usage.completionTokens },
     response.durationMs,
@@ -181,7 +181,7 @@ function logAndRecordUsage(
       reasoningCharCount(response),
       response.steps.length,
       options?.conversationId,
-      options?.instanceId,
+      options?.agentId,
       options?.callType,
     )
   );
@@ -264,14 +264,14 @@ export async function chatStream(
 }
 
 async function buildBusContext(options?: ChatCallOptions): Promise<BusContext> {
-  if (!options?.instanceId) {
+  if (!options?.agentId) {
     return { conversationId: options?.conversationId };
   }
   // Fetch is cheap (it's a single index lookup) and we only do it once per
   // chat() / chatStream() call. Failures degrade gracefully to a context
   // without instance metadata — the event is still emitted.
   try {
-    const instance = await findInstanceBySlug(options.instanceId);
+    const instance = await findInstanceBySlug(options.agentId);
     if (!instance) {
       return { conversationId: options.conversationId };
     }

@@ -9,18 +9,18 @@ interface TriggerEntry {
 
 const triggers = new Map<string, TriggerEntry>();
 
-function buildKey(instanceId: string, channelType: string, channelId: string): string {
-  return `${instanceId}:${channelType}:${channelId}`;
+function buildKey(agentId: string, channelType: string, channelId: string): string {
+  return `${agentId}:${channelType}:${channelId}`;
 }
 
 export function registerTrigger(
-  instanceId: string,
+  agentId: string,
   channelType: string,
   channelId: string,
   conversationId: string,
   ttlMs: number = DEFAULT_TTL_MS,
 ): void {
-  const key = buildKey(instanceId, channelType, channelId);
+  const key = buildKey(agentId, channelType, channelId);
   triggers.set(key, {
     conversationId,
     expiresAt: Date.now() + ttlMs,
@@ -28,11 +28,11 @@ export function registerTrigger(
 }
 
 export function getActiveTrigger(
-  instanceId: string,
+  agentId: string,
   channelType: string,
   channelId: string,
 ): string | null {
-  const key = buildKey(instanceId, channelType, channelId);
+  const key = buildKey(agentId, channelType, channelId);
   const entry = triggers.get(key);
 
   if (!entry) {

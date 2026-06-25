@@ -21,7 +21,7 @@ export default function ActivityPage() {
   useEffect(() => {
     api.instances
       .list()
-      .then(({ instances }) => setInstances(instances))
+      .then(({ agents }) => setInstances(agents))
       .catch(() => {
         // Best-effort: filter falls back to instances seen in events.
       });

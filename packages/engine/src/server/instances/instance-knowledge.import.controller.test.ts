@@ -114,7 +114,7 @@ describe("InstanceKnowledgeController.import", () => {
 
     expect(res).toEqual({ imported: 1, documents: [{ filename: "a.txt" }] });
     expect(mockCreateDocument).toHaveBeenCalledWith(
-      expect.objectContaining({ instanceId: "acme", filename: "a.txt", source: "import", rawContent: "hello" }),
+      expect.objectContaining({ agentId: "acme", filename: "a.txt", source: "import", rawContent: "hello" }),
     );
     expect(mockProcessDocument).toHaveBeenCalledWith("id-a.txt", "acme", "hello");
   });

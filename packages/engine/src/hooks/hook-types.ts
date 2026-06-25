@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { InstanceSlug } from "../instances/identifiers.js";
+import type { AgentSlug } from "../instances/identifiers.js";
 import type { ConversationStateApi } from "../conversations/state.buffer.js";
 import type { ChatRequest } from "../ai-gateway/types.js";
 
@@ -42,7 +42,7 @@ export interface HookEventPayload {
 
 /** Runtime context threaded from the pipeline into hook execution. */
 export interface HookRunContext {
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   conversationId: string;
   secrets: Record<string, string>;
   apiKeys?: ChatRequest["apiKeys"];
@@ -56,7 +56,7 @@ export interface HookRunContext {
 /** A hydrated `instance_hooks` row. */
 export interface InstanceHookRow {
   id: string;
-  instanceId: string;
+  agentId: string;
   event: HookEvent;
   actionType: HookActionType;
   actionConfig: HookActionConfig;

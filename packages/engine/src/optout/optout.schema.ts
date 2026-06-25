@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { pgTable, uuid, text, timestamp, unique, index } from "drizzle-orm/pg-core";
-import { instances } from "../instances/schema.js";
+import { agents } from "../instances/schema.js";
 
 /**
  * Per-contact opt-out state. One row per contact that has ever interacted with
  * the opt-out mechanism. Absence of a row = subscribed (default).
  *
- * Keyed by (instanceId, channelType, channelId) so opt-out follows the contact
- * across every future conversation and Room cycle. The uuid FK to instances has
+ * Keyed by (agentId, channelType, channelId) so opt-out follows the contact
+ * across every future conversation and Room cycle. The uuid FK to agents has
  * onDelete cascade, so rows drop on instance delete — but NOT on conversation
  * delete (a deleted conversation must never re-subscribe a contact).
  */
@@ -16,9 +16,9 @@ export const contactOptouts = pgTable(
   "contact_optouts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id")
+    agentId: uuid("agent_id")
       .notNull()
-      .references(() => instances.id, { onDelete: "cascade" }),
+      .references(() => agents.id, { onDelete: "cascade" }),
     channelType: text("channel_type").notNull(),
     channelId: text("channel_id").notNull(),
     /** "opted_out" | "opted_in" */
@@ -29,7 +29,7 @@ export const contactOptouts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    unique("contact_optouts_instance_channel_uq").on(t.instanceId, t.channelType, t.channelId),
-    index("contact_optouts_instance_status_idx").on(t.instanceId, t.status),
+    unique("contact_optouts_instance_channel_uq").on(t.agentId, t.channelType, t.channelId),
+    index("contact_optouts_instance_status_idx").on(t.agentId, t.status),
   ],
 );

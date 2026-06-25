@@ -25,7 +25,7 @@ export const knowledgeDocuments = pgTable(
   "knowledge_documents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: text("instance_id").notNull(),
+    agentId: text("agent_id").notNull(),
     filename: text("filename").notNull(),
     mimeType: text("mime_type").notNull(),
     sizeBytes: integer("size_bytes").notNull().default(0),
@@ -39,10 +39,10 @@ export const knowledgeDocuments = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
-    index("idx_knowledge_docs_instance_id").on(table.instanceId),
+    index("idx_knowledge_docs_instance_id").on(table.agentId),
     index("idx_knowledge_docs_status").on(table.status),
-    index("idx_knowledge_docs_instance_hash").on(table.instanceId, table.contentHash),
-    uniqueIndex("knowledge_docs_instance_filename_uniq").on(table.instanceId, table.filename),
+    index("idx_knowledge_docs_instance_hash").on(table.agentId, table.contentHash),
+    uniqueIndex("knowledge_docs_instance_filename_uniq").on(table.agentId, table.filename),
   ],
 );
 
@@ -51,7 +51,7 @@ export const knowledgeChunks = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     documentId: uuid("document_id").notNull(),
-    instanceId: text("instance_id").notNull(),
+    agentId: text("agent_id").notNull(),
     content: text("content").notNull(),
     embedding: vector("embedding", { dimensions: 1536 }),
     embedding1024: vector("embedding_1024", { dimensions: 1024 }),
@@ -60,7 +60,7 @@ export const knowledgeChunks = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
-    index("idx_knowledge_chunks_instance_id").on(table.instanceId),
+    index("idx_knowledge_chunks_instance_id").on(table.agentId),
     index("idx_knowledge_chunks_document_id").on(table.documentId),
     check(
       "knowledge_chunks_embedding_xor",

@@ -3,13 +3,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MessageCoordinator } from "./message-coordinator.js";
 import type { IncomingMessage, OutgoingMessage } from "./types.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 
 function makeMsg(overrides: Partial<IncomingMessage> = {}): IncomingMessage {
   return {
     channelType: "whatsapp",
     channelId: "+390000000001",
-    instanceId: asInstanceSlug("my-instance"),
+    agentId: asAgentSlug("my-instance"),
     userName: "Alice",
     text: "hello",
     metadata: {},

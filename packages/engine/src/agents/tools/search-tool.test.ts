@@ -13,7 +13,7 @@ import "./search-memory.tool.js";
 import { getToolRegistry, buildTool } from "./registry.js";
 
 const ctx = {
-  instanceId: "user-1",
+  agentId: "user-1",
   audit: createMockAudit(),
 } as any;
 

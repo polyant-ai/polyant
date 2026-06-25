@@ -2,7 +2,7 @@
 
 export type OptoutStatus = "opted_out" | "opted_in";
 
-/** Per-instance opt-out configuration (resolved from the instances row). */
+/** Per-instance opt-out configuration (resolved from the agents row). */
 export interface OptoutConfig {
   enabled: boolean;
   stopKeywords: string[];

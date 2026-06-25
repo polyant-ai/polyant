@@ -26,7 +26,7 @@ registerTool({
     }),
     execute: async ({ query, limit }: { query: string; limit: number | null }) => {
       try {
-        const results = await hybridSearch(query, ctx.instanceId, limit ?? undefined);
+        const results = await hybridSearch(query, ctx.agentId, limit ?? undefined);
         ctx.audit.log({
           action: "memory.search",
           details: {

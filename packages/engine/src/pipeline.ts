@@ -9,7 +9,7 @@
 
 import type { ModelMessage } from "ai";
 import { config, DEFAULT_INSTANCE_ID } from "./config.js";
-import type { InstanceSlug } from "./instances/identifiers.js";
+import type { AgentSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
 import { conversationStore } from "./conversations/index.js";
 import { ConversationStateBuffer } from "./conversations/state.buffer.js";
@@ -78,7 +78,7 @@ export function isMissingApiKeyError(err: unknown): boolean {
 /** Friendly message returned when the AI provider key is not set for the instance. */
 export const MISSING_KEY_RESPONSE =
   "⚠️ This AI assistant instance does not have an API key configured for its AI provider. " +
-  "Please go to the admin panel → Instance → Settings tab and set the appropriate API key " +
+  "Please go to the admin panel → Agent → Settings tab and set the appropriate API key " +
   "(OpenAI or Anthropic) to enable this assistant.";
 
 // ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ export const MISSING_KEY_RESPONSE =
 
 export interface PipelineContext {
   pipelineStart: number;
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   conversationId: string;
   conversationSummary: string | undefined;
   contextPrompt: string | undefined;
@@ -126,18 +126,18 @@ export async function preparePipeline(
   conversationIdOverride?: string | null,
 ): Promise<PipelineContext> {
   const pipelineStart = Date.now();
-  const instanceId: InstanceSlug = msg.instanceId || DEFAULT_INSTANCE_ID;
-  pipelineLog.request(msg.channelType, instanceId, msg.text);
+  const agentId: AgentSlug = msg.agentId || DEFAULT_INSTANCE_ID;
+  pipelineLog.request(msg.channelType, agentId, msg.text);
 
   const conversationId = conversationIdOverride
-    ?? `${instanceId}:${msg.channelType}:${msg.channelId}`;
+    ?? `${agentId}:${msg.channelType}:${msg.channelId}`;
   const isAutoTaskTurn = isAutoTask(msg.text);
 
   // Skip conversation creation for automated tasks (e.g. Open WebUI title/tag generation)
   if (!isAutoTaskTurn) {
     const source = (msg.metadata?.source as string) ?? "user";
     const ensureResult = await conversationStore
-      .ensureConversation(conversationId, instanceId, {
+      .ensureConversation(conversationId, agentId, {
         channel: msg.channelType,
         userIdentifier: msg.userName,
         source,
@@ -151,7 +151,7 @@ export async function preparePipeline(
     // is created (never on subsequent turns of the same conversation).
     // Skipped for synthetic channels covered by other emitters.
     if (ensureResult.created && !INBOUND_SUPPRESSED_CHANNELS.has(msg.channelType)) {
-      resolveInstanceMeta(instanceId)
+      resolveInstanceMeta(agentId)
         .then((instance) => {
           emitConversation({
             conversationId,
@@ -171,7 +171,7 @@ export async function preparePipeline(
     // channels covered by other emitters (agent/scheduled/room).
     // Fire-and-forget; the emitter is safeEmit-wrapped.
     if (!INBOUND_SUPPRESSED_CHANNELS.has(msg.channelType)) {
-      resolveInstanceMeta(instanceId)
+      resolveInstanceMeta(agentId)
         .then((instance) => {
           emitInbound({
             channelType: msg.channelType,
@@ -191,13 +191,13 @@ export async function preparePipeline(
   // Fetch history, instance config, and context prompt in parallel — all independent.
   const [conversationHistory, instanceConfig, contextPrompt, stateBuffer] = await Promise.all([
     conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as ModelMessage[]),
-    resolveInstanceConfig(instanceId),
+    resolveInstanceConfig(agentId),
     conversationStore.getContextPrompt(conversationId).catch(() => null).then((p) => p ?? undefined),
     isAutoTaskTurn
       ? Promise.resolve(undefined)
-      : ConversationStateBuffer.load(conversationId, instanceId).catch((err) => {
+      : ConversationStateBuffer.load(conversationId, agentId).catch((err) => {
           console.error(`Failed to load conversation state for ${conversationId}:`, err);
-          return new ConversationStateBuffer(conversationId, instanceId);
+          return new ConversationStateBuffer(conversationId, agentId);
         }),
   ]);
 
@@ -264,7 +264,7 @@ export async function preparePipeline(
 
   return {
     pipelineStart,
-    instanceId,
+    agentId,
     conversationId,
     conversationSummary,
     contextPrompt,
@@ -300,7 +300,7 @@ export function buildHookPayload(
   if (ctx.isAutoTaskTurn || !ctx.channelIdentity) return undefined;
   if (INBOUND_SUPPRESSED_CHANNELS.has(ctx.channelIdentity.channel)) return undefined;
   return {
-    instance: { slug: ctx.instanceId },
+    instance: { slug: ctx.agentId },
     conversation: { id: ctx.conversationId },
     channel: { type: ctx.channelIdentity.channel, id: ctx.channelIdentity.channelId },
     user: { name: ctx.channelIdentity.userName ?? "" },
@@ -311,7 +311,7 @@ export function buildHookPayload(
 
 function buildHookRunContext(ctx: PipelineContext, abortSignal?: AbortSignal): HookRunContext {
   return {
-    instanceId: ctx.instanceId,
+    agentId: ctx.agentId,
     conversationId: ctx.conversationId,
     secrets: ctx.instanceConfig.secrets,
     apiKeys: ctx.instanceConfig.apiKeys,
@@ -327,7 +327,7 @@ function buildHookRunContext(ctx: PipelineContext, abortSignal?: AbortSignal): H
 
 export interface AfterResponseOptions {
   conversationId: string;
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   userMessage: string;
   assistantResponse: string;
   steps?: StepDetail[];
@@ -391,7 +391,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
                 type: att.type,
                 mimeType: att.mimeType,
                 fileName: att.fileName,
-                instanceId: opts.instanceId,
+                agentId: opts.agentId,
                 conversationId: opts.conversationId,
               })
             : Promise.resolve(null),
@@ -425,7 +425,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
     // 1.5 Generate title (only once, after first exchange)
     await generateConversationTitle({
       conversationId: opts.conversationId,
-      instanceId: opts.instanceId,
+      agentId: opts.agentId,
       provider: opts.provider,
       apiKeys: opts.apiKeys,
       langsmith: opts.langsmith,
@@ -459,7 +459,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
             role: "user",
             content: `${existing}Messages to summarize:\n${droppedText}`,
           }],
-        }, { conversationId: opts.conversationId, instanceId: opts.instanceId, callType: "service" });
+        }, { conversationId: opts.conversationId, agentId: opts.agentId, callType: "service" });
 
         const summary = summaryResponse.text.trim();
         if (summary) {
@@ -472,7 +472,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
 
     // 3. Automatic memory extraction (fire-and-forget within fire-and-forget)
     if (opts.memoryEnabled !== false) {
-      extractMemories(opts.conversationId, opts.instanceId, opts.apiKeys, opts.provider, opts.langsmith).catch((err) =>
+      extractMemories(opts.conversationId, opts.agentId, opts.apiKeys, opts.provider, opts.langsmith).catch((err) =>
         console.error("Memory extraction failed:", err),
       );
     }
@@ -589,7 +589,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   }
 
   const totalMs = Date.now() - ctx.pipelineStart;
-  pipelineLog.response(ctx.instanceId, totalMs);
+  pipelineLog.response(ctx.agentId, totalMs);
 
   // Fire-and-forget: record pipeline trace
   if (!isAutoTask(opts.messageText)) {
@@ -597,7 +597,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     const agentCall = ctx.inboundMetadata?.agentCall as AgentCallMetadata | undefined;
     traceStore.record({
       conversationId: ctx.conversationId,
-      instanceId: ctx.instanceId,
+      agentId: ctx.agentId,
       channel: opts.channel,
       contextPrepMs: opts.contextPrepMs,
       toolBuildingMs: opts.toolBuildingMs,
@@ -636,7 +636,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
 
   afterResponse({
     conversationId: ctx.conversationId,
-    instanceId: ctx.instanceId,
+    agentId: ctx.agentId,
     userMessage: opts.messageText,
     assistantResponse: finalText,
     steps,

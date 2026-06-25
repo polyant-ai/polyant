@@ -2,12 +2,12 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instances } from "../instances/schema.js";
+import { agents } from "../instances/schema.js";
 import { deleteAllMemories } from "../memory/memory-store.js";
 import { deleteAllKnowledgeForInstance } from "../knowledge/store.js";
 import { defaultDimForProvider } from "./config.js";
 import type { EmbeddingDim, EmbeddingProvider } from "./types.js";
-import type { InstanceSlug, InstanceUuid } from "../instances/identifiers.js";
+import type { AgentSlug, AgentUuid } from "../instances/identifiers.js";
 
 /**
  * Whether the instance's EMBEDDING provider changed (openai↔bedrock). The
@@ -44,8 +44,8 @@ export interface EmbeddingResetResult {
  * keyword (FTS) search over raw messages keeps working.
  */
 export async function resetEmbeddingsForProviderSwitch(
-  slug: InstanceSlug,
-  uuid: InstanceUuid,
+  slug: AgentSlug,
+  uuid: AgentUuid,
   newEmbeddingProvider: EmbeddingProvider,
 ): Promise<EmbeddingResetResult> {
   const newEmbeddingDim = defaultDimForProvider(newEmbeddingProvider);
@@ -62,9 +62,9 @@ export async function resetEmbeddingsForProviderSwitch(
     const { documents, chunks } = await deleteAllKnowledgeForInstance(slug, tx);
 
     await tx
-      .update(instances)
+      .update(agents)
       .set({ embeddingDim: newEmbeddingDim, updatedAt: new Date() })
-      .where(eq(instances.id, uuid));
+      .where(eq(agents.id, uuid));
 
     return {
       instanceId: uuid,

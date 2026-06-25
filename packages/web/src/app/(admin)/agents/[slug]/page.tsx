@@ -81,14 +81,14 @@ export default function InstanceDetailPage() {
       api.prompts.list(slug),
     ])
       .then(([instanceRes, toolsRes, skillsRes, promptsRes]) => {
-        setInstance(instanceRes.instance);
+        setInstance(instanceRes.agent);
         setTools(toolsRes.tools);
         setSkills(skillsRes.skills);
         setPrompts(promptsRes.prompts);
       })
       .catch(() => {
         toast.error(t("instances.detail.notFound"));
-        router.push("/instances");
+        router.push("/agents");
       })
       .finally(() => setLoading(false));
   }, [params.slug]);
@@ -97,7 +97,7 @@ export default function InstanceDetailPage() {
     try {
       await api.instances.delete(params.slug);
       toast.success(t("instances.detail.deleted"));
-      router.push("/instances");
+      router.push("/agents");
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("instances.detail.deleteFailed")));
     }
@@ -142,7 +142,7 @@ export default function InstanceDetailPage() {
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/instances">{t("instances.detail.breadcrumb")}</Link>
+              <Link href="/agents">{t("instances.detail.breadcrumb")}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -266,7 +266,7 @@ export default function InstanceDetailPage() {
           <HooksTab slug={instance.slug} />
         </TabsContent>
         <TabsContent value="privacy" className="mt-6">
-          <PrivacyTab instance={instance} onSaved={() => { api.instances.get(params.slug).then((r) => setInstance(r.instance)).catch(() => {}); }} />
+          <PrivacyTab instance={instance} onSaved={() => { api.instances.get(params.slug).then((r) => setInstance(r.agent)).catch(() => {}); }} />
         </TabsContent>
       </Tabs>
     </div>

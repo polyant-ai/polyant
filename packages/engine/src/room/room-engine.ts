@@ -8,7 +8,7 @@ import { extractMemories } from "../memory/extractor.js";
 import { listAndMarkPendingEventsProcessing, markEventsCompleted } from "../webhooks/webhook-backlog.store.js";
 import { appendDailyLog } from "./activity-log.store.js";
 import type { RoomConfig } from "./room.store.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 import { setRoomConversationId } from "./room.store.js";
 import { generateConversationTitle } from "../utils/title-generator.js";
 import { roomLog } from "./room-logger.js";
@@ -38,11 +38,11 @@ function scrubClosing(input: string, close: string): string {
 
 export async function executeRoomCycle(
   room: RoomConfig,
-  instanceSlug: InstanceSlug,
+  instanceSlug: AgentSlug,
   humanMessage?: string,
 ): Promise<void> {
   const cycleStart = Date.now();
-  const conversationId = `room:${room.instanceId}:${Date.now()}`;
+  const conversationId = `room:${room.agentId}:${Date.now()}`;
 
   // Intentionally NOT calling emitConversation here: the room engine mints a
   // fresh conversationId per cycle (timestamp-suffixed), so every tick would
@@ -56,7 +56,7 @@ export async function executeRoomCycle(
       channel: "room",
       source: "room",
     }),
-    listAndMarkPendingEventsProcessing(room.instanceId),
+    listAndMarkPendingEventsProcessing(room.agentId),
   ]);
 
   if (!humanMessage && pendingEvents.length === 0) {
@@ -141,7 +141,7 @@ export async function executeRoomCycle(
     result = await supervise({
       message: messageToSupervise,
       conversationHistory: history,
-      instanceId: instanceSlug,
+      agentId: instanceSlug,
       conversationId,
       provider: instanceConfig.provider,
       model: instanceConfig.model,
@@ -158,7 +158,7 @@ export async function executeRoomCycle(
 
     // Mark events as completed with error so they don't stay stuck in "processing"
     if (pendingEventIds.length > 0) {
-      await markEventsCompleted(pendingEventIds, `ERROR: ${errorMsg.slice(0, 400)}`, room.instanceId).catch((e) =>
+      await markEventsCompleted(pendingEventIds, `ERROR: ${errorMsg.slice(0, 400)}`, room.agentId).catch((e) =>
         roomLog.error("RoomCycle", "Failed to mark events completed after error", e),
       );
     }
@@ -170,7 +170,7 @@ export async function executeRoomCycle(
     if (pendingEvents.length > 0) errTriggers.push(`${pendingEvents.length} event(s)`);
     if (humanMessage) errTriggers.push("human message");
     const errContent = `———— ${errTimestamp} | ${errTriggers.join(" + ")} | ERROR ————\n${errorMsg.slice(0, 500)}`;
-    await appendDailyLog(room.instanceId, errContent, pendingEvents.length)
+    await appendDailyLog(room.agentId, errContent, pendingEvents.length)
       .catch((e) => roomLog.error("RoomCycle", "Failed to write error to activity log", e));
 
     return;
@@ -184,17 +184,17 @@ export async function executeRoomCycle(
 
   // Mark events as completed
   if (pendingEventIds.length > 0) {
-    await markEventsCompleted(pendingEventIds, finalText.slice(0, 500), room.instanceId);
+    await markEventsCompleted(pendingEventIds, finalText.slice(0, 500), room.agentId);
   }
 
   // Persist active conversationId so harness tools (e.g. compact_room_history) can find it
-  await setRoomConversationId(room.instanceId, conversationId);
+  await setRoomConversationId(room.agentId, conversationId);
 
   // Fire-and-forget post-processing
   const postProcess = async () => {
     await generateConversationTitle({
       conversationId,
-      instanceId: instanceSlug,
+      agentId: instanceSlug,
       provider: instanceConfig.provider,
       apiKeys: instanceConfig.apiKeys,
       content: `Events: ${pendingEvents.length}${humanMessage ? ", Human message received" : ""}\nAssistant: ${finalText.slice(0, 300)}`,
@@ -217,14 +217,14 @@ export async function executeRoomCycle(
   const logContent = `———— ${timestamp} | ${triggers.join(" + ")} ————\n${finalText.slice(0, 1000)}`;
 
   try {
-    await appendDailyLog(room.instanceId, logContent, pendingEvents.length);
+    await appendDailyLog(room.agentId, logContent, pendingEvents.length);
   } catch (err) {
     roomLog.error("RoomCycle", `Failed to write activity log for ${instanceSlug}`, err);
   }
 
   traceStore.record({
     conversationId,
-    instanceId: instanceSlug,
+    agentId: instanceSlug,
     channel: "room",
     contextPrepMs,
     toolBuildingMs: result.toolBuildingMs,

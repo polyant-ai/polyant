@@ -13,7 +13,7 @@ import {
   recordHookExecution,
   listHookExecutions,
 } from "./hook-executions.store.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 
 const CID = "itest:hook-executions:conv";
 const HOOK_ID = "00000000-0000-4000-8000-000000000001";
@@ -47,7 +47,7 @@ describe("hook executions store (integration)", () => {
     "should_record_and_list_executions_in_chronological_order",
     async () => {
       await recordHookExecution({
-        instanceId: asInstanceSlug("itest-hooks"),
+        agentId: asAgentSlug("itest-hooks"),
         conversationId: CID,
         hookId: HOOK_ID,
         event: "message_received",
@@ -59,7 +59,7 @@ describe("hook executions store (integration)", () => {
         result: '{"ok":true}',
       });
       await recordHookExecution({
-        instanceId: asInstanceSlug("itest-hooks"),
+        agentId: asAgentSlug("itest-hooks"),
         conversationId: CID,
         hookId: HOOK_ID,
         event: "response_generated",

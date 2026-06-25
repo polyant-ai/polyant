@@ -22,7 +22,7 @@ import {
   createInstance,
   updateInstance,
   deleteInstance,
-  type Instance,
+  type Agent,
 } from "../../instances/store.js";
 import { seedInstancePrompts } from "../../instances/prompts.store.js";
 import { seedInstanceTools } from "../../instances/instance-tools.store.js";
@@ -42,7 +42,7 @@ import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import {
@@ -57,10 +57,10 @@ import {
  * (e.g. internal flags) are not accidentally exposed via the API.
  *
  * Note: `icon` is returned as a URL (not a data URI) to keep list payloads small —
- * the binary is served separately by GET /api/instances/:slug/icon.  A cache-busting
+ * the binary is served separately by GET /api/agents/:slug/icon.  A cache-busting
  * `v=<updatedAt>` query param ensures the browser reloads after an icon change.
  */
-function toInstanceDto(instance: Instance) {
+function toInstanceDto(instance: Agent) {
   return {
     id: instance.id,
     slug: instance.slug,
@@ -104,19 +104,19 @@ function parseDataUri(dataUri: string): { contentType: string; body: Buffer } | 
   }
 }
 
-@Controller("api/instances")
+@Controller("api/agents")
 export class InstancesController {
   private readonly auditLogger = createManagementAuditLogger();
 
-  // GET /api/instances — list all instances
+  // GET /api/agents — list all agents
   @RequirePermission(Permission.AGENT_READ)
   @Get()
   async list() {
     const all = await listAllInstances();
-    return { instances: all.map(toInstanceDto) };
+    return { agents: all.map(toInstanceDto) };
   }
 
-  // GET /api/instances/models — list available providers and models
+  // GET /api/agents/models — list available providers and models
   @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
@@ -138,28 +138,28 @@ export class InstancesController {
     return { providers };
   }
 
-  // GET /api/instances/:slug — get by slug
+  // GET /api/agents/:slug — get by slug
   @RequirePermission(Permission.AGENT_READ)
   @Get(":slug")
   async getBySlug(@Param("slug") slug: string) {
     this.validateSlug(slug);
-    const instance = await findInstanceBySlug(asInstanceSlug(slug));
-    if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
+    const instance = await findInstanceBySlug(asAgentSlug(slug));
+    if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
     return {
-      instance: {
+      agent: {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
       },
     };
   }
 
-  // GET /api/instances/:slug/icon — serve the icon binary
+  // GET /api/agents/:slug/icon — serve the icon binary
   // Separated from the JSON DTO so list/detail responses stay small (#85 follow-up).
   @RequirePermission(Permission.AGENT_READ)
   @Get(":slug/icon")
   async getIcon(@Param("slug") slug: string, @Res() res: Response): Promise<void> {
     this.validateSlug(slug);
-    const instance = await findInstanceBySlug(asInstanceSlug(slug));
+    const instance = await findInstanceBySlug(asAgentSlug(slug));
     if (!instance || !instance.icon) {
       throw new NotFoundException(`Icon not found for instance "${slug}"`);
     }
@@ -173,7 +173,7 @@ export class InstancesController {
     res.end(parsed.body);
   }
 
-  // POST /api/instances — create
+  // POST /api/agents — create
   @RequirePermission(Permission.AGENT_WRITE)
   @Post()
   async create(
@@ -184,9 +184,9 @@ export class InstancesController {
     this.validateModelConfig(body.provider, body.model);
     // Rely on the DB unique constraint as the authoritative duplicate check.
     // A pre-select + insert would introduce a TOCTOU race window.
-    let instance: Instance;
+    let instance: Agent;
     try {
-      instance = await createInstance({ ...body, slug: asInstanceSlug(body.slug) });
+      instance = await createInstance({ ...body, slug: asAgentSlug(body.slug) });
     } catch (err: unknown) {
       if (isUniqueViolation(err)) {
         throw new ConflictException(`Slug "${body.slug}" already exists`);
@@ -206,10 +206,10 @@ export class InstancesController {
       targetId: instance.slug,
     });
 
-    return { instance: toInstanceDto(instance) };
+    return { agent: toInstanceDto(instance) };
   }
 
-  // PATCH /api/instances/:slug — update
+  // PATCH /api/agents/:slug — update
   @RequirePermission(Permission.AGENT_WRITE)
   @Patch(":slug")
   async update(
@@ -253,8 +253,8 @@ export class InstancesController {
     body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
     body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
     // Capture the pre-update state to detect an embedding-provider switch.
-    const before = await findInstanceBySlug(asInstanceSlug(slug));
-    if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
+    const before = await findInstanceBySlug(asAgentSlug(slug));
+    if (!before) throw new NotFoundException(`Agent "${slug}" not found`);
 
     // Changing the embedding provider abandons the old embedding space (vectors
     // become uninterpretable) — existing memories + knowledge are wiped, never
@@ -272,14 +272,14 @@ export class InstancesController {
         (await countMemories(before.slug)) > 0 || (await countDocuments(before.slug)) > 0;
       if (hasData) {
         throw new BadRequestException(
-          "Changing the embedding provider permanently deletes all memories and the entire knowledge base for this instance (existing embeddings cannot be converted). Re-send the request with confirmWipe: true to proceed.",
+          "Changing the embedding provider permanently deletes all memories and the entire knowledge base for this agent (existing embeddings cannot be converted). Re-send the request with confirmWipe: true to proceed.",
         );
       }
     }
 
-    let instance = await updateInstance(asInstanceSlug(slug), body);
-    if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    invalidateInstanceConfigCache(asInstanceSlug(slug));
+    let instance = await updateInstance(asAgentSlug(slug), body);
+    if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
+    invalidateInstanceConfigCache(asAgentSlug(slug));
     invalidateEmbeddingContext(instance.id, slug);
 
     let wiped: EmbeddingResetResult | null = null;
@@ -287,11 +287,11 @@ export class InstancesController {
       wiped = await resetEmbeddingsForProviderSwitch(before.slug, instance.id, instance.embeddingProvider);
       // embedding_dim changed — drop the now-stale cached context and refresh the DTO.
       invalidateEmbeddingContext(instance.id, slug);
-      instance = (await findInstanceBySlug(asInstanceSlug(slug))) ?? instance;
+      instance = (await findInstanceBySlug(asAgentSlug(slug))) ?? instance;
     }
 
     return {
-      instance: {
+      agent: {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
       },
@@ -299,7 +299,7 @@ export class InstancesController {
     };
   }
 
-  // DELETE /api/instances/:slug — delete
+  // DELETE /api/agents/:slug — delete
   @RequirePermission(Permission.AGENT_DELETE)
   @Delete(":slug")
   async remove(@Param("slug") slug: string, @CurrentUser() user?: AuthenticatedUser) {
@@ -314,10 +314,10 @@ export class InstancesController {
       // Best-effort: a stuck adapter must not block the delete.
       // Pass the user-controlled slug as a separate argument so it is never
       // treated as part of the format string (CodeQL js/tainted-format-string).
-      console.error("[instances] failed to stop channels for instance:", slug, err);
+      console.error("[agents] failed to stop channels for instance:", slug, err);
     }
-    const deleted = await deleteInstance(asInstanceSlug(slug));
-    if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
+    const deleted = await deleteInstance(asAgentSlug(slug));
+    if (!deleted) throw new NotFoundException(`Agent "${slug}" not found`);
     this.auditLogger.log({
       action: ManagementAuditAction.AgentDelete,
       actor: toManagementAuditActor(user),
@@ -331,26 +331,26 @@ export class InstancesController {
     return { deleted: true };
   }
 
-  // PUT /api/instances/:slug/icon — set icon
+  // PUT /api/agents/:slug/icon — set icon
   @RequirePermission(Permission.AGENT_WRITE)
   @Put(":slug/icon")
   async setIcon(@Param("slug") slug: string, @Body() body: { icon: string }) {
     this.validateSlug(slug);
     if (!body.icon) throw new BadRequestException("icon is required");
     validateIconDataUri(body.icon);
-    const instance = await updateInstance(asInstanceSlug(slug), { icon: body.icon });
-    if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    return { instance: toInstanceDto(instance) };
+    const instance = await updateInstance(asAgentSlug(slug), { icon: body.icon });
+    if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
+    return { agent: toInstanceDto(instance) };
   }
 
-  // DELETE /api/instances/:slug/icon — remove icon
+  // DELETE /api/agents/:slug/icon — remove icon
   @RequirePermission(Permission.AGENT_WRITE)
   @Delete(":slug/icon")
   async removeIcon(@Param("slug") slug: string) {
     this.validateSlug(slug);
-    const instance = await updateInstance(asInstanceSlug(slug), { icon: null });
-    if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    return { instance: toInstanceDto(instance) };
+    const instance = await updateInstance(asAgentSlug(slug), { icon: null });
+    if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
+    return { agent: toInstanceDto(instance) };
   }
 
   /**

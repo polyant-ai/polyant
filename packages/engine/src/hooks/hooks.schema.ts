@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { pgTable, uuid, varchar, boolean, integer, timestamp, jsonb, text, index } from "drizzle-orm/pg-core";
-import { instances } from "../instances/schema.js";
+import { agents } from "../instances/schema.js";
 import type { HookActionConfig } from "./hook-types.js";
 
 /**
@@ -9,11 +9,11 @@ import type { HookActionConfig } from "./hook-types.js";
  * when a conversation lifecycle event fires. See
  * docs/superpowers/specs/2026-06-10-hook-system-design.md.
  */
-export const instanceHooks = pgTable(
-  "instance_hooks",
+export const agentHooks = pgTable(
+  "agent_hooks",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
     event: varchar("event", { length: 32 }).notNull(),
     actionType: varchar("action_type", { length: 32 }).notNull().default("tool"),
     actionConfig: jsonb("action_config").$type<HookActionConfig>().notNull(),
@@ -24,7 +24,7 @@ export const instanceHooks = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index("idx_instance_hooks_instance_event").on(table.instanceId, table.event),
+    index("idx_instance_hooks_instance_event").on(table.agentId, table.event),
   ],
 );
 
@@ -38,7 +38,7 @@ export const hookExecutions = pgTable(
   "hook_executions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: text("instance_id").notNull(),
+    agentId: text("agent_id").notNull(),
     conversationId: text("conversation_id").notNull(),
     /** The instance_hooks row that fired — intentionally NOT a FK (history outlives the hook). */
     hookId: uuid("hook_id").notNull(),
@@ -56,6 +56,6 @@ export const hookExecutions = pgTable(
   },
   (table) => [
     index("idx_hook_executions_conversation").on(table.conversationId, table.createdAt),
-    index("idx_hook_executions_instance").on(table.instanceId),
+    index("idx_hook_executions_instance").on(table.agentId),
   ],
 );

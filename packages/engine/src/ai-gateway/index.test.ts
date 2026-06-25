@@ -66,7 +66,7 @@ import { aiLogger } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
 import { findInstanceBySlug } from "../instances/store.js";
 import type { ChatRequest } from "./types.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 
 const mockFindInstanceBySlug = vi.mocked(findInstanceBySlug);
 
@@ -135,10 +135,10 @@ describe("AI Gateway", () => {
       expect(aiLogger.log).toHaveBeenCalled();
     });
 
-    it("passes conversationId, instanceId, and callType to logger", async () => {
+    it("passes conversationId, agentId, and callType to logger", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
-      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("user-1") });
+      await chat(makeRequest(), { conversationId: "conv-1", agentId: asAgentSlug("user-1") });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
         "openai", "gpt-4o", "standard", false,
@@ -155,7 +155,7 @@ describe("AI Gateway", () => {
     it("passes callType 'service' to logger when specified", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
-      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
+      await chat(makeRequest(), { conversationId: "conv-1", agentId: asAgentSlug("inst-1"), callType: "service" });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
         "openai", "gpt-4o", "standard", false,
@@ -204,12 +204,12 @@ describe("AI Gateway", () => {
       } as unknown as Awaited<ReturnType<typeof findInstanceBySlug>>);
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
-      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("acme") });
+      await chat(makeRequest(), { conversationId: "conv-1", agentId: asAgentSlug("acme") });
       await flushMicrotasks();
 
       expect(mockEmitFromChatResponse).toHaveBeenCalled();
       const ctx = mockEmitFromChatResponse.mock.calls[0][1] as { instance?: { icon?: string | null } };
-      expect(ctx.instance?.icon).toBe("/api/instances/acme/icon?v=1700000000000");
+      expect(ctx.instance?.icon).toBe("/api/agents/acme/icon?v=1700000000000");
       expect(ctx.instance?.icon).not.toContain("base64");
     });
 
@@ -218,12 +218,12 @@ describe("AI Gateway", () => {
 
       await chat(
         makeRequest({ langsmith: { apiKey: "ls-key", project: "test-project" } }),
-        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1") },
+        { conversationId: "conv-1", agentId: asAgentSlug("inst-1") },
       );
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-4o" },
+        { conversationId: "conv-1", agentId: asAgentSlug("inst-1"), providerName: "openai", modelId: "gpt-4o" },
       );
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -286,7 +286,7 @@ describe("AI Gateway", () => {
         response: Promise.resolve(makeChatResponse()),
       });
 
-      const stream = await chatStream(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
+      const stream = await chatStream(makeRequest(), { conversationId: "conv-1", agentId: asAgentSlug("inst-1"), callType: "service" });
       await stream.response;
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
@@ -310,12 +310,12 @@ describe("AI Gateway", () => {
 
       await chatStream(
         makeRequest({ langsmith: { apiKey: "ls-key", project: "test-project" } }),
-        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1") },
+        { conversationId: "conv-1", agentId: asAgentSlug("inst-1") },
       );
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-4o" },
+        { conversationId: "conv-1", agentId: asAgentSlug("inst-1"), providerName: "openai", modelId: "gpt-4o" },
       );
       expect(mockProviderChatStream).toHaveBeenCalledWith(
         expect.objectContaining({

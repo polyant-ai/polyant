@@ -2,9 +2,9 @@
 
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instanceHooks } from "./hooks.schema.js";
-import { resolveInstanceId } from "../instances/resolve-instance-id.js";
-import type { InstanceSlug, InstanceUuid } from "../instances/identifiers.js";
+import { agentHooks } from "./hooks.schema.js";
+import { resolveAgentId } from "../instances/resolve-agent-id.js";
+import type { AgentSlug, AgentUuid } from "../instances/identifiers.js";
 import { TtlCache } from "../utils/ttl-cache.js";
 import type {
   HookActionConfig,
@@ -19,14 +19,14 @@ const cache = new TtlCache<string, Map<HookEvent, InstanceHookRow[]>>({
   ttlMs: 30_000,
 });
 
-export function invalidateHooksCache(slug: InstanceSlug): void {
+export function invalidateHooksCache(slug: AgentSlug): void {
   cache.delete(slug);
 }
 
-function toRow(r: typeof instanceHooks.$inferSelect): InstanceHookRow {
+function toRow(r: typeof agentHooks.$inferSelect): InstanceHookRow {
   return {
     id: r.id,
-    instanceId: r.instanceId,
+    agentId: r.agentId,
     event: r.event as HookEvent,
     actionType: r.actionType as HookActionType,
     actionConfig: r.actionConfig,
@@ -47,23 +47,23 @@ export interface CreateHookInput {
   timeoutMs?: number;
 }
 
-export async function listHooks(instanceId: InstanceUuid): Promise<InstanceHookRow[]> {
+export async function listHooks(agentId: AgentUuid): Promise<InstanceHookRow[]> {
   const rows = await db
     .select()
-    .from(instanceHooks)
-    .where(eq(instanceHooks.instanceId, instanceId))
-    .orderBy(asc(instanceHooks.event), asc(instanceHooks.position), asc(instanceHooks.createdAt));
+    .from(agentHooks)
+    .where(eq(agentHooks.agentId, agentId))
+    .orderBy(asc(agentHooks.event), asc(agentHooks.position), asc(agentHooks.createdAt));
   return rows.map(toRow);
 }
 
 export async function createHook(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   input: CreateHookInput,
 ): Promise<InstanceHookRow> {
   const rows = await db
-    .insert(instanceHooks)
+    .insert(agentHooks)
     .values({
-      instanceId,
+      agentId,
       event: input.event,
       actionType: input.actionType,
       actionConfig: input.actionConfig,
@@ -76,23 +76,23 @@ export async function createHook(
 }
 
 export async function updateHook(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   hookId: string,
   patch: Partial<CreateHookInput>,
 ): Promise<InstanceHookRow | undefined> {
   const rows = await db
-    .update(instanceHooks)
+    .update(agentHooks)
     .set({ ...patch, updatedAt: new Date() })
-    .where(and(eq(instanceHooks.id, hookId), eq(instanceHooks.instanceId, instanceId)))
+    .where(and(eq(agentHooks.id, hookId), eq(agentHooks.agentId, agentId)))
     .returning();
   return rows[0] ? toRow(rows[0]) : undefined;
 }
 
-export async function deleteHook(instanceId: InstanceUuid, hookId: string): Promise<boolean> {
+export async function deleteHook(agentId: AgentUuid, hookId: string): Promise<boolean> {
   const rows = await db
-    .delete(instanceHooks)
-    .where(and(eq(instanceHooks.id, hookId), eq(instanceHooks.instanceId, instanceId)))
-    .returning({ id: instanceHooks.id });
+    .delete(agentHooks)
+    .where(and(eq(agentHooks.id, hookId), eq(agentHooks.agentId, agentId)))
+    .returning({ id: agentHooks.id });
   return rows.length > 0;
 }
 
@@ -102,19 +102,19 @@ export async function deleteHook(instanceId: InstanceUuid, hookId: string): Prom
  * Unknown slugs resolve to an empty list (cached, so they cost one lookup).
  */
 export async function getEnabledHooks(
-  slug: InstanceSlug,
+  slug: AgentSlug,
   event: HookEvent,
 ): Promise<InstanceHookRow[]> {
   let byEvent = cache.get(slug);
   if (!byEvent) {
     byEvent = new Map();
-    const instanceId = await resolveInstanceId(slug);
-    if (instanceId) {
+    const agentId = await resolveAgentId(slug);
+    if (agentId) {
       const rows = await db
         .select()
-        .from(instanceHooks)
-        .where(and(eq(instanceHooks.instanceId, instanceId), eq(instanceHooks.enabled, true)))
-        .orderBy(asc(instanceHooks.position), asc(instanceHooks.createdAt));
+        .from(agentHooks)
+        .where(and(eq(agentHooks.agentId, agentId), eq(agentHooks.enabled, true)))
+        .orderBy(asc(agentHooks.position), asc(agentHooks.createdAt));
       for (const row of rows.map(toRow)) {
         const list = byEvent.get(row.event) ?? [];
         list.push(row);

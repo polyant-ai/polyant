@@ -51,7 +51,7 @@ describe("platform-storage", () => {
         type: "image",
         mimeType: "image/jpeg",
         fileName: "photo.jpg",
-        instanceId: "inst-1",
+        agentId: "inst-1",
         conversationId: "conv-1",
       });
 
@@ -69,7 +69,7 @@ describe("platform-storage", () => {
       const result = await uploadAttachment(data, {
         type: "file",
         mimeType: "application/pdf",
-        instanceId: "inst-1",
+        agentId: "inst-1",
         conversationId: "conv-1",
       });
 
@@ -84,7 +84,7 @@ describe("platform-storage", () => {
         type: "file",
         mimeType: "application/pdf",
         fileName: "../../../evil.pdf",
-        instanceId: "inst-1",
+        agentId: "inst-1",
         conversationId: "conv-1",
       });
 
@@ -100,7 +100,7 @@ describe("platform-storage", () => {
         type: "image",
         mimeType: "image/png",
         fileName: "screenshot.png",
-        instanceId: "i",
+        agentId: "i",
         conversationId: "c",
       });
 

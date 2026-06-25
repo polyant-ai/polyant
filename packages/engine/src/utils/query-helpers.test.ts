@@ -4,18 +4,18 @@ import { describe, it, expect } from "vitest";
 import { instanceFilter, pctChange } from "./query-helpers.js";
 
 describe("instanceFilter", () => {
-  it("returns empty SQL when instanceId is undefined", () => {
+  it("returns empty SQL when agentId is undefined", () => {
     const result = instanceFilter(undefined);
     // sql`` template produces an object; just verify no throw
     expect(result).toBeDefined();
   });
 
-  it("accepts allowed column 'instance_id'", () => {
-    expect(() => instanceFilter("my-bot", "instance_id")).not.toThrow();
+  it("accepts allowed column 'agent_id'", () => {
+    expect(() => instanceFilter("my-bot", "agent_id")).not.toThrow();
   });
 
-  it("accepts allowed column 'c.instance_id'", () => {
-    expect(() => instanceFilter("my-bot", "c.instance_id")).not.toThrow();
+  it("accepts allowed column 'c.agent_id'", () => {
+    expect(() => instanceFilter("my-bot", "c.agent_id")).not.toThrow();
   });
 
   it("throws for SQL injection attempt via column name", () => {

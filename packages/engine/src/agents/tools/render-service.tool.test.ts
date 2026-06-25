@@ -152,7 +152,7 @@ function buildRenderServiceTool(secretOverrides?: Record<string, string>) {
   const def = getToolRegistry().get("renderService")!;
   expect(def).toBeDefined();
   return buildTool(def, {
-    instanceId: "test",
+    agentId: "test",
     secrets: { render_api_key: "rnd_test_key", ...secretOverrides },
     audit: createMockAudit(),
   } as any) as any;
@@ -234,7 +234,7 @@ describe("renderService tool", () => {
     it("returns error when API key is missing", async () => {
       const def = getToolRegistry().get("renderService")!;
       const tool = buildTool(def, {
-        instanceId: "test",
+        agentId: "test",
         secrets: {},
         audit: createMockAudit(),
       } as any) as any;

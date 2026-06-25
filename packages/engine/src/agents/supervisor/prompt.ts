@@ -5,11 +5,11 @@ import { eq, and } from "drizzle-orm";
 import { config } from "../../config.js";
 import { db } from "../../database/client.js";
 import { getPrompts, invalidatePromptsCache } from "../../instances/prompts.store.js";
-import { instanceSkills } from "../../instances/instance-skills.schema.js";
+import { agentSkills } from "../../instances/instance-skills.schema.js";
 import { skills, skillVersions } from "../../skills/schema.js";
 import { hasAllRequiredEnvBatch } from "../../instances/skill-env.store.js";
 import { normalizeRequiredEnv } from "../../utils/frontmatter.js";
-import { type InstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
+import { type AgentSlug, type AgentUuid } from "../../instances/identifiers.js";
 
 export { normalizeRequiredEnv, type RequiredEnvEntry } from "../../utils/frontmatter.js";
 
@@ -22,9 +22,9 @@ export { invalidatePromptsCache };
 
 export interface PromptOptions {
   tools?: Record<string, Tool>;
-  instanceId: InstanceUuid;
-  /** Instance slug — needed for skill env checks (resolveInstanceId inside). */
-  instanceSlug: InstanceSlug;
+  agentId: AgentUuid;
+  /** Agent slug — needed for skill env checks (resolveAgentId inside). */
+  instanceSlug: AgentSlug;
   memoryEnabled?: boolean;
   knowledgeEnabled?: boolean;
   conversationSummary?: string;
@@ -150,8 +150,8 @@ interface SkillVersionMetadata {
  * Fetches pinned version content/metadata, checks requiredEnv, and filters.
  */
 async function discoverSkills(
-  instanceId: InstanceUuid,
-  instanceSlug: InstanceSlug,
+  agentId: AgentUuid,
+  instanceSlug: AgentSlug,
   enabledToolNames?: Set<string>,
 ): Promise<SkillEntry[]> {
   // Single query: get enabled skills with their pinned version data
@@ -162,15 +162,15 @@ async function discoverSkills(
       skillDescription: skills.description,
       versionContent: skillVersions.content,
       versionMetadata: skillVersions.metadata,
-      autoLoad: instanceSkills.autoLoad,
+      autoLoad: agentSkills.autoLoad,
     })
-    .from(instanceSkills)
-    .innerJoin(skills, eq(instanceSkills.skillId, skills.id))
-    .innerJoin(skillVersions, eq(instanceSkills.skillVersionId, skillVersions.id))
+    .from(agentSkills)
+    .innerJoin(skills, eq(agentSkills.skillId, skills.id))
+    .innerJoin(skillVersions, eq(agentSkills.skillVersionId, skillVersions.id))
     .where(
       and(
-        eq(instanceSkills.instanceId, instanceId),
-        eq(instanceSkills.enabled, true),
+        eq(agentSkills.agentId, agentId),
+        eq(agentSkills.enabled, true),
         eq(skills.status, "active"),
       ),
     );
@@ -217,11 +217,11 @@ async function discoverSkills(
 }
 
 async function loadSkillsList(
-  instanceId: InstanceUuid,
-  instanceSlug: InstanceSlug,
+  agentId: AgentUuid,
+  instanceSlug: AgentSlug,
   enabledToolNames?: Set<string>,
 ): Promise<string> {
-  const skillEntries = await discoverSkills(instanceId, instanceSlug, enabledToolNames);
+  const skillEntries = await discoverSkills(agentId, instanceSlug, enabledToolNames);
   if (skillEntries.length === 0)
     return "<available_skills>\n  <!-- No skills available -->\n</available_skills>";
   const entries = skillEntries
@@ -240,7 +240,7 @@ async function loadSkillsList(
 // ---------------------------------------------------------------------------
 
 export async function buildSupervisorSystemPrompt(options: PromptOptions): Promise<string> {
-  const { instanceId, instanceSlug } = options;
+  const { agentId, instanceSlug } = options;
 
   const datetime = new Date().toLocaleString(config.datetime.locale, {
     timeZone: config.datetime.timezone,
@@ -249,7 +249,7 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
   });
 
   // Fetch all prompt sections from DB in one call (cached at 60s)
-  const promptRows = await getPrompts(instanceId);
+  const promptRows = await getPrompts(agentId);
   const sectionMap = new Map(promptRows.map((r) => [r.sectionKey, r.content]));
 
   // Helper: get section content by key (empty string if missing)
@@ -277,7 +277,7 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
 
   // 5. Skills (template)
   const s05 = applyTemplate(section("05-skills"), {
-    skillsList: await loadSkillsList(instanceId, instanceSlug, enabledToolNames),
+    skillsList: await loadSkillsList(agentId, instanceSlug, enabledToolNames),
   });
 
   // 6. Memory (skipped when memory is disabled)

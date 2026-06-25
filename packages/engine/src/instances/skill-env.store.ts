@@ -2,13 +2,13 @@
 
 import { and, eq } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instanceSkillEnv } from "./skill-env.schema.js";
+import { agentSkillEnv } from "./skill-env.schema.js";
 import { encrypt, decrypt } from "../crypto/index.js";
-import { resolveInstanceId } from "./resolve-instance-id.js";
-import { type InstanceSlug, type InstanceUuid } from "./identifiers.js";
+import { resolveAgentId } from "./resolve-agent-id.js";
+import { type AgentSlug, type AgentUuid } from "./identifiers.js";
 
 export async function setSkillEnv(params: {
-  instanceId: InstanceUuid;
+  agentId: AgentUuid;
   skillSlug: string;
   key: string;
   value: string;
@@ -16,16 +16,16 @@ export async function setSkillEnv(params: {
 }): Promise<void> {
   const storedValue = params.sensitive ? encrypt(params.value) : params.value;
   await db
-    .insert(instanceSkillEnv)
+    .insert(agentSkillEnv)
     .values({
-      instanceId: params.instanceId,
+      agentId: params.agentId,
       skillSlug: params.skillSlug,
       key: params.key,
       value: storedValue,
       encrypted: params.sensitive,
     })
     .onConflictDoUpdate({
-      target: [instanceSkillEnv.instanceId, instanceSkillEnv.skillSlug, instanceSkillEnv.key],
+      target: [agentSkillEnv.agentId, agentSkillEnv.skillSlug, agentSkillEnv.key],
       set: { value: storedValue, encrypted: params.sensitive, updatedAt: new Date() },
     });
 }
@@ -35,16 +35,16 @@ export async function setSkillEnv(params: {
  * Accepts instance slug (e.g. "default"), resolves to UUID internally.
  */
 export async function getSkillEnv(
-  instanceSlug: InstanceSlug,
+  instanceSlug: AgentSlug,
   skillSlug: string,
 ): Promise<Record<string, string>> {
-  const instanceId = await resolveInstanceId(instanceSlug);
-  if (!instanceId) return {};
+  const agentId = await resolveAgentId(instanceSlug);
+  if (!agentId) return {};
 
   const rows = await db
-    .select({ key: instanceSkillEnv.key, value: instanceSkillEnv.value, encrypted: instanceSkillEnv.encrypted })
-    .from(instanceSkillEnv)
-    .where(and(eq(instanceSkillEnv.instanceId, instanceId), eq(instanceSkillEnv.skillSlug, skillSlug)));
+    .select({ key: agentSkillEnv.key, value: agentSkillEnv.value, encrypted: agentSkillEnv.encrypted })
+    .from(agentSkillEnv)
+    .where(and(eq(agentSkillEnv.agentId, agentId), eq(agentSkillEnv.skillSlug, skillSlug)));
 
   const result: Record<string, string> = {};
   for (const row of rows) {
@@ -58,18 +58,18 @@ export async function getSkillEnv(
  * Accepts instance slug (e.g. "default"), resolves to UUID internally.
  */
 export async function hasAllRequiredEnv(
-  instanceSlug: InstanceSlug,
+  instanceSlug: AgentSlug,
   skillSlug: string,
   keys: string[],
 ): Promise<boolean> {
   if (keys.length === 0) return true;
-  const instanceId = await resolveInstanceId(instanceSlug);
-  if (!instanceId) return false;
+  const agentId = await resolveAgentId(instanceSlug);
+  if (!agentId) return false;
 
   const rows = await db
-    .select({ key: instanceSkillEnv.key })
-    .from(instanceSkillEnv)
-    .where(and(eq(instanceSkillEnv.instanceId, instanceId), eq(instanceSkillEnv.skillSlug, skillSlug)));
+    .select({ key: agentSkillEnv.key })
+    .from(agentSkillEnv)
+    .where(and(eq(agentSkillEnv.agentId, agentId), eq(agentSkillEnv.skillSlug, skillSlug)));
   const existing = new Set(rows.map((r) => r.key));
   return keys.every((k) => existing.has(k));
 }
@@ -80,7 +80,7 @@ export async function hasAllRequiredEnv(
  * Returns a Map<skillSlug, boolean>.
  */
 export async function hasAllRequiredEnvBatch(
-  instanceSlug: InstanceSlug,
+  instanceSlug: AgentSlug,
   checks: Array<{ skillSlug: string; keys: string[] }>,
 ): Promise<Map<string, boolean>> {
   const result = new Map<string, boolean>();
@@ -93,17 +93,17 @@ export async function hasAllRequiredEnvBatch(
 
   if (needsCheck.length === 0) return result;
 
-  const instanceId = await resolveInstanceId(instanceSlug);
-  if (!instanceId) {
+  const agentId = await resolveAgentId(instanceSlug);
+  if (!agentId) {
     for (const c of needsCheck) result.set(c.skillSlug, false);
     return result;
   }
 
   // Single query: get all skill env rows for this instance
   const rows = await db
-    .select({ skillSlug: instanceSkillEnv.skillSlug, key: instanceSkillEnv.key })
-    .from(instanceSkillEnv)
-    .where(eq(instanceSkillEnv.instanceId, instanceId));
+    .select({ skillSlug: agentSkillEnv.skillSlug, key: agentSkillEnv.key })
+    .from(agentSkillEnv)
+    .where(eq(agentSkillEnv.agentId, agentId));
 
   // Group existing keys by skill slug
   const existingBySkill = new Map<string, Set<string>>();
@@ -122,17 +122,17 @@ export async function hasAllRequiredEnvBatch(
 }
 
 export async function deleteSkillEnv(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   skillSlug: string,
   key: string,
 ): Promise<void> {
   await db
-    .delete(instanceSkillEnv)
+    .delete(agentSkillEnv)
     .where(
       and(
-        eq(instanceSkillEnv.instanceId, instanceId),
-        eq(instanceSkillEnv.skillSlug, skillSlug),
-        eq(instanceSkillEnv.key, key),
+        eq(agentSkillEnv.agentId, agentId),
+        eq(agentSkillEnv.skillSlug, skillSlug),
+        eq(agentSkillEnv.key, key),
       ),
     );
 }

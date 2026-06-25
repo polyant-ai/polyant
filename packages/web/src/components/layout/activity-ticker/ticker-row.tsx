@@ -99,11 +99,11 @@ export function TickerRow({ ev }: Props) {
   };
 
   const narrative = narrate(ev, labels);
-  const instanceName = ev.instance?.name ?? t("activityStream.fallbackInstance");
+  const agentName = ev.instance?.name ?? t("activityStream.fallbackInstance");
 
   return (
     <div className="flex h-full items-center gap-2 text-sm">
-      <TickerAvatar icon={ev.instance?.icon ?? null} name={instanceName} />
+      <TickerAvatar icon={ev.instance?.icon ?? null} name={agentName} />
       <span className="text-muted-foreground min-w-0 flex-1 truncate">
         {narrative.tokens.map((tok, i) => (
           <NarrativeTokenView key={i} token={tok} />

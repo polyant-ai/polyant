@@ -18,7 +18,7 @@ export const scheduledTasks = pgTable(
   "scheduled_tasks",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: text("instance_id").notNull(),
+    agentId: text("agent_id").notNull(),
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description"),
     enabled: boolean("enabled").notNull().default(true),
@@ -53,7 +53,7 @@ export const scheduledTasks = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
-    index("idx_scheduled_tasks_instance").on(table.instanceId),
+    index("idx_scheduled_tasks_instance").on(table.agentId),
     index("idx_scheduled_tasks_next_run").on(table.nextRunAt),
   ],
 );
@@ -84,7 +84,7 @@ export const scheduledTaskRuns = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     taskId: uuid("task_id").notNull().references(() => scheduledTasks.id, { onDelete: "cascade" }),
-    instanceId: text("instance_id").notNull(),
+    agentId: text("agent_id").notNull(),
     status: varchar("status", { length: 20 }).$type<RunStatus>().notNull(),
     triggerType: varchar("trigger_type", { length: 20 }).$type<TriggerType>().notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
@@ -97,7 +97,7 @@ export const scheduledTaskRuns = pgTable(
     conversationId: text("conversation_id"),
   },
   (table) => [
-    index("idx_task_runs_instance_started").on(table.instanceId, table.startedAt),
+    index("idx_task_runs_instance_started").on(table.agentId, table.startedAt),
     index("idx_task_runs_task_started").on(table.taskId, table.startedAt),
   ],
 );

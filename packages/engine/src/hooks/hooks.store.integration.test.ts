@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instances } from "../instances/schema.js";
+import { agents } from "../instances/schema.js";
 import { workspaces } from "../organizations/organization.schema.js";
 import {
   listHooks,
@@ -19,12 +19,12 @@ import {
   getEnabledHooks,
   invalidateHooksCache,
 } from "./hooks.store.js";
-import { asInstanceSlug, asInstanceUuid, type InstanceUuid } from "../instances/identifiers.js";
+import { asAgentSlug, asAgentUuid, type AgentUuid } from "../instances/identifiers.js";
 
 const SLUG = "itest-hooks-store";
-let instanceUuid: InstanceUuid | undefined;
+let instanceUuid: AgentUuid | undefined;
 
-async function setupInstance(): Promise<InstanceUuid | undefined> {
+async function setupInstance(): Promise<AgentUuid | undefined> {
   try {
     const [ws] = await Promise.race([
       db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.isDefault, true)).limit(1),
@@ -32,19 +32,19 @@ async function setupInstance(): Promise<InstanceUuid | undefined> {
     ]);
     const rows = await Promise.race([
       db
-        .insert(instances)
+        .insert(agents)
         .values({ slug: SLUG, name: "itest hooks", workspaceId: ws.id })
         .onConflictDoNothing()
-        .returning({ id: instances.id }),
+        .returning({ id: agents.id }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("db timeout")), 3000)),
     ]);
-    if (rows.length > 0) return asInstanceUuid(rows[0].id);
+    if (rows.length > 0) return asAgentUuid(rows[0].id);
     const existing = await db
-      .select({ id: instances.id })
-      .from(instances)
-      .where(eq(instances.slug, SLUG))
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.slug, SLUG))
       .limit(1);
-    return existing[0] ? asInstanceUuid(existing[0].id) : undefined;
+    return existing[0] ? asAgentUuid(existing[0].id) : undefined;
   } catch {
     return undefined;
   }
@@ -56,7 +56,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!instanceUuid) return;
-  await db.delete(instances).where(eq(instances.id, instanceUuid)); // cascades to hooks
+  await db.delete(agents).where(eq(agents.id, instanceUuid)); // cascades to hooks
 });
 
 describe("hooks store (integration)", () => {
@@ -89,12 +89,12 @@ describe("hooks store (integration)", () => {
     expect(all.map((h) => h.id).sort()).toEqual([first.id, second.id, disabled.id].sort());
 
     // cached read returns only enabled, ordered by position
-    invalidateHooksCache(asInstanceSlug(SLUG));
-    const enabled = await getEnabledHooks(asInstanceSlug(SLUG), "conversation_start");
+    invalidateHooksCache(asAgentSlug(SLUG));
+    const enabled = await getEnabledHooks(asAgentSlug(SLUG), "conversation_start");
     expect(enabled.map((h) => h.actionConfig.toolName)).toEqual(["toolA", "toolB"]);
 
     // other events are empty
-    expect(await getEnabledHooks(asInstanceSlug(SLUG), "response_sent")).toEqual([]);
+    expect(await getEnabledHooks(asAgentSlug(SLUG), "response_sent")).toEqual([]);
 
     // update flips enabled and patches config
     const updated = await updateHook(uuid, disabled.id, { enabled: true, timeoutMs: 5000 });
@@ -102,8 +102,8 @@ describe("hooks store (integration)", () => {
     expect(updated?.timeoutMs).toBe(5000);
 
     // cache invalidation makes the new hook visible
-    invalidateHooksCache(asInstanceSlug(SLUG));
-    const enabledAfter = await getEnabledHooks(asInstanceSlug(SLUG), "conversation_start");
+    invalidateHooksCache(asAgentSlug(SLUG));
+    const enabledAfter = await getEnabledHooks(asAgentSlug(SLUG), "conversation_start");
     expect(enabledAfter).toHaveLength(3);
 
     // delete is instance-scoped
@@ -113,6 +113,6 @@ describe("hooks store (integration)", () => {
 
   it("should_return_empty_when_slug_unknown", async () => {
     if (!instanceUuid) return;
-    expect(await getEnabledHooks(asInstanceSlug("itest-hooks-nope"), "message_received")).toEqual([]);
+    expect(await getEnabledHooks(asAgentSlug("itest-hooks-nope"), "message_received")).toEqual([]);
   });
 });

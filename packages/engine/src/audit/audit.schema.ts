@@ -6,7 +6,7 @@ export const toolAuditLogs = pgTable(
   "tool_audit_logs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: text("instance_id").notNull(),
+    agentId: text("agent_id").notNull(),
     conversationId: text("conversation_id"),
     toolName: varchar("tool_name", { length: 100 }).notNull(),
     action: varchar("action", { length: 100 }).notNull(),
@@ -18,7 +18,7 @@ export const toolAuditLogs = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index("idx_tool_audit_instance_created").on(table.instanceId, table.createdAt),
+    index("idx_tool_audit_instance_created").on(table.agentId, table.createdAt),
     index("idx_tool_audit_tool_created").on(table.toolName, table.createdAt),
     index("idx_tool_audit_conversation").on(table.conversationId),
   ],

@@ -3,25 +3,25 @@
 import { and, eq, lte, sql, desc, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { roomActivityLog } from "./room.schema.js";
-import { asInstanceUuid, type InstanceUuid } from "../instances/identifiers.js";
+import { asAgentUuid, type AgentUuid } from "../instances/identifiers.js";
 
 export interface ActivityEntry {
   id: string;
-  instanceId: InstanceUuid;
+  agentId: AgentUuid;
   logDate: string;
   logType: string;
   content: string;
   eventCount: number;
 }
 
-export async function appendDailyLog(instanceId: InstanceUuid, content: string, eventCount: number): Promise<void> {
+export async function appendDailyLog(agentId: AgentUuid, content: string, eventCount: number): Promise<void> {
   const today = new Date().toISOString().split("T")[0];
 
   await db
     .insert(roomActivityLog)
-    .values({ instanceId, logDate: today, logType: "daily", content, eventCount })
+    .values({ agentId, logDate: today, logType: "daily", content, eventCount })
     .onConflictDoUpdate({
-      target: [roomActivityLog.instanceId, roomActivityLog.logDate, roomActivityLog.logType],
+      target: [roomActivityLog.agentId, roomActivityLog.logDate, roomActivityLog.logType],
       set: {
         content: sql`${roomActivityLog.content} || E'\n\n' || ${content}`,
         eventCount: sql`${roomActivityLog.eventCount} + ${eventCount}`,
@@ -30,10 +30,10 @@ export async function appendDailyLog(instanceId: InstanceUuid, content: string, 
 }
 
 export async function listActivity(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   opts: { logType?: string; limit?: number; offset?: number },
 ): Promise<ActivityEntry[]> {
-  const conditions = [eq(roomActivityLog.instanceId, instanceId)];
+  const conditions = [eq(roomActivityLog.agentId, agentId)];
   if (opts.logType) conditions.push(eq(roomActivityLog.logType, opts.logType));
 
   const rows = await db
@@ -44,10 +44,10 @@ export async function listActivity(
     .limit(opts.limit ?? 50)
     .offset(opts.offset ?? 0);
 
-  return rows.map((r) => ({ ...r, instanceId: asInstanceUuid(r.instanceId) })) as ActivityEntry[];
+  return rows.map((r) => ({ ...r, agentId: asAgentUuid(r.agentId) })) as ActivityEntry[];
 }
 
-export async function compactActivityLog(instanceId: InstanceUuid): Promise<void> {
+export async function compactActivityLog(agentId: AgentUuid): Promise<void> {
   const now = new Date();
 
   const twelveMonthsAgo = new Date(now);
@@ -56,7 +56,7 @@ export async function compactActivityLog(instanceId: InstanceUuid): Promise<void
     .delete(roomActivityLog)
     .where(
       and(
-        eq(roomActivityLog.instanceId, instanceId),
+        eq(roomActivityLog.agentId, agentId),
         eq(roomActivityLog.logType, "monthly"),
         lte(roomActivityLog.logDate, twelveMonthsAgo.toISOString().split("T")[0]),
       ),
@@ -64,15 +64,15 @@ export async function compactActivityLog(instanceId: InstanceUuid): Promise<void
 
   const fourWeeksAgo = new Date(now);
   fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
-  await compactEntries(instanceId, "weekly", fourWeeksAgo, "monthly");
+  await compactEntries(agentId, "weekly", fourWeeksAgo, "monthly");
 
   const sevenDaysAgo = new Date(now);
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  await compactEntries(instanceId, "daily", sevenDaysAgo, "weekly");
+  await compactEntries(agentId, "daily", sevenDaysAgo, "weekly");
 }
 
 async function compactEntries(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   fromType: string,
   olderThan: Date,
   toType: string,
@@ -85,7 +85,7 @@ async function compactEntries(
       .from(roomActivityLog)
       .where(
         and(
-          eq(roomActivityLog.instanceId, instanceId),
+          eq(roomActivityLog.agentId, agentId),
           eq(roomActivityLog.logType, fromType),
           lte(roomActivityLog.logDate, cutoff),
         ),
@@ -99,7 +99,7 @@ async function compactEntries(
     const periodDate = oldEntries[0].logDate;
 
     await tx.insert(roomActivityLog).values({
-      instanceId,
+      agentId,
       logDate: periodDate,
       logType: toType,
       content: mergedContent,

@@ -154,8 +154,8 @@ export default function ConversationDetailPage() {
   // Every conversation id is `<instanceSlug>:<channelType>:<channelId>` — see
   // packages/engine/src/index.ts. We derive the instance scope from the id
   // itself; the backend rejects requests that don't carry an explicit
-  // ?instanceId= (cross-tenant IDOR guard).
-  const instanceId = conversationId.split(":")[0] ?? "";
+  // ?agentId= (cross-tenant IDOR guard).
+  const agentId = conversationId.split(":")[0] ?? "";
 
   const [conversation, setConversation] = useState<ConversationListItem | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -174,10 +174,10 @@ export default function ConversationDetailPage() {
 
   useEffect(() => {
     Promise.all([
-      api.conversations.get(conversationId, instanceId),
-      api.conversations.messages(conversationId, instanceId, { limit: MESSAGES_PAGE_SIZE, order: "desc" }),
+      api.conversations.get(conversationId, agentId),
+      api.conversations.messages(conversationId, agentId, { limit: MESSAGES_PAGE_SIZE, order: "desc" }),
       // Hook telemetry is decorative — a failed fetch never blocks the page.
-      api.conversations.hookExecutions(conversationId, instanceId).catch(() => ({ executions: [] as HookExecution[] })),
+      api.conversations.hookExecutions(conversationId, agentId).catch(() => ({ executions: [] as HookExecution[] })),
     ])
       .then(([convRes, msgRes, hooksRes]) => {
         setConversation(convRes.conversation);
@@ -200,7 +200,7 @@ export default function ConversationDetailPage() {
     setLoadingMore(true);
     prevScrollHeightRef.current = scrollContainerRef.current?.scrollHeight ?? 0;
     try {
-      const result = await api.conversations.messages(conversationId, instanceId, {
+      const result = await api.conversations.messages(conversationId, agentId, {
         limit: MESSAGES_PAGE_SIZE,
         offset: messages.length,
         order: "desc",
@@ -296,7 +296,7 @@ export default function ConversationDetailPage() {
 
   const handleDelete = async () => {
     try {
-      await api.conversations.delete(conversationId, instanceId);
+      await api.conversations.delete(conversationId, agentId);
       toast.success(t("conversations.detail.deleted"));
       router.push("/conversations");
     } catch (err) {
@@ -349,8 +349,8 @@ export default function ConversationDetailPage() {
             <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
               {conversationId}
             </code>
-            {conversation.instanceName && (
-              <Badge variant="secondary">{conversation.instanceName}</Badge>
+            {conversation.agentName && (
+              <Badge variant="secondary">{conversation.agentName}</Badge>
             )}
             <span>{t("conversations.detail.messages", { count: conversation.messageCount })}</span>
             <span>&middot;</span>
@@ -563,7 +563,7 @@ export default function ConversationDetailPage() {
                       <button
                         type="button"
                         onClick={() =>
-                          setDebugTarget({ conversationId, messageId: msg.id, instanceId })
+                          setDebugTarget({ conversationId, messageId: msg.id, agentId })
                         }
                         className="inline-flex items-center gap-1 rounded px-1 text-muted-foreground transition hover:text-foreground"
                         title={t("message.debug.open")}
@@ -594,7 +594,7 @@ export default function ConversationDetailPage() {
         open={stateOpen}
         onOpenChange={setStateOpen}
         conversationId={conversationId}
-        instanceId={instanceId}
+        agentId={agentId}
       />
     </div>
   );

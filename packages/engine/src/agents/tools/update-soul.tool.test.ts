@@ -14,8 +14,8 @@ vi.mock("../../instances/prompts.store.js", () => ({
   upsertPrompt: mockUpsertPrompt,
   invalidatePromptsCache: vi.fn(),
 }));
-vi.mock("../../instances/resolve-instance-id.js", () => ({
-  resolveInstanceId: mockResolveInstanceId,
+vi.mock("../../instances/resolve-agent-id.js", () => ({
+  resolveAgentId: mockResolveInstanceId,
 }));
 vi.mock("./registry.js", () => ({
   registerTool: vi.fn(),
@@ -33,7 +33,7 @@ beforeEach(() => {
 
 function buildUpdateSoulTool() {
   const ctx = {
-    instanceId: "instance-1",
+    agentId: "instance-1",
     secrets: {
       openai_api_key: "sk-test-openai",
       anthropic_api_key: "sk-test-anthropic",
@@ -115,7 +115,7 @@ describe("updateSoul tool", () => {
     const execute = buildUpdateSoulTool();
     const result = await execute({ instruction: "change tone" });
 
-    expect(result).toEqual({ updated: false, error: "Instance not found" });
+    expect(result).toEqual({ updated: false, error: "Agent not found" });
     expect(mockChat).not.toHaveBeenCalled();
   });
 
@@ -153,7 +153,7 @@ describe("updateSoul tool", () => {
     mockChat.mockResolvedValue({ text: "# Updated" });
 
     const ctx = {
-      instanceId: "instance-2",
+      agentId: "instance-2",
       secrets: {
         openai_api_key: "sk-different-openai",
         anthropic_api_key: "sk-different-anthropic",

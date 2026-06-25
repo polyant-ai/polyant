@@ -77,7 +77,7 @@ export const exportScheduledTaskSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Instance bundle
+// Agent bundle
 // ---------------------------------------------------------------------------
 
 export const exportInstanceDataSchema = z.object({

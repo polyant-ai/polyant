@@ -14,7 +14,7 @@ export const pipelineTraces = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     conversationId: text("conversation_id").notNull(),
     messageId: uuid("message_id"),
-    instanceId: text("instance_id").notNull(),
+    agentId: text("agent_id").notNull(),
     channel: text("channel").notNull(),
     contextPrepMs: integer("context_prep_ms"),
     toolBuildingMs: integer("tool_building_ms"),
@@ -35,7 +35,7 @@ export const pipelineTraces = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
-    index("idx_traces_instance_created").on(table.instanceId, table.createdAt),
+    index("idx_traces_instance_created").on(table.agentId, table.createdAt),
     index("idx_traces_created").on(table.createdAt),
   ],
 );

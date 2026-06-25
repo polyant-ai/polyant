@@ -11,7 +11,7 @@ const {
   mockMatchEvent,
   mockInsertEvent,
   mockTriggerConversation,
-  mockResolveInstanceSlug,
+  mockResolveAgentSlug,
   mockWebhookLog,
 } = vi.hoisted(() => ({
   mockFindByWebhookToken: vi.fn(),
@@ -20,7 +20,7 @@ const {
   mockMatchEvent: vi.fn(),
   mockInsertEvent: vi.fn(),
   mockTriggerConversation: vi.fn(),
-  mockResolveInstanceSlug: vi.fn(),
+  mockResolveAgentSlug: vi.fn(),
   mockWebhookLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
@@ -36,8 +36,8 @@ vi.mock("../../webhooks/webhook-backlog.store.js", () => ({
 vi.mock("../../webhooks/webhook-engine.js", () => ({
   triggerConversation: mockTriggerConversation,
 }));
-vi.mock("../../instances/resolve-instance-id.js", () => ({
-  resolveInstanceSlug: mockResolveInstanceSlug,
+vi.mock("../../instances/resolve-agent-id.js", () => ({
+  resolveAgentSlug: mockResolveAgentSlug,
 }));
 vi.mock("../../webhooks/webhook-logger.js", () => ({ webhookLog: mockWebhookLog }));
 
@@ -85,7 +85,7 @@ describe("WebhookController", () => {
     it("should drop event when source is disabled", async () => {
       mockFindByWebhookToken.mockResolvedValue({
         source: { name: "HubSpot", enabled: false },
-        instanceId: "inst-1",
+        agentId: "inst-1",
       });
       await processEvent("valid-token", { type: "test" });
       expect(mockWebhookLog.info).toHaveBeenCalledWith("Webhook", expect.stringContaining("disabled"));
@@ -94,7 +94,7 @@ describe("WebhookController", () => {
     it("should drop event when no definitions are enabled", async () => {
       mockFindByWebhookToken.mockResolvedValue({
         source: { id: "src-1", name: "HubSpot", enabled: true },
-        instanceId: "inst-1",
+        agentId: "inst-1",
       });
       mockListEnabledDefinitions.mockResolvedValue([]);
       await processEvent("valid-token", { type: "test" });
@@ -104,10 +104,10 @@ describe("WebhookController", () => {
     it("should drop event when no definition matches", async () => {
       mockFindByWebhookToken.mockResolvedValue({
         source: { id: "src-1", name: "HubSpot", enabled: true },
-        instanceId: "inst-1",
+        agentId: "inst-1",
       });
       mockListEnabledDefinitions.mockResolvedValue([{ id: "def-1" }]);
-      mockResolveInstanceSlug.mockResolvedValue("test-slug");
+      mockResolveAgentSlug.mockResolvedValue("test-slug");
       mockMatchEvent.mockResolvedValue(null);
 
       await processEvent("valid-token", { type: "test" });
@@ -121,10 +121,10 @@ describe("WebhookController", () => {
 
         mockFindByWebhookToken.mockResolvedValue({
           source: { id: "src-1", name: "HubSpot", enabled: true },
-          instanceId: "inst-1",
+          agentId: "inst-1",
         });
         mockListEnabledDefinitions.mockResolvedValue([matchedDef]);
-        mockResolveInstanceSlug.mockResolvedValue("test-slug");
+        mockResolveAgentSlug.mockResolvedValue("test-slug");
         mockMatchEvent.mockResolvedValue(matchedDef);
         mockGetRoomByInstanceId.mockResolvedValue({ enabled: true });
         mockInsertEvent.mockResolvedValue("evt-new");
@@ -139,10 +139,10 @@ describe("WebhookController", () => {
         const matchedDef = { id: "def-1", name: "Order Created", action: "backlog" };
         mockFindByWebhookToken.mockResolvedValue({
           source: { id: "src-1", name: "HubSpot", enabled: true },
-          instanceId: "inst-1",
+          agentId: "inst-1",
         });
         mockListEnabledDefinitions.mockResolvedValue([matchedDef]);
-        mockResolveInstanceSlug.mockResolvedValue("test-slug");
+        mockResolveAgentSlug.mockResolvedValue("test-slug");
         mockMatchEvent.mockResolvedValue(matchedDef);
         mockGetRoomByInstanceId.mockResolvedValue(null);
 
@@ -167,10 +167,10 @@ describe("WebhookController", () => {
 
         mockFindByWebhookToken.mockResolvedValue({
           source: { id: "src-1", name: "External System", enabled: true },
-          instanceId: "inst-1",
+          agentId: "inst-1",
         });
         mockListEnabledDefinitions.mockResolvedValue([matchedDef]);
-        mockResolveInstanceSlug.mockResolvedValue("test-slug");
+        mockResolveAgentSlug.mockResolvedValue("test-slug");
         mockMatchEvent.mockResolvedValue(matchedDef);
         mockTriggerConversation.mockResolvedValue(undefined);
 
@@ -194,10 +194,10 @@ describe("WebhookController", () => {
 
         mockFindByWebhookToken.mockResolvedValue({
           source: { id: "src-1", name: "External System", enabled: true },
-          instanceId: "inst-1",
+          agentId: "inst-1",
         });
         mockListEnabledDefinitions.mockResolvedValue([matchedDef]);
-        mockResolveInstanceSlug.mockResolvedValue("test-slug");
+        mockResolveAgentSlug.mockResolvedValue("test-slug");
         mockMatchEvent.mockResolvedValue(matchedDef);
         mockTriggerConversation.mockResolvedValue(undefined);
 
@@ -220,10 +220,10 @@ describe("WebhookController", () => {
 
         mockFindByWebhookToken.mockResolvedValue({
           source: { id: "src-1", name: "External System", enabled: true },
-          instanceId: "inst-1",
+          agentId: "inst-1",
         });
         mockListEnabledDefinitions.mockResolvedValue([matchedDef]);
-        mockResolveInstanceSlug.mockResolvedValue("test-slug");
+        mockResolveAgentSlug.mockResolvedValue("test-slug");
         mockMatchEvent.mockResolvedValue(matchedDef);
         mockTriggerConversation.mockResolvedValue(undefined);
 

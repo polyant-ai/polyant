@@ -49,9 +49,9 @@ export async function runHooks(
   const summaries: HookExecutionSummary[] = [];
   let hooks: InstanceHookRow[];
   try {
-    hooks = await getEnabledHooks(ctx.instanceId, event);
+    hooks = await getEnabledHooks(ctx.agentId, event);
   } catch (err) {
-    console.error(`[hooks] failed to load hooks for ${ctx.instanceId}/${event}:`, errMsg(err));
+    console.error(`[hooks] failed to load hooks for ${ctx.agentId}/${event}:`, errMsg(err));
     return summaries;
   }
   if (hooks.length === 0) return summaries;
@@ -64,7 +64,7 @@ export async function runHooks(
       continue;
     }
     const toolName = hook.actionConfig.toolName;
-    const audit = createAuditLogger(`hook:${toolName}`, ctx.instanceId, ctx.conversationId);
+    const audit = createAuditLogger(`hook:${toolName}`, ctx.agentId, ctx.conversationId);
     const started = Date.now();
     let success = true;
     let error: string | undefined;
@@ -101,7 +101,7 @@ export async function runHooks(
     // Per-conversation telemetry for the conversation detail UI — fire-and-forget,
     // a failed insert never affects the run.
     recordHookExecution({
-      instanceId: ctx.instanceId,
+      agentId: ctx.agentId,
       conversationId: ctx.conversationId,
       hookId: hook.id,
       event,

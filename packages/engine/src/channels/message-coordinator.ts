@@ -53,7 +53,7 @@ export interface MessageCoordinatorOptions {
     channelId: string,
     messageSid?: string,
   ) => Promise<void>;
-  /** Optional override of the keying strategy. Defaults to `${instanceId}:${channelType}:${channelId}`. */
+  /** Optional override of the keying strategy. Defaults to `${agentId}:${channelType}:${channelId}`. */
   conversationKey?: (msg: IncomingMessage) => string;
 }
 
@@ -81,7 +81,7 @@ interface ConversationState {
 }
 
 function defaultKey(msg: IncomingMessage): string {
-  return `${msg.instanceId}:${msg.channelType}:${msg.channelId}`;
+  return `${msg.agentId}:${msg.channelType}:${msg.channelId}`;
 }
 
 function extractMessageSid(msg: IncomingMessage): string | undefined {
@@ -202,7 +202,7 @@ export class MessageCoordinator {
     if (!this.opts.sendTyping) return;
     this.opts
       .sendTyping(
-        state.seed.instanceId,
+        state.seed.agentId,
         state.seed.channelType,
         state.seed.channelId,
         state.lastSid,
@@ -278,7 +278,7 @@ export class MessageCoordinator {
     if (response.text) {
       try {
         await this.opts.sendOutbound(
-          combined.instanceId,
+          combined.agentId,
           combined.channelType,
           combined.channelId,
           response.text,

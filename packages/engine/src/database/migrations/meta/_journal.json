@@ -358,6 +358,13 @@
       "when": 1780358400000,
       "tag": "0054_add_management_api_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1780444800000,
+      "tag": "0055_rename_instance_to_agent",
+      "breakpoints": true
     }
   ]
 }

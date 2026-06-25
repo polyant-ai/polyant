@@ -32,7 +32,7 @@ describe("findInstanceOrFail", () => {
     mockFindInstance.mockResolvedValue(undefined);
 
     await expect(findInstanceOrFail("ghost")).rejects.toThrow(NotFoundException);
-    await expect(findInstanceOrFail("ghost")).rejects.toThrow('Instance "ghost" not found');
+    await expect(findInstanceOrFail("ghost")).rejects.toThrow('Agent "ghost" not found');
   });
 });
 

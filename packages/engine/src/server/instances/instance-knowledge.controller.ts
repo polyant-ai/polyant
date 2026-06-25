@@ -57,9 +57,9 @@ const importBundleSchema = z.object({
     .min(1),
 });
 
-@Controller("api/instances/:slug/knowledge")
+@Controller("api/agents/:slug/knowledge")
 export class InstanceKnowledgeController {
-  /** GET /api/instances/:slug/knowledge — list documents (no rawContent) */
+  /** GET /api/agents/:slug/knowledge — list documents (no rawContent) */
   @RequirePermission(Permission.KNOWLEDGE_READ)
   @Get()
   async list(@Param("slug") slug: string) {
@@ -83,7 +83,7 @@ export class InstanceKnowledgeController {
   }
 
   /**
-   * GET /api/instances/:slug/knowledge/export — export every document (with raw
+   * GET /api/agents/:slug/knowledge/export — export every document (with raw
    * content) as a JSON bundle. Declared BEFORE the :docId route so "export" is
    * not captured as a document id.
    */
@@ -94,19 +94,19 @@ export class InstanceKnowledgeController {
     const documents = await getKnowledgeForExport(instance.slug);
     return {
       version: 1,
-      instanceSlug: instance.slug,
+      agentSlug: instance.slug,
       documents,
     };
   }
 
-  /** GET /api/instances/:slug/knowledge/:docId — full document with rawContent */
+  /** GET /api/agents/:slug/knowledge/:docId — full document with rawContent */
   @RequirePermission(Permission.KNOWLEDGE_READ)
   @Get(":docId")
   async getById(@Param("slug") slug: string, @Param("docId") docId: string) {
     const instance = await findInstanceOrFail(slug);
 
     const doc = await getDocument(docId);
-    if (!doc || doc.instanceId !== instance.slug) {
+    if (!doc || doc.agentId !== instance.slug) {
       throw new NotFoundException(`Document "${docId}" not found`);
     }
 
@@ -127,7 +127,7 @@ export class InstanceKnowledgeController {
     };
   }
 
-  /** POST /api/instances/:slug/knowledge — upload a document (text) */
+  /** POST /api/agents/:slug/knowledge — upload a document (text) */
   @RequirePermission(Permission.KNOWLEDGE_WRITE)
   @Post()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
@@ -180,7 +180,7 @@ export class InstanceKnowledgeController {
     });
 
     const doc = await createDocument({
-      instanceId: instance.slug,
+      agentId: instance.slug,
       filename: sanitizedFilename,
       mimeType: mimeForFilename(sanitizedFilename),
       sizeBytes,
@@ -206,9 +206,9 @@ export class InstanceKnowledgeController {
   }
 
   /**
-   * POST /api/instances/:slug/knowledge/import — bulk-import documents from a
+   * POST /api/agents/:slug/knowledge/import — bulk-import documents from a
    * JSON bundle (as produced by /export). Each document is re-embedded with the
-   * instance's CURRENT embedder. Filename collisions are resolved by appending a
+   * agent's CURRENT embedder. Filename collisions are resolved by appending a
    * progressive suffix ("manuale.txt" → "manuale (1).txt") — never overwritten.
    * The whole bundle is validated up front so the import is all-or-nothing.
    */
@@ -269,7 +269,7 @@ export class InstanceKnowledgeController {
       taken.add(filename);
 
       const created = await createDocument({
-        instanceId: instance.slug,
+        agentId: instance.slug,
         filename,
         mimeType: mimeForFilename(filename),
         sizeBytes: doc.sizeBytes,
@@ -291,14 +291,14 @@ export class InstanceKnowledgeController {
     return { imported: imported.length, documents: imported };
   }
 
-  /** DELETE /api/instances/:slug/knowledge/:docId */
+  /** DELETE /api/agents/:slug/knowledge/:docId */
   @RequirePermission(Permission.KNOWLEDGE_WRITE)
   @Delete(":docId")
   async remove(@Param("slug") slug: string, @Param("docId") docId: string) {
     const instance = await findInstanceOrFail(slug);
 
     const doc = await getDocument(docId);
-    if (!doc || doc.instanceId !== instance.slug) {
+    if (!doc || doc.agentId !== instance.slug) {
       throw new NotFoundException(`Document "${docId}" not found`);
     }
 

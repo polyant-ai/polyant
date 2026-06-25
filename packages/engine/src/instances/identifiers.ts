@@ -4,20 +4,20 @@
 // "exported type uses private name" error if .d.ts were ever emitted) and no
 // `unique symbol`. The `__brand` field is type-level only — never present at runtime.
 
-/** Human-readable instance identifier (the `instances.slug` column). */
-export type InstanceSlug = string & { readonly __brand: "InstanceSlug" };
+/** Human-readable agent identifier (the `agents.slug` column). */
+export type AgentSlug = string & { readonly __brand: "AgentSlug" };
 
-/** Instance UUID primary key (the `instances.id` column) and FK columns that reference it. */
-export type InstanceUuid = string & { readonly __brand: "InstanceUuid" };
-
-/**
- * Zero-cost cast to {@link InstanceSlug}. Use ONLY for trusted sources: DB reads
- * of `instances.slug`, the config default, or an already-validated URL param.
- */
-export const asInstanceSlug = (s: string): InstanceSlug => s as InstanceSlug;
+/** Agent UUID primary key (the `agents.id` column) and FK columns that reference it. */
+export type AgentUuid = string & { readonly __brand: "AgentUuid" };
 
 /**
- * Zero-cost cast to {@link InstanceUuid}. Use ONLY for trusted sources: DB reads
- * of `instances.id` / a uuid FK column.
+ * Zero-cost cast to {@link AgentSlug}. Use ONLY for trusted sources: DB reads
+ * of `agents.slug`, the config default, or an already-validated URL param.
  */
-export const asInstanceUuid = (s: string): InstanceUuid => s as InstanceUuid;
+export const asAgentSlug = (s: string): AgentSlug => s as AgentSlug;
+
+/**
+ * Zero-cost cast to {@link AgentUuid}. Use ONLY for trusted sources: DB reads
+ * of `agents.id` / a uuid FK column.
+ */
+export const asAgentUuid = (s: string): AgentUuid => s as AgentUuid;

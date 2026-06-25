@@ -4,7 +4,7 @@
  * Unit tests for packages/engine/src/instances/instance-tools.store.ts
  *
  * Covers the critical reads and the "auto-recompute" mechanism:
- * - getEnabledToolNames(instanceId) returns the names from joined rows.
+ * - getEnabledToolNames(agentId) returns the names from joined rows.
  * - getEnabledToolNames dedupes (Set semantics).
  * - getEnabledToolNames returns empty set when no rows exist.
  * - recomputeInstanceTools deletes-then-inserts inside a transaction (idempotent).
@@ -63,16 +63,16 @@ const { mockDb, mockTx } = vi.hoisted(() => {
 vi.mock("../database/client.js", () => ({ db: mockDb }));
 
 vi.mock("./instance-tools.schema.js", () => ({
-  instanceTools: {
-    instanceId: "instance_id",
+  agentTools: {
+    agentId: "agent_id",
     toolId: "tool_id",
     source: "source",
   },
 }));
 
 vi.mock("./instance-skills.schema.js", () => ({
-  instanceSkills: {
-    instanceId: "instance_id",
+  agentSkills: {
+    agentId: "agent_id",
     skillVersionId: "skill_version_id",
     enabled: "enabled",
   },
@@ -111,12 +111,12 @@ import {
   recomputeInstanceTools,
   seedInstanceTools,
 } from "./instance-tools.store.js";
-import { asInstanceUuid } from "./identifiers.js";
+import { asAgentUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-const INSTANCE_UUID = asInstanceUuid("uuid-instance-1");
+const INSTANCE_UUID = asAgentUuid("uuid-instance-1");
 
 describe("instance-tools.store", () => {
   beforeEach(() => {
@@ -227,9 +227,9 @@ describe("instance-tools.store", () => {
       expect(mockTx.insert).toHaveBeenCalledTimes(1);
       // Inserted rows should be 3: 1 global + 1 skill + 1 manual
       expect(insertChain.values).toHaveBeenCalledWith([
-        { instanceId: INSTANCE_UUID, toolId: "tool-global-1", source: "global" },
-        { instanceId: INSTANCE_UUID, toolId: "tool-spawn", source: "skill" },
-        { instanceId: INSTANCE_UUID, toolId: "tool-manual-1", source: "manual" },
+        { agentId: INSTANCE_UUID, toolId: "tool-global-1", source: "global" },
+        { agentId: INSTANCE_UUID, toolId: "tool-spawn", source: "skill" },
+        { agentId: INSTANCE_UUID, toolId: "tool-manual-1", source: "manual" },
       ]);
     });
 
@@ -293,7 +293,7 @@ describe("instance-tools.store", () => {
 
       // Only one row inserted — global wins (iterated first), skill dedup skips it
       expect(insertChain.values).toHaveBeenCalledWith([
-        { instanceId: INSTANCE_UUID, toolId: "tool-shared", source: "global" },
+        { agentId: INSTANCE_UUID, toolId: "tool-shared", source: "global" },
       ]);
     });
 
@@ -333,9 +333,9 @@ describe("instance-tools.store", () => {
       await seedInstanceTools(INSTANCE_UUID);
 
       expect(insertChain.values).toHaveBeenCalledWith([
-        { instanceId: INSTANCE_UUID, toolId: "tool-create", source: "manual" },
-        { instanceId: INSTANCE_UUID, toolId: "tool-read", source: "manual" },
-        { instanceId: INSTANCE_UUID, toolId: "tool-spawn", source: "manual" },
+        { agentId: INSTANCE_UUID, toolId: "tool-create", source: "manual" },
+        { agentId: INSTANCE_UUID, toolId: "tool-read", source: "manual" },
+        { agentId: INSTANCE_UUID, toolId: "tool-spawn", source: "manual" },
       ]);
       expect(insertChain.onConflictDoNothing).toHaveBeenCalled();
     });

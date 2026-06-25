@@ -89,7 +89,7 @@ export class AuthGuard implements CanActivate {
         request.user = {
           kind: "instance",
           instanceSlug: principal.slug,
-          instanceId: principal.instanceId,
+          agentId: principal.agentId,
         };
         return true;
       }

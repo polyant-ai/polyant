@@ -3,15 +3,15 @@
 import { Controller, Get, Post, Delete, Param, Query, Body, BadRequestException, NotFoundException } from "@nestjs/common";
 import { searchMemories, deleteAllMemories, upsertMemory, deleteMemoryForInstance } from "../../memory/memory-store.js";
 import { embedMany, resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
-import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "../../instances/identifiers.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-function requireInstanceId(instanceId: string | undefined): InstanceSlug {
-  const trimmed = instanceId?.trim();
-  if (!trimmed) throw new BadRequestException("instanceId is required");
-  return asInstanceSlug(trimmed);
+function requireInstanceId(agentId: string | undefined): AgentSlug {
+  const trimmed = agentId?.trim();
+  if (!trimmed) throw new BadRequestException("agentId is required");
+  return asAgentSlug(trimmed);
 }
 
 @Controller("memories")
@@ -19,14 +19,14 @@ export class MemoriesController {
   @RequirePermission(Permission.MEMORY_READ)
   @Get()
   async listAll(
-    @Query("instanceId") instanceId?: string,
+    @Query("agentId") agentId?: string,
     @Query("search") search?: string,
     @Query("category") category?: string,
     @Query("limit") limitStr?: string,
     @Query("offset") offsetStr?: string,
     @CurrentUser() user?: AuthenticatedUser,
   ) {
-    const uid = requireInstanceId(instanceId);
+    const uid = requireInstanceId(agentId);
     const limit = Math.min(Math.max(limitStr ? Number(limitStr) || 20 : 20, 1), 100);
     const offset = Math.max(offsetStr ? Number(offsetStr) || 0 : 0, 0);
 
@@ -37,7 +37,7 @@ export class MemoriesController {
       offset,
       memories: result.memories.map((m) => ({
         id: m.id,
-        instanceId: m.instanceId,
+        agentId: m.agentId,
         content: m.content,
         category: m.category,
         importance: m.importance,
@@ -51,9 +51,9 @@ export class MemoriesController {
   @RequirePermission(Permission.MEMORY_WRITE)
   @Post()
   async create(
-    @Body() body: { instanceId?: string; content: string; category?: string; importance?: number },
+    @Body() body: { agentId?: string; content: string; category?: string; importance?: number },
   ) {
-    const uid = requireInstanceId(body.instanceId);
+    const uid = requireInstanceId(body.agentId);
     if (!body.content?.trim()) {
       throw new BadRequestException("content is required");
     }
@@ -64,7 +64,7 @@ export class MemoriesController {
     });
     const [embedding] = await embedMany([body.content], embCtx);
     const result = await upsertMemory({
-      instanceId: uid,
+      agentId: uid,
       content: body.content.trim(),
       category: body.category ?? "general",
       importance: body.importance ?? 5,
@@ -79,10 +79,10 @@ export class MemoriesController {
   @Delete(":id")
   async remove(
     @Param("id") id: string,
-    @Query("instanceId") instanceId?: string,
+    @Query("agentId") agentId?: string,
     @CurrentUser() user?: AuthenticatedUser,
   ) {
-    const uid = requireInstanceId(instanceId);
+    const uid = requireInstanceId(agentId);
     const deleted = await deleteMemoryForInstance(id, uid, user?.orgId);
     if (!deleted) throw new NotFoundException(`Memory "${id}" not found`);
     return { deleted: true };
@@ -91,10 +91,10 @@ export class MemoriesController {
   @RequirePermission(Permission.MEMORY_WRITE)
   @Delete()
   async removeAll(
-    @Query("instanceId") instanceId?: string,
+    @Query("agentId") agentId?: string,
     @CurrentUser() user?: AuthenticatedUser,
   ) {
-    const uid = requireInstanceId(instanceId);
+    const uid = requireInstanceId(agentId);
     await deleteAllMemories(uid, user?.orgId);
     return { deleted: true };
   }

@@ -71,8 +71,8 @@ function makeConversation(overrides: Partial<ConversationListItem> = {}): Conver
     title: "Test Conversation",
     summary: "A summary",
     channel: "telegram",
-    instanceId: "inst-1",
-    instanceName: "My Instance",
+    agentId: "inst-1",
+    agentName: "My Instance",
     messageCount: 5,
     totalTokens: 1200,
     totalCost: 0.0035,
@@ -123,7 +123,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 describe("ConversationsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockInstancesList.mockResolvedValue({ instances: [] });
+    mockInstancesList.mockResolvedValue({ agents: [] });
     mockConversationsList.mockResolvedValue({
       conversations: [],
       total: 0,
@@ -199,7 +199,7 @@ describe("ConversationsPage", () => {
 
   it("fetches instances for the filter dropdown", async () => {
     const instance = makeInstance();
-    mockInstancesList.mockResolvedValue({ instances: [instance] });
+    mockInstancesList.mockResolvedValue({ agents: [instance] });
 
     render(<ConversationsPage />);
 
@@ -213,7 +213,7 @@ describe("ConversationsPage", () => {
 
     await waitFor(() => {
       expect(mockConversationsList).toHaveBeenCalledWith({
-        instanceId: undefined,
+        agentId: undefined,
         search: undefined,
         limit: 20,
         offset: 0,

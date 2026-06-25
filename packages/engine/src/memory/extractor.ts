@@ -10,7 +10,7 @@ import type { ExtractedFact } from "./types.js";
 import { memoryLog } from "./memory-logger.js";
 import { emitMemory } from "../activity-stream/emitters/emit-memory.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 function buildExtractionPrompt(): string {
   const now = new Date();
@@ -45,7 +45,7 @@ OUTPUT FORMAT (strict JSON array):
  */
 export async function extractMemories(
   conversationId: string,
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   apiKeys?: ChatRequest["apiKeys"],
   provider?: string,
   langsmith?: { apiKey: string; project: string },
@@ -80,7 +80,7 @@ export async function extractMemories(
       system: buildExtractionPrompt(),
       messages: [{ role: "user", content: transcript }],
     },
-    { conversationId, instanceId, callType: "service" },
+    { conversationId, agentId, callType: "service" },
   );
 
   // 4. Parse JSON response
@@ -89,11 +89,11 @@ export async function extractMemories(
     const cleaned = response.text.trim().replace(/^```json?\n?/, "").replace(/\n?```$/, "");
     facts = JSON.parse(cleaned);
     if (!Array.isArray(facts)) {
-      memoryLog.error("MemoryExtractor", `[${instanceId}] LLM returned non-array response`);
+      memoryLog.error("MemoryExtractor", `[${agentId}] LLM returned non-array response`);
       return [];
     }
   } catch {
-    memoryLog.error("MemoryExtractor", `[${instanceId}] Failed to parse LLM extraction response: ${response.text}`);
+    memoryLog.error("MemoryExtractor", `[${agentId}] Failed to parse LLM extraction response: ${response.text}`);
     return [];
   }
 
@@ -101,13 +101,13 @@ export async function extractMemories(
 
   // 5. Generate embeddings for all extracted facts (batched)
   const contents = facts.map((f) => f.content);
-  const ctx = await resolveEmbeddingContext(instanceId);
+  const ctx = await resolveEmbeddingContext(agentId);
   const embeddings = await embedMany(contents, ctx);
 
   // 6. Upsert each memory sequentially (with deduplication via cosine similarity).
   //    Sequential — not Promise.all — to avoid SERIALIZABLE serialization_failure
   //    (40001) on the predicate scan inside `upsertMemory`. Two concurrent
-  //    transactions reading the same `WHERE instance_id=$1` predicate range get
+  //    transactions reading the same `WHERE agent_id=$1` predicate range get
   //    flagged as a r/w pivot by Postgres and aborted; even with retries+jitter
   //    they re-collide. Sequential upsert costs ~10-30 ms more in a fire-and-forget
   //    path that doesn't block the user-facing response, in exchange for zero
@@ -117,7 +117,7 @@ export async function extractMemories(
   for (let i = 0; i < facts.length; i++) {
     const fact = facts[i];
     const result = await upsertMemory({
-      instanceId,
+      agentId,
       content: fact.content,
       category: fact.category,
       importance: fact.importance,
@@ -132,12 +132,12 @@ export async function extractMemories(
   const elapsed = Date.now() - start;
   const added = results.filter((r) => r.event === "ADD").length;
   const updated = results.filter((r) => r.event === "UPDATE").length;
-  memoryLog.info("MemoryExtractor", `[${instanceId}] ${results.length} fact(s) in ${elapsed}ms — added=${added} updated=${updated}`);
+  memoryLog.info("MemoryExtractor", `[${agentId}] ${results.length} fact(s) in ${elapsed}ms — added=${added} updated=${updated}`);
 
   // Activity-stream emit: one event per batch (never per-fact — would flood the panel).
   // Fire-and-forget; the emitter is safeEmit-wrapped so failures never bubble.
   if (results.length > 0) {
-    resolveInstanceMeta(instanceId)
+    resolveInstanceMeta(agentId)
       .then((instance) => {
         emitMemory({
           count: results.length,

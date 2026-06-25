@@ -19,7 +19,7 @@ export function cn(...inputs: ClassValue[]) {
  * `blob:`, etc.  This is the rendering-time guard for values that may
  * have been stored in the DB by a user (e.g. `instance.icon`).
  *
- * The engine API already returns `instance.icon` as a `/api/instances/<slug>/icon?v=...`
+ * The engine API already returns `instance.icon` as a `/api/agents/<slug>/icon?v=...`
  * relative URL, so the legitimate path is preserved.  Raw `data:` URIs are
  * only valid in transient local-preview contexts (e.g. canvas output before
  * upload) and must NOT use this guard.

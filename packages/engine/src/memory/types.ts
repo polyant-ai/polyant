@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 /** A memory stored in PostgreSQL. */
 export interface Memory {
   id: string;
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   content: string;
   category: string;
   importance: number;

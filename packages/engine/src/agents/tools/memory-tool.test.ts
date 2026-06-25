@@ -21,7 +21,7 @@ import { getToolRegistry, buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 const ctx = {
-  instanceId: "user-1",
+  agentId: "user-1",
   audit: createMockAudit(),
 } as any;
 
@@ -60,7 +60,7 @@ describe("saveMemory", () => {
 
     expect(mockEmbed).toHaveBeenCalledWith("I like coffee", expect.objectContaining({ dimensions: 1024 }));
     expect(mockUpsertMemory).toHaveBeenCalledWith({
-      instanceId: "user-1",
+      agentId: "user-1",
       content: "I like coffee",
       category: "general",
       importance: 7,

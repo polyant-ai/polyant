@@ -3,8 +3,8 @@
 import type { IncomingMessage } from "../channels/types.js";
 import { isAutoTask } from "../pipeline.js";
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
-import { resolveInstanceId } from "../instances/resolve-instance-id.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { resolveAgentId } from "../instances/resolve-agent-id.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 import { conversationStore } from "../conversations/index.js";
 import { createAuditLogger } from "../audit/audit-logger.js";
 import { evaluateOptout } from "./optout.guard.js";
@@ -27,7 +27,7 @@ export async function runOptoutGate(msg: IncomingMessage): Promise<OptoutGateRes
     return { proceed: true };
   }
 
-  const instanceSlug = msg.instanceId;
+  const instanceSlug = msg.agentId;
   const config = await resolveInstanceConfig(instanceSlug);
   if (!config.optout.enabled) return { proceed: true };
 
@@ -39,13 +39,13 @@ export async function runOptoutGate(msg: IncomingMessage): Promise<OptoutGateRes
 
   // stop | resume — persist the transition, audit, and the conversation exchange.
   const newStatus = action.kind === "stop" ? "opted_out" : "opted_in";
-  const instanceUuid = await resolveInstanceId(asInstanceSlug(instanceSlug));
+  const instanceUuid = await resolveAgentId(asAgentSlug(instanceSlug));
   const audit = createAuditLogger(`optout:${action.kind}`, instanceSlug, undefined);
   const started = Date.now();
   try {
     if (instanceUuid) {
       await setOptoutStatus({
-        instanceId: instanceUuid,
+        agentId: instanceUuid,
         instanceSlug,
         channelType: msg.channelType,
         channelId: msg.channelId,
@@ -79,9 +79,9 @@ export async function runOptoutGate(msg: IncomingMessage): Promise<OptoutGateRes
  * Best-effort: a persistence failure never blocks honoring the opt-out.
  */
 async function persistOptoutExchange(msg: IncomingMessage, reply: string): Promise<void> {
-  const conversationId = `${msg.instanceId}:${msg.channelType}:${msg.channelId}`;
+  const conversationId = `${msg.agentId}:${msg.channelType}:${msg.channelId}`;
   try {
-    await conversationStore.ensureConversation(conversationId, msg.instanceId, {
+    await conversationStore.ensureConversation(conversationId, msg.agentId, {
       channel: msg.channelType,
       userIdentifier: msg.userName,
       source: "user",

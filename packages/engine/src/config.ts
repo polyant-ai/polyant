@@ -5,7 +5,7 @@ import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
-import { asInstanceSlug } from "./instances/identifiers.js";
+import { asAgentSlug } from "./instances/identifiers.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -284,4 +284,4 @@ export const config = loadConfig();
 
 /** Default instance for mono-instance system. Override via DEFAULT_INSTANCE_ID env var. */
 // CONVENTION-EXCEPTION: reads process.env directly — documented exception in CLAUDE.md (DEFAULT_INSTANCE_ID).
-export const DEFAULT_INSTANCE_ID = asInstanceSlug(process.env.DEFAULT_INSTANCE_ID ?? "default");
+export const DEFAULT_INSTANCE_ID = asAgentSlug(process.env.DEFAULT_INSTANCE_ID ?? "default");

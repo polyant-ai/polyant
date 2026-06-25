@@ -25,14 +25,14 @@ vi.mock("../../utils/error.js", () => ({
 
 import { registerTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
-import { OA_WORKSPACES_ROOT } from "./shared/workspace-utils.js";
+import { OA_SANDBOX_ROOT } from "./shared/workspace-utils.js";
 import "./list-directory.tool.js";
 
 const def = vi.mocked(registerTool).mock.calls[0][0];
 
 function buildTool(opts: { conversationId?: string | undefined } = { conversationId: "conv-1" }) {
   const ctx = {
-    instanceId: "test-instance",
+    agentId: "test-instance",
     secrets: {},
     audit: createMockAudit(),
     conversationId: opts.conversationId,
@@ -45,7 +45,7 @@ beforeEach(() => {
   mockRealpath.mockImplementation(async (p: string) => p);
 });
 
-const WORKSPACE_DIR = `${OA_WORKSPACES_ROOT}/test-instance/conversations/conv-1`;
+const WORKSPACE_DIR = `${OA_SANDBOX_ROOT}/test-instance/conversations/conv-1`;
 
 describe("listDirectory tool", () => {
   it("registers with correct metadata", () => {
@@ -134,7 +134,7 @@ describe("listDirectory tool", () => {
   });
 
   it("blocks absolute paths belonging to another conversation", async () => {
-    const otherPath = `${OA_WORKSPACES_ROOT}/test-instance/conversations/other-conv`;
+    const otherPath = `${OA_SANDBOX_ROOT}/test-instance/conversations/other-conv`;
     const { execute } = buildTool();
 
     const result = await execute({ path: otherPath }) as { error: string };

@@ -13,7 +13,7 @@ import { users } from "../auth/users.schema.js";
 
 /**
  * Multi-tenancy roots (RBAC Stream 0). The hierarchy is
- *   Organization -> Workspace -> Agent (live table still named `instances`).
+ *   Organization -> Workspace -> Agent (live table still named `agents`).
  *
  * By default there is exactly one Organization (`is_default = true`) and one
  * Workspace inside it; the management API stays single-org. The schema is

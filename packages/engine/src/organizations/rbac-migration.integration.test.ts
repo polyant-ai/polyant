@@ -86,9 +86,9 @@ describe.skipIf(!DB_AVAILABLE)("migration 0051 — RBAC tenancy schema", () => {
     }
   });
 
-  it("gives every workspace_id on instances the default workspace (NOT NULL)", async () => {
+  it("gives every workspace_id on agents the default workspace (NOT NULL)", async () => {
     const nulls = await queryClient<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM instances WHERE workspace_id IS NULL`;
+      SELECT count(*)::int AS n FROM agents WHERE workspace_id IS NULL`;
     expect(nulls[0].n).toBe(0);
   });
 

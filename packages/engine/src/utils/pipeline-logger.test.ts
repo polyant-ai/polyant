@@ -136,38 +136,38 @@ describe("pipelineLog", () => {
     });
   });
 
-  describe("instanceId propagation", () => {
-    it("includes instanceId in llmCall", () => {
+  describe("agentId propagation", () => {
+    it("includes agentId in llmCall", () => {
       pipelineLog.llmCall("my-instance", "standard", "gpt-4o", true);
       expect(allOutput()).toContain("[my-instance]");
     });
 
-    it("includes instanceId in llmResponse", () => {
+    it("includes agentId in llmResponse", () => {
       pipelineLog.llmResponse("my-instance", "gpt-4o", { prompt: 100, completion: 50 }, 500, 0);
       expect(allOutput()).toContain("[my-instance]");
     });
 
-    it("includes instanceId in toolCall", () => {
+    it("includes agentId in toolCall", () => {
       pipelineLog.toolCall("my-instance", "searchMemory", { query: "test" });
       expect(allOutput()).toContain("[my-instance]");
     });
 
-    it("includes instanceId in supervisorStart", () => {
+    it("includes agentId in supervisorStart", () => {
       pipelineLog.supervisorStart("my-instance", 5);
       expect(allOutput()).toContain("[my-instance]");
     });
 
-    it("includes instanceId in preEnrichment", () => {
+    it("includes agentId in preEnrichment", () => {
       pipelineLog.preEnrichment("my-instance", true);
       expect(allOutput()).toContain("[my-instance]");
     });
 
-    it("includes instanceId in response()", () => {
+    it("includes agentId in response()", () => {
       pipelineLog.response("my-instance", 1000);
       expect(allOutput()).toContain("[my-instance]");
     });
 
-    it("does not include instanceId when empty string is passed", () => {
+    it("does not include agentId when empty string is passed", () => {
       pipelineLog.llmCall("", "standard", "gpt-4o", true);
       expect(allOutput()).not.toContain("[]");
     });

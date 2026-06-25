@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { sql } from "drizzle-orm";
 import { db, queryClient } from "../database/client.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 import {
   searchMemories,
   deleteMemoryForInstance,
@@ -63,16 +63,16 @@ async function seedTenant(label: string): Promise<Tenant> {
     VALUES (${orgId}, ${slug}, ${`ws ${label}`}, false)
     RETURNING id`;
   await queryClient`
-    INSERT INTO instances (slug, name, workspace_id)
+    INSERT INTO agents (slug, name, workspace_id)
     VALUES (${slug}, ${`agent ${label}`}, ${workspaceId})`;
 
   const convId = `${slug}-conv`;
   await queryClient`
-    INSERT INTO conversations (conversation_id, instance_id, channel, source)
+    INSERT INTO conversations (conversation_id, agent_id, channel, source)
     VALUES (${convId}, ${slug}, 'web', 'user')`;
 
   const [{ id: memoryId }] = await queryClient<{ id: string }[]>`
-    INSERT INTO memories (instance_id, content, category, importance, embedding)
+    INSERT INTO memories (agent_id, content, category, importance, embedding)
     VALUES (${slug}, ${`secret of ${label}`}, 'general', 5, ${ZERO_EMBEDDING}::vector)
     RETURNING id`;
 
@@ -81,9 +81,9 @@ async function seedTenant(label: string): Promise<Tenant> {
 
 async function teardown(): Promise<void> {
   // Children first (FK order), all keyed by the run marker.
-  await queryClient`DELETE FROM memories WHERE instance_id LIKE ${MARKER + "%"}`;
-  await queryClient`DELETE FROM conversations WHERE instance_id LIKE ${MARKER + "%"}`;
-  await queryClient`DELETE FROM instances WHERE slug LIKE ${MARKER + "%"}`;
+  await queryClient`DELETE FROM memories WHERE agent_id LIKE ${MARKER + "%"}`;
+  await queryClient`DELETE FROM conversations WHERE agent_id LIKE ${MARKER + "%"}`;
+  await queryClient`DELETE FROM agents WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM workspaces WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
 }
@@ -104,28 +104,28 @@ describe.skipIf(!DB_AVAILABLE)("RBAC Stream 2 — store-layer cross-org isolatio
 
   describe("memories", () => {
     it("should_return_zero_rows_when_OrgA_caller_passes_OrgB_agent_slug (param-IDOR)", async () => {
-      const result = await searchMemories(asInstanceSlug(orgB.slug), { orgId: orgA.orgId });
+      const result = await searchMemories(asAgentSlug(orgB.slug), { orgId: orgA.orgId });
       expect(result.total).toBe(0);
       expect(result.memories).toHaveLength(0);
     });
 
     it("should_return_OrgB_rows_for_the_owning_org (control)", async () => {
-      const result = await searchMemories(asInstanceSlug(orgB.slug), { orgId: orgB.orgId });
+      const result = await searchMemories(asAgentSlug(orgB.slug), { orgId: orgB.orgId });
       expect(result.total).toBe(1);
       expect(result.memories[0].content).toBe("secret of b");
     });
 
     it("should_not_delete_an_OrgB_memory_for_an_OrgA_caller (param-IDOR on delete)", async () => {
-      const deleted = await deleteMemoryForInstance(orgB.memoryId, asInstanceSlug(orgB.slug), orgA.orgId);
+      const deleted = await deleteMemoryForInstance(orgB.memoryId, asAgentSlug(orgB.slug), orgA.orgId);
       expect(deleted).toBe(false);
       // The row must still be there for its owner.
-      const stillThere = await searchMemories(asInstanceSlug(orgB.slug), { orgId: orgB.orgId });
+      const stillThere = await searchMemories(asAgentSlug(orgB.slug), { orgId: orgB.orgId });
       expect(stillThere.total).toBe(1);
     });
 
     it("should_not_delete_all_OrgB_memories_for_an_OrgA_caller", async () => {
-      await deleteAllMemories(asInstanceSlug(orgB.slug), orgA.orgId);
-      const stillThere = await searchMemories(asInstanceSlug(orgB.slug), { orgId: orgB.orgId });
+      await deleteAllMemories(asAgentSlug(orgB.slug), orgA.orgId);
+      const stillThere = await searchMemories(asAgentSlug(orgB.slug), { orgId: orgB.orgId });
       expect(stillThere.total).toBe(1);
     });
   });
@@ -146,9 +146,9 @@ describe.skipIf(!DB_AVAILABLE)("RBAC Stream 2 — store-layer cross-org isolatio
         orgId: orgA.orgId,
         limit: 100,
       });
-      const slugs = new Set(conversations.map((c) => c.instanceId));
-      expect(slugs.has(asInstanceSlug(orgA.slug))).toBe(true);
-      expect(slugs.has(asInstanceSlug(orgB.slug))).toBe(false);
+      const slugs = new Set(conversations.map((c) => c.agentId));
+      expect(slugs.has(asAgentSlug(orgA.slug))).toBe(true);
+      expect(slugs.has(asAgentSlug(orgB.slug))).toBe(false);
     });
   });
 });

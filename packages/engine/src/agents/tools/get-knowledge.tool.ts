@@ -30,7 +30,7 @@ registerTool({
     }),
     execute: async ({ filename }: { filename: string }) => {
       try {
-        const doc = await getDocumentByFilename(ctx.instanceId, filename);
+        const doc = await getDocumentByFilename(ctx.agentId, filename);
         if (!doc) {
           ctx.audit.log({
             action: "knowledge.get",

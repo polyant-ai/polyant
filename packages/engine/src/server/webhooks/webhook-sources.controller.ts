@@ -5,8 +5,8 @@ import {
   listEventSourcesWithDefinitions, createEventSource, updateEventSource, deleteEventSource,
   rotateWebhookToken, listDefinitions, createDefinition, updateDefinition, deleteDefinition,
 } from "../../webhooks/webhook-sources.store.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { config } from "../../config.js";
 import {
   createEventSourceSchema, updateEventSourceSchema,
@@ -19,12 +19,12 @@ function buildWebhookUrl(token: string): string {
   return `${base}/webhooks/${token}`;
 }
 
-@Controller("api/instances/:slug/event-sources")
+@Controller("api/agents/:slug/event-sources")
 export class EventSourcesController {
   @RequirePermission(Permission.ROOM_READ)
   @Get()
   async list(@Param("slug") slug: string) {
-    const sources = await listEventSourcesWithDefinitions(asInstanceSlug(slug));
+    const sources = await listEventSourcesWithDefinitions(asAgentSlug(slug));
     return sources.map((s) => ({
       ...s,
       config: Object.fromEntries(
@@ -45,10 +45,10 @@ export class EventSourcesController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    const agentId = await resolveAgentId(asAgentSlug(slug));
+    if (!agentId) throw new NotFoundException("Agent not found");
 
-    const result = await createEventSource(instanceId, parsed.data);
+    const result = await createEventSource(agentId, parsed.data);
     return {
       ...result,
       webhookUrl: buildWebhookUrl(result.webhookToken),
@@ -67,8 +67,8 @@ export class EventSourcesController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    const agentId = await resolveAgentId(asAgentSlug(slug));
+    if (!agentId) throw new NotFoundException("Agent not found");
 
     // Strip masked values to prevent overwriting real secrets with mask placeholders
     const data = { ...parsed.data };
@@ -79,7 +79,7 @@ export class EventSourcesController {
       data.config = Object.keys(cleaned).length > 0 ? cleaned : undefined;
     }
 
-    await updateEventSource(id, instanceId, data);
+    await updateEventSource(id, agentId, data);
     return { success: true };
   }
 
@@ -89,10 +89,10 @@ export class EventSourcesController {
     @Param("slug") slug: string,
     @Param("id") id: string,
   ) {
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    const agentId = await resolveAgentId(asAgentSlug(slug));
+    if (!agentId) throw new NotFoundException("Agent not found");
 
-    await deleteEventSource(id, instanceId);
+    await deleteEventSource(id, agentId);
     return { deleted: true };
   }
 
@@ -102,10 +102,10 @@ export class EventSourcesController {
     @Param("slug") slug: string,
     @Param("id") id: string,
   ) {
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    const agentId = await resolveAgentId(asAgentSlug(slug));
+    if (!agentId) throw new NotFoundException("Agent not found");
 
-    const newToken = await rotateWebhookToken(id, instanceId);
+    const newToken = await rotateWebhookToken(id, agentId);
     return {
       webhookToken: newToken,
       webhookUrl: buildWebhookUrl(newToken),
@@ -118,10 +118,10 @@ export class EventSourcesController {
     @Param("slug") slug: string,
     @Param("id") id: string,
   ) {
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    const agentId = await resolveAgentId(asAgentSlug(slug));
+    if (!agentId) throw new NotFoundException("Agent not found");
 
-    return listDefinitions(id, instanceId);
+    return listDefinitions(id, agentId);
   }
 
   @RequirePermission(Permission.ROOM_WRITE)
@@ -136,10 +136,10 @@ export class EventSourcesController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    const agentId = await resolveAgentId(asAgentSlug(slug));
+    if (!agentId) throw new NotFoundException("Agent not found");
 
-    return createDefinition(id, instanceId, parsed.data);
+    return createDefinition(id, agentId, parsed.data);
   }
 
   @RequirePermission(Permission.ROOM_WRITE)
@@ -155,10 +155,10 @@ export class EventSourcesController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    const agentId = await resolveAgentId(asAgentSlug(slug));
+    if (!agentId) throw new NotFoundException("Agent not found");
 
-    await updateDefinition(defId, id, instanceId, parsed.data);
+    await updateDefinition(defId, id, agentId, parsed.data);
     return { success: true };
   }
 
@@ -169,10 +169,10 @@ export class EventSourcesController {
     @Param("id") id: string,
     @Param("defId") defId: string,
   ) {
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    const agentId = await resolveAgentId(asAgentSlug(slug));
+    if (!agentId) throw new NotFoundException("Agent not found");
 
-    await deleteDefinition(defId, id, instanceId);
+    await deleteDefinition(defId, id, agentId);
     return { deleted: true };
   }
 }

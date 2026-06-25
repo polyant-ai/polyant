@@ -10,7 +10,7 @@ import {
 import { getAnalytics } from "../../analytics/analytics.store.js";
 import { getLatencyAnalytics } from "../../analytics/latency.store.js";
 import { findInstanceBySlug } from "../../instances/store.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { parseDateRange } from "../utils/parse-date-range.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
@@ -35,17 +35,17 @@ export class AnalyticsController {
     return { ...analytics, latency };
   }
 
-  // GET /api/instances/:slug/analytics — per-instance
+  // GET /api/agents/:slug/analytics — per-instance
   @RequirePermission(Permission.ANALYTICS_READ)
-  @Get("instances/:slug/analytics")
+  @Get("agents/:slug/analytics")
   async perInstance(
     @Param("slug") slug: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
     @CurrentUser() user?: AuthenticatedUser,
   ) {
-    const instance = await findInstanceBySlug(asInstanceSlug(slug));
-    if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
+    const instance = await findInstanceBySlug(asAgentSlug(slug));
+    if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
 
     const range = parseDateRange(from, to);
     const orgId = user?.orgId;

@@ -11,7 +11,7 @@ import { MessageCoordinator } from "./message-coordinator.js";
 import { config } from "../config.js";
 import { emitOutbound } from "../activity-stream/emitters/emit-outbound.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 import { getOptoutStatus } from "../optout/index.js";
 
 /**
@@ -45,17 +45,17 @@ export class ChannelManager {
     const handler = this.messageHandler;
 
     const loggedPipeline: MessageHandler = async (msg: IncomingMessage, signal?: AbortSignal): Promise<OutgoingMessage> => {
-      console.log(`[${msg.channelType}] [${msg.instanceId}] Incoming message from ${msg.userName ?? "unknown"}`);
+      console.log(`[${msg.channelType}] [${msg.agentId}] Incoming message from ${msg.userName ?? "unknown"}`);
       try {
         const response = await handler(msg, signal);
-        console.log(`[${msg.channelType}] [${msg.instanceId}] Response sent`);
+        console.log(`[${msg.channelType}] [${msg.agentId}] Response sent`);
         return response;
       } catch (err) {
         // Let AbortErrors bubble up so the coordinator can recognise a cancel-and-restart.
         if (signal?.aborted || (err instanceof Error && err.name === "AbortError")) {
           throw err;
         }
-        console.error("[%s] [%s] Error handling message:", msg.channelType, msg.instanceId, err);
+        console.error("[%s] [%s] Error handling message:", msg.channelType, msg.agentId, err);
         return {
           text: "I apologize, an error occurred while processing your request. Please try again shortly.",
         };
@@ -154,7 +154,7 @@ export class ChannelManager {
 
   /** Start all enabled channels for an instance (reads from DB). */
   async startAllForInstance(instanceSlug: string): Promise<void> {
-    const channels = await listEnabledChannelConfigs(asInstanceSlug(instanceSlug));
+    const channels = await listEnabledChannelConfigs(asAgentSlug(instanceSlug));
 
     await Promise.allSettled(
       channels.map((ch) => this.startChannel(instanceSlug, ch.channelType, ch.config)),
@@ -177,7 +177,7 @@ export class ChannelManager {
     this.adapters.delete(instanceSlug);
   }
 
-  /** Gracefully shut down all adapters across all instances. */
+  /** Gracefully shut down all adapters across all agents. */
   async shutdownAll(): Promise<void> {
     const promises: Promise<void>[] = [];
     for (const [slug] of this.adapters) {
@@ -195,7 +195,7 @@ export class ChannelManager {
    */
   private async isOptoutSuppressed(instanceSlug: string, channelType: string, channelId: string): Promise<boolean> {
     try {
-      const status = await getOptoutStatus(asInstanceSlug(instanceSlug), channelType, channelId);
+      const status = await getOptoutStatus(asAgentSlug(instanceSlug), channelType, channelId);
       return status === "opted_out";
     } catch (err) {
       console.error("[channel-manager] opt-out check failed (allowing send):", err);
@@ -322,13 +322,13 @@ export class ChannelManager {
 
   /** Auto-disable a channel in DB after adapter initialization failure. */
   private async autoDisableChannel(instanceSlug: string, channelType: string): Promise<void> {
-    await disableChannel(asInstanceSlug(instanceSlug), channelType);
+    await disableChannel(asAgentSlug(instanceSlug), channelType);
     console.warn(`Channel auto-disabled: ${channelType} for instance "${instanceSlug}" — re-enable from admin panel after fixing credentials`);
   }
 
   /** Create the appropriate adapter based on channel type. */
   private createAdapter(instanceSlug: string, channelType: ChannelType, config: Record<string, unknown>): ChannelAdapter | null {
-    const slug = asInstanceSlug(instanceSlug);
+    const slug = asAgentSlug(instanceSlug);
     switch (channelType) {
       case "telegram":
         return new TelegramAdapter(slug, config as unknown as TelegramConfig);

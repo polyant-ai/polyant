@@ -16,7 +16,7 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Polyant",
   description:
-    "Open-source platform for building AI assistants with long-term memory, multi-channel support, and per-instance customization.",
+    "Open-source platform for building AI assistants with long-term memory, multi-channel support, and per-agent customization.",
   applicationName: "Polyant",
   authors: [{ name: "Exelab S.r.l.", url: "https://github.com/polyant-ai/polyant" }],
   keywords: ["ai", "assistant", "llm", "polyant", "agent"],
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Polyant",
     description:
-      "Open-source platform for building AI assistants with long-term memory, multi-channel support, and per-instance customization.",
+      "Open-source platform for building AI assistants with long-term memory, multi-channel support, and per-agent customization.",
     siteName: "Polyant",
     type: "website",
   },
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     card: "summary",
     title: "Polyant",
     description:
-      "Open-source platform for building AI assistants with long-term memory, multi-channel support, and per-instance customization.",
+      "Open-source platform for building AI assistants with long-term memory, multi-channel support, and per-agent customization.",
   },
   robots: {
     index: false,

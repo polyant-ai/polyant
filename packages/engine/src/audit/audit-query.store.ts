@@ -3,7 +3,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { type DateRange, toISO, asRows, instanceFilter } from "../utils/query-helpers.js";
-import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
 
 export type { DateRange };
@@ -12,7 +12,7 @@ export type { DateRange };
 
 export interface AuditLogRow {
   id: string;
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   conversationId: string | null;
   toolName: string;
   action: string;
@@ -42,7 +42,7 @@ export interface AuditStatsResult {
 // ── List (paginated + filtered) ───────────────────────────────────
 
 export async function listAuditLogs(opts: {
-  instanceId?: InstanceSlug;
+  agentId?: AgentSlug;
   toolName?: string;
   action?: string;
   search?: string;
@@ -55,9 +55,9 @@ export async function listAuditLogs(opts: {
   const limit = Math.min(opts.limit ?? 50, 200);
   const offset = opts.offset ?? 0;
 
-  const instFilt = instanceFilter(opts.instanceId);
+  const instFilt = instanceFilter(opts.agentId);
   // Cross-org gate: aggregate audit lists stay scoped to the caller-org agents;
-  // a foreign-org instanceId param yields zero rows.
+  // a foreign-org agentId param yields zero rows.
   const orgFilt = buildOrgScopedAgentFilterFragment(opts.orgId);
   const toolFilt = opts.toolName ? sql`AND tool_name = ${opts.toolName}` : sql``;
   const actionFilt = opts.action ? sql`AND action = ${opts.action}` : sql``;
@@ -72,7 +72,7 @@ export async function listAuditLogs(opts: {
   const [countResult, itemsResult] = await Promise.all([
     db.execute(sql`SELECT COUNT(*)::int AS total FROM tool_audit_logs ${where}`),
     db.execute(sql`
-      SELECT id, instance_id, conversation_id, tool_name, action, details, success, error, duration_ms, output, created_at
+      SELECT id, agent_id, conversation_id, tool_name, action, details, success, error, duration_ms, output, created_at
       FROM tool_audit_logs
       ${where}
       ORDER BY created_at DESC
@@ -83,7 +83,7 @@ export async function listAuditLogs(opts: {
   const total = asRows<{ total: number }>(countResult)[0]?.total ?? 0;
   const items = asRows<{
     id: string;
-    instance_id: string;
+    agent_id: string;
     conversation_id: string | null;
     tool_name: string;
     action: string;
@@ -95,7 +95,7 @@ export async function listAuditLogs(opts: {
     created_at: string;
   }>(itemsResult).map((r) => ({
     id: r.id,
-    instanceId: asInstanceSlug(r.instance_id),
+    agentId: asAgentSlug(r.agent_id),
     conversationId: r.conversation_id,
     toolName: r.tool_name,
     action: r.action,
@@ -113,12 +113,12 @@ export async function listAuditLogs(opts: {
 // ── Stats ─────────────────────────────────────────────────────────
 
 export async function getAuditStats(opts: {
-  instanceId?: InstanceSlug;
+  agentId?: AgentSlug;
   from?: Date;
   to?: Date;
   orgId?: string;
 }): Promise<AuditStatsResult> {
-  const instFilt = instanceFilter(opts.instanceId);
+  const instFilt = instanceFilter(opts.agentId);
   const orgFilt = buildOrgScopedAgentFilterFragment(opts.orgId);
   const fromFilt = opts.from ? sql`AND created_at >= ${toISO(opts.from)}` : sql``;
   const toFilt = opts.to ? sql`AND created_at <= ${toISO(opts.to)}` : sql``;

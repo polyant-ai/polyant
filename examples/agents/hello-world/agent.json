@@ -1,7 +1,7 @@
 {
   "slug": "hello-world",
   "name": "Hello World",
-  "description": "Minimal example instance — a concise coding-focused assistant",
+  "description": "Minimal example agent — a concise coding-focused assistant",
   "provider": "openai",
   "model": "gpt-4.1-mini",
   "memoryEnabled": true,

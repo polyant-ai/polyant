@@ -2,7 +2,7 @@
 
 import { pgTable, uuid, text, integer, real, timestamp, boolean, index } from "drizzle-orm/pg-core";
 import type { AILogEntry, ModelTier } from "./types.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 export const aiLogs = pgTable(
   "ai_logs",
@@ -20,14 +20,14 @@ export const aiLogs = pgTable(
     reasoningChars: integer("reasoning_chars").notNull().default(0),
     stepCount: integer("step_count").notNull().default(0),
     conversationId: text("conversation_id"),
-    instanceId: text("instance_id"),
+    agentId: text("agent_id"),
     callType: text("call_type").notNull().default("conversation"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
-    index("idx_ai_logs_instance_id").on(table.instanceId),
+    index("idx_ai_logs_instance_id").on(table.agentId),
     index("idx_ai_logs_created_at").on(table.createdAt),
-    index("idx_ai_logs_instance_created").on(table.instanceId, table.createdAt),
+    index("idx_ai_logs_instance_created").on(table.agentId, table.createdAt),
   ],
 );
 
@@ -87,7 +87,7 @@ export class AILogger {
     reasoningChars: number,
     stepCount: number,
     conversationId?: string,
-    instanceId?: InstanceSlug,
+    agentId?: AgentSlug,
     callType?: "conversation" | "service",
   ): AILogEntry {
     // Sanitize numeric values — AI SDK may return undefined in some edge cases
@@ -106,7 +106,7 @@ export class AILogger {
       reasoningChars: safeInt(reasoningChars),
       stepCount: safeInt(stepCount),
       conversationId,
-      instanceId,
+      agentId,
       callType: callType ?? "conversation",
     };
   }

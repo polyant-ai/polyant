@@ -2,7 +2,7 @@
 
 import type { ModelMessage, Tool, UserContent } from "ai";
 import { tool as aiTool } from "ai";
-import type { InstanceSlug, InstanceUuid } from "../../instances/identifiers.js";
+import type { AgentSlug, AgentUuid } from "../../instances/identifiers.js";
 import { chat, chatStream, type ChatCallOptions } from "../../ai-gateway/index.js";
 import {
   getToolRegistry,
@@ -19,7 +19,7 @@ import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { config, DEFAULT_INSTANCE_ID } from "../../config.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { findInstanceBySlug } from "../../instances/store.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import type { ChatRequest } from "../../ai-gateway/types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import type { ConversationStateBuffer } from "../../conversations/state.buffer.js";
@@ -31,7 +31,7 @@ import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
 export interface SupervisorInput {
   message: string;
   conversationHistory?: ModelMessage[];
-  instanceId?: InstanceSlug;
+  agentId?: AgentSlug;
   conversationId?: string;
   conversationSummary?: string;
   /** Override AI provider for this instance. */
@@ -164,7 +164,7 @@ function safeOutputPreview(output: unknown): string | undefined {
 function wrapToolWithAudit(
   name: string,
   builtTool: Tool,
-  instanceId: InstanceSlug,
+  agentId: AgentSlug,
   _conversationId?: string,
   toolCallTraces?: ToolCallTrace[],
   signals?: SupervisorSignals,
@@ -195,14 +195,14 @@ function wrapToolWithAudit(
         }
         toolCallTraces?.push({ name, duration_ms: durationMs, success: !hasError });
         // Backfill duration + output on the audit entry logged by the tool
-        auditStore.patchDuration(name, instanceId, durationMs);
+        auditStore.patchDuration(name, agentId, durationMs);
         const outputPreview = safeOutputPreview(output);
-        if (outputPreview) auditStore.patchOutput(name, instanceId, outputPreview);
+        if (outputPreview) auditStore.patchOutput(name, agentId, outputPreview);
         return output;
       } catch (err) {
         const durationMs = Date.now() - toolStart;
         toolCallTraces?.push({ name, duration_ms: durationMs, success: false });
-        auditStore.patchDuration(name, instanceId, durationMs);
+        auditStore.patchDuration(name, agentId, durationMs);
         throw err;
       }
     },
@@ -210,8 +210,8 @@ function wrapToolWithAudit(
 }
 
 interface BuildToolsOptions {
-  instanceId: InstanceSlug;
-  instanceUuid: InstanceUuid;
+  agentId: AgentSlug;
+  instanceUuid: AgentUuid;
   secrets?: Record<string, string>;
   memoryEnabled?: boolean;
   knowledgeEnabled?: boolean;
@@ -230,7 +230,7 @@ interface BuildToolsOptions {
 
 /** Build the tool set scoped to an instance, filtered by DB-stored enabled tool names. */
 async function buildTools(opts: BuildToolsOptions) {
-  const { instanceId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth, stateBuffer } = opts;
+  const { agentId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth, stateBuffer } = opts;
   const enabledNames = await getEnabledToolNames(instanceUuid);
   const allEnabled = enabledNames.size === 0; // empty = no rows, enable all (backward compat)
 
@@ -257,9 +257,9 @@ async function buildTools(opts: BuildToolsOptions) {
         if (missing.length > 0) continue;
       }
       const ctx: ToolContext = {
-        instanceId,
+        agentId,
         secrets,
-        audit: createAuditLogger(name, instanceId, conversationId),
+        audit: createAuditLogger(name, agentId, conversationId),
         conversationId,
         attachments,
         apiKeys,
@@ -267,7 +267,7 @@ async function buildTools(opts: BuildToolsOptions) {
         state: stateBuffer?.api(),
       };
       const built = buildTool(def, ctx);
-      tools[name] = wrapToolWithAudit(name, built, instanceId, conversationId, toolCallTraces, signals);
+      tools[name] = wrapToolWithAudit(name, built, agentId, conversationId, toolCallTraces, signals);
     }
   }
 
@@ -280,7 +280,7 @@ async function buildTools(opts: BuildToolsOptions) {
     const currentDepth = agentCallDepth ?? 0;
     for (const entryName of agentEntries) {
       const targetSlug = entryName.slice("agent:".length);
-      const target = await findInstanceBySlug(asInstanceSlug(targetSlug));
+      const target = await findInstanceBySlug(asAgentSlug(targetSlug));
       if (!target) {
         console.warn(`[supervisor] agent tool '${entryName}': target instance not found`);
         continue;
@@ -297,8 +297,8 @@ async function buildTools(opts: BuildToolsOptions) {
           name: target.name,
           description: target.description,
         },
-        callerSlug: instanceId,
-        callerConversationId: conversationId ?? `${instanceId}:unknown`,
+        callerSlug: agentId,
+        callerConversationId: conversationId ?? `${agentId}:unknown`,
         parentTraceId: undefined,
         currentDepth,
         timeoutMs: config.agent.callTimeoutMs,
@@ -318,8 +318,8 @@ async function buildTools(opts: BuildToolsOptions) {
   // inserted on the next line — the factory itself also strips spawnTask
   // defensively (no self-recursion).
   if (allEnabled || enabledNames.has("spawnTask")) {
-    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId);
-    tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);
+    const spawnTool = createTaskTool({ ...tools }, apiKeys, agentId, conversationId);
+    tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, agentId, conversationId, toolCallTraces, signals);
   }
 
   return tools;
@@ -330,7 +330,7 @@ async function buildTools(opts: BuildToolsOptions) {
 // ---------------------------------------------------------------------------
 
 interface SupervisorContext {
-  instanceId: InstanceSlug;
+  agentId: AgentSlug;
   tools: Record<string, Tool>;
   systemPrompt: string;
   messages: ModelMessage[];
@@ -366,12 +366,12 @@ function buildUserContent(message: string, attachments?: Attachment[]): string |
 }
 
 async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorContext> {
-  const instanceSlug = input.instanceId ?? DEFAULT_INSTANCE_ID;
+  const instanceSlug = input.agentId ?? DEFAULT_INSTANCE_ID;
 
   // Resolve slug → UUID for DB queries
   const instance = await findInstanceBySlug(instanceSlug);
   if (!instance) {
-    throw new Error(`Instance not found: "${instanceSlug}"`);
+    throw new Error(`Agent not found: "${instanceSlug}"`);
   }
   const instanceUuid = instance.id;
 
@@ -379,7 +379,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   const signals: SupervisorSignals = { replyHandled: false, replyTexts: [] };
   const toolBuildStart = Date.now();
   const tools = await buildTools({
-    instanceId: instanceSlug,
+    agentId: instanceSlug,
     instanceUuid,
     secrets: input.secrets,
     memoryEnabled: input.memoryEnabled,
@@ -398,7 +398,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
 
   const systemPrompt = await buildSupervisorSystemPrompt({
     tools,
-    instanceId: instanceUuid,
+    agentId: instanceUuid,
     instanceSlug,
     memoryEnabled: input.memoryEnabled,
     conversationSummary: input.conversationSummary,
@@ -418,7 +418,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     { role: "user", content: userContent },
   ];
 
-  return { instanceId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals };
+  return { agentId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals };
 }
 
 // ---------------------------------------------------------------------------
@@ -445,7 +445,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
     },
     {
       conversationId: input.conversationId,
-      instanceId: ctx.instanceId,
+      agentId: ctx.agentId,
       agentCallMetadata: input.agentCallMetadata,
     }
   );
@@ -464,7 +464,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
     textStream: ttfbTextStream,
     fullStream: stream.fullStream,
     completed: stream.response.then((response) => {
-      pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
+      pipelineLog.supervisorDone(ctx.agentId, response.durationMs, response.text);
       return {
         text: response.text,
         steps: response.steps,
@@ -502,12 +502,12 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
     },
     {
       conversationId: input.conversationId,
-      instanceId: ctx.instanceId,
+      agentId: ctx.agentId,
       agentCallMetadata: input.agentCallMetadata,
     }
   );
 
-  pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
+  pipelineLog.supervisorDone(ctx.agentId, response.durationMs, response.text);
 
   return {
     text: response.text,

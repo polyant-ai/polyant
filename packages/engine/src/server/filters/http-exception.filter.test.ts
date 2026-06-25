@@ -97,7 +97,7 @@ describe("GlobalExceptionFilter", () => {
 
   it("returns 400 (not 500) when a controller throws TypeError (body shape mismatch)", () => {
     const res = createMockResponse();
-    const host = createMockHost(res, createMockRequest("POST", "/api/instances"));
+    const host = createMockHost(res, createMockRequest("POST", "/api/agents"));
 
     // Simulate `body.items.map(...)` when body.items is undefined. The filter
     // surfaces a generic message to avoid leaking internal property paths.

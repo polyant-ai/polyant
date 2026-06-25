@@ -4,11 +4,11 @@ import { listEnabledRooms, type RoomConfig } from "./room.store.js";
 import { countPendingByInstance } from "../webhooks/webhook-backlog.store.js";
 import { compactActivityLog } from "./activity-log.store.js";
 import { executeRoomCycle } from "./room-engine.js";
-import { resolveInstanceSlug } from "../instances/resolve-instance-id.js";
+import { resolveAgentSlug } from "../instances/resolve-agent-id.js";
 import { roomLog } from "./room-logger.js";
 import { runAnalyticsCleanup } from "../analytics/cleanup.js";
 import { config } from "../config.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 const TICK_INTERVAL_MS = 30_000;
 const HOUSEKEEPING_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -35,15 +35,15 @@ class RoomScheduler {
       countPendingByInstance(),
     ]);
     for (const room of rooms) {
-      if (this.running.has(room.instanceId)) continue;
-      if ((pendingCounts.get(room.instanceId) ?? 0) === 0) continue;
+      if (this.running.has(room.agentId)) continue;
+      if ((pendingCounts.get(room.agentId) ?? 0) === 0) continue;
 
       // Acquire the lock synchronously before yielding to the event loop,
       // preventing a second tick from picking up the same room while this
       // processRoom call is suspended at its first await.
-      this.running.add(room.instanceId);
+      this.running.add(room.agentId);
       this.processRoom(room).catch((err) =>
-        roomLog.error("Scheduler", `error processing room ${room.instanceId}`, err),
+        roomLog.error("Scheduler", `error processing room ${room.agentId}`, err),
       );
     }
 
@@ -51,8 +51,8 @@ class RoomScheduler {
     if (now.getTime() - this.lastHousekeeping.getTime() > HOUSEKEEPING_INTERVAL_MS) {
       this.lastHousekeeping = now;
       for (const room of rooms) {
-        compactActivityLog(room.instanceId).catch((err) =>
-          roomLog.error("Scheduler", `compaction error ${room.instanceId}`, err),
+        compactActivityLog(room.agentId).catch((err) =>
+          roomLog.error("Scheduler", `compaction error ${room.agentId}`, err),
         );
       }
 
@@ -71,22 +71,22 @@ class RoomScheduler {
 
   private async processRoom(room: RoomConfig): Promise<void> {
     try {
-      const slug = await resolveInstanceSlug(room.instanceId);
+      const slug = await resolveAgentSlug(room.agentId);
       if (!slug) return;
 
       await executeRoomCycle(room, slug);
     } finally {
-      this.running.delete(room.instanceId);
+      this.running.delete(room.agentId);
     }
   }
 
-  async triggerImmediate(room: RoomConfig, instanceSlug: InstanceSlug, humanMessage: string): Promise<void> {
-    if (this.running.has(room.instanceId)) {
+  async triggerImmediate(room: RoomConfig, instanceSlug: AgentSlug, humanMessage: string): Promise<void> {
+    if (this.running.has(room.agentId)) {
       roomLog.warn("Scheduler", `room for ${instanceSlug} already running, dropping human message`);
       return;
     }
 
-    this.running.add(room.instanceId);
+    this.running.add(room.agentId);
     try {
       await executeRoomCycle(room, instanceSlug, humanMessage);
     } catch (err) {
@@ -94,7 +94,7 @@ class RoomScheduler {
       // If the caller receives an error it may retry, causing double execution.
       roomLog.error("Scheduler", `triggerImmediate failed for ${instanceSlug}`, err);
     } finally {
-      this.running.delete(room.instanceId);
+      this.running.delete(room.agentId);
     }
   }
 

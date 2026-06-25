@@ -29,7 +29,7 @@ const PatchPromptsSchema = z.object({
     .max(8),
 });
 
-@Controller("api/instances")
+@Controller("api/agents")
 export class InstancePromptsController {
   @RequirePermission(Permission.PROMPT_READ)
   @Get(":slug/prompts")

@@ -8,14 +8,19 @@ const __sharedDir = dirname(fileURLToPath(import.meta.url));
 const ENGINE_ROOT = resolve(__sharedDir, "../../../..");
 
 /**
- * Root directory for per-conversation sandboxed workspaces.
- * Layout: {OA_WORKSPACES_ROOT}/{instanceId}/conversations/{conversationId}/
+ * Root directory for per-conversation sandboxes.
+ * Layout: {OA_SANDBOX_ROOT}/{agentId}/conversations/{conversationId}/
+ *
+ * CONVENTION-EXCEPTION: dual env read during the sandbox rename deprecation
+ * window. SANDBOX_ROOT is the new var; WORKSPACES_ROOT is kept as a deprecated
+ * alias and removed next release. Default on-disk path value is unchanged.
  */
-export const OA_WORKSPACES_ROOT = process.env.WORKSPACES_ROOT
-  ? resolve(process.env.WORKSPACES_ROOT)
+const sandboxRootEnv = process.env.SANDBOX_ROOT ?? process.env.WORKSPACES_ROOT;
+export const OA_SANDBOX_ROOT = sandboxRootEnv
+  ? resolve(sandboxRootEnv)
   : resolve(ENGINE_ROOT, "workspaces");
 
-const INSTANCE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
+const AGENT_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /**
  * Sanitize a conversationId for safe use as a filesystem directory name.
@@ -30,10 +35,10 @@ export function sanitizeConversationId(conversationId: string): string {
   return conversationId.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-function validateInstanceId(instanceId: string): void {
-  if (!INSTANCE_ID_RE.test(instanceId)) {
+function validateAgentId(agentId: string): void {
+  if (!AGENT_ID_RE.test(agentId)) {
     throw new Error(
-      `Invalid instanceId "${instanceId}". Must match ${INSTANCE_ID_RE}.`,
+      `Invalid agentId "${agentId}". Must match ${AGENT_ID_RE}.`,
     );
   }
 }
@@ -42,12 +47,12 @@ function validateInstanceId(instanceId: string): void {
  * Absolute path of the sandbox directory for a given (instance, conversation).
  */
 export function getConversationWorkspaceDir(
-  instanceId: string,
+  agentId: string,
   conversationId: string,
 ): string {
-  validateInstanceId(instanceId);
+  validateAgentId(agentId);
   const safeConv = sanitizeConversationId(conversationId);
-  return resolve(OA_WORKSPACES_ROOT, instanceId, "conversations", safeConv);
+  return resolve(OA_SANDBOX_ROOT, agentId, "conversations", safeConv);
 }
 
 /**
@@ -117,7 +122,7 @@ async function resolveRealpathOfExisting(p: string): Promise<string> {
  */
 export async function resolveWorkspacePath(
   relativePath: string,
-  instanceId: string,
+  agentId: string,
   conversationId: string,
 ): Promise<string> {
   if (typeof relativePath !== "string" || relativePath.length === 0) {
@@ -132,7 +137,7 @@ export async function resolveWorkspacePath(
     );
   }
 
-  const workspaceDir = getConversationWorkspaceDir(instanceId, conversationId);
+  const workspaceDir = getConversationWorkspaceDir(agentId, conversationId);
   // path.resolve() normalizes away "../" segments — first-line traversal defense.
   const normalized = resolve(workspaceDir, relativePath);
   assertInsideWorkspace(normalized, workspaceDir);
@@ -154,10 +159,10 @@ export async function resolveWorkspacePath(
  * Idempotent.
  */
 export async function ensureWorkspaceDir(
-  instanceId: string,
+  agentId: string,
   conversationId: string,
 ): Promise<string> {
-  const dir = getConversationWorkspaceDir(instanceId, conversationId);
+  const dir = getConversationWorkspaceDir(agentId, conversationId);
   await mkdir(dir, { recursive: true });
   return dir;
 }
@@ -173,10 +178,10 @@ export async function ensureWorkspaceDir(
  */
 export async function assertInsideConversationWorkspace(
   resolvedPath: string,
-  instanceId: string,
+  agentId: string,
   conversationId: string,
 ): Promise<void> {
-  const workspaceDir = getConversationWorkspaceDir(instanceId, conversationId);
+  const workspaceDir = getConversationWorkspaceDir(agentId, conversationId);
 
   // String-based check first (fast path, normalized paths)
   assertInsideWorkspace(resolvedPath, workspaceDir);

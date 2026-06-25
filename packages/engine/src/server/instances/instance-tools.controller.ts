@@ -6,13 +6,13 @@ import { listAvailableTools } from "../../agents/tools/registry.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { getAllSecretsById } from "../../instances/secrets.store.js";
 import { db } from "../../database/client.js";
-import { instanceTools } from "../../instances/instance-tools.schema.js";
+import { agentTools } from "../../instances/instance-tools.schema.js";
 import { tools } from "../../agents/tools/tools.schema.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { collectEnabledToolSecrets, attachReadableValues } from "./instance-tools.secrets-view.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-@Controller("api/instances")
+@Controller("api/agents")
 export class InstanceToolsController {
   @RequirePermission(Permission.TOOL_READ)
   @Get(":slug/tools/required-secrets")
@@ -36,10 +36,10 @@ export class InstanceToolsController {
 
     // Query instance_tools with source info
     const enabledRows = await db
-      .select({ name: tools.name, source: instanceTools.source })
-      .from(instanceTools)
-      .innerJoin(tools, eq(instanceTools.toolId, tools.id))
-      .where(eq(instanceTools.instanceId, instance.id));
+      .select({ name: tools.name, source: agentTools.source })
+      .from(agentTools)
+      .innerJoin(tools, eq(agentTools.toolId, tools.id))
+      .where(eq(agentTools.agentId, instance.id));
 
     const enabledMap = new Map(enabledRows.map((r) => [r.name, r.source]));
     const allTools = listAvailableTools();
@@ -62,10 +62,10 @@ export class InstanceToolsController {
 
     // Get current instance tools with source info
     const currentRows = await db
-      .select({ toolId: instanceTools.toolId, name: tools.name, source: instanceTools.source })
-      .from(instanceTools)
-      .innerJoin(tools, eq(instanceTools.toolId, tools.id))
-      .where(eq(instanceTools.instanceId, instance.id));
+      .select({ toolId: agentTools.toolId, name: tools.name, source: agentTools.source })
+      .from(agentTools)
+      .innerJoin(tools, eq(agentTools.toolId, tools.id))
+      .where(eq(agentTools.agentId, instance.id));
 
     const currentByName = new Map(currentRows.map((r) => [r.name, r]));
 
@@ -100,8 +100,8 @@ export class InstanceToolsController {
 
       if (toolRows.length > 0) {
         await db
-          .insert(instanceTools)
-          .values(toolRows.map((t) => ({ instanceId: instance.id, toolId: t.id, source: "manual" as const })))
+          .insert(agentTools)
+          .values(toolRows.map((t) => ({ agentId: instance.id, toolId: t.id, source: "manual" as const })))
           .onConflictDoNothing();
       }
     }
@@ -109,21 +109,21 @@ export class InstanceToolsController {
     // Remove manual tools that were disabled
     if (toRemove.length > 0) {
       await db
-        .delete(instanceTools)
+        .delete(agentTools)
         .where(
           and(
-            eq(instanceTools.instanceId, instance.id),
-            inArray(instanceTools.toolId, toRemove),
+            eq(agentTools.agentId, instance.id),
+            inArray(agentTools.toolId, toRemove),
           ),
         );
     }
 
     // Return updated tool list with source
     const updatedRows = await db
-      .select({ name: tools.name, source: instanceTools.source })
-      .from(instanceTools)
-      .innerJoin(tools, eq(instanceTools.toolId, tools.id))
-      .where(eq(instanceTools.instanceId, instance.id));
+      .select({ name: tools.name, source: agentTools.source })
+      .from(agentTools)
+      .innerJoin(tools, eq(agentTools.toolId, tools.id))
+      .where(eq(agentTools.agentId, instance.id));
 
     const updatedMap = new Map(updatedRows.map((r) => [r.name, r.source]));
     const allTools = listAvailableTools();

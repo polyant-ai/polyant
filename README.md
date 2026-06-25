@@ -15,7 +15,7 @@
 
 ---
 
-**Polyant** is an open-source platform for building and deploying AI assistants with long-term memory, multi-channel support, and full per-instance customization. It provides a complete runtime for multi-agent systems with an OpenAI-compatible API, a NestJS engine, and a Next.js admin panel — batteries included.
+**Polyant** is an open-source platform for building and deploying AI assistants with long-term memory, multi-channel support, and full per-agent customization. It provides a complete runtime for multi-agent systems with an OpenAI-compatible API, a NestJS engine, and a Next.js admin panel — batteries included.
 
 > The name comes from Hofstadter's *Gödel, Escher, Bach* — specifically the "Ant Fugue" dialogue and the character of Aunt Hillary, an ant colony understood as the archetype of emergent intelligence: individual agents, each one limited, that produce — by coordinating — a collective intelligent behaviour that exceeds the sum of its parts. It is, literally, the thesis we are pitching: fleets of specialised agents that, when orchestrated, generate performance impossible for any single agent. *Poly-* (classical Greek, "many") makes the key concept explicit: coordinated multiplicity.
 >
@@ -29,9 +29,9 @@ We took OpenClaw apart, studied its design, and used it as the starting point fo
 
 From that foundation we set out to answer a different question: **what does it take to run this kind of assistant inside an organization?** The answer drove most of the layers you see today and pushed Polyant toward a web-based product rather than a CLI:
 
-- A **multi-instance** model, so a single deployment can serve different assistants — each with its own personality, tools, secrets, and channels — without code branching.
+- A **multi-agent** model, so a single deployment can serve different assistants — each with its own personality, tools, secrets, and channels — without code branching.
 - An **admin panel** as the primary surface, because the people who configure assistants in a company are not always the people who can edit a config file.
-- **Per-instance encryption** of every secret (AES-256-GCM), so credentials for one assistant cannot leak into another tenant's blast radius.
+- **Per-agent encryption** of every secret (AES-256-GCM), so credentials for one assistant cannot leak into another tenant's blast radius.
 - A **proactive Room engine** alongside the reactive chat loop, because real assistants do not only answer — they observe events and act.
 - An **OpenAI-compatible API** as the default integration surface, so any client (Open WebUI, custom apps, scripts) can talk to any instance with zero adaptation.
 
@@ -45,8 +45,8 @@ Polyant is, in short, what happens when you take the architectural lessons of Op
 - **Provider-agnostic** — Switch between OpenAI and Anthropic per-instance via the admin panel; tier abstraction (`fast | standard | heavy`) decouples code from model names
 - **Self-registering Tools** — Drop a `*.tool.ts` file in the tools directory; it auto-registers at boot with no wiring needed
 - **Skill System** — Markdown-based skill definitions stored in the database; per-instance encrypted env vars for skills that need API keys
-- **Multi-instance** — Independent configuration of prompts, skills, tool availability, and identity per instance; instances exposed as selectable "models" via the OpenAI-compatible API
-- **Per-instance Secrets** — API keys, channel config, and LangSmith settings stored AES-256-GCM encrypted per instance
+- **Multi-agent** — Independent configuration of prompts, skills, tool availability, and identity per agent; agents exposed as selectable "models" via the OpenAI-compatible API
+- **Per-agent Secrets** — API keys, channel config, and LangSmith settings stored AES-256-GCM encrypted per agent
 - **Admin Panel** — Next.js 15 frontend for managing instances, conversations, memories, skills, tools, channels, and analytics
 - **Event-driven Room** — Proactive agent workspace that processes webhook events on a 30-second tick and can push outbound messages
 - **Conversation Tracking** — Full message history with summaries and full-text search in PostgreSQL
@@ -68,7 +68,7 @@ The full documentation lives at **[docs.polyant.ai](https://docs.polyant.ai)** (
 
 ### Understand
 - **[Architecture](https://docs.polyant.ai/concepts/architecture)** — full technical deep dive
-- **[Glossary](https://docs.polyant.ai/concepts/glossary)** — Instance, Tier, Room, Skill, Tool explained
+- **[Glossary](https://docs.polyant.ai/concepts/glossary)** — Agent, Tier, Room, Skill, Tool explained
 
 ## Quick Start
 
@@ -135,7 +135,7 @@ npm run dev          # engine on :4000
 npm run dev:web      # admin panel on :3001 (separate terminal)
 ```
 
-Open `http://localhost:3001`, sign in with the admin credentials from step 3, create an instance, and configure your AI provider keys in the Settings tab.
+Open `http://localhost:3001`, sign in with the admin credentials from step 3, create an agent, and configure your AI provider keys in the Settings tab.
 
 ## Architecture
 
@@ -172,8 +172,8 @@ polyant/
 │   │       ├── ai-gateway/   # Provider-agnostic LLM abstraction (tier-based)
 │   │       ├── channels/     # Telegram, Slack, WhatsApp adapters
 │   │       ├── memory/       # pgvector embeddings + hybrid search
-│   │       ├── room/         # Event-driven proactive agent workspace
-│   │       ├── instances/    # Instance CRUD, secrets, config resolver
+│   │       ├── room/         # Event-driven proactive agent loop
+│   │       ├── instances/    # Agent CRUD, secrets, config resolver
 │   │       ├── skills/       # Global skill library CRUD
 │   │       └── server/       # NestJS controllers (REST + OpenAI-compat)
 │   └── web/                  # @polyant/web — Next.js admin panel
@@ -188,10 +188,10 @@ polyant/
 
 | Concept | Description |
 |---------|-------------|
-| **Instance** | A named assistant configuration with independent prompts, skills, tools, and secrets |
+| **Agent** | A named assistant configuration with independent prompts, skills, tools, and secrets |
 | **Tier abstraction** | Code requests `fast \| standard \| heavy`; model mapping lives in `ai-gateway/config.ts` |
 | **Tool registry** | Tools self-register at boot via `registerTool()` — no hardcoded imports |
-| **Skill system** | Markdown skill definitions in DB; encrypted per-instance env vars for API keys |
+| **Skill system** | Markdown skill definitions in DB; encrypted per-agent env vars for API keys |
 | **Room** | Event-driven workspace that runs a ReAct cycle on webhook-triggered events |
 | **Fire-and-forget** | Post-response tasks (memory extraction, summary) run async without blocking the user |
 
@@ -229,9 +229,9 @@ See [GitHub Issues](https://github.com/polyant-ai/polyant/issues) and [Discussio
 
 ### Architectural directions
 
-- **Multi-tenancy** — formalize the *Organization → Project → Instance* hierarchy already sketched in the auth module (Phase 2). Adds invitation-based memberships, configurable RBAC, and tenant-scoped URLs (`/organizations/{org}/projects/{project}/instances/{slug}/...`). Schema design (`organizations`, `projects`, `organization_memberships`, `roles`, `invitations`) is documented; not yet implemented.
-- **Pluggable memory backend** — today the memory layer is hard-wired to OpenAI for embeddings (the per-instance `openai_api_key` secret is required regardless of the assistant's chat provider, because Anthropic has no embedding API). The roadmap is to introduce a `MemoryProvider` abstraction so that embeddings can come from Voyage, Cohere, local models (e.g. via Ollama / a locally hosted bge / nomic), or a self-hosted gateway — just like the chat layer already is provider-agnostic via the AI Gateway tiers.
-- **Sandboxed tool execution** — high-impact tools (anything that runs git, executes shell, writes files, or talks to a customer's infrastructure) should not run inside the engine process. We want to push these into an external sandbox (firecracker / gVisor / a remote isolate-style runner) with a tight contract: tool input → sandbox → tool output. The current trade-offs (e.g. the `gitCloneRepo` token written under `.git/polyant-token` while the workspace exists) become non-issues once execution is moved off-host.
+- **Multi-tenancy** — formalize the *Organization → Project → Agent* hierarchy already sketched in the auth module (Phase 2). Adds invitation-based memberships, configurable RBAC, and tenant-scoped URLs (`/organizations/{org}/projects/{project}/agents/{slug}/...`). Schema design (`organizations`, `projects`, `organization_memberships`, `roles`, `invitations`) is documented; not yet implemented.
+- **Pluggable memory backend** — today the memory layer is hard-wired to OpenAI for embeddings (the per-agent `openai_api_key` secret is required regardless of the assistant's chat provider, because Anthropic has no embedding API). The roadmap is to introduce a `MemoryProvider` abstraction so that embeddings can come from Voyage, Cohere, local models (e.g. via Ollama / a locally hosted bge / nomic), or a self-hosted gateway — just like the chat layer already is provider-agnostic via the AI Gateway tiers.
+- **Sandboxed tool execution** — high-impact tools (anything that runs git, executes shell, writes files, or talks to a customer's infrastructure) should not run inside the engine process. We want to push these into an external sandbox (firecracker / gVisor / a remote isolate-style runner) with a tight contract: tool input → sandbox → tool output. The current trade-offs (e.g. the `gitCloneRepo` token written under `.git/polyant-token` while the sandbox exists) become non-issues once execution is moved off-host.
 - **Evaluation suite** — simulation-based regression testing for assistants: digital twins, scenario libraries, golden conversations, and a CI integration so that changing a prompt or skill produces a measurable delta.
 
 ### Channels & UX
@@ -252,10 +252,10 @@ These are deliberate trade-offs, deferred decisions, or rough edges that ship wi
 
 ### Architecture & coupling
 
-- **Memory is locked to OpenAI** — `packages/engine/src/memory/embedder.ts` calls the OpenAI embeddings endpoint directly. An instance configured to use Anthropic for the chat tier still needs an `openai_api_key` secret if memory is enabled. Replacing this with a `MemoryProvider` interface is a high-priority item on the roadmap above.
+- **Memory is locked to OpenAI** — `packages/engine/src/memory/embedder.ts` calls the OpenAI embeddings endpoint directly. An agent configured to use Anthropic for the chat tier still needs an `openai_api_key` secret if memory is enabled. Replacing this with a `MemoryProvider` interface is a high-priority item on the roadmap above.
 - **Critical tools run in-process** — `gitCloneRepo`, file system access, and any future shell-style tools execute in the engine's own runtime. The current safeguards (per-conversation workspace, ephemeral credentials at `.git/polyant-token` mode 0600, automatic cleanup) keep the blast radius small but do not isolate CPU, network, or filesystem at OS level. Moving tool execution to an external sandbox is on the roadmap.
 - **Drizzle version mismatch between packages** — `packages/web/src/lib/auth.ts` casts the Drizzle adapter through `as any` (4 sites) because `packages/engine` and `packages/web` pin different `drizzle-orm` versions. Works today, but it's brittle — a single version pin across the workspace is the proper fix.
-- **`workspaces/` directory is a leftover** — the filesystem `workspaces/<instanceId>/` tree is documented as legacy and only used for knowledge-file sync. The intent is to either fold knowledge into the database (consistent with the rest of the configuration model) or to formalize `workspaces/` as a sandbox root.
+- **Sandbox directory naming** — the filesystem `workspaces/<agentId>/` tree holds per-conversation tool sandboxes (formerly `workspaces/`). It is used for knowledge-file sync and tool execution scratch space. The intent is to keep this as the primary per-conversation ephemeral space.
 
 ### Robustness
 
@@ -274,7 +274,7 @@ These are deliberate trade-offs, deferred decisions, or rough edges that ship wi
 ### Documentation gaps
 
 - The "Phase 2 — Multi-Tenancy" section of `CLAUDE.md` describes a hierarchy that does not exist in the schema yet; this is a roadmap document, not a description of current behavior.
-- Trade-offs around the `gitCloneRepo` credential lifecycle (token at rest while the workspace exists) are documented in `CLAUDE.md` but should be surfaced on [docs.polyant.ai](https://docs.polyant.ai) as well, since they affect deployment posture.
+- Trade-offs around the `gitCloneRepo` credential lifecycle (token at rest while the sandbox exists) are documented in `CLAUDE.md` but should be surfaced on [docs.polyant.ai](https://docs.polyant.ai) as well, since they affect deployment posture.
 
 If you would like to take on any of the items above, please open an issue first so we can scope it together — most of these decisions involve trade-offs we are happy to discuss in the open.
 

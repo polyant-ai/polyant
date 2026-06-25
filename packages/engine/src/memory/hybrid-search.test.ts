@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 
 const mockSearchByVector = vi.fn();
 const mockEmbed = vi.fn();
@@ -33,7 +33,7 @@ import { hybridSearch } from "./hybrid-search.js";
 function makeVectorResult(id: string, content: string, rank: number) {
   return {
     id,
-    instanceId: "user-1",
+    agentId: "user-1",
     content,
     category: "general",
     importance: 5,
@@ -71,7 +71,7 @@ describe("hybridSearch", () => {
     mockSearchByVector.mockResolvedValue([]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
+    const results = await hybridSearch("test query", asAgentSlug("user-1"));
     expect(results).toEqual([]);
   });
 
@@ -82,7 +82,7 @@ describe("hybridSearch", () => {
     ]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
+    const results = await hybridSearch("test query", asAgentSlug("user-1"));
     expect(results).toHaveLength(2);
     expect(results[0].type).toBe("memory");
     expect(results[0].content).toBe("Memory one");
@@ -95,7 +95,7 @@ describe("hybridSearch", () => {
       makePgResult("pg1", "Conversation one", 0),
     ]);
 
-    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
+    const results = await hybridSearch("test query", asAgentSlug("user-1"));
     expect(results).toHaveLength(1);
     expect(results[0].type).toBe("conversation");
     expect(results[0].content).toBe("Conversation one");
@@ -111,7 +111,7 @@ describe("hybridSearch", () => {
       makePgResult("pg2", "Delta", 1),
     ]);
 
-    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
+    const results = await hybridSearch("test query", asAgentSlug("user-1"));
     expect(results).toHaveLength(4);
     // First items from each backend should have equal score (rank 0 in respective backends)
     expect(results[0].score).toBe(results[1].score);
@@ -128,7 +128,7 @@ describe("hybridSearch", () => {
       makePgResult("pg2", "E", 1),
     ]);
 
-    const results = await hybridSearch("test query", asInstanceSlug("user-1"), 2);
+    const results = await hybridSearch("test query", asAgentSlug("user-1"), 2);
     expect(results).toHaveLength(2);
   });
 
@@ -138,13 +138,13 @@ describe("hybridSearch", () => {
     ]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
+    const results = await hybridSearch("test query", asAgentSlug("user-1"));
     const scoreStr = results[0].score.toString();
     const decimals = scoreStr.split(".")[1] || "";
     expect(decimals.length).toBeLessThanOrEqual(4);
   });
 
-  it("uses default instanceId when not provided", async () => {
+  it("uses default agentId when not provided", async () => {
     mockSearchByVector.mockResolvedValue([]);
     mockSearchByKeyword.mockResolvedValue([]);
 
@@ -170,7 +170,7 @@ describe("hybridSearch", () => {
       makePgResult("pg1", "Still works", 0),
     ]);
 
-    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
+    const results = await hybridSearch("test query", asAgentSlug("user-1"));
     expect(results).toHaveLength(1);
     expect(results[0].content).toBe("Still works");
   });
@@ -181,7 +181,7 @@ describe("hybridSearch", () => {
     ]);
     mockSearchByKeyword.mockRejectedValue(new Error("PG down"));
 
-    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
+    const results = await hybridSearch("test query", asAgentSlug("user-1"));
     expect(results).toHaveLength(1);
     expect(results[0].content).toBe("Still works");
   });
@@ -192,7 +192,7 @@ describe("hybridSearch", () => {
     ]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
+    const results = await hybridSearch("test query", asAgentSlug("user-1"));
     // RRF score for rank 0 with k=60: 1 / (60 + 0 + 1) = 1/61
     const expectedScore = Math.round((1 / 61) * 10000) / 10000;
     expect(results[0].score).toBe(expectedScore);
@@ -202,7 +202,7 @@ describe("hybridSearch", () => {
     mockSearchByVector.mockResolvedValue([]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    await hybridSearch("test query", asInstanceSlug("user-1"), 5);
+    await hybridSearch("test query", asAgentSlug("user-1"), 5);
     // fetchLimit = Math.max(5*2, 20) = 20
     expect(mockSearchByVector).toHaveBeenCalledWith(
       [0.1, 0.2, 0.3],
@@ -220,7 +220,7 @@ describe("hybridSearch", () => {
       credentials: { provider: "openai", apiKey: "k" },
     });
 
-    await hybridSearch("test query", asInstanceSlug("user-1"), 15);
+    await hybridSearch("test query", asAgentSlug("user-1"), 15);
     // fetchLimit = Math.max(15*2, 20) = 30
     expect(mockSearchByVector).toHaveBeenCalledWith(
       [0.1, 0.2, 0.3],

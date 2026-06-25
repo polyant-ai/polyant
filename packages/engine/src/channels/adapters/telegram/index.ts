@@ -6,7 +6,7 @@ import { CHANNEL_MAX_LENGTH } from "../../types.js";
 import { toTelegramMarkdownV2 } from "./markdown-v2.js";
 import { splitMessage } from "../../split-message.js";
 import { transcribeAudio } from "../../audio-transcription.js";
-import type { InstanceSlug } from "../../../instances/identifiers.js";
+import type { AgentSlug } from "../../../instances/identifiers.js";
 
 export interface TelegramConfig {
   botToken: string;
@@ -18,7 +18,7 @@ export class TelegramAdapter implements ChannelAdapter {
   private bot: Bot | null = null;
 
   constructor(
-    private readonly instanceId: InstanceSlug,
+    private readonly agentId: AgentSlug,
     private readonly cfg: TelegramConfig,
   ) {}
 
@@ -74,8 +74,8 @@ export class TelegramAdapter implements ChannelAdapter {
           audio: data,
           mimeType,
           durationSec,
-          instanceSlug: this.instanceId,
-          conversationId: `${this.instanceId}:telegram:${ctx.chat.id}`,
+          instanceSlug: this.agentId,
+          conversationId: `${this.agentId}:telegram:${ctx.chat.id}`,
         });
 
         if (!result.ok) {
@@ -117,7 +117,7 @@ export class TelegramAdapter implements ChannelAdapter {
       const response = await onMessage({
         channelType: "telegram",
         channelId: String(ctx.chat.id),
-        instanceId: this.instanceId,
+        agentId: this.agentId,
         userName: ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : ""),
         text,
         attachments: attachments.length > 0 ? attachments : undefined,
@@ -143,9 +143,9 @@ export class TelegramAdapter implements ChannelAdapter {
     // bot.start() enters an infinite polling loop that never resolves — run fire-and-forget.
     await this.bot.init();
     this.bot.start().catch((err) =>
-      console.error('Telegram polling error for instance "%s":', this.instanceId, err),
+      console.error('Telegram polling error for instance "%s":', this.agentId, err),
     );
-    console.log(`Telegram bot started for instance "${this.instanceId}" (polling)`);
+    console.log(`Telegram bot started for instance "${this.agentId}" (polling)`);
   }
 
   async sendMessage(channelId: string, msg: OutgoingMessage): Promise<void> {

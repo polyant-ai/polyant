@@ -2,13 +2,13 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instanceRoom } from "./room.schema.js";
-import { resolveInstanceId } from "../instances/resolve-instance-id.js";
-import { asInstanceUuid, type InstanceSlug, type InstanceUuid } from "../instances/identifiers.js";
+import { agentRoom } from "./room.schema.js";
+import { resolveAgentId } from "../instances/resolve-agent-id.js";
+import { asAgentUuid, type AgentSlug, type AgentUuid } from "../instances/identifiers.js";
 
 export interface RoomConfig {
   id: string;
-  instanceId: InstanceUuid;
+  agentId: AgentUuid;
   enabled: boolean;
   prompt: string;
   outboundChannel: string | null;
@@ -17,25 +17,25 @@ export interface RoomConfig {
   conversationId: string | null;
 }
 
-export async function getRoomBySlug(slug: InstanceSlug): Promise<RoomConfig | null> {
-  const instanceId = await resolveInstanceId(slug);
-  if (!instanceId) return null;
-  return getRoomByInstanceId(instanceId);
+export async function getRoomBySlug(slug: AgentSlug): Promise<RoomConfig | null> {
+  const agentId = await resolveAgentId(slug);
+  if (!agentId) return null;
+  return getRoomByInstanceId(agentId);
 }
 
-export async function getRoomByInstanceId(instanceId: InstanceUuid): Promise<RoomConfig | null> {
+export async function getRoomByInstanceId(agentId: AgentUuid): Promise<RoomConfig | null> {
   const rows = await db
     .select()
-    .from(instanceRoom)
-    .where(eq(instanceRoom.instanceId, instanceId))
+    .from(agentRoom)
+    .where(eq(agentRoom.agentId, agentId))
     .limit(1);
 
   if (!rows[0]) return null;
-  return { ...rows[0], instanceId: asInstanceUuid(rows[0].instanceId) } as RoomConfig;
+  return { ...rows[0], agentId: asAgentUuid(rows[0].agentId) } as RoomConfig;
 }
 
 export async function upsertRoom(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   data: {
     enabled?: boolean;
     prompt?: string;
@@ -45,9 +45,9 @@ export async function upsertRoom(
   },
 ): Promise<void> {
   await db
-    .insert(instanceRoom)
+    .insert(agentRoom)
     .values({
-      instanceId,
+      agentId,
       enabled: data.enabled ?? false,
       prompt: data.prompt ?? "",
       outboundChannel: data.outboundChannel ?? null,
@@ -55,7 +55,7 @@ export async function upsertRoom(
       evalIntervalMinutes: data.evalIntervalMinutes ?? 5,
     })
     .onConflictDoUpdate({
-      target: [instanceRoom.instanceId],
+      target: [agentRoom.agentId],
       set: {
         ...data,
         updatedAt: new Date(),
@@ -63,21 +63,21 @@ export async function upsertRoom(
     });
 }
 
-export async function deleteRoom(instanceId: InstanceUuid): Promise<void> {
-  await db.delete(instanceRoom).where(eq(instanceRoom.instanceId, instanceId));
+export async function deleteRoom(agentId: AgentUuid): Promise<void> {
+  await db.delete(agentRoom).where(eq(agentRoom.agentId, agentId));
 }
 
-export async function setRoomConversationId(instanceId: InstanceUuid, conversationId: string): Promise<void> {
+export async function setRoomConversationId(agentId: AgentUuid, conversationId: string): Promise<void> {
   await db
-    .update(instanceRoom)
+    .update(agentRoom)
     .set({ conversationId, updatedAt: new Date() })
-    .where(eq(instanceRoom.instanceId, instanceId));
+    .where(eq(agentRoom.agentId, agentId));
 }
 
 export async function listEnabledRooms(): Promise<RoomConfig[]> {
   const rows = await db
     .select()
-    .from(instanceRoom)
-    .where(eq(instanceRoom.enabled, true));
-  return rows.map((r) => ({ ...r, instanceId: asInstanceUuid(r.instanceId) })) as RoomConfig[];
+    .from(agentRoom)
+    .where(eq(agentRoom.enabled, true));
+  return rows.map((r) => ({ ...r, agentId: asAgentUuid(r.agentId) })) as RoomConfig[];
 }

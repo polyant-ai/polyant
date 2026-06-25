@@ -218,7 +218,7 @@ registerTool({
       event?: "APPROVE" | "REQUEST_CHANGES" | "COMMENT" | null;
     }) => {
       const token = ctx.secrets?.github_token;
-      if (!token) return { error: "GitHub token not configured for this instance." };
+      if (!token) return { error: "GitHub token not configured for this agent." };
 
       switch (params.action) {
         case "create":

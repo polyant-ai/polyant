@@ -260,7 +260,7 @@ registerTool({
     "- action 'logs': fetches logs for one or more services with filters for level, text and time window. Available levels: error, warning, info.\n" +
     "- action 'deploys': lists recent deploys for a service with status and commit details.\n" +
     "Time window: default = the whole of yesterday (00:00-23:59 UTC). Pass null for startTime/endTime to use the default. Timestamps are converted to UTC automatically.\n" +
-    "Requires the 'render_api_key' secret configured on the instance.",
+    "Requires the 'render_api_key' secret configured on the agent.",
   category: "devops",
   requiredSecrets: ["render_api_key"],
   inputExamples: [
@@ -372,7 +372,7 @@ registerTool({
     }) => {
       const apiKey = ctx.secrets?.render_api_key;
       if (!apiKey) {
-        return { error: "Render API key (render_api_key) not configured for this instance." };
+        return { error: "Render API key (render_api_key) not configured for this agent." };
       }
 
       try {

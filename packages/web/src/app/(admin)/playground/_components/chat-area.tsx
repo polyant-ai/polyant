@@ -175,7 +175,7 @@ export function ChatArea({
                           setDebugTarget({
                             conversationId: activeConversationId,
                             messageId,
-                            instanceId: instanceSlug,
+                            agentId: instanceSlug,
                           })
                       : undefined
                   }
@@ -211,7 +211,7 @@ export function ChatArea({
         open={stateOpen}
         onOpenChange={setStateOpen}
         conversationId={activeConversationId}
-        instanceId={instanceSlug}
+        agentId={instanceSlug}
       />
     </div>
   );

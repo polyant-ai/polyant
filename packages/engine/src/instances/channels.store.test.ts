@@ -50,16 +50,16 @@ vi.mock("../crypto/index.js", () => ({
 }));
 
 vi.mock("./schema.js", () => ({
-  instances: {
+  agents: {
     id: "id",
     slug: "slug",
   },
 }));
 
 vi.mock("./channels.schema.js", () => ({
-  instanceChannels: {
+  agentChannels: {
     id: "id",
-    instanceId: "instance_id",
+    agentId: "agent_id",
     channelType: "channel_type",
     enabled: "enabled",
     config: "config",
@@ -85,13 +85,13 @@ import {
   listEnabledChannelConfigs,
   deleteChannelConfig,
 } from "./channels.store.js";
-import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
+import { asAgentSlug, asAgentUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const INSTANCE_UUID = asInstanceUuid("uuid-instance-1");
-const INSTANCE_SLUG = asInstanceSlug("default");
+const INSTANCE_UUID = asAgentUuid("uuid-instance-1");
+const INSTANCE_SLUG = asAgentSlug("default");
 
 function mockResolveInstanceId(found = true) {
   const chain = createChainMock(found ? [{ id: INSTANCE_UUID }] : []);
@@ -130,7 +130,7 @@ describe("instances/channels.store", () => {
       expect(mockEncrypt).toHaveBeenCalledWith(JSON.stringify(config));
       expect(mockDb.insert).toHaveBeenCalled();
       expect(chain.values).toHaveBeenCalledWith({
-        instanceId: INSTANCE_UUID,
+        agentId: INSTANCE_UUID,
         channelType: "telegram",
         enabled: true,
         config: `encrypted:${JSON.stringify(config)}`,
@@ -225,7 +225,7 @@ describe("instances/channels.store", () => {
     it("returns null when instance slug is not found", async () => {
       mockResolveInstanceId(false);
 
-      const result = await getChannelConfig(asInstanceSlug("nonexistent"), "telegram");
+      const result = await getChannelConfig(asAgentSlug("nonexistent"), "telegram");
 
       expect(result).toBeNull();
       expect(mockDecrypt).not.toHaveBeenCalled();
@@ -276,7 +276,7 @@ describe("instances/channels.store", () => {
     it("returns empty array when instance not found", async () => {
       mockResolveInstanceId(false);
 
-      const result = await listChannelConfigs(asInstanceSlug("nonexistent"));
+      const result = await listChannelConfigs(asAgentSlug("nonexistent"));
 
       expect(result).toEqual([]);
     });
@@ -308,7 +308,7 @@ describe("instances/channels.store", () => {
     it("returns empty array when instance not found", async () => {
       mockResolveInstanceId(false);
 
-      const result = await listEnabledChannelConfigs(asInstanceSlug("nonexistent"));
+      const result = await listEnabledChannelConfigs(asAgentSlug("nonexistent"));
 
       expect(result).toEqual([]);
     });
@@ -318,7 +318,7 @@ describe("instances/channels.store", () => {
   // deleteChannelConfig
   // -----------------------------------------------------------------------
   describe("deleteChannelConfig", () => {
-    it("deletes the channel config by instanceId and channelType", async () => {
+    it("deletes the channel config by agentId and channelType", async () => {
       const chain = createChainMock(undefined);
       mockDb.delete.mockReturnValue(chain as any);
 

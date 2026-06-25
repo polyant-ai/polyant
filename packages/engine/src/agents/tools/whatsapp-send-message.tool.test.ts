@@ -12,7 +12,7 @@ import { getToolRegistry, buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 const ctx = {
-  instanceId: "test-inst",
+  agentId: "test-inst",
   secrets: {},
   audit: createMockAudit(),
 } as any;

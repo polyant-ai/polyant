@@ -37,7 +37,7 @@ interface Props {
 
 export function CreateMemoryDialog({ open, onOpenChange, instances, defaultInstanceId, onCreated }: Props) {
   const { t } = useI18n();
-  const [instanceId, setInstanceId] = useState(defaultInstanceId ?? "");
+  const [agentId, setInstanceId] = useState(defaultInstanceId ?? "");
   const [content, setContent] = useState("");
   const [category, setCategory] = useState<string>("general");
   const [importance, setImportance] = useState<string>("5");
@@ -51,11 +51,11 @@ export function CreateMemoryDialog({ open, onOpenChange, instances, defaultInsta
   };
 
   const handleCreate = async () => {
-    if (!instanceId || !content.trim()) return;
+    if (!agentId || !content.trim()) return;
     setCreating(true);
     try {
       await api.memories.create({
-        instanceId,
+        agentId,
         content: content.trim(),
         category,
         importance: Number(importance),
@@ -82,7 +82,7 @@ export function CreateMemoryDialog({ open, onOpenChange, instances, defaultInsta
         <div className="space-y-4 py-2">
           <div className="space-y-2">
             <Label>{t("memory.create.instance")}</Label>
-            <Select value={instanceId} onValueChange={setInstanceId}>
+            <Select value={agentId} onValueChange={setInstanceId}>
               <SelectTrigger>
                 <SelectValue placeholder={t("memory.create.instance")} />
               </SelectTrigger>
@@ -145,7 +145,7 @@ export function CreateMemoryDialog({ open, onOpenChange, instances, defaultInsta
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={handleCreate} disabled={creating || !instanceId || !content.trim()}>
+          <Button onClick={handleCreate} disabled={creating || !agentId || !content.trim()}>
             {creating ? t("common.saving") : t("memory.create.button")}
           </Button>
         </DialogFooter>

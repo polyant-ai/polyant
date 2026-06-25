@@ -5,13 +5,13 @@ import { z } from "zod";
 import { db } from "../database/client.js";
 import { eventSources, eventDefinitions } from "./webhooks.schema.js";
 import { encrypt, decrypt, generateToken } from "../crypto/index.js";
-import { resolveInstanceId } from "../instances/resolve-instance-id.js";
-import { asInstanceUuid, type InstanceSlug, type InstanceUuid } from "../instances/identifiers.js";
+import { resolveAgentId } from "../instances/resolve-agent-id.js";
+import { asAgentUuid, type AgentSlug, type AgentUuid } from "../instances/identifiers.js";
 import { webhookLog } from "./webhook-logger.js";
 
 export interface EventSource {
   id: string;
-  instanceId: InstanceUuid;
+  agentId: AgentUuid;
   name: string;
   sourceType: string;
   config: Record<string, unknown>;
@@ -43,21 +43,21 @@ function generateWebhookToken(): string {
   return generateToken(32);
 }
 
-export async function listEventSources(slug: InstanceSlug): Promise<EventSource[]> {
-  const instanceId = await resolveInstanceId(slug);
-  if (!instanceId) return [];
+export async function listEventSources(slug: AgentSlug): Promise<EventSource[]> {
+  const agentId = await resolveAgentId(slug);
+  if (!agentId) return [];
 
   const rows = await db
     .select()
     .from(eventSources)
-    .where(eq(eventSources.instanceId, instanceId));
+    .where(eq(eventSources.agentId, agentId));
 
   return rows.map((r) => {
     try {
-      return { ...r, instanceId: asInstanceUuid(r.instanceId), config: JSON.parse(decrypt(r.config)) as Record<string, unknown> };
+      return { ...r, agentId: asAgentUuid(r.agentId), config: JSON.parse(decrypt(r.config)) as Record<string, unknown> };
     } catch {
       webhookLog.warn("WebhookSources", `failed to decrypt config for source ${r.id}, using empty config`);
-      return { ...r, instanceId: asInstanceUuid(r.instanceId), config: {} as Record<string, unknown> };
+      return { ...r, agentId: asAgentUuid(r.agentId), config: {} as Record<string, unknown> };
     }
   });
 }
@@ -66,7 +66,7 @@ export interface EventSourceWithDefinitions extends EventSource {
   definitions: EventDefinition[];
 }
 
-export async function listEventSourcesWithDefinitions(slug: InstanceSlug): Promise<EventSourceWithDefinitions[]> {
+export async function listEventSourcesWithDefinitions(slug: AgentSlug): Promise<EventSourceWithDefinitions[]> {
   const sources = await listEventSources(slug);
   if (sources.length === 0) return [];
 
@@ -90,7 +90,7 @@ export async function listEventSourcesWithDefinitions(slug: InstanceSlug): Promi
 }
 
 export async function createEventSource(
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   data: { name: string; sourceType: string; config: Record<string, unknown>; enabled?: boolean },
 ): Promise<{ id: string; webhookToken: string }> {
   const schema = eventSourceConfigSchemas[data.sourceType];
@@ -102,7 +102,7 @@ export async function createEventSource(
   const rows = await db
     .insert(eventSources)
     .values({
-      instanceId,
+      agentId,
       name: data.name,
       sourceType: data.sourceType,
       config: encryptedConfig,
@@ -116,7 +116,7 @@ export async function createEventSource(
 
 export async function updateEventSource(
   id: string,
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   data: { name?: string; config?: Record<string, unknown>; enabled?: boolean },
 ): Promise<void> {
   const set: Record<string, unknown> = { updatedAt: new Date() };
@@ -129,7 +129,7 @@ export async function updateEventSource(
         config: eventSources.config,
       })
       .from(eventSources)
-      .where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)))
+      .where(and(eq(eventSources.id, id), eq(eventSources.agentId, agentId)))
       .limit(1);
 
     const current = rows[0];
@@ -148,20 +148,20 @@ export async function updateEventSource(
     }
   }
 
-  await db.update(eventSources).set(set).where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)));
+  await db.update(eventSources).set(set).where(and(eq(eventSources.id, id), eq(eventSources.agentId, agentId)));
 }
 
-export async function deleteEventSource(id: string, instanceId: InstanceUuid): Promise<void> {
-  await db.delete(eventSources).where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)));
+export async function deleteEventSource(id: string, agentId: AgentUuid): Promise<void> {
+  await db.delete(eventSources).where(and(eq(eventSources.id, id), eq(eventSources.agentId, agentId)));
 }
 
-export async function rotateWebhookToken(id: string, instanceId: InstanceUuid): Promise<string> {
+export async function rotateWebhookToken(id: string, agentId: AgentUuid): Promise<string> {
   const newToken = generateWebhookToken();
-  await db.update(eventSources).set({ webhookToken: newToken, updatedAt: new Date() }).where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)));
+  await db.update(eventSources).set({ webhookToken: newToken, updatedAt: new Date() }).where(and(eq(eventSources.id, id), eq(eventSources.agentId, agentId)));
   return newToken;
 }
 
-export async function findByWebhookToken(token: string): Promise<{ source: EventSource; instanceId: InstanceUuid } | null> {
+export async function findByWebhookToken(token: string): Promise<{ source: EventSource; agentId: AgentUuid } | null> {
   const rows = await db
     .select()
     .from(eventSources)
@@ -176,21 +176,21 @@ export async function findByWebhookToken(token: string): Promise<{ source: Event
   } catch {
     webhookLog.warn("WebhookSources", `failed to decrypt config for token ${token.slice(0, 8)}...`);
   }
-  const rowInstanceId = asInstanceUuid(rows[0].instanceId);
-  return { source: { ...rows[0], config, instanceId: rowInstanceId }, instanceId: rowInstanceId };
+  const rowInstanceId = asAgentUuid(rows[0].agentId);
+  return { source: { ...rows[0], config, agentId: rowInstanceId }, agentId: rowInstanceId };
 }
 
-async function verifyEventSourceOwnership(eventSourceId: string, instanceId: InstanceUuid): Promise<boolean> {
+async function verifyEventSourceOwnership(eventSourceId: string, agentId: AgentUuid): Promise<boolean> {
   const rows = await db
     .select({ id: eventSources.id })
     .from(eventSources)
-    .where(and(eq(eventSources.id, eventSourceId), eq(eventSources.instanceId, instanceId)))
+    .where(and(eq(eventSources.id, eventSourceId), eq(eventSources.agentId, agentId)))
     .limit(1);
   return rows.length > 0;
 }
 
-export async function listDefinitions(eventSourceId: string, instanceId: InstanceUuid): Promise<EventDefinition[]> {
-  if (!(await verifyEventSourceOwnership(eventSourceId, instanceId))) return [];
+export async function listDefinitions(eventSourceId: string, agentId: AgentUuid): Promise<EventDefinition[]> {
+  if (!(await verifyEventSourceOwnership(eventSourceId, agentId))) return [];
 
   const rows = await db
     .select()
@@ -220,10 +220,10 @@ export interface CreateDefinitionData {
 
 export async function createDefinition(
   eventSourceId: string,
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   data: CreateDefinitionData,
 ): Promise<{ id: string }> {
-  if (!(await verifyEventSourceOwnership(eventSourceId, instanceId))) {
+  if (!(await verifyEventSourceOwnership(eventSourceId, agentId))) {
     throw new Error("Event source not found or does not belong to this instance");
   }
 
@@ -259,16 +259,16 @@ export interface UpdateDefinitionData {
 export async function updateDefinition(
   id: string,
   eventSourceId: string,
-  instanceId: InstanceUuid,
+  agentId: AgentUuid,
   data: UpdateDefinitionData,
 ): Promise<void> {
-  if (!(await verifyEventSourceOwnership(eventSourceId, instanceId))) return;
+  if (!(await verifyEventSourceOwnership(eventSourceId, agentId))) return;
 
   await db.update(eventDefinitions).set({ ...data, updatedAt: new Date() }).where(and(eq(eventDefinitions.id, id), eq(eventDefinitions.eventSourceId, eventSourceId)));
 }
 
-export async function deleteDefinition(id: string, eventSourceId: string, instanceId: InstanceUuid): Promise<void> {
-  if (!(await verifyEventSourceOwnership(eventSourceId, instanceId))) return;
+export async function deleteDefinition(id: string, eventSourceId: string, agentId: AgentUuid): Promise<void> {
+  if (!(await verifyEventSourceOwnership(eventSourceId, agentId))) return;
 
   await db.delete(eventDefinitions).where(and(eq(eventDefinitions.id, id), eq(eventDefinitions.eventSourceId, eventSourceId)));
 }
