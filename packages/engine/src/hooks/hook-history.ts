@@ -19,6 +19,7 @@
 
 import type { ModelMessage } from "ai";
 import type { StepDetail } from "../conversations/schema.js";
+import { sanitizeToolCallId } from "../conversations/tool-history.js";
 import type { HookExecutionSummary } from "./hook-types.js";
 
 const NO_RESULT = "(no result recorded)";
@@ -56,15 +57,17 @@ export function hookExecutionsToModelMessages(execs: HookExecutionSummary[]): Mo
   const calls = replayableCalls(execs);
   if (calls.length === 0) return [];
 
+  // Wire ids must match the Anthropic/Bedrock grammar; the internal `hook:<id>`
+  // (kept for persistence + telemetry) carries a ':' Bedrock rejects.
   const assistantParts = calls.map((c) => ({
     type: "tool-call",
-    toolCallId: c.toolCallId,
+    toolCallId: sanitizeToolCallId(c.toolCallId),
     toolName: c.toolName,
     input: c.args,
   }));
   const toolParts = calls.map((c) => ({
     type: "tool-result",
-    toolCallId: c.toolCallId,
+    toolCallId: sanitizeToolCallId(c.toolCallId),
     toolName: c.toolName,
     output: { type: "text", value: c.result },
   }));
