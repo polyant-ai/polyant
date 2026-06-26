@@ -25,11 +25,11 @@ describe("hookExecutionsToModelMessages", () => {
 
     const assistant = msgs[0] as unknown as { role: string; content: Array<Record<string, unknown>> };
     expect(assistant.role).toBe("assistant");
-    expect(assistant.content[0]).toMatchObject({ type: "tool-call", toolCallId: "hook:h1", toolName: "lookupContact", input: { contactId: null } });
+    expect(assistant.content[0]).toMatchObject({ type: "tool-call", toolCallId: "hook_h1", toolName: "lookupContact", input: { contactId: null } });
 
     const tool = msgs[1] as unknown as { role: string; content: Array<Record<string, unknown>> };
     expect(tool.role).toBe("tool");
-    expect(tool.content[0]).toMatchObject({ type: "tool-result", toolCallId: "hook:h1", toolName: "lookupContact" });
+    expect(tool.content[0]).toMatchObject({ type: "tool-result", toolCallId: "hook_h1", toolName: "lookupContact" });
     expect((tool.content[0].output as { value: string }).value).toContain("Mario Rossi");
   });
 
@@ -44,8 +44,18 @@ describe("hookExecutionsToModelMessages", () => {
     const msgs = hookExecutionsToModelMessages([exec({ hookId: "a" }), exec({ hookId: "b", toolName: "ccHours" })]);
     const assistant = msgs[0] as unknown as { content: Array<{ toolCallId: string }> };
     const tool = msgs[1] as unknown as { content: Array<{ toolCallId: string }> };
-    expect(assistant.content.map((p) => p.toolCallId)).toEqual(["hook:a", "hook:b"]);
-    expect(tool.content.map((p) => p.toolCallId)).toEqual(["hook:a", "hook:b"]);
+    expect(assistant.content.map((p) => p.toolCallId)).toEqual(["hook_a", "hook_b"]);
+    expect(tool.content.map((p) => p.toolCallId)).toEqual(["hook_a", "hook_b"]);
+  });
+
+  it("sanitizes the wire tool-call id to the Anthropic/Bedrock grammar (the 'hook:' colon would 500 on Bedrock)", () => {
+    const msgs = hookExecutionsToModelMessages([exec({ hookId: "550e8400-e29b-41d4-a716-446655440000" })]);
+    const assistant = msgs[0] as unknown as { content: Array<{ toolCallId: string }> };
+    const tool = msgs[1] as unknown as { content: Array<{ toolCallId: string }> };
+    const id = assistant.content[0].toolCallId;
+    expect(id).toBe("hook_550e8400-e29b-41d4-a716-446655440000");
+    expect(id).toMatch(/^[a-zA-Z0-9_-]+$/);
+    expect(tool.content[0].toolCallId).toBe(id); // call/result pairing preserved
   });
 });
 

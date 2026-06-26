@@ -117,6 +117,27 @@ describe("buildHistoryWithToolResults", () => {
     expect(parts(out[1]).map((p) => p.toolCallId)).toEqual(["a", "b"]);
   });
 
+  it("sanitizes a persisted hook id (legacy 'hook:<uuid>') for the wire, keeping call/result pairing", () => {
+    // Bedrock rejects tool_use.id outside ^[a-zA-Z0-9_-]+$ — the ':' minted by
+    // older hook turns must be neutralized on replay, identically on both sides.
+    const out = buildHistoryWithToolResults([
+      row({
+        role: "assistant",
+        content: "",
+        steps: [step({
+          toolCalls: [{ toolCallId: "hook:550e8400-e29b", toolName: "lookupContact", args: {} }],
+          toolResults: [{ toolCallId: "hook:550e8400-e29b", result: "ok" }],
+        })],
+      }),
+    ]);
+    const callId = (parts(out[0])[0] as { toolCallId: string }).toolCallId;
+    const resultId = (parts(out[1])[0] as { toolCallId: string }).toolCallId;
+    expect(callId).toBe("hook_550e8400-e29b");
+    expect(callId).toMatch(/^[a-zA-Z0-9_-]+$/);
+    expect(resultId).toBe(callId); // pairing preserved
+    expect((parts(out[1])[0].output as { value: string }).value).toBe("ok"); // result still resolved via raw id
+  });
+
   it("keeps a plain string result as-is (no JSON quoting)", () => {
     const out = buildHistoryWithToolResults([
       row({
