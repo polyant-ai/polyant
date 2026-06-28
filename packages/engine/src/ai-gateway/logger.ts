@@ -28,6 +28,8 @@ export const aiLogs = pgTable(
     index("idx_ai_logs_instance_id").on(table.instanceId),
     index("idx_ai_logs_created_at").on(table.createdAt),
     index("idx_ai_logs_instance_created").on(table.instanceId, table.createdAt),
+    // Conversation-list token/cost LATERAL aggregation filters by conversation_id.
+    index("idx_ai_logs_conversation_id").on(table.conversationId),
   ],
 );
 

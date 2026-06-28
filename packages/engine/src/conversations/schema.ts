@@ -19,6 +19,8 @@ export const conversations = pgTable(
   },
   (table) => [
     index("idx_conversations_instance_created").on(table.instanceId, table.createdAt),
+    // Conversation list filters by instance_id and orders by updated_at DESC.
+    index("idx_conversations_instance_updated").on(table.instanceId, table.updatedAt),
   ],
 );
 
