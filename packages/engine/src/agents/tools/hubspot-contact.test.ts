@@ -702,6 +702,120 @@ describe("hubspotContact", () => {
     expect(result.nextAfter).toBe("cursor-xyz");
   });
 
+  it("enriches search results that carry hubspot_owner_id with owner_name/owner_email", async () => {
+    const tool = buildTool(def, ctxWithKey) as any;
+
+    // Route by URL so the test is independent of whether the module-level
+    // portal-id cache is already warm from a previous test (which would
+    // otherwise skip the account-info fetch and shift the call ordering).
+    mockFetch.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.includes("/contacts/search")) {
+        return Promise.resolve(
+          createMockResponse(
+            JSON.stringify({
+              total: 1,
+              results: [
+                {
+                  id: "c-owned",
+                  properties: {
+                    firstname: "Jane",
+                    lastname: "Doe",
+                    phone: null,
+                    email: "jane@example.com",
+                    hubspot_owner_id: "owner-enrich-1",
+                  },
+                },
+              ],
+            }),
+          ),
+        );
+      }
+      if (u.includes("/crm/v3/owners")) {
+        return Promise.resolve(
+          createMockResponse(
+            JSON.stringify({
+              results: [
+                { id: "owner-enrich-1", firstName: "Mario", lastName: "Rossi", email: "mario.rossi@acme.com" },
+              ],
+            }),
+          ),
+        );
+      }
+      return Promise.resolve(createMockResponse(JSON.stringify({ portalId: 11111111 })));
+    });
+
+    const result = await tool.execute(
+      {
+        action: "search",
+        contactId: "c-owned",
+        firstName: null,
+        lastName: null,
+        phone: null,
+        email: null,
+        companyId: null,
+        name: null,
+        customProperties: null,
+        filters: null,
+        returnProperties: null,
+        limit: null,
+        after: null,
+      },
+      toolCtx,
+    );
+
+    expect(result.contacts[0].hubspot_owner_id).toBe("owner-enrich-1"); // retained — backward-compatible
+    expect(result.contacts[0].owner_name).toBe("Mario Rossi");
+    expect(result.contacts[0].owner_email).toBe("mario.rossi@acme.com");
+
+    // The Owners API was queried.
+    const ownersCall = mockFetch.mock.calls.find(([url]) => String(url).includes("/crm/v3/owners"));
+    expect(ownersCall).toBeDefined();
+  });
+
+  it("makes NO Owners API call when no result carries an owner", async () => {
+    const tool = buildTool(def, ctxWithKey) as any;
+
+    mockFetch
+      .mockResolvedValueOnce(
+        createMockResponse(
+          JSON.stringify({
+            total: 1,
+            results: [
+              { id: "c-noowner", properties: { firstname: "Luca", lastname: "Verdi", phone: null, email: null } },
+            ],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        createMockResponse(JSON.stringify({ portalId: 11111111 })),
+      );
+
+    const result = await tool.execute(
+      {
+        action: "search",
+        contactId: "c-noowner",
+        firstName: null,
+        lastName: null,
+        phone: null,
+        email: null,
+        companyId: null,
+        name: null,
+        customProperties: null,
+        filters: null,
+        returnProperties: null,
+        limit: null,
+        after: null,
+      },
+      toolCtx,
+    );
+
+    expect(result.found).toBe(1);
+    expect(result.contacts[0].owner_name).toBeUndefined();
+    const ownersCall = mockFetch.mock.calls.find(([url]) => String(url).includes("/crm/v3/owners"));
+    expect(ownersCall).toBeUndefined();
+  });
+
   it("clamps limit to 100 and defaults to 10", async () => {
     const tool = buildTool(def, ctxWithKey) as any;
 
