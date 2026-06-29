@@ -275,15 +275,17 @@ async function searchContacts(
       paging?: { next?: { after?: string } };
     };
 
-    const portalId = await getHubSpotPortalId(apiKey);
-
     // Resolve owner ids → name/email so callers see "Mario Rossi" instead of a
     // numeric id. Only hit the Owners API when at least one result carries an
-    // owner (resolveOwnerNames also short-circuits on an empty id list).
+    // owner (resolveOwnerNames also short-circuits on an empty id list). The
+    // portal-id and owner lookups are independent, so run them in parallel.
     const ownerIds = data.results
       .map((c) => c.properties.hubspot_owner_id)
       .filter((id): id is string => Boolean(id));
-    const owners = await resolveOwnerNames(apiKey, ownerIds);
+    const [portalId, owners] = await Promise.all([
+      getHubSpotPortalId(apiKey),
+      resolveOwnerNames(apiKey, ownerIds),
+    ]);
 
     const result = {
       found: data.total,
