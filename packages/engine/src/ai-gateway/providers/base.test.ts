@@ -13,7 +13,7 @@ vi.mock("../langsmith.js", () => ({
 }));
 
 import { buildSteps, aggregateReasoning, serializeTools, createProvider } from "./base.js";
-import { tracedGenerateText } from "../langsmith.js";
+import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 
 // safeTokens and aggregateStepUsage are not exported, so we test them
 // indirectly by re-implementing the same logic in a testable way.
@@ -276,11 +276,25 @@ describe("serializeTools (debug capture)", () => {
 });
 
 // Minimal fake result returned by the mocked tracedGenerateText
+// minimal shape — SDK return type is complex
 const fakeGenerateTextResult = {
   text: "hello",
   steps: [],
   reasoning: undefined,
   totalUsage: { inputTokens: 10, outputTokens: 5 },
+};
+
+// Minimal fake result returned by the mocked tracedStreamText.
+// chatStream awaits result.text / .totalUsage / .steps / .reasoning as Promises
+// and accesses result.textStream / .fullStream synchronously.
+// minimal shape — SDK return type is complex
+const fakeStreamTextResult = {
+  textStream: (async function* () {})(),
+  fullStream: (async function* () {})(),
+  text: Promise.resolve("hello"),
+  totalUsage: Promise.resolve({ inputTokens: 10, outputTokens: 5 }),
+  steps: Promise.resolve([]),
+  reasoning: Promise.resolve(undefined),
 };
 
 const baseRequest: import("../types.js").ChatRequest = {
@@ -309,6 +323,28 @@ describe("createProvider – temperature forwarding", () => {
     await adapter.chat({ ...baseRequest }, "gpt-4o");
 
     expect(generateTextSpy.mock.calls[0][0]).not.toHaveProperty("temperature");
+  });
+
+  it("passes temperature to streamText when set", async () => {
+    const streamTextSpy = vi.mocked(tracedStreamText);
+    streamTextSpy.mockClear();
+    streamTextSpy.mockResolvedValueOnce(fakeStreamTextResult as any);
+
+    const adapter = createProvider("test-provider", (_modelId) => ({} as any));
+    await adapter.chatStream({ ...baseRequest, temperature: 0.7 }, "gpt-4o");
+
+    expect(streamTextSpy.mock.calls[0][0]).toMatchObject({ temperature: 0.7 });
+  });
+
+  it("omits temperature from streamText when unset", async () => {
+    const streamTextSpy = vi.mocked(tracedStreamText);
+    streamTextSpy.mockClear();
+    streamTextSpy.mockResolvedValueOnce(fakeStreamTextResult as any);
+
+    const adapter = createProvider("test-provider", (_modelId) => ({} as any));
+    await adapter.chatStream({ ...baseRequest }, "gpt-4o");
+
+    expect(streamTextSpy.mock.calls[0][0]).not.toHaveProperty("temperature");
   });
 });
 
