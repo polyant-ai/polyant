@@ -37,7 +37,7 @@ import {
 import { countMemories } from "../../memory/index.js";
 import { countDocuments } from "../../knowledge/index.js";
 import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
-import { providerConfigs, isThinkingCapable } from "../../ai-gateway/config.js";
+import { providerConfigs, isThinkingCapable, clampTemperature } from "../../ai-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
@@ -75,6 +75,7 @@ function toInstanceDto(instance: Instance) {
     langsmithProject: instance.langsmithProject,
     authEnabled: instance.authEnabled,
     thinkingEnabled: instance.thinkingEnabled,
+    temperature: instance.temperature,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
@@ -228,6 +229,7 @@ export class InstancesController {
       langsmithProject?: string | null;
       authEnabled?: boolean;
       thinkingEnabled?: boolean;
+      temperature?: number | null;
       stateInPromptEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
@@ -252,6 +254,9 @@ export class InstancesController {
     this.validateEmbeddingProvider(body.embeddingProvider);
     body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
     body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
+    if (body.temperature !== undefined) {
+      body.temperature = clampTemperature(body.temperature);
+    }
     // Capture the pre-update state to detect an embedding-provider switch.
     const before = await findInstanceBySlug(asInstanceSlug(slug));
     if (!before) throw new NotFoundException(`Instance "${slug}" not found`);

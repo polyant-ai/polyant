@@ -63,7 +63,14 @@ vi.mock("../../instances/instance-skills.store.js", () => ({ seedInstanceSkills:
 vi.mock("../../instances/config-resolver.js", () => ({
   invalidateInstanceConfigCache: mockInvalidateCache,
 }));
-vi.mock("../../ai-gateway/config.js", () => ({ providerConfigs: mockProviderConfigs }));
+vi.mock("../../ai-gateway/config.js", () => ({
+  providerConfigs: mockProviderConfigs,
+  isThinkingCapable: vi.fn().mockReturnValue(false),
+  clampTemperature: (value: number | null | undefined): number | null => {
+    if (value == null || !Number.isFinite(value)) return null;
+    return Math.min(2, Math.max(0, value));
+  },
+}));
 vi.mock("../../instances/icon-validator.js", () => ({ validateIconDataUri: vi.fn() }));
 vi.mock("../../embeddings-gateway/provider-resolver.js", () => ({
   invalidateEmbeddingContext: vi.fn(),
@@ -130,7 +137,7 @@ describe("InstancesController", () => {
       const allowed = new Set([
         "id", "slug", "name", "description", "status", "provider", "model",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
-        "authEnabled", "thinkingEnabled", "stateInPromptEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
+        "authEnabled", "thinkingEnabled", "temperature", "stateInPromptEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint",
         "memory",
       ]);
@@ -326,6 +333,32 @@ describe("InstancesController", () => {
 
       expect(mockResetEmbeddings).not.toHaveBeenCalled();
       expect(res.wiped).toBeNull();
+    });
+  });
+  // -------------------------------------------------------------------------
+  // Temperature — clamp on PATCH, expose on GET
+  // -------------------------------------------------------------------------
+  describe("update — temperature clamping", () => {
+    beforeEach(() => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+      mockEmbeddingProviderChanged.mockReturnValue(false);
+    });
+
+    it("clamps temperature before persisting", async () => {
+      await controller.update("test-one", { temperature: 5 });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ temperature: 2 }),
+      );
+    });
+
+    it("accepts null temperature (clear)", async () => {
+      await controller.update("test-one", { temperature: null });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ temperature: null }),
+      );
     });
   });
 });
