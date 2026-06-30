@@ -7,6 +7,7 @@
  */
 
 import type { ToolContext } from "./registry.js";
+import { TtlCache } from "../../utils/ttl-cache.js";
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
@@ -141,6 +142,93 @@ export async function resolveOwnerIdFromEmail(
   if (!response.ok) return null;
   const data = (await response.json()) as { results?: Array<{ id: string }> };
   return data.results?.[0]?.id ?? null;
+}
+
+/** Display name + email for a resolved HubSpot owner. */
+export interface HubSpotOwner {
+  name: string;
+  email: string;
+}
+
+/**
+ * In-memory cache of resolved owners, keyed by `${apiKey}:${ownerId}`.
+ * Owners change rarely, so a long TTL avoids one Owners API call per search.
+ */
+const OWNERS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const ownerCache = new TtlCache<string, HubSpotOwner>({ maxSize: 500, ttlMs: OWNERS_CACHE_TTL_MS });
+
+function ownerCacheKey(apiKey: string, ownerId: string): string {
+  return `${apiKey}:${ownerId}`;
+}
+
+/**
+ * Resolve HubSpot owner ids to their display name and email — the reverse of
+ * {@link resolveOwnerIdFromEmail}. Used to enrich tool results that expose an
+ * owner only as the numeric `hubspot_owner_id` (e.g. contact search), so that
+ * agents print "Mario Rossi" instead of "464905052".
+ *
+ * Reads the HubSpot Owners API (`/crm/v3/owners`, paginated) and returns a
+ * `Map<id, { name, email }>` containing only the ids that were found. Results
+ * are cached per `${apiKey}:${id}` with a 1h TTL; a call whose ids are all
+ * cached performs no network request, and an empty `ownerIds` list never hits
+ * the API. On any API failure the already-resolved (cached) ids are still
+ * returned and the rest are simply omitted — enrichment is best-effort and
+ * never blocks the caller.
+ *
+ * Requires the token scope `crm.objects.owners.read`.
+ */
+export async function resolveOwnerNames(
+  apiKey: string,
+  ownerIds: readonly string[],
+): Promise<Map<string, HubSpotOwner>> {
+  const resolved = new Map<string, HubSpotOwner>();
+
+  const uniqueIds = Array.from(new Set(ownerIds.filter((id) => id.length > 0)));
+  const missingIds: string[] = [];
+  for (const id of uniqueIds) {
+    const cached = ownerCache.get(ownerCacheKey(apiKey, id));
+    if (cached) {
+      resolved.set(id, cached);
+    } else {
+      missingIds.push(id);
+    }
+  }
+
+  if (missingIds.length === 0) return resolved;
+
+  const wanted = new Set(missingIds);
+  try {
+    let after: string | undefined;
+    do {
+      const url = new URL("https://api.hubapi.com/crm/v3/owners");
+      url.searchParams.set("limit", "100");
+      if (after) url.searchParams.set("after", after);
+
+      const response = await hubspotFetch(url.toString(), {
+        method: "GET",
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!response.ok) break;
+
+      const data = (await response.json()) as {
+        results?: Array<{ id: string; firstName?: string | null; lastName?: string | null; email?: string | null }>;
+        paging?: { next?: { after?: string } };
+      };
+
+      for (const owner of data.results ?? []) {
+        const name = [owner.firstName, owner.lastName].filter(Boolean).join(" ").trim();
+        const entry: HubSpotOwner = { name, email: owner.email ?? "" };
+        ownerCache.set(ownerCacheKey(apiKey, owner.id), entry);
+        if (wanted.has(owner.id)) resolved.set(owner.id, entry);
+      }
+
+      after = data.paging?.next?.after;
+    } while (after && resolved.size < uniqueIds.length);
+  } catch (err) {
+    console.error("[HubSpot] Failed to resolve owner names:", err);
+  }
+
+  return resolved;
 }
 
 /**
