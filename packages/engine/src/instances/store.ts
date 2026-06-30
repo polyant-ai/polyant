@@ -37,6 +37,8 @@ export interface Instance {
    * after switching to a non-capable model has no effect.
    */
   thinkingEnabled: boolean;
+  /** Sampling temperature [0, 2]; null = provider default. Gated at runtime by temperatureSupported. */
+  temperature: number | null;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed into the model's cross-turn history. */
@@ -162,6 +164,7 @@ type UpdatableInstanceFields = {
   langsmithProject?: string | null;
   authEnabled?: boolean;
   thinkingEnabled?: boolean;
+  temperature?: number | null;
   stateInPromptEnabled?: boolean;
   toolResultsInHistoryEnabled?: boolean;
   debugEnabled?: boolean;
@@ -189,6 +192,7 @@ const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
   "langsmithProject",
   "authEnabled",
   "thinkingEnabled",
+  "temperature",
   "stateInPromptEnabled",
   "toolResultsInHistoryEnabled",
   "debugEnabled",

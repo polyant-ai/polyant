@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { pgTable, uuid, varchar, text, timestamp, boolean, jsonb, integer } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, timestamp, boolean, jsonb, integer, real } from "drizzle-orm/pg-core";
 import { workspaces } from "../organizations/organization.schema.js";
 
 export const instances = pgTable("instances", {
@@ -17,6 +17,7 @@ export const instances = pgTable("instances", {
   langsmithProject: varchar("langsmith_project", { length: 255 }),
   authEnabled: boolean("auth_enabled").notNull().default(false),
   thinkingEnabled: boolean("thinking_enabled").notNull().default(false),
+  temperature: real("temperature"), // nullable; null = use the provider default
   /**
    * When true, the current conversation state store is rendered (read-only) into
    * the supervisor system prompt so the model can see known facts. Default false
