@@ -67,6 +67,13 @@ export interface Instance {
    * selected model is not thinking-capable.
    */
   thinkingEnabled: boolean;
+  /**
+   * Sampling temperature (0–2). Null means "use the engine default". Ignored
+   * at runtime when the selected model does not support temperature (e.g.
+   * reasoning/o-series models). Optional for backward compatibility with
+   * instances that pre-date this field.
+   */
+  temperature?: number | null;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
   /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
@@ -158,6 +165,12 @@ export interface ModelInfo {
    * toggle in the instance settings.
    */
   supportsThinking: boolean;
+  /**
+   * True when the model supports user-configurable sampling temperature.
+   * False for reasoning/o-series models where the API ignores or rejects
+   * the parameter.
+   */
+  supportsTemperature: boolean;
 }
 
 export interface ModelsResponse {

@@ -243,6 +243,7 @@ export const api = {
         langsmithProject?: string | null;
         authEnabled?: boolean;
         thinkingEnabled?: boolean;
+        temperature?: number | null;
         stateInPromptEnabled?: boolean;
         toolResultsInHistoryEnabled?: boolean;
         debugEnabled?: boolean;
