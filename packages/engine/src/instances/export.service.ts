@@ -15,10 +15,24 @@ import { tools } from "../agents/tools/tools.schema.js";
 import { instanceSecrets } from "./secrets.schema.js";
 import { instanceChannels } from "./channels.schema.js";
 import { instanceSkillEnv } from "./skill-env.schema.js";
+import { decrypt } from "../crypto/index.js";
 import { getRoomByInstanceId } from "../room/room.store.js";
 import { listEventSourcesWithDefinitions } from "../webhooks/webhook-sources.store.js";
 import { listByInstance as listScheduledTasks } from "../scheduled-tasks/store.js";
-import type { InstanceBundle, ExportInstanceData } from "./export.schema.js";
+import { listHooks } from "../hooks/hooks.store.js";
+import { INSTANCE_BUNDLE_VERSION, type InstanceBundle, type ExportInstanceData } from "./export.schema.js";
+
+// Credential-like config keys, stripped from channel config before export so a
+// bundle never carries secrets at rest. Mirrors the masking rule used by the
+// management API (instance-helpers.ts) — kept local to avoid a server→domain dep.
+const SENSITIVE_KEY_PATTERN = /(?:token|secret|password|key|credential)/i;
+
+/** Return a copy of `config` with credential-like keys removed. */
+export function stripSensitiveKeys(config: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(config).filter(([key]) => !SENSITIVE_KEY_PATTERN.test(key)),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Export instance
@@ -31,7 +45,7 @@ export async function exportInstance(slug: string): Promise<InstanceBundle> {
   const data = await assembleInstanceData(instance);
 
   return {
-    version: "1.0",
+    version: INSTANCE_BUNDLE_VERSION,
     exportedAt: new Date().toISOString(),
     type: "instance",
     instance: data,
@@ -51,6 +65,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     secretKeys,
     channels,
     skillEnvRows,
+    hooks,
     roomConfig,
     eventSourcesWithDefs,
     tasks,
@@ -61,6 +76,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     exportSecretKeys(instance.id),
     exportChannels(instance.id),
     exportSkillEnv(instance.id),
+    exportHooks(instance.id),
     getRoomByInstanceId(instance.id),
     listEventSourcesWithDefinitions(instance.slug),
     // scheduled_tasks.instance_id is stored as the SLUG (text column, not
@@ -82,12 +98,27 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     langsmithEnabled: instance.langsmithEnabled,
     authEnabled: instance.authEnabled,
     icon: instance.icon,
+    langsmithProject: instance.langsmithProject,
+    thinkingEnabled: instance.thinkingEnabled,
+    stateInPromptEnabled: instance.stateInPromptEnabled,
+    toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    debugEnabled: instance.debugEnabled,
+    sttProvider: instance.sttProvider,
+    embeddingProvider: instance.embeddingProvider,
+    embeddingDim: instance.embeddingDim,
+    optoutEnabled: instance.optoutEnabled,
+    optoutStopKeywords: instance.optoutStopKeywords,
+    optoutResumeKeywords: instance.optoutResumeKeywords,
+    optoutClosingMessage: instance.optoutClosingMessage,
+    optoutResumeMessage: instance.optoutResumeMessage,
+    optoutInjectPromptHint: instance.optoutInjectPromptHint,
     prompts,
     skills: skillAssignments,
     manualTools: manualToolNames,
     secrets: secretKeys,
     channels,
     skillEnv: skillEnvRows,
+    hooks,
     room: roomConfig
       ? {
           enabled: roomConfig.enabled,
@@ -106,6 +137,10 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
         matchingPrompt: d.matchingPrompt,
         interpretationPrompt: d.interpretationPrompt,
         enabled: d.enabled,
+        action: d.action,
+        contextPrompt: d.contextPrompt,
+        outboundChannel: d.outboundChannel,
+        outboundTarget: d.outboundTarget,
       })),
     })),
     scheduledTasks: tasks.map((t) => ({
@@ -170,13 +205,28 @@ async function exportChannels(instanceId: string) {
     .select({
       channelType: instanceChannels.channelType,
       enabled: instanceChannels.enabled,
+      config: instanceChannels.config,
     })
     .from(instanceChannels)
     .where(eq(instanceChannels.instanceId, instanceId));
   return rows.map((r) => ({
     channelType: r.channelType,
     enabled: r.enabled,
+    // Decrypt the stored config and strip credential-like keys — the bundle
+    // carries only the non-secret settings (e.g. allowedUserIds, whatsappNumber,
+    // and the credential-less `agent` channel's passthrough config).
+    config: stripSensitiveKeys(safeDecryptChannelConfig(r.config)),
   }));
+}
+
+/** Decrypt a channel config blob, tolerating empty/legacy/invalid values. */
+function safeDecryptChannelConfig(encrypted: string): Record<string, unknown> {
+  if (!encrypted || !encrypted.includes(":")) return {};
+  try {
+    return JSON.parse(decrypt(encrypted)) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
 }
 
 async function exportSkillEnv(instanceId: string) {
@@ -194,7 +244,20 @@ async function exportSkillEnv(instanceId: string) {
     skillSlug: r.skillSlug,
     key: r.key,
     encrypted: r.encrypted,
-    hasValue: r.value != null && r.value !== "",
-    // Omit actual values from export bundle to prevent secret leakage
+    // Only carry plaintext values for non-encrypted env vars; encrypted values
+    // are omitted to prevent secret leakage (re-configured on import).
+    value: r.encrypted ? undefined : (r.value ?? ""),
+  }));
+}
+
+async function exportHooks(instanceId: InstanceUuid) {
+  const rows = await listHooks(instanceId);
+  return rows.map((h) => ({
+    event: h.event,
+    actionType: h.actionType,
+    actionConfig: h.actionConfig as unknown as Record<string, unknown>,
+    enabled: h.enabled,
+    position: h.position,
+    timeoutMs: h.timeoutMs,
   }));
 }
