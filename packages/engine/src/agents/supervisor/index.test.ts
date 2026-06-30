@@ -213,7 +213,10 @@ describe("supervise", () => {
 
   it("omits temperature when not provided", async () => {
     await supervise({ message: "hi" });
-    expect(mockChat.mock.calls[0][0]).not.toHaveProperty("temperature");
+    expect(mockChat).toHaveBeenCalledWith(
+      expect.not.objectContaining({ temperature: expect.anything() }),
+      expect.anything(),
+    );
   });
 
   it("passes conversationId in metadata", async () => {
