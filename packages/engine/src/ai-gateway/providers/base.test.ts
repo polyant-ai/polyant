@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect, vi, type MockInstance } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 
 // langsmith is an optional runtime dep that's not installed in this checkout.
