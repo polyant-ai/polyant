@@ -523,7 +523,11 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             }
           />
           {!canSetTemperature && (
-            <p className="text-xs text-muted-foreground">{t("settings.temperature.unsupportedHint")}</p>
+            <p className="text-xs text-muted-foreground">
+              {!selectedModelInfo?.supportsTemperature
+                ? t("settings.temperature.unsupportedReasoningHint")
+                : t("settings.temperature.unsupportedThinkingHint")}
+            </p>
           )}
         </div>
 
