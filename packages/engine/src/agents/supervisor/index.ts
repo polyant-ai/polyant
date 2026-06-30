@@ -54,6 +54,8 @@ export interface SupervisorInput {
    * can forward this verbatim to the AI gateway.
    */
   thinkingEnabled?: boolean;
+  /** Sampling temperature [0, 2]. Already gated by config-resolver; forwarded verbatim. Omitted when undefined. */
+  temperature?: number | null;
   /** When true, the current conversation state is rendered read-only into the system prompt. */
   stateInPromptEnabled?: boolean;
   /** Informational opt-out hint to render into the prompt (set when the instance enables it). */
@@ -434,6 +436,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
       provider: input.provider,
       model: input.model,
       thinking: input.thinkingEnabled ?? false,
+      ...(input.temperature != null ? { temperature: input.temperature } : {}),
       apiKeys: input.apiKeys,
       langsmith: input.langsmith,
       system: ctx.systemPrompt,
@@ -491,6 +494,7 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
       provider: input.provider,
       model: input.model,
       thinking: input.thinkingEnabled ?? false,
+      ...(input.temperature != null ? { temperature: input.temperature } : {}),
       apiKeys: input.apiKeys,
       langsmith: input.langsmith,
       system: ctx.systemPrompt,
