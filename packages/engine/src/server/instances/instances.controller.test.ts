@@ -39,8 +39,12 @@ const {
   mockInvalidateCache: vi.fn(),
   mockProviderConfigs: {
     openai: {
-      tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o1" },
-      costPerMillionTokens: { "gpt-4o-mini": { input: 0.15, output: 0.6 } },
+      tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o3" },
+      costPerMillionTokens: {
+        "gpt-4o-mini": { input: 0.15, output: 0.6 },
+        "gpt-4o": { input: 2.5, output: 10 },
+        "o3": { input: 2.0, output: 8.0 },
+      },
     },
     bedrock: {
       tiers: { fast: "titan", standard: "titan", heavy: "titan" },
@@ -66,6 +70,11 @@ vi.mock("../../instances/config-resolver.js", () => ({
 vi.mock("../../ai-gateway/config.js", () => ({
   providerConfigs: mockProviderConfigs,
   isThinkingCapable: vi.fn().mockReturnValue(false),
+  temperatureSupported: (provider: string, modelId: string, thinking: boolean): boolean => {
+    if (thinking) return false;
+    if (provider === "openai" && /^(o[134]|gpt-5)/.test(modelId)) return false;
+    return true;
+  },
   clampTemperature: (value: number | null | undefined): number | null => {
     if (value == null || !Number.isFinite(value)) return null;
     return Math.min(2, Math.max(0, value));
@@ -359,6 +368,18 @@ describe("InstancesController", () => {
         expect.anything(),
         expect.objectContaining({ temperature: null }),
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Models endpoint — capability hints
+  // -------------------------------------------------------------------------
+  describe("getModels", () => {
+    it("marks reasoning models as not supporting temperature", async () => {
+      const res = controller.getModels();
+      const openai = res.providers.openai.models;
+      expect(openai.find((m) => m.id === "o3")?.supportsTemperature).toBe(false);
+      expect(openai.find((m) => m.id === "gpt-4o")?.supportsTemperature).toBe(true);
     });
   });
 });
