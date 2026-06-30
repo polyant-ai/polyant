@@ -55,6 +55,7 @@ interface Props {
 const SECRET_KEYS = {
   OPENAI: "openai_api_key",
   ANTHROPIC: "anthropic_api_key",
+  BEDROCK_API_KEY: "bedrock_api_key",
   AWS_ACCESS_KEY_ID: "aws_access_key_id",
   AWS_SECRET_ACCESS_KEY: "aws_secret_access_key",
   AWS_REGION: "aws_region",
@@ -594,6 +595,17 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               {t("settings.tab.awsCredentialsHelp")}
             </p>
           </div>
+
+          <SecretField
+            label={t("settings.tab.bedrockApiKey")}
+            value={secretValue(SECRET_KEYS.BEDROCK_API_KEY)}
+            onChange={(v) => setSecretValue(SECRET_KEYS.BEDROCK_API_KEY, v)}
+            configured={isConfigured(SECRET_KEYS.BEDROCK_API_KEY)}
+            visible={secretVisible(SECRET_KEYS.BEDROCK_API_KEY)}
+            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.BEDROCK_API_KEY)}
+            placeholder={isConfigured(SECRET_KEYS.BEDROCK_API_KEY) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
+            onRemove={isConfigured(SECRET_KEYS.BEDROCK_API_KEY) ? () => handleRemoveSecret(SECRET_KEYS.BEDROCK_API_KEY) : undefined}
+          />
 
           <SecretField
             label={t("settings.tab.awsAccessKeyId")}
