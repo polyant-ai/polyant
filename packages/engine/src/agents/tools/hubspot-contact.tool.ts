@@ -4,7 +4,7 @@ import { z } from "zod";
 import { registerTool, type ToolContext } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
-import { hubspotFetch, getHubSpotApiKeyOrError, HUBSPOT_ASSOCIATION_TYPES, buildPhoneFilterGroups } from "./hubspot-fetch.js";
+import { hubspotFetch, getHubSpotApiKeyOrError, HUBSPOT_ASSOCIATION_TYPES, buildPhoneFilterGroups, resolveOwnerNames } from "./hubspot-fetch.js";
 import { getHubSpotPortalId, hubspotUrl } from "./hubspot-portal.js";
 
 const HUBSPOT_FILTER_OPERATORS = [
@@ -234,7 +234,7 @@ async function searchContacts(
       return { error: "Provide at least one search criterion: contactId, phone, name, email or filters." };
     }
 
-    const baseProperties = ["firstname", "lastname", "phone", "mobilephone", "email", "hs_object_id"];
+    const baseProperties = ["firstname", "lastname", "phone", "mobilephone", "email", "hs_object_id", "hubspot_owner_id"];
     const extraProperties = criteria.returnProperties ?? [];
     const allProperties = Array.from(new Set([...baseProperties, ...extraProperties]));
 
@@ -275,7 +275,17 @@ async function searchContacts(
       paging?: { next?: { after?: string } };
     };
 
-    const portalId = await getHubSpotPortalId(apiKey);
+    // Resolve owner ids → name/email so callers see "Mario Rossi" instead of a
+    // numeric id. Only hit the Owners API when at least one result carries an
+    // owner (resolveOwnerNames also short-circuits on an empty id list). The
+    // portal-id and owner lookups are independent, so run them in parallel.
+    const ownerIds = data.results
+      .map((c) => c.properties.hubspot_owner_id)
+      .filter((id): id is string => Boolean(id));
+    const [portalId, owners] = await Promise.all([
+      getHubSpotPortalId(apiKey),
+      resolveOwnerNames(apiKey, ownerIds),
+    ]);
 
     const result = {
       found: data.total,
@@ -284,6 +294,8 @@ async function searchContacts(
         for (const key of extraProperties) {
           customProperties[key] = c.properties[key] ?? null;
         }
+        const ownerId = c.properties.hubspot_owner_id ?? null;
+        const owner = ownerId ? owners.get(ownerId) : undefined;
         return {
           id: c.id,
           firstName: c.properties.firstname ?? null,
@@ -291,6 +303,10 @@ async function searchContacts(
           phone: c.properties.phone ?? c.properties.mobilephone ?? null,
           email: c.properties.email ?? null,
           url: hubspotUrl(portalId, "contact", c.id),
+          // hubspot_owner_id is retained for backward compatibility; owner_name
+          // and owner_email are added only when the owner could be resolved.
+          ...(ownerId ? { hubspot_owner_id: ownerId } : {}),
+          ...(owner ? { owner_name: owner.name, owner_email: owner.email } : {}),
           ...(extraProperties.length > 0 ? { customProperties } : {}),
         };
       }),
