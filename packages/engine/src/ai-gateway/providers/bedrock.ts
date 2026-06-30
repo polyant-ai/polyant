@@ -5,10 +5,10 @@ import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { createProvider } from "./base.js";
 
 export const BedrockProvider = createProvider("bedrock", (modelId, apiKeys) => {
-  const apiKey = apiKeys?.bedrock_api_key;
-  const accessKeyId = apiKeys?.bedrock_access_key_id;
-  const secretAccessKey = apiKeys?.bedrock_secret_access_key;
-  const region = apiKeys?.bedrock_region ?? process.env.AWS_REGION ?? "us-east-1";
+  const apiKey = apiKeys?.bedrock_api_key?.trim();
+  const accessKeyId = apiKeys?.bedrock_access_key_id?.trim();
+  const secretAccessKey = apiKeys?.bedrock_secret_access_key?.trim();
+  const region = apiKeys?.bedrock_region?.trim() || process.env.AWS_REGION?.trim() || "us-east-1";
 
   // Per-instance Bedrock API key (bearer token) is the primary auth path and
   // takes precedence over SigV4 — it bypasses AWS credential signing entirely.

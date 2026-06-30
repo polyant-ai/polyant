@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { resolveModel, estimateCost } from "./config.js";
+import { stripVisionForModel } from "./vision.js";
 import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
 import { BedrockProvider } from "./providers/bedrock.js";
@@ -199,6 +200,7 @@ export async function chat(
 
   const response = await config.provider.chat({
     ...request,
+    messages: stripVisionForModel(request.messages, config.modelId),
     providerOptions: config.providerOptions,
   }, config.modelId);
 
@@ -234,6 +236,7 @@ export async function chatStream(
 
   const stream = await config.provider.chatStream({
     ...request,
+    messages: stripVisionForModel(request.messages, config.modelId),
     providerOptions: config.providerOptions,
   }, config.modelId);
 
