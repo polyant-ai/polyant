@@ -100,10 +100,16 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // cannot drive the agentic tool loop — only single-turn chat. Every model
       // kept below passes a multi-turn tool round-trip.
       // Reasoning toggle stays Claude-only — see isThinkingCapable.
-      // Qwen3 — dense + MoE, three sizes
+      // Qwen3 — dense + MoE. Prices are the Europe (Milan) tier.
       "qwen.qwen3-32b-v1:0": { input: 0.20, output: 0.79 },
       "qwen.qwen3-coder-30b-a3b-v1:0": { input: 0.20, output: 0.79 },
       "qwen.qwen3-235b-a22b-2507-v1:0": { input: 0.29, output: 1.16 },
+      // Qwen3-Next 80B (MoE A3B) — newer arch than 235b-2507, eval candidate.
+      // Tool-loop expected OK (Qwen family) but not yet probe-verified.
+      "qwen.qwen3-next-80b-a3b": { input: 0.18, output: 1.41 },
+      // NVIDIA Nemotron — reasoning-capable. Eval candidate; tool-loop NOT yet
+      // verified (could reject tool-result turns like Gemma/Mistral-small).
+      "nvidia.nemotron-super-3-120b": { input: 0.18, output: 0.78 },
       // OpenAI open-weight (gpt-oss)
       "openai.gpt-oss-20b-1:0": { input: 0.09, output: 0.40 },
       "openai.gpt-oss-120b-1:0": { input: 0.20, output: 0.79 },
