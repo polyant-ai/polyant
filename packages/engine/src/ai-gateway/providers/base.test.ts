@@ -331,7 +331,7 @@ describe("createProvider – temperature forwarding", () => {
     streamTextSpy.mockResolvedValueOnce(fakeStreamTextResult as any);
 
     const adapter = createProvider("test-provider", (_modelId) => ({} as any));
-    await adapter.chatStream({ ...baseRequest, temperature: 0.7 }, "gpt-4o");
+    await adapter.chatStream!({ ...baseRequest, temperature: 0.7 }, "gpt-4o");
 
     expect(streamTextSpy.mock.calls[0][0]).toMatchObject({ temperature: 0.7 });
   });
@@ -342,7 +342,7 @@ describe("createProvider – temperature forwarding", () => {
     streamTextSpy.mockResolvedValueOnce(fakeStreamTextResult as any);
 
     const adapter = createProvider("test-provider", (_modelId) => ({} as any));
-    await adapter.chatStream({ ...baseRequest }, "gpt-4o");
+    await adapter.chatStream!({ ...baseRequest }, "gpt-4o");
 
     expect(streamTextSpy.mock.calls[0][0]).not.toHaveProperty("temperature");
   });
