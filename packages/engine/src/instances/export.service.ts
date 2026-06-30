@@ -100,6 +100,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     icon: instance.icon,
     langsmithProject: instance.langsmithProject,
     thinkingEnabled: instance.thinkingEnabled,
+    temperature: instance.temperature,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
