@@ -192,3 +192,26 @@ export function isThinkingCapable(provider: string, modelId: string): boolean {
       return false;
   }
 }
+
+/**
+ * Clamp a sampling temperature into the valid [0, 2] range. `null`/`undefined`
+ * pass through as `null` (meaning "use the provider default"); non-finite
+ * inputs are treated as unset.
+ */
+export function clampTemperature(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.min(2, Math.max(0, value));
+}
+
+/**
+ * Whether a (provider, model, thinking) combination accepts a custom
+ * temperature. Returns false when thinking is ON (Anthropic requires
+ * temperature=1; we generalise to "omit" cross-provider) or when the model is
+ * an OpenAI reasoning model (rejects temperature != 1). Mirrors the
+ * provider/model pattern logic of isThinkingCapable.
+ */
+export function temperatureSupported(provider: string, modelId: string, thinking: boolean): boolean {
+  if (thinking) return false;
+  if (provider === "openai" && /^(o[134]|gpt-5)/.test(modelId)) return false;
+  return true;
+}
