@@ -203,6 +203,19 @@ describe("supervise", () => {
     );
   });
 
+  it("forwards temperature to the gateway when provided", async () => {
+    await supervise({ message: "hi", temperature: 0.2 });
+    expect(mockChat).toHaveBeenCalledWith(
+      expect.objectContaining({ temperature: 0.2 }),
+      expect.anything(),
+    );
+  });
+
+  it("omits temperature when not provided", async () => {
+    await supervise({ message: "hi" });
+    expect(mockChat.mock.calls[0][0]).not.toHaveProperty("temperature");
+  });
+
   it("passes conversationId in metadata", async () => {
     await supervise({ message: "hi", conversationId: "conv-42" });
 
