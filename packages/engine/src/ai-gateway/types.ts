@@ -13,6 +13,8 @@ export interface ChatRequest {
   /** Override tier-resolved model with a specific model ID. */
   model?: string;
   thinking?: boolean;
+  /** Sampling temperature in [0, 2]. Omitted from the provider call when undefined. */
+  temperature?: number;
   messages: ModelMessage[];
   tools?: Record<string, Tool>;
   maxSteps?: number;

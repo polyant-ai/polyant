@@ -1,8 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, type MockInstance } from "vitest";
 import { z } from "zod";
-import { buildSteps, aggregateReasoning, serializeTools } from "./base.js";
+
+// langsmith is an optional runtime dep that's not installed in this checkout.
+// We mock the wrapper it exports so importing base.ts (which transitively
+// imports langsmith.ts) doesn't blow up during test runs.
+vi.mock("../langsmith.js", () => ({
+  tracedGenerateText: vi.fn(),
+  tracedStreamText: vi.fn(),
+  buildLangSmithProviderOptions: vi.fn(),
+}));
+
+import { buildSteps, aggregateReasoning, serializeTools, createProvider } from "./base.js";
+import { tracedGenerateText } from "../langsmith.js";
 
 // safeTokens and aggregateStepUsage are not exported, so we test them
 // indirectly by re-implementing the same logic in a testable way.
@@ -261,6 +272,43 @@ describe("serializeTools (debug capture)", () => {
     // No usable parameters → omitted, never throws.
     const bare = result.find((t) => t.name === "bare")!;
     expect(bare.description).toBeUndefined();
+  });
+});
+
+// Minimal fake result returned by the mocked tracedGenerateText
+const fakeGenerateTextResult = {
+  text: "hello",
+  steps: [],
+  reasoning: undefined,
+  totalUsage: { inputTokens: 10, outputTokens: 5 },
+};
+
+const baseRequest: import("../types.js").ChatRequest = {
+  tier: "standard",
+  messages: [{ role: "user", content: "hi" }],
+};
+
+describe("createProvider – temperature forwarding", () => {
+  it("passes temperature to generateText when set", async () => {
+    const generateTextSpy = vi.mocked(tracedGenerateText);
+    generateTextSpy.mockClear();
+    generateTextSpy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+
+    const adapter = createProvider("test-provider", (_modelId) => ({} as any));
+    await adapter.chat({ ...baseRequest, temperature: 0.3 }, "gpt-4o");
+
+    expect(generateTextSpy.mock.calls[0][0]).toMatchObject({ temperature: 0.3 });
+  });
+
+  it("omits temperature from generateText when unset", async () => {
+    const generateTextSpy = vi.mocked(tracedGenerateText);
+    generateTextSpy.mockClear();
+    generateTextSpy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+
+    const adapter = createProvider("test-provider", (_modelId) => ({} as any));
+    await adapter.chat({ ...baseRequest }, "gpt-4o");
+
+    expect(generateTextSpy.mock.calls[0][0]).not.toHaveProperty("temperature");
   });
 });
 
