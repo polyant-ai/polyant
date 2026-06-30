@@ -187,7 +187,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       effectiveModelFor(instance.provider ?? undefined, instance.model ?? undefined) ?? "",
       resolvedThinkingEnabled,
     )
-      ? clampTemperature((instance as { temperature?: number | null }).temperature)
+      ? clampTemperature(instance.temperature)
       : null,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,

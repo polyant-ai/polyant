@@ -362,6 +362,14 @@ describe("InstancesController", () => {
       );
     });
 
+    it("preserves temperature: 0 (boundary edge case)", async () => {
+      await controller.update("test-one", { temperature: 0 });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ temperature: 0 }),
+      );
+    });
+
     it("accepts null temperature (clear)", async () => {
       await controller.update("test-one", { temperature: null });
       expect(mockUpdateInstance).toHaveBeenCalledWith(
