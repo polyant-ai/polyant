@@ -15,6 +15,7 @@ export interface InstanceConfig {
   apiKeys: {
     openai?: string;
     anthropic?: string;
+    bedrock_api_key?: string;
     bedrock_access_key_id?: string;
     bedrock_secret_access_key?: string;
     bedrock_region?: string;
@@ -147,6 +148,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     apiKeys: {
       openai: secrets[SECRET_KEYS.OPENAI_API_KEY],
       anthropic: secrets[SECRET_KEYS.ANTHROPIC_API_KEY],
+      bedrock_api_key: secrets[SECRET_KEYS.BEDROCK_API_KEY],
       bedrock_access_key_id: secrets[SECRET_KEYS.AWS_ACCESS_KEY_ID],
       bedrock_secret_access_key: secrets[SECRET_KEYS.AWS_SECRET_ACCESS_KEY],
       bedrock_region: secrets[SECRET_KEYS.AWS_REGION],

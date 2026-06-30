@@ -13,6 +13,7 @@ import { asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifi
 export const SECRET_KEYS = {
   OPENAI_API_KEY: "openai_api_key",
   ANTHROPIC_API_KEY: "anthropic_api_key",
+  BEDROCK_API_KEY: "bedrock_api_key",
   AWS_ACCESS_KEY_ID: "aws_access_key_id",
   AWS_SECRET_ACCESS_KEY: "aws_secret_access_key",
   AWS_REGION: "aws_region",
