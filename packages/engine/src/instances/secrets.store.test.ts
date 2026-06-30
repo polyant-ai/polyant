@@ -112,10 +112,11 @@ describe("instances/secrets.store", () => {
   // SECRET_KEYS constant
   // -----------------------------------------------------------------------
   describe("SECRET_KEYS", () => {
-    it("exports all 12 well-known secret keys", () => {
-      expect(Object.keys(SECRET_KEYS)).toHaveLength(12);
+    it("exports all 13 well-known secret keys", () => {
+      expect(Object.keys(SECRET_KEYS)).toHaveLength(13);
       expect(SECRET_KEYS.OPENAI_API_KEY).toBe("openai_api_key");
       expect(SECRET_KEYS.ANTHROPIC_API_KEY).toBe("anthropic_api_key");
+      expect(SECRET_KEYS.BEDROCK_API_KEY).toBe("bedrock_api_key");
       expect(SECRET_KEYS.AWS_ACCESS_KEY_ID).toBe("aws_access_key_id");
       expect(SECRET_KEYS.AWS_SECRET_ACCESS_KEY).toBe("aws_secret_access_key");
       expect(SECRET_KEYS.AWS_REGION).toBe("aws_region");
@@ -278,11 +279,12 @@ describe("instances/secrets.store", () => {
 
       const result = await listSecretKeys(INSTANCE_SLUG);
 
-      expect(result).toHaveLength(12);
+      expect(result).toHaveLength(13);
       expect(result).toEqual(
         expect.arrayContaining([
           { key: "openai_api_key", configured: true },
           { key: "anthropic_api_key", configured: false },
+          { key: "bedrock_api_key", configured: false },
           { key: "aws_access_key_id", configured: false },
           { key: "aws_secret_access_key", configured: false },
           { key: "aws_region", configured: false },
