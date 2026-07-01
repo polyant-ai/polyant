@@ -212,7 +212,12 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   const availableModels = provider && modelsData?.providers[provider]
     ? modelsData.providers[provider].models
     : [];
-  const selectedModelInfo = availableModels.find((m) => m.id === model);
+  // When no model is pinned ("System default"), mirror the backend's
+  // effectiveModelFor fallback and resolve capabilities from the standard-tier
+  // model — otherwise thinking/temperature stay disabled for default instances.
+  const selectedModelInfo =
+    availableModels.find((m) => m.id === model) ??
+    (model === "" ? availableModels.find((m) => m.tier === "standard") : undefined);
   // Show the "Extended thinking" toggle only when the chosen model supports it.
   // The capability flag is computed server-side (single source of truth in
   // ai-gateway/config.ts), so the UI cannot drift from runtime behaviour.
