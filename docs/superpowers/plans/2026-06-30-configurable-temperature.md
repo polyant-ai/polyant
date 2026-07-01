@@ -14,7 +14,7 @@
 - File naming kebab-case; `process.env` never read directly in app code.
 - Drizzle: snake_case DB columns, camelCase TS. Migrations are written by hand (drizzle-kit generate is broken here) AND the `_journal.json` entry MUST be appended manually or the migration silently no-ops.
 - Tool/request changes must stay framework-first (domain-agnostic).
-- Tests run at `LOG_LEVEL=debug`. Run engine tests with `npm run test:unit -w @polyant-enterprise/engine`.
+- Tests run at `LOG_LEVEL=debug`. Run engine tests with `npm run test:unit -w @polyant/engine`.
 - Branch: `feat/configurable-temperature` (already created; the design spec is committed there).
 
 ---
@@ -78,7 +78,7 @@ describe("temperatureSupported", () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- config.test`
+Run: `npm run test:unit -w @polyant/engine -- config.test`
 Expected: FAIL — `clampTemperature`/`temperatureSupported` are not exported.
 
 - [ ] **Step 3: Implement the helpers**
@@ -112,7 +112,7 @@ export function temperatureSupported(provider: string, modelId: string, thinking
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- config.test`
+Run: `npm run test:unit -w @polyant/engine -- config.test`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -157,7 +157,7 @@ it("omits temperature from generateText when unset", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- base.test`
+Run: `npm run test:unit -w @polyant/engine -- base.test`
 Expected: FAIL — `temperature` is not forwarded (the "passes" test fails; the "omits" test passes trivially).
 
 - [ ] **Step 3: Add the type field**
@@ -182,7 +182,7 @@ Apply the identical spread in `chatStream()` after line 333.
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- base.test`
+Run: `npm run test:unit -w @polyant/engine -- base.test`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
@@ -268,8 +268,8 @@ In `packages/engine/src/instances/store.ts`:
 
 Run:
 ```bash
-npm run db:migrate -w @polyant-enterprise/engine
-npm run typecheck -w @polyant-enterprise/engine
+npm run db:migrate -w @polyant/engine
+npm run typecheck -w @polyant/engine
 ```
 Expected: migration applies cleanly; typecheck passes.
 
@@ -320,7 +320,7 @@ it("nulls temperature when thinking is enabled", async () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- config-resolver.test`
+Run: `npm run test:unit -w @polyant/engine -- config-resolver.test`
 Expected: FAIL — `cfg.temperature` is `undefined`.
 
 - [ ] **Step 3: Implement the resolution**
@@ -355,7 +355,7 @@ In `config-resolver.ts`:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- config-resolver.test`
+Run: `npm run test:unit -w @polyant/engine -- config-resolver.test`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -401,7 +401,7 @@ it("omits temperature when not provided", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- supervisor/index.test`
+Run: `npm run test:unit -w @polyant/engine -- supervisor/index.test`
 Expected: FAIL — `temperature` not in the request.
 
 - [ ] **Step 3: Add the input field**
@@ -431,7 +431,7 @@ In `packages/engine/src/index.ts`, in both the `supervise({...})` (~line 261) an
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- supervisor/index.test`
+Run: `npm run test:unit -w @polyant/engine -- supervisor/index.test`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -477,7 +477,7 @@ it("accepts null temperature (clear)", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- instances.controller.test`
+Run: `npm run test:unit -w @polyant/engine -- instances.controller.test`
 Expected: FAIL (or, if no test file exists, create one mirroring the suite's setup and run it).
 
 - [ ] **Step 3: Add to the PATCH body type + clamp**
@@ -508,7 +508,7 @@ In the instance serialization object (~line 82, next to `thinkingEnabled: instan
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- instances.controller.test`
+Run: `npm run test:unit -w @polyant/engine -- instances.controller.test`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
@@ -543,7 +543,7 @@ it("marks reasoning models as not supporting temperature", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- instances.controller.test`
+Run: `npm run test:unit -w @polyant/engine -- instances.controller.test`
 Expected: FAIL — `supportsTemperature` undefined.
 
 - [ ] **Step 3: Add the import + field**
@@ -557,7 +557,7 @@ Expected: FAIL — `supportsTemperature` undefined.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- instances.controller.test`
+Run: `npm run test:unit -w @polyant/engine -- instances.controller.test`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -600,7 +600,7 @@ it("preserves temperature when present", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- export.schema.test`
+Run: `npm run test:unit -w @polyant/engine -- export.schema.test`
 Expected: FAIL — `temperature` not in the parsed object.
 
 - [ ] **Step 3: Add to the schema**
@@ -629,7 +629,7 @@ In `import.service.ts`, in BOTH the import-new (~line 81) and import-overwrite (
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `npm run test:unit -w @polyant-enterprise/engine -- export.schema.test`
+Run: `npm run test:unit -w @polyant/engine -- export.schema.test`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -678,7 +678,7 @@ it("includes temperature in the save payload", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm test -w @polyant-enterprise/web -- settings-tab`
+Run: `npm test -w @polyant/web -- settings-tab`
 Expected: FAIL — no temperature control rendered.
 
 - [ ] **Step 3: Add the types**
@@ -743,7 +743,7 @@ Add the three i18n keys (`settings.temperature.label`, `.placeholder`, `.unsuppo
 
 - [ ] **Step 6: Run test to verify it passes**
 
-Run: `npm test -w @polyant-enterprise/web -- settings-tab`
+Run: `npm test -w @polyant/web -- settings-tab`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -773,8 +773,8 @@ Expected: PASS (warnings tolerated per repo state; no new errors).
 
 Run:
 ```bash
-npm run test:unit -w @polyant-enterprise/engine
-npm test -w @polyant-enterprise/web
+npm run test:unit -w @polyant/engine
+npm test -w @polyant/web
 ```
 Expected: PASS. The tool `strict-mode.test.ts` is unaffected (no tool schema changed) but must stay green.
 
