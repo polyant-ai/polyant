@@ -5,7 +5,7 @@ import { toWhatsAppText } from "./whatsapp-format.js";
 import { renderTemplateBody } from "./render-template.js";
 import type { ChannelAdapter, Attachment, MessageHandler, OutgoingMessage } from "../../types.js";
 import { transcribeAudio } from "../../audio-transcription.js";
-import { createSafeDispatcher } from "../../../utils/safe-http.js";
+import { fetchMediaFollowingRedirects } from "./media-fetch.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
 
 export interface WhatsAppConfig {
@@ -110,51 +110,26 @@ export class WhatsAppAdapter implements ChannelAdapter {
     return response.text;
   }
 
-  /** Download a Twilio media file using Basic auth. */
+  /**
+   * Download a Twilio media file using Basic auth. The fetch follows Twilio's cross-host
+   * 302 redirect (api.twilio.com → media CDN) while re-validating SSRF on every hop —
+   * see fetchMediaFollowingRedirects. Returns null (skip the attachment) on any failure.
+   */
   private async downloadMedia(url: string, contentType: string): Promise<Attachment | null> {
     try {
-      // SSRF protection: Twilio media URLs are user-influenced upstream. Run the same
-      // safe-dispatcher gate used by httpRequest/curl tools — blocks private IPs +
-      // pins DNS to the validated address (no rebinding TOCTOU). If the URL fails
-      // the safety check, skip the attachment rather than throwing.
-      let targetUrl: URL;
-      try {
-        targetUrl = new URL(url);
-      } catch {
-        console.warn("[whatsapp] Media URL is not a valid URL, skipping: %s", url);
-        return null;
-      }
-      let dispatcher: unknown;
-      try {
-        ({ dispatcher } = await createSafeDispatcher(targetUrl));
-      } catch (err) {
-        console.warn(
-          "[whatsapp] Media URL failed SSRF check, skipping (%s): %s",
-          url,
-          err instanceof Error ? err.message : String(err),
-        );
-        return null;
-      }
-
       const auth = Buffer.from(`${this.cfg.accountSid}:${this.cfg.authToken}`).toString("base64");
-      const res = await fetch(targetUrl.toString(), {
-        headers: { Authorization: `Basic ${auth}` },
-        signal: AbortSignal.timeout(30_000),
-        // @ts-expect-error -- Node 22 fetch supports undici dispatcher option
-        dispatcher,
-      });
-      if (!res.ok) return null;
+      const res = await fetchMediaFollowingRedirects(url, auth);
+      if (!res || !res.ok) return null;
       const data = Buffer.from(await res.arrayBuffer());
       const isImage = contentType.startsWith("image/");
-      // Extract filename from URL (last path segment before query)
-      const urlPath = targetUrl.pathname;
-      const fileName = urlPath.split("/").pop() ?? undefined;
-      return {
-        type: isImage ? "image" : "file",
-        data,
-        mimeType: contentType,
-        fileName,
-      };
+      // Filename from the original media URL (last path segment).
+      let fileName: string | undefined;
+      try {
+        fileName = new URL(url).pathname.split("/").pop() || undefined;
+      } catch {
+        fileName = undefined;
+      }
+      return { type: isImage ? "image" : "file", data, mimeType: contentType, fileName };
     } catch (err) {
       console.error("[whatsapp] Media download failed (%s):", url, err);
       return null;
