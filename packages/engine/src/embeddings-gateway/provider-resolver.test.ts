@@ -7,7 +7,7 @@ const getSecrets = vi.fn();
 vi.mock("../instances/resolve-instance-id.js", () => ({ findInstanceByIdOrSlug: (...a: unknown[]) => findInstance(...a) }));
 vi.mock("../instances/secrets.store.js", () => ({
   getAllSecretsById: (...a: unknown[]) => getSecrets(...a),
-  SECRET_KEYS: { OPENAI_API_KEY: "openai_api_key", AWS_REGION: "aws_region", AWS_ACCESS_KEY_ID: "aws_access_key_id", AWS_SECRET_ACCESS_KEY: "aws_secret_access_key" },
+  SECRET_KEYS: { OPENAI_API_KEY: "openai_api_key", AWS_PROVIDER_REGION: "aws_provider_region", AWS_PROVIDER_ACCESS_KEY_ID: "aws_provider_access_key_id", AWS_PROVIDER_SECRET_ACCESS_KEY: "aws_provider_secret_access_key" },
 }));
 
 import { resolveEmbeddingContext, invalidateAllEmbeddingContexts } from "./provider-resolver.js";
@@ -32,7 +32,7 @@ describe("resolveEmbeddingContext", () => {
   });
   it("resolves bedrock with region from secrets", async () => {
     findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "bedrock", embeddingProvider: "bedrock", embeddingDim: 1024 });
-    getSecrets.mockResolvedValue({ aws_region: "eu-west-1" });
+    getSecrets.mockResolvedValue({ aws_provider_region: "eu-west-1" });
     const ctx = await resolveEmbeddingContext("s");
     expect(ctx.credentials.provider).toBe("bedrock");
     expect(ctx.dimensions).toBe(1024);

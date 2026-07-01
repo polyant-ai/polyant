@@ -136,14 +136,14 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
   }
   if (
     sttProvider === "aws" &&
-    secrets[SECRET_KEYS.AWS_ACCESS_KEY_ID] &&
-    secrets[SECRET_KEYS.AWS_SECRET_ACCESS_KEY] &&
-    secrets[SECRET_KEYS.AWS_REGION]
+    secrets[SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID] &&
+    secrets[SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY] &&
+    secrets[SECRET_KEYS.AWS_PROVIDER_REGION]
   ) {
     sttCredentials.aws = {
-      accessKeyId: secrets[SECRET_KEYS.AWS_ACCESS_KEY_ID],
-      secretAccessKey: secrets[SECRET_KEYS.AWS_SECRET_ACCESS_KEY],
-      region: secrets[SECRET_KEYS.AWS_REGION],
+      accessKeyId: secrets[SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID],
+      secretAccessKey: secrets[SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY],
+      region: secrets[SECRET_KEYS.AWS_PROVIDER_REGION],
     };
   }
   if (sttProvider === "deepgram" && secrets[SECRET_KEYS.DEEPGRAM_API_KEY]) {
@@ -167,9 +167,9 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       openai: secrets[SECRET_KEYS.OPENAI_API_KEY],
       anthropic: secrets[SECRET_KEYS.ANTHROPIC_API_KEY],
       bedrock_api_key: secrets[SECRET_KEYS.BEDROCK_API_KEY],
-      bedrock_access_key_id: secrets[SECRET_KEYS.AWS_ACCESS_KEY_ID],
-      bedrock_secret_access_key: secrets[SECRET_KEYS.AWS_SECRET_ACCESS_KEY],
-      bedrock_region: secrets[SECRET_KEYS.AWS_REGION],
+      bedrock_access_key_id: secrets[SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID],
+      bedrock_secret_access_key: secrets[SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY],
+      bedrock_region: secrets[SECRET_KEYS.AWS_PROVIDER_REGION],
     },
     secrets,
     langsmith: {
