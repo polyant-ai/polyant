@@ -95,6 +95,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     optoutInjectPromptHint: false,
     sttProvider: "openai",
     icon: null,
+    temperature: null,
     createdAt: "2025-01-01T00:00:00Z",
     updatedAt: "2025-01-01T00:00:00Z",
     ...overrides,
@@ -116,9 +117,9 @@ function setupDefaultMocks() {
   });
   mockModelsList.mockResolvedValue({
     providers: {
-      openai: { models: [{ id: "gpt-4o", tier: "standard", costInput: 0.01, costOutput: 0.03 }] },
-      anthropic: { models: [{ id: "claude-3-opus", tier: "heavy", costInput: 0.015, costOutput: 0.075 }] },
-      bedrock: { models: [{ id: "titan", tier: "standard", costInput: 0.01, costOutput: 0.03 }] },
+      openai: { models: [{ id: "gpt-4o", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true }] },
+      anthropic: { models: [{ id: "claude-3-opus", tier: "heavy", costInput: 0.015, costOutput: 0.075, supportsThinking: false, supportsTemperature: true }] },
+      bedrock: { models: [{ id: "titan", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true }] },
     },
   });
   // New shape: array of RequiredSecretSpec, not plain strings.
@@ -511,6 +512,63 @@ describe("SettingsTab", () => {
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith("settings.tab.loadFailed");
+    });
+  });
+
+  it("disables the temperature control for reasoning models", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        openai: {
+          models: [
+            { id: "o3", tier: "heavy", costInput: 0.01, costOutput: 0.03, supportsThinking: true, supportsTemperature: false },
+          ],
+        },
+      },
+    });
+
+    render(
+      <SettingsTab instance={makeInstance({ model: "o3" })} onUpdate={onUpdate} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    expect(screen.getByLabelText(/temperature/i)).toBeDisabled();
+  });
+
+  it("includes temperature in the save payload", async () => {
+    const user = userEvent.setup();
+    mockModelsList.mockResolvedValue({
+      providers: {
+        openai: {
+          models: [
+            { id: "gpt-4o", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true },
+          ],
+        },
+      },
+    });
+
+    const instance = makeInstance({ model: "gpt-4o" });
+    mockInstanceUpdate.mockResolvedValueOnce({ instance });
+
+    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    const tempInput = screen.getByLabelText(/temperature/i);
+    await user.clear(tempInput);
+    await user.type(tempInput, "0.5");
+
+    await lastSaveAction.current!.onSave();
+
+    await waitFor(() => {
+      expect(mockInstanceUpdate).toHaveBeenCalledWith(
+        "test-instance",
+        expect.objectContaining({ temperature: 0.5 }),
+      );
     });
   });
 });

@@ -84,6 +84,17 @@ describe("instanceBundleSchema back-compat", () => {
     expect(def?.outboundTarget).toBeNull();
   });
 
+  it("defaults temperature to null for legacy bundles", () => {
+    const parsed = instanceBundleSchema.parse({ ...legacyV1Bundle() });
+    expect(parsed.instance.temperature).toBeNull();
+  });
+  it("preserves temperature when present", () => {
+    const bundle = legacyV1Bundle();
+    (bundle.instance as Record<string, unknown>).temperature = 0.4;
+    const parsed = instanceBundleSchema.parse(bundle);
+    expect(parsed.instance.temperature).toBe(0.4);
+  });
+
   it("should_accept_the_current_1.1_version_literal", () => {
     const bundle = legacyV1Bundle();
     bundle.version = INSTANCE_BUNDLE_VERSION;

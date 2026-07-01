@@ -39,8 +39,12 @@ const {
   mockInvalidateCache: vi.fn(),
   mockProviderConfigs: {
     openai: {
-      tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o1" },
-      costPerMillionTokens: { "gpt-4o-mini": { input: 0.15, output: 0.6 } },
+      tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o3" },
+      costPerMillionTokens: {
+        "gpt-4o-mini": { input: 0.15, output: 0.6 },
+        "gpt-4o": { input: 2.5, output: 10 },
+        "o3": { input: 2.0, output: 8.0 },
+      },
     },
     bedrock: {
       tiers: { fast: "titan", standard: "titan", heavy: "titan" },
@@ -63,7 +67,19 @@ vi.mock("../../instances/instance-skills.store.js", () => ({ seedInstanceSkills:
 vi.mock("../../instances/config-resolver.js", () => ({
   invalidateInstanceConfigCache: mockInvalidateCache,
 }));
-vi.mock("../../ai-gateway/config.js", () => ({ providerConfigs: mockProviderConfigs }));
+vi.mock("../../ai-gateway/config.js", () => ({
+  providerConfigs: mockProviderConfigs,
+  isThinkingCapable: vi.fn().mockReturnValue(false),
+  temperatureSupported: (provider: string, modelId: string, thinking: boolean): boolean => {
+    if (thinking) return false;
+    if (provider === "openai" && /^(o[134]|gpt-5)/.test(modelId)) return false;
+    return true;
+  },
+  clampTemperature: (value: number | null | undefined): number | null => {
+    if (value == null || !Number.isFinite(value)) return null;
+    return Math.min(2, Math.max(0, value));
+  },
+}));
 vi.mock("../../instances/icon-validator.js", () => ({ validateIconDataUri: vi.fn() }));
 vi.mock("../../embeddings-gateway/provider-resolver.js", () => ({
   invalidateEmbeddingContext: vi.fn(),
@@ -130,7 +146,7 @@ describe("InstancesController", () => {
       const allowed = new Set([
         "id", "slug", "name", "description", "status", "provider", "model",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
-        "authEnabled", "thinkingEnabled", "stateInPromptEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
+        "authEnabled", "thinkingEnabled", "temperature", "stateInPromptEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint",
         "memory",
       ]);
@@ -326,6 +342,52 @@ describe("InstancesController", () => {
 
       expect(mockResetEmbeddings).not.toHaveBeenCalled();
       expect(res.wiped).toBeNull();
+    });
+  });
+  // -------------------------------------------------------------------------
+  // Temperature — clamp on PATCH, expose on GET
+  // -------------------------------------------------------------------------
+  describe("update — temperature clamping", () => {
+    beforeEach(() => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+      mockEmbeddingProviderChanged.mockReturnValue(false);
+    });
+
+    it("clamps temperature before persisting", async () => {
+      await controller.update("test-one", { temperature: 5 });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ temperature: 2 }),
+      );
+    });
+
+    it("preserves temperature: 0 (boundary edge case)", async () => {
+      await controller.update("test-one", { temperature: 0 });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ temperature: 0 }),
+      );
+    });
+
+    it("accepts null temperature (clear)", async () => {
+      await controller.update("test-one", { temperature: null });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ temperature: null }),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Models endpoint — capability hints
+  // -------------------------------------------------------------------------
+  describe("getModels", () => {
+    it("marks reasoning models as not supporting temperature", async () => {
+      const res = controller.getModels();
+      const openai = res.providers.openai.models;
+      expect(openai.find((m) => m.id === "o3")?.supportsTemperature).toBe(false);
+      expect(openai.find((m) => m.id === "gpt-4o")?.supportsTemperature).toBe(true);
     });
   });
 });

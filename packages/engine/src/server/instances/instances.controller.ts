@@ -37,7 +37,7 @@ import {
 import { countMemories } from "../../memory/index.js";
 import { countDocuments } from "../../knowledge/index.js";
 import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
-import { providerConfigs, isThinkingCapable } from "../../ai-gateway/config.js";
+import { providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported } from "../../ai-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
@@ -75,6 +75,7 @@ function toInstanceDto(instance: Instance) {
     langsmithProject: instance.langsmithProject,
     authEnabled: instance.authEnabled,
     thinkingEnabled: instance.thinkingEnabled,
+    temperature: instance.temperature,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
@@ -120,7 +121,7 @@ export class InstancesController {
   @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
-    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; supportsThinking: boolean }[] }> = {};
+    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; supportsThinking: boolean; supportsTemperature: boolean }[] }> = {};
     for (const [name, cfg] of Object.entries(providerConfigs)) {
       const tierByModel = new Map(Object.entries(cfg.tiers).map(([tier, modelId]) => [modelId, tier]));
       const models = Object.entries(cfg.costPerMillionTokens).map(([modelId, cost]) => ({
@@ -132,6 +133,7 @@ export class InstancesController {
         // runtime gate (config-resolver), so the toggle visibility on the
         // frontend cannot drift from the actual capability.
         supportsThinking: isThinkingCapable(name, modelId),
+        supportsTemperature: temperatureSupported(name, modelId, false),
       }));
       providers[name] = { models };
     }
@@ -228,6 +230,7 @@ export class InstancesController {
       langsmithProject?: string | null;
       authEnabled?: boolean;
       thinkingEnabled?: boolean;
+      temperature?: number | null;
       stateInPromptEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
@@ -252,6 +255,9 @@ export class InstancesController {
     this.validateEmbeddingProvider(body.embeddingProvider);
     body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
     body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
+    if (body.temperature !== undefined) {
+      body.temperature = clampTemperature(body.temperature);
+    }
     // Capture the pre-update state to detect an embedding-provider switch.
     const before = await findInstanceBySlug(asInstanceSlug(slug));
     if (!before) throw new NotFoundException(`Instance "${slug}" not found`);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateSttCost, providerConfigs, isThinkingCapable } from "./config.js";
+import { resolveModel, estimateCost, estimateSttCost, providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported } from "./config.js";
 
 describe("resolveModel", () => {
   it("resolves openai fast tier", () => {
@@ -188,5 +188,45 @@ describe("isThinkingCapable", () => {
       expect(isThinkingCapable("anthropic", "claude-3-5-sonnet-20241022")).toBe(false);
       expect(isThinkingCapable("anthropic", "claude-3-7-sonnet-20250219")).toBe(true);
     });
+  });
+});
+
+describe("clampTemperature", () => {
+  it("passes through null/undefined", () => {
+    expect(clampTemperature(null)).toBeNull();
+    expect(clampTemperature(undefined)).toBeNull();
+  });
+  it("returns null for non-finite", () => {
+    expect(clampTemperature(NaN)).toBeNull();
+    expect(clampTemperature(Infinity)).toBeNull();
+    expect(clampTemperature(-Infinity)).toBeNull();
+  });
+  it("keeps in-range values", () => {
+    expect(clampTemperature(0)).toBe(0);
+    expect(clampTemperature(0.7)).toBe(0.7);
+    expect(clampTemperature(2)).toBe(2);
+  });
+  it("clamps out-of-range values", () => {
+    expect(clampTemperature(-1)).toBe(0);
+    expect(clampTemperature(5)).toBe(2);
+  });
+});
+
+describe("temperatureSupported", () => {
+  it("returns false when thinking is on, any provider", () => {
+    expect(temperatureSupported("openai", "gpt-4o", true)).toBe(false);
+    expect(temperatureSupported("anthropic", "claude-sonnet-4-6", true)).toBe(false);
+    expect(temperatureSupported("bedrock", "eu.amazon.nova-lite-v1:0", true)).toBe(false);
+  });
+  it("returns false for OpenAI reasoning models", () => {
+    expect(temperatureSupported("openai", "o3", false)).toBe(false);
+    expect(temperatureSupported("openai", "gpt-5.4", false)).toBe(false);
+    expect(temperatureSupported("openai", "o1", false)).toBe(false);
+    expect(temperatureSupported("openai", "o4", false)).toBe(false);
+  });
+  it("returns true for standard chat models", () => {
+    expect(temperatureSupported("openai", "gpt-4o", false)).toBe(true);
+    expect(temperatureSupported("anthropic", "claude-sonnet-4-6", false)).toBe(true);
+    expect(temperatureSupported("bedrock", "qwen.qwen3-32b-v1:0", false)).toBe(true);
   });
 });
