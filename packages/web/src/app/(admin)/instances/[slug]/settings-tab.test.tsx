@@ -526,7 +526,7 @@ describe("SettingsTab", () => {
       },
     });
 
-    renderWithProvider(
+    render(
       <SettingsTab instance={makeInstance({ model: "o3" })} onUpdate={onUpdate} />,
     );
 
@@ -552,7 +552,7 @@ describe("SettingsTab", () => {
     const instance = makeInstance({ model: "gpt-4o" });
     mockInstanceUpdate.mockResolvedValueOnce({ instance });
 
-    renderWithProvider(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
 
     await waitFor(() => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
@@ -562,7 +562,7 @@ describe("SettingsTab", () => {
     await user.clear(tempInput);
     await user.type(tempInput, "0.5");
 
-    await user.click(screen.getByText("common.save"));
+    await lastSaveAction.current!.onSave();
 
     await waitFor(() => {
       expect(mockInstanceUpdate).toHaveBeenCalledWith(
