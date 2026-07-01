@@ -387,11 +387,12 @@ describe("SettingsTab", () => {
     expect(mockToastSuccess).toHaveBeenCalledWith("settings.tab.saved");
   });
 
-  it("prompts for a destructive wipe and confirms it when the embedding provider changes (openai→bedrock)", async () => {
+  it("prompts for a destructive wipe and confirms it when the embedder changes (openai→bedrock)", async () => {
     const user = userEvent.setup();
-    const instance = makeInstance({ provider: "openai", model: "gpt-4o", memoryEnabled: true });
-    const updatedInstance = makeInstance({ provider: "bedrock", model: "titan" });
-    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+    const instance = makeInstance({ memoryEnabled: true });
+    mockInstanceUpdate.mockResolvedValueOnce({
+      instance: makeInstance({ embeddingProvider: "bedrock" }),
+    });
 
     render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
 
@@ -399,13 +400,14 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Switch provider to bedrock via the pricing dialog (a Table-row click,
-    // which works under jsdom — unlike the Radix Select trigger which needs
-    // pointer-capture APIs jsdom doesn't implement).
-    await user.click(screen.getByText("settings.tab.viewPricing"));
-    await user.click(await screen.findByText("titan"));
+    // Switch the embedder (independent of the chat LLM) to bedrock — this is
+    // the change that invalidates existing embeddings and must trigger the wipe.
+    const embedderTrigger = screen.getByRole("combobox", { name: "settings.tab.embedder" });
+    embedderTrigger.focus();
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("option", { name: /bedrock/i }));
 
-    // Saving with an embedding-provider change opens the destructive wipe dialog
+    // Saving with an embedder change opens the destructive wipe dialog
     // instead of saving directly.
     await lastSaveAction.current!.onSave();
 
@@ -420,7 +422,7 @@ describe("SettingsTab", () => {
     await waitFor(() => {
       expect(mockInstanceUpdate).toHaveBeenCalledWith(
         "test-instance",
-        expect.objectContaining({ provider: "bedrock", confirmWipe: true }),
+        expect.objectContaining({ embeddingProvider: "bedrock", confirmWipe: true }),
       );
     });
   });
