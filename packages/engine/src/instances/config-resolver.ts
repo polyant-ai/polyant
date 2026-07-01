@@ -5,7 +5,7 @@ import { asInstanceSlug, type InstanceSlug } from "./identifiers.js";
 import { getAllSecretsById } from "./secrets.store.js";
 import { SECRET_KEYS } from "./secrets.store.js";
 import { TtlCache } from "../utils/ttl-cache.js";
-import { isThinkingCapable, resolveModel } from "../ai-gateway/config.js";
+import { isThinkingCapable, resolveModel, clampTemperature, temperatureSupported } from "../ai-gateway/config.js";
 import type { ModelTier } from "../ai-gateway/types.js";
 import type { STTCredentials, STTProviderName } from "../stt-gateway/types.js";
 
@@ -35,6 +35,13 @@ export interface InstanceConfig {
    * model); the gate lives here to keep runtime requests coherent.
    */
   thinkingEnabled: boolean;
+  /**
+   * Effective sampling temperature: clamped to [0, 2] from the DB value, or
+   * null when the model/provider does not support a custom temperature (e.g.
+   * reasoning models, or when thinking is enabled). null means "use the
+   * provider default".
+   */
+  temperature: number | null;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed (truncated) into the model's history. */
@@ -108,6 +115,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       memoryEnabled: false,
       knowledgeEnabled: false,
       thinkingEnabled: false,
+      temperature: null,
       stateInPromptEnabled: false,
       toolResultsInHistoryEnabled: false,
       debugEnabled: false,
@@ -142,6 +150,16 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     sttCredentials.deepgram = { apiKey: secrets[SECRET_KEYS.DEEPGRAM_API_KEY] };
   }
 
+  // Gate the persisted preference behind the actual capability of the model
+  // that will run. A stale `thinkingEnabled=true` after switching to a
+  // non-capable model has no runtime effect.
+  const resolvedThinkingEnabled =
+    instance.thinkingEnabled &&
+    isThinkingCapable(
+      instance.provider ?? "",
+      effectiveModelFor(instance.provider ?? undefined, instance.model ?? undefined) ?? "",
+    );
+
   const config: InstanceConfig = {
     provider: instance.provider ?? undefined,
     model: instance.model ?? undefined,
@@ -163,15 +181,14 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     authApiKey: secrets[SECRET_KEYS.AUTH_API_KEY],
     memoryEnabled: instance.memoryEnabled,
     knowledgeEnabled: instance.knowledgeEnabled,
-    // Gate the persisted preference behind the actual capability of the model
-    // that will run. A stale `thinkingEnabled=true` after switching to a
-    // non-capable model has no runtime effect.
-    thinkingEnabled:
-      instance.thinkingEnabled &&
-      isThinkingCapable(
-        instance.provider ?? "",
-        effectiveModelFor(instance.provider ?? undefined, instance.model ?? undefined) ?? "",
-      ),
+    thinkingEnabled: resolvedThinkingEnabled,
+    temperature: temperatureSupported(
+      instance.provider ?? "",
+      effectiveModelFor(instance.provider ?? undefined, instance.model ?? undefined) ?? "",
+      resolvedThinkingEnabled,
+    )
+      ? clampTemperature(instance.temperature)
+      : null,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,

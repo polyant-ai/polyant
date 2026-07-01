@@ -100,10 +100,16 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // cannot drive the agentic tool loop — only single-turn chat. Every model
       // kept below passes a multi-turn tool round-trip.
       // Reasoning toggle stays Claude-only — see isThinkingCapable.
-      // Qwen3 — dense + MoE, three sizes
+      // Qwen3 — dense + MoE. Prices are the Europe (Milan) tier.
       "qwen.qwen3-32b-v1:0": { input: 0.20, output: 0.79 },
       "qwen.qwen3-coder-30b-a3b-v1:0": { input: 0.20, output: 0.79 },
       "qwen.qwen3-235b-a22b-2507-v1:0": { input: 0.29, output: 1.16 },
+      // Qwen3-Next 80B (MoE A3B) — newer arch than 235b-2507, eval candidate.
+      // Tool-loop expected OK (Qwen family) but not yet probe-verified.
+      "qwen.qwen3-next-80b-a3b": { input: 0.18, output: 1.41 },
+      // NVIDIA Nemotron — reasoning-capable. Eval candidate; tool-loop NOT yet
+      // verified (could reject tool-result turns like Gemma/Mistral-small).
+      "nvidia.nemotron-super-3-120b": { input: 0.18, output: 0.78 },
       // OpenAI open-weight (gpt-oss)
       "openai.gpt-oss-20b-1:0": { input: 0.09, output: 0.40 },
       "openai.gpt-oss-120b-1:0": { input: 0.20, output: 0.79 },
@@ -191,4 +197,27 @@ export function isThinkingCapable(provider: string, modelId: string): boolean {
     default:
       return false;
   }
+}
+
+/**
+ * Clamp a sampling temperature into the valid [0, 2] range. `null`/`undefined`
+ * pass through as `null` (meaning "use the provider default"); non-finite
+ * inputs are treated as unset.
+ */
+export function clampTemperature(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.min(2, Math.max(0, value));
+}
+
+/**
+ * Whether a (provider, model, thinking) combination accepts a custom
+ * temperature. Returns false when thinking is ON (Anthropic requires
+ * temperature=1; we generalise to "omit" cross-provider) or when the model is
+ * an OpenAI reasoning model (rejects temperature != 1). Mirrors the
+ * provider/model pattern logic of isThinkingCapable.
+ */
+export function temperatureSupported(provider: string, modelId: string, thinking: boolean): boolean {
+  if (thinking) return false;
+  if (provider === "openai" && /^(o[134]|gpt-5)/.test(modelId)) return false;
+  return true;
 }

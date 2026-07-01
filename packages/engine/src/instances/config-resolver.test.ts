@@ -121,6 +121,7 @@ describe("instances/config-resolver", () => {
         memoryEnabled: false,
         knowledgeEnabled: false,
         thinkingEnabled: false,
+        temperature: null,
         stateInPromptEnabled: false,
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
@@ -173,6 +174,9 @@ describe("instances/config-resolver", () => {
         // gpt-4o is not thinking-capable, so the gate keeps thinking off even
         // if the persisted preference were true. The fixture has it false.
         thinkingEnabled: false,
+        // fakeInstance has no temperature field → clampTemperature(undefined) = null,
+        // but gpt-4o supports temperature so the gate passes; null means "use provider default".
+        temperature: null,
         stateInPromptEnabled: false,
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
@@ -415,6 +419,56 @@ describe("instances/config-resolver", () => {
 
       const config = await resolveInstanceConfig(asInstanceSlug("thinking-no-model"));
       expect(config.thinkingEnabled).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Temperature gate (capability-gated, null when unsupported)
+  // -----------------------------------------------------------------------
+  describe("temperature gate", () => {
+    it("resolves a clamped temperature for a standard model", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({
+        ...fakeInstance,
+        slug: "temp-standard",
+        provider: "openai",
+        model: "gpt-4o",
+        thinkingEnabled: false,
+        temperature: 0.3,
+      });
+      mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
+
+      const cfg = await resolveInstanceConfig(asInstanceSlug("temp-standard"));
+      expect(cfg.temperature).toBe(0.3);
+    });
+
+    it("nulls temperature when the model is a reasoning model", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({
+        ...fakeInstance,
+        slug: "temp-reasoning",
+        provider: "openai",
+        model: "o3",
+        thinkingEnabled: false,
+        temperature: 0.3,
+      });
+      mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
+
+      const cfg = await resolveInstanceConfig(asInstanceSlug("temp-reasoning"));
+      expect(cfg.temperature).toBeNull();
+    });
+
+    it("nulls temperature when thinking is enabled", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({
+        ...fakeInstance,
+        slug: "temp-thinking",
+        provider: "anthropic",
+        model: "claude-sonnet-4-5-20250929",
+        thinkingEnabled: true,
+        temperature: 0.3,
+      });
+      mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
+
+      const cfg = await resolveInstanceConfig(asInstanceSlug("temp-thinking"));
+      expect(cfg.temperature).toBeNull();
     });
   });
 });

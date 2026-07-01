@@ -114,6 +114,7 @@ export const exportInstanceDataSchema = z.object({
   //     legacy 1.0 bundles (which lack them) keep validating. ---
   langsmithProject: z.string().nullable().default(null),
   thinkingEnabled: z.boolean().default(false),
+  temperature: z.number().nullable().default(null),
   stateInPromptEnabled: z.boolean().default(false),
   toolResultsInHistoryEnabled: z.boolean().default(false),
   debugEnabled: z.boolean().default(false),

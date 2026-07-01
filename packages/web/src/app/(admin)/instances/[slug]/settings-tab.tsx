@@ -110,6 +110,10 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // switching back to a capable model reapplies the preference.
   const [thinkingEnabled, setThinkingEnabled] = useState(instance.thinkingEnabled);
 
+  // Sampling temperature (0–2). Null means "use the engine default". Disabled
+  // when the selected model does not support temperature (e.g. reasoning models).
+  const [temperature, setTemperature] = useState<number | null>(instance.temperature ?? null);
+
   // Conversation state store: render known state read-only into the prompt (default off).
   const [stateInPromptEnabled, setStateInPromptEnabled] = useState(instance.stateInPromptEnabled);
 
@@ -212,6 +216,10 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // ai-gateway/config.ts), so the UI cannot drift from runtime behaviour.
   const canEnableThinking = !!selectedModelInfo?.supportsThinking;
 
+  // Temperature control is available only when the model supports it AND the
+  // user has not enabled extended thinking (reasoning mode ignores temperature).
+  const canSetTemperature = !!selectedModelInfo?.supportsTemperature && !thinkingEnabled;
+
   // Reset model when provider changes
   const handleProviderChange = (value: string) => {
     setProvider(value);
@@ -223,6 +231,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     model !== (instance.model ?? "") ||
     embeddingProvider !== ((instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai") ||
     thinkingEnabled !== instance.thinkingEnabled ||
+    temperature !== (instance.temperature ?? null) ||
     stateInPromptEnabled !== instance.stateInPromptEnabled ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
     debugEnabled !== (instance.debugEnabled ?? false) ||
@@ -269,6 +278,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         knowledgeEnabled,
         authEnabled,
         thinkingEnabled,
+        temperature: canSetTemperature ? temperature : null,
         stateInPromptEnabled,
         toolResultsInHistoryEnabled,
         debugEnabled,
@@ -491,6 +501,35 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             />
           </div>
         )}
+
+        {/*
+          Sampling temperature control. Shown for all models but disabled for
+          reasoning/o-series models (supportsTemperature: false) and when
+          extended thinking is active (which overrides temperature).
+        */}
+        <div className="space-y-2 border-t pt-4">
+          <Label htmlFor="temperature">{t("settings.temperature.label")}</Label>
+          <Input
+            id="temperature"
+            type="number"
+            min={0}
+            max={2}
+            step={0.1}
+            disabled={!canSetTemperature}
+            value={temperature ?? ""}
+            placeholder={t("settings.temperature.placeholder")}
+            onChange={(e) =>
+              setTemperature(e.target.value === "" ? null : Number(e.target.value))
+            }
+          />
+          {!canSetTemperature && (
+            <p className="text-xs text-muted-foreground">
+              {!selectedModelInfo?.supportsTemperature
+                ? t("settings.temperature.unsupportedReasoningHint")
+                : t("settings.temperature.unsupportedThinkingHint")}
+            </p>
+          )}
+        </div>
 
         {/*
           Conversation state store visibility. When on, the engine renders the

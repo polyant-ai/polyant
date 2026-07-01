@@ -365,6 +365,13 @@
       "when": 1780444800000,
       "tag": "0055_conversation_list_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1780444900000,
+      "tag": "0059_add_instance_temperature",
+      "breakpoints": true
     }
   ]
 }

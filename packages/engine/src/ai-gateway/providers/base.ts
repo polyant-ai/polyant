@@ -321,6 +321,7 @@ export function createProvider(providerName: string, createModel: ModelFactory):
         stopWhen: stepCountIs(request.maxSteps ?? 1),
         abortSignal: request.abortSignal,
         ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
+        ...(request.temperature != null ? { temperature: request.temperature } : {}),
       });
 
       // v5+: per-turn reasoning blocks are exposed at the top level as `reasoning`
@@ -357,6 +358,7 @@ export function createProvider(providerName: string, createModel: ModelFactory):
         stopWhen: stepCountIs(request.maxSteps ?? 1),
         abortSignal: request.abortSignal,
         ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
+        ...(request.temperature != null ? { temperature: request.temperature } : {}),
       });
 
       return {
