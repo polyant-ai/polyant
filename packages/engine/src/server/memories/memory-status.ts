@@ -35,7 +35,7 @@ export async function computeMemoryStatusFromInstance(instance: Instance): Promi
     // CONVENTION-EXCEPTION: process.env.AWS_REGION read directly to mirror the
     // engine-level fallback in resolveEmbeddingContext — otherwise the UI reports
     // "AWS credentials needed" while embeddings actually work via the engine region.
-    const hasRegion = !!secrets[SECRET_KEYS.AWS_REGION] || !!process.env.AWS_REGION;
+    const hasRegion = !!secrets[SECRET_KEYS.AWS_PROVIDER_REGION] || !!process.env.AWS_REGION;
     return { needsOpenAIKey: !hasRegion, canEnable: hasRegion && dimCompatible };
   }
   const hasOpenAIKey = !!secrets[SECRET_KEYS.OPENAI_API_KEY];

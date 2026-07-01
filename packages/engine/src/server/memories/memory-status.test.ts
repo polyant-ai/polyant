@@ -11,7 +11,7 @@ vi.mock("../../instances/secrets.store.js", () => ({
   getAllSecretsById: mockGetAllSecretsById,
   SECRET_KEYS: {
     OPENAI_API_KEY: "openai_api_key",
-    AWS_REGION: "aws_region",
+    AWS_PROVIDER_REGION: "aws_provider_region",
   },
 }));
 
@@ -60,7 +60,7 @@ describe("computeMemoryStatusFromInstance", () => {
   });
 
   it("enables Bedrock memory when aws_region is configured", async () => {
-    mockGetAllSecretsById.mockResolvedValue({ aws_region: "eu-west-1" });
+    mockGetAllSecretsById.mockResolvedValue({ aws_provider_region: "eu-west-1" });
     const instance = makeInstance({ provider: "bedrock", embeddingProvider: "bedrock" });
 
     const status = await computeMemoryStatusFromInstance(instance);
@@ -108,7 +108,7 @@ describe("computeMemoryStatusFromInstance", () => {
     // Defensive guard: should an instance ever end up bedrock + embedding_dim=1536
     // (a dim Titan v2 cannot emit), it is unembeddable. Credentials are present,
     // so without the dim guard this would falsely report healthy.
-    mockGetAllSecretsById.mockResolvedValue({ aws_region: "eu-west-1" });
+    mockGetAllSecretsById.mockResolvedValue({ aws_provider_region: "eu-west-1" });
     const instance = makeInstance({ provider: "bedrock", embeddingProvider: "bedrock", embeddingDim: 1536 });
 
     const status = await computeMemoryStatusFromInstance(instance);

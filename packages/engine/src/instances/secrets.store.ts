@@ -14,9 +14,13 @@ export const SECRET_KEYS = {
   OPENAI_API_KEY: "openai_api_key",
   ANTHROPIC_API_KEY: "anthropic_api_key",
   BEDROCK_API_KEY: "bedrock_api_key",
-  AWS_ACCESS_KEY_ID: "aws_access_key_id",
-  AWS_SECRET_ACCESS_KEY: "aws_secret_access_key",
-  AWS_REGION: "aws_region",
+  // AWS credentials for the AI provider (Bedrock chat + embedder, AWS/Transcribe STT).
+  // Dedicated namespace, intentionally distinct from the generic aws_* keys that
+  // tools (e.g. file-upload/S3) declare — so the provider and a tool can use different
+  // AWS accounts without sharing a single secret slot.
+  AWS_PROVIDER_ACCESS_KEY_ID: "aws_provider_access_key_id",
+  AWS_PROVIDER_SECRET_ACCESS_KEY: "aws_provider_secret_access_key",
+  AWS_PROVIDER_REGION: "aws_provider_region",
   LANGSMITH_API_KEY: "langsmith_api_key",
   AUTH_API_KEY: "auth_api_key",
   TAVILY_API_KEY: "tavily_api_key",

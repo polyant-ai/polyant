@@ -56,9 +56,11 @@ const SECRET_KEYS = {
   OPENAI: "openai_api_key",
   ANTHROPIC: "anthropic_api_key",
   BEDROCK_API_KEY: "bedrock_api_key",
-  AWS_ACCESS_KEY_ID: "aws_access_key_id",
-  AWS_SECRET_ACCESS_KEY: "aws_secret_access_key",
-  AWS_REGION: "aws_region",
+  // AWS credentials for the AI provider (Bedrock chat + embedder, Transcribe STT).
+  // Dedicated namespace — independent of the generic aws_* keys used by tools.
+  AWS_PROVIDER_ACCESS_KEY_ID: "aws_provider_access_key_id",
+  AWS_PROVIDER_SECRET_ACCESS_KEY: "aws_provider_secret_access_key",
+  AWS_PROVIDER_REGION: "aws_provider_region",
   LANGSMITH: "langsmith_api_key",
   AUTH: "auth_api_key",
   DEEPGRAM: "deepgram_api_key",
@@ -625,8 +627,13 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         />
       </section>
 
-      {/* AWS Credentials (shown when Bedrock is selected) */}
-      {provider === "bedrock" && (
+      {/*
+        AWS provider credentials — shown whenever ANY AWS-backed AI service is in
+        use: Bedrock chat, Bedrock embedder, or Transcribe STT. One shared set for
+        all three (same AWS account), dedicated to the AI provider and independent
+        of the generic aws_* secrets a tool may declare.
+      */}
+      {(provider === "bedrock" || embeddingProvider === "bedrock" || sttProvider === "aws") && (
         <section className="space-y-4 rounded-lg border p-4">
           <div>
             <Label className="text-base font-medium">{t("settings.tab.awsCredentials")}</Label>
@@ -648,39 +655,39 @@ export function SettingsTab({ instance, onUpdate }: Props) {
 
           <SecretField
             label={t("settings.tab.awsAccessKeyId")}
-            value={secretValue(SECRET_KEYS.AWS_ACCESS_KEY_ID)}
-            onChange={(v) => setSecretValue(SECRET_KEYS.AWS_ACCESS_KEY_ID, v)}
-            configured={isConfigured(SECRET_KEYS.AWS_ACCESS_KEY_ID)}
-            visible={secretVisible(SECRET_KEYS.AWS_ACCESS_KEY_ID)}
-            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.AWS_ACCESS_KEY_ID)}
-            placeholder={isConfigured(SECRET_KEYS.AWS_ACCESS_KEY_ID) ? t("settings.tab.keyPlaceholderSet") : "AKIA..."}
-            onRemove={isConfigured(SECRET_KEYS.AWS_ACCESS_KEY_ID) ? () => handleRemoveSecret(SECRET_KEYS.AWS_ACCESS_KEY_ID) : undefined}
+            value={secretValue(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID)}
+            onChange={(v) => setSecretValue(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID, v)}
+            configured={isConfigured(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID)}
+            visible={secretVisible(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID)}
+            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID)}
+            placeholder={isConfigured(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID) ? t("settings.tab.keyPlaceholderSet") : "AKIA..."}
+            onRemove={isConfigured(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID) ? () => handleRemoveSecret(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID) : undefined}
           />
 
           <SecretField
             label={t("settings.tab.awsSecretAccessKey")}
-            value={secretValue(SECRET_KEYS.AWS_SECRET_ACCESS_KEY)}
-            onChange={(v) => setSecretValue(SECRET_KEYS.AWS_SECRET_ACCESS_KEY, v)}
-            configured={isConfigured(SECRET_KEYS.AWS_SECRET_ACCESS_KEY)}
-            visible={secretVisible(SECRET_KEYS.AWS_SECRET_ACCESS_KEY)}
-            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.AWS_SECRET_ACCESS_KEY)}
-            placeholder={isConfigured(SECRET_KEYS.AWS_SECRET_ACCESS_KEY) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-            onRemove={isConfigured(SECRET_KEYS.AWS_SECRET_ACCESS_KEY) ? () => handleRemoveSecret(SECRET_KEYS.AWS_SECRET_ACCESS_KEY) : undefined}
+            value={secretValue(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY)}
+            onChange={(v) => setSecretValue(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY, v)}
+            configured={isConfigured(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY)}
+            visible={secretVisible(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY)}
+            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY)}
+            placeholder={isConfigured(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
+            onRemove={isConfigured(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY) ? () => handleRemoveSecret(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY) : undefined}
           />
 
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Label>{t("settings.tab.awsRegion")}</Label>
-              {isConfigured(SECRET_KEYS.AWS_REGION) && (
+              {isConfigured(SECRET_KEYS.AWS_PROVIDER_REGION) && (
                 <Badge variant="default" className="text-xs">
                   {t("settings.tab.configured")}
                 </Badge>
               )}
             </div>
             <Input
-              value={secretValue(SECRET_KEYS.AWS_REGION)}
-              onChange={(e) => setSecretValue(SECRET_KEYS.AWS_REGION, e.target.value)}
-              placeholder={isConfigured(SECRET_KEYS.AWS_REGION) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.awsRegionPlaceholder")}
+              value={secretValue(SECRET_KEYS.AWS_PROVIDER_REGION)}
+              onChange={(e) => setSecretValue(SECRET_KEYS.AWS_PROVIDER_REGION, e.target.value)}
+              placeholder={isConfigured(SECRET_KEYS.AWS_PROVIDER_REGION) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.awsRegionPlaceholder")}
             />
           </div>
 
