@@ -367,7 +367,7 @@
       "breakpoints": true
     },
     {
-      "idx": 55,
+      "idx": 52,
       "version": "7",
       "when": 1780444900000,
       "tag": "0059_add_instance_temperature",
