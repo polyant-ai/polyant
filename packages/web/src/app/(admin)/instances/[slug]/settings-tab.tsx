@@ -471,7 +471,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             value={embeddingProvider}
             onValueChange={(v) => setEmbeddingProvider(v as "openai" | "bedrock")}
           >
-            <SelectTrigger>
+            <SelectTrigger aria-label={t("settings.tab.embedder")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
