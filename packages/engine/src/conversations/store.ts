@@ -431,6 +431,10 @@ export class ConversationStore {
       : sql``;
 
     const [rows, countResult] = await Promise.all([
+      // message_count is a scalar subquery (not a JOIN + GROUP BY): a fan-out
+      // join over conversation_messages would force Postgres to aggregate the
+      // whole messages table before ORDER BY/LIMIT, so listing 20 rows scaled
+      // with the entire DB. The subquery + LATERAL now run only for the returned rows.
       db.execute(sql`
         SELECT
           c.id,
@@ -440,7 +444,8 @@ export class ConversationStore {
           c.channel,
           c.instance_id,
           i.name AS instance_name,
-          COUNT(cm.id)::int AS message_count,
+          (SELECT COUNT(*)::int FROM conversation_messages cm
+           WHERE cm.conversation_id = c.conversation_id) AS message_count,
           COALESCE(al_agg.total_tokens, 0)::int AS total_tokens,
           COALESCE(al_agg.total_cost, 0)::real AS total_cost,
           COALESCE(al_agg.conversation_tokens, 0)::int AS conversation_tokens,
@@ -451,7 +456,6 @@ export class ConversationStore {
           c.updated_at
         FROM conversations c
         LEFT JOIN instances i ON i.slug = c.instance_id
-        LEFT JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
         LEFT JOIN LATERAL (
           SELECT SUM(al.total_tokens) AS total_tokens,
                  SUM(al.estimated_cost_usd) AS total_cost,
@@ -463,7 +467,6 @@ export class ConversationStore {
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true
         ${instanceFilter}
-        GROUP BY c.id, i.name, al_agg.total_tokens, al_agg.total_cost, al_agg.conversation_tokens, al_agg.conversation_cost, al_agg.service_tokens, al_agg.service_cost
         ORDER BY c.updated_at DESC NULLS LAST
         LIMIT ${limit} OFFSET ${offset}
       `),
