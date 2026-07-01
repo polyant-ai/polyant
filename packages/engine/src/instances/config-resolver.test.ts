@@ -27,9 +27,9 @@ vi.mock("./secrets.store.js", () => ({
   SECRET_KEYS: {
     OPENAI_API_KEY: "openai_api_key",
     ANTHROPIC_API_KEY: "anthropic_api_key",
-    AWS_ACCESS_KEY_ID: "aws_access_key_id",
-    AWS_SECRET_ACCESS_KEY: "aws_secret_access_key",
-    AWS_REGION: "aws_region",
+    AWS_PROVIDER_ACCESS_KEY_ID: "aws_provider_access_key_id",
+    AWS_PROVIDER_SECRET_ACCESS_KEY: "aws_provider_secret_access_key",
+    AWS_PROVIDER_REGION: "aws_provider_region",
     LANGSMITH_API_KEY: "langsmith_api_key",
     AUTH_API_KEY: "auth_api_key",
     TAVILY_API_KEY: "tavily_api_key",

@@ -117,9 +117,9 @@ describe("instances/secrets.store", () => {
       expect(SECRET_KEYS.OPENAI_API_KEY).toBe("openai_api_key");
       expect(SECRET_KEYS.ANTHROPIC_API_KEY).toBe("anthropic_api_key");
       expect(SECRET_KEYS.BEDROCK_API_KEY).toBe("bedrock_api_key");
-      expect(SECRET_KEYS.AWS_ACCESS_KEY_ID).toBe("aws_access_key_id");
-      expect(SECRET_KEYS.AWS_SECRET_ACCESS_KEY).toBe("aws_secret_access_key");
-      expect(SECRET_KEYS.AWS_REGION).toBe("aws_region");
+      expect(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID).toBe("aws_provider_access_key_id");
+      expect(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY).toBe("aws_provider_secret_access_key");
+      expect(SECRET_KEYS.AWS_PROVIDER_REGION).toBe("aws_provider_region");
       expect(SECRET_KEYS.LANGSMITH_API_KEY).toBe("langsmith_api_key");
       expect(SECRET_KEYS.AUTH_API_KEY).toBe("auth_api_key");
       expect(SECRET_KEYS.TAVILY_API_KEY).toBe("tavily_api_key");
@@ -285,9 +285,9 @@ describe("instances/secrets.store", () => {
           { key: "openai_api_key", configured: true },
           { key: "anthropic_api_key", configured: false },
           { key: "bedrock_api_key", configured: false },
-          { key: "aws_access_key_id", configured: false },
-          { key: "aws_secret_access_key", configured: false },
-          { key: "aws_region", configured: false },
+          { key: "aws_provider_access_key_id", configured: false },
+          { key: "aws_provider_secret_access_key", configured: false },
+          { key: "aws_provider_region", configured: false },
           { key: "langsmith_api_key", configured: false },
           { key: "auth_api_key", configured: true },
           { key: "tavily_api_key", configured: false },

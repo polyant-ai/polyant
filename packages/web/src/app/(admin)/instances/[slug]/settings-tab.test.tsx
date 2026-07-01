@@ -107,9 +107,9 @@ function setupDefaultMocks() {
     secrets: [
       { key: "openai_api_key", configured: true },
       { key: "anthropic_api_key", configured: false },
-      { key: "aws_access_key_id", configured: false },
-      { key: "aws_secret_access_key", configured: false },
-      { key: "aws_region", configured: false },
+      { key: "aws_provider_access_key_id", configured: false },
+      { key: "aws_provider_secret_access_key", configured: false },
+      { key: "aws_provider_region", configured: false },
       { key: "langsmith_api_key", configured: false },
       { key: "auth_api_key", configured: false },
       { key: "tavily_api_key", configured: false },
