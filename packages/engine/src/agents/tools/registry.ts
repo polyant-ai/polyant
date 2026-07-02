@@ -323,12 +323,22 @@ async function importRoot(dir: string, namespace: string | null): Promise<void> 
   setActivePluginNamespace(namespace);
   try {
     for (const file of files) {
-      const mod = (await import(join(dir, file))) as { default?: unknown };
-      const def = mod.default;
-      if (def && typeof def === "object" && "inputSchema" in (def as object)) {
-        registerSerialized(def as SerializedToolDefinition, namespace);
+      try {
+        const mod = (await import(join(dir, file))) as { default?: unknown };
+        const def = mod.default;
+        if (def && typeof def === "object" && "inputSchema" in (def as object)) {
+          registerSerialized(def as SerializedToolDefinition, namespace);
+        }
+        // else: a legacy tool already self-registered as a side-effect.
+      } catch (err) {
+        // Third-party plugin code must never abort engine boot: log + skip the
+        // offending file. Core tools (no namespace) are first-party — a broken
+        // core tool is a real bug, so rethrow to fail loudly at boot.
+        if (namespace === null) throw err;
+        console.warn(
+          `Plugin "${namespace}" tool file "${file}" failed to load: ${errMsg(err)} — skipping`,
+        );
       }
-      // else: a legacy tool already self-registered as a side-effect.
     }
   } finally {
     setActivePluginNamespace(null);
