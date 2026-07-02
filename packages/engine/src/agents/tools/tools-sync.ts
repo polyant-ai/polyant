@@ -57,17 +57,24 @@ export async function syncToolsToDb(): Promise<void> {
     }
 
     // Hard-delete tools that are no longer in the registry.
-    // EXCLUDE virtual `agent:*` rows: they are not in the static registry
-    // (they are upserted by `syncAgentTool` when the callee enables its
-    // `agent` channel). Deleting them here would cascade through
-    // instance_tools FK and wipe per-instance agent invocation bindings.
+    // Hard-delete ONLY flat (core, first-party) names absent from the registry.
+    // NEVER hard-delete namespaced (`<ns>:name`) rows: a plugin that fails to
+    // load on a given boot (version skew, PLUGIN_DIRS unmounted, import crash)
+    // would otherwise cascade through the instance_tools FK and WIPE customers'
+    // per-instance enablement. Namespaced rows soft-persist — an absent plugin's
+    // tools are inert (buildTools skips names not in the registry) and
+    // re-activate when it reloads. `%:%` covers plugin `<ns>:name` AND virtual
+    // `agent:*` rows (both managed outside this static registry delete).
+    // ponytail: no explicit `available` flag/UI — a genuinely-uninstalled plugin
+    // leaves inert catalog rows until manual cleanup; add a soft-disable column
+    // if operators need to distinguish "plugin down" from "plugin removed".
     if (registryNames.length > 0) {
       await tx
         .delete(tools)
-        .where(and(notInArray(tools.name, registryNames), not(like(tools.name, "agent:%"))));
+        .where(and(notInArray(tools.name, registryNames), not(like(tools.name, "%:%"))));
     } else {
-      // If registry is empty, still preserve agent:* rows.
-      await tx.delete(tools).where(not(like(tools.name, "agent:%")));
+      // Registry empty: still preserve every namespaced row.
+      await tx.delete(tools).where(not(like(tools.name, "%:%")));
     }
   });
 }
