@@ -49,6 +49,8 @@ vi.mock("../tools/registry.js", () => ({
   // Pass-through: scoping is unit-tested in registry.test.ts; here it must not
   // strip secrets so the buildTools assertions see the bag they expect.
   scopeSecrets: (secrets: unknown) => secrets,
+  // Real behaviour: ':' → '__' (so the namespaced-tool presentation test passes).
+  toModelToolName: (name: string) => name.replace(/:/g, "__"),
 }));
 
 vi.mock("../tools/task-tool.js", () => ({

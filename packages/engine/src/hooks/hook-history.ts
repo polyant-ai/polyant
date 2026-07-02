@@ -20,6 +20,7 @@
 import type { ModelMessage } from "ai";
 import type { StepDetail } from "../conversations/schema.js";
 import { sanitizeToolCallId } from "../conversations/tool-history.js";
+import { toModelToolName } from "../agents/tools/registry.js";
 import type { HookExecutionSummary } from "./hook-types.js";
 
 const NO_RESULT = "(no result recorded)";
@@ -57,18 +58,20 @@ export function hookExecutionsToModelMessages(execs: HookExecutionSummary[]): Mo
   const calls = replayableCalls(execs);
   if (calls.length === 0) return [];
 
-  // Wire ids must match the Anthropic/Bedrock grammar; the internal `hook:<id>`
-  // (kept for persistence + telemetry) carries a ':' Bedrock rejects.
+  // Wire ids AND names must match the Anthropic/Bedrock grammar [a-zA-Z0-9_-]+:
+  // the internal `hook:<id>` and a namespaced plugin tool name (`<ns>:<name>`)
+  // both carry a ':' the provider rejects. Sanitize the name the same way
+  // buildTools presents it (':' → '__').
   const assistantParts = calls.map((c) => ({
     type: "tool-call",
     toolCallId: sanitizeToolCallId(c.toolCallId),
-    toolName: c.toolName,
+    toolName: toModelToolName(c.toolName),
     input: c.args,
   }));
   const toolParts = calls.map((c) => ({
     type: "tool-result",
     toolCallId: sanitizeToolCallId(c.toolCallId),
-    toolName: c.toolName,
+    toolName: toModelToolName(c.toolName),
     output: { type: "text", value: c.result },
   }));
 
