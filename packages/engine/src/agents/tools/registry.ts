@@ -21,6 +21,7 @@ import {
 import { config } from "../../config.js";
 import { resolvePluginRoots } from "../../plugin-system/plugin-roots.js";
 import { engineSatisfies } from "../../plugin-system/plugin-manifest.js";
+import { findStrictModeViolations } from "./strict-mode-lint.js";
 
 // Re-export the authoring contract from the SDK so core tools keep importing
 // `normalizeRequiredSecrets` / the types from "./registry.js" unchanged.
@@ -185,11 +186,12 @@ export function fillMissingKeysWithNull(parameters: z.ZodType, val: unknown): un
   return filled;
 }
 
-/** Recursive JSON-Schema-driven equivalent of `fillMissingKeysWithNull`: fills
- * missing object keys with `null` at every depth (nested objects + array items).
- * This mirrors, for the serialized path, what the legacy Zod `z.preprocess` did
- * inline — so non-strict models that omit nullable keys (incl. NESTED ones, e.g.
- * a filter's alias field) still pass validation instead of being rejected. */
+/** JSON-Schema-driven counterpart of `fillMissingKeysWithNull`, for the serialized
+ * path: fills missing object keys with `null`. NOTE it is NOT equivalent to the
+ * legacy helper — `fillMissingKeysWithNull` is SHALLOW (top-level keys only),
+ * this one RECURSES into nested objects + array items. The recursion is
+ * deliberate: non-strict models omit nullable keys at any depth (e.g. a filter's
+ * alias field), and those must be filled too so validation doesn't reject them. */
 export function fillMissingKeysFromJsonSchema(schema: Record<string, unknown>, val: unknown): unknown {
   if (!schema || typeof schema !== "object") return val;
   const props = schema.properties as Record<string, Record<string, unknown>> | undefined;
@@ -416,7 +418,18 @@ async function importRoot(dir: string, namespace: string | null): Promise<void> 
         const mod = (await import(join(dir, file))) as { default?: unknown };
         const def = mod.default;
         if (def && typeof def === "object" && "inputSchema" in (def as object)) {
-          registerSerialized(def as SerializedToolDefinition, namespace);
+          const serialized = def as SerializedToolDefinition;
+          registerSerialized(serialized, namespace);
+          // Load-time strict-mode lint for PLUGIN tools (core tools are covered by
+          // strict-mode.test.ts). Third-party schemas get no engine-side check
+          // otherwise — a violation would only surface as a cryptic provider
+          // rejection at call time. Warn, don't fail: the plugin still loads.
+          if (namespace !== null) {
+            const violations = findStrictModeViolations(serialized.inputSchema, `${namespace}:${serialized.name}`);
+            for (const v of violations) {
+              console.warn(`Plugin tool strict-mode lint: ${v}`);
+            }
+          }
         }
         // else: a legacy tool already self-registered as a side-effect.
       } catch (err) {
