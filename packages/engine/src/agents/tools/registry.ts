@@ -2,6 +2,7 @@
 
 import { tool, jsonSchema, type Tool } from "ai";
 import { z } from "zod";
+import Ajv, { type ValidateFunction } from "ajv";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -207,6 +208,49 @@ export function fillMissingKeysFromJsonSchema(schema: Record<string, unknown>, v
   return val;
 }
 
+// JSON Schema validator for the serialized path. Configured to MIRROR Zod
+// semantics (the legacy path validated with the source Zod schema): strip
+// unknown keys (`removeAdditional`, like a non-strict z.object) and DON'T coerce
+// types (a string where a number is declared is rejected, like Zod). This
+// restores validation parity for non-strict models — strict-mode providers
+// already validate upstream, but non-strict ones (many Bedrock models, some
+// OpenAI-compatible endpoints) can emit off-schema args, which previously
+// reached execute unchecked. The tool schemas are strict-mode-compatible (no
+// exotic constructs — those live in execute per rule-7), so ajv on the derived
+// JSON Schema tracks Zod faithfully.
+const ajv = new Ajv({ removeAdditional: "all", coerceTypes: false, useDefaults: false, allErrors: false });
+const validatorCache = new WeakMap<object, ValidateFunction | null>();
+
+function getValidator(schema: Record<string, unknown>): ValidateFunction | null {
+  if (validatorCache.has(schema)) return validatorCache.get(schema) ?? null;
+  let compiled: ValidateFunction | null = null;
+  try {
+    compiled = ajv.compile(schema);
+  } catch (err) {
+    // A schema ajv can't compile degrades to fill-only (today's behaviour) rather
+    // than breaking the tool — validation is best-effort parity, not a hard gate.
+    console.warn(`Tool schema failed to compile for validation — skipping: ${errMsg(err)}`);
+  }
+  validatorCache.set(schema, compiled);
+  return compiled;
+}
+
+/**
+ * Fill missing nullable keys (recursively) then validate against the JSON Schema.
+ * Shared by the serialized `buildTool` path and the hooks tool-action executor so
+ * both validate identically. Returns the (possibly extra-key-stripped) value on
+ * success, or an error message on failure.
+ */
+export function fillAndValidate(
+  schema: Record<string, unknown>,
+  value: unknown,
+): { ok: true; value: unknown } | { ok: false; error: string } {
+  const filled = fillMissingKeysFromJsonSchema(schema, value);
+  const validator = getValidator(schema);
+  if (!validator || validator(filled)) return { ok: true, value: filled };
+  return { ok: false, error: ajv.errorsText(validator.errors) };
+}
+
 /**
  * Least-privilege wrapper for a tool's secrets: reads of keys the tool declared
  * in `requiredSecrets` pass through; an UNDECLARED read is logged once per key
@@ -312,16 +356,20 @@ function buildSerializedTool(def: SerializedToolDefinition, ctx: ToolContext): T
     }
   };
 
-  // Fill missing nullable keys (recursively) INSIDE validation — the serialized
-  // analogue of the legacy z.preprocess — so non-strict models that omit keys
-  // still validate. The tool's own execute performs semantic validation.
+  // Fill missing nullable keys (recursively) THEN validate against the JSON
+  // Schema — the serialized analogue of the legacy Zod validation path. Fill so
+  // non-strict models that omit nullable keys still pass; validate so off-schema
+  // args (wrong type, hallucinated keys) get a correctable error instead of
+  // silently reaching execute. The tool's own execute still does semantic checks.
   return tool({
     description,
     inputSchema: jsonSchema(def.inputSchema as Parameters<typeof jsonSchema>[0], {
-      validate: (value: unknown) => ({
-        success: true as const,
-        value: fillMissingKeysFromJsonSchema(def.inputSchema, value),
-      }),
+      validate: (value: unknown) => {
+        const r = fillAndValidate(def.inputSchema, value);
+        return r.ok
+          ? { success: true as const, value: r.value }
+          : { success: false as const, error: new Error(r.error) };
+      },
     }),
     execute: wrappedExecute,
   });
