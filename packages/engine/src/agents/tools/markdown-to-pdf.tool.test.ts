@@ -126,9 +126,8 @@ function stubCtx(): ToolContext {
 
 async function executeTool(input: Record<string, unknown>) {
   const def = getToolRegistry().get("markdownToPdf");
-  if (!def) throw new Error("tool not registered");
-  const built = def.create(stubCtx());
-  return built.execute(input as never) as Promise<Record<string, unknown>>;
+  if (!def || !("inputSchema" in def)) throw new Error("tool not registered");
+  return def.execute(input as never, stubCtx()) as Promise<Record<string, unknown>>;
 }
 
 describe("markdownToPdf — input validation", () => {

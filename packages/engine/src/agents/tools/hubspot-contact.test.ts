@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import "./hubspot-contact.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import hubspotContactTool from "./hubspot-contact.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 function createMockResponse(
@@ -33,7 +33,7 @@ const ctxWithKey = {
 const toolCtx = { toolCallId: "tc-1", messages: [] } as any;
 
 describe("hubspotContact", () => {
-  const def = getToolRegistry().get("hubspotContact")!;
+  const def = hubspotContactTool;
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -43,7 +43,7 @@ describe("hubspotContact", () => {
     expect(def).toBeDefined();
     expect(def.name).toBe("hubspotContact");
     expect(def.category).toBe("crm");
-    expect(def.requiredSecrets).toEqual(["hubspot_api_key"]);
+    expect(def.requiredSecrets).toEqual([{ key: "hubspot_api_key", type: "text", sensitive: true }]);
   });
 
   it("has parameters and description", () => {
@@ -184,11 +184,11 @@ describe("hubspotContact", () => {
       );
 
     // The model emitted `propertyName` (HubSpot raw API name) instead of
-    // the tool's `property` field. The Zod schema must coerce it via the
-    // input-level transform — otherwise the model's call fails with
-    // "filters[0].property required" (the original production error).
-    // We parse through the tool's Zod schema first (as the AI SDK does
-    // at runtime) so the transform actually runs.
+    // the tool's `property` field. `execute` must coalesce it to `property`
+    // at runtime — otherwise the call would fail with "filters[0].property
+    // required" (the original production error). The coalescence used to be
+    // a Zod `.transform()`; it now lives in `execute`, so we call execute
+    // directly with the raw args.
     const rawArgs = {
       action: "search",
       contactId: null,
@@ -204,9 +204,7 @@ describe("hubspotContact", () => {
       limit: null,
       after: null,
     };
-    const parsed = (tool.inputSchema as { parse: (v: unknown) => unknown }).parse(rawArgs);
-
-    const result = await tool.execute(parsed as any, toolCtx);
+    const result = await tool.execute(rawArgs as any, toolCtx);
 
     expect(result.found).toBe(1);
     const [, opts] = mockFetch.mock.calls[0];
@@ -437,10 +435,8 @@ describe("hubspotContact", () => {
   it("filters[] tolerates LLMs that omit propertyName entirely (no key at all)", async () => {
     // Real production failure on gpt-4.1-mini: the model emitted
     //   filters: [{ property: "email", operator: "EQ", value: "..." }]
-    // (no propertyName key at all) and Zod rejected the call because
-    // propertyName is `.string().nullable()` — `.nullable()` requires
-    // string|null, not undefined. The z.preprocess fills missing keys
-    // with null so the inner schema can parse.
+    // (no propertyName key at all). `execute` reads `f.property ?? f.propertyName`,
+    // so a missing `propertyName` is harmless (undefined ?? => property wins).
     const tool = buildTool(def, ctxWithKey) as any;
 
     mockFetch
@@ -474,9 +470,7 @@ describe("hubspotContact", () => {
       limit: null,
       after: null,
     };
-    const parsed = (tool.inputSchema as { parse: (v: unknown) => unknown }).parse(rawArgs);
-
-    const result = await tool.execute(parsed as any, toolCtx);
+    const result = await tool.execute(rawArgs as any, toolCtx);
 
     expect(result.found).toBe(1);
     const [, opts] = mockFetch.mock.calls[0];
@@ -520,9 +514,7 @@ describe("hubspotContact", () => {
       limit: null,
       after: null,
     };
-    const parsed = (tool.inputSchema as { parse: (v: unknown) => unknown }).parse(rawArgs);
-
-    const result = await tool.execute(parsed as any, toolCtx);
+    const result = await tool.execute(rawArgs as any, toolCtx);
 
     expect(result.found).toBe(1);
     const [, opts] = mockFetch.mock.calls[0];

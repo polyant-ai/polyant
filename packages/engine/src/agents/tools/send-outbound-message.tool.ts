@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { channelManager } from "../../channels/channel-manager.js";
 import { getTriggerContext } from "../../webhooks/trigger-context.js";
 
-registerTool({
+export default defineTool({
   name: "send_outbound_message",
   description:
     "Send a message to the user via the configured outbound channel.\n" +
@@ -16,44 +16,42 @@ registerTool({
     "Caveat: only available in webhook-triggered conversation context.",
   category: "conversation-trigger",
   harness: true,
-  create: (ctx) => ({
-    parameters: z.object({
-      message: z.string().describe("The message to send to the user"),
-      mediaUrl: z
-        .string()
-        .nullable()
-        .describe("Optional public HTTPS URL to attach as media (e.g. PDF). Must start with https://. Currently honored only by WhatsApp."),
-    }),
-    execute: async ({ message, mediaUrl }: { message: string; mediaUrl: string | null }) => {
-      const triggerCtx = getTriggerContext(ctx.conversationId ?? "");
-      if (!triggerCtx) {
-        return { error: "No active trigger context. This tool is only available in webhook-triggered conversations." };
-      }
-
-      if (mediaUrl && !/^https:\/\//.test(mediaUrl)) {
-        return { error: "mediaUrl must be an absolute https:// URL." };
-      }
-
-      try {
-        await channelManager.sendOutbound(
-          triggerCtx.instanceSlug,
-          triggerCtx.outboundChannel,
-          triggerCtx.outboundTarget,
-          message,
-          mediaUrl ? { mediaUrl } : undefined,
-        );
-      } catch (err) {
-        return { error: `Failed to send outbound message: ${err instanceof Error ? err.message : String(err)}` };
-      }
-
-      return {
-        success: true,
-        replyHandled: true,
-        replyText: message,
-        ...(mediaUrl ? { mediaUrl } : {}),
-        channel: triggerCtx.outboundChannel,
-        target: triggerCtx.outboundTarget,
-      };
-    },
+  parameters: z.object({
+    message: z.string().describe("The message to send to the user"),
+    mediaUrl: z
+      .string()
+      .nullable()
+      .describe("Optional public HTTPS URL to attach as media (e.g. PDF). Must start with https://. Currently honored only by WhatsApp."),
   }),
+  execute: async ({ message, mediaUrl }: { message: string; mediaUrl: string | null }, ctx) => {
+    const triggerCtx = getTriggerContext(ctx.conversationId ?? "");
+    if (!triggerCtx) {
+      return { error: "No active trigger context. This tool is only available in webhook-triggered conversations." };
+    }
+
+    if (mediaUrl && !/^https:\/\//.test(mediaUrl)) {
+      return { error: "mediaUrl must be an absolute https:// URL." };
+    }
+
+    try {
+      await channelManager.sendOutbound(
+        triggerCtx.instanceSlug,
+        triggerCtx.outboundChannel,
+        triggerCtx.outboundTarget,
+        message,
+        mediaUrl ? { mediaUrl } : undefined,
+      );
+    } catch (err) {
+      return { error: `Failed to send outbound message: ${err instanceof Error ? err.message : String(err)}` };
+    }
+
+    return {
+      success: true,
+      replyHandled: true,
+      replyText: message,
+      ...(mediaUrl ? { mediaUrl } : {}),
+      channel: triggerCtx.outboundChannel,
+      target: triggerCtx.outboundTarget,
+    };
+  },
 });

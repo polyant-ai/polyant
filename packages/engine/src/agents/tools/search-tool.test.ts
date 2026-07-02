@@ -9,8 +9,8 @@ vi.mock("../../memory/index.js", () => ({
   hybridSearch: (...args: unknown[]) => mockHybridSearch(...args),
 }));
 
-import "./search-memory.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import searchMemoryTool from "./search-memory.tool.js";
+import { buildTool } from "./registry.js";
 
 const ctx = {
   instanceId: "user-1",
@@ -18,7 +18,7 @@ const ctx = {
 } as any;
 
 describe("searchMemory", () => {
-  const def = getToolRegistry().get("searchMemory")!;
+  const def = searchMemoryTool;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const searchMemory = buildTool(def, ctx) as any;
 

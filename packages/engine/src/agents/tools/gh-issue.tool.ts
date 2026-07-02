@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
+import type { ToolContext } from "./registry.js";
 import { ghExec, ghJson } from "./gh-exec.js";
 import { errMsg } from "../../utils/error.js";
 
@@ -113,7 +114,7 @@ async function handleSearch(
 /*  Tool registration                                                  */
 /* ------------------------------------------------------------------ */
 
-registerTool({
+export default defineTool({
   name: "ghIssue",
   description:
     "Manage GitHub issues: create, read details, comment, or search.\n" +
@@ -139,8 +140,7 @@ registerTool({
       input: { action: "search", repo: "owner/repo", state: "open", labels: "bug", limit: 50 },
     },
   ],
-  create: (ctx: ToolContext) => ({
-    parameters: z.object({
+  parameters: z.object({
       action: z.enum(["create", "get", "comment", "search"]).describe("Action to perform on the issue."),
       repo: z.string().describe("Repository in `owner/name` format."),
       number: z.number().nullable().describe("Issue number (required for `get` and `comment`)."),
@@ -152,7 +152,7 @@ registerTool({
       state: z.enum(["open", "closed", "all"]).nullable().describe("Filter by state (only for `search`, default: all)."),
       limit: z.number().nullable().describe("Maximum number of results (only for `search`, default: 100, recommended max: 500)."),
     }),
-    execute: async (params: {
+  execute: async (params: {
       action: "create" | "get" | "comment" | "search";
       repo: string;
       number: number | null;
@@ -163,7 +163,7 @@ registerTool({
       query: string | null;
       state: "open" | "closed" | "all" | null;
       limit: number | null;
-    }) => {
+    }, ctx: ToolContext) => {
       const token = ctx.secrets?.github_token;
       if (!token) return { error: "GitHub token not configured for this instance." };
 
@@ -183,6 +183,5 @@ registerTool({
         case "search":
           return handleSearch(ctx, token, { repo: params.repo, query: params.query ?? null, state: params.state ?? null, labels: params.labels ?? null, limit: params.limit ?? null });
       }
-    },
-  }),
+  },
 });

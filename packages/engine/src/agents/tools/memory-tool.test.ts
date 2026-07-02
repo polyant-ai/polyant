@@ -16,8 +16,8 @@ vi.mock("../../memory/memory-store.js", () => ({
   upsertMemory: (...args: unknown[]) => mockUpsertMemory(...args),
 }));
 
-import "./save-memory.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import saveMemoryTool from "./save-memory.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 const ctx = {
@@ -26,7 +26,7 @@ const ctx = {
 } as any;
 
 describe("saveMemory", () => {
-  const def = getToolRegistry().get("saveMemory")!;
+  const def = saveMemoryTool;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const saveMemory = buildTool(def, ctx) as any;
 

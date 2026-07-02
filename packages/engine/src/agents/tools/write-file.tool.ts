@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { writeFile, mkdir, stat } from "fs/promises";
 import { dirname } from "path";
-import { registerTool, type ToolContext } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 import {
   ensureWorkspaceDir,
   resolveWorkspacePath,
 } from "./shared/workspace-utils.js";
 
-registerTool({
+export default defineTool({
   name: "writeFile",
   description:
     "Write a file to the sandboxed workspace of the current conversation.\n" +
@@ -37,31 +37,30 @@ registerTool({
       },
     },
   ],
-  create: (ctx: ToolContext) => ({
-    parameters: z.object({
-      path: z
-        .string()
-        .min(1)
-        .describe(
-          "Relative path of the file in the conversation workspace (e.g. `notes.md` or `output/report.md`). Absolute paths and `../` are not allowed.",
-        ),
-      content: z.string().describe("Text content to write (UTF-8)."),
-      overwrite: z
-        .boolean()
-        .nullable()
-        .describe(
-          "If `false`, the tool returns an error when the file already exists. Default: `true` (overwrites).",
-        ),
-    }),
-    execute: async ({
-      path,
-      content,
-      overwrite,
-    }: {
-      path: string;
-      content: string;
-      overwrite: boolean | null;
-    }) => {
+  parameters: z.object({
+    path: z
+      .string()
+      .min(1)
+      .describe(
+        "Relative path of the file in the conversation workspace (e.g. `notes.md` or `output/report.md`). Absolute paths and `../` are not allowed.",
+      ),
+    content: z.string().describe("Text content to write (UTF-8)."),
+    overwrite: z
+      .boolean()
+      .nullable()
+      .describe(
+        "If `false`, the tool returns an error when the file already exists. Default: `true` (overwrites).",
+      ),
+  }),
+  execute: async ({
+    path,
+    content,
+    overwrite,
+  }: {
+    path: string;
+    content: string;
+    overwrite: boolean | null;
+  }, ctx) => {
       try {
         if (!ctx.conversationId) {
           return {
@@ -121,5 +120,4 @@ registerTool({
         return { error: message };
       }
     },
-  }),
 });

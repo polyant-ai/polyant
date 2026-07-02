@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 import { hubspotFetch, getHubSpotApiKeyOrError, HUBSPOT_ASSOCIATION_TYPES } from "./hubspot-fetch.js";
 import { getHubSpotPortalId, hubspotUrl } from "./hubspot-portal.js";
 
-registerTool({
+export default defineTool({
   name: "hubspotSendEmail",
   description:
     "Send a tracked email via HubSpot and associate it with a CRM contact.\n" +
@@ -24,8 +24,7 @@ registerTool({
       input: { contactId: "12345", subject: "Following up on our conversation", body: "Hi Jane, as discussed, here is the summary..." },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
+  parameters: z.object({
       contactId: z
         .string()
         .describe("Recipient HubSpot contact ID (the email is automatically associated with the contact)"),
@@ -36,11 +35,11 @@ registerTool({
         .string()
         .describe("Email body (text or HTML)"),
     }),
-    execute: async (params: {
+  execute: async (params: {
       contactId: string;
       subject: string;
       body: string;
-    }) => {
+    }, ctx) => {
       const apiKeyResult = getHubSpotApiKeyOrError(ctx);
       if (typeof apiKeyResult !== "string") return apiKeyResult;
       const apiKey = apiKeyResult;
@@ -143,5 +142,4 @@ registerTool({
         return { error: `Email send failed: ${errMsg(err)}` };
       }
     },
-  }),
 });

@@ -20,8 +20,8 @@ vi.mock("@/utils/pipeline-logger.js", () => ({
   pipelineLog: { toolCall: vi.fn(), toolResult: vi.fn() },
 }));
 
-import "./git-clone-repo.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import gitCloneRepoTool from "./git-clone-repo.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 const mockExecFile = vi.mocked(execFile);
@@ -35,7 +35,7 @@ const dummyCtx = {
 } as any;
 
 describe("gitCloneRepo", () => {
-  const def = getToolRegistry().get("gitCloneRepo")!;
+  const def = gitCloneRepoTool;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -45,7 +45,7 @@ describe("gitCloneRepo", () => {
     expect(def).toBeDefined();
     expect(def.name).toBe("gitCloneRepo");
     expect(def.category).toBe("dev");
-    expect(def.requiredSecrets).toContain("github_token");
+    expect(def.requiredSecrets.map((s) => s.key)).toContain("github_token");
   });
 
   it("clones repo fresh and returns path", async () => {

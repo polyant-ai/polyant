@@ -3,13 +3,13 @@
 import { z } from "zod";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "crypto";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../../utils/error.js";
 import { extensionFromMime } from "../../utils/mime.js";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
-registerTool({
+export default defineTool({
   name: "fileUpload",
   description:
     "Upload a file to S3 and return its key and URL.\n" +
@@ -26,42 +26,28 @@ registerTool({
       input: { attachmentIndex: 0, base64Data: null, mimeType: null, filename: null },
     },
   ],
-  create: (ctx: ToolContext) => {
-    // Cache S3 client per tool build (credentials are stable within a build)
-    let s3Client: S3Client | null = null;
-    function getClient(): S3Client | null {
-      const accessKeyId = ctx.secrets?.["aws_access_key_id"];
-      const secretAccessKey = ctx.secrets?.["aws_secret_access_key"];
-      const region = ctx.secrets?.["aws_region"];
-      if (!accessKeyId || !secretAccessKey || !region) return null;
-      if (!s3Client) {
-        s3Client = new S3Client({ region, credentials: { accessKeyId, secretAccessKey } });
-      }
-      return s3Client;
-    }
-
-    return ({
-    parameters: z.object({
-      attachmentIndex: z
-        .number()
-        .int()
-        .min(0)
-        .nullable()
-        .describe("Index of the attachment to upload (0-based). Use this OR `base64Data`."),
-      base64Data: z
-        .string()
-        .nullable()
-        .describe("File data encoded as base64 (alternative to `attachmentIndex`)."),
-      mimeType: z
-        .string()
-        .nullable()
-        .describe("MIME type of the file (required when using `base64Data`)."),
-      filename: z
-        .string()
-        .nullable()
-        .describe("Custom filename. If omitted, uses the attachment name or generates a UUID."),
-    }),
-    execute: async ({
+  parameters: z.object({
+    attachmentIndex: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe("Index of the attachment to upload (0-based). Use this OR `base64Data`."),
+    base64Data: z
+      .string()
+      .nullable()
+      .describe("File data encoded as base64 (alternative to `attachmentIndex`)."),
+    mimeType: z
+      .string()
+      .nullable()
+      .describe("MIME type of the file (required when using `base64Data`)."),
+    filename: z
+      .string()
+      .nullable()
+      .describe("Custom filename. If omitted, uses the attachment name or generates a UUID."),
+  }),
+  execute: async (
+    {
       attachmentIndex,
       base64Data,
       mimeType,
@@ -71,7 +57,17 @@ registerTool({
       base64Data: string | null;
       mimeType: string | null;
       filename: string | null;
-    }) => {
+    },
+    ctx,
+  ) => {
+      const getClient = (): S3Client | null => {
+        const accessKeyId = ctx.secrets?.["aws_access_key_id"];
+        const secretAccessKey = ctx.secrets?.["aws_secret_access_key"];
+        const region = ctx.secrets?.["aws_region"];
+        if (!accessKeyId || !secretAccessKey || !region) return null;
+        return new S3Client({ region, credentials: { accessKeyId, secretAccessKey } });
+      };
+
       // Resolve file data
       let fileBuffer: Buffer;
       let fileMime: string | undefined = mimeType ?? undefined;
@@ -170,7 +166,5 @@ registerTool({
         });
         return { error: message };
       }
-    },
-  });
   },
 });

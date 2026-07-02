@@ -21,11 +21,10 @@ vi.mock("@tavily/core", () => ({
   tavily: vi.fn(() => ({ search: mockTavilySearch })),
 }));
 
-import { getToolRegistry, type ToolContext } from "./registry.js";
+import { type ToolContext } from "./registry.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 
-// Importing the tool file triggers `registerTool()` as a side effect.
-import "./web-search.tool.js";
+import webSearchTool from "./web-search.tool.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -41,21 +40,21 @@ function makeCtx(secrets: Record<string, string>): ToolContext {
 }
 
 function getWebSearch() {
-  const def = getToolRegistry().get("webSearch");
-  if (!def) throw new Error("webSearch tool not registered");
-  return def;
+  return webSearchTool;
 }
 
 const INPUT_QUERY = "polyant framework";
 
 async function runWebSearch(secrets: Record<string, string>) {
   const def = getWebSearch();
-  const { execute } = def.create(makeCtx(secrets));
-  return (await execute({
-    query: INPUT_QUERY,
-    maxResults: null,
-    searchDepth: null,
-  })) as { query: string; provider: string; results: any[]; error?: string };
+  return (await def.execute(
+    {
+      query: INPUT_QUERY,
+      maxResults: null,
+      searchDepth: null,
+    },
+    makeCtx(secrets),
+  )) as { query: string; provider: string; results: any[]; error?: string };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
