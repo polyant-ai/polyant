@@ -2,7 +2,7 @@
 
 import { describe, expect, it, beforeAll } from "vitest";
 import { loadAllTools, getToolRegistry } from "./registry.js";
-import { findStrictModeViolations } from "./strict-mode-lint.js";
+import { findStrictModeViolations, findIllegalToolName } from "./strict-mode-lint.js";
 
 // Guard-rail: every registered tool must produce a JSON schema compatible
 // with OpenAI strict-mode (Responses API /v1/responses).
@@ -50,5 +50,23 @@ describe("Tool schemas — OpenAI strict-mode compatibility", () => {
       violations,
       `\n${violations.length} strict-mode violation(s) across ${checked} tool(s) (${skipped} meta-tool(s) skipped):\n  - ${violations.join("\n  - ")}\n`,
     ).toEqual([]);
+  });
+
+  it("every registered tool name is provider-legal after ':' sanitization", () => {
+    const bad = [...getToolRegistry().keys()].map(findIllegalToolName).filter(Boolean);
+    expect(bad, `\n${bad.join("\n")}\n`).toEqual([]);
+  });
+});
+
+describe("findIllegalToolName", () => {
+  it("accepts a flat name and a namespaced name (':' sanitizes to '__')", () => {
+    expect(findIllegalToolName("webSearch")).toBeNull();
+    expect(findIllegalToolName("innova:aggiornaBollettaCrm")).toBeNull(); // → innova__aggiornaBollettaCrm
+    expect(findIllegalToolName("agent:my-slug")).toBeNull();
+  });
+
+  it("flags a name that stays illegal after sanitization", () => {
+    expect(findIllegalToolName("foo.bar")).toContain("not [a-zA-Z0-9_-]+");
+    expect(findIllegalToolName("ns:has space")).toContain("not [a-zA-Z0-9_-]+");
   });
 });
