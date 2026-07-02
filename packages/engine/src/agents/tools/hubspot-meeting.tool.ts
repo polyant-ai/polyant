@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
+import type { ToolContext } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 import { hubspotFetch, getHubSpotApiKeyOrError, HUBSPOT_ASSOCIATION_TYPES } from "./hubspot-fetch.js";
 import { getHubSpotPortalId, hubspotUrl } from "./hubspot-portal.js";
 
-registerTool({
+export default defineTool({
   name: "hubspotMeeting",
   description:
     "Manage meetings (appointments) in the HubSpot CRM: create, retrieve or update meetings.\n" +
@@ -39,8 +40,7 @@ registerTool({
       },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
+  parameters: z.object({
       action: z.enum(["create", "get", "update"]).describe("'create' for a new meeting, 'get' to retrieve, 'update' to modify"),
       // --- create params ---
       contactId: z
@@ -91,7 +91,7 @@ registerTool({
           .describe("Meeting title"),
       }).nullable().describe("Meeting properties to update (update only)"),
     }),
-    execute: async (params: {
+  execute: async (params: {
       action: "create" | "get" | "update";
       contactId: string | null;
       title: string | null;
@@ -106,7 +106,7 @@ registerTool({
         hs_meeting_end_time: string | null;
         hs_meeting_title: string | null;
       } | null;
-    }) => {
+    }, ctx) => {
       const apiKeyResult = getHubSpotApiKeyOrError(ctx);
       if (typeof apiKeyResult !== "string") return apiKeyResult;
       const apiKey = apiKeyResult;
@@ -127,7 +127,6 @@ registerTool({
 
       return createMeeting(ctx, apiKey, params);
     },
-  }),
 });
 
 async function createMeeting(

@@ -6,7 +6,7 @@ import { existsSync, rmSync, mkdirSync, mkdtempSync, writeFileSync, chmodSync, r
 import { tmpdir } from "os";
 import { join } from "path";
 import { randomBytes } from "crypto";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { safeEnv } from "./safe-env.js";
 import { errMsg } from "../../utils/error.js";
 import { getConversationWorkspaceDir } from "./shared/workspace-utils.js";
@@ -273,7 +273,7 @@ export function cleanupRepo(path: string): void {
   }
 }
 
-registerTool({
+export default defineTool({
   name: "gitCloneRepo",
   description:
     "Clone a GitHub repository to work with it locally (fresh clone every time).\n" +
@@ -283,17 +283,16 @@ registerTool({
     "Caveat: each call performs a fresh clone. The default branch is the repo's main branch. Clone timeout: 2 minutes.",
   category: "dev",
   requiredSecrets: ["github_token"],
-  create: (ctx: ToolContext) => ({
-    parameters: z.object({
-      repo: z
-        .string()
-        .describe("GitHub repository in `owner/name` format (e.g. 'anthropics/claude-code')."),
-      branch: z
-        .string()
-        .nullable()
-        .describe("Branch to use (default: the repo's default branch)."),
-    }),
-    execute: async ({ repo, branch }: { repo: string; branch: string | null }) => {
+  parameters: z.object({
+    repo: z
+      .string()
+      .describe("GitHub repository in `owner/name` format (e.g. 'anthropics/claude-code')."),
+    branch: z
+      .string()
+      .nullable()
+      .describe("Branch to use (default: the repo's default branch)."),
+  }),
+  execute: async ({ repo, branch }: { repo: string; branch: string | null }, ctx) => {
       const token = ctx.secrets?.github_token;
       if (!token) {
         return { error: "GitHub token not configured for this instance." };
@@ -321,6 +320,5 @@ registerTool({
         ctx.audit.log({ action: "dev.gitClone", details: { repo }, success: false, error: message });
         return { error: message };
       }
-    },
-  }),
+  },
 });

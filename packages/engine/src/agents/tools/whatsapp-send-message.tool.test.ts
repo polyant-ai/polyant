@@ -7,8 +7,8 @@ vi.mock("../../channels/channel-manager.js", () => ({
   channelManager: { sendOutbound: mockSendOutbound },
 }));
 
-import "./whatsapp-send-message.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import whatsappSendMessageTool from "./whatsapp-send-message.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 const ctx = {
@@ -18,7 +18,7 @@ const ctx = {
 } as any;
 
 function buildWhatsappTool() {
-  const def = getToolRegistry().get("whatsappSendMessage")!;
+  const def = whatsappSendMessageTool;
   expect(def).toBeDefined();
   return buildTool(def, ctx) as any;
 }
@@ -30,7 +30,7 @@ describe("whatsappSendMessage", () => {
   });
 
   it("is registered with the messaging category", () => {
-    const def = getToolRegistry().get("whatsappSendMessage")!;
+    const def = whatsappSendMessageTool;
     expect(def.name).toBe("whatsappSendMessage");
     expect(def.category).toBe("messaging");
   });

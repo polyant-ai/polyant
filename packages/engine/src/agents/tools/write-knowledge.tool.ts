@@ -8,11 +8,11 @@ import {
   type AgentWriteResult,
 } from "../../knowledge/store.js";
 import { processDocument } from "../../knowledge/ingestion.js";
-import { registerTool } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 
-registerTool({
+export default defineTool({
   name: "writeKnowledge",
   description:
     "Write or append content to a knowledge base document by filename.\n" +
@@ -39,34 +39,33 @@ registerTool({
       },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
-      action: z
-        .enum(["write", "append"])
-        .describe("'write' overwrites (or creates), 'append' adds at the end (or creates)"),
-      filename: z
-        .string()
-        .min(1)
-        .describe("Document filename (e.g. 'notes.md')"),
-      content: z
-        .string()
-        .describe("Text content to write or append (UTF-8)"),
-      mimeType: z
-        .string()
-        .nullable()
-        .describe("Document MIME type, used only on creation (default: text/markdown)"),
-    }),
-    execute: async ({
-      action,
-      filename,
-      content,
-      mimeType,
-    }: {
-      action: "write" | "append";
-      filename: string;
-      content: string;
-      mimeType?: string | null;
-    }) => {
+  parameters: z.object({
+    action: z
+      .enum(["write", "append"])
+      .describe("'write' overwrites (or creates), 'append' adds at the end (or creates)"),
+    filename: z
+      .string()
+      .min(1)
+      .describe("Document filename (e.g. 'notes.md')"),
+    content: z
+      .string()
+      .describe("Text content to write or append (UTF-8)"),
+    mimeType: z
+      .string()
+      .nullable()
+      .describe("Document MIME type, used only on creation (default: text/markdown)"),
+  }),
+  execute: async ({
+    action,
+    filename,
+    content,
+    mimeType,
+  }: {
+    action: "write" | "append";
+    filename: string;
+    content: string;
+    mimeType?: string | null;
+  }, ctx) => {
       try {
         // Append with empty payload on an existing doc is a no-op; we still try to
         // reach the store so the caller gets a consistent shape (created flag, sizeBytes).
@@ -137,5 +136,4 @@ registerTool({
         return { ok: false, error: message, ...(code ? { code } : {}) };
       }
     },
-  }),
 });

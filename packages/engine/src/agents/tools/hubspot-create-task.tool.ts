@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 import { hubspotFetch, getHubSpotApiKeyOrError, HUBSPOT_ASSOCIATION_TYPES, resolveOwnerIdFromEmail } from "./hubspot-fetch.js";
 import { getHubSpotPortalId, hubspotUrl } from "./hubspot-portal.js";
 import { ensureHtmlBody } from "./hubspot-rich-text.js";
 
-registerTool({
+export default defineTool({
   name: "hubspotCreateTask",
   description:
     "Create a task in the HubSpot CRM and associate it with a contact.\n" +
@@ -30,8 +30,7 @@ registerTool({
       input: { contactId: "12345", subject: "Lead review", body: "Out-of-policy items to review", priority: "HIGH", dueDate: "2026-04-12", ownerEmail: "jane.doe@acme.com" },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
+  parameters: z.object({
       contactId: z
         .string()
         .describe("HubSpot contact ID to associate the task with"),
@@ -70,7 +69,7 @@ registerTool({
           "Wins over ownerEmail when both are passed.",
         ),
     }),
-    execute: async ({
+  execute: async ({
       contactId,
       subject,
       body,
@@ -86,7 +85,7 @@ registerTool({
       dueDate: string | null;
       ownerEmail: string | null;
       ownerId: string | null;
-    }) => {
+    }, ctx) => {
       const apiKeyResult = getHubSpotApiKeyOrError(ctx);
       if (typeof apiKeyResult !== "string") return apiKeyResult;
       const apiKey = apiKeyResult;
@@ -224,5 +223,4 @@ registerTool({
         };
       }
     },
-  }),
 });

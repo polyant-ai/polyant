@@ -7,19 +7,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../../ai-gateway/index.js", () => ({
   chat: mockChat,
 }));
-vi.mock("./registry.js", () => ({
-  registerTool: vi.fn(),
-}));
 vi.mock("../../utils/error.js", () => ({
   errMsg: (err: unknown) => err instanceof Error ? err.message : String(err),
 }));
 
-import { registerTool } from "./registry.js";
 import { createMockAudit, createMockState } from "../../test-utils.js";
 import type { ConversationStateApi } from "../../conversations/state.buffer.js";
-import "./verify-document.tool.js";
-
-const def = vi.mocked(registerTool).mock.calls[0][0];
+import def from "./verify-document.tool.js";
 
 function buildTool(opts?: { attachments?: any[]; state?: ConversationStateApi }) {
   const ctx = {
@@ -32,7 +26,11 @@ function buildTool(opts?: { attachments?: any[]; state?: ConversationStateApi })
     provider: "openai",
     state: opts?.state,
   } as any;
-  return { execute: def.create(ctx).execute, audit: ctx.audit, state: ctx.state };
+  return {
+    execute: (input: any) => def.execute(input, ctx),
+    audit: ctx.audit,
+    state: ctx.state,
+  };
 }
 
 const VALID_RESULT = {
@@ -52,7 +50,7 @@ describe("verifyDocument tool", () => {
   it("registers with correct metadata", () => {
     expect(def.name).toBe("verifyDocument");
     expect(def.category).toBe("document");
-    expect(def.requiredSecrets).toBeUndefined();
+    expect(def.requiredSecrets).toEqual([]);
   });
 
   // Happy path: valid bill

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../../utils/error.js";
 import { renderFetch } from "./render-fetch.js";
 
@@ -252,7 +252,7 @@ async function handleDeploys(
 // Tool registration
 // ---------------------------------------------------------------------------
 
-registerTool({
+export default defineTool({
   name: "renderService",
   description:
     "Interacts with Render.com services.\n" +
@@ -311,53 +311,53 @@ registerTool({
       },
     },
   ],
-  create: (ctx: ToolContext) => ({
-    parameters: z.object({
-      action: z
-        .enum(["list", "logs", "deploys"])
-        .describe("'list' to list services, 'logs' to fetch logs, 'deploys' for recent deploys"),
-      environmentId: z
-        .string()
-        .nullable()
-        .describe("Render environment ID to filter the services of a project (only for 'list')"),
-      ownerId: z
-        .string()
-        .nullable()
-        .describe("Render workspace ID (required for 'logs', optional for 'list')"),
-      resourceIds: z
-        .array(z.string())
-        .nullable()
-        .describe("Render service IDs to monitor (required for 'logs')"),
-      serviceId: z
-        .string()
-        .nullable()
-        .describe("Single service ID (required for 'deploys')"),
-      lastHours: z
-        .number()
-        .nullable()
-        .describe("Time window in hours from now (e.g. 3 = last 3 hours). When provided, takes precedence over startTime/endTime. Pass null for the default (whole of yesterday)."),
-      startTime: z
-        .string()
-        .nullable()
-        .describe("Start of the time window, ISO 8601 UTC. Pass null for the default (yesterday 00:00 UTC). Ignored when lastHours is provided."),
-      endTime: z
-        .string()
-        .nullable()
-        .describe("End of the time window, ISO 8601 UTC. Pass null for the default (yesterday 23:59:59 UTC). Ignored when lastHours is provided."),
-      level: z
-        .array(z.string())
-        .nullable()
-        .describe("Log level filter: 'error', 'warning', 'info' (only for 'logs')"),
-      text: z
-        .string()
-        .nullable()
-        .describe("Text filter on logs (only for 'logs')"),
-      limit: z
-        .number()
-        .nullable()
-        .describe("Max log entries to fetch (default: 1000, max: 1000, only for 'logs')"),
-    }),
-    execute: async (params: {
+  parameters: z.object({
+    action: z
+      .enum(["list", "logs", "deploys"])
+      .describe("'list' to list services, 'logs' to fetch logs, 'deploys' for recent deploys"),
+    environmentId: z
+      .string()
+      .nullable()
+      .describe("Render environment ID to filter the services of a project (only for 'list')"),
+    ownerId: z
+      .string()
+      .nullable()
+      .describe("Render workspace ID (required for 'logs', optional for 'list')"),
+    resourceIds: z
+      .array(z.string())
+      .nullable()
+      .describe("Render service IDs to monitor (required for 'logs')"),
+    serviceId: z
+      .string()
+      .nullable()
+      .describe("Single service ID (required for 'deploys')"),
+    lastHours: z
+      .number()
+      .nullable()
+      .describe("Time window in hours from now (e.g. 3 = last 3 hours). When provided, takes precedence over startTime/endTime. Pass null for the default (whole of yesterday)."),
+    startTime: z
+      .string()
+      .nullable()
+      .describe("Start of the time window, ISO 8601 UTC. Pass null for the default (yesterday 00:00 UTC). Ignored when lastHours is provided."),
+    endTime: z
+      .string()
+      .nullable()
+      .describe("End of the time window, ISO 8601 UTC. Pass null for the default (yesterday 23:59:59 UTC). Ignored when lastHours is provided."),
+    level: z
+      .array(z.string())
+      .nullable()
+      .describe("Log level filter: 'error', 'warning', 'info' (only for 'logs')"),
+    text: z
+      .string()
+      .nullable()
+      .describe("Text filter on logs (only for 'logs')"),
+    limit: z
+      .number()
+      .nullable()
+      .describe("Max log entries to fetch (default: 1000, max: 1000, only for 'logs')"),
+  }),
+  execute: async (
+    params: {
       action: "list" | "logs" | "deploys";
       environmentId?: string | null;
       ownerId?: string | null;
@@ -369,69 +369,70 @@ registerTool({
       level?: string[] | null;
       text?: string | null;
       limit?: number | null;
-    }) => {
-      const apiKey = ctx.secrets?.render_api_key;
-      if (!apiKey) {
-        return { error: "Render API key (render_api_key) not configured for this instance." };
-      }
-
-      try {
-        if (params.action === "list") {
-          const result = await handleList(apiKey, { ownerId: params.ownerId ?? null, environmentId: params.environmentId ?? null });
-          ctx.audit.log({
-            action: "devops.renderService.list",
-            details: { serviceCount: result.services.length },
-            success: true,
-          });
-          return result;
-        }
-
-        if (params.action === "logs") {
-          if (!params.ownerId) return { error: "ownerId is required for action 'logs'." };
-          if (!params.resourceIds?.length) return { error: "resourceIds is required for action 'logs' (at least one service ID)." };
-
-          const result = await handleLogs(apiKey, params.ownerId, params.resourceIds, {
-            lastHours: params.lastHours ?? null,
-            startTime: params.startTime ?? null,
-            endTime: params.endTime ?? null,
-            level: params.level ?? null,
-            text: params.text ?? null,
-            limit: params.limit ?? null,
-          });
-          ctx.audit.log({
-            action: "devops.renderService.logs",
-            details: { resourceIds: params.resourceIds, entryCount: result.totalFetched, truncated: result.truncated },
-            success: true,
-          });
-          return result;
-        }
-
-        if (params.action === "deploys") {
-          if (!params.serviceId) return { error: "serviceId is required for action 'deploys'." };
-
-          const result = await handleDeploys(apiKey, params.serviceId, {
-            lastHours: params.lastHours ?? null,
-            startTime: params.startTime ?? null,
-            endTime: params.endTime ?? null,
-          });
-          ctx.audit.log({
-            action: "devops.renderService.deploys",
-            details: { serviceId: params.serviceId, deployCount: result.deploys.length },
-            success: true,
-          });
-          return result;
-        }
-
-        return { error: `Unknown action: ${params.action}` };
-      } catch (err) {
-        const message = errMsg(err);
-        ctx.audit.log({
-          action: `devops.renderService.${params.action}`,
-          success: false,
-          error: message,
-        });
-        return { error: message };
-      }
     },
-  }),
+    ctx,
+  ) => {
+    const apiKey = ctx.secrets?.render_api_key;
+    if (!apiKey) {
+      return { error: "Render API key (render_api_key) not configured for this instance." };
+    }
+
+    try {
+      if (params.action === "list") {
+        const result = await handleList(apiKey, { ownerId: params.ownerId ?? null, environmentId: params.environmentId ?? null });
+        ctx.audit.log({
+          action: "devops.renderService.list",
+          details: { serviceCount: result.services.length },
+          success: true,
+        });
+        return result;
+      }
+
+      if (params.action === "logs") {
+        if (!params.ownerId) return { error: "ownerId is required for action 'logs'." };
+        if (!params.resourceIds?.length) return { error: "resourceIds is required for action 'logs' (at least one service ID)." };
+
+        const result = await handleLogs(apiKey, params.ownerId, params.resourceIds, {
+          lastHours: params.lastHours ?? null,
+          startTime: params.startTime ?? null,
+          endTime: params.endTime ?? null,
+          level: params.level ?? null,
+          text: params.text ?? null,
+          limit: params.limit ?? null,
+        });
+        ctx.audit.log({
+          action: "devops.renderService.logs",
+          details: { resourceIds: params.resourceIds, entryCount: result.totalFetched, truncated: result.truncated },
+          success: true,
+        });
+        return result;
+      }
+
+      if (params.action === "deploys") {
+        if (!params.serviceId) return { error: "serviceId is required for action 'deploys'." };
+
+        const result = await handleDeploys(apiKey, params.serviceId, {
+          lastHours: params.lastHours ?? null,
+          startTime: params.startTime ?? null,
+          endTime: params.endTime ?? null,
+        });
+        ctx.audit.log({
+          action: "devops.renderService.deploys",
+          details: { serviceId: params.serviceId, deployCount: result.deploys.length },
+          success: true,
+        });
+        return result;
+      }
+
+      return { error: `Unknown action: ${params.action}` };
+    } catch (err) {
+      const message = errMsg(err);
+      ctx.audit.log({
+        action: `devops.renderService.${params.action}`,
+        success: false,
+        error: message,
+      });
+      return { error: message };
+    }
+  },
 });

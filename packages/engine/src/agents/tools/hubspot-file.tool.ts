@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
+import type { ToolContext } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 import { hubspotFetch, getHubSpotApiKeyOrError, HUBSPOT_ASSOCIATION_TYPES } from "./hubspot-fetch.js";
 import { pdfHandleStore } from "./pdf-handle-store.js";
@@ -12,7 +13,7 @@ type Access = (typeof ACCESS_VALUES)[number];
 const FILES_API = "https://api.hubapi.com/files/v3/files";
 const NOTES_API = "https://api.hubapi.com/crm/v3/objects/notes";
 
-registerTool({
+export default defineTool({
   name: "hubspotFile",
   description:
     "Multi-action tool for HubSpot Files. Discriminator: `action`.\n\n" +
@@ -57,8 +58,7 @@ registerTool({
       },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
+  parameters: z.object({
       action: z
         .enum(["upload", "search"])
         .nullable()
@@ -88,7 +88,7 @@ registerTool({
         .nullable()
         .describe("Only for action='upload'. HTML body of the optional Note engagement (requires associateContactId). Supports the {{FILE_URL}} and {{FILENAME}} placeholders. Ignored for action='search'."),
     }),
-    execute: async (params: {
+  execute: async (params: {
       action: "upload" | "search" | null;
       pdfHandle: string | null;
       filename: string | null;
@@ -96,7 +96,7 @@ registerTool({
       folderPath: string | null;
       associateContactId: string | null;
       noteBody: string | null;
-    }) => {
+    }, ctx) => {
       const apiKeyResult = getHubSpotApiKeyOrError(ctx);
       if (typeof apiKeyResult !== "string") return apiKeyResult;
       const apiKey = apiKeyResult;
@@ -211,7 +211,6 @@ registerTool({
         ...(warnings.length > 0 ? { warnings } : {}),
       };
     },
-  }),
 });
 
 function substituteTemplatePlaceholders(

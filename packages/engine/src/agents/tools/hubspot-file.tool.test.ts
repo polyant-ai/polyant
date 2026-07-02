@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import "./hubspot-file.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import hubspotFileTool from "./hubspot-file.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 import { pdfHandleStore } from "./pdf-handle-store.js";
 
@@ -32,7 +32,7 @@ const ctxWithKey = {
 } as any;
 
 describe("hubspotFile", () => {
-  const def = getToolRegistry().get("hubspotFile")!;
+  const def = hubspotFileTool;
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -42,7 +42,7 @@ describe("hubspotFile", () => {
     expect(def).toBeDefined();
     expect(def.name).toBe("hubspotFile");
     expect(def.category).toBe("crm");
-    expect(def.requiredSecrets).toEqual(["hubspot_api_key"]);
+    expect(def.requiredSecrets).toEqual([{ key: "hubspot_api_key", type: "text", sensitive: true }]);
   });
 
   it("rejects when pdfHandle is unknown or expired", async () => {

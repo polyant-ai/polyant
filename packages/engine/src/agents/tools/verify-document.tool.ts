@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { chat } from "../../ai-gateway/index.js";
-import { registerTool, type ToolContext } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 
 const SYSTEM_PROMPT =
@@ -29,7 +29,7 @@ const RESULT_SCHEMA = z.object({
   reason: z.string().optional(),
 });
 
-registerTool({
+export default defineTool({
   name: "verifyDocument",
   description:
     "Verify whether an attached image or document is a utility bill and assess its readability.\n" +
@@ -41,16 +41,15 @@ registerTool({
   inputExamples: [
     { label: "Verify first attachment", input: { attachmentIndex: 0 } },
   ],
-  create: (ctx: ToolContext) => ({
-    parameters: z.object({
-      attachmentIndex: z
-        .number()
-        .int()
-        .min(0)
-        .nullable()
-        .describe("Index of the attachment to verify (0-based, default 0)"),
-    }),
-    execute: async ({ attachmentIndex: attachmentIndexInput }: { attachmentIndex: number | null }) => {
+  parameters: z.object({
+    attachmentIndex: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe("Index of the attachment to verify (0-based, default 0)"),
+  }),
+  execute: async ({ attachmentIndex: attachmentIndexInput }: { attachmentIndex: number | null }, ctx) => {
       const attachmentIndex = attachmentIndexInput ?? 0;
       // Read attachment from context
       const attachment = ctx.attachments?.[attachmentIndex];
@@ -170,5 +169,4 @@ registerTool({
         return { error: message };
       }
     },
-  }),
 });

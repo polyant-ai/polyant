@@ -142,14 +142,14 @@ vi.mock("@/utils/pipeline-logger.js", () => ({
 // ---------------------------------------------------------------------------
 // Tool tests — uses real Render API response shapes
 // ---------------------------------------------------------------------------
-import "./render-service.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import renderServiceTool from "./render-service.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 const toolCtx = { toolCallId: "tc-1", messages: [] } as any;
 
 function buildRenderServiceTool(secretOverrides?: Record<string, string>) {
-  const def = getToolRegistry().get("renderService")!;
+  const def = renderServiceTool;
   expect(def).toBeDefined();
   return buildTool(def, {
     instanceId: "test",
@@ -165,10 +165,10 @@ describe("renderService tool", () => {
 
   describe("registration", () => {
     it("is registered with correct metadata", () => {
-      const def = getToolRegistry().get("renderService")!;
+      const def = renderServiceTool;
       expect(def).toBeDefined();
       expect(def.category).toBe("devops");
-      expect(def.requiredSecrets).toEqual(["render_api_key"]);
+      expect(def.requiredSecrets).toEqual([{ key: "render_api_key", type: "text", sensitive: true }]);
     });
   });
 
@@ -232,7 +232,7 @@ describe("renderService tool", () => {
     });
 
     it("returns error when API key is missing", async () => {
-      const def = getToolRegistry().get("renderService")!;
+      const def = renderServiceTool;
       const tool = buildTool(def, {
         instanceId: "test",
         secrets: {},

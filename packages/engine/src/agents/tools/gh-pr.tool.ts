@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
+import type { ToolContext } from "./registry.js";
 import { ghExec, ghJson } from "./gh-exec.js";
 import { errMsg } from "../../utils/error.js";
 
@@ -155,7 +156,7 @@ async function handleReview(
 /*  Tool registration                                                  */
 /* ------------------------------------------------------------------ */
 
-registerTool({
+export default defineTool({
   name: "ghPR",
   description:
     "Manage GitHub pull requests: create, read details, comment, list, or submit a review.\n" +
@@ -186,8 +187,7 @@ registerTool({
       input: { action: "review", repo: "owner/repo", number: 42, event: "APPROVE", body: "LGTM, great work!" },
     },
   ],
-  create: (ctx: ToolContext) => ({
-    parameters: z.object({
+  parameters: z.object({
       action: z.enum(["create", "get", "comment", "list", "review"]).describe("Action to perform on the PR."),
       repo: z.string().describe("Repository in `owner/name` format."),
       number: z.number().nullable().describe("PR number (required for `get`, `comment`, `review`)."),
@@ -202,7 +202,7 @@ registerTool({
       limit: z.number().nullable().describe("Maximum number of results (only for `list`, default: 100, recommended max: 500)."),
       event: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).nullable().describe("Review type (required for `review`)."),
     }),
-    execute: async (params: {
+  execute: async (params: {
       action: "create" | "get" | "comment" | "list" | "review";
       repo: string;
       number?: number | null;
@@ -216,7 +216,7 @@ registerTool({
       author?: string | null;
       limit?: number | null;
       event?: "APPROVE" | "REQUEST_CHANGES" | "COMMENT" | null;
-    }) => {
+    }, ctx: ToolContext) => {
       const token = ctx.secrets?.github_token;
       if (!token) return { error: "GitHub token not configured for this instance." };
 
@@ -240,6 +240,5 @@ registerTool({
           if (params.number == null || !params.event || !params.body) return { error: "review requires number, event, and body." };
           return handleReview(ctx, token, { repo: params.repo, number: params.number, event: params.event, body: params.body });
       }
-    },
-  }),
+  },
 });

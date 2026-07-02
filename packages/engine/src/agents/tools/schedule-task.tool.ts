@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { auditPreview } from "../../audit/audit-logger.js";
 import * as scheduledTaskStore from "../../scheduled-tasks/store.js";
 import { parseRelativeDuration, formatScheduleHuman } from "../../scheduled-tasks/schedule-utils.js";
@@ -39,7 +39,7 @@ function buildScheduleConfig(params: {
   }
 }
 
-registerTool({
+export default defineTool({
   name: "scheduleTask",
   description:
     "Manage scheduled tasks: create, list, update, delete, or run a task immediately.\n" +
@@ -63,11 +63,10 @@ registerTool({
       input: { action: "list" },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
-      action: z
-        .enum(["create", "list", "update", "delete", "run"])
-        .describe("Action to perform"),
+  parameters: z.object({
+    action: z
+      .enum(["create", "list", "update", "delete", "run"])
+      .describe("Action to perform"),
 
       // --- create fields ---
       name: z.string().nullable().describe("Task name"),
@@ -141,7 +140,7 @@ registerTool({
       keepHistory: boolean | null;
       taskId: string | null;
       enabled: boolean | null;
-    }) => {
+    }, ctx) => {
       try {
         switch (params.action) {
           case "create": {
@@ -309,5 +308,4 @@ registerTool({
         return { error: `Error: ${err instanceof Error ? err.message : String(err)}` };
       }
     },
-  }),
 });

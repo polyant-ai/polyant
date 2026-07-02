@@ -9,8 +9,8 @@ vi.mock("../../knowledge/store.js", () => ({
   getDocumentByFilename: (...args: unknown[]) => mockGetDocumentByFilename(...args),
 }));
 
-import "./get-knowledge.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import getKnowledgeTool from "./get-knowledge.tool.js";
+import { buildTool } from "./registry.js";
 
 const ctx = {
   instanceId: "inst-1",
@@ -18,7 +18,7 @@ const ctx = {
 } as any;
 
 describe("getKnowledge tool", () => {
-  const def = getToolRegistry().get("getKnowledge")!;
+  const def = getKnowledgeTool;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const getKnowledge = buildTool(def, ctx) as any;
 
