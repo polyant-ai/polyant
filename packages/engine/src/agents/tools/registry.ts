@@ -191,44 +191,24 @@ export function fillAndValidate(
 }
 
 /**
- * Least-privilege wrapper for a tool's secrets: reads of keys the tool declared
- * in `requiredSecrets` pass through; an UNDECLARED read is logged once per key
- * and, in enforce mode, denied (returns undefined). Default (shadow) mode returns
- * the value so existing under-declared plugins keep working while the warnings
- * surface the gaps — flip `TOOL_SECRET_SCOPE_ENFORCE=true` once every plugin
- * declares its full (transitive) secret set. Third-party plugin code should never
- * read secrets it didn't declare; this is the boundary that makes that true.
- * ponytail: keyed-access only — `secrets?.["k"]` / `secrets?.k` are covered;
- * `{...secrets}` / `Object.keys(secrets)` bypass the get trap. Tighten with an
- * ownKeys trap if a plugin is found enumerating the bag.
+ * Least-privilege: return a NEW secrets object containing ONLY the keys the tool
+ * declared in `requiredSecrets`. A tool — especially third-party plugin code —
+ * can never read another integration's credentials it did not declare. This is a
+ * hard boundary (not a warning): undeclared keys are simply absent, so every
+ * access pattern (`secrets?.["k"]`, destructuring, spread, `Object.keys`) sees
+ * only the declared subset. A tool that reads an undeclared secret must add it to
+ * `requiredSecrets`.
  */
 export function scopeSecrets(
   secrets: Record<string, string> | undefined,
   declared: ReadonlySet<string>,
-  toolName: string,
-  enforce: boolean,
 ): Record<string, string> | undefined {
   if (!secrets) return secrets;
-  const warned = new Set<string>();
-  return new Proxy(secrets, {
-    get(target, prop, receiver) {
-      if (typeof prop !== "string" || declared.has(prop) || !(prop in target)) {
-        return Reflect.get(target, prop, receiver);
-      }
-      if (!warned.has(prop)) {
-        warned.add(prop);
-        console.warn(
-          `Tool "${toolName}" read undeclared secret "${prop}" — add it to requiredSecrets` +
-            (enforce ? " (DENIED: scope enforcement on)" : " (allowed: shadow mode)"),
-        );
-      }
-      return enforce ? undefined : Reflect.get(target, prop, receiver);
-    },
-    has(target, prop) {
-      if (enforce && typeof prop === "string" && prop in target && !declared.has(prop)) return false;
-      return Reflect.has(target, prop);
-    },
-  });
+  const scoped: Record<string, string> = {};
+  for (const key of declared) {
+    if (key in secrets) scoped[key] = secrets[key];
+  }
+  return scoped;
 }
 
 /** Append `inputExamples` as text to a tool description (raw, no schema validation). */
