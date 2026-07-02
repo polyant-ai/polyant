@@ -678,37 +678,31 @@ describe("registry", () => {
     });
   });
 
-  describe("scopeSecrets", () => {
+  describe("scopeSecrets (least-privilege, enforced)", () => {
     const bag = { my_key: "mine", other_key: "theirs" };
 
-    it("passes through declared keys unchanged", () => {
-      const scoped = scopeSecrets(bag, new Set(["my_key"]), "toolA", false)!;
-      expect(scoped.my_key).toBe("mine");
-    });
-
-    it("shadow mode: undeclared read is warned but still returned", () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const scoped = scopeSecrets(bag, new Set(["my_key"]), "toolA", false)!;
-      expect(scoped.other_key).toBe("theirs"); // still returned
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("other_key"));
-      // warns once per key
-      void scoped.other_key;
-      expect(warn).toHaveBeenCalledTimes(1);
-      warn.mockRestore();
-    });
-
-    it("enforce mode: undeclared read is denied (undefined) and hidden from `in`", () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const scoped = scopeSecrets(bag, new Set(["my_key"]), "toolA", true)!;
-      expect(scoped.my_key).toBe("mine"); // declared → allowed
-      expect(scoped.other_key).toBeUndefined(); // undeclared → denied
+    it("keeps declared keys, drops undeclared ones entirely", () => {
+      const scoped = scopeSecrets(bag, new Set(["my_key"]))!;
+      expect(scoped.my_key).toBe("mine"); // declared → present
+      expect(scoped.other_key).toBeUndefined(); // undeclared → absent
       expect("other_key" in scoped).toBe(false);
       expect("my_key" in scoped).toBe(true);
-      warn.mockRestore();
+    });
+
+    it("is a fresh object — spread / Object.keys see only the declared subset", () => {
+      const scoped = scopeSecrets(bag, new Set(["my_key"]))!;
+      expect(Object.keys(scoped)).toEqual(["my_key"]);
+      expect({ ...scoped }).toEqual({ my_key: "mine" });
+      expect(scoped).not.toBe(bag); // does not mutate/return the original bag
+    });
+
+    it("omits a declared key that is not present in the bag", () => {
+      const scoped = scopeSecrets({ a: "1" }, new Set(["a", "b"]))!;
+      expect(scoped).toEqual({ a: "1" });
     });
 
     it("returns undefined bag untouched", () => {
-      expect(scopeSecrets(undefined, new Set(["x"]), "toolA", true)).toBeUndefined();
+      expect(scopeSecrets(undefined, new Set(["x"]))).toBeUndefined();
     });
   });
 });

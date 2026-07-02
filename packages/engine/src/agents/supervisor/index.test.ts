@@ -65,7 +65,7 @@ vi.mock("../../utils/pipeline-logger.js", () => ({
 
 vi.mock("../../config.js", () => ({
   DEFAULT_INSTANCE_ID: "default",
-  config: { agent: { callTimeoutMs: 60000 }, plugins: { secretScopeEnforce: false } },
+  config: { agent: { callTimeoutMs: 60000 }, plugins: {} },
 }));
 
 vi.mock("../../instances/instance-tools.store.js", () => ({

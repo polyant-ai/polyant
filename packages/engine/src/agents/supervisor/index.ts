@@ -259,13 +259,13 @@ async function buildTools(opts: BuildToolsOptions) {
         const missing = requiredKeys.filter((k) => !secrets?.[k]);
         if (missing.length > 0) continue;
       }
-      // Scope secrets to the keys this tool declares (least-privilege): a
-      // third-party plugin tool must not read another integration's credentials.
-      // Shadow by default (warn + allow); enforced when TOOL_SECRET_SCOPE_ENFORCE=true.
+      // Scope secrets to the keys this tool declares (least-privilege, enforced):
+      // a tool — especially third-party plugin code — only ever sees the secrets
+      // it declared in requiredSecrets; anything else is simply absent.
       const declaredSecretKeys = new Set(normalizeRequiredSecrets(def.requiredSecrets).map((s) => s.key));
       const ctx: ToolContext = {
         instanceId,
-        secrets: scopeSecrets(secrets, declaredSecretKeys, name, config.plugins.secretScopeEnforce),
+        secrets: scopeSecrets(secrets, declaredSecretKeys),
         audit: createAuditLogger(name, instanceId, conversationId),
         conversationId,
         attachments,
