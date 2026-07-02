@@ -274,7 +274,18 @@ async function buildTools(opts: BuildToolsOptions) {
         state: stateBuffer?.api(),
       };
       const built = buildTool(def, ctx);
-      tools[name] = wrapToolWithAudit(name, built, instanceId, conversationId, toolCallTraces, signals);
+      // The name sent to the MODEL must match [a-zA-Z0-9_-]+ (Bedrock rejects
+      // ':', and OpenAI/Anthropic want the same). Namespaced plugin tools
+      // (`<ns>:<name>`) are presented with a safe separator (`__`); the canonical
+      // ':' name stays the identity everywhere else (governance/audit via the
+      // closure below, DB enablement, UI). The AI SDK looks the tool up by this
+      // Record key, so no reverse mapping is needed on the tool-call round-trip.
+      const modelToolName = name.replace(/:/g, "__");
+      if (modelToolName in tools) {
+        console.warn(`Tool name collision after sanitization: "${name}" → "${modelToolName}" already equipped — skipping`);
+        continue;
+      }
+      tools[modelToolName] = wrapToolWithAudit(name, built, instanceId, conversationId, toolCallTraces, signals);
     }
   }
 

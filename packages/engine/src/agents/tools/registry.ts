@@ -20,7 +20,7 @@ import {
 import { config } from "../../config.js";
 import { resolvePluginRoots } from "../../plugin-system/plugin-roots.js";
 import { engineSatisfies } from "../../plugin-system/plugin-manifest.js";
-import { findStrictModeViolations } from "./strict-mode-lint.js";
+import { findStrictModeViolations, findIllegalToolName } from "./strict-mode-lint.js";
 
 // Re-export the authoring contract from the SDK so core tools keep importing
 // `normalizeRequiredSecrets` / the types from "./registry.js" unchanged.
@@ -292,10 +292,13 @@ async function importRoot(dir: string, namespace: string | null): Promise<void> 
         // otherwise — a violation would only surface as a cryptic provider
         // rejection at call time. Warn, don't fail: the plugin still loads.
         if (namespace !== null) {
-          const violations = findStrictModeViolations(serialized.inputSchema, `${namespace}:${serialized.name}`);
+          const finalName = `${namespace}:${serialized.name}`;
+          const violations = findStrictModeViolations(serialized.inputSchema, finalName);
           for (const v of violations) {
             console.warn(`Plugin tool strict-mode lint: ${v}`);
           }
+          const nameViolation = findIllegalToolName(finalName);
+          if (nameViolation) console.warn(`Plugin tool name lint: ${nameViolation}`);
         }
       } else {
         console.warn(`Tool file "${file}" has no defineTool default export — skipping`);

@@ -376,6 +376,26 @@ describe("supervise", () => {
       expect(toolsArg).toHaveProperty("spawnTask");
     });
 
+    it("presents a namespaced plugin tool to the model with ':' sanitized to '__'", async () => {
+      mockGetToolRegistry.mockReturnValue(
+        new Map([
+          ["acme:updateContactCrm", { name: "acme:updateContactCrm", description: "d", category: "plugin", inputSchema: { type: "object" }, execute: vi.fn() }],
+        ]),
+      );
+      mockGetEnabledToolNames.mockResolvedValue(new Set(["acme:updateContactCrm"]));
+
+      await supervise({ message: "hi" });
+
+      // Bedrock/OpenAI/Anthropic reject ':' in a tool name; the model must see '__'.
+      const toolsArg = mockChat.mock.calls[0][0].tools;
+      expect(toolsArg).toHaveProperty("acme__updateContactCrm");
+      expect(toolsArg).not.toHaveProperty("acme:updateContactCrm");
+      // The canonical ':' name stays the identity for governance/audit (buildTool
+      // is called with the original def whose name keeps the ':').
+      const builtNames = mockBuildTool.mock.calls.map((c: unknown[]) => (c[0] as { name: string }).name);
+      expect(builtNames).toContain("acme:updateContactCrm");
+    });
+
     it("does not include spawnTask when not in enabled tool names", async () => {
       mockGetEnabledToolNames.mockResolvedValue(new Set(["read"]));
 
