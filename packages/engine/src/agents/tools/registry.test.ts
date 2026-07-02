@@ -35,6 +35,7 @@ import {
   normalizeRequiredSecrets,
   requiredSecretKeys,
   fillMissingKeysWithNull,
+  scopeSecrets,
   type ToolContext,
   type LegacyToolDefinition,
 } from "./registry.js";
@@ -770,6 +771,40 @@ describe("registry", () => {
       expect(fillMissingKeysWithNull(z.string(), "v")).toBe("v");
       expect(fillMissingKeysWithNull(schema, null)).toBe(null);
       expect(fillMissingKeysWithNull(schema, [1])).toEqual([1]);
+    });
+  });
+
+  describe("scopeSecrets", () => {
+    const bag = { my_key: "mine", other_key: "theirs" };
+
+    it("passes through declared keys unchanged", () => {
+      const scoped = scopeSecrets(bag, new Set(["my_key"]), "toolA", false)!;
+      expect(scoped.my_key).toBe("mine");
+    });
+
+    it("shadow mode: undeclared read is warned but still returned", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const scoped = scopeSecrets(bag, new Set(["my_key"]), "toolA", false)!;
+      expect(scoped.other_key).toBe("theirs"); // still returned
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("other_key"));
+      // warns once per key
+      void scoped.other_key;
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+
+    it("enforce mode: undeclared read is denied (undefined) and hidden from `in`", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const scoped = scopeSecrets(bag, new Set(["my_key"]), "toolA", true)!;
+      expect(scoped.my_key).toBe("mine"); // declared → allowed
+      expect(scoped.other_key).toBeUndefined(); // undeclared → denied
+      expect("other_key" in scoped).toBe(false);
+      expect("my_key" in scoped).toBe(true);
+      warn.mockRestore();
+    });
+
+    it("returns undefined bag untouched", () => {
+      expect(scopeSecrets(undefined, new Set(["x"]), "toolA", true)).toBeUndefined();
     });
   });
 });

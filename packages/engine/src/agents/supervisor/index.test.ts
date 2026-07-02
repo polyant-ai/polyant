@@ -46,6 +46,9 @@ vi.mock("../tools/registry.js", () => ({
     (input ?? []).map((e) =>
       typeof e === "string" ? { key: e, type: "text" as const } : e,
     ),
+  // Pass-through: scoping is unit-tested in registry.test.ts; here it must not
+  // strip secrets so the buildTools assertions see the bag they expect.
+  scopeSecrets: (secrets: unknown) => secrets,
 }));
 
 vi.mock("../tools/task-tool.js", () => ({
@@ -62,7 +65,7 @@ vi.mock("../../utils/pipeline-logger.js", () => ({
 
 vi.mock("../../config.js", () => ({
   DEFAULT_INSTANCE_ID: "default",
-  config: { agent: { callTimeoutMs: 60000 } },
+  config: { agent: { callTimeoutMs: 60000 }, plugins: { secretScopeEnforce: false } },
 }));
 
 vi.mock("../../instances/instance-tools.store.js", () => ({

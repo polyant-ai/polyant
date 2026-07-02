@@ -177,6 +177,16 @@ const configSchema = z.object({
   // dir (src/plugins/*). Primarily local dev / explicit override.
   plugins: z.object({
     dirs: z.array(z.string()).default([]),
+    // Secret least-privilege for tools. Ships in SHADOW mode by default: a tool's
+    // ctx.secrets is scoped to the keys it declares in `requiredSecrets`, but an
+    // undeclared read is logged (warn) and still returned. Flip
+    // `TOOL_SECRET_SCOPE_ENFORCE=true` to fail-closed (undeclared reads → undefined)
+    // once every plugin declares its full (transitive) secret set. Any value other
+    // than "true" keeps shadow mode — no behaviour change.
+    secretScopeEnforce: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v): boolean => v === "true"),
   }),
 });
 
@@ -284,6 +294,7 @@ function loadConfig(): Config {
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s.length > 0),
+      secretScopeEnforce: process.env.TOOL_SECRET_SCOPE_ENFORCE,
     },
   });
 
