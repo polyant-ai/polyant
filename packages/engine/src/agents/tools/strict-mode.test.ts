@@ -3,7 +3,7 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { z } from "zod";
-import { loadAllTools, getToolRegistry, type ToolContext } from "./registry.js";
+import { loadAllTools, getToolRegistry, isSerializedTool, type ToolContext } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 
@@ -155,20 +155,22 @@ describe("Tool schemas — OpenAI strict-mode compatibility", () => {
         continue;
       }
 
-      let parameters;
-      try {
-        parameters = def.create(ctx).parameters;
-      } catch (err) {
-        violations.push(
-          `${name} — create(ctx) threw: ${(err as Error).message}. Test stub may need extra context.`,
-        );
-        continue;
+      let schema: unknown;
+      if (isSerializedTool(def)) {
+        // Serialized tools already carry the JSON Schema (converted at defineTool).
+        schema = def.inputSchema;
+      } else {
+        let parameters;
+        try {
+          parameters = def.create(ctx).parameters;
+        } catch (err) {
+          violations.push(
+            `${name} — create(ctx) threw: ${(err as Error).message}. Test stub may need extra context.`,
+          );
+          continue;
+        }
+        schema = zodToJsonSchema(parameters, { target: "jsonSchema7", $refStrategy: "none" });
       }
-
-      const schema = zodToJsonSchema(parameters, {
-        target: "jsonSchema7",
-        $refStrategy: "none",
-      });
 
       walk(schema, name, violations);
       checked++;
@@ -194,6 +196,9 @@ describe("Tool schemas — OpenAI strict-mode compatibility", () => {
     for (const [name, def] of getToolRegistry()) {
       if (def.metaTool) continue;
       if (!def.inputExamples?.length) continue;
+      // Serialized tools have no live Zod schema to partial-validate against;
+      // their examples are appended raw (see buildSerializedTool).
+      if (isSerializedTool(def)) continue;
 
       let parameters: z.ZodType;
       try {

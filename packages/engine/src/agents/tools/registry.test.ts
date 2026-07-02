@@ -14,9 +14,14 @@ vi.mock("ai", () => ({
 
 // ---------------------------------------------------------------------------
 // Mock `fs` so loadAllTools() does not scan the real filesystem.
+// existsSync: true only for the core tools dir (so importRoot scans it) and
+// false for the convention plugins dir (so no plugin roots are resolved).
+// readFileSync: a stub package.json for the lazy engine-version read.
 // ---------------------------------------------------------------------------
 vi.mock("fs", () => ({
+  existsSync: vi.fn((p: unknown) => /agents[/\\]tools$/.test(String(p))),
   readdirSync: vi.fn(() => []),
+  readFileSync: vi.fn(() => JSON.stringify({ version: "0.1.0" })),
 }));
 
 import { tool as aiTool } from "ai";
@@ -31,7 +36,7 @@ import {
   requiredSecretKeys,
   fillMissingKeysWithNull,
   type ToolContext,
-  type ToolDefinition,
+  type LegacyToolDefinition,
 } from "./registry.js";
 
 // ---------------------------------------------------------------------------
@@ -45,8 +50,8 @@ function uid(prefix = "test-tool"): string {
   return `${prefix}-${++uniqueId}-${Date.now()}`;
 }
 
-/** Build a minimal ToolDefinition with sensible defaults. */
-function makeDef(overrides: Partial<ToolDefinition> & { name: string }): ToolDefinition {
+/** Build a minimal (legacy-shape) ToolDefinition with sensible defaults. */
+function makeDef(overrides: Partial<LegacyToolDefinition> & { name: string }): LegacyToolDefinition {
   return {
     description: `Description for ${overrides.name}`,
     create: () => ({
@@ -210,7 +215,7 @@ describe("registry", () => {
       const name = uid("build-desc-override");
       const defDescription = "Definition-level description";
 
-      const def: ToolDefinition = {
+      const def: LegacyToolDefinition = {
         name,
         description: defDescription,
         create: () => ({
@@ -255,7 +260,7 @@ describe("registry", () => {
         contactId: z.string().nullable(),
         firstName: z.string().nullable(),
       });
-      const def: ToolDefinition = {
+      const def: LegacyToolDefinition = {
         name,
         description: "fill missing test",
         create: () => ({ parameters, execute: async (p) => p }),
@@ -277,7 +282,7 @@ describe("registry", () => {
     it("appends valid inputExamples to the description", () => {
       const name = uid("build-examples-valid");
       const parameters = z.object({ query: z.string(), limit: z.number().optional() });
-      const def: ToolDefinition = {
+      const def: LegacyToolDefinition = {
         name,
         description: "Base description.",
         inputExamples: [
@@ -302,7 +307,7 @@ describe("registry", () => {
       const name = uid("build-examples-mixed");
       const parameters = z.object({ query: z.string() });
       const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const def: ToolDefinition = {
+      const def: LegacyToolDefinition = {
         name,
         description: "Base.",
         inputExamples: [
@@ -338,7 +343,7 @@ describe("registry", () => {
       const name = uid("build-examples-all-invalid");
       const parameters = z.object({ num: z.number() });
       const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const def: ToolDefinition = {
+      const def: LegacyToolDefinition = {
         name,
         description: "Original.",
         inputExamples: [

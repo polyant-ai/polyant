@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { getToolRegistry, fillMissingKeysWithNull } from "../../agents/tools/registry.js";
+import {
+  getToolRegistry,
+  fillMissingKeysWithNull,
+  fillMissingKeysFromJsonSchema,
+  isSerializedTool,
+  type ToolContext,
+} from "../../agents/tools/registry.js";
 import { createAuditLogger } from "../../audit/audit-logger.js";
 import { renderArgsTemplate } from "../hook-template.js";
 import type { HookActionExecutor } from "../hook-types.js";
@@ -45,7 +51,7 @@ export const toolActionExecutor: HookActionExecutor = {
     // Report the input BEFORE executing so it survives failures/timeouts.
     capture({ args: rendered });
 
-    const { parameters, execute } = def.create({
+    const toolCtx: ToolContext = {
       instanceId: ctx.instanceId,
       secrets: ctx.secrets,
       audit: createAuditLogger(toolName, ctx.instanceId, ctx.conversationId),
@@ -53,8 +59,19 @@ export const toolActionExecutor: HookActionExecutor = {
       apiKeys: ctx.apiKeys,
       provider: ctx.provider,
       state: ctx.state,
-    });
+    };
 
+    if (isSerializedTool(def)) {
+      // Serialized tools carry a JSON Schema (no live Zod), so we can't safeParse
+      // here — fill missing keys with null and let the tool's execute validate.
+      const filled = fillMissingKeysFromJsonSchema(def.inputSchema, rendered);
+      capture({ args: filled as Record<string, unknown> });
+      const result = await def.execute(filled, toolCtx);
+      capture({ result: serializeResult(result) });
+      return;
+    }
+
+    const { parameters, execute } = def.create(toolCtx);
     const parsed = parameters.safeParse(fillMissingKeysWithNull(parameters, rendered));
     if (!parsed.success) {
       throw new Error(
