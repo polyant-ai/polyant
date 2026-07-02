@@ -39,6 +39,7 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const fixtures = join(__dir, "../../test/fixtures");
 const sampleFixture = join(fixtures, "plugin-sample");
 const incompatibleFixture = join(fixtures, "plugin-incompatible");
+const crashFixture = join(fixtures, "plugin-crash");
 
 describe("plugin loading (serialized contract, integration)", () => {
   beforeEach(() => {
@@ -49,6 +50,7 @@ describe("plugin loading (serialized contract, integration)", () => {
       const d = String(dir);
       if (d.endsWith(join("plugin-sample", "tools"))) return ["ping.tool.ts"] as never;
       if (d.endsWith(join("plugin-incompatible", "tools"))) return ["nope.tool.ts"] as never;
+      if (d.endsWith(join("plugin-crash", "tools"))) return ["boom.tool.ts"] as never;
       return [] as never;
     });
   });
@@ -79,6 +81,27 @@ describe("plugin loading (serialized contract, integration)", () => {
 
     // incompatible (engine >=99.0.0) → skipped.
     expect(getToolRegistry().has("incompatible:nope")).toBe(false);
+  });
+
+  it("isolates a plugin that throws at import — boot continues, good plugins still load", async () => {
+    const sampleManifest = readPluginManifest(sampleFixture);
+    const crashManifest = readPluginManifest(crashFixture);
+    expect(crashManifest).not.toBeNull();
+
+    // crash plugin listed BEFORE the good one to prove the throw doesn't abort
+    // the rest of discovery.
+    vi.mocked(resolvePluginRoots).mockReturnValue([
+      { root: crashFixture, manifest: crashManifest! },
+      { root: sampleFixture, manifest: sampleManifest! },
+    ]);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(loadAllTools()).resolves.toBeUndefined();
+
+    expect(getToolRegistry().has("crash:boom")).toBe(false); // exploded → skipped
+    expect(getToolRegistry().has("sample:ping")).toBe(true); // still loaded
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("crash"));
+    warn.mockRestore();
   });
 
   it("existsSync guards a plugin whose toolsDir is absent (no throw)", async () => {
