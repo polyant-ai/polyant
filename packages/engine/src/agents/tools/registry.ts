@@ -207,6 +207,47 @@ export function fillMissingKeysFromJsonSchema(schema: Record<string, unknown>, v
   return val;
 }
 
+/**
+ * Least-privilege wrapper for a tool's secrets: reads of keys the tool declared
+ * in `requiredSecrets` pass through; an UNDECLARED read is logged once per key
+ * and, in enforce mode, denied (returns undefined). Default (shadow) mode returns
+ * the value so existing under-declared plugins keep working while the warnings
+ * surface the gaps — flip `TOOL_SECRET_SCOPE_ENFORCE=true` once every plugin
+ * declares its full (transitive) secret set. Third-party plugin code should never
+ * read secrets it didn't declare; this is the boundary that makes that true.
+ * ponytail: keyed-access only — `secrets?.["k"]` / `secrets?.k` are covered;
+ * `{...secrets}` / `Object.keys(secrets)` bypass the get trap. Tighten with an
+ * ownKeys trap if a plugin is found enumerating the bag.
+ */
+export function scopeSecrets(
+  secrets: Record<string, string> | undefined,
+  declared: ReadonlySet<string>,
+  toolName: string,
+  enforce: boolean,
+): Record<string, string> | undefined {
+  if (!secrets) return secrets;
+  const warned = new Set<string>();
+  return new Proxy(secrets, {
+    get(target, prop, receiver) {
+      if (typeof prop !== "string" || declared.has(prop) || !(prop in target)) {
+        return Reflect.get(target, prop, receiver);
+      }
+      if (!warned.has(prop)) {
+        warned.add(prop);
+        console.warn(
+          `Tool "${toolName}" read undeclared secret "${prop}" — add it to requiredSecrets` +
+            (enforce ? " (DENIED: scope enforcement on)" : " (allowed: shadow mode)"),
+        );
+      }
+      return enforce ? undefined : Reflect.get(target, prop, receiver);
+    },
+    has(target, prop) {
+      if (enforce && typeof prop === "string" && prop in target && !declared.has(prop)) return false;
+      return Reflect.has(target, prop);
+    },
+  });
+}
+
 /** Append `inputExamples` as text to a tool description (raw, no schema validation). */
 function appendExamplesRaw(description: string, examples: ToolInputExample[]): string {
   const text = examples.map((ex) => `  ${ex.label}: ${JSON.stringify(ex.input)}`).join("\n");

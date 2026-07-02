@@ -8,6 +8,7 @@ import {
   getToolRegistry,
   buildTool,
   normalizeRequiredSecrets,
+  scopeSecrets,
   type ToolContext,
 } from "../tools/registry.js";
 import type { Attachment } from "../../channels/types.js";
@@ -258,9 +259,13 @@ async function buildTools(opts: BuildToolsOptions) {
         const missing = requiredKeys.filter((k) => !secrets?.[k]);
         if (missing.length > 0) continue;
       }
+      // Scope secrets to the keys this tool declares (least-privilege): a
+      // third-party plugin tool must not read another integration's credentials.
+      // Shadow by default (warn + allow); enforced when TOOL_SECRET_SCOPE_ENFORCE=true.
+      const declaredSecretKeys = new Set(normalizeRequiredSecrets(def.requiredSecrets).map((s) => s.key));
       const ctx: ToolContext = {
         instanceId,
-        secrets,
+        secrets: scopeSecrets(secrets, declaredSecretKeys, name, config.plugins.secretScopeEnforce),
         audit: createAuditLogger(name, instanceId, conversationId),
         conversationId,
         attachments,
