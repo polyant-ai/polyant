@@ -35,6 +35,7 @@ import {
   normalizeRequiredSecrets,
   requiredSecretKeys,
   fillMissingKeysWithNull,
+  fillAndValidate,
   scopeSecrets,
   type ToolContext,
   type LegacyToolDefinition,
@@ -771,6 +772,55 @@ describe("registry", () => {
       expect(fillMissingKeysWithNull(z.string(), "v")).toBe("v");
       expect(fillMissingKeysWithNull(schema, null)).toBe(null);
       expect(fillMissingKeysWithNull(schema, [1])).toEqual([1]);
+    });
+  });
+
+  describe("fillAndValidate (serialized-path validation, Zod parity)", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        count: { type: "number" },
+        note: { type: ["string", "null"] }, // nullable
+      },
+      required: ["name", "count", "note"],
+      additionalProperties: false,
+    };
+
+    it("accepts a valid input unchanged", () => {
+      const r = fillAndValidate(schema, { name: "a", count: 1, note: null });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value).toEqual({ name: "a", count: 1, note: null });
+    });
+
+    it("fills an omitted nullable key with null and passes", () => {
+      const r = fillAndValidate(schema, { name: "a", count: 1 });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.value as Record<string, unknown>).note).toBeNull();
+    });
+
+    it("strips a hallucinated extra key (like a non-strict z.object)", () => {
+      const r = fillAndValidate(schema, { name: "a", count: 1, note: null, bogus: "x" });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value).not.toHaveProperty("bogus");
+    });
+
+    it("rejects a wrong-typed value (no coercion, like Zod)", () => {
+      const r = fillAndValidate(schema, { name: "a", count: "1", note: null });
+      expect(r.ok).toBe(false);
+    });
+
+    it("rejects a missing required non-nullable key", () => {
+      const r = fillAndValidate(schema, { count: 1, note: null }); // name omitted → filled null → invalid
+      expect(r.ok).toBe(false);
+    });
+
+    it("degrades to fill-only (accept) when the schema does not compile", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const bad = { type: "object", properties: { x: { type: "not-a-real-type" } } };
+      const r = fillAndValidate(bad, { x: 1 });
+      expect(r.ok).toBe(true); // best-effort: no hard break on an uncompilable schema
+      warn.mockRestore();
     });
   });
 

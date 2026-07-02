@@ -3,7 +3,7 @@
 import {
   getToolRegistry,
   fillMissingKeysWithNull,
-  fillMissingKeysFromJsonSchema,
+  fillAndValidate,
   isSerializedTool,
   type ToolContext,
 } from "../../agents/tools/registry.js";
@@ -62,11 +62,14 @@ export const toolActionExecutor: HookActionExecutor = {
     };
 
     if (isSerializedTool(def)) {
-      // Serialized tools carry a JSON Schema (no live Zod), so we can't safeParse
-      // here — fill missing keys with null and let the tool's execute validate.
-      const filled = fillMissingKeysFromJsonSchema(def.inputSchema, rendered);
-      capture({ args: filled as Record<string, unknown> });
-      const result = await def.execute(filled, toolCtx);
+      // Serialized tools carry a JSON Schema (no live Zod) — fill missing nullable
+      // keys then validate against it (parity with the legacy safeParse branch).
+      const r = fillAndValidate(def.inputSchema, rendered);
+      if (!r.ok) {
+        throw new Error(`args do not match tool "${toolName}" schema: ${r.error}`);
+      }
+      capture({ args: r.value as Record<string, unknown> });
+      const result = await def.execute(r.value, toolCtx);
       capture({ result: serializeResult(result) });
       return;
     }

@@ -47,6 +47,7 @@
     "@slack/bolt": "^4.6.0",
     "@tavily/core": "^0.7.5",
     "ai": "^6.0.194",
+    "ajv": "^6.12.6",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "croner": "^10.0.1",
