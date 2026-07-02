@@ -40,6 +40,7 @@ const fixtures = join(__dir, "../../test/fixtures");
 const sampleFixture = join(fixtures, "plugin-sample");
 const incompatibleFixture = join(fixtures, "plugin-incompatible");
 const crashFixture = join(fixtures, "plugin-crash");
+const badSchemaFixture = join(fixtures, "plugin-badschema");
 
 describe("plugin loading (serialized contract, integration)", () => {
   beforeEach(() => {
@@ -51,6 +52,7 @@ describe("plugin loading (serialized contract, integration)", () => {
       if (d.endsWith(join("plugin-sample", "tools"))) return ["ping.tool.ts"] as never;
       if (d.endsWith(join("plugin-incompatible", "tools"))) return ["nope.tool.ts"] as never;
       if (d.endsWith(join("plugin-crash", "tools"))) return ["boom.tool.ts"] as never;
+      if (d.endsWith(join("plugin-badschema", "tools"))) return ["loose.tool.ts"] as never;
       return [] as never;
     });
   });
@@ -101,6 +103,19 @@ describe("plugin loading (serialized contract, integration)", () => {
     expect(getToolRegistry().has("crash:boom")).toBe(false); // exploded → skipped
     expect(getToolRegistry().has("sample:ping")).toBe(true); // still loaded
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("crash"));
+    warn.mockRestore();
+  });
+
+  it("warns at load time on a strict-mode-incompatible plugin schema but still registers it", async () => {
+    const badManifest = readPluginManifest(badSchemaFixture);
+    expect(badManifest).not.toBeNull();
+    vi.mocked(resolvePluginRoots).mockReturnValue([{ root: badSchemaFixture, manifest: badManifest! }]);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await loadAllTools();
+
+    expect(getToolRegistry().has("badschema:loose")).toBe(true); // still registered
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("strict-mode lint"));
     warn.mockRestore();
   });
 
