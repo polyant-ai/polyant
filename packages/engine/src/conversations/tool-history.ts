@@ -24,6 +24,7 @@
 import type { ModelMessage } from "ai";
 import type { MessageRow } from "./store.js";
 import type { StepDetail } from "./schema.js";
+import { toModelToolName } from "../agents/tools/registry.js";
 
 /** Max characters of a single tool result kept in replayed history. Larger
  *  results are truncated — the model gets the gist without blowing the context. */
@@ -98,7 +99,11 @@ export function buildHistoryWithToolResults(rows: MessageRow[]): ModelMessage[] 
       assistantParts.push({
         type: "tool-call",
         toolCallId: sanitizeToolCallId(tc.toolCallId),
-        toolName: tc.toolName,
+        // Persisted steps hold the CANONICAL tool name (`<ns>:<name>` for plugins).
+        // The model side requires [a-zA-Z0-9_-]+, so present it the same way
+        // buildTools does (':' → '__'); otherwise a replayed namespaced tool call
+        // makes the provider reject the whole request (Bedrock hard-fails).
+        toolName: toModelToolName(tc.toolName),
         input: tc.args,
       });
     }
@@ -106,7 +111,7 @@ export function buildHistoryWithToolResults(rows: MessageRow[]): ModelMessage[] 
     const toolParts = toolCalls.map((tc) => ({
       type: "tool-result",
       toolCallId: sanitizeToolCallId(tc.toolCallId),
-      toolName: tc.toolName,
+      toolName: toModelToolName(tc.toolName),
       output: { type: "text", value: truncateResult(resultByCallId.get(tc.toolCallId)) },
     }));
 

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
+import type { ToolContext } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 import { hubspotFetch, getHubSpotApiKeyOrError, HUBSPOT_ASSOCIATION_TYPES } from "./hubspot-fetch.js";
 import { getHubSpotPortalId, hubspotUrl } from "./hubspot-portal.js";
 
-registerTool({
+export default defineTool({
   name: "hubspotDeal",
   description:
     "Manage deals in the HubSpot CRM: create, update or search deals (opportunities).\n" +
@@ -43,8 +44,7 @@ registerTool({
       input: { action: "search", associatedContactId: "12345", stage: "closedwon", returnProperties: ["plan_tier", "sla_class"], limit: 1 },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
+  parameters: z.object({
       action: z.enum(["create", "update", "search"]).describe("'create' for a new deal, 'update' to modify an existing deal, 'search' to query"),
       // --- update params ---
       dealId: z
@@ -118,7 +118,7 @@ registerTool({
           "Ignored for create/update.",
         ),
     }),
-    execute: async (params: {
+  execute: async (params: {
       action: "create" | "update" | "search";
       dealId: string | null;
       dealName: string | null;
@@ -136,7 +136,7 @@ registerTool({
       limit: number | null;
       associatedContactId: string | null;
       returnProperties: string[] | null;
-    }) => {
+    }, ctx) => {
       const apiKeyResult = getHubSpotApiKeyOrError(ctx);
       if (typeof apiKeyResult !== "string") return apiKeyResult;
       const apiKey = apiKeyResult;
@@ -151,7 +151,6 @@ registerTool({
 
       return createDeal(ctx, apiKey, params);
     },
-  }),
 });
 
 async function createDeal(

@@ -2,7 +2,7 @@
 
 import { createPromptUpdaterTool } from "./shared/update-prompt-section.js";
 
-createPromptUpdaterTool({
+export default createPromptUpdaterTool({
   toolName: "updateUserProfile",
   description:
     "Update the user profile with personal information: personal data, professional details, preferences, interests, goals, habits.\n" +

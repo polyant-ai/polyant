@@ -74,6 +74,26 @@ describe("buildHistoryWithToolResults", () => {
     });
   });
 
+  it("sanitizes a namespaced plugin tool name (':' → '__') on both call and result", () => {
+    const out = buildHistoryWithToolResults([
+      row({
+        role: "assistant",
+        content: "",
+        steps: [
+          step({
+            toolCalls: [{ toolCallId: "c1", toolName: "innova:aggiornaBollettaCrm", args: {} }],
+            toolResults: [{ toolCallId: "c1", result: "ok" }],
+          }),
+        ],
+      }),
+    ]);
+    // Providers reject ':' in a toolUse name — a replayed namespaced call must be __.
+    const call = (out[0].content as Array<{ type: string; toolName?: string }>).find((p) => p.type === "tool-call");
+    const result = (out[1].content as Array<{ toolName?: string }>)[0];
+    expect(call?.toolName).toBe("innova__aggiornaBollettaCrm");
+    expect(result.toolName).toBe("innova__aggiornaBollettaCrm");
+  });
+
   it("synthesizes a result when a call has none, so call/result pairing holds", () => {
     const out = buildHistoryWithToolResults([
       row({

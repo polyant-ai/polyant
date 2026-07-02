@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { createSafeDispatcher, truncateBody, pickHeaders } from "../../utils/safe-http.js";
-import { registerTool, type ToolContext } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 
 const DEFAULT_MAX_BODY_SIZE = 16_384;
@@ -22,7 +22,7 @@ const INTERESTING_HEADERS = [
   "x-ratelimit-remaining",
 ];
 
-registerTool({
+export default defineTool({
   name: "curl",
   description:
     "Execute an HTTP GET request to a specified URL.\n" +
@@ -41,8 +41,7 @@ registerTool({
       input: { url: "https://api.example.com/protected", headers: { "Authorization": "Bearer token123" }, queryParams: { "page": "1" }, maxBodySize: null, timeoutMs: null },
     },
   ],
-  create: (ctx: ToolContext) => ({
-    parameters: z.object({
+  parameters: z.object({
       url: z
         .string()
         .describe("Full URL to request (must start with `http://` or `https://`)."),
@@ -69,7 +68,7 @@ registerTool({
           `Request timeout in milliseconds (default: ${DEFAULT_TIMEOUT_MS}). Pass null for the default.`,
         ),
     }),
-    execute: async ({ url, headers, queryParams, maxBodySize, timeoutMs }: { url: string; headers: Record<string, string> | null; queryParams: Record<string, string> | null; maxBodySize: number | null; timeoutMs: number | null }) => {
+  execute: async ({ url, headers, queryParams, maxBodySize, timeoutMs }: { url: string; headers: Record<string, string> | null; queryParams: Record<string, string> | null; maxBodySize: number | null; timeoutMs: number | null }, ctx) => {
       const limit = maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
       const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -141,6 +140,5 @@ registerTool({
           error: message,
         };
       }
-    },
-  }),
+  },
 });

@@ -22,8 +22,8 @@ vi.mock("../../knowledge/ingestion.js", () => ({
   processDocument: (...args: unknown[]) => mockProcessDocument(...args),
 }));
 
-import "./write-knowledge.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import writeKnowledgeTool from "./write-knowledge.tool.js";
+import { buildTool } from "./registry.js";
 import { DocumentSizeExceededError } from "../../knowledge/store.js";
 
 const ctx = {
@@ -37,7 +37,7 @@ function flushMicrotasks(): Promise<void> {
 }
 
 describe("writeKnowledge tool", () => {
-  const def = getToolRegistry().get("writeKnowledge")!;
+  const def = writeKnowledgeTool;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const writeKnowledge = buildTool(def, ctx) as any;
 

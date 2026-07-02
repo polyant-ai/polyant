@@ -6,9 +6,6 @@ const mockSendOutboundTemplate = vi.hoisted(() => vi.fn());
 const mockGetTriggerContext = vi.hoisted(() => vi.fn());
 const mockRenderStubTemplate = vi.hoisted(() => vi.fn());
 
-vi.mock("./registry.js", () => ({
-  registerTool: vi.fn(),
-}));
 vi.mock("../../channels/channel-manager.js", () => ({
   channelManager: {
     sendOutboundTemplate: mockSendOutboundTemplate,
@@ -21,11 +18,8 @@ vi.mock("../../channels/adapters/whatsapp/stub-templates.js", () => ({
   renderStubTemplate: mockRenderStubTemplate,
 }));
 
-import { registerTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
-import "./send-whatsapp-template.tool.js";
-
-const def = vi.mocked(registerTool).mock.calls[0][0];
+import def from "./send-whatsapp-template.tool.js";
 
 function buildExecute(conversationId: string | undefined = "conv-1") {
   const ctx = {
@@ -34,7 +28,8 @@ function buildExecute(conversationId: string | undefined = "conv-1") {
     audit: createMockAudit(),
     conversationId,
   } as any;
-  return def.create(ctx).execute;
+  // execute now takes (input, ctx); bind the ctx so call sites pass input only.
+  return (input: any) => def.execute(input, ctx);
 }
 
 describe("send_whatsapp_template tool (Twilio Content API mode)", () => {
@@ -170,20 +165,8 @@ describe("send_whatsapp_template tool (Twilio Content API mode)", () => {
     });
     mockSendOutboundTemplate.mockResolvedValueOnce("SM1");
 
-    const ctx = {
-      instanceId: "inst-1",
-      secrets: {},
-      audit: createMockAudit(),
-      conversationId: "conv-1",
-    } as any;
-    const { parameters, execute } = def.create(ctx);
-
-    const parsed = parameters.safeParse({ contentSid: "HXabc123", variables: [] });
-    expect(parsed.success).toBe(true);
-    if (!parsed.success) return;
-    expect(parsed.data.variables).toEqual([]);
-
-    await execute(parsed.data);
+    const execute = buildExecute();
+    await execute({ contentSid: "HXabc123", variables: [] });
 
     expect(mockSendOutboundTemplate).toHaveBeenCalledWith(
       "inst-1",
@@ -194,18 +177,14 @@ describe("send_whatsapp_template tool (Twilio Content API mode)", () => {
     );
   });
 
-  it("rejects non-HX contentSid via strict regex", () => {
-    const ctx = {
-      instanceId: "inst-1",
-      secrets: {},
-      audit: createMockAudit(),
-      conversationId: "conv-1",
-    } as any;
-    const { parameters } = def.create(ctx);
-    expect(parameters.safeParse({ contentSid: "HXabc123", variables: [] }).success).toBe(true);
-    expect(parameters.safeParse({ contentSid: "agentorg_welcome", variables: [] }).success).toBe(false);
-    expect(parameters.safeParse({ contentSid: "abc123", variables: [] }).success).toBe(false);
-    expect(parameters.safeParse({ contentSid: "HX with spaces", variables: [] }).success).toBe(false);
-    expect(parameters.safeParse({ contentSid: "", variables: [] }).success).toBe(false);
+  it("carries the strict HX contentSid pattern in the serialized JSON Schema", () => {
+    // The serialized def exposes JSON Schema (not a live Zod instance), so the
+    // regex is preserved as a `pattern` on the contentSid property and shipped
+    // to the model — there is no runtime safeParse to assert against anymore.
+    const props = def.inputSchema.properties as Record<string, { pattern?: string }>;
+    expect(props.contentSid.pattern).toBe("^HX[A-Za-z0-9]+$");
+    const required = def.inputSchema.required as string[];
+    expect(required).toContain("contentSid");
+    expect(required).toContain("variables");
   });
 });

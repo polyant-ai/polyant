@@ -2,7 +2,7 @@
 
 import { createPromptUpdaterTool } from "./shared/update-prompt-section.js";
 
-createPromptUpdaterTool({
+export default createPromptUpdaterTool({
   toolName: "updateSoul",
   description:
     "Modify the assistant's personality (name, tone, style, behavior, values).\n" +

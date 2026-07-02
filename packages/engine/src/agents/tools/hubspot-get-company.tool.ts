@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 import { hubspotFetch, getHubSpotApiKeyOrError } from "./hubspot-fetch.js";
@@ -23,15 +23,14 @@ const COMPANY_PROPERTIES = [
   "hs_lastmodifieddate",
 ];
 
-registerTool({
+export default defineTool({
   name: "hubspotGetCompany",
   description:
     "Search companies in the HubSpot CRM by name or domain (at least one required).\n" +
     "Returns name, domain, industry, employee count, revenue and the portal URL.",
   category: "crm",
   requiredSecrets: ["hubspot_api_key"],
-  create: (ctx) => ({
-    parameters: z.object({
+  parameters: z.object({
       name: z
         .string()
         .nullable()
@@ -41,10 +40,10 @@ registerTool({
         .nullable()
         .describe("Web domain to search for (e.g. 'acme.com')"),
     }),
-    execute: async (params: {
+  execute: async (params: {
       name: string | null;
       domain: string | null;
-    }) => {
+    }, ctx) => {
       const apiKeyResult = getHubSpotApiKeyOrError(ctx);
       if (typeof apiKeyResult !== "string") return apiKeyResult;
       const apiKey = apiKeyResult;
@@ -135,5 +134,4 @@ registerTool({
         return { error: `HubSpot company search failed: ${errMsg(err)}` };
       }
     },
-  }),
 });

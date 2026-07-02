@@ -2,24 +2,34 @@
 
 import { tool, type Tool } from "ai";
 import { z } from "zod";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { chat } from "../../ai-gateway/index.js";
 import type { ChatRequest } from "../../ai-gateway/types.js";
 import { createAuditLogger, auditPreview } from "../../audit/audit-logger.js";
-import { registerTool } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
 
-// Register metadata so spawnTask appears in the admin tool management UI.
-// Actual build is handled by the supervisor (needs other built tools + apiKeys).
-registerTool({
+const SPAWN_TASK_DESCRIPTION =
+  "Delegate a specific task to an isolated sub-agent with separate context. " +
+  "The sub-agent runs the task without knowledge of the current conversation and returns the result. " +
+  "Useful for deep research, complex analysis, or tasks that require multiple autonomous steps.";
+
+// Catalog entry only — spawnTask is a meta-tool: the supervisor builds the real
+// tool via `createTaskTool` (it needs the sibling tool set + apiKeys, which the
+// generic buildTool(ctx) path does not have). `execute` is never invoked through
+// the registry; buildTools skips meta-tools.
+export default defineTool({
   name: "spawnTask",
-  description:
-    "Delegate a specific task to an isolated sub-agent with separate context. " +
-    "The sub-agent runs the task without knowledge of the current conversation and returns the result. " +
-    "Useful for deep research, complex analysis, or tasks that require multiple autonomous steps.",
+  description: SPAWN_TASK_DESCRIPTION,
   category: "agent",
   metaTool: true,
-  create: () => { throw new Error("Meta-tool: built separately by supervisor"); },
+  parameters: z.object({
+    task: z.string().describe("Detailed description of the task to perform"),
+    label: z.string().nullable().describe("Short label to identify the task in logs. Pass null if not needed."),
+  }),
+  execute: async () => {
+    throw new Error("Meta-tool: built separately by supervisor");
+  },
 });
 
 /**

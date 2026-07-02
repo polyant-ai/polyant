@@ -43,7 +43,7 @@ Polyant is, in short, what happens when you take the architectural lessons of Op
 - **Long-term Memory** — Automatic fact extraction via LLM; hybrid search with pgvector cosine similarity + PostgreSQL FTS fused via Reciprocal Rank Fusion
 - **Multi-channel** — Telegram, Slack, WhatsApp, and an OpenAI-compatible HTTP API (with file attachment support)
 - **Provider-agnostic** — Switch between OpenAI and Anthropic per-instance via the admin panel; tier abstraction (`fast | standard | heavy`) decouples code from model names
-- **Self-registering Tools** — Drop a `*.tool.ts` file in the tools directory; it auto-registers at boot with no wiring needed
+- **Tools & Plugins** — Author a tool as `export default defineTool(...)` from `@polyant-ai/plugin-sdk`; the engine loader collects it at boot with no wiring. Tools live in-engine or in external **plugin** repos loaded via `PLUGIN_DIRS` — see [Plugins & the SDK](#plugins--the-sdk)
 - **Skill System** — Markdown-based skill definitions stored in the database; per-instance encrypted env vars for skills that need API keys
 - **Multi-instance** — Independent configuration of prompts, skills, tool availability, and identity per instance; instances exposed as selectable "models" via the OpenAI-compatible API
 - **Per-instance Secrets** — API keys, channel config, and LangSmith settings stored AES-256-GCM encrypted per instance
@@ -190,7 +190,8 @@ polyant/
 |---------|-------------|
 | **Instance** | A named assistant configuration with independent prompts, skills, tools, and secrets |
 | **Tier abstraction** | Code requests `fast \| standard \| heavy`; model mapping lives in `ai-gateway/config.ts` |
-| **Tool registry** | Tools self-register at boot via `registerTool()` — no hardcoded imports |
+| **Tool registry** | Tools are `export default defineTool(...)` files collected at boot by the engine loader — no hardcoded imports. See [Plugins & the SDK](#plugins--the-sdk) |
+| **Plugins** | External git repos of tools loaded via `PLUGIN_DIRS` / `src/plugins/*`, authored against `@polyant-ai/plugin-sdk` |
 | **Skill system** | Markdown skill definitions in DB; encrypted per-instance env vars for API keys |
 | **Room** | Event-driven workspace that runs a ReAct cycle on webhook-triggered events |
 | **Fire-and-forget** | Post-response tasks (memory extraction, summary) run async without blocking the user |
@@ -222,6 +223,58 @@ polyant/
 | **WhatsApp** | Webhook via Twilio | Text and media attachments |
 
 All channel configs are stored encrypted per-instance. Adapters start/stop dynamically without a restart.
+
+## Plugins & the SDK
+
+Polyant is **framework-first** — it ships generic tools, and domain-specific ones (a CRM's booking flow, a billing lookup) live in **plugins**: external git repos of tool files the engine loads at boot. Both the engine's own tools and plugin tools use one small, stateless contract package: **[`@polyant-ai/plugin-sdk`](https://github.com/polyant-ai/polyant-sdk)** (referenced as a public git dependency, `git+https://github.com/polyant-ai/polyant-sdk.git#v1.0.0`).
+
+### Writing a tool
+
+A tool file lives at `tools/<name>.tool.ts` and **default-exports** a `defineTool(...)`:
+
+```ts
+import { defineTool } from "@polyant-ai/plugin-sdk";
+import { z } from "zod";
+
+export default defineTool({
+  name: "bookAppointment",              // loads as "<namespace>:bookAppointment" in a plugin
+  description: "Book an appointment in the CRM.",
+  category: "plugin",
+  requiredSecrets: [{ key: "crm_api_key", type: "text" }],
+  parameters: z.object({                // STATIC schema — must NOT depend on ctx
+    patientId: z.string(),
+    date: z.string().describe("ISO 8601"),
+  }),
+  execute: async (input, ctx) => {      // ctx: instanceId, secrets, audit, state, apiKeys…
+    const key = ctx.secrets?.crm_api_key;
+    // …call your API; do runtime validation here and return { error } rather than throwing…
+    return { status: "booked", id: "..." };
+  },
+});
+```
+
+`defineTool` serializes the static Zod `parameters` to **JSON Schema at module load, in your plugin's own realm**. The engine only ever receives **data** (`inputSchema`) plus your `execute` function — never a live Zod object. That data boundary is what lets the engine and each plugin resolve their own copies of the SDK (and `zod`, `ai`, …) without breakage.
+
+Schema rules (OpenAI strict-mode compatible): use `.nullable()` not `.optional()`/`.default()`; no `.transform()`/`.refine()`/`.preprocess()` in `parameters` (move that into `execute`); avoid `.url()`/`.email()`/`.uuid()`/`.datetime()` formats. A boot-time test (`strict-mode.test.ts`) enforces this.
+
+### `plugin.json` (at the plugin repo root)
+
+```json
+{ "name": "innovasemplice", "version": "1.0.0", "engine": ">=0.1.0", "toolsDir": "tools", "namespace": "innova" }
+```
+
+`namespace` prefixes every tool name (`innova:bookAppointment`); defaults to `name`. A plugin whose `engine` range excludes the running engine version is **skipped with a warning** — the deployment keeps running.
+
+### Loading a plugin
+
+The loader scans two sources (env wins de-dup):
+
+1. **`PLUGIN_DIRS`** — comma-separated absolute paths, e.g. `PLUGIN_DIRS=/abs/path/to/my-plugin npm run dev`. Point it at a plugin repo that has its **own** `node_modules` (`npm install` there, with the SDK as a git dep).
+2. **Convention dir** — every subdir of `packages/engine/src/plugins/*` that has a `plugin.json` (gitignored runtime drop dir). A **real dir here** resolves the monorepo's `node_modules` and `tsx watch` hot-reloads it.
+
+**Do not symlink a plugin** — Node/`tsx` resolve a file's imports from its real on-disk location, so a symlink points back at the external repo and can't find the monorepo deps.
+
+Full authoring reference: **[docs/plugins.md](docs/plugins.md)**, the SDK's own **[README](https://github.com/polyant-ai/polyant-sdk#readme)**, and the design record at `docs/superpowers/specs/2026-07-02-serialized-plugin-mechanism.md`.
 
 ## Roadmap
 

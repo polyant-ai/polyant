@@ -2,6 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 
 const { registryMock } = vi.hoisted(() => ({
   registryMock: new Map<string, unknown>(),
@@ -61,19 +62,21 @@ describe("toolActionExecutor", () => {
     captured = {};
     registryMock.clear();
     executeMock.mockReset().mockResolvedValue({ ok: true });
-    registryMock.set("lookup", {
-      name: "lookup",
-      description: "test tool",
-      create: () => ({
+    registryMock.set(
+      "lookup",
+      defineTool({
+        name: "lookup",
+        description: "test tool",
         parameters: z.object({ query: z.string().nullable(), limit: z.number().nullable() }),
         execute: executeMock,
       }),
-    });
+    );
   });
 
   it("should_render_args_and_execute_tool", async () => {
     await toolActionExecutor.execute(hookFor("lookup", { query: "{{channel.id}}" }), payload, ctx, capture);
-    expect(executeMock).toHaveBeenCalledWith({ query: "+39", limit: null });
+    // Serialized tools receive (input, ctx).
+    expect(executeMock).toHaveBeenCalledWith({ query: "+39", limit: null }, expect.anything());
   });
 
   it("should_capture_rendered_args_and_serialized_result", async () => {
@@ -89,12 +92,16 @@ describe("toolActionExecutor", () => {
   });
 
   it("should_throw_when_tool_is_meta_tool", async () => {
-    registryMock.set("spawnTask", {
-      name: "spawnTask",
-      description: "",
-      metaTool: true,
-      create: () => ({ parameters: z.object({}), execute: executeMock }),
-    });
+    registryMock.set(
+      "spawnTask",
+      defineTool({
+        name: "spawnTask",
+        description: "",
+        metaTool: true,
+        parameters: z.object({}),
+        execute: executeMock,
+      }),
+    );
     await expect(
       toolActionExecutor.execute(hookFor("spawnTask", {}), payload, ctx, capture),
     ).rejects.toThrow(/meta-tool/);

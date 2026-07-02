@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it, beforeAll } from "vitest";
-import { zodToJsonSchema } from "zod-to-json-schema";
-import type { z } from "zod";
-import { loadAllTools, getToolRegistry, type ToolContext } from "./registry.js";
-import { createMockAudit } from "../../test-utils.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { loadAllTools, getToolRegistry } from "./registry.js";
+import { findStrictModeViolations, findIllegalToolName } from "./strict-mode-lint.js";
 
 // Guard-rail: every registered tool must produce a JSON schema compatible
 // with OpenAI strict-mode (Responses API /v1/responses).
@@ -14,118 +11,8 @@ import { asInstanceSlug } from "../../instances/identifiers.js";
 //
 // Known limit: synthetic `ask_{slug}` tools for agent-to-agent (see
 // channels/adapters/agent.adapter.ts) are built dynamically in
-// supervisor/index.ts and NOT registered via registerTool, so they are
-// not covered here. Their schema is trivial ({ prompt: string }) and conforms.
-
-const FORBIDDEN_FORMATS = new Set([
-  "uri",
-  "email",
-  "uuid",
-  "date-time",
-  "date",
-  "time",
-  "ipv4",
-  "ipv6",
-]);
-
-function stubCtx(): ToolContext {
-  return {
-    instanceId: asInstanceSlug("strict-mode-test"),
-    secrets: {
-      hubspot_api_key: "test",
-      slack_bot_token: "test",
-      whatsapp_account_sid: "test",
-      whatsapp_auth_token: "test",
-      whatsapp_from_number: "+10000000000",
-      whatsapp_messaging_service_sid: "MG00000000000000000000000000000000",
-      tavily_api_key: "test",
-      github_token: "test",
-      render_api_key: "test",
-    },
-    audit: createMockAudit(),
-    conversationId: "strict-mode-test-conv",
-    attachments: [],
-    provider: "openai",
-  };
-}
-
-interface SchemaNode {
-  type?: string | string[];
-  properties?: Record<string, unknown>;
-  required?: string[];
-  additionalProperties?: boolean | Record<string, unknown>;
-  items?: unknown;
-  format?: string;
-  anyOf?: unknown[];
-  oneOf?: unknown[];
-  allOf?: unknown[];
-  enum?: unknown[];
-  const?: unknown;
-}
-
-function isObjectSchema(node: SchemaNode): boolean {
-  if (node.type === "object") return true;
-  if (Array.isArray(node.type) && node.type.includes("object")) return true;
-  return !!node.properties;
-}
-
-function walk(node: unknown, path: string, violations: string[]): void {
-  if (!node || typeof node !== "object" || Array.isArray(node)) return;
-  const n = node as SchemaNode;
-
-  // R2: forbidden format
-  if (n.format && FORBIDDEN_FORMATS.has(n.format)) {
-    violations.push(
-      `${path} — uses format="${n.format}" which OpenAI strict-mode rejects (validate at runtime instead)`,
-    );
-  }
-
-  // R1 + R3: object schema must have required covering all properties and additionalProperties === false
-  if (isObjectSchema(n)) {
-    const propKeys = n.properties ? Object.keys(n.properties) : [];
-    const required = Array.isArray(n.required) ? n.required : [];
-    const missing = propKeys.filter((k) => !required.includes(k));
-    if (missing.length > 0) {
-      violations.push(
-        `${path} — object schema is missing keys in 'required': [${missing.join(", ")}]`,
-      );
-    }
-    // R3: additionalProperties must be `false` OR a constrained schema (non-empty).
-    // OpenAI strict-mode formally requires `false`, but in practice it accepts
-    // `additionalProperties: { type: <something> }` (z.record(z.string()))
-    // — see `hubspotContact.customProperties`. We reject ONLY unbounded cases:
-    // `true` or empty `{}` (typical of z.record(z.unknown())).
-    if (n.additionalProperties !== false) {
-      const ap = n.additionalProperties;
-      const isUnbounded =
-        ap === true ||
-        (typeof ap === "object" && ap !== null && Object.keys(ap as object).length === 0);
-      if (ap === undefined) {
-        violations.push(
-          `${path} — object schema must declare additionalProperties (false or a constrained sub-schema). Missing entirely.`,
-        );
-      } else if (isUnbounded) {
-        violations.push(
-          `${path} — object schema has unbounded additionalProperties (${ap === true ? "true" : "{}"}). Use z.record(z.string()) with a typed value or a stringified JSON parameter.`,
-        );
-      }
-    }
-  }
-
-  // Recurse
-  if (n.properties) {
-    for (const [k, v] of Object.entries(n.properties)) {
-      walk(v, `${path}.properties.${k}`, violations);
-    }
-  }
-  if (n.items) walk(n.items, `${path}.items`, violations);
-  for (const key of ["anyOf", "oneOf", "allOf"] as const) {
-    const arr = n[key];
-    if (Array.isArray(arr)) {
-      arr.forEach((sub, i) => walk(sub, `${path}.${key}[${i}]`, violations));
-    }
-  }
-}
+// supervisor/index.ts and NOT in the static registry, so they are not covered
+// here. Their schema is trivial ({ prompt: string }) and conforms.
 
 describe("Tool schemas — OpenAI strict-mode compatibility", () => {
   beforeAll(async () => {
@@ -142,35 +29,19 @@ describe("Tool schemas — OpenAI strict-mode compatibility", () => {
   // tool schemas are fixed in a dedicated follow-up.
   it("every registered tool produces a strict-mode-valid JSON schema", () => {
     const violations: string[] = [];
-    const ctx = stubCtx();
     let checked = 0;
     let skipped = 0;
 
     for (const [name, def] of getToolRegistry()) {
       if (def.metaTool) {
-        // Meta-tools (e.g. spawnTask) throw from create() — they're constructed
-        // by the supervisor with other dependencies. Their effective schema is
-        // in createTaskTool() and already conforms; we don't test it here.
+        // Meta-tools (e.g. spawnTask) are built specially by the supervisor
+        // (createTaskTool); their catalog schema is not equipped via buildTool.
         skipped++;
         continue;
       }
-
-      let parameters;
-      try {
-        parameters = def.create(ctx).parameters;
-      } catch (err) {
-        violations.push(
-          `${name} — create(ctx) threw: ${(err as Error).message}. Test stub may need extra context.`,
-        );
-        continue;
-      }
-
-      const schema = zodToJsonSchema(parameters, {
-        target: "jsonSchema7",
-        $refStrategy: "none",
-      });
-
-      walk(schema, name, violations);
+      // Every tool is serialized — it already carries the JSON Schema (converted
+      // from Zod at defineTool time, in the tool's own realm).
+      violations.push(...findStrictModeViolations(def.inputSchema, name));
       checked++;
     }
 
@@ -181,46 +52,21 @@ describe("Tool schemas — OpenAI strict-mode compatibility", () => {
     ).toEqual([]);
   });
 
-  // Guard against the regression caused by .nullable() on nested fields:
-  // buildTool validates each inputExample against `parameters.partial()`, but
-  // Zod's partial does NOT penetrate nested arrays/objects. If an example
-  // omits a nested .nullable() field (e.g. filters[].propertyName), the
-  // silent "example failed validation" warning drops it from the LLM prompt.
-  // Replicate the same logic here with an assert so drift is blocked.
-  it("every tool inputExample passes the same validation that buildTool runs", () => {
-    const violations: string[] = [];
-    const ctx = stubCtx();
+  it("every registered tool name is provider-legal after ':' sanitization", () => {
+    const bad = [...getToolRegistry().keys()].map(findIllegalToolName).filter(Boolean);
+    expect(bad, `\n${bad.join("\n")}\n`).toEqual([]);
+  });
+});
 
-    for (const [name, def] of getToolRegistry()) {
-      if (def.metaTool) continue;
-      if (!def.inputExamples?.length) continue;
+describe("findIllegalToolName", () => {
+  it("accepts a flat name and a namespaced name (':' sanitizes to '__')", () => {
+    expect(findIllegalToolName("webSearch")).toBeNull();
+    expect(findIllegalToolName("innova:aggiornaBollettaCrm")).toBeNull(); // → innova__aggiornaBollettaCrm
+    expect(findIllegalToolName("agent:my-slug")).toBeNull();
+  });
 
-      let parameters: z.ZodType;
-      try {
-        parameters = def.create(ctx).parameters;
-      } catch {
-        continue; // already reported by the previous test
-      }
-
-      const exampleSchema =
-        "partial" in parameters &&
-        typeof (parameters as { partial?: unknown }).partial === "function"
-          ? (parameters as unknown as z.ZodObject<z.ZodRawShape>).partial()
-          : parameters;
-
-      for (const ex of def.inputExamples) {
-        const result = exampleSchema.safeParse(ex.input);
-        if (!result.success) {
-          violations.push(
-            `${name} > "${ex.label}" — ${JSON.stringify(result.error.format())}`,
-          );
-        }
-      }
-    }
-
-    expect(
-      violations,
-      `\n${violations.length} inputExample validation failure(s):\n  - ${violations.join("\n  - ")}\n`,
-    ).toEqual([]);
+  it("flags a name that stays illegal after sanitization", () => {
+    expect(findIllegalToolName("foo.bar")).toContain("not [a-zA-Z0-9_-]+");
+    expect(findIllegalToolName("ns:has space")).toContain("not [a-zA-Z0-9_-]+");
   });
 });

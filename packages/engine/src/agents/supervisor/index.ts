@@ -8,6 +8,8 @@ import {
   getToolRegistry,
   buildTool,
   normalizeRequiredSecrets,
+  scopeSecrets,
+  toModelToolName,
   type ToolContext,
 } from "../tools/registry.js";
 import type { Attachment } from "../../channels/types.js";
@@ -258,9 +260,13 @@ async function buildTools(opts: BuildToolsOptions) {
         const missing = requiredKeys.filter((k) => !secrets?.[k]);
         if (missing.length > 0) continue;
       }
+      // Scope secrets to the keys this tool declares (least-privilege, enforced):
+      // a tool — especially third-party plugin code — only ever sees the secrets
+      // it declared in requiredSecrets; anything else is simply absent.
+      const declaredSecretKeys = new Set(normalizeRequiredSecrets(def.requiredSecrets).map((s) => s.key));
       const ctx: ToolContext = {
         instanceId,
-        secrets,
+        secrets: scopeSecrets(secrets, declaredSecretKeys),
         audit: createAuditLogger(name, instanceId, conversationId),
         conversationId,
         attachments,
@@ -269,7 +275,18 @@ async function buildTools(opts: BuildToolsOptions) {
         state: stateBuffer?.api(),
       };
       const built = buildTool(def, ctx);
-      tools[name] = wrapToolWithAudit(name, built, instanceId, conversationId, toolCallTraces, signals);
+      // The name sent to the MODEL must match [a-zA-Z0-9_-]+ (Bedrock rejects
+      // ':', and OpenAI/Anthropic want the same). Namespaced plugin tools
+      // (`<ns>:<name>`) are presented with a safe separator (`__`); the canonical
+      // ':' name stays the identity everywhere else (governance/audit via the
+      // closure below, DB enablement, UI). The AI SDK looks the tool up by this
+      // Record key, so no reverse mapping is needed on the tool-call round-trip.
+      const modelToolName = toModelToolName(name);
+      if (modelToolName in tools) {
+        console.warn(`Tool name collision after sanitization: "${name}" → "${modelToolName}" already equipped — skipping`);
+        continue;
+      }
+      tools[modelToolName] = wrapToolWithAudit(name, built, instanceId, conversationId, toolCallTraces, signals);
     }
   }
 

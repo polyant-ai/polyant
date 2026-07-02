@@ -16,10 +16,10 @@ vi.mock("@/utils/pipeline-logger.js", () => ({
   pipelineLog: { toolCall: vi.fn(), toolResult: vi.fn() },
 }));
 
-// Import consolidated gh tools (triggers registerTool side effects)
-import "./gh-pr.tool.js";
-import "./gh-issue.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+// Import consolidated gh tools (serialized defineTool default exports)
+import ghPrTool from "./gh-pr.tool.js";
+import ghIssueTool from "./gh-issue.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 const toolCtx = { toolCallId: "tc-1", messages: [] } as any;
@@ -38,12 +38,12 @@ beforeEach(() => {
 /* ================================================================== */
 
 describe("ghIssue", () => {
-  const def = getToolRegistry().get("ghIssue")!;
+  const def = ghIssueTool;
 
   it("is registered with correct metadata", () => {
     expect(def).toBeDefined();
     expect(def.category).toBe("dev");
-    expect(def.requiredSecrets).toContain("github_token");
+    expect(def.requiredSecrets.map((s) => s.key)).toContain("github_token");
   });
 
   it("search: returns parsed issue list", async () => {
@@ -126,12 +126,12 @@ describe("ghIssue", () => {
 /* ================================================================== */
 
 describe("ghPR", () => {
-  const def = getToolRegistry().get("ghPR")!;
+  const def = ghPrTool;
 
   it("is registered with correct metadata", () => {
     expect(def).toBeDefined();
     expect(def.category).toBe("dev");
-    expect(def.requiredSecrets).toContain("github_token");
+    expect(def.requiredSecrets.map((s) => s.key)).toContain("github_token");
   });
 
   it("list: returns PR list", async () => {

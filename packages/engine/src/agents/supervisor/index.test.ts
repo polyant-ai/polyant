@@ -46,6 +46,11 @@ vi.mock("../tools/registry.js", () => ({
     (input ?? []).map((e) =>
       typeof e === "string" ? { key: e, type: "text" as const } : e,
     ),
+  // Pass-through: scoping is unit-tested in registry.test.ts; here it must not
+  // strip secrets so the buildTools assertions see the bag they expect.
+  scopeSecrets: (secrets: unknown) => secrets,
+  // Real behaviour: ':' → '__' (so the namespaced-tool presentation test passes).
+  toModelToolName: (name: string) => name.replace(/:/g, "__"),
 }));
 
 vi.mock("../tools/task-tool.js", () => ({
@@ -62,7 +67,7 @@ vi.mock("../../utils/pipeline-logger.js", () => ({
 
 vi.mock("../../config.js", () => ({
   DEFAULT_INSTANCE_ID: "default",
-  config: { agent: { callTimeoutMs: 60000 } },
+  config: { agent: { callTimeoutMs: 60000 }, plugins: {} },
 }));
 
 vi.mock("../../instances/instance-tools.store.js", () => ({
@@ -371,6 +376,26 @@ describe("supervise", () => {
       // The tools passed to chat should include spawnTask
       const toolsArg = mockChat.mock.calls[0][0].tools;
       expect(toolsArg).toHaveProperty("spawnTask");
+    });
+
+    it("presents a namespaced plugin tool to the model with ':' sanitized to '__'", async () => {
+      mockGetToolRegistry.mockReturnValue(
+        new Map([
+          ["innova:aggiornaBollettaCrm", { name: "innova:aggiornaBollettaCrm", description: "d", category: "plugin", inputSchema: { type: "object" }, execute: vi.fn() }],
+        ]),
+      );
+      mockGetEnabledToolNames.mockResolvedValue(new Set(["innova:aggiornaBollettaCrm"]));
+
+      await supervise({ message: "hi" });
+
+      // Bedrock/OpenAI/Anthropic reject ':' in a tool name; the model must see '__'.
+      const toolsArg = mockChat.mock.calls[0][0].tools;
+      expect(toolsArg).toHaveProperty("innova__aggiornaBollettaCrm");
+      expect(toolsArg).not.toHaveProperty("innova:aggiornaBollettaCrm");
+      // The canonical ':' name stays the identity for governance/audit (buildTool
+      // is called with the original def whose name keeps the ':').
+      const builtNames = mockBuildTool.mock.calls.map((c: unknown[]) => (c[0] as { name: string }).name);
+      expect(builtNames).toContain("innova:aggiornaBollettaCrm");
     });
 
     it("does not include spawnTask when not in enabled tool names", async () => {

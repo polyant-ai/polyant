@@ -8,19 +8,13 @@ vi.mock("@aws-sdk/client-s3", () => ({
   S3Client: class MockS3Client { send = mockS3Send; },
   PutObjectCommand: class MockPutObjectCommand { constructor(public params: unknown) {} },
 }));
-vi.mock("./registry.js", () => ({
-  registerTool: vi.fn(),
-}));
 vi.mock("../../utils/error.js", () => ({
   errMsg: (err: unknown) => err instanceof Error ? err.message : String(err),
 }));
 
-import { registerTool } from "./registry.js";
 import { createMockAudit, createMockState } from "../../test-utils.js";
 import type { ConversationStateApi } from "../../conversations/state.buffer.js";
-import "./file-upload.tool.js";
-
-const def = vi.mocked(registerTool).mock.calls[0][0];
+import def from "./file-upload.tool.js";
 
 const DEFAULT_SECRETS = {
   aws_access_key_id: "AKIAIOSFODNN7EXAMPLE",
@@ -38,7 +32,7 @@ function buildTool(opts?: { secrets?: Record<string, string>; attachments?: any[
     attachments: opts?.attachments,
     state: opts?.state,
   } as any;
-  return { execute: def.create(ctx).execute, audit: ctx.audit, state: ctx.state };
+  return { execute: (input: any) => def.execute(input, ctx), audit: ctx.audit, state: ctx.state };
 }
 
 beforeEach(() => {
@@ -51,7 +45,7 @@ describe("fileUpload tool", () => {
   it("registers with correct metadata", () => {
     expect(def.name).toBe("fileUpload");
     expect(def.category).toBe("storage");
-    expect(def.requiredSecrets).toEqual(["aws_access_key_id", "aws_secret_access_key", "aws_region", "s3_bucket_name"]);
+    expect(def.requiredSecrets.map((s) => s.key)).toEqual(["aws_access_key_id", "aws_secret_access_key", "aws_region", "s3_bucket_name"]);
   });
 
   // Happy path: upload from attachment

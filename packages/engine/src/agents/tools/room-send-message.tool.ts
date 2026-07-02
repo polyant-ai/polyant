@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { channelManager } from "../../channels/channel-manager.js";
 import { getRoomByInstanceId } from "../../room/room.store.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 
-registerTool({
+export default defineTool({
   name: "send_message_to_human",
   description:
     "Send a proactive message to the human via the configured outbound channel.\n" +
@@ -16,23 +16,21 @@ registerTool({
     "Caveat: requires a configured outbound channel (Telegram, Slack, or WhatsApp) on the instance's Room. Message is plain text.",
   category: "room",
   harness: true,
-  create: (ctx) => ({
-    parameters: z.object({
-      message: z.string().describe("The message to send to the human"),
-    }),
-    execute: async ({ message }) => {
-      const instanceId = await resolveInstanceId(ctx.instanceId);
-      if (!instanceId) return { error: "Instance not found" };
-
-      const room = await getRoomByInstanceId(instanceId);
-      if (!room) return { error: "Room not configured for this instance" };
-      if (!room.outboundChannel || !room.outboundTarget) {
-        return { error: "Outbound channel not configured in room settings" };
-      }
-
-      await channelManager.sendOutbound(ctx.instanceId, room.outboundChannel, room.outboundTarget, message);
-
-      return { success: true, channel: room.outboundChannel, target: room.outboundTarget };
-    },
+  parameters: z.object({
+    message: z.string().describe("The message to send to the human"),
   }),
+  execute: async ({ message }, ctx) => {
+    const instanceId = await resolveInstanceId(ctx.instanceId);
+    if (!instanceId) return { error: "Instance not found" };
+
+    const room = await getRoomByInstanceId(instanceId);
+    if (!room) return { error: "Room not configured for this instance" };
+    if (!room.outboundChannel || !room.outboundTarget) {
+      return { error: "Outbound channel not configured in room settings" };
+    }
+
+    await channelManager.sendOutbound(ctx.instanceId, room.outboundChannel, room.outboundTarget, message);
+
+    return { success: true, channel: room.outboundChannel, target: room.outboundTarget };
+  },
 });

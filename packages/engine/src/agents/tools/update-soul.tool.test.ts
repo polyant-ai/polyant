@@ -17,15 +17,9 @@ vi.mock("../../instances/prompts.store.js", () => ({
 vi.mock("../../instances/resolve-instance-id.js", () => ({
   resolveInstanceId: mockResolveInstanceId,
 }));
-vi.mock("./registry.js", () => ({
-  registerTool: vi.fn(),
-}));
 
 import { createMockAudit } from "../../test-utils.js";
-import { registerTool } from "./registry.js";
-import "./update-soul.tool.js";
-
-const def = vi.mocked(registerTool).mock.calls[0][0];
+import def from "./update-soul.tool.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -41,8 +35,7 @@ function buildUpdateSoulTool() {
     audit: createMockAudit(),
   } as any;
 
-  const { execute } = def.create(ctx);
-  return execute;
+  return (input: any) => def.execute(input, ctx);
 }
 
 describe("updateSoul tool", () => {
@@ -161,8 +154,7 @@ describe("updateSoul tool", () => {
       audit: createMockAudit(),
     } as any;
 
-    const { execute } = def.create(ctx);
-    await execute({ instruction: "test" });
+    await def.execute({ instruction: "test" }, ctx);
 
     expect(mockChat.mock.calls[0][0].apiKeys).toEqual({
       openai: "sk-different-openai",
