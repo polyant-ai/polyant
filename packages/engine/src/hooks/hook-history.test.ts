@@ -57,6 +57,15 @@ describe("hookExecutionsToModelMessages", () => {
     expect(id).toMatch(/^[a-zA-Z0-9_-]+$/);
     expect(tool.content[0].toolCallId).toBe(id); // call/result pairing preserved
   });
+
+  it("sanitizes a namespaced plugin tool NAME to the provider grammar (':' → '__')", () => {
+    const msgs = hookExecutionsToModelMessages([exec({ toolName: "innova:verificaBolletta" })]);
+    const assistant = msgs[0] as unknown as { content: Array<{ toolName: string }> };
+    const tool = msgs[1] as unknown as { content: Array<{ toolName: string }> };
+    expect(assistant.content[0].toolName).toBe("innova__verificaBolletta");
+    expect(tool.content[0].toolName).toBe("innova__verificaBolletta");
+    expect(assistant.content[0].toolName).toMatch(/^[a-zA-Z0-9_-]+$/);
+  });
 });
 
 describe("hookExecutionsToSteps", () => {

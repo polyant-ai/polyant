@@ -255,6 +255,18 @@ export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
   });
 }
 
+/**
+ * The name a tool is presented under to the MODEL. Providers (Bedrock, OpenAI,
+ * Anthropic) require tool names to match [a-zA-Z0-9_-]+, so the plugin-namespace
+ * separator ':' becomes '__'. Used both when equipping tools (buildTools) AND
+ * when replaying persisted tool calls into history (tool-history), so the name
+ * the model sees in the tool list and in the message history always agree — and
+ * neither ever carries a ':'.
+ */
+export function toModelToolName(name: string): string {
+  return name.replace(/:/g, "__");
+}
+
 /** Map the registry to a serializable array of tool info objects. */
 export function listAvailableTools(): ToolInfo[] {
   return Array.from(registry.values())

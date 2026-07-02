@@ -9,6 +9,7 @@ import {
   buildTool,
   normalizeRequiredSecrets,
   scopeSecrets,
+  toModelToolName,
   type ToolContext,
 } from "../tools/registry.js";
 import type { Attachment } from "../../channels/types.js";
@@ -280,7 +281,7 @@ async function buildTools(opts: BuildToolsOptions) {
       // ':' name stays the identity everywhere else (governance/audit via the
       // closure below, DB enablement, UI). The AI SDK looks the tool up by this
       // Record key, so no reverse mapping is needed on the tool-call round-trip.
-      const modelToolName = name.replace(/:/g, "__");
+      const modelToolName = toModelToolName(name);
       if (modelToolName in tools) {
         console.warn(`Tool name collision after sanitization: "${name}" → "${modelToolName}" already equipped — skipping`);
         continue;
