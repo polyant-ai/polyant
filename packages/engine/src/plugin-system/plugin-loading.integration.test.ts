@@ -31,7 +31,6 @@ import { resolvePluginRoots } from "./plugin-roots.js";
 import {
   loadAllTools,
   getToolRegistry,
-  isSerializedTool,
   _resetRegistryForTests,
 } from "../agents/tools/registry.js";
 
@@ -74,12 +73,9 @@ describe("plugin loading (serialized contract, integration)", () => {
     const ping = getToolRegistry().get("sample:ping");
     expect(ping).toBeDefined();
     expect(getToolRegistry().has("ping")).toBe(false); // never flat
-    // It is the serialized shape (JSON Schema, no live Zod).
-    expect(isSerializedTool(ping!)).toBe(true);
-    if (isSerializedTool(ping!)) {
-      expect(ping!.inputSchema.type).toBe("object");
-      expect(await ping!.execute({ msg: "hi" }, {} as never)).toBe("pong:hi");
-    }
+    // It carries the serialized shape (JSON Schema, no live Zod).
+    expect(ping!.inputSchema.type).toBe("object");
+    expect(await ping!.execute({ msg: "hi" }, {} as never)).toBe("pong:hi");
 
     // incompatible (engine >=99.0.0) → skipped.
     expect(getToolRegistry().has("incompatible:nope")).toBe(false);

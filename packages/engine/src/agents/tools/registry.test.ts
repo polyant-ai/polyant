@@ -10,6 +10,7 @@ import { asInstanceSlug } from "../../instances/identifiers.js";
 // ---------------------------------------------------------------------------
 vi.mock("ai", () => ({
   tool: vi.fn((opts: any) => ({ _type: "mock-tool", ...opts })),
+  jsonSchema: vi.fn((schema: any, opts: any) => ({ _type: "mock-json-schema", schema, opts })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -26,19 +27,19 @@ vi.mock("fs", () => ({
 
 import { tool as aiTool } from "ai";
 import { readdirSync } from "fs";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import {
-  registerTool,
+  _registerToolForTests,
   getToolRegistry,
   buildTool,
   listAvailableTools,
   loadAllTools,
   normalizeRequiredSecrets,
   requiredSecretKeys,
-  fillMissingKeysWithNull,
   fillAndValidate,
   scopeSecrets,
   type ToolContext,
-  type LegacyToolDefinition,
+  type ToolDefinition,
 } from "./registry.js";
 
 // ---------------------------------------------------------------------------
@@ -52,16 +53,20 @@ function uid(prefix = "test-tool"): string {
   return `${prefix}-${++uniqueId}-${Date.now()}`;
 }
 
-/** Build a minimal (legacy-shape) ToolDefinition with sensible defaults. */
-function makeDef(overrides: Partial<LegacyToolDefinition> & { name: string }): LegacyToolDefinition {
-  return {
-    description: `Description for ${overrides.name}`,
-    create: () => ({
-      parameters: z.object({ input: z.string() }),
-      execute: async (params: any) => ({ echo: params.input }),
-    }),
-    ...overrides,
-  };
+/** Build a minimal serialized ToolDefinition (via defineTool) with sensible
+ * defaults. `defineTool` serializes the Zod schema to JSON Schema, exactly like
+ * a real tool file's `export default`. */
+function makeDef(
+  overrides: Partial<Parameters<typeof defineTool>[0]> & { name: string },
+): ToolDefinition {
+  const { name, description, parameters, execute, ...rest } = overrides;
+  return defineTool({
+    name,
+    description: description ?? `Description for ${name}`,
+    parameters: parameters ?? z.object({ input: z.string() }),
+    execute: execute ?? (async (params: any) => ({ echo: params.input })),
+    ...rest,
+  });
 }
 
 const noopAudit = { log: () => {} };
@@ -81,15 +86,15 @@ describe("registry", () => {
   });
 
   // =========================================================================
-  // registerTool
+  // registration (_registerToolForTests → registerSerialized)
   // =========================================================================
 
-  describe("registerTool", () => {
+  describe("tool registration", () => {
     it("registers a tool that is retrievable via getToolRegistry", () => {
       const name = uid("register");
       const def = makeDef({ name });
 
-      registerTool(def);
+      _registerToolForTests(def);
 
       const reg = getToolRegistry();
       expect(reg.has(name)).toBe(true);
@@ -100,23 +105,23 @@ describe("registry", () => {
       const name = uid("duplicate");
       const def = makeDef({ name });
 
-      registerTool(def);
+      _registerToolForTests(def);
 
-      expect(() => registerTool(def)).toThrowError(
+      expect(() => _registerToolForTests(def)).toThrowError(
         `Duplicate tool registration: "${name}" is already registered.`,
       );
     });
 
     it("throws on duplicate even when definitions differ", () => {
       const name = uid("dup-diff");
-      registerTool(makeDef({ name, description: "first" }));
+      _registerToolForTests(makeDef({ name, description: "first" }));
 
       expect(() =>
-        registerTool(makeDef({ name, description: "second" })),
+        _registerToolForTests(makeDef({ name, description: "second" })),
       ).toThrowError(/Duplicate tool registration/);
     });
 
-    it("stores the full definition including optional fields", () => {
+    it("stores the full definition including optional fields (secrets normalized)", () => {
       const name = uid("full-def");
       const def = makeDef({
         name,
@@ -125,12 +130,20 @@ describe("registry", () => {
         requiredSecrets: ["secret_token"],
       });
 
-      registerTool(def);
+      _registerToolForTests(def);
 
       const stored = getToolRegistry().get(name)!;
       expect(stored.category).toBe("network");
       expect(stored.requiredEnv).toEqual(["API_KEY"]);
-      expect(stored.requiredSecrets).toEqual(["secret_token"]);
+      // defineTool normalizes bare strings into typed specs.
+      expect(stored.requiredSecrets).toEqual([{ key: "secret_token", type: "text", sensitive: true }]);
+    });
+
+    it("prefixes the name with the plugin namespace when given", () => {
+      const def = makeDef({ name: "ping" });
+      _registerToolForTests(def, "sample");
+      expect(getToolRegistry().has("sample:ping")).toBe(true);
+      expect(getToolRegistry().has("ping")).toBe(false);
     });
   });
 
@@ -142,8 +155,8 @@ describe("registry", () => {
     it("returns a Map containing all registered tools", () => {
       const name1 = uid("reg-a");
       const name2 = uid("reg-b");
-      registerTool(makeDef({ name: name1 }));
-      registerTool(makeDef({ name: name2 }));
+      _registerToolForTests(makeDef({ name: name1 }));
+      _registerToolForTests(makeDef({ name: name2 }));
 
       const reg = getToolRegistry();
       expect(reg.get(name1)).toBeDefined();
@@ -158,141 +171,52 @@ describe("registry", () => {
   });
 
   // =========================================================================
-  // buildTool
+  // buildTool (serialized path — the only path)
   // =========================================================================
 
   describe("buildTool", () => {
-    it("calls def.create with the provided context", () => {
-      const name = uid("build-ctx");
-      const createSpy = vi.fn().mockReturnValue({
-        parameters: z.object({ x: z.number() }),
-        execute: async () => "ok",
-      });
-      const def = makeDef({ name, create: createSpy });
-
-      buildTool(def, mockCtx);
-
-      expect(createSpy).toHaveBeenCalledTimes(1);
-      expect(createSpy).toHaveBeenCalledWith(mockCtx);
-    });
-
-    it("passes description from the definition to ai.tool()", () => {
+    it("passes description, the serialized inputSchema, and a wrapped execute to ai.tool()", () => {
       const name = uid("build-desc");
-      const description = "A very special tool";
-      const parameters = z.object({ q: z.string() });
-      const execute = async () => "result";
-
-      const def = makeDef({
-        name,
-        description,
-        create: () => ({ parameters, execute }),
-      });
+      const def = makeDef({ name, description: "A very special tool" });
 
       buildTool(def, mockCtx);
 
       expect(aiTool).toHaveBeenCalledTimes(1);
-      // - execute is wrapped by buildTool to add pipelineLog calls
-      // - inputSchema is wrapped in z.preprocess to fill missing fields with null
-      //   for non-strict models, so we check it's a Zod schema rather than the
-      //   exact reference.
-      expect(aiTool).toHaveBeenCalledWith({
-        description,
-        inputSchema: expect.objectContaining({ safeParse: expect.any(Function) }),
-        execute: expect.any(Function),
-      });
+      const call = vi.mocked(aiTool).mock.calls.at(-1)![0] as any;
+      expect(call.description).toBe("A very special tool");
+      // inputSchema is wrapped via ai.jsonSchema(def.inputSchema, { validate }).
+      expect(call.inputSchema._type).toBe("mock-json-schema");
+      expect(call.inputSchema.schema).toBe(def.inputSchema);
+      expect(call.execute).toEqual(expect.any(Function));
     });
 
     it("returns the value produced by ai.tool()", () => {
-      const name = uid("build-ret");
-      const def = makeDef({ name });
-
+      const def = makeDef({ name: uid("build-ret") });
       const result = buildTool(def, mockCtx) as any;
-
-      // Our mock of ai.tool returns { _type: "mock-tool", ...opts }
       expect(result._type).toBe("mock-tool");
-      expect(result.description).toBe(`Description for ${name}`);
     });
 
-    it("uses description from definition, not from create()", () => {
-      const name = uid("build-desc-override");
-      const defDescription = "Definition-level description";
-
-      const def: LegacyToolDefinition = {
-        name,
-        description: defDescription,
-        create: () => ({
-          parameters: z.object({}),
-          execute: async () => null,
-        }),
-      };
+    it("wraps execute: calls def.execute with (input, ctx) and returns its result", async () => {
+      const execute = vi.fn(async (input: any) => ({ got: input.q }));
+      const def = makeDef({ name: uid("build-exec"), parameters: z.object({ q: z.string() }), execute });
 
       buildTool(def, mockCtx);
+      const call = vi.mocked(aiTool).mock.calls.at(-1)![0] as any;
+      const out = await call.execute({ q: "hi" });
 
-      expect(aiTool).toHaveBeenCalledWith(
-        expect.objectContaining({ description: defDescription }),
-      );
+      expect(execute).toHaveBeenCalledWith({ q: "hi" }, mockCtx);
+      expect(out).toEqual({ got: "hi" });
     });
 
-    it("passes secrets from context through to create()", () => {
-      const name = uid("build-secrets");
-      const ctxWithSecrets: ToolContext = {
-        ...mockCtx,
-        secrets: { API_KEY: "sk-test-123" },
-      };
-      const createSpy = vi.fn().mockReturnValue({
-        parameters: z.object({}),
-        execute: async () => null,
-      });
-      const def = makeDef({ name, create: createSpy });
-
-      buildTool(def, ctxWithSecrets);
-
-      expect(createSpy).toHaveBeenCalledWith(ctxWithSecrets);
-      expect(createSpy.mock.calls[0][0].secrets).toEqual({ API_KEY: "sk-test-123" });
-    });
-
-    // -----------------------------------------------------------------------
-    // runtime preprocess: fill missing fields with null
-    // -----------------------------------------------------------------------
-
-    it("fills missing nullable fields with null at runtime parse", () => {
-      const name = uid("build-runtime-fill");
-      const parameters = z.object({
-        action: z.string(),
-        contactId: z.string().nullable(),
-        firstName: z.string().nullable(),
-      });
-      const def: LegacyToolDefinition = {
-        name,
-        description: "fill missing test",
-        create: () => ({ parameters, execute: async (p) => p }),
-      };
-
-      buildTool(def, mockCtx);
-      const call = vi.mocked(aiTool).mock.calls.at(-1)![0] as { inputSchema: z.ZodTypeAny };
-      const result = call.inputSchema.safeParse({ action: "create", firstName: "Mario" });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data).toEqual({ action: "create", firstName: "Mario", contactId: null });
-      }
-    });
-
-    // -----------------------------------------------------------------------
-    // inputExamples
-    // -----------------------------------------------------------------------
-
-    it("appends valid inputExamples to the description", () => {
-      const name = uid("build-examples-valid");
-      const parameters = z.object({ query: z.string(), limit: z.number().optional() });
-      const def: LegacyToolDefinition = {
-        name,
+    it("appends inputExamples to the description (raw, no validation)", () => {
+      const def = makeDef({
+        name: uid("build-examples"),
         description: "Base description.",
         inputExamples: [
           { label: "Simple search", input: { query: "test" } },
           { label: "With limit", input: { query: "test", limit: 5 } },
         ],
-        create: () => ({ parameters, execute: async () => null }),
-      };
+      });
 
       buildTool(def, mockCtx);
 
@@ -301,68 +225,16 @@ describe("registry", () => {
       expect(call.description).toContain("Input examples:");
       expect(call.description).toContain("Simple search:");
       expect(call.description).toContain('"query":"test"');
-      expect(call.description).toContain("With limit:");
       expect(call.description).toContain('"limit":5');
     });
 
-    it("skips invalid examples and keeps valid ones", () => {
-      const name = uid("build-examples-mixed");
-      const parameters = z.object({ query: z.string() });
-      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const def: LegacyToolDefinition = {
-        name,
-        description: "Base.",
-        inputExamples: [
-          { label: "Valid", input: { query: "ok" } },
-          { label: "Invalid", input: { query: 123 } }, // wrong type
-        ],
-        create: () => ({ parameters, execute: async () => null }),
-      };
-
-      buildTool(def, mockCtx);
-
-      const call = vi.mocked(aiTool).mock.calls.at(-1)![0] as any;
-      expect(call.description).toContain("Valid:");
-      expect(call.description).not.toContain("Invalid:");
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining(`example "Invalid" failed validation`),
-        expect.anything(),
-      );
-      consoleSpy.mockRestore();
-    });
-
     it("does not modify description when inputExamples is undefined", () => {
-      const name = uid("build-examples-undef");
-      const def = makeDef({ name, description: "Unchanged." });
+      const def = makeDef({ name: uid("build-noex"), description: "Unchanged." });
 
       buildTool(def, mockCtx);
 
       const call = vi.mocked(aiTool).mock.calls.at(-1)![0] as any;
       expect(call.description).toBe("Unchanged.");
-    });
-
-    it("does not append examples block when all examples are invalid", () => {
-      const name = uid("build-examples-all-invalid");
-      const parameters = z.object({ num: z.number() });
-      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const def: LegacyToolDefinition = {
-        name,
-        description: "Original.",
-        inputExamples: [
-          // Examples are validated against the partial schema, so missing
-          // required fields don't reject them — both inputs use type mismatches.
-          { label: "Bad1", input: { num: "not-a-number" } },
-          { label: "Bad2", input: { num: true } },
-        ],
-        create: () => ({ parameters, execute: async () => null }),
-      };
-
-      buildTool(def, mockCtx);
-
-      const call = vi.mocked(aiTool).mock.calls.at(-1)![0] as any;
-      expect(call.description).toBe("Original.");
-      expect(call.description).not.toContain("Input examples:");
-      consoleSpy.mockRestore();
     });
   });
 
@@ -373,7 +245,7 @@ describe("registry", () => {
   describe("listAvailableTools", () => {
     it("returns array entries with name, description, and category", () => {
       const name = uid("list-cat");
-      registerTool(makeDef({ name, category: "io", description: "An IO tool" }));
+      _registerToolForTests(makeDef({ name, category: "io", description: "An IO tool" }));
 
       const list = listAvailableTools();
       const entry = list.find((t) => t.name === name);
@@ -388,7 +260,7 @@ describe("registry", () => {
 
     it("normalizes legacy string requiredSecrets into typed specs", () => {
       const name = uid("list-normalize-legacy");
-      registerTool(makeDef({ name, requiredSecrets: ["legacy_key"] }));
+      _registerToolForTests(makeDef({ name, requiredSecrets: ["legacy_key"] }));
 
       const entry = listAvailableTools().find((t) => t.name === name)!;
       expect(entry.requiredSecrets).toEqual([{ key: "legacy_key", type: "text", sensitive: true }]);
@@ -396,7 +268,7 @@ describe("registry", () => {
 
     it("passes through rich select specs untouched", () => {
       const name = uid("list-normalize-select");
-      registerTool(
+      _registerToolForTests(
         makeDef({
           name,
           requiredSecrets: [
@@ -413,7 +285,7 @@ describe("registry", () => {
 
     it("supports mixed legacy + rich specs in the same tool", () => {
       const name = uid("list-normalize-mixed");
-      registerTool(
+      _registerToolForTests(
         makeDef({
           name,
           requiredSecrets: [
@@ -432,7 +304,7 @@ describe("registry", () => {
 
     it("defaults category to 'general' when not specified", () => {
       const name = uid("list-default-cat");
-      registerTool(makeDef({ name }));
+      _registerToolForTests(makeDef({ name }));
 
       const list = listAvailableTools();
       const entry = list.find((t) => t.name === name);
@@ -443,7 +315,7 @@ describe("registry", () => {
 
     it("includes all registered tools", () => {
       const names = [uid("list-a"), uid("list-b"), uid("list-c")];
-      names.forEach((n) => registerTool(makeDef({ name: n })));
+      names.forEach((n) => _registerToolForTests(makeDef({ name: n })));
 
       const list = listAvailableTools();
       const listedNames = list.map((t) => t.name);
@@ -455,7 +327,7 @@ describe("registry", () => {
 
     it("should exclude harness tools from listAvailableTools", () => {
       const name = uid("list-harness-excluded");
-      registerTool(makeDef({ name, harness: true, category: "room" } as any));
+      _registerToolForTests(makeDef({ name, harness: true, category: "room" } as any));
 
       const list = listAvailableTools();
       const entry = list.find((t) => t.name === name);
@@ -465,7 +337,7 @@ describe("registry", () => {
 
     it("should include non-harness tools in listAvailableTools", () => {
       const name = uid("list-non-harness");
-      registerTool(makeDef({ name, category: "general" }));
+      _registerToolForTests(makeDef({ name, category: "general" }));
 
       const list = listAvailableTools();
       const entry = list.find((t) => t.name === name);
@@ -476,7 +348,7 @@ describe("registry", () => {
 
     it("does not expose create function or requiredEnv, but does expose requiredSecrets", () => {
       const name = uid("list-no-internals");
-      registerTool(makeDef({ name, requiredEnv: ["SECRET"], requiredSecrets: ["key"] }));
+      _registerToolForTests(makeDef({ name, requiredEnv: ["SECRET"], requiredSecrets: ["key"] }));
 
       const list = listAvailableTools();
       const entry = list.find((t) => t.name === name)!;
@@ -558,15 +430,13 @@ describe("registry", () => {
       );
     });
 
-    it("registerTool rejects malformed specs at registration time", () => {
+    it("defineTool rejects malformed specs at authoring time", () => {
       const name = uid("register-bad-spec");
       expect(() =>
-        registerTool(
-          makeDef({
-            name,
-            requiredSecrets: [{ key: "x", type: "select", choices: [] }],
-          }),
-        ),
+        makeDef({
+          name,
+          requiredSecrets: [{ key: "x", type: "select", choices: [] }],
+        }),
       ).toThrowError(/'select' requires non-empty 'choices'/);
     });
 
@@ -590,15 +460,13 @@ describe("registry", () => {
       ).toThrowError(/^Tool "thirdTool": requiredSecrets\[0\] missing 'key'/);
     });
 
-    it("registerTool's error message includes the tool name", () => {
+    it("defineTool's error message includes the tool name", () => {
       const name = uid("named-bad-spec");
       expect(() =>
-        registerTool(
-          makeDef({
-            name,
-            requiredSecrets: [""],
-          }),
-        ),
+        makeDef({
+          name,
+          requiredSecrets: [""],
+        }),
       ).toThrowError(new RegExp(`Tool "${name}": requiredSecrets\\[0\\] is an empty string`));
     });
   });
@@ -659,7 +527,7 @@ describe("registry", () => {
     it("prunes tools with missing requiredEnv vars from the registry", async () => {
       const name = uid("load-prune");
       // Register a tool that requires an env var that is NOT set
-      registerTool(
+      _registerToolForTests(
         makeDef({
           name,
           requiredEnv: ["TOTALLY_MISSING_ENV_VAR_XYZ_123"],
@@ -689,7 +557,7 @@ describe("registry", () => {
     it("keeps tools whose requiredEnv vars are all present", async () => {
       const name = uid("load-keep");
       // API_PORT is set in test-setup.ts
-      registerTool(makeDef({ name, requiredEnv: ["API_PORT"] }));
+      _registerToolForTests(makeDef({ name, requiredEnv: ["API_PORT"] }));
 
       mockReaddirSync.mockReturnValue([] as any);
 
@@ -700,7 +568,7 @@ describe("registry", () => {
 
     it("keeps tools that have no requiredEnv at all", async () => {
       const name = uid("load-no-env");
-      registerTool(makeDef({ name }));
+      _registerToolForTests(makeDef({ name }));
 
       mockReaddirSync.mockReturnValue([] as any);
 
@@ -711,7 +579,7 @@ describe("registry", () => {
 
     it("keeps tools with an empty requiredEnv array", async () => {
       const name = uid("load-empty-env");
-      registerTool(makeDef({ name, requiredEnv: [] }));
+      _registerToolForTests(makeDef({ name, requiredEnv: [] }));
 
       mockReaddirSync.mockReturnValue([] as any);
 
@@ -722,7 +590,7 @@ describe("registry", () => {
 
     it("logs which env vars are missing for pruned tools", async () => {
       const name = uid("load-log-missing");
-      registerTool(
+      _registerToolForTests(
         makeDef({
           name,
           requiredEnv: ["MISSING_A_XYZ", "MISSING_B_XYZ"],
@@ -748,8 +616,8 @@ describe("registry", () => {
       const goodName = uid("load-good");
       const badName = uid("load-bad");
 
-      registerTool(makeDef({ name: goodName, requiredEnv: ["API_PORT"] }));
-      registerTool(makeDef({ name: badName, requiredEnv: ["NONEXISTENT_VAR_ZZZ"] }));
+      _registerToolForTests(makeDef({ name: goodName, requiredEnv: ["API_PORT"] }));
+      _registerToolForTests(makeDef({ name: badName, requiredEnv: ["NONEXISTENT_VAR_ZZZ"] }));
 
       mockReaddirSync.mockReturnValue([] as any);
       vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -758,20 +626,6 @@ describe("registry", () => {
 
       expect(getToolRegistry().has(goodName)).toBe(true);
       expect(getToolRegistry().has(badName)).toBe(false);
-    });
-  });
-
-  describe("fillMissingKeysWithNull", () => {
-    it("should_fill_missing_object_keys_with_null", () => {
-      const schema = z.object({ a: z.string().nullable(), b: z.number().nullable() });
-      expect(fillMissingKeysWithNull(schema, { a: "x" })).toEqual({ a: "x", b: null });
-    });
-
-    it("should_pass_through_non_object_schema_or_value", () => {
-      const schema = z.object({ a: z.string().nullable() });
-      expect(fillMissingKeysWithNull(z.string(), "v")).toBe("v");
-      expect(fillMissingKeysWithNull(schema, null)).toBe(null);
-      expect(fillMissingKeysWithNull(schema, [1])).toEqual([1]);
     });
   });
 

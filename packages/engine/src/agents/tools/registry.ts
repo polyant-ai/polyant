@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { tool, jsonSchema, type Tool } from "ai";
-import { z } from "zod";
 import Ajv, { type ValidateFunction } from "ajv";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
@@ -78,40 +77,15 @@ export interface ToolContext {
 }
 
 // ---------------------------------------------------------------------------
-// Definition shapes
+// Definition shape
 //
-// Two coexist during the migration to the serialized contract:
-//   - LegacyToolDefinition: `create(ctx) => { parameters: Zod, execute }` — the
-//     old self-registering (`registerTool`) core tools.
-//   - SerializedToolDefinition (from the SDK): `inputSchema: JSON Schema` +
-//     `execute(input, ctx)` — authored via `defineTool`, `export default`ed, and
-//     collected by the loader. This is the target shape for ALL tools + plugins.
-// `buildTool` dispatches on the presence of `inputSchema`.
+// Every tool is a SerializedToolDefinition (from the SDK): `inputSchema` (a JSON
+// Schema — data, not a live Zod object) + `execute(input, ctx)`, authored via
+// `defineTool` and `export default`ed, collected by the loader.
 // ---------------------------------------------------------------------------
 
-/** Legacy self-registered tool definition (create-factory shape). */
-export interface LegacyToolDefinition {
-  name: string;
-  description: string;
-  category?: string;
-  requiredEnv?: string[];
-  requiredSecrets?: RequiredSecretsInput;
-  metaTool?: boolean;
-  harness?: boolean;
-  inputExamples?: ToolInputExample[];
-  create: (ctx: ToolContext) => {
-    parameters: z.ZodType;
-    execute: (params: any) => Promise<unknown>;
-  };
-}
-
-/** What the registry stores — either the legacy or the serialized shape. */
-export type ToolDefinition = LegacyToolDefinition | SerializedToolDefinition;
-
-/** Type guard: a serialized (defineTool / export-default) definition. */
-export function isSerializedTool(def: ToolDefinition): def is SerializedToolDefinition {
-  return "inputSchema" in def;
-}
+/** What the registry stores. Alias kept for the many importers of this name. */
+export type ToolDefinition = SerializedToolDefinition;
 
 // ---------------------------------------------------------------------------
 // Registry (engine-owned singleton Map — the loader is its only writer).
@@ -119,18 +93,9 @@ export function isSerializedTool(def: ToolDefinition): def is SerializedToolDefi
 
 const registry = new Map<string, ToolDefinition>();
 
-/** Active plugin namespace applied to legacy `registerTool` side-effects during
- * a plugin root's import. Core tools load with no namespace (flat names). */
-let activeNamespace: string | null = null;
-
-export function setActivePluginNamespace(ns: string | null): void {
-  activeNamespace = ns;
-}
-
 /** TEST ONLY: clear the registry between unit tests. */
 export function _resetRegistryForTests(): void {
   registry.clear();
-  activeNamespace = null;
 }
 
 function assertUniqueName(finalName: string): void {
@@ -139,25 +104,17 @@ function assertUniqueName(finalName: string): void {
   }
 }
 
-/**
- * Legacy registration path: a `*.tool.ts` file calls this as a module side-effect.
- * The active plugin namespace (if any) is applied as a `<ns>:<name>` prefix.
- */
-export function registerTool(definition: LegacyToolDefinition): void {
-  const finalName = activeNamespace ? `${activeNamespace}:${definition.name}` : definition.name;
-  assertUniqueName(finalName);
-  // Fail fast on malformed requiredSecrets specs (e.g. select without choices).
-  normalizeRequiredSecrets(definition.requiredSecrets, finalName);
-  // Only clone to rewrite the name when a namespace applies; otherwise store the
-  // exact definition (preserves reference identity for the common core path).
-  registry.set(finalName, activeNamespace ? { ...definition, name: finalName } : definition);
-}
-
-/** New registration path: the loader collects an `export default defineTool(...)`. */
+/** Register a serialized definition under an optional plugin namespace. The
+ * loader is the only caller; tests use `_registerToolForTests`. */
 function registerSerialized(def: SerializedToolDefinition, namespace: string | null): void {
   const finalName = namespace ? `${namespace}:${def.name}` : def.name;
   assertUniqueName(finalName);
   registry.set(finalName, namespace ? { ...def, name: finalName } : def);
+}
+
+/** TEST ONLY: register a serialized tool definition directly (bypasses the loader). */
+export function _registerToolForTests(def: SerializedToolDefinition, namespace: string | null = null): void {
+  registerSerialized(def, namespace);
 }
 
 /** Read-only view of the full registry. */
@@ -169,29 +126,9 @@ export function getToolRegistry(): ReadonlyMap<string, ToolDefinition> {
 // buildTool + helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Fill keys missing from `val` with `null` for a Zod object schema. Strict-mode
- * schemas mark every key required-but-nullable; non-strict models legitimately
- * omit irrelevant fields. Shared by the legacy `buildTool` path and the hooks
- * tool-action executor.
- */
-export function fillMissingKeysWithNull(parameters: z.ZodType, val: unknown): unknown {
-  if (!(parameters instanceof z.ZodObject)) return val;
-  if (!val || typeof val !== "object" || Array.isArray(val)) return val;
-  const shape = (parameters as z.ZodObject<z.ZodRawShape>).shape;
-  const filled: Record<string, unknown> = { ...(val as Record<string, unknown>) };
-  for (const key of Object.keys(shape)) {
-    if (!(key in filled)) filled[key] = null;
-  }
-  return filled;
-}
-
-/** JSON-Schema-driven counterpart of `fillMissingKeysWithNull`, for the serialized
- * path: fills missing object keys with `null`. NOTE it is NOT equivalent to the
- * legacy helper — `fillMissingKeysWithNull` is SHALLOW (top-level keys only),
- * this one RECURSES into nested objects + array items. The recursion is
- * deliberate: non-strict models omit nullable keys at any depth (e.g. a filter's
- * alias field), and those must be filled too so validation doesn't reject them. */
+/** Fill missing object keys with `null`, recursing into nested objects + array
+ * items. Non-strict models omit nullable keys at any depth (e.g. a filter's alias
+ * field); those must be filled so validation doesn't reject them. */
 export function fillMissingKeysFromJsonSchema(schema: Record<string, unknown>, val: unknown): unknown {
   if (!schema || typeof schema !== "object") return val;
   const props = schema.properties as Record<string, Record<string, unknown>> | undefined;
@@ -300,49 +237,10 @@ function appendExamplesRaw(description: string, examples: ToolInputExample[]): s
   return `${description}\n\nInput examples:\n${text}`;
 }
 
-function buildLegacyTool(def: LegacyToolDefinition, ctx: ToolContext): Tool {
-  const { parameters, execute } = def.create(ctx);
-
-  let description = def.description;
-  if (def.inputExamples?.length) {
-    // Validate examples against the partial schema so missing-but-nullable fields
-    // don't reject an illustrative subset; drop invalid ones with a warning.
-    const exampleSchema =
-      "partial" in parameters && typeof (parameters as { partial?: unknown }).partial === "function"
-        ? (parameters as unknown as z.ZodObject<z.ZodRawShape>).partial()
-        : parameters;
-    const valid = def.inputExamples.filter((ex) => {
-      const result = exampleSchema.safeParse(ex.input);
-      if (!result.success) {
-        console.warn(`Tool "${def.name}": example "${ex.label}" failed validation:`, result.error.format());
-        return false;
-      }
-      return true;
-    });
-    if (valid.length > 0) description = appendExamplesRaw(description, valid);
-  }
-
-  const wrappedExecute = async (params: unknown) => {
-    pipelineLog.toolCall(ctx.instanceId, def.name, params as Record<string, unknown>);
-    try {
-      const result = await execute(params);
-      pipelineLog.toolResult(ctx.instanceId, def.name, true);
-      return result;
-    } catch (err) {
-      pipelineLog.toolResult(ctx.instanceId, def.name, false, errMsg(err));
-      throw err;
-    }
-  };
-
-  const runtimeParameters =
-    parameters instanceof z.ZodObject
-      ? (z.preprocess((val) => fillMissingKeysWithNull(parameters, val), parameters) as unknown as typeof parameters)
-      : parameters;
-
-  return tool({ description, inputSchema: runtimeParameters, execute: wrappedExecute });
-}
-
-function buildSerializedTool(def: SerializedToolDefinition, ctx: ToolContext): Tool {
+/**
+ * Build a Vercel AI SDK `Tool` from a registered definition + runtime context.
+ */
+export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
   let description = def.description;
   if (def.inputExamples?.length) description = appendExamplesRaw(description, def.inputExamples);
 
@@ -377,14 +275,6 @@ function buildSerializedTool(def: SerializedToolDefinition, ctx: ToolContext): T
   });
 }
 
-/**
- * Build a Vercel AI SDK `Tool` from a registered definition + runtime context,
- * dispatching on the definition shape (serialized vs legacy).
- */
-export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
-  return isSerializedTool(def) ? buildSerializedTool(def, ctx) : buildLegacyTool(def, ctx);
-}
-
 /** Map the registry to a serializable array of tool info objects. */
 export function listAvailableTools(): ToolInfo[] {
   return Array.from(registry.values())
@@ -406,44 +296,39 @@ export function listAvailableTools(): ToolInfo[] {
 // ---------------------------------------------------------------------------
 
 /** Import every `*.tool.(ts|js)` in `dir`. Serialized defs (`export default`) are
- * collected; legacy tools self-register via `registerTool` (namespaced by the
- * active namespace). */
+ * collected. A file without a `defineTool` default export is skipped with a warn. */
 async function importRoot(dir: string, namespace: string | null): Promise<void> {
   if (!existsSync(dir)) return;
   const files = readdirSync(dir).filter((f) => /\.tool\.(ts|js)$/.test(f));
-  setActivePluginNamespace(namespace);
-  try {
-    for (const file of files) {
-      try {
-        const mod = (await import(join(dir, file))) as { default?: unknown };
-        const def = mod.default;
-        if (def && typeof def === "object" && "inputSchema" in (def as object)) {
-          const serialized = def as SerializedToolDefinition;
-          registerSerialized(serialized, namespace);
-          // Load-time strict-mode lint for PLUGIN tools (core tools are covered by
-          // strict-mode.test.ts). Third-party schemas get no engine-side check
-          // otherwise — a violation would only surface as a cryptic provider
-          // rejection at call time. Warn, don't fail: the plugin still loads.
-          if (namespace !== null) {
-            const violations = findStrictModeViolations(serialized.inputSchema, `${namespace}:${serialized.name}`);
-            for (const v of violations) {
-              console.warn(`Plugin tool strict-mode lint: ${v}`);
-            }
+  for (const file of files) {
+    try {
+      const mod = (await import(join(dir, file))) as { default?: unknown };
+      const def = mod.default;
+      if (def && typeof def === "object" && "inputSchema" in (def as object)) {
+        const serialized = def as SerializedToolDefinition;
+        registerSerialized(serialized, namespace);
+        // Load-time strict-mode lint for PLUGIN tools (core tools are covered by
+        // strict-mode.test.ts). Third-party schemas get no engine-side check
+        // otherwise — a violation would only surface as a cryptic provider
+        // rejection at call time. Warn, don't fail: the plugin still loads.
+        if (namespace !== null) {
+          const violations = findStrictModeViolations(serialized.inputSchema, `${namespace}:${serialized.name}`);
+          for (const v of violations) {
+            console.warn(`Plugin tool strict-mode lint: ${v}`);
           }
         }
-        // else: a legacy tool already self-registered as a side-effect.
-      } catch (err) {
-        // Third-party plugin code must never abort engine boot: log + skip the
-        // offending file. Core tools (no namespace) are first-party — a broken
-        // core tool is a real bug, so rethrow to fail loudly at boot.
-        if (namespace === null) throw err;
-        console.warn(
-          `Plugin "${namespace}" tool file "${file}" failed to load: ${errMsg(err)} — skipping`,
-        );
+      } else {
+        console.warn(`Tool file "${file}" has no defineTool default export — skipping`);
       }
+    } catch (err) {
+      // Third-party plugin code must never abort engine boot: log + skip the
+      // offending file. Core tools (no namespace) are first-party — a broken
+      // core tool is a real bug, so rethrow to fail loudly at boot.
+      if (namespace === null) throw err;
+      console.warn(
+        `Plugin "${namespace}" tool file "${file}" failed to load: ${errMsg(err)} — skipping`,
+      );
     }
-  } finally {
-    setActivePluginNamespace(null);
   }
 }
 
@@ -468,7 +353,6 @@ export async function loadAllTools(): Promise<void> {
     }
     await importRoot(join(root, manifest.toolsDir), manifest.namespace);
   }
-  setActivePluginNamespace(null);
 
   // Prune tools with missing env vars.
   for (const [name, def] of registry) {

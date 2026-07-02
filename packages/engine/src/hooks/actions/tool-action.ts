@@ -2,9 +2,7 @@
 
 import {
   getToolRegistry,
-  fillMissingKeysWithNull,
   fillAndValidate,
-  isSerializedTool,
   type ToolContext,
 } from "../../agents/tools/registry.js";
 import { createAuditLogger } from "../../audit/audit-logger.js";
@@ -61,28 +59,14 @@ export const toolActionExecutor: HookActionExecutor = {
       state: ctx.state,
     };
 
-    if (isSerializedTool(def)) {
-      // Serialized tools carry a JSON Schema (no live Zod) — fill missing nullable
-      // keys then validate against it (parity with the legacy safeParse branch).
-      const r = fillAndValidate(def.inputSchema, rendered);
-      if (!r.ok) {
-        throw new Error(`args do not match tool "${toolName}" schema: ${r.error}`);
-      }
-      capture({ args: r.value as Record<string, unknown> });
-      const result = await def.execute(r.value, toolCtx);
-      capture({ result: serializeResult(result) });
-      return;
+    // Serialized tools carry a JSON Schema (no live Zod) — fill missing nullable
+    // keys then validate against it before executing.
+    const r = fillAndValidate(def.inputSchema, rendered);
+    if (!r.ok) {
+      throw new Error(`args do not match tool "${toolName}" schema: ${r.error}`);
     }
-
-    const { parameters, execute } = def.create(toolCtx);
-    const parsed = parameters.safeParse(fillMissingKeysWithNull(parameters, rendered));
-    if (!parsed.success) {
-      throw new Error(
-        `args do not match tool "${toolName}" schema: ${parsed.error.issues.map((i) => i.message).join(", ")}`,
-      );
-    }
-    capture({ args: parsed.data as Record<string, unknown> });
-    const result = await execute(parsed.data);
+    capture({ args: r.value as Record<string, unknown> });
+    const result = await def.execute(r.value, toolCtx);
     capture({ result: serializeResult(result) });
   },
 };
