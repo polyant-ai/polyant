@@ -3,6 +3,7 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
+import { config } from "../config.js";
 import { OpenAIModule } from "./openai/openai.module.js";
 import { AuthModule } from "../auth/auth.module.js";
 import { AuthzModule } from "../authz/authz.module.js";
@@ -37,11 +38,16 @@ import { OrganizationsModule } from "../organizations/organizations.module.js";
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([{
-      name: "default",
-      ttl: 60_000,
-      limit: 30,
-    }]),
+    ThrottlerModule.forRoot({
+      throttlers: [{
+        name: "default",
+        ttl: config.server.throttle.ttlMs,
+        limit: config.server.throttle.limit,
+      }],
+      // Bypass throttling entirely (global default + per-route @Throttle) when
+      // disabled via THROTTLE_ENABLED=false — see config.ts server.throttle.
+      skipIf: () => !config.server.throttle.enabled,
+    }),
     OpenAIModule,
     SkillsModule,
     UsersModule,

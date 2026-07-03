@@ -62,6 +62,19 @@ const configSchema = z.object({
         if (typeof v === "number") return v;
         return v === "true";
       }),
+    // Per-IP rate limiting (@nestjs/throttler). Enabled by default; set
+    // THROTTLE_ENABLED=false to disable ALL throttling (global default + every
+    // per-route @Throttle override) — intended for parallel dev/eval runs that
+    // would otherwise trip the limits from a single IP. Only the literal "false"
+    // disables (z.coerce.boolean() would treat "false" as true).
+    throttle: z.object({
+      enabled: z
+        .string()
+        .optional()
+        .transform((v) => v !== "false"),
+      ttlMs: z.coerce.number().int().positive().default(60_000),
+      limit: z.coerce.number().int().positive().default(30),
+    }),
   }),
 
   // Encryption (AES-256-GCM requires a 32-byte key = 64 hex characters)
@@ -229,6 +242,11 @@ function loadConfig(): Config {
       port: process.env.API_PORT,
       baseUrl: process.env.BASE_URL,
       trustProxy: process.env.TRUST_PROXY,
+      throttle: {
+        enabled: process.env.THROTTLE_ENABLED,
+        ttlMs: process.env.THROTTLE_TTL_MS,
+        limit: process.env.THROTTLE_LIMIT,
+      },
     },
     encryption: {
       key: process.env.ENCRYPTION_KEY,
