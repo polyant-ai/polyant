@@ -18,6 +18,8 @@ const {
   mockExtractMemories,
   mockChat,
   mockGenerateTitle,
+  mockRunHooks,
+  mockChannelManager,
 } = vi.hoisted(() => ({
   mockSupervise: vi.fn(),
   mockResolveInstanceConfig: vi.fn(),
@@ -41,6 +43,8 @@ const {
   mockExtractMemories: vi.fn(),
   mockChat: vi.fn(),
   mockGenerateTitle: vi.fn(),
+  mockRunHooks: vi.fn(),
+  mockChannelManager: { sendOutbound: vi.fn() },
 }));
 
 vi.mock("../utils/title-generator.js", () => ({ generateConversationTitle: mockGenerateTitle }));
@@ -77,6 +81,11 @@ vi.mock("../config.js", () => ({
     datetime: { locale: "en-US", timezone: "UTC" },
   },
 }));
+vi.mock("../hooks/hook-runner.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../hooks/hook-runner.js")>()),
+  runHooks: mockRunHooks,
+}));
+vi.mock("../channels/channel-manager.js", () => ({ channelManager: mockChannelManager }));
 
 /* ── import under test ─────────────────────────────────────────── */
 
@@ -129,6 +138,7 @@ function createChainMock(resolvedValue: unknown = []) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockRunHooks.mockResolvedValue([]);
   mockResolveInstanceConfig.mockResolvedValue(INSTANCE_CONFIG);
   mockConversationStore.getRecentMessages.mockResolvedValue([]);
   mockConversationStore.appendMessages.mockResolvedValue(undefined);
@@ -181,6 +191,28 @@ describe("executeRoomCycle", () => {
       expect(mockSetRoomConversationId).toHaveBeenCalledWith(
         "inst-1",
         expect.stringMatching(/^room:inst-1:\d+$/),
+      );
+    });
+  });
+
+  describe("halt-and-respond", () => {
+    it("halts without calling supervise and sends the canned reply outbound", async () => {
+      mockRunHooks.mockResolvedValue([
+        {
+          hookId: "h", event: "message_received", actionType: "tool", toolName: "gate",
+          success: true, durationMs: 1, halt: { message: "closed for maintenance" },
+        },
+      ]);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "are you open?");
+
+      expect(mockSupervise).not.toHaveBeenCalled();
+      expect(mockChannelManager.sendOutbound).toHaveBeenCalledWith(
+        "test-slug", "slack", "#general", "closed for maintenance",
+      );
+      expect(mockConversationStore.appendMessages).toHaveBeenCalledWith(
+        expect.any(String),
+        [expect.objectContaining({ role: "assistant", content: "closed for maintenance" })],
       );
     });
   });

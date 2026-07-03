@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { supervise } from "../agents/supervisor/index.js";
+import { supervise, type SupervisorOutput } from "../agents/supervisor/index.js";
+import { runHooks, firstHalt } from "../hooks/hook-runner.js";
+import type { HookEventPayload, HookRunContext } from "../hooks/hook-types.js";
+import { channelManager } from "../channels/channel-manager.js";
 import { traceStore } from "../analytics/trace.store.js";
 import { conversationStore } from "../conversations/index.js";
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
@@ -136,50 +139,80 @@ export async function executeRoomCycle(
 
   const pendingEventIds = pendingEvents.map((e) => e.id);
 
-  let result;
-  try {
-    result = await supervise({
-      message: messageToSupervise,
-      conversationHistory: history,
-      instanceId: instanceSlug,
-      conversationId,
-      provider: instanceConfig.provider,
-      model: instanceConfig.model,
-      apiKeys: instanceConfig.apiKeys,
-      secrets: instanceConfig.secrets,
-      memoryEnabled: instanceConfig.memoryEnabled,
-      thinkingEnabled: instanceConfig.thinkingEnabled,
-      debugEnabled: instanceConfig.debugEnabled,
-      includeHarness: new Set(["room"]),
-    });
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    roomLog.error("RoomCycle", `supervise() failed for ${instanceSlug}`, err);
+  // Pre-LLM hook (halt-capable). Room is supervise-direct, so wire it manually.
+  // Only message_received fires here (see the halt-and-respond spec §6).
+  const hookPayload: HookEventPayload = {
+    instance: { slug: instanceSlug },
+    conversation: { id: conversationId },
+    channel: { type: room.outboundChannel ?? "room", id: room.outboundTarget ?? "" },
+    user: { name: "room" },
+    message: { text: messageToSupervise },
+  };
+  const hookCtx: HookRunContext = {
+    instanceId: instanceSlug,
+    conversationId,
+    secrets: instanceConfig.secrets,
+    apiKeys: instanceConfig.apiKeys,
+    provider: instanceConfig.provider,
+  };
+  const halt = firstHalt(await runHooks("message_received", hookPayload, hookCtx));
 
-    // Mark events as completed with error so they don't stay stuck in "processing"
-    if (pendingEventIds.length > 0) {
-      await markEventsCompleted(pendingEventIds, `ERROR: ${errorMsg.slice(0, 400)}`, room.instanceId).catch((e) =>
-        roomLog.error("RoomCycle", "Failed to mark events completed after error", e),
-      );
+  let result: SupervisorOutput | undefined;
+  if (!halt) {
+    try {
+      result = await supervise({
+        message: messageToSupervise,
+        conversationHistory: history,
+        instanceId: instanceSlug,
+        conversationId,
+        provider: instanceConfig.provider,
+        model: instanceConfig.model,
+        apiKeys: instanceConfig.apiKeys,
+        secrets: instanceConfig.secrets,
+        memoryEnabled: instanceConfig.memoryEnabled,
+        thinkingEnabled: instanceConfig.thinkingEnabled,
+        debugEnabled: instanceConfig.debugEnabled,
+        includeHarness: new Set(["room"]),
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      roomLog.error("RoomCycle", `supervise() failed for ${instanceSlug}`, err);
+
+      // Mark events as completed with error so they don't stay stuck in "processing"
+      if (pendingEventIds.length > 0) {
+        await markEventsCompleted(pendingEventIds, `ERROR: ${errorMsg.slice(0, 400)}`, room.instanceId).catch((e) =>
+          roomLog.error("RoomCycle", "Failed to mark events completed after error", e),
+        );
+      }
+
+      // Write error to activity log so it's visible in the admin panel
+      const errNow = new Date();
+      const errTimestamp = errNow.toLocaleTimeString(config.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: config.datetime.timezone });
+      const errTriggers: string[] = [];
+      if (pendingEvents.length > 0) errTriggers.push(`${pendingEvents.length} event(s)`);
+      if (humanMessage) errTriggers.push("human message");
+      const errContent = `———— ${errTimestamp} | ${errTriggers.join(" + ")} | ERROR ————\n${errorMsg.slice(0, 500)}`;
+      await appendDailyLog(room.instanceId, errContent, pendingEvents.length)
+        .catch((e) => roomLog.error("RoomCycle", "Failed to write error to activity log", e));
+
+      return;
     }
-
-    // Write error to activity log so it's visible in the admin panel
-    const errNow = new Date();
-    const errTimestamp = errNow.toLocaleTimeString(config.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: config.datetime.timezone });
-    const errTriggers: string[] = [];
-    if (pendingEvents.length > 0) errTriggers.push(`${pendingEvents.length} event(s)`);
-    if (humanMessage) errTriggers.push("human message");
-    const errContent = `———— ${errTimestamp} | ${errTriggers.join(" + ")} | ERROR ————\n${errorMsg.slice(0, 500)}`;
-    await appendDailyLog(room.instanceId, errContent, pendingEvents.length)
-      .catch((e) => roomLog.error("RoomCycle", "Failed to write error to activity log", e));
-
-    return;
   }
 
-  const finalText = result.text;
+  const finalText = halt ? halt.message : result!.text;
+
+  // On halt, deliver the canned reply to the room's outbound channel — room never
+  // auto-sends (the agent uses room_send_message). Best-effort.
+  if (halt && room.outboundChannel && room.outboundTarget) {
+    try {
+      await channelManager.sendOutbound(instanceSlug, room.outboundChannel, room.outboundTarget, finalText);
+    } catch (err) {
+      roomLog.error("RoomCycle", `halt send failed for ${instanceSlug}`, err);
+    }
+  }
 
   await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result.steps, ...(result.reasoning ? { reasoning: result.reasoning } : {}), ...(result.debugPayload ? { debugPayload: result.debugPayload } : {}) },
+    { role: "assistant", content: finalText, steps: result?.steps, ...(result?.reasoning ? { reasoning: result.reasoning } : {}), ...(result?.debugPayload ? { debugPayload: result.debugPayload } : {}) },
   ]);
 
   // Mark events as completed
@@ -227,12 +260,12 @@ export async function executeRoomCycle(
     instanceId: instanceSlug,
     channel: "room",
     contextPrepMs,
-    toolBuildingMs: result.toolBuildingMs,
-    llmCallMs: result.durationMs,
+    toolBuildingMs: result?.toolBuildingMs ?? 0,
+    llmCallMs: result?.durationMs ?? 0,
     totalMs: Date.now() - cycleStart,
-    promptTokens: result.usage.promptTokens,
-    completionTokens: result.usage.completionTokens,
-    toolCalls: result.toolCallTraces,
+    promptTokens: result?.usage?.promptTokens ?? 0,
+    completionTokens: result?.usage?.completionTokens ?? 0,
+    toolCalls: result?.toolCallTraces,
     isStreaming: false,
   });
 }
