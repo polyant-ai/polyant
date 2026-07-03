@@ -7,7 +7,7 @@ import {
 } from "../../agents/tools/registry.js";
 import { createAuditLogger } from "../../audit/audit-logger.js";
 import { renderArgsTemplate } from "../hook-template.js";
-import type { HookActionExecutor } from "../hook-types.js";
+import { extractHalt, type HookActionExecutor } from "../hook-types.js";
 
 /** Max serialized chars of a tool result kept in telemetry (UI display, not replay). */
 export const MAX_HOOK_RESULT_CHARS = 4000;
@@ -67,6 +67,8 @@ export const toolActionExecutor: HookActionExecutor = {
     }
     capture({ args: r.value as Record<string, unknown> });
     const result = await def.execute(r.value, toolCtx);
+    const halt = extractHalt(result);
+    if (halt) capture({ halt });
     capture({ result: serializeResult(result) });
   },
 };

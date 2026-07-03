@@ -21,6 +21,7 @@ vi.mock("../../audit/audit-logger.js", () => ({
 }));
 
 import { toolActionExecutor } from "./tool-action.js";
+import { HOOK_HALT_KEY } from "../hook-types.js";
 import type { HookEventPayload, HookExecutionCapture, HookRunContext, InstanceHookRow } from "../hook-types.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 
@@ -113,5 +114,11 @@ describe("toolActionExecutor", () => {
     ).rejects.toThrow(/schema/);
     expect(executeMock).not.toHaveBeenCalled();
     expect(captured.args).toEqual({ query: 42 });
+  });
+
+  it("should_capture_halt_when_result_carries_HOOK_HALT_KEY", async () => {
+    executeMock.mockResolvedValue({ [HOOK_HALT_KEY]: { message: "we are closed" } });
+    await toolActionExecutor.execute(hookFor("lookup", { query: "x" }), payload, ctx, capture);
+    expect(captured.halt).toEqual({ message: "we are closed" });
   });
 });
