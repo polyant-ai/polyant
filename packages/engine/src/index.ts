@@ -199,6 +199,26 @@ async function main() {
 
     const { ctx, contextPrepMs, messageText } = pre;
 
+    // Pre-LLM hook halt: skip the LLM entirely and persist the canned reply as
+    // the assistant message (full turn — runPipelinePost runs post-LLM hooks +
+    // memory/summary and respects the abort/commit gate).
+    if (pre.shortCircuit) {
+      const { finalText } = await runPipelinePost({
+        ctx,
+        contextPrepMs,
+        messageText,
+        channel: msg.channelType,
+        resultText: pre.shortCircuit.text,
+        preHookExecutions: pre.hookExecutions,
+        usage: { promptTokens: 0, completionTokens: 0 },
+        durationMs: 0,
+        toolBuildingMs: 0,
+        isStreaming: false,
+        abortSignal,
+      });
+      return { text: finalText };
+    }
+
     // Phase 3: Supervisor (LLM call + tool building)
     const agentMeta = msg.metadata?.agentCall as AgentCallMetadata | undefined;
     let result;
