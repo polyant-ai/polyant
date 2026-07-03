@@ -117,6 +117,24 @@ describe("runHooks", () => {
     expect(executeMock).toHaveBeenCalledTimes(1);
   });
 
+  it("should_stop_the_chain_and_surface_the_halt", async () => {
+    getEnabledHooksMock.mockResolvedValue([hook("a"), hook("b")]);
+    executeMock.mockImplementationOnce(
+      async (
+        _h: InstanceHookRow,
+        _p: HookEventPayload,
+        _c: HookRunContext,
+        capture: (data: { halt?: { message: string } }) => void,
+      ) => {
+        capture({ halt: { message: "stop" } });
+      },
+    );
+    const summaries = await runHooks("message_received", payload, baseCtx);
+    expect(executeMock).toHaveBeenCalledTimes(1); // second hook never ran
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].halt).toEqual({ message: "stop" });
+  });
+
   it("should_skip_unknown_action_types", async () => {
     getEnabledHooksMock.mockResolvedValue([
       hook("x", { actionType: "future_thing" as InstanceHookRow["actionType"] }),

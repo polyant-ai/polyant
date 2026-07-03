@@ -96,6 +96,7 @@ export async function runHooks(
       durationMs,
       args: captured.args,
       result: captured.result,
+      halt: captured.halt,
     });
     audit.log({
       action: `hook:${event}`,
@@ -121,6 +122,11 @@ export async function runHooks(
     }).catch((err) =>
       console.error(`[hooks] failed to record execution for hook ${hook.id}:`, errMsg(err)),
     );
+    // First halt wins: stop remaining hooks for this event. Telemetry/audit for
+    // the halting hook is already recorded above. Post-LLM callers ignore the
+    // halt (runPipelinePost never reads it) — the break only keeps behaviour
+    // predictable across events.
+    if (captured.halt) break;
   }
   return summaries;
 }
