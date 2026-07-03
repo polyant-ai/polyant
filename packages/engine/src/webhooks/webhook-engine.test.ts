@@ -19,6 +19,7 @@ const {
   mockClearTriggerContext,
   mockTraceRecord,
   mockWebhookLog,
+  mockRunHooks,
 } = vi.hoisted(() => ({
   mockSupervise: vi.fn(),
   mockEnsureConversation: vi.fn(),
@@ -33,6 +34,7 @@ const {
   mockClearTriggerContext: vi.fn(),
   mockTraceRecord: vi.fn(),
   mockWebhookLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  mockRunHooks: vi.fn(),
 }));
 
 vi.mock("../agents/supervisor/index.js", () => ({ supervise: mockSupervise }));
@@ -57,6 +59,10 @@ vi.mock("./trigger-context.js", () => ({
   clearTriggerContext: mockClearTriggerContext,
 }));
 vi.mock("./webhook-logger.js", () => ({ webhookLog: mockWebhookLog }));
+vi.mock("../hooks/hook-runner.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../hooks/hook-runner.js")>()),
+  runHooks: mockRunHooks,
+}));
 vi.mock("../analytics/trace.store.js", () => ({
   traceStore: { record: mockTraceRecord },
 }));
@@ -122,6 +128,7 @@ const baseSuperviseResult = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockRunHooks.mockResolvedValue([]);
   mockResolveInstanceConfig.mockResolvedValue({
     provider: "openai",
     model: "gpt-4o",
@@ -346,6 +353,32 @@ describe("triggerConversation", () => {
         ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
       );
       expect(assistantCall![1][0]).not.toHaveProperty("debugPayload");
+    });
+  });
+
+  describe("halt-and-respond", () => {
+    const channelDef: EventDefinition = {
+      ...baseDefinition,
+      outboundChannel: "telegram",
+      outboundTarget: "{{payload.chat_id}}",
+    };
+
+    it("halts without calling supervise and sends the canned reply", async () => {
+      mockRunHooks.mockResolvedValue([
+        {
+          hookId: "h", event: "message_received", actionType: "tool", toolName: "gate",
+          success: true, durationMs: 1, halt: { message: "not now" },
+        },
+      ]);
+
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "9999" });
+
+      expect(mockSupervise).not.toHaveBeenCalled();
+      expect(mockSendOutbound).toHaveBeenCalledWith("test-slug", "telegram", "9999", "not now");
+      expect(mockAppendMessages).toHaveBeenCalledWith(
+        "test-slug:telegram:9999",
+        [expect.objectContaining({ role: "assistant", content: "not now" })],
+      );
     });
   });
 
