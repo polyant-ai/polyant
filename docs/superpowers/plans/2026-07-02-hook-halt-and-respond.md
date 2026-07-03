@@ -208,29 +208,17 @@ EOF
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `tool-action.test.ts` (mirror the file's existing post-merge setup — it registers a `defineTool` stub in the tool registry and calls `toolActionExecutor.execute(hook, payload, ctx, capture)`). New case:
+Add to `tool-action.test.ts`, reusing its ACTUAL helpers (`hookFor(toolName, args)`, the hoisted `registryMock`, the `executeMock`, and the `capture`/`captured` pair defined in the `describe` block). New case:
 
 ```ts
-it("captures a halt when the tool result carries HOOK_HALT_KEY", async () => {
-  // Register a stub tool whose result requests a halt.
-  registerStubTool({
-    name: "gate",
-    execute: async () => ({ [HOOK_HALT_KEY]: { message: "we are closed" } }),
-  });
-
-  const captured: HookExecutionCapture = {};
-  await toolActionExecutor.execute(
-    hookRow({ actionConfig: { toolName: "gate", args: {} } }),
-    payload,
-    ctx,
-    (d) => Object.assign(captured, d),
-  );
-
+it("should_capture_halt_when_result_carries_HOOK_HALT_KEY", async () => {
+  executeMock.mockResolvedValue({ [HOOK_HALT_KEY]: { message: "we are closed" } });
+  await toolActionExecutor.execute(hookFor("lookup", { query: "x" }), payload, ctx, capture);
   expect(captured.halt).toEqual({ message: "we are closed" });
 });
 ```
 
-Add the import at the top of the test: `import { HOOK_HALT_KEY } from "../hook-types.js";` and `import type { HookExecutionCapture } from "../hook-types.js";`. Reuse the file's existing `registerStubTool`/`hookRow`/`payload`/`ctx` helpers (name them to match what already exists in the post-merge test).
+Add `import { HOOK_HALT_KEY } from "../hook-types.js";` to the test's imports (`HookExecutionCapture` is already imported there). No new helpers — the file already defines `executeMock`, `capture`, `captured`, `hookFor`, `payload`, `ctx`.
 
 - [ ] **Step 2: Run test to verify it fails**
 
