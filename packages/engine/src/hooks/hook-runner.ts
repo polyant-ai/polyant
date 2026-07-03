@@ -12,6 +12,7 @@ import type {
   HookEventPayload,
   HookExecutionCapture,
   HookExecutionSummary,
+  HookHaltSignal,
   HookRunContext,
   InstanceHookRow,
 } from "./hook-types.js";
@@ -20,6 +21,11 @@ import type {
 const executors = new Map<HookActionType, HookActionExecutor>([
   ["tool", toolActionExecutor],
 ]);
+
+/** First halt requested across a run's summaries, or undefined. */
+export function firstHalt(summaries: HookExecutionSummary[]): HookHaltSignal | undefined {
+  return summaries.find((s) => s.halt)?.halt;
+}
 
 function withTimeout(promise: Promise<void>, ms: number, label: string): Promise<void> {
   return new Promise((resolve, reject) => {

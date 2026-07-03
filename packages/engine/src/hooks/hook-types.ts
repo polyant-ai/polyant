@@ -4,6 +4,28 @@ import type { InstanceSlug } from "../instances/identifiers.js";
 import type { ConversationStateApi } from "../conversations/state.buffer.js";
 import type { ChatRequest } from "../ai-gateway/types.js";
 
+/** Reserved key a tool returns to halt the pipeline and supply a system-authored reply. */
+export const HOOK_HALT_KEY = "__haltPipeline" as const;
+
+/** Payload of a halt: the message delivered to the user in place of the LLM turn. */
+export interface HookHaltSignal {
+  message: string;
+}
+
+/**
+ * Read a halt signal from a tool's (unknown) result. Malformed shapes — missing
+ * key, non-object, empty/non-string message — yield undefined so a buggy tool
+ * never produces an empty reply. Contract-agnostic: works with any tool result.
+ */
+export function extractHalt(result: unknown): HookHaltSignal | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const raw = (result as Record<string, unknown>)[HOOK_HALT_KEY];
+  if (!raw || typeof raw !== "object") return undefined;
+  const message = (raw as Record<string, unknown>).message;
+  if (typeof message !== "string" || message.trim() === "") return undefined;
+  return { message };
+}
+
 /** Conversation lifecycle events a hook can subscribe to. */
 export const HOOK_EVENTS = [
   "conversation_start",
@@ -84,6 +106,8 @@ export interface HookExecutionSummary {
   args?: Record<string, unknown>;
   /** Tool result, JSON-stringified and truncated. */
   result?: string;
+  /** Present when this hook's tool requested a halt (first halt wins). */
+  halt?: HookHaltSignal;
 }
 
 /**
@@ -94,6 +118,8 @@ export interface HookExecutionSummary {
 export interface HookExecutionCapture {
   args?: Record<string, unknown>;
   result?: string;
+  /** Set when the executed tool requested a pipeline halt. */
+  halt?: HookHaltSignal;
 }
 
 /** One executor per action type, resolved by the runner from a registry map. */
