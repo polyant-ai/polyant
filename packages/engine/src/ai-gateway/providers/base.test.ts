@@ -348,6 +348,68 @@ describe("createProvider – temperature forwarding", () => {
   });
 });
 
+describe("createProvider – system message folding", () => {
+  it("folds a mid-array system message into the top-level system and strips it from messages", async () => {
+    const generateTextSpy = vi.mocked(tracedGenerateText);
+    generateTextSpy.mockClear();
+    generateTextSpy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+
+    const adapter = createProvider("test-provider", (_modelId) => ({}) as any);
+    await adapter.chat(
+      {
+        ...baseRequest,
+        system: "A",
+        messages: [
+          { role: "user", content: "hi" },
+          { role: "system", content: "B" },
+          { role: "assistant", content: "ok" },
+        ],
+      },
+      "gpt-4o",
+    );
+
+    const call = generateTextSpy.mock.calls[0][0];
+    expect(call.system).toBe("A\n\nB");
+    expect((call.messages as any[]).every((m) => m.role !== "system")).toBe(true);
+    expect(call.messages).toHaveLength(2);
+  });
+
+  it("leaves the request untouched when no inline system message is present", async () => {
+    const generateTextSpy = vi.mocked(tracedGenerateText);
+    generateTextSpy.mockClear();
+    generateTextSpy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+
+    const adapter = createProvider("test-provider", (_modelId) => ({}) as any);
+    await adapter.chat({ ...baseRequest, system: "A" }, "gpt-4o");
+
+    const call = generateTextSpy.mock.calls[0][0];
+    expect(call.system).toBe("A");
+    expect(call.messages).toHaveLength(1);
+  });
+
+  it("also folds on the streaming path", async () => {
+    const streamTextSpy = vi.mocked(tracedStreamText);
+    streamTextSpy.mockClear();
+    streamTextSpy.mockResolvedValueOnce(fakeStreamTextResult as any);
+
+    const adapter = createProvider("test-provider", (_modelId) => ({}) as any);
+    await adapter.chatStream!(
+      {
+        ...baseRequest,
+        messages: [
+          { role: "system", content: "ctx" },
+          { role: "user", content: "hi" },
+        ],
+      },
+      "gpt-4o",
+    );
+
+    const call = streamTextSpy.mock.calls[0][0];
+    expect(call.system).toBe("ctx");
+    expect((call.messages as any[]).every((m) => m.role !== "system")).toBe(true);
+  });
+});
+
 describe("aggregateReasoning", () => {
   it("returns undefined when no step has reasoning", () => {
     expect(aggregateReasoning([])).toBeUndefined();

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { type LanguageModel, stepCountIs } from "ai";
+import { type LanguageModel, type ModelMessage, stepCountIs } from "ai";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { config } from "../../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
@@ -304,6 +304,33 @@ function buildChatResponse(
   };
 }
 
+/**
+ * Fold any `role: "system"` entries sitting inside the `messages` array into the
+ * top-level `system` string. Some histories carry a persisted system message
+ * mid-conversation (e.g. a webhook trigger stores its rendered context prompt as
+ * a system row so it survives multi-turn — see webhook-engine.ts). On a later
+ * inbound turn that row is replayed inside `messages`, producing two system
+ * blocks separated by user/assistant turns. Bedrock's convertToBedrockChatMessages
+ * rejects that outright (AI_UnsupportedFunctionalityError); OpenAI/Anthropic only
+ * warn. Merging is semantically identical — system context is position-independent
+ * — and clears the AI SDK warning for every provider, so we normalise here once.
+ */
+function foldSystemMessages(
+  system: string | undefined,
+  messages: ModelMessage[],
+): { system: string | undefined; messages: ModelMessage[] } {
+  const inline = messages.filter(
+    (m): m is ModelMessage & { role: "system"; content: string } => m.role === "system",
+  );
+  if (inline.length === 0) return { system, messages };
+
+  const merged = [system, ...inline.map((m) => m.content)].filter(Boolean).join("\n\n");
+  return {
+    system: merged.length > 0 ? merged : undefined,
+    messages: messages.filter((m) => m.role !== "system"),
+  };
+}
+
 export function createProvider(providerName: string, createModel: ModelFactory): ProviderAdapter {
   return {
     name: providerName,
@@ -313,10 +340,11 @@ export function createProvider(providerName: string, createModel: ModelFactory):
 
       logLlmPayload(providerName, modelId, request);
 
+      const { system, messages } = foldSystemMessages(request.system, request.messages);
       const result = await tracedGenerateText({
         model: createModel(modelId, request.apiKeys),
-        system: request.system,
-        messages: request.messages,
+        system,
+        messages,
         tools: request.tools,
         stopWhen: stepCountIs(request.maxSteps ?? 1),
         abortSignal: request.abortSignal,
@@ -350,10 +378,11 @@ export function createProvider(providerName: string, createModel: ModelFactory):
       // wrapAISDK wraps streamText in traceable, making it return a Promise.
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
+      const { system, messages } = foldSystemMessages(request.system, request.messages);
       const result = await tracedStreamText({
         model: createModel(modelId, request.apiKeys),
-        system: request.system,
-        messages: request.messages,
+        system,
+        messages,
         tools: request.tools,
         stopWhen: stepCountIs(request.maxSteps ?? 1),
         abortSignal: request.abortSignal,
