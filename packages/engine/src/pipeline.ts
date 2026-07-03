@@ -28,7 +28,7 @@ import type { ToolCallTrace } from "./analytics/traces.schema.js";
 import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
 import { emitConversation } from "./activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "./activity-stream/emit-helpers.js";
-import { runHooks } from "./hooks/hook-runner.js";
+import { runHooks, firstHalt } from "./hooks/hook-runner.js";
 import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./hooks/hook-types.js";
 
 /**
@@ -289,8 +289,9 @@ export async function preparePipeline(
 
 /**
  * Build the hook event payload, or undefined when hooks must not fire:
- * auto-task turns and synthetic channels (agent/scheduled/room), consistent
- * with state seeding and inbound emits.
+ * auto-task turns and turns without a channel identity. Synthetic channels
+ * (scheduled/agent) DO run hooks — only auto-tasks are excluded. room/webhook
+ * are supervise-direct and wire hooks in their own engines.
  */
 export function buildHookPayload(
   ctx: PipelineContext,
@@ -298,7 +299,6 @@ export function buildHookPayload(
   responseText?: string,
 ): HookEventPayload | undefined {
   if (ctx.isAutoTaskTurn || !ctx.channelIdentity) return undefined;
-  if (INBOUND_SUPPRESSED_CHANNELS.has(ctx.channelIdentity.channel)) return undefined;
   return {
     instance: { slug: ctx.instanceId },
     conversation: { id: ctx.conversationId },
@@ -492,6 +492,8 @@ export interface PipelinePreResult {
   messageText: string;
   /** Pre-LLM hook outcomes (conversation_start + message_received). */
   hookExecutions: HookExecutionSummary[];
+  /** Set when a pre-LLM hook requested a halt: the LLM call is skipped and this text is the reply. */
+  shortCircuit?: { text: string };
 }
 
 export async function runPipelinePre(
@@ -527,7 +529,16 @@ export async function runPipelinePre(
     if (hookMessages.length > 0) ctx.history = [...(ctx.history ?? []), ...hookMessages];
   }
 
-  return { ctx, contextPrepMs, messageText: msg.text, hookExecutions };
+  // A pre-LLM hook may request a halt: skip the supervisor and reply with its text.
+  const halt = firstHalt(hookExecutions);
+
+  return {
+    ctx,
+    contextPrepMs,
+    messageText: msg.text,
+    hookExecutions,
+    shortCircuit: halt ? { text: halt.message } : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -199,6 +199,26 @@ async function main() {
 
     const { ctx, contextPrepMs, messageText } = pre;
 
+    // Pre-LLM hook halt: skip the LLM entirely and persist the canned reply as
+    // the assistant message (full turn — runPipelinePost runs post-LLM hooks +
+    // memory/summary and respects the abort/commit gate).
+    if (pre.shortCircuit) {
+      const { finalText } = await runPipelinePost({
+        ctx,
+        contextPrepMs,
+        messageText,
+        channel: msg.channelType,
+        resultText: pre.shortCircuit.text,
+        preHookExecutions: pre.hookExecutions,
+        usage: { promptTokens: 0, completionTokens: 0 },
+        durationMs: 0,
+        toolBuildingMs: 0,
+        isStreaming: false,
+        abortSignal,
+      });
+      return { text: finalText };
+    }
+
     // Phase 3: Supervisor (LLM call + tool building)
     const agentMeta = msg.metadata?.agentCall as AgentCallMetadata | undefined;
     let result;
@@ -285,6 +305,35 @@ async function main() {
     const pre = await runPipelinePre(msg, undefined, abortSignal);
 
     const { ctx, contextPrepMs, messageText } = pre;
+
+    // Pre-LLM hook halt: emit the canned reply as a single-chunk stream and
+    // persist it via runPipelinePost (post-LLM hooks + memory/summary run).
+    if (pre.shortCircuit) {
+      const canned = pre.shortCircuit.text;
+      const haltMessageId = randomUUID();
+      const completed = runPipelinePost({
+        ctx,
+        contextPrepMs,
+        messageText,
+        channel: msg.channelType,
+        resultText: canned,
+        preHookExecutions: pre.hookExecutions,
+        assistantMessageId: haltMessageId,
+        usage: { promptTokens: 0, completionTokens: 0 },
+        durationMs: 0,
+        toolBuildingMs: 0,
+        isStreaming: true,
+        abortSignal,
+      }).then(({ finalText, hookExecutions }) => ({ text: finalText, hookExecutions }));
+
+      return {
+        textStream: (async function* () { yield canned; })(),
+        fullStream: (async function* () { yield { type: "text-delta", text: canned }; })(),
+        completed,
+        meta: { conversationId: ctx.conversationId, messageId: haltMessageId },
+        hookExecutions: pre.hookExecutions,
+      };
+    }
 
     // Phase 3: Supervisor (LLM streaming + tool building)
     const agentMetaStream = msg.metadata?.agentCall as AgentCallMetadata | undefined;

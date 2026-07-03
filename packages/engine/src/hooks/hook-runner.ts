@@ -12,6 +12,7 @@ import type {
   HookEventPayload,
   HookExecutionCapture,
   HookExecutionSummary,
+  HookHaltSignal,
   HookRunContext,
   InstanceHookRow,
 } from "./hook-types.js";
@@ -20,6 +21,11 @@ import type {
 const executors = new Map<HookActionType, HookActionExecutor>([
   ["tool", toolActionExecutor],
 ]);
+
+/** First halt requested across a run's summaries, or undefined. */
+export function firstHalt(summaries: HookExecutionSummary[]): HookHaltSignal | undefined {
+  return summaries.find((s) => s.halt)?.halt;
+}
 
 function withTimeout(promise: Promise<void>, ms: number, label: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -90,6 +96,7 @@ export async function runHooks(
       durationMs,
       args: captured.args,
       result: captured.result,
+      halt: captured.halt,
     });
     audit.log({
       action: `hook:${event}`,
@@ -115,6 +122,11 @@ export async function runHooks(
     }).catch((err) =>
       console.error(`[hooks] failed to record execution for hook ${hook.id}:`, errMsg(err)),
     );
+    // First halt wins: stop remaining hooks for this event. Telemetry/audit for
+    // the halting hook is already recorded above. Post-LLM callers ignore the
+    // halt (runPipelinePost never reads it) — the break only keeps behaviour
+    // predictable across events.
+    if (captured.halt) break;
   }
   return summaries;
 }

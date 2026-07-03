@@ -52,10 +52,12 @@ describe("buildHookPayload", () => {
     expect(buildHookPayload(ctxWith({ channelIdentity: undefined }), "x")).toBeUndefined();
   });
 
-  it("should_return_undefined_for_synthetic_channels", () => {
+  it("should_build_payload_for_synthetic_channels", () => {
+    // Synthetic channels are no longer suppressed — halt-and-respond needs hooks
+    // to run on scheduled/agent turns too. Only auto-tasks stay excluded.
     for (const channel of ["agent", "scheduled", "room"]) {
       const ctx = ctxWith({ channelIdentity: { channel, channelId: "x" } });
-      expect(buildHookPayload(ctx, "x")).toBeUndefined();
+      expect(buildHookPayload(ctx, "x")?.channel.type).toBe(channel);
     }
   });
 

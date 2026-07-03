@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { supervise } from "../agents/supervisor/index.js";
+import { supervise, type SupervisorOutput } from "../agents/supervisor/index.js";
+import { runHooks, firstHalt } from "../hooks/hook-runner.js";
+import type { HookEventPayload, HookRunContext } from "../hooks/hook-types.js";
 import { traceStore } from "../analytics/trace.store.js";
 import { conversationStore } from "../conversations/index.js";
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
@@ -164,32 +166,53 @@ export async function triggerConversation(
   const harnessCategories = hasChannel
     ? new Set<string>([definition.outboundChannel!, "conversation-trigger"])
     : new Set<string>();
-  let result;
-  try {
-    result = await supervise({
-      message: messageToSupervise,
-      instanceId: instanceSlug,
-      conversationId,
-      conversationSummary: undefined,
-      contextPrompt: safeContextPrompt,
-      channelIdentity: hasChannel && renderedTarget
-        ? { channel: definition.outboundChannel!, channelId: renderedTarget }
-        : undefined,
-      provider: instanceConfig.provider,
-      model: instanceConfig.model,
-      apiKeys: instanceConfig.apiKeys,
-      secrets: instanceConfig.secrets,
-      memoryEnabled: instanceConfig.memoryEnabled,
-      knowledgeEnabled: instanceConfig.knowledgeEnabled,
-      thinkingEnabled: instanceConfig.thinkingEnabled,
-      debugEnabled: instanceConfig.debugEnabled,
-      includeHarness: harnessCategories,
-      stateBuffer,
-    });
-  } catch (err) {
-    webhookLog.error("TriggerEngine", `supervise() failed for "${definition.name}"`, err);
-    if (hasChannel) clearTriggerContext(conversationId);
-    return;
+  // Pre-LLM hook (halt-capable). Webhook is supervise-direct, so wire it
+  // manually. Only message_received fires here (see the halt-and-respond spec §6).
+  const hookPayload: HookEventPayload = {
+    instance: { slug: instanceSlug },
+    conversation: { id: conversationId },
+    channel: { type: definition.outboundChannel ?? "webhook", id: renderedTarget ?? "" },
+    user: { name: definition.name },
+    message: { text: messageToSupervise },
+  };
+  const hookCtx: HookRunContext = {
+    instanceId: instanceSlug,
+    conversationId,
+    secrets: instanceConfig.secrets,
+    apiKeys: instanceConfig.apiKeys,
+    provider: instanceConfig.provider,
+    state: stateBuffer.api(),
+  };
+  const halt = firstHalt(await runHooks("message_received", hookPayload, hookCtx));
+
+  let result: SupervisorOutput | undefined;
+  if (!halt) {
+    try {
+      result = await supervise({
+        message: messageToSupervise,
+        instanceId: instanceSlug,
+        conversationId,
+        conversationSummary: undefined,
+        contextPrompt: safeContextPrompt,
+        channelIdentity: hasChannel && renderedTarget
+          ? { channel: definition.outboundChannel!, channelId: renderedTarget }
+          : undefined,
+        provider: instanceConfig.provider,
+        model: instanceConfig.model,
+        apiKeys: instanceConfig.apiKeys,
+        secrets: instanceConfig.secrets,
+        memoryEnabled: instanceConfig.memoryEnabled,
+        knowledgeEnabled: instanceConfig.knowledgeEnabled,
+        thinkingEnabled: instanceConfig.thinkingEnabled,
+        debugEnabled: instanceConfig.debugEnabled,
+        includeHarness: harnessCategories,
+        stateBuffer,
+      });
+    } catch (err) {
+      webhookLog.error("TriggerEngine", `supervise() failed for "${definition.name}"`, err);
+      if (hasChannel) clearTriggerContext(conversationId);
+      return;
+    }
   }
 
   // Commit conversation state (commit-on-success): reached only when supervise
@@ -205,24 +228,26 @@ export async function triggerConversation(
   // persist the actual content delivered to the user (`replyText`) instead of
   // the supervisor's free-form meta-commentary (`result.text`). Keeps the
   // conversation history aligned with what the recipient actually saw.
-  const finalText = result.replyHandled && result.replyText ? result.replyText : result.text;
+  const finalText = halt
+    ? halt.message
+    : (result!.replyHandled && result!.replyText ? result!.replyText : result!.text);
 
   // Persist assistant response (tool-delivered content when replyHandled, else supervisor text)
   await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result.steps, ...(result.reasoning ? { reasoning: result.reasoning } : {}), ...(result.debugPayload ? { debugPayload: result.debugPayload } : {}) },
+    { role: "assistant", content: finalText, steps: result?.steps, ...(result?.reasoning ? { reasoning: result.reasoning } : {}), ...(result?.debugPayload ? { debugPayload: result.debugPayload } : {}) },
   ]);
 
   // Send response to the configured outbound channel — unless a tool has already
   // delivered the reply (e.g. send_whatsapp_template signaled replyHandled).
   // In internal mode (no channel) the response is only persisted, never sent.
-  if (hasChannel && finalText && !result.replyHandled) {
+  if (hasChannel && finalText && !result?.replyHandled) {
     try {
       await channelManager.sendOutbound(instanceSlug, definition.outboundChannel!, renderedTarget!, finalText);
       webhookLog.info("TriggerEngine", `sent to ${definition.outboundChannel}:${renderedTarget}`);
     } catch (err) {
       webhookLog.error("TriggerEngine", `send failed for ${definition.outboundChannel}:${renderedTarget}`, err);
     }
-  } else if (hasChannel && result.replyHandled) {
+  } else if (hasChannel && result?.replyHandled) {
     webhookLog.info("TriggerEngine", `reply already handled by tool — skipping free-form send for ${definition.outboundChannel}:${renderedTarget}`);
   }
 
@@ -262,12 +287,12 @@ export async function triggerConversation(
     instanceId: instanceSlug,
     channel: channelLabel,
     contextPrepMs,
-    toolBuildingMs: result.toolBuildingMs,
-    llmCallMs: result.durationMs,
+    toolBuildingMs: result?.toolBuildingMs ?? 0,
+    llmCallMs: result?.durationMs ?? 0,
     totalMs: Date.now() - cycleStart,
-    promptTokens: result.usage.promptTokens,
-    completionTokens: result.usage.completionTokens,
-    toolCalls: result.toolCallTraces,
+    promptTokens: result?.usage?.promptTokens ?? 0,
+    completionTokens: result?.usage?.completionTokens ?? 0,
+    toolCalls: result?.toolCallTraces,
     isStreaming: false,
   });
 
