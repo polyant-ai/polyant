@@ -2,7 +2,8 @@
 
 import { z } from "zod";
 import { tavily } from "@tavily/core";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
+import type { ToolContext } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 
@@ -30,7 +31,7 @@ interface ProviderOutput {
   error?: string;
 }
 
-registerTool({
+export default defineTool({
   name: "webSearch",
   description:
     "Search for up-to-date information on the web via a configurable search engine.\n" +
@@ -72,19 +73,18 @@ registerTool({
       input: { query: "GDPR regulation updates 2026", maxResults: 10, searchDepth: "advanced" },
     },
   ],
-  create: (ctx: ToolContext) => ({
-    parameters: z.object({
-      query: z.string().describe("The search query"),
-      maxResults: z
-        .number()
-        .nullable()
-        .describe("Maximum number of results (default: 5). Pass null for default."),
-      searchDepth: z
-        .enum(["basic", "advanced"])
-        .nullable()
-        .describe("Search depth: 'basic' for fast results, 'advanced' for deep search. Pass null for default. Honored only by Tavily."),
-    }),
-    execute: async (input: SearchInput) => {
+  parameters: z.object({
+    query: z.string().describe("The search query"),
+    maxResults: z
+      .number()
+      .nullable()
+      .describe("Maximum number of results (default: 5). Pass null for default."),
+    searchDepth: z
+      .enum(["basic", "advanced"])
+      .nullable()
+      .describe("Search depth: 'basic' for fast results, 'advanced' for deep search. Pass null for default. Honored only by Tavily."),
+  }),
+  execute: async (input: SearchInput, ctx: ToolContext) => {
       const provider = resolveProvider(ctx.secrets?.search_provider);
       try {
         const { results, error } = await dispatchSearch(provider, ctx, input);
@@ -115,7 +115,6 @@ registerTool({
         return { query: input.query, provider, results: [], error: message };
       }
     },
-  }),
 });
 
 function resolveProvider(raw: string | undefined): SearchProvider {

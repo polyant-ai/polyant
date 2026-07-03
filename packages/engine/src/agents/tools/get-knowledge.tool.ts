@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { getDocumentByFilename } from "../../knowledge/store.js";
-import { registerTool } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 
-registerTool({
+export default defineTool({
   name: "getKnowledge",
   description:
     "Read the full content of a knowledge base document by filename.\n" +
@@ -21,14 +21,13 @@ registerTool({
       input: { filename: "policy.md" },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
-      filename: z
-        .string()
-        .min(1)
-        .describe("Exact filename of the document (e.g. 'policy.md')."),
-    }),
-    execute: async ({ filename }: { filename: string }) => {
+  parameters: z.object({
+    filename: z
+      .string()
+      .min(1)
+      .describe("Exact filename of the document (e.g. 'policy.md')."),
+  }),
+  execute: async ({ filename }: { filename: string }, ctx) => {
       try {
         const doc = await getDocumentByFilename(ctx.instanceId, filename);
         if (!doc) {
@@ -72,6 +71,5 @@ registerTool({
         console.error(`getKnowledge tool error: ${message}`);
         return { found: false, error: message };
       }
-    },
-  }),
+  },
 });

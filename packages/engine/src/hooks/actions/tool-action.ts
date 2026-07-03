@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { getToolRegistry, fillMissingKeysWithNull } from "../../agents/tools/registry.js";
+import {
+  getToolRegistry,
+  fillAndValidate,
+  type ToolContext,
+} from "../../agents/tools/registry.js";
 import { createAuditLogger } from "../../audit/audit-logger.js";
 import { renderArgsTemplate } from "../hook-template.js";
 import type { HookActionExecutor } from "../hook-types.js";
@@ -45,7 +49,7 @@ export const toolActionExecutor: HookActionExecutor = {
     // Report the input BEFORE executing so it survives failures/timeouts.
     capture({ args: rendered });
 
-    const { parameters, execute } = def.create({
+    const toolCtx: ToolContext = {
       instanceId: ctx.instanceId,
       secrets: ctx.secrets,
       audit: createAuditLogger(toolName, ctx.instanceId, ctx.conversationId),
@@ -53,16 +57,16 @@ export const toolActionExecutor: HookActionExecutor = {
       apiKeys: ctx.apiKeys,
       provider: ctx.provider,
       state: ctx.state,
-    });
+    };
 
-    const parsed = parameters.safeParse(fillMissingKeysWithNull(parameters, rendered));
-    if (!parsed.success) {
-      throw new Error(
-        `args do not match tool "${toolName}" schema: ${parsed.error.issues.map((i) => i.message).join(", ")}`,
-      );
+    // Serialized tools carry a JSON Schema (no live Zod) — fill missing nullable
+    // keys then validate against it before executing.
+    const r = fillAndValidate(def.inputSchema, rendered);
+    if (!r.ok) {
+      throw new Error(`args do not match tool "${toolName}" schema: ${r.error}`);
     }
-    capture({ args: parsed.data as Record<string, unknown> });
-    const result = await execute(parsed.data);
+    capture({ args: r.value as Record<string, unknown> });
+    const result = await def.execute(r.value, toolCtx);
     capture({ result: serializeResult(result) });
   },
 };

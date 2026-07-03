@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { createSafeDispatcher, truncateBody, pickHeaders } from "../../utils/safe-http.js";
-import { registerTool, type ToolContext } from "./registry.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_BODY_SIZE = 16_384;
@@ -62,7 +62,7 @@ function describeFetchError(err: unknown): {
   };
 }
 
-registerTool({
+export default defineTool({
   name: "httpRequest",
   description:
     "Execute an HTTP POST, PUT, PATCH or DELETE request to an external URL.\n" +
@@ -121,53 +121,62 @@ registerTool({
       },
     },
   ],
-  create: (ctx: ToolContext) => ({
-    parameters: z.object({
-      // NOTE: we don't use z.string().url() because Zod emits `"format": "uri"`
-      // in the JSON Schema, and OpenAI strict-mode tool calling rejects the tool
-      // before invoking it (InputValidationError on the LLM side). The
-      // http://|https:// prefix is validated at runtime in execute().
-      // See CLAUDE.md → "Important Caveats".
-      url: z
-        .string()
-        .describe("Destination URL. Must start with http:// or https:// (validated at runtime)."),
-      method: z
-        .enum(["POST", "PUT", "PATCH", "DELETE"])
-        .describe("HTTP method: POST, PUT, PATCH, or DELETE"),
-      // NOTE: body is a SERIALIZED JSON STRING, not a Zod object. Reason:
-      // OpenAI strict-mode rejects `additionalProperties: {}` (unbounded)
-      // emitted by z.record(z.unknown()). Parsed at runtime in execute().
-      // See CLAUDE.md → "Important Caveats" and strict-mode.test.ts.
-      body: z
-        .string()
-        .describe(
-          'JSON body to send, as a serialized string (e.g. \'{"event":"new_lead"}\'). Parsed at runtime.',
-        ),
-      authStyle: z
-        .preprocess(
-          (v) => {
-            if (typeof v !== "string") return v;
-            const normalized = v.trim().toLowerCase();
-            return normalized === "" || normalized === "none" ? null : v;
-          },
-          z.enum(["bearer", "api-key"]).nullable(),
-        )
-        .describe(
-          "Optional auth style. 'bearer' adds 'Authorization: Bearer <key>', " +
-          "'api-key' adds 'X-API-Key: <key>'. Leave null/omitted (or 'none') for no authentication.",
-        ),
-    }),
-    execute: async ({
+  parameters: z.object({
+    // NOTE: we don't use z.string().url() because Zod emits `"format": "uri"`
+    // in the JSON Schema, and OpenAI strict-mode tool calling rejects the tool
+    // before invoking it (InputValidationError on the LLM side). The
+    // http://|https:// prefix is validated at runtime in execute().
+    // See CLAUDE.md → "Important Caveats".
+    url: z
+      .string()
+      .describe("Destination URL. Must start with http:// or https:// (validated at runtime)."),
+    method: z
+      .enum(["POST", "PUT", "PATCH", "DELETE"])
+      .describe("HTTP method: POST, PUT, PATCH, or DELETE"),
+    // NOTE: body is a SERIALIZED JSON STRING, not a Zod object. Reason:
+    // OpenAI strict-mode rejects `additionalProperties: {}` (unbounded)
+    // emitted by z.record(z.unknown()). Parsed at runtime in execute().
+    // See CLAUDE.md → "Important Caveats" and strict-mode.test.ts.
+    body: z
+      .string()
+      .describe(
+        'JSON body to send, as a serialized string (e.g. \'{"event":"new_lead"}\'). Parsed at runtime.',
+      ),
+    // NOTE: authStyle is a plain nullable enum here (static, serializable). The
+    // lenient coalescing ("" / "none" → null) that used to live in a
+    // `z.preprocess` runs in execute() instead — a live-schema construct isn't
+    // representable as static JSON Schema for serialized tools.
+    authStyle: z
+      .enum(["bearer", "api-key"])
+      .nullable()
+      .describe(
+        "Optional auth style. 'bearer' adds 'Authorization: Bearer <key>', " +
+        "'api-key' adds 'X-API-Key: <key>'. Leave null/omitted (or 'none') for no authentication.",
+      ),
+  }),
+  execute: async (
+    {
       url,
       method,
       body,
-      authStyle,
+      authStyle: rawAuthStyle,
     }: {
       url: string;
       method: "POST" | "PUT" | "PATCH" | "DELETE";
       body: string;
-      authStyle?: "bearer" | "api-key" | null;
-    }) => {
+      authStyle?: "bearer" | "api-key" | "none" | "" | null;
+    },
+    ctx,
+  ) => {
+      // Coalesce lenient auth-style inputs (moved from the former z.preprocess):
+      // "", "none" (any case/whitespace) → null (no auth).
+      const authStyle: "bearer" | "api-key" | null = (() => {
+        if (typeof rawAuthStyle !== "string") return rawAuthStyle ?? null;
+        const normalized = rawAuthStyle.trim().toLowerCase();
+        return normalized === "" || normalized === "none"
+          ? null
+          : (rawAuthStyle as "bearer" | "api-key");
+      })();
       const apiKey = ctx.secrets?.["http_api_key"];
       const start = Date.now();
 
@@ -309,6 +318,5 @@ registerTool({
           cause: detail.trace,
         };
       }
-    },
-  }),
+  },
 });

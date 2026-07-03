@@ -3,7 +3,7 @@
 import { z } from "zod";
 import MarkdownIt from "markdown-it";
 import puppeteer, { type Browser } from "puppeteer";
-import { registerTool } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../../utils/error.js";
 import { pdfHandleStore } from "./pdf-handle-store.js";
 import { config } from "../../config.js";
@@ -202,7 +202,7 @@ function sanitizeFilename(name: string): string {
   return (safe || "document").slice(0, 120) + ".pdf";
 }
 
-registerTool({
+export default defineTool({
   name: "markdownToPdf",
   description:
     "Generate an A4 PDF from Markdown content.\n" +
@@ -229,57 +229,58 @@ registerTool({
       },
     },
   ],
-  create: () => ({
-    parameters: z.object({
-      markdown: z
-        .string()
-        .min(1)
-        .describe("Markdown content to convert to PDF. Supports GFM (tables, code blocks)."),
-      filename: z
-        .string()
-        .min(1)
-        .describe("Desired file name without extension (e.g. 'customer-proposal'). The .pdf extension is added automatically. Unsafe characters are replaced with '-'."),
-      headerImageUrl: z
-        .string()
-        .nullable()
-        .describe("Optional: public HTTPS URL of an image (e.g. a company logo) shown as the first element of the document, right-aligned, before the Markdown content. Visible on the first page. Must start with https://. If null, no logo."),
-    }),
-    execute: async (params: {
+  parameters: z.object({
+    markdown: z
+      .string()
+      .min(1)
+      .describe("Markdown content to convert to PDF. Supports GFM (tables, code blocks)."),
+    filename: z
+      .string()
+      .min(1)
+      .describe("Desired file name without extension (e.g. 'customer-proposal'). The .pdf extension is added automatically. Unsafe characters are replaced with '-'."),
+    headerImageUrl: z
+      .string()
+      .nullable()
+      .describe("Optional: public HTTPS URL of an image (e.g. a company logo) shown as the first element of the document, right-aligned, before the Markdown content. Visible on the first page. Must start with https://. If null, no logo."),
+  }),
+  execute: async (
+    params: {
       markdown: string;
       filename: string;
       headerImageUrl: string | null;
-    }) => {
-      if (params.markdown.length > MAX_MARKDOWN_LENGTH) {
-        return {
-          error: `Markdown too long: ${params.markdown.length} characters (max ${MAX_MARKDOWN_LENGTH}).`,
-        };
-      }
-      if (params.headerImageUrl && !/^https:\/\//.test(params.headerImageUrl)) {
-        return { error: "headerImageUrl must be an absolute https:// URL." };
-      }
-
-      try {
-        const buffer = await generatePdfBuffer(params.markdown, params.headerImageUrl ?? undefined);
-
-        if (buffer.length > MAX_PDF_SIZE_BYTES) {
-          return {
-            error: `Generated PDF too large: ${buffer.length} bytes (max ${MAX_PDF_SIZE_BYTES}).`,
-          };
-        }
-
-        const filename = sanitizeFilename(params.filename);
-        const pdfHandle = pdfHandleStore.put(buffer, filename, "application/pdf");
-
-        return {
-          success: true,
-          pdfHandle,
-          filename,
-          sizeBytes: buffer.length,
-          message: "PDF generated. Use pdfHandle in a follow-up tool (e.g. fileUpload, hubspotFile) to persist it.",
-        };
-      } catch (err) {
-        return { error: `PDF generation error: ${errMsg(err)}` };
-      }
     },
-  }),
+    _ctx,
+  ) => {
+    if (params.markdown.length > MAX_MARKDOWN_LENGTH) {
+      return {
+        error: `Markdown too long: ${params.markdown.length} characters (max ${MAX_MARKDOWN_LENGTH}).`,
+      };
+    }
+    if (params.headerImageUrl && !/^https:\/\//.test(params.headerImageUrl)) {
+      return { error: "headerImageUrl must be an absolute https:// URL." };
+    }
+
+    try {
+      const buffer = await generatePdfBuffer(params.markdown, params.headerImageUrl ?? undefined);
+
+      if (buffer.length > MAX_PDF_SIZE_BYTES) {
+        return {
+          error: `Generated PDF too large: ${buffer.length} bytes (max ${MAX_PDF_SIZE_BYTES}).`,
+        };
+      }
+
+      const filename = sanitizeFilename(params.filename);
+      const pdfHandle = pdfHandleStore.put(buffer, filename, "application/pdf");
+
+      return {
+        success: true,
+        pdfHandle,
+        filename,
+        sizeBytes: buffer.length,
+        message: "PDF generated. Use pdfHandle in a follow-up tool (e.g. fileUpload, hubspotFile) to persist it.",
+      };
+    } catch (err) {
+      return { error: `PDF generation error: ${errMsg(err)}` };
+    }
+  },
 });

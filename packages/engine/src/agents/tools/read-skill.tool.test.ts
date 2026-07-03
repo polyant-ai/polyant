@@ -39,15 +39,11 @@ vi.mock("../../skills/schema.js", () => ({
 vi.mock("../../utils/pipeline-logger.js", () => ({
   pipelineLog: { toolCall: vi.fn(), toolResult: vi.fn() },
 }));
-vi.mock("./registry.js", () => ({
-  registerTool: vi.fn(),
-}));
 
 import { createMockAudit } from "../../test-utils.js";
-import { registerTool } from "./registry.js";
-import "./read-skill.tool.js";
+import readSkillTool from "./read-skill.tool.js";
 
-const def = vi.mocked(registerTool).mock.calls[0][0];
+const def = readSkillTool;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -59,8 +55,7 @@ function buildReadSkillTool() {
     secrets: {},
     audit: createMockAudit(),
   } as any;
-  const { execute } = def.create(ctx);
-  return execute;
+  return (input: Record<string, unknown>) => def.execute(input, ctx);
 }
 
 describe("readSkill tool", () => {

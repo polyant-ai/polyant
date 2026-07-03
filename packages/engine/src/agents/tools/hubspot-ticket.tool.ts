@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
+import { type ToolContext } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 import { hubspotFetch, getHubSpotApiKeyOrError, HUBSPOT_ASSOCIATION_TYPES } from "./hubspot-fetch.js";
 import { getHubSpotPortalId, hubspotUrl } from "./hubspot-portal.js";
 
-registerTool({
+export default defineTool({
   name: "hubspotTicket",
   description:
     "Manage tickets in the HubSpot CRM: create, update, fetch details or search tickets.\n" +
@@ -38,58 +39,58 @@ registerTool({
       input: { action: "search", contactId: "12345", openOnly: true },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
-      action: z.enum(["create", "update", "get", "search"]).describe("'create' for a new ticket, 'update' to modify an existing ticket, 'get' for details of a single ticket, 'search' to query"),
-      // --- create / update params ---
-      subject: z
-        .string()
-        .nullable()
-        .describe("Ticket subject (required for create)"),
-      content: z
-        .string()
-        .nullable()
-        .describe("Ticket description/content (optional for create and update)"),
-      contactId: z
-        .string()
-        .nullable()
-        .describe("HubSpot contact ID. For create: associates the contact with the new ticket. For search: filters to tickets associated with this contact only."),
-      pipelineStage: z
-        .string()
-        .nullable()
-        .describe("Ticket pipeline stage (e.g. '1'=New, '2'=Waiting on contact, '3'=Waiting on us, '4'=Closed). Optional for create and update."),
-      // --- get / update params ---
-      ticketId: z
-        .string()
-        .nullable()
-        .describe("HubSpot ticket ID (required for get and update)"),
-      // --- search params ---
-      query: z
-        .string()
-        .nullable()
-        .describe("Free-text query against the ticket subject or content (search only)"),
-      priority: z
-        .enum(["LOW", "MEDIUM", "HIGH"])
-        .nullable()
-        .describe("For search: filter by ticket priority. For create/update: priority to set."),
-      createdAfter: z
-        .string()
-        .nullable()
-        .describe("Tickets created on or after this date (ISO 8601, search only)"),
-      createdBefore: z
-        .string()
-        .nullable()
-        .describe("Tickets created on or before this date (ISO 8601, search only)"),
-      openOnly: z
-        .boolean()
-        .nullable()
-        .describe("When true, excludes closed tickets (stage '4'). Search only."),
-      limit: z
-        .number()
-        .nullable()
-        .describe("Maximum number of results (default 20, max 100, search only)"),
-    }),
-    execute: async (params: {
+  parameters: z.object({
+    action: z.enum(["create", "update", "get", "search"]).describe("'create' for a new ticket, 'update' to modify an existing ticket, 'get' for details of a single ticket, 'search' to query"),
+    // --- create / update params ---
+    subject: z
+      .string()
+      .nullable()
+      .describe("Ticket subject (required for create)"),
+    content: z
+      .string()
+      .nullable()
+      .describe("Ticket description/content (optional for create and update)"),
+    contactId: z
+      .string()
+      .nullable()
+      .describe("HubSpot contact ID. For create: associates the contact with the new ticket. For search: filters to tickets associated with this contact only."),
+    pipelineStage: z
+      .string()
+      .nullable()
+      .describe("Ticket pipeline stage (e.g. '1'=New, '2'=Waiting on contact, '3'=Waiting on us, '4'=Closed). Optional for create and update."),
+    // --- get / update params ---
+    ticketId: z
+      .string()
+      .nullable()
+      .describe("HubSpot ticket ID (required for get and update)"),
+    // --- search params ---
+    query: z
+      .string()
+      .nullable()
+      .describe("Free-text query against the ticket subject or content (search only)"),
+    priority: z
+      .enum(["LOW", "MEDIUM", "HIGH"])
+      .nullable()
+      .describe("For search: filter by ticket priority. For create/update: priority to set."),
+    createdAfter: z
+      .string()
+      .nullable()
+      .describe("Tickets created on or after this date (ISO 8601, search only)"),
+    createdBefore: z
+      .string()
+      .nullable()
+      .describe("Tickets created on or before this date (ISO 8601, search only)"),
+    openOnly: z
+      .boolean()
+      .nullable()
+      .describe("When true, excludes closed tickets (stage '4'). Search only."),
+    limit: z
+      .number()
+      .nullable()
+      .describe("Maximum number of results (default 20, max 100, search only)"),
+  }),
+  execute: async (
+    params: {
       action: "create" | "update" | "get" | "search";
       subject: string | null;
       content: string | null;
@@ -102,32 +103,33 @@ registerTool({
       createdBefore: string | null;
       openOnly: boolean | null;
       limit: number | null;
-    }) => {
-      const apiKeyResult = getHubSpotApiKeyOrError(ctx);
-      if (typeof apiKeyResult !== "string") return apiKeyResult;
-      const apiKey = apiKeyResult;
-
-      if (params.action === "create") {
-        return createTicket(ctx, apiKey, params);
-      }
-
-      if (params.action === "update") {
-        if (!params.ticketId) {
-          return { error: "ticketId is required for action 'update'." };
-        }
-        return updateTicket(ctx, apiKey, params);
-      }
-
-      if (params.action === "get") {
-        if (!params.ticketId) {
-          return { error: "ticketId is required for action 'get'." };
-        }
-        return getTicket(ctx, apiKey, params.ticketId);
-      }
-
-      return searchTickets(ctx, apiKey, params);
     },
-  }),
+    ctx: ToolContext,
+  ) => {
+    const apiKeyResult = getHubSpotApiKeyOrError(ctx);
+    if (typeof apiKeyResult !== "string") return apiKeyResult;
+    const apiKey = apiKeyResult;
+
+    if (params.action === "create") {
+      return createTicket(ctx, apiKey, params);
+    }
+
+    if (params.action === "update") {
+      if (!params.ticketId) {
+        return { error: "ticketId is required for action 'update'." };
+      }
+      return updateTicket(ctx, apiKey, params);
+    }
+
+    if (params.action === "get") {
+      if (!params.ticketId) {
+        return { error: "ticketId is required for action 'get'." };
+      }
+      return getTicket(ctx, apiKey, params.ticketId);
+    }
+
+    return searchTickets(ctx, apiKey, params);
+  },
 });
 
 // ---------------------------------------------------------------------------

@@ -171,6 +171,13 @@ const configSchema = z.object({
   analytics: z.object({
     retentionDays: z.coerce.number().int().positive().default(90),
   }),
+
+  // Plugin roots. `dirs` are absolute paths (from PLUGIN_DIRS, comma-separated)
+  // the tool loader scans for external plugins in addition to the convention
+  // dir (src/plugins/*). Primarily local dev / explicit override.
+  plugins: z.object({
+    dirs: z.array(z.string()).default([]),
+  }),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -269,6 +276,14 @@ function loadConfig(): Config {
     },
     analytics: {
       retentionDays: process.env.ANALYTICS_RETENTION_DAYS,
+    },
+    plugins: {
+      // CONVENTION-EXCEPTION: PLUGIN_DIRS is parsed here (split + trim) into the
+      // Zod schema; the raw comma-separated string never leaks past config.
+      dirs: (process.env.PLUGIN_DIRS ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
     },
   });
 

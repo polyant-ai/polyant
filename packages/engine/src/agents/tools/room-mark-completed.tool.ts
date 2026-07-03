@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { markEventsCompleted } from "../../webhooks/webhook-backlog.store.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 
-registerTool({
+export default defineTool({
   name: "mark_events_completed",
   description:
     "Mark one or more backlog events as completed.\n" +
@@ -15,16 +15,14 @@ registerTool({
     "Caveat: requires event IDs from the backlog. Optional notes field for resolution details. Events are scoped to the current instance.",
   category: "room",
   harness: true,
-  create: (ctx) => ({
-    parameters: z.object({
-      eventIds: z.array(z.string()).describe("IDs of backlog events to mark as completed"),
-      notes: z.string().nullable().describe("Optional notes about how the events were resolved"),
-    }),
-    execute: async ({ eventIds, notes }: { eventIds: string[]; notes: string | null }) => {
-      const instanceId = await resolveInstanceId(ctx.instanceId);
-      if (!instanceId) return { error: "Instance not found" };
-      await markEventsCompleted(eventIds, notes ?? undefined, instanceId);
-      return { success: true, completedCount: eventIds.length };
-    },
+  parameters: z.object({
+    eventIds: z.array(z.string()).describe("IDs of backlog events to mark as completed"),
+    notes: z.string().nullable().describe("Optional notes about how the events were resolved"),
   }),
+  execute: async ({ eventIds, notes }: { eventIds: string[]; notes: string | null }, ctx) => {
+    const instanceId = await resolveInstanceId(ctx.instanceId);
+    if (!instanceId) return { error: "Instance not found" };
+    await markEventsCompleted(eventIds, notes ?? undefined, instanceId);
+    return { success: true, completedCount: eventIds.length };
+  },
 });

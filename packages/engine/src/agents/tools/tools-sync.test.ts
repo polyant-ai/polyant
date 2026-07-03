@@ -48,6 +48,7 @@ vi.mock("drizzle-orm", () => ({
   like: vi.fn((...args: unknown[]) => ({ type: "like", args })),
 }));
 
+import { like } from "drizzle-orm";
 import { syncToolsToDb } from "./tools-sync.js";
 
 beforeEach(() => {
@@ -125,7 +126,7 @@ describe("syncToolsToDb", () => {
     expect(mockDeleteWhere).toHaveBeenCalledTimes(1);
   });
 
-  it("deletes all tools when registry is empty (preserving agent:* rows)", async () => {
+  it("deletes all flat tools when registry is empty (preserving every namespaced row)", async () => {
     const registry = new Map();
     mockGetToolRegistry.mockReturnValue(registry);
 
@@ -133,9 +134,23 @@ describe("syncToolsToDb", () => {
 
     // No inserts
     expect(mockTx.insert).not.toHaveBeenCalled();
-    // Delete called once, with a where filter that excludes agent:* rows.
+    // Delete called once, with a where filter that excludes ALL namespaced rows.
     expect(mockTx.delete).toHaveBeenCalledTimes(1);
     expect(mockDeleteWhere).toHaveBeenCalledTimes(1);
+  });
+
+  it("never hard-deletes namespaced (plugin/agent) rows — excludes %:% not just agent:%", async () => {
+    // A plugin absent from the registry this boot (version skew / import crash)
+    // must NOT have its tools deleted, else the instance_tools FK cascade wipes
+    // customer enablement. The static delete filters on `%:%` (any namespaced
+    // name), never the narrow `agent:%`.
+    const registry = new Map([["coreTool", toolDef("coreTool")]]);
+    mockGetToolRegistry.mockReturnValue(registry);
+
+    await syncToolsToDb();
+
+    const likePatterns = vi.mocked(like).mock.calls.map((c) => c[1]);
+    expect(likePatterns).toContain("%:%"); // any namespaced name, not just agent:%
   });
 
   it("sets isGlobal=false for all tools (GLOBAL_TOOLS is now empty)", async () => {

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 import { channelManager } from "../../channels/channel-manager.js";
 
-registerTool({
+export default defineTool({
   name: "whatsappSendMessage",
   description:
     "Send a WhatsApp message (text and/or a media attachment) using the Twilio WhatsApp channel configured on the current instance.\n" +
@@ -29,21 +29,20 @@ registerTool({
       },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
-      to: z
-        .string()
-        .min(1)
-        .describe("WhatsApp recipient number in E.164 format (e.g. '+14155550100')."),
-      message: z
-        .string()
-        .describe("Message text. May be empty when mediaUrl is present."),
-      mediaUrl: z
-        .string()
-        .nullable()
-        .describe("Public HTTPS URL to attach as media (e.g. a hubspotFile publicUrl). Must start with https://."),
-    }),
-    execute: async ({ to, message, mediaUrl }: { to: string; message: string; mediaUrl: string | null }) => {
+  parameters: z.object({
+    to: z
+      .string()
+      .min(1)
+      .describe("WhatsApp recipient number in E.164 format (e.g. '+14155550100')."),
+    message: z
+      .string()
+      .describe("Message text. May be empty when mediaUrl is present."),
+    mediaUrl: z
+      .string()
+      .nullable()
+      .describe("Public HTTPS URL to attach as media (e.g. a hubspotFile publicUrl). Must start with https://."),
+  }),
+  execute: async ({ to, message, mediaUrl }: { to: string; message: string; mediaUrl: string | null }, ctx) => {
       const trimmedTo = to.trim();
       const trimmedMessage = message.trim();
 
@@ -92,5 +91,4 @@ registerTool({
         return { error: `WhatsApp send failed: ${errMsg(err)}` };
       }
     },
-  }),
 });

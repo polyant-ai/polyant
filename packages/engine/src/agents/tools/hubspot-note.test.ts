@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import "./hubspot-note.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import hubspotNoteTool from "./hubspot-note.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 function createMockResponse(
@@ -33,7 +33,7 @@ const ctxWithKey = {
 const toolCtx = { toolCallId: "tc-1", messages: [] } as any;
 
 describe("hubspotNote", () => {
-  const def = getToolRegistry().get("hubspotNote")!;
+  const def = hubspotNoteTool;
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -43,7 +43,7 @@ describe("hubspotNote", () => {
     expect(def).toBeDefined();
     expect(def.name).toBe("hubspotNote");
     expect(def.category).toBe("crm");
-    expect(def.requiredSecrets).toEqual(["hubspot_api_key"]);
+    expect(def.requiredSecrets).toEqual([{ key: "hubspot_api_key", type: "text", sensitive: true }]);
   });
 
   it("has parameters and description", () => {

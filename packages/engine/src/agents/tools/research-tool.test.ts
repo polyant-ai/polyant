@@ -8,8 +8,8 @@ vi.mock("@tavily/core", () => ({
   tavily: vi.fn(() => ({ search: mockSearch })),
 }));
 
-import "./web-search.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import webSearchTool from "./web-search.tool.js";
+import { buildTool } from "./registry.js";
 
 const dummyCtx = {
   instanceId: "test",
@@ -18,7 +18,7 @@ const dummyCtx = {
 } as any;
 
 describe("webSearch", () => {
-  const def = getToolRegistry().get("webSearch")!;
+  const def = webSearchTool;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const webSearch = buildTool(def, dummyCtx) as any;
 

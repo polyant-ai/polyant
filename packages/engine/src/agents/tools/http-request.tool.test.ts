@@ -15,18 +15,12 @@ vi.mock("../../utils/url-safety.js", () => ({
 vi.mock("undici", () => ({
   Agent: class MockAgent { constructor() { /* noop */ } },
 }));
-vi.mock("./registry.js", () => ({
-  registerTool: vi.fn(),
-}));
 vi.mock("../../utils/error.js", () => ({
   errMsg: (err: unknown) => err instanceof Error ? err.message : String(err),
 }));
 
-import { registerTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
-import "./http-request.tool.js";
-
-const def = vi.mocked(registerTool).mock.calls[0][0];
+import def from "./http-request.tool.js";
 
 function buildTool(secretOverrides?: Record<string, string>) {
   const ctx = {
@@ -35,7 +29,7 @@ function buildTool(secretOverrides?: Record<string, string>) {
     audit: createMockAudit(),
     conversationId: "conv-1",
   } as any;
-  return { execute: def.create(ctx).execute, audit: ctx.audit };
+  return { execute: (input: any) => def.execute(input, ctx), audit: ctx.audit };
 }
 
 function mockResponse(body: unknown, status = 200): Response {
@@ -164,7 +158,7 @@ describe("httpRequest tool", () => {
       secrets: {},
       audit: createMockAudit(),
     } as any;
-    const { execute } = def.create(ctx);
+    const execute = (input: any) => def.execute(input, ctx);
 
     const result = await execute({
       url: "https://webhook.site/test",
@@ -180,35 +174,29 @@ describe("httpRequest tool", () => {
     expect(result).toMatchObject({ status: 200 });
   });
 
-  // authStyle "none" string — accepted as synonym of null via Zod preprocess
-  it("accepts authStyle string 'none' as equivalent to null (via Zod preprocess)", () => {
-    const ctx = {
-      instanceId: "test",
-      secrets: {},
-      audit: createMockAudit(),
-    } as any;
-    const { parameters } = def.create(ctx);
+  // authStyle "none"/""/whitespace-mixed-case are coalesced to null (no auth).
+  // The coalescing moved from a Zod preprocess into execute() when the tool
+  // became a serialized defineTool — so we exercise it via execute + fetch
+  // headers rather than schema.parse (inputSchema is now JSON Schema, not Zod).
+  it("coalesces authStyle 'none'/''/whitespace to no-auth (moved from Zod preprocess to execute)", async () => {
+    const { execute } = buildTool(); // http_api_key IS configured
 
-    // Direct schema validation — Zod preprocess normalizes "none" → null
-    const parsed = parameters.parse({
-      url: "https://webhook.site/test",
-      method: "POST",
-      body: '{"test":true}',
-      authStyle: "none",
-    });
-    expect(parsed.authStyle).toBeNull();
+    for (const authStyle of ["none", "", "  None  ", null]) {
+      mockFetch.mockResolvedValueOnce(mockResponse({ ok: true }));
+      await execute({ url: "https://webhook.site/test", method: "POST", body: "{}", authStyle });
+      const headers = (mockFetch.mock.calls.at(-1)?.[1] as { headers: Record<string, string> }).headers;
+      expect(headers).not.toHaveProperty("Authorization");
+      expect(headers).not.toHaveProperty("X-API-Key");
+    }
 
-    // Variants: empty string, whitespace, mixed case
-    expect(parameters.parse({ url: "https://x.com", method: "POST", body: "{}", authStyle: "" }).authStyle).toBeNull();
-    expect(parameters.parse({ url: "https://x.com", method: "POST", body: "{}", authStyle: "  None  " }).authStyle).toBeNull();
-    expect(parameters.parse({ url: "https://x.com", method: "POST", body: "{}", authStyle: null }).authStyle).toBeNull();
+    // Valid enum values still apply auth (secret present).
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true }));
+    await execute({ url: "https://x.com", method: "POST", body: "{}", authStyle: "bearer" });
+    expect((mockFetch.mock.calls.at(-1)?.[1] as { headers: Record<string, string> }).headers).toHaveProperty("Authorization", "Bearer test-api-key-123");
 
-    // Valid enum values pass through unchanged
-    expect(parameters.parse({ url: "https://x.com", method: "POST", body: "{}", authStyle: "bearer" }).authStyle).toBe("bearer");
-    expect(parameters.parse({ url: "https://x.com", method: "POST", body: "{}", authStyle: "api-key" }).authStyle).toBe("api-key");
-
-    // Invalid arbitrary strings still rejected
-    expect(() => parameters.parse({ url: "https://x.com", method: "POST", body: "{}", authStyle: "foo" })).toThrow();
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true }));
+    await execute({ url: "https://x.com", method: "POST", body: "{}", authStyle: "api-key" });
+    expect((mockFetch.mock.calls.at(-1)?.[1] as { headers: Record<string, string> }).headers).toHaveProperty("X-API-Key", "test-api-key-123");
   });
 
   // authStyle bearer requested but secret missing — silent fallback to no auth
@@ -219,7 +207,7 @@ describe("httpRequest tool", () => {
       secrets: {},
       audit: createMockAudit(),
     } as any;
-    const { execute } = def.create(ctx);
+    const execute = (input: any) => def.execute(input, ctx);
 
     const result = await execute({
       url: "https://api.example.com/webhook",

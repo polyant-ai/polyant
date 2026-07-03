@@ -19,19 +19,13 @@ vi.mock("node:fs/promises", () => ({
   stat: mockStat,
   realpath: mockRealpath,
 }));
-vi.mock("./registry.js", () => ({
-  registerTool: vi.fn(),
-}));
 vi.mock("../../utils/error.js", () => ({
   errMsg: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
 
-import { registerTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 import { OA_WORKSPACES_ROOT } from "./shared/workspace-utils.js";
-import "./write-file.tool.js";
-
-const def = vi.mocked(registerTool).mock.calls[0][0];
+import def from "./write-file.tool.js";
 
 function buildTool(opts: { conversationId?: string | undefined } = { conversationId: "conv-1" }) {
   const ctx = {
@@ -40,7 +34,7 @@ function buildTool(opts: { conversationId?: string | undefined } = { conversatio
     audit: createMockAudit(),
     conversationId: opts.conversationId,
   } as any;
-  return { execute: def.create(ctx).execute, audit: ctx.audit };
+  return { execute: (input: any) => def.execute(input, ctx), audit: ctx.audit };
 }
 
 const WORKSPACE = `${OA_WORKSPACES_ROOT}/test-instance/conversations/conv-1`;
@@ -242,7 +236,7 @@ describe("writeFile tool", () => {
       audit: createMockAudit(),
       conversationId: "inst:web:chat-1",
     } as any;
-    const execute = def.create(ctx).execute;
+    const execute = (input: any) => def.execute(input, ctx);
 
     await execute({ path: "notes.md", content: "x", overwrite: true });
 

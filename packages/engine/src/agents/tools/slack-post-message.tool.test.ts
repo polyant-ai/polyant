@@ -9,8 +9,8 @@ vi.mock("../../channels/channel-manager.js", () => ({
   },
 }));
 
-import "./slack-post-message.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import slackPostMessageTool from "./slack-post-message.tool.js";
+import { buildTool } from "./registry.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { createMockAudit } from "../../test-utils.js";
 
@@ -25,7 +25,7 @@ const ctx = {
 const toolCtx = { toolCallId: "tc-1", messages: [] } as any;
 
 describe("slackPostMessage", () => {
-  const def = getToolRegistry().get("slackPostMessage")!;
+  const def = slackPostMessageTool;
 
   beforeEach(() => {
     vi.clearAllMocks();
