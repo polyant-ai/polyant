@@ -21,7 +21,7 @@ import {
 import {
   createHookSchema,
   updateHookSchema,
-  validateHookTool,
+  validateHookFunction,
 } from "../../hooks/hooks.validators.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
@@ -46,8 +46,8 @@ export class InstanceHooksController {
     if (!parsed.success) {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
-    const toolError = validateHookTool(parsed.data.actionConfig.toolName);
-    if (toolError) throw new BadRequestException(toolError);
+    const fnError = validateHookFunction(parsed.data.actionConfig.functionName);
+    if (fnError) throw new BadRequestException(fnError);
 
     const instanceId = await resolveInstanceId(asInstanceSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
@@ -66,8 +66,8 @@ export class InstanceHooksController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
     if (parsed.data.actionConfig) {
-      const toolError = validateHookTool(parsed.data.actionConfig.toolName);
-      if (toolError) throw new BadRequestException(toolError);
+      const fnError = validateHookFunction(parsed.data.actionConfig.functionName);
+      if (fnError) throw new BadRequestException(fnError);
     }
 
     const instanceId = await resolveInstanceId(asInstanceSlug(slug));

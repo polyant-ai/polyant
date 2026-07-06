@@ -7,9 +7,6 @@ import type { HookResult, HookContext, HookFunctionDefinition, HookSpec } from "
 
 export type { HookResult, HookContext, HookFunctionDefinition, HookSpec };
 
-/** Reserved key a tool returns to halt the pipeline and supply a system-authored reply. */
-export const HOOK_HALT_KEY = "__haltPipeline" as const;
-
 /** Payload of a halt: the message delivered to the user in place of the LLM turn. */
 export interface HookHaltSignal {
   message: string;
@@ -18,20 +15,6 @@ export interface HookHaltSignal {
 /** Payload of a response replacement (post-LLM). */
 export interface HookReplaceSignal {
   message: string;
-}
-
-/**
- * Read a halt signal from a tool's (unknown) result. Malformed shapes — missing
- * key, non-object, empty/non-string message — yield undefined so a buggy tool
- * never produces an empty reply. Contract-agnostic: works with any tool result.
- */
-export function extractHalt(result: unknown): HookHaltSignal | undefined {
-  if (!result || typeof result !== "object") return undefined;
-  const raw = (result as Record<string, unknown>)[HOOK_HALT_KEY];
-  if (!raw || typeof raw !== "object") return undefined;
-  const message = (raw as Record<string, unknown>).message;
-  if (typeof message !== "string" || message.trim() === "") return undefined;
-  return { message };
 }
 
 /** Conversation lifecycle events a hook can subscribe to. */
@@ -44,21 +27,15 @@ export const HOOK_EVENTS = [
 
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
-/** Action types. Both are valid during the tool→function migration; T6 drops `tool`. */
-export const HOOK_ACTION_TYPES = ["tool", "function"] as const;
+/** Action types. Only `function` after the tool→function cutover. */
+export const HOOK_ACTION_TYPES = ["function"] as const;
 
 export type HookActionType = (typeof HOOK_ACTION_TYPES)[number];
 
-/**
- * Per-action configuration stored in `instance_hooks.action_config` (jsonb).
- * Transitional during the tool→function migration: both shapes coexist.
- */
+/** Per-action configuration stored in `instance_hooks.action_config` (jsonb). */
 export interface HookActionConfig {
-  /** tool action (legacy, removed in the cutover). */
-  toolName?: string;
-  args?: Record<string, unknown>;
-  /** function action (new). */
-  functionName?: string;
+  /** Registered hook function to run. */
+  functionName: string;
 }
 
 /** Server-built event payload — the ONLY source for template placeholders. */

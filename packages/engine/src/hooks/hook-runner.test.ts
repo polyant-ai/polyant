@@ -17,8 +17,8 @@ vi.mock("./hook-executions.store.js", () => ({
   recordHookExecution: recordExecutionMock,
 }));
 
-vi.mock("./actions/tool-action.js", () => ({
-  toolActionExecutor: { execute: executeMock },
+vi.mock("./actions/function-action.js", () => ({
+  functionActionExecutor: { execute: executeMock },
 }));
 
 vi.mock("../audit/audit-logger.js", () => ({
@@ -48,8 +48,8 @@ function hook(id: string, overrides: Partial<InstanceHookRow> = {}): InstanceHoo
     id,
     instanceId: "u1",
     event: "message_received",
-    actionType: "tool",
-    actionConfig: { toolName: `tool-${id}`, args: {} },
+    actionType: "function",
+    actionConfig: { functionName: `tool-${id}` },
     enabled: true,
     position: 0,
     timeoutMs: 10_000,
@@ -160,7 +160,7 @@ describe("runHooks", () => {
       conversationId: "c1",
       hookId: "a",
       event: "message_received",
-      actionType: "tool",
+      actionType: "function",
       toolName: "tool-a",
       success: true,
     });
@@ -189,7 +189,7 @@ describe("runHooks", () => {
     expect(summaries[0]).toMatchObject({
       hookId: "a",
       event: "message_received",
-      actionType: "tool",
+      actionType: "function",
       toolName: "tool-a",
       success: true,
     });

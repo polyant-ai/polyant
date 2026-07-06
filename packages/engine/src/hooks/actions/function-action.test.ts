@@ -25,7 +25,9 @@ function hookRow(functionName?: string): InstanceHookRow {
     instanceId: "acme",
     event: "message_received",
     actionType: "function",
-    actionConfig: functionName === undefined ? {} : { functionName },
+    // The undefined branch simulates a malformed DB row (no functionName) to
+    // exercise the executor's guard — cast past the now-required field.
+    actionConfig: functionName === undefined ? ({} as InstanceHookRow["actionConfig"]) : { functionName },
     enabled: true,
     position: 0,
     timeoutMs: 10000,

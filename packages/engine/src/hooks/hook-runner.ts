@@ -4,7 +4,7 @@ import { errMsg } from "../utils/error.js";
 import { createAuditLogger } from "../audit/audit-logger.js";
 import { getEnabledHooks } from "./hooks.store.js";
 import { recordHookExecution } from "./hook-executions.store.js";
-import { toolActionExecutor } from "./actions/tool-action.js";
+import { functionActionExecutor } from "./actions/function-action.js";
 import type {
   HookActionExecutor,
   HookActionType,
@@ -13,18 +13,29 @@ import type {
   HookExecutionCapture,
   HookExecutionSummary,
   HookHaltSignal,
+  HookReplaceSignal,
   HookRunContext,
   InstanceHookRow,
 } from "./hook-types.js";
 
 /** Action-type → executor. Future action types register here. */
 const executors = new Map<HookActionType, HookActionExecutor>([
-  ["tool", toolActionExecutor],
+  ["function", functionActionExecutor],
 ]);
 
 /** First halt requested across a run's summaries, or undefined. */
 export function firstHalt(summaries: HookExecutionSummary[]): HookHaltSignal | undefined {
   return summaries.find((s) => s.halt)?.halt;
+}
+
+/** First response replacement requested across a run's summaries, or undefined. */
+export function firstReplaceResponse(summaries: HookExecutionSummary[]): HookReplaceSignal | undefined {
+  return summaries.find((s) => s.replaceResponse)?.replaceResponse;
+}
+
+/** All context-injection strings requested across a run's summaries, in order. */
+export function collectInjectContext(summaries: HookExecutionSummary[]): string[] {
+  return summaries.map((s) => s.injectContext).filter((c): c is string => !!c);
 }
 
 function withTimeout(promise: Promise<void>, ms: number, label: string): Promise<void> {
@@ -69,8 +80,9 @@ export async function runHooks(
       console.warn(`[hooks] ${event} hook ${hook.id}: unknown action type "${hook.actionType}" — skipping`);
       continue;
     }
-    // Transitional: `tool` hooks carry toolName; `function` hooks don't (T6).
-    const toolName = hook.actionConfig.toolName ?? "";
+    // The summary/telemetry field stays NAMED `toolName` (renaming would ripple
+    // to the web + SSE, out of scope) but post-cutover it holds the function name.
+    const toolName = hook.actionConfig.functionName ?? "";
     const audit = createAuditLogger(`hook:${toolName}`, ctx.instanceId, ctx.conversationId);
     const started = Date.now();
     let success = true;
@@ -98,6 +110,8 @@ export async function runHooks(
       args: captured.args,
       result: captured.result,
       halt: captured.halt,
+      replaceResponse: captured.replaceResponse,
+      injectContext: captured.injectContext,
     });
     audit.log({
       action: `hook:${event}`,
