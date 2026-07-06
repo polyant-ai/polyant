@@ -382,6 +382,42 @@ describe("triggerConversation", () => {
     });
   });
 
+  describe("response_generated replacement", () => {
+    const channelDef: EventDefinition = {
+      ...baseDefinition,
+      outboundChannel: "telegram",
+      outboundTarget: "{{payload.chat_id}}",
+    };
+
+    it("rewrites the reply, persists provenance, and sends the replaced text", async () => {
+      // message_received → no halt; response_generated → replaceResponse
+      mockRunHooks.mockImplementation(async (event: string) =>
+        event === "response_generated"
+          ? [
+              {
+                hookId: "h", event, actionType: "function", toolName: "rewrite",
+                success: true, durationMs: 1, replaceResponse: { message: "REPLACED" },
+              },
+            ]
+          : [],
+      );
+      mockSupervise.mockResolvedValue({ ...baseSuperviseResult, text: "original" });
+
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "9999" });
+
+      expect(mockSupervise).toHaveBeenCalledTimes(1);
+      expect(mockAppendMessages).toHaveBeenCalledWith(
+        "test-slug:telegram:9999",
+        [expect.objectContaining({
+          role: "assistant",
+          content: "REPLACED",
+          metadata: { source: "hook", hookName: "rewrite" },
+        })],
+      );
+      expect(mockSendOutbound).toHaveBeenCalledWith("test-slug", "telegram", "9999", "REPLACED");
+    });
+  });
+
   describe("supervise failure", () => {
     it("returns early without sending when supervise throws (channel mode)", async () => {
       mockSupervise.mockRejectedValue(new Error("LLM exploded"));
