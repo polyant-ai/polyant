@@ -23,6 +23,7 @@ export interface ChatRequest {
   apiKeys?: {
     openai?: string;
     anthropic?: string;
+    nebius?: string;
     bedrock_api_key?: string;
     bedrock_access_key_id?: string;
     bedrock_secret_access_key?: string;

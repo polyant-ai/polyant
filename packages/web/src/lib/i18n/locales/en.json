@@ -336,6 +336,7 @@
   "settings.tab.apiKeysHelp": "Model provider keys (chat and embedder). Independent of tool secrets.",
   "settings.tab.openaiKey": "OpenAI API Key",
   "settings.tab.anthropicKey": "Anthropic API Key",
+  "settings.tab.nebiusKey": "Nebius API Key",
   "settings.tab.awsCredentials": "AWS Credentials (AI provider)",
   "settings.tab.awsCredentialsHelp": "One AWS credential set for AWS-backed AI services: Bedrock (chat and embedder) and Amazon Transcribe (STT). Independent of the AWS secrets used by tools. The Bedrock API key takes precedence; without it the AWS SigV4 credentials are used, and if those are missing too, the local AWS profile (~/.aws/credentials) or IAM role.",
   "settings.tab.bedrockApiKey": "Bedrock API Key",

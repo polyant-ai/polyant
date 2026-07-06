@@ -5,6 +5,7 @@ import { sanitizeMessagesForModel } from "./vision.js";
 import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
 import { BedrockProvider } from "./providers/bedrock.js";
+import { NebiusProvider } from "./providers/nebius.js";
 import { aiLogger } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
 import type { ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "./types.js";
@@ -25,6 +26,7 @@ const providers: Record<string, ProviderAdapter> = {
   openai: OpenAIProvider,
   anthropic: AnthropicProvider,
   bedrock: BedrockProvider,
+  nebius: NebiusProvider,
 };
 
 let initialized = false;

@@ -121,6 +121,58 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "minimax.minimax-m2.5": { input: 0.36, output: 1.44 },
     },
   },
+  nebius: {
+    // Nebius Token Factory — OpenAI-compatible endpoint (see providers/nebius.ts).
+    // Model IDs follow the HuggingFace `org/Model` convention and are the exact
+    // strings returned by GET /v1/models for the account (authoritative — the
+    // catalog below mirrors the 25 served models, minus the embedding-only
+    // Qwen/Qwen3-Embedding-8B which belongs to the embedder, not chat).
+    //
+    // All Nebius models expose native function calling. Reasoning models surface
+    // thinking via `reasoning_content` automatically (see isThinkingCapable's
+    // `nebius` case) — [R] below. Vision-language models are marked [V] and wired
+    // into vision.ts's allowlist (capability from the console modality tag, not
+    // the name: e.g. Nemotron-3-Nano-Omni is Text-to-text, Cosmos3 is Vision).
+    //
+    // Prices are USD per 1M tokens, confirmed from the console prices page
+    // (2026-07-06). Cost estimation degrades to 0 for any model left without an
+    // entry, so a missing price never breaks a call.
+    tiers: {
+      fast: "Qwen/Qwen3-30B-A3B-Instruct-2507",
+      standard: "Qwen/Qwen3-235B-A22B-Instruct-2507",
+      heavy: "Qwen/Qwen3.5-397B-A17B",
+    },
+    costPerMillionTokens: {
+      // — General chat (tool-capable, non-reasoning) —
+      "meta-llama/Llama-3.3-70B-Instruct": { input: 0.13, output: 0.40 },
+      "Qwen/Qwen3-32B": { input: 0.10, output: 0.30 },
+      "Qwen/Qwen3-30B-A3B-Instruct-2507": { input: 0.10, output: 0.30 },
+      "Qwen/Qwen3-235B-A22B-Instruct-2507": { input: 0.20, output: 0.60 },
+      "google/gemma-3-27b-it": { input: 0.10, output: 0.30 },
+      // — Reasoning [R] (emit reasoning_content) —
+      "Qwen/Qwen3.5-397B-A17B": { input: 0.60, output: 3.60 },
+      "Qwen/Qwen3-Next-80B-A3B-Thinking": { input: 0.15, output: 1.20 },
+      "deepseek-ai/DeepSeek-V4-Pro": { input: 1.75, output: 3.50 },
+      "zai-org/GLM-5.1": { input: 1.40, output: 4.40 },
+      "zai-org/GLM-5.2": { input: 1.40, output: 4.40 },
+      "openai/gpt-oss-120b": { input: 0.15, output: 0.60 },
+      "moonshotai/Kimi-K2.7-Code": { input: 0.95, output: 4.00 },
+      "MiniMaxAI/MiniMax-M2.5": { input: 0.30, output: 1.20 },
+      "NousResearch/Hermes-4-70B": { input: 0.13, output: 0.40 },
+      "NousResearch/Hermes-4-405B": { input: 1.00, output: 3.00 },
+      // NVIDIA Nemotron family [R]
+      "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B": { input: 0.06, output: 0.24 },
+      "nvidia/Nemotron-3-Nano-Omni": { input: 0.06, output: 0.24 },
+      "nvidia/nemotron-3-super-120b-a12b": { input: 0.30, output: 0.90 },
+      "nvidia/Llama-3_1-Nemotron-Ultra-253B-v1": { input: 0.60, output: 1.80 },
+      "nvidia/Nemotron-3-Ultra-550b-a55b": { input: 1.00, output: 3.00 },
+      // — Vision-language [V] (also reasoning where noted) —
+      "nvidia/Cosmos3-Super-Reasoner": { input: 0.10, output: 0.30 }, // [R][V]
+      "moonshotai/Kimi-K2.6": { input: 0.95, output: 4.00 }, // [R][V]
+      "Qwen/Qwen2.5-VL-72B-Instruct": { input: 0.25, output: 0.75 },
+      "openbmb/MiniCPM-V-4_5": { input: 0.658, output: 1.11 },
+    },
+  },
 };
 
 export function resolveModel(provider: string, tier: string): string {
@@ -268,6 +320,13 @@ export function isThinkingCapable(provider: string, modelId: string): boolean {
       // profiles, so an optional region prefix (eu./us./apac./global.) precedes
       // the `anthropic.` segment — without it, eu.* profiles were never matched.
       return /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-(sonnet-4|sonnet-5|opus-4)/.test(modelId);
+    case "nebius":
+      // Reasoning families served by Nebius Token Factory (emit reasoning_content).
+      // IDs carry an org prefix (Qwen/, deepseek-ai/, zai-org/, nvidia/, …), so
+      // match the model segment case-insensitively. Covers Qwen3.5 + *-Thinking,
+      // DeepSeek-V4, GLM-5.x, gpt-oss, Kimi-K2.x, MiniMax-M, Hermes-4, every
+      // Nemotron, and NVIDIA *Reasoner* variants.
+      return /(qwen3\.5|-thinking|deepseek-v4|glm-5|gpt-oss|kimi-k2|minimax-m|hermes-4|nemotron|reasoner)/i.test(modelId);
     default:
       return false;
   }

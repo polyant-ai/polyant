@@ -13,6 +13,7 @@ import { asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifi
 export const SECRET_KEYS = {
   OPENAI_API_KEY: "openai_api_key",
   ANTHROPIC_API_KEY: "anthropic_api_key",
+  NEBIUS_API_KEY: "nebius_api_key",
   BEDROCK_API_KEY: "bedrock_api_key",
   // AWS credentials for the AI provider (Bedrock chat + embedder, AWS/Transcribe STT).
   // Dedicated namespace, intentionally distinct from the generic aws_* keys that

@@ -55,6 +55,7 @@ interface Props {
 const SECRET_KEYS = {
   OPENAI: "openai_api_key",
   ANTHROPIC: "anthropic_api_key",
+  NEBIUS: "nebius_api_key",
   BEDROCK_API_KEY: "bedrock_api_key",
   // AWS credentials for the AI provider (Bedrock chat + embedder, Transcribe STT).
   // Dedicated namespace — independent of the generic aws_* keys used by tools.
@@ -72,6 +73,7 @@ const BRAND_NAMES: Record<string, string> = {
   hubspot: "HubSpot",
   openai: "OpenAI",
   anthropic: "Anthropic",
+  nebius: "Nebius",
   bedrock: "AWS Bedrock",
   aws: "AWS",
   tavily: "Tavily",
@@ -675,6 +677,17 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.ANTHROPIC)}
           placeholder={isConfigured(SECRET_KEYS.ANTHROPIC) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
           onRemove={isConfigured(SECRET_KEYS.ANTHROPIC) ? () => handleRemoveSecret(SECRET_KEYS.ANTHROPIC) : undefined}
+        />
+
+        <SecretField
+          label={t("settings.tab.nebiusKey")}
+          value={secretValue(SECRET_KEYS.NEBIUS)}
+          onChange={(v) => setSecretValue(SECRET_KEYS.NEBIUS, v)}
+          configured={isConfigured(SECRET_KEYS.NEBIUS)}
+          visible={secretVisible(SECRET_KEYS.NEBIUS)}
+          onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.NEBIUS)}
+          placeholder={isConfigured(SECRET_KEYS.NEBIUS) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
+          onRemove={isConfigured(SECRET_KEYS.NEBIUS) ? () => handleRemoveSecret(SECRET_KEYS.NEBIUS) : undefined}
         />
       </section>
       )}
