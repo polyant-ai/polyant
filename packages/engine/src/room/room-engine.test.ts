@@ -87,6 +87,27 @@ vi.mock("../hooks/hook-runner.js", async (importOriginal) => ({
 }));
 vi.mock("../channels/channel-manager.js", () => ({ channelManager: mockChannelManager }));
 
+// Conversation state buffer: a shared mock instance so we can assert flush was called.
+const { mockStateBufferLoad, mockFlush, mockStateBuffer } = vi.hoisted(() => {
+  const flush = vi.fn(async () => {});
+  const buffer = {
+    seedChannel: vi.fn(),
+    flush,
+    api: () => ({ get: () => undefined, set: () => {}, delete: () => {}, getAll: () => ({}), channel: undefined }),
+  };
+  return {
+    mockStateBufferLoad: vi.fn(async () => buffer),
+    mockFlush: flush,
+    mockStateBuffer: buffer,
+  };
+});
+vi.mock("../conversations/state.buffer.js", () => ({
+  ConversationStateBuffer: Object.assign(
+    function () { return mockStateBuffer; },
+    { load: mockStateBufferLoad },
+  ),
+}));
+
 /* ── import under test ─────────────────────────────────────────── */
 
 import { executeRoomCycle } from "./room-engine.js";
@@ -214,6 +235,43 @@ describe("executeRoomCycle", () => {
         expect.any(String),
         [expect.objectContaining({ role: "assistant", content: "closed for maintenance" })],
       );
+    });
+  });
+
+  describe("response_generated replace", () => {
+    it("applies a post-LLM response replacement with hook provenance (not a halt)", async () => {
+      // message_received returns nothing (no halt); response_generated replaces.
+      mockRunHooks.mockImplementation(async (event: string) => {
+        if (event === "response_generated") {
+          return [
+            {
+              hookId: "h", event: "response_generated", actionType: "tool", toolName: "rewrite",
+              success: true, durationMs: 1, replaceResponse: { message: "REPLACED" },
+            },
+          ];
+        }
+        return [];
+      });
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "hello");
+
+      // Post-LLM: supervise WAS called (not short-circuited by a halt).
+      expect(mockSupervise).toHaveBeenCalledTimes(1);
+      // response_generated ran with the LLM's text on the payload.
+      expect(mockRunHooks).toHaveBeenCalledWith(
+        "response_generated",
+        expect.objectContaining({ response: { text: "I've processed the events." } }),
+        expect.anything(),
+      );
+      // Persisted assistant reply is the replacement, badged with provenance.
+      const appendCalls = mockConversationStore.appendMessages.mock.calls;
+      const assistantCall = appendCalls.find(
+        ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
+      );
+      expect(assistantCall![1][0].content).toBe("REPLACED");
+      expect(assistantCall![1][0].metadata).toEqual({ source: "hook", hookName: "rewrite" });
+      // State buffer committed after the post-LLM hook ran.
+      expect(mockFlush).toHaveBeenCalledTimes(1);
     });
   });
 
