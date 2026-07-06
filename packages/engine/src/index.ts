@@ -37,6 +37,8 @@ import {
   MISSING_KEY_RESPONSE,
   runPipelinePre,
   runPipelinePost,
+  hasResponseMutatingHook,
+  type PipelinePreResult,
 } from "./pipeline.js";
 import { hookProvenance } from "./hooks/hook-runner.js";
 import { runOptoutGate } from "./optout/index.js";
@@ -202,7 +204,21 @@ async function main() {
 
     // Phase 1: Context preparation
     const pre = await runPipelinePre(msg, taskConversationOverride, abortSignal);
+    return runBufferedTurn(msg, pre, abortSignal);
+  }
 
+  /**
+   * Run a turn from an already-computed `runPipelinePre` result: pre-LLM halt
+   * short-circuit, else supervise + runPipelinePost (non-streamed). Shared by
+   * `handleMessage` and the streaming handler's declare-and-buffer branch, so
+   * the supervise+post logic (and `runPipelinePre`) is never duplicated.
+   */
+  async function runBufferedTurn(
+    msg: IncomingMessage,
+    pre: PipelinePreResult,
+    abortSignal?: AbortSignal,
+    assistantMessageId?: string,
+  ): Promise<OutgoingMessage> {
     const { ctx, contextPrepMs, messageText } = pre;
 
     // Pre-LLM hook halt: skip the LLM entirely and persist the canned reply as
@@ -215,7 +231,8 @@ async function main() {
         messageText,
         channel: msg.channelType,
         resultText: pre.shortCircuit.text,
-          usage: { promptTokens: 0, completionTokens: 0 },
+        assistantMessageId,
+        usage: { promptTokens: 0, completionTokens: 0 },
         durationMs: 0,
         toolBuildingMs: 0,
         isStreaming: false,
@@ -276,6 +293,7 @@ async function main() {
       steps: result.steps,
       reasoning: result.reasoning,
       debugPayload: result.debugPayload,
+      assistantMessageId,
       toolCallTraces: result.toolCallTraces,
       usage: result.usage,
       durationMs: result.durationMs,
@@ -336,6 +354,28 @@ async function main() {
         fullStream: (async function* () { yield { type: "text-delta", text: canned }; })(),
         completed,
         meta: { conversationId: ctx.conversationId, messageId: haltMessageId },
+        hookExecutions: pre.hookExecutions,
+      };
+    }
+
+    // Declare-and-buffer: an enabled response_generated hook whose function
+    // declares mutatesResponse can replace the reply post-LLM, which cannot
+    // coexist with streaming (tokens would already be sent). Serve the turn
+    // non-streamed — runBufferedTurn supervises + applies any replaceResponse —
+    // then emit the final text as a single chunk. Reuses the computed `pre`, so
+    // runPipelinePre (and its pre-LLM hooks) runs exactly once for the turn.
+    if (await hasResponseMutatingHook(ctx.instanceId)) {
+      // Pre-generate the persisted assistant id and thread it through so the
+      // `meta` echoed in the SSE `done` event addresses the SAME row the debug
+      // payload is stored on (parity with the halt + normal streaming paths).
+      const bufferedMessageId = randomUUID();
+      const out = await runBufferedTurn(msg, pre, abortSignal, bufferedMessageId);
+      const text = out.text;
+      return {
+        textStream: (async function* () { yield text; })(),
+        fullStream: (async function* () { yield { type: "text-delta", text }; })(),
+        completed: Promise.resolve({ text, hookExecutions: [] }),
+        meta: { conversationId: ctx.conversationId, messageId: bufferedMessageId },
         hookExecutions: pre.hookExecutions,
       };
     }

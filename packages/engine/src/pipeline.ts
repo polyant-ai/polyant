@@ -29,6 +29,8 @@ import { emitConversation } from "./activity-stream/emitters/emit-conversation.j
 import { resolveInstanceMeta } from "./activity-stream/emit-helpers.js";
 import { runHooks, firstHalt, firstReplaceResponse, collectInjectContext, hookProvenance, type HookProvenance } from "./hooks/hook-runner.js";
 import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./hooks/hook-types.js";
+import { getEnabledHooks } from "./hooks/hooks.store.js";
+import { getHookRegistry } from "./hooks/hook-registry.js";
 
 /**
  * Channel types that should NOT produce `category: "inbound"` events:
@@ -306,6 +308,21 @@ export function buildHookPayload(
     message: { text: messageText },
     ...(responseText !== undefined ? { response: { text: responseText } } : {}),
   };
+}
+
+/**
+ * True if the instance has an ENABLED `response_generated` hook whose function
+ * declares `mutatesResponse`. Used by the streaming handler to serve such turns
+ * non-streamed (declare-and-buffer) so a post-LLM `replaceResponse` can be
+ * applied before any token reaches the client. `getEnabledHooks` takes the slug
+ * (it resolves + caches the UUID internally) and swallows unknown slugs → [].
+ */
+export async function hasResponseMutatingHook(instanceSlug: InstanceSlug): Promise<boolean> {
+  const hooks = await getEnabledHooks(instanceSlug, "response_generated").catch(() => []);
+  const registry = getHookRegistry();
+  return hooks.some(
+    (h) => registry.get(h.actionConfig.functionName)?.mutatesResponse === true,
+  );
 }
 
 function buildHookRunContext(ctx: PipelineContext, abortSignal?: AbortSignal): HookRunContext {
