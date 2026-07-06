@@ -151,6 +151,11 @@ those turns. Inherent to "mutate the final response".
   description). No args-template editor, no config form. Keep enabled/position/timeout.
 - **New catalog endpoint:** `GET /api/hook-functions` (read-only), listing discovered
   functions (name, description, requiredSecrets, mutatesResponse). Mirrors `GET /api/tools`.
+- **Streaming warning:** when the picked hook function declares `mutatesResponse: true`
+  (exposed by the catalog endpoint), the config form shows an inline warning — e.g.
+  *"Questo hook può modificare la risposta: i turni interessati non verranno inviati in
+  streaming."* — so the operator knows token streaming is disabled for those turns
+  (declare-and-buffer, §6).
 - **Conversazioni + Playground rendering:** hook executions render as a distinct **hook chip**
   (not a tool-result pill). An assistant message supplied (`halt`) or replaced
   (`replaceResponse`) by a hook shows a **provenance badge** ("Risposta dall'hook «name»")
