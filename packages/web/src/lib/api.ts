@@ -60,6 +60,7 @@ export type {
   EventDefinition,
   HookEvent,
   InstanceHook,
+  HookFunctionInfo,
   HookExecution,
   BacklogEvent,
   ActivityLogEntry,
@@ -106,6 +107,7 @@ import type {
   EventDefinition,
   HookEvent,
   InstanceHook,
+  HookFunctionInfo,
   HookExecution,
   BacklogEvent,
   ActivityLogEntry,
@@ -649,12 +651,14 @@ export const api = {
       request<{ hooks: InstanceHook[] }>(
         `/api/instances/${encodeURIComponent(slug)}/hooks`,
       ),
+    functions: () =>
+      request<{ hookFunctions: HookFunctionInfo[] }>("/api/hook-functions"),
     create: (
       slug: string,
       data: {
         event: HookEvent;
-        actionType?: "tool";
-        actionConfig: { toolName: string; args: Record<string, unknown> };
+        actionType?: "function";
+        actionConfig: { functionName: string };
         enabled?: boolean;
         position?: number;
         timeoutMs?: number;
@@ -669,7 +673,7 @@ export const api = {
       id: string,
       data: {
         event?: HookEvent;
-        actionConfig?: { toolName: string; args: Record<string, unknown> };
+        actionConfig?: { functionName: string };
         enabled?: boolean;
         position?: number;
         timeoutMs?: number;

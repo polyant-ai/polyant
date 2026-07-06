@@ -10,10 +10,12 @@ import type { HookEvent } from "@/lib/api";
 /** Minimal shape shared by persisted rows and live SSE summaries. */
 export interface HookExecutionView {
   event: HookEvent;
+  /** The hook function name (the persisted/telemetry field is still named toolName). */
   toolName: string;
   success: boolean;
   error?: string | null;
   durationMs: number;
+  /** Legacy tool args — always absent for hook functions (panel auto-hidden). */
   args?: Record<string, unknown> | null;
   result?: string | null;
 }
@@ -28,8 +30,8 @@ function formatResult(result: string): string {
 }
 
 /**
- * Compact pill for one lifecycle-hook execution. Clicking it toggles a panel
- * with the rendered tool args (input) and the truncated result (output).
+ * Compact pill for one lifecycle-hook execution. Shows the hook function name;
+ * clicking it toggles a panel with the truncated result (output) and any error.
  */
 export function HookExecutionPill({
   execution,
