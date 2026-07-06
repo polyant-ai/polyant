@@ -75,6 +75,7 @@ function toInstanceDto(instance: Instance) {
     langsmithProject: instance.langsmithProject,
     authEnabled: instance.authEnabled,
     thinkingEnabled: instance.thinkingEnabled,
+    thinkingLevel: instance.thinkingLevel,
     temperature: instance.temperature,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
@@ -230,6 +231,7 @@ export class InstancesController {
       langsmithProject?: string | null;
       authEnabled?: boolean;
       thinkingEnabled?: boolean;
+      thinkingLevel?: string;
       temperature?: number | null;
       stateInPromptEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
@@ -257,6 +259,9 @@ export class InstancesController {
     body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
     if (body.temperature !== undefined) {
       body.temperature = clampTemperature(body.temperature);
+    }
+    if (body.thinkingLevel !== undefined && !["low", "medium", "high"].includes(body.thinkingLevel)) {
+      throw new BadRequestException('thinkingLevel must be one of "low", "medium", "high"');
     }
     // Capture the pre-update state to detect an embedding-provider switch.
     const before = await findInstanceBySlug(asInstanceSlug(slug));

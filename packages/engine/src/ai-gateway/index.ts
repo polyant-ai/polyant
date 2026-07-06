@@ -100,6 +100,18 @@ function resolveCallConfig(
           ...buildOpenAIReasoningOptions(),
         } as Record<string, unknown>,
       };
+    } else if (providerName === "nebius") {
+      // Nebius (OpenAI-compatible) exposes reasoning intensity via the standard
+      // `reasoning_effort` body field. The @ai-sdk/openai-compatible provider maps
+      // `providerOptions.<name>.reasoningEffort` → `reasoning_effort`, where <name>
+      // is the createOpenAICompatible name ("nebius"). Portable set: low|medium|high.
+      providerOptions = {
+        ...providerOptions,
+        nebius: {
+          ...(providerOptions?.nebius ?? {}),
+          reasoningEffort: request.thinkingLevel ?? "medium",
+        } as Record<string, unknown>,
+      };
     }
   }
 

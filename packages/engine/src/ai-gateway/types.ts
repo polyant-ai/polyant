@@ -13,6 +13,12 @@ export interface ChatRequest {
   /** Override tier-resolved model with a specific model ID. */
   model?: string;
   thinking?: boolean;
+  /**
+   * Reasoning intensity when `thinking` is on (low|medium|high). Currently
+   * consumed only by the Nebius provider (→ `reasoning_effort`); other providers
+   * ignore it for now.
+   */
+  thinkingLevel?: string;
   /** Sampling temperature in [0, 2]. Omitted from the provider call when undefined. */
   temperature?: number;
   messages: ModelMessage[];

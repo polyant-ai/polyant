@@ -116,6 +116,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // model is not thinking-capable, but the state is preserved so that
   // switching back to a capable model reapplies the preference.
   const [thinkingEnabled, setThinkingEnabled] = useState(instance.thinkingEnabled);
+  // Reasoning intensity when thinking is on. Applied only by Nebius for now
+  // (maps to reasoning_effort). Portable set: low|medium|high.
+  const [thinkingLevel, setThinkingLevel] = useState<string>(instance.thinkingLevel ?? "medium");
 
   // Sampling temperature (0–2). Null means "use the engine default". Disabled
   // when the selected model does not support temperature (e.g. reasoning models).
@@ -285,6 +288,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     model !== (instance.model ?? "") ||
     embeddingProvider !== ((instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai") ||
     thinkingEnabled !== instance.thinkingEnabled ||
+    thinkingLevel !== (instance.thinkingLevel ?? "medium") ||
     temperature !== (instance.temperature ?? null) ||
     stateInPromptEnabled !== instance.stateInPromptEnabled ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
@@ -332,6 +336,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         knowledgeEnabled,
         authEnabled,
         thinkingEnabled,
+        thinkingLevel,
         temperature: canSetTemperature ? temperature : null,
         stateInPromptEnabled,
         toolResultsInHistoryEnabled,
@@ -553,6 +558,34 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               checked={thinkingEnabled}
               onCheckedChange={setThinkingEnabled}
             />
+          </div>
+        )}
+
+        {/*
+          Reasoning level (experiment, Nebius-only). Maps to reasoning_effort.
+          Shown only for Nebius reasoning models with thinking on. Portable set
+          low|medium|high — minimal/xhigh/max are rejected by some Nebius models.
+        */}
+        {canEnableThinking && thinkingEnabled && provider === "nebius" && (
+          <div className="flex items-start justify-between gap-4 border-t pt-4">
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">
+                {t("settings.tab.reasoningLevel")}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.reasoningLevelHelp")}
+              </p>
+            </div>
+            <Select value={thinkingLevel} onValueChange={setThinkingLevel}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="low">Low</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         )}
 

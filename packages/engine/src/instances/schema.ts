@@ -17,6 +17,9 @@ export const instances = pgTable("instances", {
   langsmithProject: varchar("langsmith_project", { length: 255 }),
   authEnabled: boolean("auth_enabled").notNull().default(false),
   thinkingEnabled: boolean("thinking_enabled").notNull().default(false),
+  // Reasoning intensity when thinkingEnabled. Currently consumed only by the
+  // Nebius provider (maps to reasoning_effort). Portable set: low|medium|high.
+  thinkingLevel: text("thinking_level").notNull().default("medium"),
   temperature: real("temperature"), // nullable; null = use the provider default
   /**
    * When true, the current conversation state store is rendered (read-only) into
