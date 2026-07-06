@@ -27,7 +27,7 @@ import type { ToolCallTrace } from "./analytics/traces.schema.js";
 import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
 import { emitConversation } from "./activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "./activity-stream/emit-helpers.js";
-import { runHooks, firstHalt, collectInjectContext } from "./hooks/hook-runner.js";
+import { runHooks, firstHalt, firstReplaceResponse, collectInjectContext, hookProvenance, type HookProvenance } from "./hooks/hook-runner.js";
 import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./hooks/hook-types.js";
 
 /**
@@ -360,6 +360,8 @@ export interface AfterResponseOptions {
   incomingSystemMessages?: Array<{ role: string; content: string }>;
   /** Raw inbound metadata (e.g. audio STT block) to persist alongside the user row. */
   inboundMetadata?: Record<string, unknown>;
+  /** Set when a hook (not the LLM) authored the reply — persisted as the assistant row's metadata for UI badging. */
+  provenance?: HookProvenance;
 }
 
 export function afterResponse(opts: AfterResponseOptions): void {
@@ -427,6 +429,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
         steps: opts.steps,
         reasoning: opts.reasoning,
         debugPayload: opts.debugPayload,
+        metadata: opts.provenance,
       },
     ]);
 
@@ -573,6 +576,8 @@ export interface PipelinePostOptions {
   isStreaming: boolean;
   /** When set and already aborted, skip persistence entirely. */
   abortSignal?: AbortSignal;
+  /** Set by a caller when the turn's reply was authored by a hook (pre-LLM halt), so it is badged in the UI. */
+  provenance?: HookProvenance;
 }
 
 export interface PipelinePostResult {
@@ -590,7 +595,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     return { finalText: opts.resultText, hookExecutions: [] };
   }
 
-  const finalText = opts.resultText;
+  let finalText = opts.resultText;
   const hookExecutions: HookExecutionSummary[] = [];
 
   // Lifecycle hooks: response_generated precedes outbound delivery on the
@@ -602,6 +607,13 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   if (hookPayload && hookCtx) {
     hookExecutions.push(...(await runHooks("response_generated", hookPayload, hookCtx)));
   }
+
+  // A response_generated hook may replace the reply text (post-LLM). Provenance
+  // badges the persisted assistant row as hook-authored — from the replace hook
+  // here, or from the caller's pre-LLM halt (opts.provenance).
+  const replace = firstReplaceResponse(hookExecutions);
+  if (replace) finalText = replace.message;
+  const provenance = hookProvenance(hookExecutions) ?? opts.provenance;
 
   const totalMs = Date.now() - ctx.pipelineStart;
   pipelineLog.response(ctx.instanceId, totalMs);
@@ -659,6 +671,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     userAttachments: ctx.userAttachments,
     incomingSystemMessages: ctx.incomingSystemMessages,
     inboundMetadata: ctx.inboundMetadata,
+    provenance,
   });
 
   // ContextPrompt is one-shot: if we loaded it for this turn, clear it so

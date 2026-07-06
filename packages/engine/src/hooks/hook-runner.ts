@@ -33,6 +33,27 @@ export function firstReplaceResponse(summaries: HookExecutionSummary[]): HookRep
   return summaries.find((s) => s.replaceResponse)?.replaceResponse;
 }
 
+/**
+ * Set on a persisted reply when a hook (not the LLM) authored it, so the UI can
+ * badge it. Typed with an index signature so it slots straight into the message
+ * `metadata` jsonb column (Record<string, unknown>).
+ */
+export type HookProvenance = {
+  source: "hook";
+  hookName: string;
+} & Record<string, unknown>;
+
+/**
+ * Provenance for a reply authored by a hook: the halt (pre-LLM) or the
+ * replaceResponse (post-LLM) hook that produced it, badged by function name.
+ * Replace wins over halt (they never co-occur in one phase). Undefined when the
+ * LLM authored the reply.
+ */
+export function hookProvenance(summaries: HookExecutionSummary[]): HookProvenance | undefined {
+  const src = summaries.find((s) => s.replaceResponse) ?? summaries.find((s) => s.halt);
+  return src ? { source: "hook", hookName: src.toolName || "hook" } : undefined;
+}
+
 /** All context-injection strings requested across a run's summaries, in order. */
 export function collectInjectContext(summaries: HookExecutionSummary[]): string[] {
   return summaries.map((s) => s.injectContext).filter((c): c is string => !!c);

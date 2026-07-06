@@ -38,6 +38,7 @@ import {
   runPipelinePre,
   runPipelinePost,
 } from "./pipeline.js";
+import { hookProvenance } from "./hooks/hook-runner.js";
 import { runOptoutGate } from "./optout/index.js";
 
 // ---------------------------------------------------------------------------
@@ -219,6 +220,7 @@ async function main() {
         toolBuildingMs: 0,
         isStreaming: false,
         abortSignal,
+        provenance: hookProvenance(pre.hookExecutions),
       });
       return { text: finalText };
     }
@@ -326,6 +328,7 @@ async function main() {
         toolBuildingMs: 0,
         isStreaming: true,
         abortSignal,
+        provenance: hookProvenance(pre.hookExecutions),
       }).then(({ finalText, hookExecutions }) => ({ text: finalText, hookExecutions }));
 
       return {

@@ -25,7 +25,7 @@ vi.mock("../audit/audit-logger.js", () => ({
   createAuditLogger: () => ({ log: auditLogMock }),
 }));
 
-import { runHooks, collectInjectContext } from "./hook-runner.js";
+import { runHooks, collectInjectContext, hookProvenance } from "./hook-runner.js";
 import type { HookEventPayload, HookExecutionSummary, HookRunContext, InstanceHookRow } from "./hook-types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
@@ -251,5 +251,53 @@ describe("collectInjectContext", () => {
   it("should_drop_empty_strings_and_return_empty_when_none_present", () => {
     expect(collectInjectContext([summary({}), summary({ injectContext: "" })])).toEqual([]);
     expect(collectInjectContext([])).toEqual([]);
+  });
+});
+
+describe("hookProvenance", () => {
+  function summary(overrides: Partial<HookExecutionSummary>): HookExecutionSummary {
+    return {
+      hookId: "h",
+      event: "message_received",
+      actionType: "function",
+      toolName: "t",
+      success: true,
+      durationMs: 1,
+      ...overrides,
+    };
+  }
+
+  it("should_return_undefined_when_no_replace_or_halt", () => {
+    expect(hookProvenance([summary({}), summary({ injectContext: "x" })])).toBeUndefined();
+    expect(hookProvenance([])).toBeUndefined();
+  });
+
+  it("should_badge_the_replace_hook_by_name", () => {
+    expect(
+      hookProvenance([summary({}), summary({ toolName: "replacer", replaceResponse: { message: "new" } })]),
+    ).toEqual({ source: "hook", hookName: "replacer" });
+  });
+
+  it("should_badge_the_halt_hook_by_name", () => {
+    expect(hookProvenance([summary({ toolName: "halter", halt: { message: "stop" } })])).toEqual({
+      source: "hook",
+      hookName: "halter",
+    });
+  });
+
+  it("should_prefer_replace_over_halt", () => {
+    expect(
+      hookProvenance([
+        summary({ toolName: "halter", halt: { message: "stop" } }),
+        summary({ toolName: "replacer", replaceResponse: { message: "new" } }),
+      ]),
+    ).toEqual({ source: "hook", hookName: "replacer" });
+  });
+
+  it("should_fall_back_to_generic_name_when_toolName_empty", () => {
+    expect(hookProvenance([summary({ toolName: "", replaceResponse: { message: "new" } })])).toEqual({
+      source: "hook",
+      hookName: "hook",
+    });
   });
 });
