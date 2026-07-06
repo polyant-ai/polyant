@@ -25,8 +25,8 @@ vi.mock("../audit/audit-logger.js", () => ({
   createAuditLogger: () => ({ log: auditLogMock }),
 }));
 
-import { runHooks } from "./hook-runner.js";
-import type { HookEventPayload, HookRunContext, InstanceHookRow } from "./hook-types.js";
+import { runHooks, collectInjectContext } from "./hook-runner.js";
+import type { HookEventPayload, HookExecutionSummary, HookRunContext, InstanceHookRow } from "./hook-types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
 const payload: HookEventPayload = {
@@ -222,5 +222,34 @@ describe("runHooks", () => {
     expect(await runHooks("message_received", payload, baseCtx)).toEqual([]);
     getEnabledHooksMock.mockRejectedValue(new Error("db down"));
     expect(await runHooks("message_received", payload, baseCtx)).toEqual([]);
+  });
+});
+
+describe("collectInjectContext", () => {
+  function summary(overrides: Partial<HookExecutionSummary>): HookExecutionSummary {
+    return {
+      hookId: "h",
+      event: "message_received",
+      actionType: "function",
+      toolName: "t",
+      success: true,
+      durationMs: 1,
+      ...overrides,
+    };
+  }
+
+  it("should_return_non_empty_inject_context_strings_in_order", () => {
+    expect(
+      collectInjectContext([
+        summary({ injectContext: "first" }),
+        summary({}),
+        summary({ injectContext: "second" }),
+      ]),
+    ).toEqual(["first", "second"]);
+  });
+
+  it("should_drop_empty_strings_and_return_empty_when_none_present", () => {
+    expect(collectInjectContext([summary({}), summary({ injectContext: "" })])).toEqual([]);
+    expect(collectInjectContext([])).toEqual([]);
   });
 });

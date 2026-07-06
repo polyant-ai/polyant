@@ -27,7 +27,7 @@ import type { ToolCallTrace } from "./analytics/traces.schema.js";
 import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
 import { emitConversation } from "./activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "./activity-stream/emit-helpers.js";
-import { runHooks, firstHalt } from "./hooks/hook-runner.js";
+import { runHooks, firstHalt, collectInjectContext } from "./hooks/hook-runner.js";
 import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./hooks/hook-types.js";
 
 /**
@@ -315,6 +315,15 @@ function buildHookRunContext(ctx: PipelineContext, abortSignal?: AbortSignal): H
     secrets: ctx.instanceConfig.secrets,
     apiKeys: ctx.instanceConfig.apiKeys,
     provider: ctx.instanceConfig.provider,
+    model: ctx.instanceConfig.model,
+    flags: {
+      memory: ctx.instanceConfig.memoryEnabled,
+      knowledge: ctx.instanceConfig.knowledgeEnabled,
+      thinking: ctx.instanceConfig.thinkingEnabled,
+      debug: ctx.instanceConfig.debugEnabled,
+      stateInPrompt: ctx.instanceConfig.stateInPromptEnabled,
+      toolResultsInHistory: ctx.instanceConfig.toolResultsInHistoryEnabled,
+    },
     state: ctx.stateBuffer?.api(),
     abortSignal,
   };
@@ -517,6 +526,14 @@ export async function runPipelinePre(
       hookExecutions.push(...(await runHooks("conversation_start", hookPayload, hookCtx)));
     }
     hookExecutions.push(...(await runHooks("message_received", hookPayload, hookCtx)));
+  }
+
+  // A pre-LLM hook may contribute one-shot context to this turn's LLM input.
+  // The engine folds mid-array `system` messages into the top-level system prompt.
+  const injected = collectInjectContext(hookExecutions);
+  if (injected.length > 0) {
+    const sys: ModelMessage[] = injected.map((text) => ({ role: "system", content: text }));
+    ctx.history = [...(ctx.history ?? []), ...sys];
   }
 
   // A pre-LLM hook may request a halt: skip the supervisor and reply with its text.
