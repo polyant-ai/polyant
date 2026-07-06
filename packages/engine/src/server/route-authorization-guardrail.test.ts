@@ -22,6 +22,7 @@ import { WebhookController } from "./webhooks/webhook.controller.js";
 import { TwilioWebhookController } from "./channels/twilio-webhook.controller.js";
 import { RoomController } from "./room/room.controller.js";
 import { InstanceHooksController } from "./hooks/instance-hooks.controller.js";
+import { HookFunctionsController } from "./hooks/hook-functions.controller.js";
 import { EventSourcesController } from "./webhooks/webhook-sources.controller.js";
 import { WebhookBacklogController } from "./webhooks/webhook-backlog.controller.js";
 import { AuditController } from "./audit/audit.controller.js";
@@ -55,6 +56,7 @@ const ALL_CONTROLLERS = [
   TwilioWebhookController,
   RoomController,
   InstanceHooksController,
+  HookFunctionsController,
   EventSourcesController,
   WebhookBacklogController,
   AuditController,
