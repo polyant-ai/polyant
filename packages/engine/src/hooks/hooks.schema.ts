@@ -5,7 +5,7 @@ import { instances } from "../instances/schema.js";
 import type { HookActionConfig } from "./hook-types.js";
 
 /**
- * Per-instance lifecycle hooks: run an action (v1: a tool with template args)
+ * Per-instance lifecycle hooks: run an action (a registered hook function)
  * when a conversation lifecycle event fires. See
  * docs/superpowers/specs/2026-06-10-hook-system-design.md.
  */
@@ -15,7 +15,7 @@ export const instanceHooks = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
     event: varchar("event", { length: 32 }).notNull(),
-    actionType: varchar("action_type", { length: 32 }).notNull().default("tool"),
+    actionType: varchar("action_type", { length: 32 }).notNull().default("function"),
     actionConfig: jsonb("action_config").$type<HookActionConfig>().notNull(),
     enabled: boolean("enabled").notNull().default(true),
     position: integer("position").notNull().default(0),
