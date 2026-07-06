@@ -79,6 +79,10 @@ export interface HookRunContext {
   secrets: Record<string, string>;
   apiKeys?: ChatRequest["apiKeys"];
   provider?: string;
+  /** Tier-resolved model override (e.g. "claude-x"), forwarded to ctx.ai / gateway. */
+  model?: string;
+  /** Per-instance behaviour flags surfaced to hook functions via ctx.instance.flags. */
+  flags?: Record<string, boolean>;
   /** Per-run conversation state API (same buffer as the supervisor's tools). */
   state?: ConversationStateApi;
   /** Pipeline abort signal — remaining hooks are skipped once aborted. */
