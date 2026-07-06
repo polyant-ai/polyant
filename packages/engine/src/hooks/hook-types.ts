@@ -3,12 +3,20 @@
 import type { InstanceSlug } from "../instances/identifiers.js";
 import type { ConversationStateApi } from "../conversations/state.buffer.js";
 import type { ChatRequest } from "../ai-gateway/types.js";
+import type { HookResult, HookContext, HookFunctionDefinition, HookSpec } from "@polyant-ai/plugin-sdk";
+
+export type { HookResult, HookContext, HookFunctionDefinition, HookSpec };
 
 /** Reserved key a tool returns to halt the pipeline and supply a system-authored reply. */
 export const HOOK_HALT_KEY = "__haltPipeline" as const;
 
 /** Payload of a halt: the message delivered to the user in place of the LLM turn. */
 export interface HookHaltSignal {
+  message: string;
+}
+
+/** Payload of a response replacement (post-LLM). */
+export interface HookReplaceSignal {
   message: string;
 }
 
@@ -36,19 +44,21 @@ export const HOOK_EVENTS = [
 
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
-/** Action types. v1 implements only `tool`; future types are additive. */
-export const HOOK_ACTION_TYPES = ["tool"] as const;
+/** Action types. Both are valid during the tool→function migration; T6 drops `tool`. */
+export const HOOK_ACTION_TYPES = ["tool", "function"] as const;
 
 export type HookActionType = (typeof HOOK_ACTION_TYPES)[number];
 
 /**
  * Per-action configuration stored in `instance_hooks.action_config` (jsonb).
- * For `tool` actions: which registered tool to run and the args template
- * ({{path}} placeholders resolved against the event payload).
+ * Transitional during the tool→function migration: both shapes coexist.
  */
 export interface HookActionConfig {
-  toolName: string;
-  args: Record<string, unknown>;
+  /** tool action (legacy, removed in the cutover). */
+  toolName?: string;
+  args?: Record<string, unknown>;
+  /** function action (new). */
+  functionName?: string;
 }
 
 /** Server-built event payload — the ONLY source for template placeholders. */
@@ -108,6 +118,10 @@ export interface HookExecutionSummary {
   result?: string;
   /** Present when this hook's tool requested a halt (first halt wins). */
   halt?: HookHaltSignal;
+  /** Present when this hook requested a post-LLM response replacement. */
+  replaceResponse?: HookReplaceSignal;
+  /** Present when this hook requested context injection. */
+  injectContext?: string;
 }
 
 /**
@@ -120,6 +134,10 @@ export interface HookExecutionCapture {
   result?: string;
   /** Set when the executed tool requested a pipeline halt. */
   halt?: HookHaltSignal;
+  /** Set when the hook requested a post-LLM response replacement. */
+  replaceResponse?: HookReplaceSignal;
+  /** Set when the hook requested context injection. */
+  injectContext?: string;
 }
 
 /** One executor per action type, resolved by the runner from a registry map. */

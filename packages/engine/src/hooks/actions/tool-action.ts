@@ -36,6 +36,7 @@ function serializeResult(value: unknown): string | undefined {
 export const toolActionExecutor: HookActionExecutor = {
   async execute(hook, payload, ctx, capture) {
     const { toolName, args } = hook.actionConfig;
+    if (!toolName) throw new Error("tool action is missing toolName");
     const def = getToolRegistry().get(toolName);
     if (!def) throw new Error(`tool "${toolName}" is not registered`);
     if (def.metaTool) throw new Error(`tool "${toolName}" is a meta-tool and cannot be used in hooks`);

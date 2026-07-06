@@ -69,7 +69,8 @@ export async function runHooks(
       console.warn(`[hooks] ${event} hook ${hook.id}: unknown action type "${hook.actionType}" — skipping`);
       continue;
     }
-    const toolName = hook.actionConfig.toolName;
+    // Transitional: `tool` hooks carry toolName; `function` hooks don't (T6).
+    const toolName = hook.actionConfig.toolName ?? "";
     const audit = createAuditLogger(`hook:${toolName}`, ctx.instanceId, ctx.conversationId);
     const started = Date.now();
     let success = true;
