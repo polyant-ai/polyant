@@ -23,7 +23,7 @@ describe("readPluginManifest", () => {
 });
 
 describe("engineSatisfies", () => {
-  const mk = (engine: string) => ({ name: "p", version: "1.0.0", engine, toolsDir: "tools", namespace: "p" });
+  const mk = (engine: string) => ({ name: "p", version: "1.0.0", engine, toolsDir: "tools", hooksDir: "hooks", namespace: "p" });
 
   it("true when the engine version is inside the range", () => {
     expect(engineSatisfies(mk(">=0.1.0"), "0.1.0")).toBe(true);

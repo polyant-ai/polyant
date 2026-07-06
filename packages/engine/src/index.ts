@@ -18,6 +18,7 @@ import { startServer } from "./server/main.js";
 import { type AgentCallMetadata, type IncomingMessage, type OutgoingMessage, type StreamOutgoingMessage } from "./channels/types.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { loadAllTools, getToolRegistry } from "./agents/tools/registry.js";
+import { loadAllHooks } from "./hooks/hook-loader.js";
 import { syncToolsToDb } from "./agents/tools/tools-sync.js";
 import { traceStore } from "./analytics/trace.store.js";
 import { auditStore } from "./audit/audit.store.js";
@@ -112,6 +113,10 @@ async function main() {
   // 1b. Load tool registry (auto-discover *.tool.ts files)
   await loadAllTools();
   console.log("Tool registry loaded");
+
+  // 1b-0. Load hook function registry (auto-discover *.hook.ts files)
+  await loadAllHooks();
+  console.log("Hook function registry loaded");
 
   // 1b-i. Check platform S3 configuration
   if (!isPlatformStorageConfigured()) {
