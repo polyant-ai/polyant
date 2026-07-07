@@ -223,9 +223,15 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // ai-gateway/config.ts), so the UI cannot drift from runtime behaviour.
   const canEnableThinking = !!selectedModelInfo?.supportsThinking;
 
+  // Effective thinking mirrors the engine's runtime gate (config-resolver.ts):
+  // a stale `thinkingEnabled=true` persisted for a now-non-capable model has no
+  // effect. Without this gate the temperature field stays wrongly locked (and
+  // its hidden toggle is unreachable) after switching to a non-thinking model.
+  const effectiveThinkingEnabled = thinkingEnabled && canEnableThinking;
+
   // Temperature control is available only when the model supports it AND the
   // user has not enabled extended thinking (reasoning mode ignores temperature).
-  const canSetTemperature = !!selectedModelInfo?.supportsTemperature && !thinkingEnabled;
+  const canSetTemperature = !!selectedModelInfo?.supportsTemperature && !effectiveThinkingEnabled;
 
   // Reset model when provider changes
   const handleProviderChange = (value: string) => {

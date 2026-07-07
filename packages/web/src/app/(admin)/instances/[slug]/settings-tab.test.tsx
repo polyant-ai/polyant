@@ -539,6 +539,33 @@ describe("SettingsTab", () => {
     expect(screen.getByLabelText(/temperature/i)).toBeDisabled();
   });
 
+  it("keeps temperature editable when a stale thinkingEnabled flag survives on a non-thinking model", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        bedrock: {
+          models: [
+            { id: "qwen3", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true },
+          ],
+        },
+      },
+    });
+
+    render(
+      <SettingsTab
+        instance={makeInstance({ provider: "bedrock", model: "qwen3", thinkingEnabled: true })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // The thinking toggle is hidden (model non-capable) but the persisted flag
+    // must not lock the temperature field — mirrors the engine runtime gate.
+    expect(screen.getByLabelText(/temperature/i)).not.toBeDisabled();
+  });
+
   it("includes temperature in the save payload", async () => {
     const user = userEvent.setup();
     mockModelsList.mockResolvedValue({
