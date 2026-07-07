@@ -92,6 +92,7 @@ describe("MembersService", () => {
     expect(bindings.removeBinding).toHaveBeenCalledWith({
       organizationId: ORG_ID,
       userId: "u2",
+      actorId: "actor-1",
     });
   });
 

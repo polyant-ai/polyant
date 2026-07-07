@@ -142,6 +142,7 @@ describe("isThinkingCapable", () => {
   describe("Anthropic", () => {
     it.each([
       ["claude-3-7-sonnet-20250219", true],
+      ["claude-sonnet-5", true],
       ["claude-sonnet-4-6", true],
       ["claude-sonnet-4-5-20250929", true],
       ["claude-opus-4-8", true],
@@ -158,6 +159,8 @@ describe("isThinkingCapable", () => {
   describe("Bedrock", () => {
     it.each([
       ["anthropic.claude-sonnet-4-20250514-v1:0", true],
+      ["eu.anthropic.claude-sonnet-5", true],
+      ["global.anthropic.claude-sonnet-5", true],
       ["anthropic.claude-opus-4-20250514-v1:0", true],
       ["anthropic.claude-3-5-haiku-20241022-v1:0", false],
       ["amazon.nova-lite-v1:0", false],

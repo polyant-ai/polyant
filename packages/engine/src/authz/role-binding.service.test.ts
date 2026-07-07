@@ -31,7 +31,11 @@ vi.mock("../organizations/members.store.js", () => ({
 }));
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { BadRequestException, ConflictException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from "@nestjs/common";
 import { RoleBindingService } from "./role-binding.service.js";
 
 const ORG = "org-1";
@@ -104,6 +108,76 @@ describe("RoleBindingService", () => {
       const { service } = makeService();
       await service.assignRole({ organizationId: ORG, userId: "u1", roleKey: "owner" });
       expect(mockUpsertOrgScopeBinding).toHaveBeenCalled();
+    });
+  });
+
+  describe("role hierarchy (escalation guard)", () => {
+    // Resolve each user's current role by id so actor and target can differ.
+    function rolesByUser(map: Record<string, string | null>) {
+      mockGetOrgScopeRoleKey.mockImplementation(async (_org: string, uid: string) =>
+        uid in map ? map[uid] : null,
+      );
+    }
+
+    it("blocks an admin self-promoting to owner", async () => {
+      rolesByUser({ actor: "admin", actor2: "admin" });
+      const { service } = makeService();
+      await expect(
+        service.assignRole({
+          organizationId: ORG,
+          userId: "actor", // promoting self
+          roleKey: "owner",
+          actorId: "actor",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(mockUpsertOrgScopeBinding).not.toHaveBeenCalled();
+    });
+
+    it("lets an admin assign member/viewer to a lower-ranked user", async () => {
+      rolesByUser({ actor: "admin", target: "viewer" });
+      const { service } = makeService();
+      await service.assignRole({
+        organizationId: ORG,
+        userId: "target",
+        roleKey: "member",
+        actorId: "actor",
+      });
+      expect(mockUpsertOrgScopeBinding).toHaveBeenCalled();
+    });
+
+    it("lets an owner assign owner (owner-to-owner)", async () => {
+      rolesByUser({ actor: "owner", target: "member" });
+      const { service } = makeService();
+      await service.assignRole({
+        organizationId: ORG,
+        userId: "target",
+        roleKey: "owner",
+        actorId: "actor",
+      });
+      expect(mockUpsertOrgScopeBinding).toHaveBeenCalled();
+    });
+
+    it("blocks an admin from demoting an owner", async () => {
+      rolesByUser({ actor: "admin", target: "owner" });
+      const { service } = makeService();
+      await expect(
+        service.assignRole({
+          organizationId: ORG,
+          userId: "target",
+          roleKey: "member",
+          actorId: "actor",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(mockUpsertOrgScopeBinding).not.toHaveBeenCalled();
+    });
+
+    it("blocks an admin from removing an owner", async () => {
+      rolesByUser({ actor: "admin", target: "owner" });
+      const { service } = makeService();
+      await expect(
+        service.removeBinding({ organizationId: ORG, userId: "target", actorId: "actor" }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(mockDeleteOrgScopeBinding).not.toHaveBeenCalled();
     });
   });
 

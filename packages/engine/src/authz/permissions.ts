@@ -63,6 +63,15 @@ export const SYSTEM_ROLES: readonly SystemRoleDefinition[] = [
   { key: "viewer", name: "Viewer", level: 10 },
 ] as const;
 
+const ROLE_LEVEL: Readonly<Record<SystemRoleKey, number>> = Object.fromEntries(
+  SYSTEM_ROLES.map((r) => [r.key, r.level]),
+) as Record<SystemRoleKey, number>;
+
+/** The hierarchy level of a system role. Higher = more privileged. */
+export function roleLevel(key: SystemRoleKey): number {
+  return ROLE_LEVEL[key];
+}
+
 /** All read-only permissions a Viewer holds (secrets excluded by design). */
 const VIEWER_PERMISSIONS: readonly PermissionKey[] = [
   Permission.AGENT_READ,
