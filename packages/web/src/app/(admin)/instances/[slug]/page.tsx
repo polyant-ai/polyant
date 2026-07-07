@@ -2,8 +2,8 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Trash2, Download } from "lucide-react";
@@ -61,10 +61,31 @@ function HeaderSaveButton() {
   );
 }
 
-export default function InstanceDetailPage() {
+const TAB_VALUES = [
+  "general", "prompts", "tools", "skills", "knowledge", "settings",
+  "channels", "analytics", "triggers", "room", "hooks", "privacy",
+] as const;
+const DEFAULT_TAB = "general";
+
+function InstanceDetailContent() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { t } = useI18n();
+
+  const tabParam = searchParams.get("tab");
+  const activeTab =
+    tabParam && (TAB_VALUES as readonly string[]).includes(tabParam)
+      ? tabParam
+      : DEFAULT_TAB;
+
+  const handleTabChange = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", value);
+    // push (not replace) so browser back/forward navigates between visited tabs
+    router.push(`${pathname}?${next.toString()}`, { scroll: false });
+  };
   const [instance, setInstance] = useState<Instance | null>(null);
   const [tools, setTools] = useState<ToolState[]>([]);
   const [skills, setSkills] = useState<SkillState[]>([]);
@@ -203,7 +224,7 @@ export default function InstanceDetailPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="general" className="mt-8">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-8">
         <TabsList>
           <TabsTrigger value="general">{t("instances.detail.tabGeneral")}</TabsTrigger>
           <TabsTrigger value="prompts">{t("instances.detail.tabPrompts")}</TabsTrigger>
@@ -271,5 +292,13 @@ export default function InstanceDetailPage() {
       </Tabs>
     </div>
     </PageActionsProvider>
+  );
+}
+
+export default function InstanceDetailPage() {
+  return (
+    <Suspense fallback={null}>
+      <InstanceDetailContent />
+    </Suspense>
   );
 }
