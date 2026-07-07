@@ -41,6 +41,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // Haiku 4.5 (fast)
       "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00 },
       // Sonnet family
+      "claude-sonnet-5": { input: 3.00, output: 15.00 },
       "claude-sonnet-4-6": { input: 3.00, output: 15.00 },
       "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00 },
       // Opus family
@@ -75,6 +76,8 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "eu.anthropic.claude-sonnet-4-20250514-v1:0": { input: 3.00, output: 15.00 },
       "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00 },
       "eu.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00 },
+      // ponytail: profile ID follows the sonnet-4-6 form; confirm EU invocability + pricing before promoting to `standard`.
+      "eu.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00 },
       "eu.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00 },
       "eu.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00 },
       "eu.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00 },
@@ -84,6 +87,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "global.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00 },
       "global.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00 },
       "global.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00 },
+      "global.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00 },
       "global.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00 },
       "global.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00 },
       "global.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00 },
@@ -188,12 +192,12 @@ export function isThinkingCapable(provider: string, modelId: string): boolean {
       // their 4.5/4.6 sub-versions. Examples covered:
       //   claude-3-7-sonnet-*
       //   claude-sonnet-4-5-20250929, claude-opus-4-6, claude-haiku-4-5-*
-      return /^claude-(3-7|opus-4|sonnet-4|haiku-4)/.test(modelId);
+      return /^claude-(3-7|opus-4|sonnet-4|sonnet-5|haiku-4)/.test(modelId);
     case "bedrock":
       // Bedrock-hosted Claude 4+ variants. Model IDs are cross-region inference
       // profiles, so an optional region prefix (eu./us./apac./global.) precedes
       // the `anthropic.` segment — without it, eu.* profiles were never matched.
-      return /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-(sonnet-4|opus-4)/.test(modelId);
+      return /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-(sonnet-4|sonnet-5|opus-4)/.test(modelId);
     default:
       return false;
   }

@@ -43,7 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, getUserErrorMessage, type Instance, type SecretStatus, type ModelsResponse, type RequiredSecretSpec } from "@/lib/api";
+import { api, ApiError, getUserErrorMessage, type Instance, type SecretStatus, type ModelsResponse, type RequiredSecretSpec } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
 
@@ -94,6 +94,9 @@ function humanizeSecretKey(key: string): string {
 export function SettingsTab({ instance, onUpdate }: Props) {
   const { t } = useI18n();
   const [secrets, setSecrets] = useState<SecretStatus[]>([]);
+  // SECRET_READ is admin+; member/viewer get a 403 on secrets.list. Hide the
+  // provider-secret UI for them instead of surfacing a misleading error.
+  const [canReadSecrets, setCanReadSecrets] = useState(true);
   const [modelsData, setModelsData] = useState<ModelsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -176,17 +179,40 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   );
 
   useEffect(() => {
-    Promise.all([
+    let cancelled = false;
+    // Decoupled: a member can read models/tools but not secrets. Loading them
+    // atomically let an admin-only secrets 403 blank the whole tab (incl. the
+    // provider/model selectors the member IS allowed to use). allSettled keeps
+    // each independent.
+    Promise.allSettled([
       api.secrets.list(instance.slug),
       api.models.list(),
       api.tools.requiredSecrets(instance.slug),
     ]).then(([secretsRes, modelsRes, toolSecretsRes]) => {
-      setSecrets(secretsRes.secrets);
-      setModelsData(modelsRes);
-      setToolSecretSpecs(toolSecretsRes.requiredSecrets);
-    }).catch(() => {
-      toast.error(t("settings.tab.loadFailed"));
-    }).finally(() => setLoading(false));
+      if (cancelled) return;
+      if (modelsRes.status === "fulfilled") setModelsData(modelsRes.value);
+      else toast.error(t("settings.tab.loadFailed"));
+
+      if (toolSecretsRes.status === "fulfilled") {
+        setToolSecretSpecs(toolSecretsRes.value.requiredSecrets);
+      }
+
+      if (secretsRes.status === "fulfilled") {
+        setSecrets(secretsRes.value.secrets);
+      } else if (
+        secretsRes.reason instanceof ApiError &&
+        secretsRes.reason.status === 403
+      ) {
+        setCanReadSecrets(false); // expected for member/viewer — degrade silently
+      } else {
+        toast.error(t("settings.tab.loadFailed"));
+      }
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [instance.slug]);
 
   useEffect(() => {
@@ -606,7 +632,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         </div>
       </section>
 
-      {/* AI Provider API Keys */}
+      {/* AI Provider API Keys — SECRET_READ only (hidden for member/viewer) */}
+      {canReadSecrets && (
       <section className="space-y-4 rounded-lg border p-4">
         <div>
           <Label className="text-base font-medium">{t("settings.tab.apiKeys")}</Label>
@@ -637,6 +664,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           onRemove={isConfigured(SECRET_KEYS.ANTHROPIC) ? () => handleRemoveSecret(SECRET_KEYS.ANTHROPIC) : undefined}
         />
       </section>
+      )}
 
       {/*
         AWS provider credentials — shown whenever ANY AWS-backed AI service is in
@@ -644,7 +672,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         all three (same AWS account), dedicated to the AI provider and independent
         of the generic aws_* secrets a tool may declare.
       */}
-      {(provider === "bedrock" || embeddingProvider === "bedrock" || sttProvider === "aws") && (
+      {canReadSecrets && (provider === "bedrock" || embeddingProvider === "bedrock" || sttProvider === "aws") && (
         <section className="space-y-4 rounded-lg border p-4">
           <div>
             <Label className="text-base font-medium">{t("settings.tab.awsCredentials")}</Label>

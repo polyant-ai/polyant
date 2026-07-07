@@ -58,7 +58,7 @@ export class MembersService {
 
   async remove(orgSlug: string, userId: string, caller: MembersCaller): Promise<void> {
     const organizationId = await this.resolveAndAuthorize(orgSlug, caller);
-    await this.roleBindings.removeBinding({ organizationId, userId });
+    await this.roleBindings.removeBinding({ organizationId, userId, actorId: caller.userId });
   }
 
   /**
