@@ -30,6 +30,7 @@ const nextConfig: NextConfig = {
       { source: "/api/skills/:path*", destination: `${ENGINE_URL}/api/skills/:path*` },
       { source: "/api/tools/:path*", destination: `${ENGINE_URL}/api/tools/:path*` },
       { source: "/api/tools", destination: `${ENGINE_URL}/api/tools` },
+      { source: "/api/hook-functions", destination: `${ENGINE_URL}/api/hook-functions` },
       { source: "/api/attachments/:path*", destination: `${ENGINE_URL}/api/attachments/:path*` },
       { source: "/api/audit-logs/:path*", destination: `${ENGINE_URL}/api/audit-logs/:path*` },
       { source: "/api/users/:path*", destination: `${ENGINE_URL}/api/users/:path*` },
