@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, Loader2, Info, Zap, Coins, Terminal, FileText, Mic, SearchCode, Database } from "lucide-react";
+import { Trash2, Loader2, Info, Zap, Coins, Terminal, FileText, Mic, SearchCode, Database, Webhook } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -516,6 +516,12 @@ export default function ConversationDetailPage() {
                       aria-label="Messaggio originato da audio"
                     >
                       <Mic className="h-3 w-3" />
+                    </span>
+                  )}
+                  {msg.role !== "user" && msg.metadata?.source === "hook" && (
+                    <span className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Webhook className="h-3 w-3" />
+                      {t("message.provenance.hook", { name: String(msg.metadata.hookName ?? "") })}
                     </span>
                   )}
                   {/* Reasoning + steps panels above message text. Default open

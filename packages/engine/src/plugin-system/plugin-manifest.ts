@@ -19,6 +19,8 @@ export const pluginManifestSchema = z.object({
   engine: z.string().min(1),
   /** Directory (relative to the plugin root) scanned for *.tool.ts. Defaults to "tools". */
   toolsDir: z.string().min(1).default("tools"),
+  /** Directory (relative to the plugin root) scanned for *.hook.ts. Defaults to "hooks". */
+  hooksDir: z.string().min(1).default("hooks"),
   /** Tool-name prefix applied to every tool in this plugin. Defaults to `name`.
    * Empty string is rejected — there is no "unprefixed plugin" option. */
   namespace: z.string().min(1).optional(),

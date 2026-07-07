@@ -39,7 +39,7 @@ export const exportChannelSchema = z.object({
 export const exportHookSchema = z.object({
   event: z.string(),
   actionType: z.string(),
-  // { toolName, args } — args are static {{path}} templates, never secrets.
+  // { functionName } — the registered hook function to run.
   actionConfig: z.record(z.unknown()),
   enabled: z.boolean(),
   position: z.number(),

@@ -3,27 +3,18 @@
 import type { InstanceSlug } from "../instances/identifiers.js";
 import type { ConversationStateApi } from "../conversations/state.buffer.js";
 import type { ChatRequest } from "../ai-gateway/types.js";
+import type { HookResult, HookContext, HookFunctionDefinition, HookSpec } from "@polyant-ai/plugin-sdk";
 
-/** Reserved key a tool returns to halt the pipeline and supply a system-authored reply. */
-export const HOOK_HALT_KEY = "__haltPipeline" as const;
+export type { HookResult, HookContext, HookFunctionDefinition, HookSpec };
 
 /** Payload of a halt: the message delivered to the user in place of the LLM turn. */
 export interface HookHaltSignal {
   message: string;
 }
 
-/**
- * Read a halt signal from a tool's (unknown) result. Malformed shapes — missing
- * key, non-object, empty/non-string message — yield undefined so a buggy tool
- * never produces an empty reply. Contract-agnostic: works with any tool result.
- */
-export function extractHalt(result: unknown): HookHaltSignal | undefined {
-  if (!result || typeof result !== "object") return undefined;
-  const raw = (result as Record<string, unknown>)[HOOK_HALT_KEY];
-  if (!raw || typeof raw !== "object") return undefined;
-  const message = (raw as Record<string, unknown>).message;
-  if (typeof message !== "string" || message.trim() === "") return undefined;
-  return { message };
+/** Payload of a response replacement (post-LLM). */
+export interface HookReplaceSignal {
+  message: string;
 }
 
 /** Conversation lifecycle events a hook can subscribe to. */
@@ -36,19 +27,15 @@ export const HOOK_EVENTS = [
 
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
-/** Action types. v1 implements only `tool`; future types are additive. */
-export const HOOK_ACTION_TYPES = ["tool"] as const;
+/** Action types. Only `function` after the tool→function cutover. */
+export const HOOK_ACTION_TYPES = ["function"] as const;
 
 export type HookActionType = (typeof HOOK_ACTION_TYPES)[number];
 
-/**
- * Per-action configuration stored in `instance_hooks.action_config` (jsonb).
- * For `tool` actions: which registered tool to run and the args template
- * ({{path}} placeholders resolved against the event payload).
- */
+/** Per-action configuration stored in `instance_hooks.action_config` (jsonb). */
 export interface HookActionConfig {
-  toolName: string;
-  args: Record<string, unknown>;
+  /** Registered hook function to run. */
+  functionName: string;
 }
 
 /** Server-built event payload — the ONLY source for template placeholders. */
@@ -69,6 +56,10 @@ export interface HookRunContext {
   secrets: Record<string, string>;
   apiKeys?: ChatRequest["apiKeys"];
   provider?: string;
+  /** Tier-resolved model override (e.g. "claude-x"), forwarded to ctx.ai / gateway. */
+  model?: string;
+  /** Per-instance behaviour flags surfaced to hook functions via ctx.instance.flags. */
+  flags?: Record<string, boolean>;
   /** Per-run conversation state API (same buffer as the supervisor's tools). */
   state?: ConversationStateApi;
   /** Pipeline abort signal — remaining hooks are skipped once aborted. */
@@ -108,6 +99,10 @@ export interface HookExecutionSummary {
   result?: string;
   /** Present when this hook's tool requested a halt (first halt wins). */
   halt?: HookHaltSignal;
+  /** Present when this hook requested a post-LLM response replacement. */
+  replaceResponse?: HookReplaceSignal;
+  /** Present when this hook requested context injection. */
+  injectContext?: string;
 }
 
 /**
@@ -120,6 +115,10 @@ export interface HookExecutionCapture {
   result?: string;
   /** Set when the executed tool requested a pipeline halt. */
   halt?: HookHaltSignal;
+  /** Set when the hook requested a post-LLM response replacement. */
+  replaceResponse?: HookReplaceSignal;
+  /** Set when the hook requested context injection. */
+  injectContext?: string;
 }
 
 /** One executor per action type, resolved by the runner from a registry map. */

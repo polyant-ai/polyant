@@ -379,6 +379,13 @@
       "when": 1780531200000,
       "tag": "0060_reapply_conversation_list_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1780617600000,
+      "tag": "0061_remove_tool_hooks",
+      "breakpoints": true
     }
   ]
 }

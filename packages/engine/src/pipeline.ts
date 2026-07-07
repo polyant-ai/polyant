@@ -14,7 +14,6 @@ import { chat } from "./ai-gateway/index.js";
 import { conversationStore } from "./conversations/index.js";
 import { ConversationStateBuffer } from "./conversations/state.buffer.js";
 import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
-import { hookExecutionsToModelMessages, hookExecutionsToSteps } from "./hooks/hook-history.js";
 import type { MessageRow } from "./conversations/store.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
@@ -28,8 +27,10 @@ import type { ToolCallTrace } from "./analytics/traces.schema.js";
 import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
 import { emitConversation } from "./activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "./activity-stream/emit-helpers.js";
-import { runHooks, firstHalt } from "./hooks/hook-runner.js";
+import { runHooks, firstHalt, firstReplaceResponse, collectInjectContext, hookProvenance, type HookProvenance } from "./hooks/hook-runner.js";
 import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./hooks/hook-types.js";
+import { getEnabledHooks } from "./hooks/hooks.store.js";
+import { getHookRegistry } from "./hooks/hook-registry.js";
 
 /**
  * Channel types that should NOT produce `category: "inbound"` events:
@@ -309,6 +310,21 @@ export function buildHookPayload(
   };
 }
 
+/**
+ * True if the instance has an ENABLED `response_generated` hook whose function
+ * declares `mutatesResponse`. Used by the streaming handler to serve such turns
+ * non-streamed (declare-and-buffer) so a post-LLM `replaceResponse` can be
+ * applied before any token reaches the client. `getEnabledHooks` takes the slug
+ * (it resolves + caches the UUID internally) and swallows unknown slugs → [].
+ */
+export async function hasResponseMutatingHook(instanceSlug: InstanceSlug): Promise<boolean> {
+  const hooks = await getEnabledHooks(instanceSlug, "response_generated").catch(() => []);
+  const registry = getHookRegistry();
+  return hooks.some(
+    (h) => registry.get(h.actionConfig.functionName)?.mutatesResponse === true,
+  );
+}
+
 function buildHookRunContext(ctx: PipelineContext, abortSignal?: AbortSignal): HookRunContext {
   return {
     instanceId: ctx.instanceId,
@@ -316,6 +332,15 @@ function buildHookRunContext(ctx: PipelineContext, abortSignal?: AbortSignal): H
     secrets: ctx.instanceConfig.secrets,
     apiKeys: ctx.instanceConfig.apiKeys,
     provider: ctx.instanceConfig.provider,
+    model: ctx.instanceConfig.model,
+    flags: {
+      memory: ctx.instanceConfig.memoryEnabled,
+      knowledge: ctx.instanceConfig.knowledgeEnabled,
+      thinking: ctx.instanceConfig.thinkingEnabled,
+      debug: ctx.instanceConfig.debugEnabled,
+      stateInPrompt: ctx.instanceConfig.stateInPromptEnabled,
+      toolResultsInHistory: ctx.instanceConfig.toolResultsInHistoryEnabled,
+    },
     state: ctx.stateBuffer?.api(),
     abortSignal,
   };
@@ -352,6 +377,8 @@ export interface AfterResponseOptions {
   incomingSystemMessages?: Array<{ role: string; content: string }>;
   /** Raw inbound metadata (e.g. audio STT block) to persist alongside the user row. */
   inboundMetadata?: Record<string, unknown>;
+  /** Set when a hook (not the LLM) authored the reply — persisted as the assistant row's metadata for UI badging. */
+  provenance?: HookProvenance;
 }
 
 export function afterResponse(opts: AfterResponseOptions): void {
@@ -419,6 +446,7 @@ export function afterResponse(opts: AfterResponseOptions): void {
         steps: opts.steps,
         reasoning: opts.reasoning,
         debugPayload: opts.debugPayload,
+        metadata: opts.provenance,
       },
     ]);
 
@@ -520,13 +548,12 @@ export async function runPipelinePre(
     hookExecutions.push(...(await runHooks("message_received", hookPayload, hookCtx)));
   }
 
-  // Same-turn visibility (opt-in): a pre-LLM hook's tool call+result is injected into
-  // the history sent to the supervisor, so the model sees what the hook's tool returned
-  // (e.g. a conversation_start lookup's candidates). Gated by the same flag as the
-  // cross-turn replay; no-op when off or when no hook ran a tool.
-  if (ctx.instanceConfig.toolResultsInHistoryEnabled) {
-    const hookMessages = hookExecutionsToModelMessages(hookExecutions);
-    if (hookMessages.length > 0) ctx.history = [...(ctx.history ?? []), ...hookMessages];
+  // A pre-LLM hook may contribute one-shot context to this turn's LLM input.
+  // The engine folds mid-array `system` messages into the top-level system prompt.
+  const injected = collectInjectContext(hookExecutions);
+  if (injected.length > 0) {
+    const sys: ModelMessage[] = injected.map((text) => ({ role: "system", content: text }));
+    ctx.history = [...(ctx.history ?? []), ...sys];
   }
 
   // A pre-LLM hook may request a halt: skip the supervisor and reply with its text.
@@ -552,9 +579,6 @@ export interface PipelinePostOptions {
   channel: string;
   resultText: string;
   steps?: StepDetail[];
-  /** Pre-LLM hook outcomes (from runPipelinePre): persisted as leading steps when
-   *  tool-results-in-history is on, so later turns replay the hook's tool result. */
-  preHookExecutions?: HookExecutionSummary[];
   /** Message-level reasoning from supervisor. */
   reasoning?: ReasoningDetail[];
   /** Exact LLM request payload — persisted on the assistant row when DEBUG is on. */
@@ -569,6 +593,8 @@ export interface PipelinePostOptions {
   isStreaming: boolean;
   /** When set and already aborted, skip persistence entirely. */
   abortSignal?: AbortSignal;
+  /** Set by a caller when the turn's reply was authored by a hook (pre-LLM halt), so it is badged in the UI. */
+  provenance?: HookProvenance;
 }
 
 export interface PipelinePostResult {
@@ -586,7 +612,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     return { finalText: opts.resultText, hookExecutions: [] };
   }
 
-  const finalText = opts.resultText;
+  let finalText = opts.resultText;
   const hookExecutions: HookExecutionSummary[] = [];
 
   // Lifecycle hooks: response_generated precedes outbound delivery on the
@@ -598,6 +624,13 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   if (hookPayload && hookCtx) {
     hookExecutions.push(...(await runHooks("response_generated", hookPayload, hookCtx)));
   }
+
+  // A response_generated hook may replace the reply text (post-LLM). Provenance
+  // badges the persisted assistant row as hook-authored — from the replace hook
+  // here, or from the caller's pre-LLM halt (opts.provenance).
+  const replace = firstReplaceResponse(hookExecutions);
+  if (replace) finalText = replace.message;
+  const provenance = hookProvenance(hookExecutions) ?? opts.provenance;
 
   const totalMs = Date.now() - ctx.pipelineStart;
   pipelineLog.response(ctx.instanceId, totalMs);
@@ -636,21 +669,12 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     }
   }
 
-  // Cross-turn replay (opt-in): persist pre-LLM hook tool executions as leading steps
-  // on this turn's assistant message, so subsequent turns replay them via
-  // buildHistoryWithToolResults. No-op when off or when no hook ran a tool.
-  let steps = opts.steps;
-  if (ctx.instanceConfig.toolResultsInHistoryEnabled && opts.preHookExecutions?.length) {
-    const hookSteps = hookExecutionsToSteps(opts.preHookExecutions);
-    if (hookSteps.length > 0) steps = [...hookSteps, ...(opts.steps ?? [])];
-  }
-
   afterResponse({
     conversationId: ctx.conversationId,
     instanceId: ctx.instanceId,
     userMessage: opts.messageText,
     assistantResponse: finalText,
-    steps,
+    steps: opts.steps,
     reasoning: opts.reasoning,
     debugPayload: opts.debugPayload,
     assistantMessageId: opts.assistantMessageId,
@@ -664,6 +688,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     userAttachments: ctx.userAttachments,
     incomingSystemMessages: ctx.incomingSystemMessages,
     inboundMetadata: ctx.inboundMetadata,
+    provenance,
   });
 
   // ContextPrompt is one-shot: if we loaded it for this turn, clear it so

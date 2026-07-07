@@ -3,22 +3,22 @@
 import { describe, it, expect, vi } from "vitest";
 
 const { registryMock } = vi.hoisted(() => ({ registryMock: new Map<string, unknown>() }));
-vi.mock("../agents/tools/registry.js", () => ({
-  getToolRegistry: () => registryMock,
+vi.mock("./hook-registry.js", () => ({
+  getHookRegistry: () => registryMock,
 }));
 
-import { createHookSchema, updateHookSchema, validateHookTool } from "./hooks.validators.js";
+import { createHookSchema, updateHookSchema, validateHookFunction } from "./hooks.validators.js";
 
 describe("createHookSchema", () => {
   const valid = {
     event: "conversation_start",
-    actionConfig: { toolName: "lookup", args: { q: "{{channel.id}}" } },
+    actionConfig: { functionName: "lookup" },
   };
 
   it("should_apply_defaults_when_optional_fields_omitted", () => {
     const parsed = createHookSchema.parse(valid);
     expect(parsed).toMatchObject({
-      actionType: "tool",
+      actionType: "function",
       enabled: true,
       position: 0,
       timeoutMs: 10_000,
@@ -34,9 +34,9 @@ describe("createHookSchema", () => {
     expect(createHookSchema.safeParse({ ...valid, timeoutMs: 60_000 }).success).toBe(false);
   });
 
-  it("should_reject_empty_tool_name", () => {
+  it("should_reject_empty_function_name", () => {
     expect(
-      createHookSchema.safeParse({ ...valid, actionConfig: { toolName: "", args: {} } }).success,
+      createHookSchema.safeParse({ ...valid, actionConfig: { functionName: "" } }).success,
     ).toBe(false);
   });
 
@@ -46,13 +46,11 @@ describe("createHookSchema", () => {
   });
 });
 
-describe("validateHookTool", () => {
-  it("should_flag_unregistered_and_meta_tools", () => {
+describe("validateHookFunction", () => {
+  it("should_flag_unregistered_functions", () => {
     registryMock.clear();
     registryMock.set("ok", { name: "ok" });
-    registryMock.set("meta", { name: "meta", metaTool: true });
-    expect(validateHookTool("ok")).toBeNull();
-    expect(validateHookTool("nope")).toMatch(/not registered/);
-    expect(validateHookTool("meta")).toMatch(/meta-tool/);
+    expect(validateHookFunction("ok")).toBeNull();
+    expect(validateHookFunction("nope")).toMatch(/not registered/);
   });
 });

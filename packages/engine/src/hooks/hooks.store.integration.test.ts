@@ -67,20 +67,20 @@ describe("hooks store (integration)", () => {
     // create two hooks on the same event, out-of-order positions
     const second = await createHook(uuid, {
       event: "conversation_start",
-      actionType: "tool",
-      actionConfig: { toolName: "toolB", args: {} },
+      actionType: "function",
+      actionConfig: { functionName: "toolB" },
       position: 2,
     });
     const first = await createHook(uuid, {
       event: "conversation_start",
-      actionType: "tool",
-      actionConfig: { toolName: "toolA", args: { q: "{{channel.id}}" } },
+      actionType: "function",
+      actionConfig: { functionName: "toolA" },
       position: 1,
     });
     const disabled = await createHook(uuid, {
       event: "conversation_start",
-      actionType: "tool",
-      actionConfig: { toolName: "toolC", args: {} },
+      actionType: "function",
+      actionConfig: { functionName: "toolC" },
       enabled: false,
     });
 
@@ -91,7 +91,7 @@ describe("hooks store (integration)", () => {
     // cached read returns only enabled, ordered by position
     invalidateHooksCache(asInstanceSlug(SLUG));
     const enabled = await getEnabledHooks(asInstanceSlug(SLUG), "conversation_start");
-    expect(enabled.map((h) => h.actionConfig.toolName)).toEqual(["toolA", "toolB"]);
+    expect(enabled.map((h) => h.actionConfig.functionName)).toEqual(["toolA", "toolB"]);
 
     // other events are empty
     expect(await getEnabledHooks(asInstanceSlug(SLUG), "response_sent")).toEqual([]);

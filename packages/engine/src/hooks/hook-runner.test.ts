@@ -17,16 +17,16 @@ vi.mock("./hook-executions.store.js", () => ({
   recordHookExecution: recordExecutionMock,
 }));
 
-vi.mock("./actions/tool-action.js", () => ({
-  toolActionExecutor: { execute: executeMock },
+vi.mock("./actions/function-action.js", () => ({
+  functionActionExecutor: { execute: executeMock },
 }));
 
 vi.mock("../audit/audit-logger.js", () => ({
   createAuditLogger: () => ({ log: auditLogMock }),
 }));
 
-import { runHooks } from "./hook-runner.js";
-import type { HookEventPayload, HookRunContext, InstanceHookRow } from "./hook-types.js";
+import { runHooks, collectInjectContext, hookProvenance } from "./hook-runner.js";
+import type { HookEventPayload, HookExecutionSummary, HookRunContext, InstanceHookRow } from "./hook-types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
 const payload: HookEventPayload = {
@@ -48,8 +48,8 @@ function hook(id: string, overrides: Partial<InstanceHookRow> = {}): InstanceHoo
     id,
     instanceId: "u1",
     event: "message_received",
-    actionType: "tool",
-    actionConfig: { toolName: `tool-${id}`, args: {} },
+    actionType: "function",
+    actionConfig: { functionName: `tool-${id}` },
     enabled: true,
     position: 0,
     timeoutMs: 10_000,
@@ -160,7 +160,7 @@ describe("runHooks", () => {
       conversationId: "c1",
       hookId: "a",
       event: "message_received",
-      actionType: "tool",
+      actionType: "function",
       toolName: "tool-a",
       success: true,
     });
@@ -189,7 +189,7 @@ describe("runHooks", () => {
     expect(summaries[0]).toMatchObject({
       hookId: "a",
       event: "message_received",
-      actionType: "tool",
+      actionType: "function",
       toolName: "tool-a",
       success: true,
     });
@@ -222,5 +222,82 @@ describe("runHooks", () => {
     expect(await runHooks("message_received", payload, baseCtx)).toEqual([]);
     getEnabledHooksMock.mockRejectedValue(new Error("db down"));
     expect(await runHooks("message_received", payload, baseCtx)).toEqual([]);
+  });
+});
+
+describe("collectInjectContext", () => {
+  function summary(overrides: Partial<HookExecutionSummary>): HookExecutionSummary {
+    return {
+      hookId: "h",
+      event: "message_received",
+      actionType: "function",
+      toolName: "t",
+      success: true,
+      durationMs: 1,
+      ...overrides,
+    };
+  }
+
+  it("should_return_non_empty_inject_context_strings_in_order", () => {
+    expect(
+      collectInjectContext([
+        summary({ injectContext: "first" }),
+        summary({}),
+        summary({ injectContext: "second" }),
+      ]),
+    ).toEqual(["first", "second"]);
+  });
+
+  it("should_drop_empty_strings_and_return_empty_when_none_present", () => {
+    expect(collectInjectContext([summary({}), summary({ injectContext: "" })])).toEqual([]);
+    expect(collectInjectContext([])).toEqual([]);
+  });
+});
+
+describe("hookProvenance", () => {
+  function summary(overrides: Partial<HookExecutionSummary>): HookExecutionSummary {
+    return {
+      hookId: "h",
+      event: "message_received",
+      actionType: "function",
+      toolName: "t",
+      success: true,
+      durationMs: 1,
+      ...overrides,
+    };
+  }
+
+  it("should_return_undefined_when_no_replace_or_halt", () => {
+    expect(hookProvenance([summary({}), summary({ injectContext: "x" })])).toBeUndefined();
+    expect(hookProvenance([])).toBeUndefined();
+  });
+
+  it("should_badge_the_replace_hook_by_name", () => {
+    expect(
+      hookProvenance([summary({}), summary({ toolName: "replacer", replaceResponse: { message: "new" } })]),
+    ).toEqual({ source: "hook", hookName: "replacer" });
+  });
+
+  it("should_badge_the_halt_hook_by_name", () => {
+    expect(hookProvenance([summary({ toolName: "halter", halt: { message: "stop" } })])).toEqual({
+      source: "hook",
+      hookName: "halter",
+    });
+  });
+
+  it("should_prefer_replace_over_halt", () => {
+    expect(
+      hookProvenance([
+        summary({ toolName: "halter", halt: { message: "stop" } }),
+        summary({ toolName: "replacer", replaceResponse: { message: "new" } }),
+      ]),
+    ).toEqual({ source: "hook", hookName: "replacer" });
+  });
+
+  it("should_fall_back_to_generic_name_when_toolName_empty", () => {
+    expect(hookProvenance([summary({ toolName: "", replaceResponse: { message: "new" } })])).toEqual({
+      source: "hook",
+      hookName: "hook",
+    });
   });
 });

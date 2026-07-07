@@ -635,8 +635,8 @@ export type HookEvent =
 export interface InstanceHook {
   id: string;
   event: HookEvent;
-  actionType: "tool";
-  actionConfig: { toolName: string; args: Record<string, unknown> };
+  actionType: "function";
+  actionConfig: { functionName: string };
   enabled: boolean;
   position: number;
   timeoutMs: number;
@@ -644,18 +644,28 @@ export interface InstanceHook {
   updatedAt: string;
 }
 
+/** A registered hook function from the catalog (`GET /api/hook-functions`). */
+export interface HookFunctionInfo {
+  name: string;
+  description: string;
+  requiredSecrets: RequiredSecretSpec[];
+  /** true ⇒ the hook may replace the response; affected turns run non-streamed. */
+  mutatesResponse: boolean;
+}
+
 export interface HookExecution {
   id: string;
   hookId: string;
   event: HookEvent;
-  actionType: "tool";
+  actionType: "function";
+  /** The hook function name (the telemetry column is still named tool_name). */
   toolName: string;
   success: boolean;
   error: string | null;
   durationMs: number;
-  /** Rendered tool args (post-template). */
+  /** Legacy tool args — always null for hook functions. */
   args: Record<string, unknown> | null;
-  /** Tool result, JSON-stringified and truncated. */
+  /** Hook result, JSON-stringified and truncated. */
   result: string | null;
   createdAt: string;
 }

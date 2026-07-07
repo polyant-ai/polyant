@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { supervise, type SupervisorOutput } from "../agents/supervisor/index.js";
-import { runHooks, firstHalt } from "../hooks/hook-runner.js";
+import { runHooks, firstHalt, firstReplaceResponse, hookProvenance } from "../hooks/hook-runner.js";
 import type { HookEventPayload, HookRunContext } from "../hooks/hook-types.js";
 import { traceStore } from "../analytics/trace.store.js";
 import { conversationStore } from "../conversations/index.js";
@@ -181,9 +181,20 @@ export async function triggerConversation(
     secrets: instanceConfig.secrets,
     apiKeys: instanceConfig.apiKeys,
     provider: instanceConfig.provider,
+    model: instanceConfig.model,
+    flags: {
+      memory: instanceConfig.memoryEnabled,
+      knowledge: instanceConfig.knowledgeEnabled,
+      thinking: instanceConfig.thinkingEnabled,
+      debug: instanceConfig.debugEnabled,
+      stateInPrompt: instanceConfig.stateInPromptEnabled,
+      toolResultsInHistory: instanceConfig.toolResultsInHistoryEnabled,
+    },
     state: stateBuffer.api(),
   };
-  const halt = firstHalt(await runHooks("message_received", hookPayload, hookCtx));
+  // Pre-LLM hook (halt-capable). Keep the summaries for provenance on halt.
+  const preHookSummaries = await runHooks("message_received", hookPayload, hookCtx);
+  const halt = firstHalt(preHookSummaries);
 
   let result: SupervisorOutput | undefined;
   if (!halt) {
@@ -215,26 +226,45 @@ export async function triggerConversation(
     }
   }
 
+  // Post-LLM hook (response-replacement capable). Webhook is non-streaming, so a
+  // replace always applies. Only runs in the non-halt path (result is defined).
+  // response_generated hooks can also write state, so run BEFORE the flush below.
+  let replace: ReturnType<typeof firstReplaceResponse>;
+  let postHooks = preHookSummaries; // default to pre-summaries so provenance covers the halt case
+  if (!halt) {
+    postHooks = await runHooks(
+      "response_generated",
+      { ...hookPayload, response: { text: result!.text } },
+      hookCtx,
+    );
+    replace = firstReplaceResponse(postHooks);
+  }
+
   // Commit conversation state (commit-on-success): reached only when supervise
-  // succeeded (the catch above returns). Awaited so a tool's derived value is
-  // durable before the next inbound turn reads it. Errors logged, not propagated.
+  // succeeded (the catch above returns) and the response_generated hooks ran.
+  // Awaited so a tool's derived value is durable before the next inbound turn
+  // reads it. Errors logged, not propagated.
   try {
     await stateBuffer.flush();
   } catch (err) {
     webhookLog.error("TriggerEngine", `failed to flush conversation state for ${conversationId}`, err);
   }
 
-  // When a tool has already delivered the reply (e.g. send_whatsapp_template),
-  // persist the actual content delivered to the user (`replyText`) instead of
-  // the supervisor's free-form meta-commentary (`result.text`). Keeps the
-  // conversation history aligned with what the recipient actually saw.
+  // Reply precedence: a pre-LLM halt, then a post-LLM replaceResponse (a hook
+  // explicitly rewrote the reply — wins even over a tool-delivered replyText),
+  // then the tool-delivered content (`replyText` when replyHandled) so history
+  // matches what the recipient saw, else the supervisor's free-form text.
   const finalText = halt
     ? halt.message
-    : (result!.replyHandled && result!.replyText ? result!.replyText : result!.text);
+    : replace
+      ? replace.message
+      : (result!.replyHandled && result!.replyText ? result!.replyText : result!.text);
+  // Provenance: the pre-LLM halt or the post-LLM replace that authored the reply.
+  const provenance = halt ? hookProvenance(preHookSummaries) : hookProvenance(postHooks);
 
   // Persist assistant response (tool-delivered content when replyHandled, else supervisor text)
   await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result?.steps, ...(result?.reasoning ? { reasoning: result.reasoning } : {}), ...(result?.debugPayload ? { debugPayload: result.debugPayload } : {}) },
+    { role: "assistant", content: finalText, steps: result?.steps, ...(result?.reasoning ? { reasoning: result.reasoning } : {}), ...(result?.debugPayload ? { debugPayload: result.debugPayload } : {}), ...(provenance ? { metadata: provenance } : {}) },
   ]);
 
   // Send response to the configured outbound channel — unless a tool has already

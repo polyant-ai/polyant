@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { supervise, type SupervisorOutput } from "../agents/supervisor/index.js";
-import { runHooks, firstHalt } from "../hooks/hook-runner.js";
+import { runHooks, firstHalt, firstReplaceResponse, hookProvenance } from "../hooks/hook-runner.js";
 import type { HookEventPayload, HookRunContext } from "../hooks/hook-types.js";
+import { ConversationStateBuffer } from "../conversations/state.buffer.js";
 import { channelManager } from "../channels/channel-manager.js";
 import { traceStore } from "../analytics/trace.store.js";
 import { conversationStore } from "../conversations/index.js";
@@ -139,8 +140,16 @@ export async function executeRoomCycle(
 
   const pendingEventIds = pendingEvents.map((e) => e.id);
 
-  // Pre-LLM hook (halt-capable). Room is supervise-direct, so wire it manually.
-  // Only message_received fires here (see the halt-and-respond spec §6).
+  // Conversation state buffer (commit-on-success), mirroring the inbound + webhook
+  // pipelines: room tools and hook functions share one buffer via `ctx.state`;
+  // writes persist only after supervise succeeds (flushed below).
+  const stateBuffer = await ConversationStateBuffer.load(conversationId, instanceSlug).catch((err) => {
+    roomLog.error("RoomCycle", `failed to load conversation state for ${conversationId}`, err);
+    return new ConversationStateBuffer(conversationId, instanceSlug);
+  });
+
+  // Hook context shared by the pre-LLM (message_received) and post-LLM
+  // (response_generated) runs. Room is supervise-direct, so wire it manually.
   const hookPayload: HookEventPayload = {
     instance: { slug: instanceSlug },
     conversation: { id: conversationId },
@@ -154,8 +163,21 @@ export async function executeRoomCycle(
     secrets: instanceConfig.secrets,
     apiKeys: instanceConfig.apiKeys,
     provider: instanceConfig.provider,
+    model: instanceConfig.model,
+    flags: {
+      memory: instanceConfig.memoryEnabled,
+      knowledge: instanceConfig.knowledgeEnabled,
+      thinking: instanceConfig.thinkingEnabled,
+      debug: instanceConfig.debugEnabled,
+      stateInPrompt: instanceConfig.stateInPromptEnabled,
+      toolResultsInHistory: instanceConfig.toolResultsInHistoryEnabled,
+    },
+    state: stateBuffer.api(),
   };
-  const halt = firstHalt(await runHooks("message_received", hookPayload, hookCtx));
+  // Pre-LLM hook (halt-capable). Only message_received fires here (see the
+  // halt-and-respond spec §6). Keep the summaries for provenance on halt.
+  const preHookSummaries = await runHooks("message_received", hookPayload, hookCtx);
+  const halt = firstHalt(preHookSummaries);
 
   let result: SupervisorOutput | undefined;
   if (!halt) {
@@ -173,6 +195,7 @@ export async function executeRoomCycle(
         thinkingEnabled: instanceConfig.thinkingEnabled,
         debugEnabled: instanceConfig.debugEnabled,
         includeHarness: new Set(["room"]),
+        stateBuffer,
       });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -199,7 +222,32 @@ export async function executeRoomCycle(
     }
   }
 
-  const finalText = halt ? halt.message : result!.text;
+  // Post-LLM hook (response-replacement capable). Room has no streaming, so a
+  // replace always applies. Only runs in the non-halt path (result is defined).
+  // response_generated hooks can also write state, so run before the flush below.
+  let replace: ReturnType<typeof firstReplaceResponse>;
+  let postHooks = preHookSummaries; // default to pre-summaries so provenance covers the halt case
+  if (!halt) {
+    postHooks = await runHooks(
+      "response_generated",
+      { ...hookPayload, response: { text: result!.text } },
+      hookCtx,
+    );
+    replace = firstReplaceResponse(postHooks);
+  }
+
+  const finalText = halt ? halt.message : replace ? replace.message : result!.text;
+  // Provenance: the pre-LLM halt or the post-LLM replace that authored the reply.
+  const provenance = halt ? hookProvenance(preHookSummaries) : hookProvenance(postHooks);
+
+  // Commit conversation state (commit-on-success): reached only after supervise
+  // succeeded (the catch above returns) and the response_generated hooks ran.
+  // Errors logged, not propagated.
+  try {
+    await stateBuffer.flush();
+  } catch (err) {
+    roomLog.error("RoomCycle", `failed to flush conversation state for ${conversationId}`, err);
+  }
 
   // On halt, deliver the canned reply to the room's outbound channel — room never
   // auto-sends (the agent uses room_send_message). Best-effort.
@@ -212,7 +260,7 @@ export async function executeRoomCycle(
   }
 
   await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result?.steps, ...(result?.reasoning ? { reasoning: result.reasoning } : {}), ...(result?.debugPayload ? { debugPayload: result.debugPayload } : {}) },
+    { role: "assistant", content: finalText, steps: result?.steps, ...(result?.reasoning ? { reasoning: result.reasoning } : {}), ...(result?.debugPayload ? { debugPayload: result.debugPayload } : {}), ...(provenance ? { metadata: provenance } : {}) },
   ]);
 
   // Mark events as completed

@@ -4,13 +4,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -37,7 +36,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { api, getUserErrorMessage, type HookEvent, type InstanceHook, type ToolInfo } from "@/lib/api";
+import { api, getUserErrorMessage, type HookEvent, type InstanceHook, type HookFunctionInfo } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 
 const HOOK_EVENTS: HookEvent[] = [
@@ -47,32 +46,20 @@ const HOOK_EVENTS: HookEvent[] = [
   "response_sent",
 ];
 
-const PLACEHOLDERS = [
-  "{{instance.slug}}",
-  "{{conversation.id}}",
-  "{{channel.type}}",
-  "{{channel.id}}",
-  "{{user.name}}",
-  "{{message.text}}",
-  "{{response.text}}",
-];
-
 interface Props {
   slug: string;
 }
 
 interface FormState {
   event: HookEvent;
-  toolName: string;
-  argsText: string;
+  functionName: string;
   timeoutMs: number;
   position: number;
 }
 
 const EMPTY_FORM: FormState = {
   event: "conversation_start",
-  toolName: "",
-  argsText: "{}",
+  functionName: "",
   timeoutMs: 10000,
   position: 0,
 };
@@ -80,7 +67,7 @@ const EMPTY_FORM: FormState = {
 export function HooksTab({ slug }: Props) {
   const { t } = useI18n();
   const [hooks, setHooks] = useState<InstanceHook[]>([]);
-  const [catalog, setCatalog] = useState<ToolInfo[]>([]);
+  const [catalog, setCatalog] = useState<HookFunctionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<InstanceHook | null>(null);
@@ -92,10 +79,10 @@ export function HooksTab({ slug }: Props) {
     try {
       const [hooksRes, catalogRes] = await Promise.all([
         api.hooks.list(slug),
-        api.tools.catalog(),
+        api.hooks.functions(),
       ]);
       setHooks(hooksRes.hooks);
-      setCatalog(catalogRes.tools);
+      setCatalog(catalogRes.hookFunctions);
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("hooks.loadFailed")));
     } finally {
@@ -117,8 +104,7 @@ export function HooksTab({ slug }: Props) {
     setEditing(hook);
     setForm({
       event: hook.event,
-      toolName: hook.actionConfig.toolName,
-      argsText: JSON.stringify(hook.actionConfig.args, null, 2),
+      functionName: hook.actionConfig.functionName,
       timeoutMs: hook.timeoutMs,
       position: hook.position,
     });
@@ -126,23 +112,15 @@ export function HooksTab({ slug }: Props) {
   };
 
   const handleSave = async () => {
-    let args: Record<string, unknown>;
-    try {
-      args = JSON.parse(form.argsText || "{}");
-      if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("not an object");
-    } catch {
-      toast.error(t("hooks.invalidArgsJson"));
-      return;
-    }
-    if (!form.toolName) {
-      toast.error(t("hooks.toolRequired"));
+    if (!form.functionName) {
+      toast.error(t("hooks.functionRequired"));
       return;
     }
     setSaving(true);
     try {
       const data = {
         event: form.event,
-        actionConfig: { toolName: form.toolName, args },
+        actionConfig: { functionName: form.functionName },
         timeoutMs: form.timeoutMs,
         position: form.position,
       };
@@ -192,7 +170,8 @@ export function HooksTab({ slug }: Props) {
     );
   }
 
-  const knownTools = new Set(catalog.map((tool) => tool.name));
+  const knownFunctions = new Set(catalog.map((fn) => fn.name));
+  const selectedFn = catalog.find((fn) => fn.name === form.functionName);
 
   return (
     <div className="space-y-6">
@@ -225,10 +204,10 @@ export function HooksTab({ slug }: Props) {
                   {eventHooks.map((hook) => (
                     <div key={hook.id} className="flex items-center gap-3 p-3">
                       <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                        {hook.actionConfig.toolName}
+                        {hook.actionConfig.functionName}
                       </code>
-                      {!knownTools.has(hook.actionConfig.toolName) && (
-                        <Badge variant="destructive">{t("hooks.unknownTool")}</Badge>
+                      {!knownFunctions.has(hook.actionConfig.functionName) && (
+                        <Badge variant="destructive">{t("hooks.unknownFunction")}</Badge>
                       )}
                       <Badge variant="secondary">{hook.timeoutMs / 1000}s</Badge>
                       <span className="text-xs text-muted-foreground">
@@ -286,34 +265,31 @@ export function HooksTab({ slug }: Props) {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>{t("hooks.tool")}</Label>
+              <Label>{t("hooks.function")}</Label>
               <Select
-                value={form.toolName || undefined}
-                onValueChange={(v) => setForm((f) => ({ ...f, toolName: v }))}
+                value={form.functionName || undefined}
+                onValueChange={(v) => setForm((f) => ({ ...f, functionName: v }))}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={t("hooks.toolPlaceholder")} />
+                  <SelectValue placeholder={t("hooks.functionPlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {catalog.map((tool) => (
-                    <SelectItem key={tool.name} value={tool.name}>
-                      {tool.name}
+                  {catalog.map((fn) => (
+                    <SelectItem key={fn.name} value={fn.name}>
+                      {fn.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>{t("hooks.args")}</Label>
-              <Textarea
-                value={form.argsText}
-                onChange={(e) => setForm((f) => ({ ...f, argsText: e.target.value }))}
-                rows={5}
-                className="font-mono text-xs"
-              />
-              <p className="text-xs text-muted-foreground">
-                {t("hooks.argsHint")} {PLACEHOLDERS.join(" ")}
-              </p>
+              {selectedFn?.description && (
+                <p className="text-xs text-muted-foreground">{selectedFn.description}</p>
+              )}
+              {selectedFn?.mutatesResponse && (
+                <p className="flex items-start gap-1.5 text-xs text-destructive">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{t("hooks.streamingWarning")}</span>
+                </p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -354,7 +330,7 @@ export function HooksTab({ slug }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("hooks.deleteTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("hooks.deleteDescription", { tool: deleting?.actionConfig.toolName ?? "" })}
+              {t("hooks.deleteDescription", { function: deleting?.actionConfig.functionName ?? "" })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
