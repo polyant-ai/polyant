@@ -124,7 +124,7 @@ beforeEach(() => {
   );
   mockBuildTool.mockReturnValue({ _type: "mock-tool" });
   mockCreateTaskTool.mockReturnValue({ _type: "task-tool" });
-  mockBuildPrompt.mockResolvedValue("System prompt content");
+  mockBuildPrompt.mockResolvedValue({ system: "System prompt content", turnContext: "" });
   mockChat.mockResolvedValue(defaultChatResponse);
 });
 
@@ -271,7 +271,9 @@ describe("supervise", () => {
         conversationSummary: "The user asked about weather",
       });
 
-      // Summary goes to buildSupervisorSystemPrompt, not into messages
+      // Summary is forwarded to the prompt builder (which places it in the
+      // per-turn context block); it is NEVER fabricated as a user/assistant pair
+      // in messages. With an empty turnContext here the current message is raw.
       expect(mockBuildPrompt).toHaveBeenCalledWith(
         expect.objectContaining({ conversationSummary: "The user asked about weather" }),
       );
@@ -306,6 +308,29 @@ describe("supervise", () => {
       expect(callArgs.messages).toEqual([
         { role: "user", content: "standalone" },
       ]);
+    });
+
+    it("injects the per-turn volatile context into the tail of the current user message", async () => {
+      mockBuildPrompt.mockResolvedValueOnce({
+        system: "System prompt content",
+        turnContext: "# Date and Time\n\nCurrent date and time: Monday",
+      });
+
+      await supervise({
+        message: "what time is it?",
+        conversationHistory: [{ role: "user" as const, content: "earlier" }],
+      });
+
+      const callArgs = mockChat.mock.calls[0][0];
+      // Prior history stays byte-identical (cacheable); only the current turn carries context.
+      expect(callArgs.messages[0]).toEqual({ role: "user", content: "earlier" });
+      const current = callArgs.messages[1];
+      expect(current.role).toBe("user");
+      expect(current.content).toBe(
+        "<context>\n# Date and Time\n\nCurrent date and time: Monday\n</context>\n\nwhat time is it?",
+      );
+      // The stable system prompt no longer carries the volatile datetime.
+      expect(callArgs.system).toBe("System prompt content");
     });
   });
 
@@ -623,7 +648,8 @@ describe("superviseStream", () => {
       conversationSummary: "summary of current conversation",
     });
 
-    // Summary goes to buildSupervisorSystemPrompt
+    // Summary is forwarded to the prompt builder (per-turn context block), not
+    // fabricated as a message pair. Empty turnContext here → raw current message.
     expect(mockBuildPrompt).toHaveBeenCalledWith(
       expect.objectContaining({ conversationSummary: "summary of current conversation" }),
     );

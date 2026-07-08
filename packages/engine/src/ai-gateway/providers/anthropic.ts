@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { createProvider } from "./base.js";
+import { createProvider, type PrepareMessages } from "./base.js";
+import { injectCacheBreakpoints, withProviderCacheMarker } from "./prompt-caching.js";
 
 /**
  * Beta header that enables interleaved thinking + tool use across multiple
@@ -19,22 +20,45 @@ const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
  */
 const DEFAULT_THINKING_BUDGET = 5000;
 
-export const AnthropicProvider = createProvider("anthropic", (modelId, apiKeys) => {
-  const apiKey = apiKeys?.anthropic;
-  if (!apiKey) {
-    throw new Error("Anthropic API key not configured for this instance. Set it in the admin panel under Settings → AI Provider API Keys.");
-  }
-  return createAnthropic({
-    apiKey,
-    headers: {
-      // Always send the interleaved-thinking beta header. The provider ignores
-      // it when the model is not thinking-capable and accepts no-op when
-      // `request.thinking` is false. This avoids per-call header juggling and
-      // keeps multi-turn re-injection always supported.
-      "anthropic-beta": INTERLEAVED_THINKING_BETA,
-    },
-  })(modelId);
-});
+/**
+ * Ephemeral cache breakpoint. Unlike OpenAI (automatic prefix caching, no
+ * parameters), Anthropic requires an explicit `cache_control` marker and the
+ * `@ai-sdk/anthropic` provider does NOT add one on its own — so without this
+ * every Anthropic turn re-pays the full prompt at full price. Default TTL is
+ * 5 minutes.
+ */
+const EPHEMERAL_CACHE_CONTROL = { cacheControl: { type: "ephemeral" as const } };
+
+/**
+ * Inject Anthropic prompt-cache breakpoints (tools+system and history) into a
+ * folded request via the shared placement helper. Exported for unit testing;
+ * wired via `createProvider`'s `prepareMessages` hook.
+ */
+export const applyAnthropicPromptCaching: PrepareMessages = (input) =>
+  injectCacheBreakpoints(input, (message) =>
+    withProviderCacheMarker(message, "anthropic", EPHEMERAL_CACHE_CONTROL),
+  );
+
+export const AnthropicProvider = createProvider(
+  "anthropic",
+  (modelId, apiKeys) => {
+    const apiKey = apiKeys?.anthropic;
+    if (!apiKey) {
+      throw new Error("Anthropic API key not configured for this instance. Set it in the admin panel under Settings → AI Provider API Keys.");
+    }
+    return createAnthropic({
+      apiKey,
+      headers: {
+        // Always send the interleaved-thinking beta header. The provider ignores
+        // it when the model is not thinking-capable and accepts no-op when
+        // `request.thinking` is false. This avoids per-call header juggling and
+        // keeps multi-turn re-injection always supported.
+        "anthropic-beta": INTERLEAVED_THINKING_BETA,
+      },
+    })(modelId);
+  },
+  { prepareMessages: applyAnthropicPromptCaching },
+);
 
 /**
  * Build the `providerOptions.anthropic` object for a thinking-enabled call.

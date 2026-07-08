@@ -343,6 +343,8 @@ export interface ConversationListItem {
   conversationCost: number;
   serviceTokens: number;
   serviceCost: number;
+  cachedInputTokens: number;
+  cacheCreationInputTokens: number;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -433,6 +435,8 @@ export interface AnalyticsOverview {
   totalTokens: number;
   promptTokens: number;
   completionTokens: number;
+  cachedInputTokens: number;
+  cacheCreationInputTokens: number;
   totalConversations: number;
   totalMessages: number;
   uniqueUsers: number;

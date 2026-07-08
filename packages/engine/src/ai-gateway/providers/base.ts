@@ -121,9 +121,14 @@ function aggregateStepUsage(
 
 /** Compute token usage, falling back to step-level aggregation when top-level is unavailable. */
 function buildUsage(
-  topLevelUsage: { promptTokens?: number; completionTokens?: number },
+  topLevelUsage: MappedUsage,
   steps: { usage?: { promptTokens?: number; completionTokens?: number } }[],
-): { promptTokens: number; completionTokens: number } {
+): {
+  promptTokens: number;
+  completionTokens: number;
+  cachedInputTokens: number;
+  cacheCreationInputTokens: number;
+} {
   let prompt = safeTokens(topLevelUsage.promptTokens);
   let completion = safeTokens(topLevelUsage.completionTokens);
 
@@ -131,7 +136,14 @@ function buildUsage(
     ({ promptTokens: prompt, completionTokens: completion } = aggregateStepUsage(steps));
   }
 
-  return { promptTokens: prompt, completionTokens: completion };
+  // Cache counts come from the top-level/total usage only — the per-step
+  // fallback (aggregateStepUsage) has no cache breakdown, so they stay 0 there.
+  return {
+    promptTokens: prompt,
+    completionTokens: completion,
+    cachedInputTokens: safeTokens(topLevelUsage.cachedInputTokens),
+    cacheCreationInputTokens: safeTokens(topLevelUsage.cacheCreationInputTokens),
+  };
 }
 
 /**
@@ -164,12 +176,29 @@ interface SdkStep {
  *  - usage {promptTokens,completionTokens} → {inputTokens,outputTokens}
  *  - step.reasoningDetails / result.reasoningDetails → reasoning (array)
  */
-function mapUsage(u: unknown): { promptTokens?: number; completionTokens?: number } {
+interface MappedUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  /** Cache-read input tokens (cache HIT). Subset of promptTokens. */
+  cachedInputTokens?: number;
+  /** Cache-write input tokens (cache WRITE, Anthropic). Subset of promptTokens. */
+  cacheCreationInputTokens?: number;
+}
+
+function mapUsage(u: unknown): MappedUsage {
   if (!u || typeof u !== "object") return {};
   const o = u as Record<string, unknown>;
+  const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined);
+  // AI SDK v6 normalizes the cache breakdown under `inputTokenDetails`
+  // ({ noCacheTokens, cacheReadTokens, cacheWriteTokens }); `inputTokens` is the
+  // TOTAL (noCache + read + write). We fall back to the deprecated top-level
+  // `cachedInputTokens` for cache reads on providers that don't fill the details.
+  const details = (o.inputTokenDetails ?? {}) as Record<string, unknown>;
   return {
-    promptTokens: typeof o.inputTokens === "number" ? o.inputTokens : undefined,
-    completionTokens: typeof o.outputTokens === "number" ? o.outputTokens : undefined,
+    promptTokens: num(o.inputTokens),
+    completionTokens: num(o.outputTokens),
+    cachedInputTokens: num(details.cacheReadTokens) ?? num(o.cachedInputTokens),
+    cacheCreationInputTokens: num(details.cacheWriteTokens),
   };
 }
 
@@ -276,13 +305,14 @@ function buildChatResponse(
   text: string,
   rawSteps: SdkStep[],
   topLevelReasoning: unknown[] | undefined,
-  usage: { promptTokens?: number; completionTokens?: number },
+  usage: MappedUsage,
   durationMs: number,
   modelId: string,
   providerName: string,
 ): ChatResponse {
   const steps = buildSteps(rawSteps, durationMs);
-  const { promptTokens, completionTokens } = buildUsage(usage, rawSteps);
+  const { promptTokens, completionTokens, cachedInputTokens, cacheCreationInputTokens } =
+    buildUsage(usage, rawSteps);
 
   // Prefer the SDK's top-level reasoningDetails when available (it already has
   // the canonical signed blocks for Anthropic). Fallback to per-step aggregation.
@@ -297,6 +327,8 @@ function buildChatResponse(
       promptTokens,
       completionTokens,
       totalTokens: promptTokens + completionTokens,
+      cachedInputTokens,
+      cacheCreationInputTokens,
     },
     durationMs,
     model: modelId,
@@ -331,7 +363,38 @@ function foldSystemMessages(
   };
 }
 
-export function createProvider(providerName: string, createModel: ModelFactory): ProviderAdapter {
+/**
+ * Optional per-provider transform applied to the folded `{system, messages}`
+ * immediately before the SDK call. Anthropic/Bedrock use it to inject cache
+ * breakpoints (see providers/anthropic.ts, providers/bedrock.ts). The `modelId`
+ * lets a hook gate provider-specific behaviour on the concrete model (e.g.
+ * Bedrock only injects a `cachePoint` for cache-capable model families). Must be
+ * a pure function.
+ */
+export type PrepareMessages = (input: {
+  system: string | undefined;
+  messages: ModelMessage[];
+  modelId: string;
+}) => { system: string | undefined; messages: ModelMessage[] };
+
+export interface ProviderHooks {
+  prepareMessages?: PrepareMessages;
+}
+
+export function createProvider(
+  providerName: string,
+  createModel: ModelFactory,
+  hooks?: ProviderHooks,
+): ProviderAdapter {
+  /** Fold inline system messages, then apply the provider's prepare hook (if any). */
+  const prepare = (
+    request: ChatRequest,
+    modelId: string,
+  ): { system: string | undefined; messages: ModelMessage[] } => {
+    const folded = foldSystemMessages(request.system, request.messages);
+    return hooks?.prepareMessages ? hooks.prepareMessages({ ...folded, modelId }) : folded;
+  };
+
   return {
     name: providerName,
 
@@ -340,7 +403,7 @@ export function createProvider(providerName: string, createModel: ModelFactory):
 
       logLlmPayload(providerName, modelId, request);
 
-      const { system, messages } = foldSystemMessages(request.system, request.messages);
+      const { system, messages } = prepare(request, modelId);
       const result = await tracedGenerateText({
         model: createModel(modelId, request.apiKeys),
         system,
@@ -378,7 +441,7 @@ export function createProvider(providerName: string, createModel: ModelFactory):
       // wrapAISDK wraps streamText in traceable, making it return a Promise.
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
-      const { system, messages } = foldSystemMessages(request.system, request.messages);
+      const { system, messages } = prepare(request, modelId);
       const result = await tracedStreamText({
         model: createModel(modelId, request.apiKeys),
         system,

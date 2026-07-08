@@ -64,6 +64,82 @@ describe("estimateCost", () => {
   it("returns 0 for zero tokens", () => {
     expect(estimateCost("openai", "gpt-4o", 0, 0)).toBe(0);
   });
+
+  it("is unchanged when no cache breakdown is passed (backward compatible)", () => {
+    const withoutArg = estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500);
+    const withEmpty = estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500, {});
+    expect(withEmpty).toBeCloseTo(withoutArg, 12);
+    expect(withEmpty).toBeCloseTo((1000 * 3.0) / 1_000_000 + (500 * 15.0) / 1_000_000, 12);
+  });
+
+  it("prices Anthropic cache reads at 0.1x the input rate", () => {
+    // 1000 total input, 800 of them a cache hit → 200 full + 800 * 0.1
+    const cost = estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500, {
+      cachedInputTokens: 800,
+    });
+    const expected =
+      (200 * 3.0) / 1_000_000 + (800 * 3.0 * 0.1) / 1_000_000 + (500 * 15.0) / 1_000_000;
+    expect(cost).toBeCloseTo(expected, 12);
+    // Cheaper than pricing everything at full input rate.
+    expect(cost).toBeLessThan(estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500));
+  });
+
+  it("prices Anthropic cache writes at 1.25x the input rate", () => {
+    // 1000 total input, 600 written to cache → 400 full + 600 * 1.25
+    const cost = estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500, {
+      cacheCreationInputTokens: 600,
+    });
+    const expected =
+      (400 * 3.0) / 1_000_000 + (600 * 3.0 * 1.25) / 1_000_000 + (500 * 15.0) / 1_000_000;
+    expect(cost).toBeCloseTo(expected, 12);
+    // Cache writes cost MORE than the plain input rate (break-even trade-off).
+    expect(cost).toBeGreaterThan(estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500));
+  });
+
+  it("prices OpenAI cache reads at 0.5x and has no write cost", () => {
+    const cost = estimateCost("openai", "gpt-4o", 1000, 200, {
+      cachedInputTokens: 400,
+    });
+    const expected =
+      (600 * 2.5) / 1_000_000 + (400 * 2.5 * 0.5) / 1_000_000 + (200 * 10.0) / 1_000_000;
+    expect(cost).toBeCloseTo(expected, 12);
+  });
+
+  it("clamps a cache breakdown larger than the prompt total to non-negative regular input", () => {
+    const cost = estimateCost("anthropic", "claude-sonnet-4-6", 500, 0, {
+      cachedInputTokens: 900,
+    });
+    // regularInput clamps to 0; only the cache read is billed.
+    expect(cost).toBeCloseTo((900 * 3.0 * 0.1) / 1_000_000, 12);
+  });
+
+  it("applies the +10% cross-Region surcharge to Bedrock eu.* / global.* profiles", () => {
+    const base = (1000 * 3.0) / 1_000_000 + (500 * 15.0) / 1_000_000;
+    expect(estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-6", 1000, 500)).toBeCloseTo(
+      base * 1.1,
+      12,
+    );
+    expect(estimateCost("bedrock", "global.anthropic.claude-sonnet-4-6", 1000, 500)).toBeCloseTo(
+      base * 1.1,
+      12,
+    );
+  });
+
+  it("does NOT apply the cross-Region surcharge to in-Region (unprefixed) Bedrock models", () => {
+    const base = (1000 * 0.2) / 1_000_000 + (500 * 0.79) / 1_000_000;
+    expect(estimateCost("bedrock", "qwen.qwen3-32b-v1:0", 1000, 500)).toBeCloseTo(base, 12);
+  });
+
+  it("compounds the cross-Region surcharge with the cache discount", () => {
+    // 1000 total input, 800 cache read → (200 full + 800*0.1) input, then ×1.1.
+    const preSurcharge =
+      (200 * 3.0) / 1_000_000 + (800 * 3.0 * 0.1) / 1_000_000 + (500 * 15.0) / 1_000_000;
+    expect(
+      estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-6", 1000, 500, {
+        cachedInputTokens: 800,
+      }),
+    ).toBeCloseTo(preSurcharge * 1.1, 12);
+  });
 });
 
 describe("estimateSttCost", () => {
