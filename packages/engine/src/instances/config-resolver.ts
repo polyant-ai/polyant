@@ -15,6 +15,7 @@ export interface InstanceConfig {
   apiKeys: {
     openai?: string;
     anthropic?: string;
+    nebius?: string;
     bedrock_api_key?: string;
     bedrock_access_key_id?: string;
     bedrock_secret_access_key?: string;
@@ -35,6 +36,8 @@ export interface InstanceConfig {
    * model); the gate lives here to keep runtime requests coherent.
    */
   thinkingEnabled: boolean;
+  /** Reasoning intensity when thinkingEnabled (low|medium|high). Consumed only by the Nebius provider so far. */
+  thinkingLevel: string;
   /**
    * Effective sampling temperature: clamped to [0, 2] from the DB value, or
    * null when the model/provider does not support a custom temperature (e.g.
@@ -115,6 +118,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       memoryEnabled: false,
       knowledgeEnabled: false,
       thinkingEnabled: false,
+      thinkingLevel: "medium",
       temperature: null,
       stateInPromptEnabled: false,
       toolResultsInHistoryEnabled: false,
@@ -166,6 +170,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     apiKeys: {
       openai: secrets[SECRET_KEYS.OPENAI_API_KEY],
       anthropic: secrets[SECRET_KEYS.ANTHROPIC_API_KEY],
+      nebius: secrets[SECRET_KEYS.NEBIUS_API_KEY],
       bedrock_api_key: secrets[SECRET_KEYS.BEDROCK_API_KEY],
       bedrock_access_key_id: secrets[SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID],
       bedrock_secret_access_key: secrets[SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY],
@@ -182,6 +187,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     memoryEnabled: instance.memoryEnabled,
     knowledgeEnabled: instance.knowledgeEnabled,
     thinkingEnabled: resolvedThinkingEnabled,
+    thinkingLevel: (instance as { thinkingLevel?: string }).thinkingLevel ?? "medium",
     temperature: temperatureSupported(
       instance.provider ?? "",
       effectiveModelFor(instance.provider ?? undefined, instance.model ?? undefined) ?? "",

@@ -121,6 +121,7 @@ describe("instances/config-resolver", () => {
         memoryEnabled: false,
         knowledgeEnabled: false,
         thinkingEnabled: false,
+        thinkingLevel: "medium",
         temperature: null,
         stateInPromptEnabled: false,
         toolResultsInHistoryEnabled: false,
@@ -160,6 +161,7 @@ describe("instances/config-resolver", () => {
           bedrock_access_key_id: undefined,
           bedrock_secret_access_key: undefined,
           bedrock_region: undefined,
+          nebius: undefined,
         },
         secrets: fakeSecrets,
         langsmith: {
@@ -174,6 +176,7 @@ describe("instances/config-resolver", () => {
         // gpt-4o is not thinking-capable, so the gate keeps thinking off even
         // if the persisted preference were true. The fixture has it false.
         thinkingEnabled: false,
+        thinkingLevel: "medium",
         // fakeInstance has no temperature field → clampTemperature(undefined) = null,
         // but gpt-4o supports temperature so the gate passes; null means "use provider default".
         temperature: null,

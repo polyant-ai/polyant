@@ -55,6 +55,7 @@ interface Props {
 const SECRET_KEYS = {
   OPENAI: "openai_api_key",
   ANTHROPIC: "anthropic_api_key",
+  NEBIUS: "nebius_api_key",
   BEDROCK_API_KEY: "bedrock_api_key",
   // AWS credentials for the AI provider (Bedrock chat + embedder, Transcribe STT).
   // Dedicated namespace — independent of the generic aws_* keys used by tools.
@@ -72,6 +73,7 @@ const BRAND_NAMES: Record<string, string> = {
   hubspot: "HubSpot",
   openai: "OpenAI",
   anthropic: "Anthropic",
+  nebius: "Nebius",
   bedrock: "AWS Bedrock",
   aws: "AWS",
   tavily: "Tavily",
@@ -114,6 +116,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // model is not thinking-capable, but the state is preserved so that
   // switching back to a capable model reapplies the preference.
   const [thinkingEnabled, setThinkingEnabled] = useState(instance.thinkingEnabled);
+  // Reasoning intensity when thinking is on. Applied only by Nebius for now
+  // (maps to reasoning_effort). Portable set: low|medium|high.
+  const [thinkingLevel, setThinkingLevel] = useState<string>(instance.thinkingLevel ?? "medium");
 
   // Sampling temperature (0–2). Null means "use the engine default". Disabled
   // when the selected model does not support temperature (e.g. reasoning models).
@@ -283,6 +288,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     model !== (instance.model ?? "") ||
     embeddingProvider !== ((instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai") ||
     thinkingEnabled !== instance.thinkingEnabled ||
+    thinkingLevel !== (instance.thinkingLevel ?? "medium") ||
     temperature !== (instance.temperature ?? null) ||
     stateInPromptEnabled !== instance.stateInPromptEnabled ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
@@ -330,6 +336,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         knowledgeEnabled,
         authEnabled,
         thinkingEnabled,
+        thinkingLevel,
         temperature: canSetTemperature ? temperature : null,
         stateInPromptEnabled,
         toolResultsInHistoryEnabled,
@@ -555,6 +562,34 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         )}
 
         {/*
+          Reasoning level (experiment, Nebius-only). Maps to reasoning_effort.
+          Shown only for Nebius reasoning models with thinking on. Portable set
+          low|medium|high — minimal/xhigh/max are rejected by some Nebius models.
+        */}
+        {canEnableThinking && thinkingEnabled && provider === "nebius" && (
+          <div className="flex items-start justify-between gap-4 border-t pt-4">
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">
+                {t("settings.tab.reasoningLevel")}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.reasoningLevelHelp")}
+              </p>
+            </div>
+            <Select value={thinkingLevel} onValueChange={setThinkingLevel}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="low">Low</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/*
           Sampling temperature control. Shown for all models but disabled for
           reasoning/o-series models (supportsTemperature: false) and when
           extended thinking is active (which overrides temperature).
@@ -675,6 +710,17 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.ANTHROPIC)}
           placeholder={isConfigured(SECRET_KEYS.ANTHROPIC) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
           onRemove={isConfigured(SECRET_KEYS.ANTHROPIC) ? () => handleRemoveSecret(SECRET_KEYS.ANTHROPIC) : undefined}
+        />
+
+        <SecretField
+          label={t("settings.tab.nebiusKey")}
+          value={secretValue(SECRET_KEYS.NEBIUS)}
+          onChange={(v) => setSecretValue(SECRET_KEYS.NEBIUS, v)}
+          configured={isConfigured(SECRET_KEYS.NEBIUS)}
+          visible={secretVisible(SECRET_KEYS.NEBIUS)}
+          onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.NEBIUS)}
+          placeholder={isConfigured(SECRET_KEYS.NEBIUS) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
+          onRemove={isConfigured(SECRET_KEYS.NEBIUS) ? () => handleRemoveSecret(SECRET_KEYS.NEBIUS) : undefined}
         />
       </section>
       )}

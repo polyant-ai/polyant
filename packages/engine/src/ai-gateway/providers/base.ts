@@ -231,6 +231,18 @@ function normalizeSdkSteps(rawSteps: unknown): SdkStep[] {
   });
 }
 
+/** Anthropic signed-thinking metadata, carried on a v6 reasoning part's providerMetadata. */
+function anthropicReasoningMeta(providerMetadata: unknown): { signature?: string; redactedData?: string } {
+  if (!providerMetadata || typeof providerMetadata !== "object") return {};
+  const anthropic = (providerMetadata as Record<string, unknown>).anthropic;
+  if (!anthropic || typeof anthropic !== "object") return {};
+  const m = anthropic as Record<string, unknown>;
+  return {
+    signature: typeof m.signature === "string" ? m.signature : undefined,
+    redactedData: typeof m.redactedData === "string" ? m.redactedData : undefined,
+  };
+}
+
 /** Coerce SDK reasoningDetails (loosely typed `unknown[]`) into our ReasoningDetail[] shape. */
 function normaliseReasoningDetails(details: unknown[] | undefined): ReasoningDetail[] | undefined {
   if (!details || details.length === 0) return undefined;
@@ -239,7 +251,17 @@ function normaliseReasoningDetails(details: unknown[] | undefined): ReasoningDet
   for (const d of details) {
     if (!d || typeof d !== "object") continue;
     const obj = d as Record<string, unknown>;
-    if (obj.type === "text" && typeof obj.text === "string") {
+    // AI SDK v6: reasoning parts are `{ type: 'reasoning', text, providerMetadata? }`.
+    // The Anthropic signature / redacted blob live under `providerMetadata.anthropic`.
+    if (obj.type === "reasoning") {
+      const meta = anthropicReasoningMeta(obj.providerMetadata);
+      if (meta.redactedData) {
+        out.push({ type: "redacted", data: meta.redactedData });
+      } else if (typeof obj.text === "string" && obj.text.length > 0) {
+        out.push({ type: "text", text: obj.text, ...(meta.signature ? { signature: meta.signature } : {}) });
+      }
+    } else if (obj.type === "text" && typeof obj.text === "string") {
+      // Legacy v4/v5 shape (also matches older cached rows).
       const sig = typeof obj.signature === "string" ? obj.signature : undefined;
       out.push({ type: "text", text: obj.text, ...(sig ? { signature: sig } : {}) });
     } else if (obj.type === "redacted" && typeof obj.data === "string") {

@@ -112,10 +112,11 @@ describe("instances/secrets.store", () => {
   // SECRET_KEYS constant
   // -----------------------------------------------------------------------
   describe("SECRET_KEYS", () => {
-    it("exports all 13 well-known secret keys", () => {
-      expect(Object.keys(SECRET_KEYS)).toHaveLength(13);
+    it("exports all 14 well-known secret keys", () => {
+      expect(Object.keys(SECRET_KEYS)).toHaveLength(14);
       expect(SECRET_KEYS.OPENAI_API_KEY).toBe("openai_api_key");
       expect(SECRET_KEYS.ANTHROPIC_API_KEY).toBe("anthropic_api_key");
+      expect(SECRET_KEYS.NEBIUS_API_KEY).toBe("nebius_api_key");
       expect(SECRET_KEYS.BEDROCK_API_KEY).toBe("bedrock_api_key");
       expect(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID).toBe("aws_provider_access_key_id");
       expect(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY).toBe("aws_provider_secret_access_key");
@@ -279,7 +280,7 @@ describe("instances/secrets.store", () => {
 
       const result = await listSecretKeys(INSTANCE_SLUG);
 
-      expect(result).toHaveLength(13);
+      expect(result).toHaveLength(14);
       expect(result).toEqual(
         expect.arrayContaining([
           { key: "openai_api_key", configured: true },

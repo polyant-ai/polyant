@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateCost } from "./config.js";
+import { resolveModel, estimateCost, isThinkingCapable } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
 import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
 import { BedrockProvider } from "./providers/bedrock.js";
+import { NebiusProvider } from "./providers/nebius.js";
 import { aiLogger } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
 import type { ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "./types.js";
@@ -25,6 +26,7 @@ const providers: Record<string, ProviderAdapter> = {
   openai: OpenAIProvider,
   anthropic: AnthropicProvider,
   bedrock: BedrockProvider,
+  nebius: NebiusProvider,
 };
 
 let initialized = false;
@@ -99,6 +101,26 @@ function resolveCallConfig(
         } as Record<string, unknown>,
       };
     }
+  }
+
+  // Nebius (OpenAI-compatible): reasoning models (Qwen3.5 hybrid & friends) think
+  // BY DEFAULT, and `reasoning_effort` only tunes intensity — it does NOT turn
+  // thinking off. The real off-switch is the vLLM chat-template kwarg
+  // `enable_thinking:false`, which @ai-sdk/openai-compatible forwards verbatim into
+  // the request body. Drive BOTH states so the admin `thinking` toggle actually
+  // controls the model (without it, "off" left the model reasoning by default).
+  // Gated on isThinkingCapable so the Qwen-specific kwarg never reaches a
+  // non-reasoning model.
+  if (providerName === "nebius" && isThinkingCapable(providerName, modelId)) {
+    providerOptions = {
+      ...providerOptions,
+      nebius: {
+        ...(providerOptions?.nebius ?? {}),
+        ...(request.thinking
+          ? { reasoningEffort: request.thinkingLevel ?? "medium" }
+          : { chat_template_kwargs: { enable_thinking: false } }),
+      } as Record<string, unknown>,
+    };
   }
 
   // v6: OpenAI's `strictJsonSchema` defaults to true; our tools use Zod

@@ -173,6 +173,10 @@ describe("providerConfigs", () => {
     expect(Object.keys(providerConfigs)).toContain("anthropic");
   });
 
+  it("has the nebius provider", () => {
+    expect(Object.keys(providerConfigs)).toContain("nebius");
+  });
+
   it("each provider has all three tiers", () => {
     for (const provider of Object.values(providerConfigs)) {
       expect(provider.tiers).toHaveProperty("fast");
@@ -247,6 +251,29 @@ describe("isThinkingCapable", () => {
       ["mistral.mistral-large-2402-v1:0", false],
     ])("bedrock/%s -> %s", (model, expected) => {
       expect(isThinkingCapable("bedrock", model)).toBe(expected);
+    });
+  });
+
+  describe("Nebius", () => {
+    it.each([
+      ["Qwen/Qwen3.5-397B-A17B", true],
+      ["Qwen/Qwen3-Next-80B-A3B-Thinking", true],
+      ["deepseek-ai/DeepSeek-V4-Pro", true],
+      ["zai-org/GLM-5.1", true],
+      ["zai-org/GLM-5.2", true],
+      ["openai/gpt-oss-120b", true],
+      ["moonshotai/Kimi-K2.6", true],
+      ["MiniMaxAI/MiniMax-M2.5", true],
+      ["NousResearch/Hermes-4-405B", true],
+      ["nvidia/nemotron-3-super-120b-a12b", true],
+      ["nvidia/Cosmos3-Super-Reasoner", true],
+      ["meta-llama/Llama-3.3-70B-Instruct", false],
+      ["Qwen/Qwen3-32B", false],
+      ["Qwen/Qwen3-235B-A22B-Instruct-2507", false],
+      ["Qwen/Qwen2.5-VL-72B-Instruct", false],
+      ["google/gemma-3-27b-it", false],
+    ])("nebius/%s -> %s", (model, expected) => {
+      expect(isThinkingCapable("nebius", model)).toBe(expected);
     });
   });
 

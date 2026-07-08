@@ -56,6 +56,8 @@ export interface SupervisorInput {
    * can forward this verbatim to the AI gateway.
    */
   thinkingEnabled?: boolean;
+  /** Reasoning intensity when thinkingEnabled (low|medium|high). Forwarded verbatim to the gateway. */
+  thinkingLevel?: string;
   /** Sampling temperature [0, 2]. Already gated by config-resolver; forwarded verbatim. Omitted when undefined. */
   temperature?: number | null;
   /** When true, the current conversation state is rendered read-only into the system prompt. */
@@ -468,6 +470,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
       provider: input.provider,
       model: input.model,
       thinking: input.thinkingEnabled ?? false,
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
       ...(input.temperature != null ? { temperature: input.temperature } : {}),
       apiKeys: input.apiKeys,
       langsmith: input.langsmith,
@@ -526,6 +529,7 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
       provider: input.provider,
       model: input.model,
       thinking: input.thinkingEnabled ?? false,
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
       ...(input.temperature != null ? { temperature: input.temperature } : {}),
       apiKeys: input.apiKeys,
       langsmith: input.langsmith,

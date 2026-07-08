@@ -5,7 +5,7 @@ import type { ModelMessage } from "ai";
 // ponytail: allowlist of vision-capable model families — an unlisted model has its
 // image/file content parts stripped to a text note (degraded, never a provider 400).
 // Fails safe; upgrade to a real per-model capability table if the catalog drifts.
-const VISION_CAPABLE = /gpt-4o|gpt-4\.1|gpt-5|chatgpt|claude|nova-lite|nova-pro|nova-2|vision|\bo[134]\b/i;
+const VISION_CAPABLE = /gpt-4o|gpt-4\.1|gpt-5|chatgpt|claude|nova-lite|nova-pro|nova-2|vision|\bo[134]\b|-vl-|minicpm-v|cosmos3|kimi-k2\.6/i;
 
 export function modelSupportsVision(model: string): boolean {
   return VISION_CAPABLE.test(model);

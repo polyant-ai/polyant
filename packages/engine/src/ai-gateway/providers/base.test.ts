@@ -222,6 +222,31 @@ describe("buildSteps", () => {
     ]);
   });
 
+  it("normalises AI SDK v6 reasoning parts (type:'reasoning', signature/redacted from providerMetadata)", () => {
+    const steps = buildSteps(
+      [
+        {
+          stepType: "initial",
+          text: "x",
+          toolCalls: [],
+          finishReason: "stop",
+          reasoningDetails: [
+            { type: "reasoning", text: "th1", providerMetadata: { anthropic: { signature: "s1" } } },
+            { type: "reasoning", text: "th2" },
+            { type: "reasoning", text: "", providerMetadata: { anthropic: { redactedData: "blob" } } },
+            { type: "reasoning" }, // no text, no meta → dropped
+          ],
+        },
+      ],
+      100,
+    );
+    expect(steps[0].reasoning).toEqual([
+      { type: "text", text: "th1", signature: "s1" },
+      { type: "text", text: "th2" },
+      { type: "redacted", data: "blob" },
+    ]);
+  });
+
   it("defaults missing optional fields to safe values", () => {
     const steps = buildSteps([{}], 100);
     expect(steps[0]).toMatchObject({

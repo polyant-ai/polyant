@@ -68,6 +68,11 @@ export interface Instance {
    */
   thinkingEnabled: boolean;
   /**
+   * Reasoning intensity when thinking is on (low|medium|high). Currently applied
+   * only by the Nebius provider. Optional/defaulted for backward compatibility.
+   */
+  thinkingLevel?: string;
+  /**
    * Sampling temperature (0–2). Null means "use the engine default". Ignored
    * at runtime when the selected model does not support temperature (e.g.
    * reasoning/o-series models). Optional for backward compatibility with

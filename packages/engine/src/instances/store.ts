@@ -37,6 +37,8 @@ export interface Instance {
    * after switching to a non-capable model has no effect.
    */
   thinkingEnabled: boolean;
+  /** Reasoning intensity when thinkingEnabled (low|medium|high). Consumed only by Nebius so far. */
+  thinkingLevel: string;
   /** Sampling temperature [0, 2]; null = provider default. Gated at runtime by temperatureSupported. */
   temperature: number | null;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
@@ -164,6 +166,7 @@ type UpdatableInstanceFields = {
   langsmithProject?: string | null;
   authEnabled?: boolean;
   thinkingEnabled?: boolean;
+  thinkingLevel?: string;
   temperature?: number | null;
   stateInPromptEnabled?: boolean;
   toolResultsInHistoryEnabled?: boolean;
@@ -192,6 +195,7 @@ const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
   "langsmithProject",
   "authEnabled",
   "thinkingEnabled",
+  "thinkingLevel",
   "temperature",
   "stateInPromptEnabled",
   "toolResultsInHistoryEnabled",
