@@ -242,13 +242,14 @@ describe("SettingsTab", () => {
     });
   });
 
-  it("shows the anthropic memory warning for an anthropic instance needing an openai key", async () => {
+  it("keys the memory warning off the embedder, not the chat provider (anthropic chat + openai embedder)", async () => {
     render(
       <SettingsTab
         instance={makeInstance({
           memoryEnabled: true,
           provider: "anthropic",
           model: "claude-3-opus",
+          embeddingProvider: "openai",
           memory: { needsOpenAIKey: true, canEnable: false },
         })}
         onUpdate={onUpdate}
@@ -256,11 +257,11 @@ describe("SettingsTab", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("memory.banner.anthropicNeedsOpenAI")).toBeInTheDocument();
+      expect(screen.getByText("memory.banner.openaiNeedsKey")).toBeInTheDocument();
     });
   });
 
-  it("shows the bedrock memory warning for a bedrock instance needing aws credentials", async () => {
+  it("shows the bedrock memory warning for a bedrock embedder needing aws credentials", async () => {
     mockModelsList.mockResolvedValue({
       providers: {
         bedrock: { models: [{ id: "titan", tier: "standard", costInput: 0.01, costOutput: 0.03 }] },
@@ -273,6 +274,7 @@ describe("SettingsTab", () => {
           memoryEnabled: true,
           provider: "bedrock",
           model: "titan",
+          embeddingProvider: "bedrock",
           memory: { needsOpenAIKey: true, canEnable: false },
         })}
         onUpdate={onUpdate}
@@ -282,6 +284,43 @@ describe("SettingsTab", () => {
     await waitFor(() => {
       expect(screen.getByText("memory.banner.bedrockNeedsAws")).toBeInTheDocument();
     });
+  });
+
+  it("shows the openai knowledge warning when knowledge is on and no openai key (openai embedder)", async () => {
+    mockSecretsList.mockResolvedValue({
+      secrets: [{ key: "openai_api_key", configured: false }],
+    });
+
+    render(
+      <SettingsTab
+        instance={makeInstance({
+          knowledgeEnabled: true,
+          embeddingProvider: "openai",
+        })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.knowledgeOpenaiWarning")).toBeInTheDocument();
+    });
+  });
+
+  it("shows the aws knowledge warning (not the openai one) for a bedrock embedder without aws region", async () => {
+    render(
+      <SettingsTab
+        instance={makeInstance({
+          knowledgeEnabled: true,
+          embeddingProvider: "bedrock",
+        })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.knowledgeAwsWarning")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("settings.tab.knowledgeOpenaiWarning")).not.toBeInTheDocument();
   });
 
   it("does not show the memory warning when the engine reports no missing key", async () => {
