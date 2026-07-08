@@ -234,6 +234,19 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   const isConfigured = (key: string) =>
     secrets.some((s) => s.key === key && s.configured);
 
+  // The embedder (shared by memory + knowledge) is unusable until its provider's
+  // credentials exist. Keys off embeddingProvider, not the chat provider (#150).
+  // ponytail: the client can't see the engine's AWS_REGION env fallback, so a
+  // bedrock instance relying on it may show a false-positive here — set
+  // aws_provider_region to silence it. The memory banner uses the backend
+  // status (which does see the fallback); knowledge has no such backend field.
+  const embedderMissing = (key: string) =>
+    !isConfigured(key) && secretValue(key) === "";
+  const embedderNeedsCredentials =
+    embeddingProvider === "bedrock"
+      ? embedderMissing(SECRET_KEYS.AWS_PROVIDER_REGION)
+      : embedderMissing(SECRET_KEYS.OPENAI);
+
   const providerNames = modelsData ? Object.keys(modelsData.providers) : [];
   const availableModels = provider && modelsData?.providers[provider]
     ? modelsData.providers[provider].models
@@ -759,11 +772,11 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <p className="text-sm">
               {t(
-                provider === "bedrock"
+                // Text keys off the EMBEDDER (openai|bedrock), not the chat
+                // provider — they are independent (#150).
+                embeddingProvider === "bedrock"
                   ? "memory.banner.bedrockNeedsAws"
-                  : provider === "anthropic"
-                    ? "memory.banner.anthropicNeedsOpenAI"
-                    : "memory.banner.openaiNeedsKey",
+                  : "memory.banner.openaiNeedsKey",
               )}
             </p>
           </div>
@@ -787,10 +800,16 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           />
         </div>
 
-        {knowledgeEnabled && !isConfigured(SECRET_KEYS.OPENAI) && secretValue(SECRET_KEYS.OPENAI) === "" && (
+        {knowledgeEnabled && embedderNeedsCredentials && (
           <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p className="text-sm">{t("settings.tab.knowledgeOpenaiWarning")}</p>
+            <p className="text-sm">
+              {t(
+                embeddingProvider === "bedrock"
+                  ? "settings.tab.knowledgeAwsWarning"
+                  : "settings.tab.knowledgeOpenaiWarning",
+              )}
+            </p>
           </div>
         )}
       </section>
