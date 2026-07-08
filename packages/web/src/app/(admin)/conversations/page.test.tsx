@@ -80,6 +80,8 @@ function makeConversation(overrides: Partial<ConversationListItem> = {}): Conver
     conversationCost: 0.003,
     serviceTokens: 200,
     serviceCost: 0.0005,
+    cachedInputTokens: 0,
+    cacheCreationInputTokens: 0,
     createdAt: "2025-01-01T00:00:00Z",
     updatedAt: "2025-01-01T00:00:00Z",
     ...overrides,

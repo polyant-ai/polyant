@@ -369,6 +369,11 @@ export default function ConversationDetailPage() {
                     <TooltipContent>
                       <p>{t("conversations.detail.conversationCost")}: {conversation.conversationTokens.toLocaleString()}</p>
                       <p className="text-muted-foreground">{t("conversations.detail.serviceCost")}: {conversation.serviceTokens.toLocaleString()}</p>
+                      {conversation.cachedInputTokens > 0 && (
+                        <p className="text-muted-foreground">
+                          {t("conversations.detail.cacheTokens")}: {conversation.cachedInputTokens.toLocaleString()} / {conversation.cacheCreationInputTokens.toLocaleString()}
+                        </p>
+                      )}
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>

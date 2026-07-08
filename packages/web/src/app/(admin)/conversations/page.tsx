@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from "react";
 import { usePagination } from "@/hooks/use-pagination";
 import Link from "next/link";
 import { toast } from "sonner";
-import { MessageSquare, Search } from "lucide-react";
+import { MessageSquare, Search, Database } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -235,6 +235,15 @@ export default function ConversationsPage() {
                       {conv.serviceTokens > 0 && (
                         <span className="text-xs text-muted-foreground/60 ml-1">
                           (+{conv.serviceTokens.toLocaleString()})
+                        </span>
+                      )}
+                      {conv.cachedInputTokens > 0 && (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-xs text-muted-foreground/60 ml-1 tabular-nums"
+                          title={t("conversations.list.cachedTokens")}
+                        >
+                          <Database className="h-3 w-3" />
+                          {conv.cachedInputTokens.toLocaleString()}
                         </span>
                       )}
                     </TableCell>
