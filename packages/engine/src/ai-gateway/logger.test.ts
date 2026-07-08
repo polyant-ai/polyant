@@ -51,6 +51,8 @@ describe("AILogger", () => {
         promptTokens: 100,
         completionTokens: 50,
         totalTokens: 150,
+        cachedInputTokens: 0,
+        cacheCreationInputTokens: 0,
         estimatedCostUsd: 0.0075,
         durationMs: 500,
         reasoningChars: 42,
@@ -59,6 +61,40 @@ describe("AILogger", () => {
         instanceId: "user-1",
         callType: "conversation",
       });
+    });
+
+    it("defaults cache token counts to 0 when omitted", () => {
+      const entry = logger.createEntry(
+        "openai", "gpt-4o", "standard", false,
+        100, 50, 150, 0.0075, 500,
+        0, 0,
+      );
+      expect(entry.cachedInputTokens).toBe(0);
+      expect(entry.cacheCreationInputTokens).toBe(0);
+    });
+
+    it("records cache read/write token counts when supplied", () => {
+      const entry = logger.createEntry(
+        "anthropic", "claude-sonnet-4-6", "standard", false,
+        1000, 200, 1200, 0.001, 800,
+        0, 1,
+        "conv-1", asInstanceSlug("inst-1"), "conversation",
+        750, 120,
+      );
+      expect(entry.cachedInputTokens).toBe(750);
+      expect(entry.cacheCreationInputTokens).toBe(120);
+    });
+
+    it("clamps non-finite cache token counts to 0", () => {
+      const entry = logger.createEntry(
+        "anthropic", "claude-sonnet-4-6", "standard", false,
+        1000, 200, 1200, 0.001, 800,
+        0, 0,
+        undefined, undefined, undefined,
+        Number.NaN, Number.POSITIVE_INFINITY,
+      );
+      expect(entry.cachedInputTokens).toBe(0);
+      expect(entry.cacheCreationInputTokens).toBe(0);
     });
 
     it("allows optional conversationId and instanceId", () => {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { Tool } from "ai";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { config } from "../../config.js";
 import { db } from "../../database/client.js";
 import { getPrompts, invalidatePromptsCache } from "../../instances/prompts.store.js";
@@ -173,7 +173,10 @@ async function discoverSkills(
         eq(instanceSkills.enabled, true),
         eq(skills.status, "active"),
       ),
-    );
+    )
+    // Deterministic order so the skills list (part of the cacheable system
+    // section) never reorders between turns and silently breaks the cache prefix.
+    .orderBy(asc(skills.slug));
 
   if (rows.length === 0) return [];
 
@@ -239,7 +242,26 @@ async function loadSkillsList(
 // Main builder
 // ---------------------------------------------------------------------------
 
-export async function buildSupervisorSystemPrompt(options: PromptOptions): Promise<string> {
+/**
+ * The supervisor prompt, split so provider prompt-caching is effective.
+ *
+ * - `system`: the STABLE prefix — the per-instance DB sections (identity … user
+ *   identity) plus any persisted webhook `contextPrompt`. Byte-identical across
+ *   turns (and, absent a webhook context, across every conversation of the
+ *   instance), so it can be cached.
+ * - `turnContext`: the PER-TURN volatile block (current datetime, channel
+ *   identity, running summary, conversation state, opt-out hint). It must be
+ *   injected at the TAIL of the messages — after the cacheable point — so it
+ *   never invalidates the cached system/history prefix. `datetime` in
+ *   particular changes every minute and used to sit in `system`, defeating the
+ *   cache on every minute boundary.
+ */
+export interface SupervisorPrompt {
+  system: string;
+  turnContext: string;
+}
+
+export async function buildSupervisorSystemPrompt(options: PromptOptions): Promise<SupervisorPrompt> {
   const { instanceId, instanceSlug } = options;
 
   const datetime = new Date().toLocaleString(config.datetime.locale, {
@@ -286,40 +308,45 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
   // 7. User Identity
   const s07 = section("07-user-identity");
 
-  // 8. Datetime (template)
+  // 8. Datetime (template) — VOLATILE (minute granularity): goes to turnContext.
   const s08 = applyTemplate(section("08-datetime"), {
     datetime,
     timezone: config.datetime.timezone,
   });
 
-  const sections = [s01, s02, s03, s04, s05, s06, s07, s08];
-
-  if (options.channelIdentity) {
-    sections.push(renderChannelIdentitySection(options.channelIdentity));
+  // Stable, cacheable prefix: the per-instance sections. The persisted webhook
+  // `contextPrompt` is stable within a conversation, so it stays here too.
+  const systemSections = [s01, s02, s03, s04, s05, s06, s07];
+  if (options.contextPrompt) {
+    systemSections.push(`## Conversation Context\n\n${options.contextPrompt}`);
   }
 
-  if (options.contextPrompt) {
-    sections.push(
-      `## Conversation Context\n\n${options.contextPrompt}`,
-    );
+  // Per-turn volatile block — injected at the tail of the messages, never in system.
+  const turnSections: string[] = [];
+  if (s08) turnSections.push(s08);
+
+  if (options.channelIdentity) {
+    turnSections.push(renderChannelIdentitySection(options.channelIdentity));
   }
 
   if (options.conversationSummary) {
-    sections.push(
+    turnSections.push(
       `## Previous conversation context (summary)\n\n${options.conversationSummary}\n\nNote: this is a summary of earlier messages. When tool results from the current turn contain data (dates, names, figures), always use the current tool results — they take precedence over this summary.`,
     );
   }
 
   if (options.conversationState) {
     const stateSection = renderConversationStateSection(options.conversationState);
-    if (stateSection) sections.push(stateSection);
+    if (stateSection) turnSections.push(stateSection);
   }
 
   if (options.optoutHint) {
-    sections.push(renderOptoutHintSection(options.optoutHint));
+    turnSections.push(renderOptoutHintSection(options.optoutHint));
   }
 
-  return sections
-    .filter(Boolean)
-    .join("\n\n---\n\n");
+  const joiner = "\n\n---\n\n";
+  return {
+    system: systemSections.filter(Boolean).join(joiner),
+    turnContext: turnSections.filter(Boolean).join(joiner),
+  };
 }

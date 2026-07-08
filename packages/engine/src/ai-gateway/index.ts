@@ -165,7 +165,11 @@ function logAndRecordUsage(
     config.providerName,
     config.modelId,
     response.usage.promptTokens,
-    response.usage.completionTokens
+    response.usage.completionTokens,
+    {
+      cachedInputTokens: response.usage.cachedInputTokens,
+      cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
+    },
   );
 
   aiLogger.log(
@@ -184,6 +188,8 @@ function logAndRecordUsage(
       options?.conversationId,
       options?.instanceId,
       options?.callType,
+      response.usage.cachedInputTokens,
+      response.usage.cacheCreationInputTokens,
     )
   );
 }

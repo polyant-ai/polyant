@@ -131,18 +131,65 @@ export function resolveModel(provider: string, tier: string): string {
   return model;
 }
 
+/** Cached-token breakdown for a single call, as normalized by the AI SDK. */
+export interface CacheTokenUsage {
+  /** Input tokens served from a prompt cache (billed at a reduced rate). */
+  cachedInputTokens?: number;
+  /** Input tokens written to the prompt cache (Anthropic bills these at a premium). */
+  cacheCreationInputTokens?: number;
+}
+
+/**
+ * Per-provider cache pricing multipliers, relative to the base `input` rate.
+ *
+ *  - `read`  : rate for a cache HIT (cache_read). Anthropic ≈ 0.1×; OpenAI's
+ *              automatic caching discounts cached prompt tokens (≈ 0.5× on the
+ *              4o/4.1 line, lower on gpt-5 — 0.5 is a documented approximation).
+ *  - `write` : rate for a cache WRITE (cache_creation). Anthropic charges a
+ *              premium (1.25× for the default 5-minute TTL); OpenAI has no
+ *              separate write cost (automatic caching, `cacheWriteTokens` = 0).
+ *
+ * Providers without a modeled cache (e.g. Nebius) fall back to 1× so cached
+ * tokens are never under-priced.
+ */
+const CACHE_MULTIPLIERS: Record<string, { read: number; write: number }> = {
+  anthropic: { read: 0.1, write: 1.25 },
+  // Bedrock catalog is Anthropic-dominated; Nova/others report no cache tokens.
+  bedrock: { read: 0.1, write: 1.25 },
+  openai: { read: 0.5, write: 0 },
+};
+const DEFAULT_CACHE_MULTIPLIER = { read: 1, write: 1 };
+
+/**
+ * Estimate the USD cost of a single LLM call.
+ *
+ * `promptTokens` is the AI SDK's normalized TOTAL input count
+ * (`inputTokens` = noCache + cacheRead + cacheWrite). When a `cache` breakdown
+ * is supplied, cache reads and writes are re-priced with the provider
+ * multipliers above and the remainder is billed at the full input rate. Omitting
+ * `cache` reproduces the legacy full-price behaviour exactly.
+ */
 export function estimateCost(
   provider: string,
   model: string,
   promptTokens: number,
-  completionTokens: number
+  completionTokens: number,
+  cache?: CacheTokenUsage,
 ): number {
   const config = providerConfigs[provider];
   if (!config) return 0;
   const pricing = config.costPerMillionTokens[model];
   if (!pricing) return 0;
+
+  const cacheRead = Math.max(0, cache?.cachedInputTokens ?? 0);
+  const cacheWrite = Math.max(0, cache?.cacheCreationInputTokens ?? 0);
+  const regularInput = Math.max(0, promptTokens - cacheRead - cacheWrite);
+  const mult = CACHE_MULTIPLIERS[provider] ?? DEFAULT_CACHE_MULTIPLIER;
+
   return (
-    (promptTokens * pricing.input) / 1_000_000 +
+    (regularInput * pricing.input) / 1_000_000 +
+    (cacheRead * pricing.input * mult.read) / 1_000_000 +
+    (cacheWrite * pricing.input * mult.write) / 1_000_000 +
     (completionTokens * pricing.output) / 1_000_000
   );
 }

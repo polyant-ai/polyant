@@ -85,6 +85,19 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /**
+   * Input tokens served from the provider prompt cache (cache HIT). Subset of
+   * `promptTokens`. Populated by the ai-gateway on every real call (0 when
+   * caching is off/unsupported); optional so lightweight test/util usage
+   * literals need not spell it out. Priced at a reduced rate by `estimateCost`.
+   */
+  cachedInputTokens?: number;
+  /**
+   * Input tokens written to the provider prompt cache (cache WRITE). Subset of
+   * `promptTokens`. Anthropic-only in practice (OpenAI caching is automatic and
+   * reports no write). Priced at a premium by `estimateCost`.
+   */
+  cacheCreationInputTokens?: number;
 }
 
 export interface AILogEntry {
@@ -96,6 +109,10 @@ export interface AILogEntry {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** Input tokens read from the prompt cache (cache HIT). Subset of promptTokens. */
+  cachedInputTokens?: number;
+  /** Input tokens written to the prompt cache (cache WRITE). Subset of promptTokens. */
+  cacheCreationInputTokens?: number;
   estimatedCostUsd: number;
   durationMs: number;
   /** Total characters of reasoning/thinking content captured for this call. */

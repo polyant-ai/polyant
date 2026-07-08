@@ -410,6 +410,60 @@ describe("createProvider – system message folding", () => {
   });
 });
 
+describe("createProvider – cache token usage", () => {
+  it("extracts the normalized inputTokenDetails cache breakdown into usage", async () => {
+    const generateTextSpy = vi.mocked(tracedGenerateText);
+    generateTextSpy.mockClear();
+    generateTextSpy.mockResolvedValueOnce({
+      text: "hello",
+      steps: [],
+      reasoning: undefined,
+      totalUsage: {
+        inputTokens: 1000,
+        outputTokens: 200,
+        inputTokenDetails: { noCacheTokens: 150, cacheReadTokens: 800, cacheWriteTokens: 50 },
+      },
+    } as any);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    const res = await adapter.chat({ ...baseRequest }, "claude-sonnet-4-6");
+
+    expect(res.usage.promptTokens).toBe(1000);
+    expect(res.usage.completionTokens).toBe(200);
+    expect(res.usage.cachedInputTokens).toBe(800);
+    expect(res.usage.cacheCreationInputTokens).toBe(50);
+  });
+
+  it("falls back to the deprecated top-level cachedInputTokens for cache reads", async () => {
+    const generateTextSpy = vi.mocked(tracedGenerateText);
+    generateTextSpy.mockClear();
+    generateTextSpy.mockResolvedValueOnce({
+      text: "hi",
+      steps: [],
+      reasoning: undefined,
+      totalUsage: { inputTokens: 500, outputTokens: 100, cachedInputTokens: 300 },
+    } as any);
+
+    const adapter = createProvider("openai", (_modelId) => ({}) as any);
+    const res = await adapter.chat({ ...baseRequest }, "gpt-4o");
+
+    expect(res.usage.cachedInputTokens).toBe(300);
+    expect(res.usage.cacheCreationInputTokens).toBe(0);
+  });
+
+  it("defaults cache counts to 0 when the provider reports none", async () => {
+    const generateTextSpy = vi.mocked(tracedGenerateText);
+    generateTextSpy.mockClear();
+    generateTextSpy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+
+    const adapter = createProvider("openai", (_modelId) => ({}) as any);
+    const res = await adapter.chat({ ...baseRequest }, "gpt-4o");
+
+    expect(res.usage.cachedInputTokens).toBe(0);
+    expect(res.usage.cacheCreationInputTokens).toBe(0);
+  });
+});
+
 describe("aggregateReasoning", () => {
   it("returns undefined when no step has reasoning", () => {
     expect(aggregateReasoning([])).toBeUndefined();

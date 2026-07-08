@@ -361,11 +361,25 @@ interface SupervisorContext {
 /**
  * Build user message content — multimodal (array) when attachments are present,
  * plain string otherwise (backward compatible).
+ *
+ * The per-turn volatile context (datetime, channel identity, summary, state,
+ * opt-out hint) is prepended here, wrapped in a `<context>` block, so it rides
+ * the TAIL of the messages after the cacheable system/history prefix instead of
+ * invalidating it from inside the system prompt. Empty `turnContext` → the raw
+ * message is used unchanged (backward compatible).
  */
-function buildUserContent(message: string, attachments?: Attachment[]): string | UserContent {
-  if (!attachments?.length) return message;
+function buildUserContent(
+  message: string,
+  turnContext: string,
+  attachments?: Attachment[],
+): string | UserContent {
+  const text = turnContext
+    ? `<context>\n${turnContext}\n</context>\n\n${message}`
+    : message;
 
-  const parts: UserContent = [{ type: "text", text: message }];
+  if (!attachments?.length) return text;
+
+  const parts: UserContent = [{ type: "text", text }];
 
   for (const att of attachments) {
     if (!att.data) continue;
@@ -415,7 +429,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   });
   const toolBuildingMs = Date.now() - toolBuildStart;
 
-  const systemPrompt = await buildSupervisorSystemPrompt({
+  const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
     tools,
     instanceId: instanceUuid,
     instanceSlug,
@@ -430,8 +444,9 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   pipelineLog.systemPrompt(instanceSlug, systemPrompt);
   pipelineLog.supervisorStart(instanceSlug, Object.keys(tools).length);
 
-  // Build user message — multimodal when attachments are present
-  const userContent = buildUserContent(input.message, input.attachments);
+  // Build user message — multimodal when attachments are present. The per-turn
+  // volatile context rides the tail of this message (see buildUserContent).
+  const userContent = buildUserContent(input.message, turnContext, input.attachments);
   const messages: ModelMessage[] = [
     ...(input.conversationHistory ?? []),
     { role: "user", content: userContent },

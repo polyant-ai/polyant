@@ -15,6 +15,10 @@ export const aiLogs = pgTable(
     promptTokens: integer("prompt_tokens").notNull(),
     completionTokens: integer("completion_tokens").notNull(),
     totalTokens: integer("total_tokens").notNull(),
+    // Prompt-cache breakdown (subset of prompt_tokens). Lets Analytics show
+    // cache hit-rate and real (cache-adjusted) cost. 0 when caching is off.
+    cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+    cacheCreationInputTokens: integer("cache_creation_input_tokens").notNull().default(0),
     estimatedCostUsd: real("estimated_cost_usd").notNull(),
     durationMs: integer("duration_ms").notNull(),
     reasoningChars: integer("reasoning_chars").notNull().default(0),
@@ -91,6 +95,8 @@ export class AILogger {
     conversationId?: string,
     instanceId?: InstanceSlug,
     callType?: "conversation" | "service",
+    cachedInputTokens?: number,
+    cacheCreationInputTokens?: number,
   ): AILogEntry {
     // Sanitize numeric values — AI SDK may return undefined in some edge cases
     const safeInt = (v: number) => (Number.isFinite(v) ? Math.round(v) : 0);
@@ -103,6 +109,8 @@ export class AILogger {
       promptTokens: safeInt(promptTokens),
       completionTokens: safeInt(completionTokens),
       totalTokens: safeInt(totalTokens),
+      cachedInputTokens: safeInt(cachedInputTokens ?? 0),
+      cacheCreationInputTokens: safeInt(cacheCreationInputTokens ?? 0),
       estimatedCostUsd: safeFloat(estimatedCostUsd),
       durationMs: safeInt(durationMs),
       reasoningChars: safeInt(reasoningChars),

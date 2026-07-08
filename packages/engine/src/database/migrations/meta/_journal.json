@@ -393,6 +393,13 @@
       "when": 1780704000000,
       "tag": "0062_export_read_admin_only",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1780790400000,
+      "tag": "0063_add_ai_logs_cache_tokens",
+      "breakpoints": true
     }
   ]
 }

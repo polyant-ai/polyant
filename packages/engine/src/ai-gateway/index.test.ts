@@ -86,7 +86,7 @@ function makeRequest(overrides: Partial<ChatRequest> = {}): ChatRequest {
 function makeChatResponse(overrides = {}) {
   return {
     text: "Response text",
-    usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+    usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150, cachedInputTokens: 0, cacheCreationInputTokens: 0 },
     durationMs: 500,
     model: "gpt-4o",
     provider: "openai",
@@ -149,6 +149,7 @@ describe("AI Gateway", () => {
         expect.any(Number),
         "conv-1", "user-1",
         undefined, // callType defaults to undefined when not specified
+        0, 0, // cachedInputTokens, cacheCreationInputTokens
       );
     });
 
@@ -166,6 +167,7 @@ describe("AI Gateway", () => {
         expect.any(Number),
         "conv-1", "inst-1",
         "service",
+        0, 0, // cachedInputTokens, cacheCreationInputTokens
       );
     });
 
@@ -298,6 +300,7 @@ describe("AI Gateway", () => {
         expect.any(Number),
         "conv-1", "inst-1",
         "service",
+        0, 0, // cachedInputTokens, cacheCreationInputTokens
       );
     });
 
