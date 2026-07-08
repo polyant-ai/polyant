@@ -71,6 +71,16 @@ export interface ChatResponse {
   model: string;
   provider: string;
   /**
+   * USD cost of this call, split by pricing bucket. Set by the ai-gateway after
+   * the provider returns (from `estimateCostBreakdown`). Threaded up to the
+   * pipeline and persisted per-message on `pipeline_traces`.
+   */
+  cost?: CostBreakdown;
+  /** Whether extended thinking was requested for this call (echoed from the request). */
+  thinking?: boolean;
+  /** Sampling temperature requested for this call (undefined → provider default). */
+  temperature?: number;
+  /**
    * Exact LLM request payload (system + messages + tool defs) — populated only
    * when `ChatRequest.captureDebug` was set. Threaded up to the pipeline and
    * persisted on the assistant message row (`conversation_messages.debug_payload`).
@@ -105,6 +115,17 @@ export interface TokenUsage {
    * reports no write). Priced at a premium by `estimateCost`.
    */
   cacheCreationInputTokens?: number;
+}
+
+/**
+ * USD cost of a single LLM call, split by pricing bucket. `total` is the sum of
+ * `input + cache + output` — the same scalar returned by `estimateCost()`.
+ */
+export interface CostBreakdown {
+  input: number;
+  cache: number;
+  output: number;
+  total: number;
 }
 
 export interface AILogEntry {

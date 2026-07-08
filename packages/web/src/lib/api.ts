@@ -30,6 +30,8 @@ export type {
   ConversationListItem,
   ConversationSearchResult,
   ConversationMessage,
+  CostBreakdown,
+  MessageLatency,
   MessageDebug,
   LlmDebugPayload,
   ReasoningDetail,

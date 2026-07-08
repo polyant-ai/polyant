@@ -22,7 +22,7 @@ import { config, DEFAULT_INSTANCE_ID } from "../../config.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { findInstanceBySlug } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
-import type { ChatRequest } from "../../ai-gateway/types.js";
+import type { ChatRequest, CostBreakdown } from "../../ai-gateway/types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import type { ConversationStateBuffer } from "../../conversations/state.buffer.js";
 import { buildConversationApi } from "../../conversations/conversation-history-api.js";
@@ -119,7 +119,19 @@ export interface SupervisorOutput {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
+    cachedInputTokens?: number;
+    cacheCreationInputTokens?: number;
   };
+  /** Model id actually used for this turn (e.g. "claude-sonnet-5"). */
+  model: string;
+  /** Provider that served the model (e.g. "anthropic", "openai"). */
+  provider: string;
+  /** USD cost split (input/cache/output/total) — persisted per-message. */
+  cost?: CostBreakdown;
+  /** Whether extended thinking was requested for this turn. */
+  thinking?: boolean;
+  /** Sampling temperature requested (undefined → provider default). */
+  temperature?: number;
   durationMs: number;
   toolBuildingMs: number;
   toolCallTraces?: ToolCallTrace[];
@@ -514,6 +526,11 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
         steps: response.steps,
         ...(response.reasoning ? { reasoning: response.reasoning } : {}),
         usage: response.usage,
+        model: response.model,
+        provider: response.provider,
+        ...(response.cost ? { cost: response.cost } : {}),
+        thinking: response.thinking,
+        temperature: response.temperature,
         durationMs: response.durationMs,
         toolBuildingMs: ctx.toolBuildingMs,
         toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
@@ -560,6 +577,11 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
     steps: response.steps,
     ...(response.reasoning ? { reasoning: response.reasoning } : {}),
     usage: response.usage,
+    model: response.model,
+    provider: response.provider,
+    ...(response.cost ? { cost: response.cost } : {}),
+    thinking: response.thinking,
+    temperature: response.temperature,
     durationMs: response.durationMs,
     toolBuildingMs: ctx.toolBuildingMs,
     toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,

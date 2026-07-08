@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateCost, isThinkingCapable } from "./config.js";
+import { resolveModel, estimateCostBreakdown, isThinkingCapable } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
 import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
@@ -183,7 +183,7 @@ function logAndRecordUsage(
     response.steps?.reduce((acc, s) => acc + s.toolCalls.length, 0) ?? 0,
   );
 
-  const cost = estimateCost(
+  const cost = estimateCostBreakdown(
     config.providerName,
     config.modelId,
     response.usage.promptTokens,
@@ -193,6 +193,12 @@ function logAndRecordUsage(
       cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
     },
   );
+  // Propagate the split up to the pipeline (persisted per-message on pipeline_traces).
+  response.cost = cost;
+  // Echo the requested thinking / temperature so the pipeline can persist them
+  // per-message for debug/analysis.
+  response.thinking = request.thinking ?? false;
+  response.temperature = request.temperature;
 
   aiLogger.log(
     aiLogger.createEntry(
@@ -203,7 +209,7 @@ function logAndRecordUsage(
       response.usage.promptTokens,
       response.usage.completionTokens,
       response.usage.totalTokens,
-      cost,
+      cost.total,
       response.durationMs,
       reasoningCharCount(response),
       response.steps.length,

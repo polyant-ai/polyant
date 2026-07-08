@@ -5,6 +5,7 @@ import type { ModelMessage } from "ai";
 import { db } from "../database/client.js";
 import { conversations, conversationMessages, conversationState, type AttachmentMeta, type LlmDebugPayload, type ReasoningDetail, type StepDetail } from "./schema.js";
 import { pipelineTraces } from "../analytics/traces.schema.js";
+import type { CostBreakdown } from "../ai-gateway/types.js";
 import { aiLogs } from "../ai-gateway/logger.js";
 import { toolAuditLogs } from "../audit/audit.schema.js";
 import { hookExecutions } from "../hooks/hooks.schema.js";
@@ -106,6 +107,31 @@ export interface MessageDetail {
 export interface ConversationSearchResult extends ConversationListItem {
   matchCount: number;
   bestSnippet: string;
+}
+
+/**
+ * Per-message telemetry merged into the messages API. Prompt tokens land on the
+ * user message; completion tokens + cache + model + cost land on the assistant
+ * message. Cache/model/cost are null for legacy rows without a linked trace.
+ */
+export interface MessageMetadata {
+  promptTokens: number;
+  completionTokens: number;
+  cachedInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  model?: string | null;
+  provider?: string | null;
+  cost?: CostBreakdown | null;
+  thinking?: boolean | null;
+  temperature?: number | null;
+  /** Per-phase latency (ms) for the assistant turn. */
+  latency?: {
+    contextPrepMs: number | null;
+    toolBuildingMs: number | null;
+    llmCallMs: number | null;
+    totalMs: number | null;
+    ttfbMs: number | null;
+  };
 }
 
 /** Simple bounded map that evicts the oldest entry when capacity is exceeded. */
@@ -769,10 +795,15 @@ export class ConversationStore {
     };
   }
 
-  /** Get per-message token stats by correlating messages with pipeline_traces. */
+  /**
+   * Get per-message metadata (tokens, cache, model, cost) by correlating
+   * messages with pipeline_traces. Prefers the robust message_id link when any
+   * trace carries it; falls back to positional (ordinal) matching for
+   * fully-legacy conversations whose traces predate the message_id column.
+   */
   async getMessageTokenStats(
     conversationId: string,
-  ): Promise<Record<string, { promptTokens: number; completionTokens: number }>> {
+  ): Promise<Record<string, MessageMetadata>> {
     const [msgs, traces] = await Promise.all([
       db
         .select({
@@ -784,8 +815,21 @@ export class ConversationStore {
         .orderBy(asc(conversationMessages.createdAt)),
       db
         .select({
+          messageId: pipelineTraces.messageId,
           promptTokens: pipelineTraces.promptTokens,
           completionTokens: pipelineTraces.completionTokens,
+          cachedInputTokens: pipelineTraces.cachedInputTokens,
+          cacheCreationInputTokens: pipelineTraces.cacheCreationInputTokens,
+          model: pipelineTraces.model,
+          provider: pipelineTraces.provider,
+          cost: pipelineTraces.cost,
+          thinking: pipelineTraces.thinking,
+          temperature: pipelineTraces.temperature,
+          contextPrepMs: pipelineTraces.contextPrepMs,
+          toolBuildingMs: pipelineTraces.toolBuildingMs,
+          llmCallMs: pipelineTraces.llmCallMs,
+          totalMs: pipelineTraces.totalMs,
+          ttfbMs: pipelineTraces.ttfbMs,
         })
         .from(pipelineTraces)
         .where(eq(pipelineTraces.conversationId, conversationId))
@@ -804,16 +848,49 @@ export class ConversationStore {
       }
     }
 
-    // Map each exchange to its trace (1:1 by order)
-    const result: Record<string, { promptTokens: number; completionTokens: number }> = {};
-    for (let i = 0; i < exchanges.length; i++) {
-      const trace = traces[i];
-      if (!trace) break;
-      const prompt = trace.promptTokens ?? 0;
-      const completion = trace.completionTokens ?? 0;
-      result[exchanges[i].userId] = { promptTokens: prompt, completionTokens: 0 };
-      if (exchanges[i].assistantId) {
-        result[exchanges[i].assistantId!] = { promptTokens: 0, completionTokens: completion };
+    type Trace = (typeof traces)[number];
+    const result: Record<string, MessageMetadata> = {};
+    // The user message shows the turn's input tokens; the assistant message
+    // carries the full turn telemetry (input + output + cache + model + cost)
+    // so its per-message pill bar can render the input/cache/output split.
+    const assign = (ex: { userId: string; assistantId?: string }, trace: Trace) => {
+      result[ex.userId] = { promptTokens: trace.promptTokens ?? 0, completionTokens: 0 };
+      if (ex.assistantId) {
+        result[ex.assistantId] = {
+          promptTokens: trace.promptTokens ?? 0,
+          completionTokens: trace.completionTokens ?? 0,
+          cachedInputTokens: trace.cachedInputTokens ?? 0,
+          cacheCreationInputTokens: trace.cacheCreationInputTokens ?? 0,
+          model: trace.model ?? null,
+          provider: trace.provider ?? null,
+          cost: trace.cost ?? null,
+          thinking: trace.thinking ?? null,
+          temperature: trace.temperature ?? null,
+          latency: {
+            contextPrepMs: trace.contextPrepMs ?? null,
+            toolBuildingMs: trace.toolBuildingMs ?? null,
+            llmCallMs: trace.llmCallMs ?? null,
+            totalMs: trace.totalMs ?? null,
+            ttfbMs: trace.ttfbMs ?? null,
+          },
+        };
+      }
+    };
+
+    if (traces.some((t) => t.messageId != null)) {
+      // Robust path: link each exchange's assistant message to its trace by id.
+      const byMessageId = new Map<string, Trace>();
+      for (const t of traces) if (t.messageId) byMessageId.set(t.messageId, t);
+      for (const ex of exchanges) {
+        const trace = ex.assistantId ? byMessageId.get(ex.assistantId) : undefined;
+        if (trace) assign(ex, trace);
+      }
+    } else {
+      // Legacy fallback: 1:1 positional match (traces predate message_id).
+      for (let i = 0; i < exchanges.length; i++) {
+        const trace = traces[i];
+        if (!trace) break;
+        assign(exchanges[i], trace);
       }
     }
 

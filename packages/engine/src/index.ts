@@ -204,7 +204,9 @@ async function main() {
 
     // Phase 1: Context preparation
     const pre = await runPipelinePre(msg, taskConversationOverride, abortSignal);
-    return runBufferedTurn(msg, pre, abortSignal);
+    // Pre-generate the assistant message id so the pipeline trace can be linked
+    // to the persisted message by id (not fragile ordinal matching).
+    return runBufferedTurn(msg, pre, abortSignal, randomUUID());
   }
 
   /**
@@ -297,6 +299,11 @@ async function main() {
       assistantMessageId,
       toolCallTraces: result.toolCallTraces,
       usage: result.usage,
+      model: result.model,
+      provider: result.provider,
+      cost: result.cost,
+      thinking: result.thinking,
+      temperature: result.temperature,
       durationMs: result.durationMs,
       toolBuildingMs: result.toolBuildingMs,
       isStreaming: false,
@@ -447,6 +454,11 @@ async function main() {
         assistantMessageId,
         toolCallTraces: result.toolCallTraces,
         usage: result.usage,
+        model: result.model,
+        provider: result.provider,
+        cost: result.cost,
+        thinking: result.thinking,
+        temperature: result.temperature,
         durationMs: result.durationMs,
         toolBuildingMs: result.toolBuildingMs,
         ttfbMs: result.ttfbMs,

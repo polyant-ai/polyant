@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateSttCost, providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported } from "./config.js";
+import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported } from "./config.js";
 
 describe("resolveModel", () => {
   it("resolves openai fast tier", () => {
@@ -55,6 +55,34 @@ describe("estimateCost", () => {
 
   it("returns 0 for unknown provider", () => {
     expect(estimateCost("gemini", "gemini-pro", 1000, 1000)).toBe(0);
+  });
+
+  it("breakdown splits input/cache/output and sums to the total", () => {
+    const b = estimateCostBreakdown("anthropic", "claude-sonnet-4-6", 1000, 500, {
+      cachedInputTokens: 200,
+      cacheCreationInputTokens: 100,
+    });
+    // regular input = 1000 - 200 - 100 = 700; cache = read + write; output = 500.
+    expect(b.cache).toBeGreaterThan(0);
+    expect(b.output).toBeGreaterThan(0);
+    expect(b.input + b.cache + b.output).toBeCloseTo(b.total, 12);
+    // total must match the scalar estimateCost for the same inputs.
+    expect(b.total).toBeCloseTo(
+      estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500, {
+        cachedInputTokens: 200,
+        cacheCreationInputTokens: 100,
+      }),
+      12,
+    );
+  });
+
+  it("breakdown is all-zero for an unpriced model", () => {
+    expect(estimateCostBreakdown("openai", "gpt-5-turbo", 1000, 1000)).toEqual({
+      input: 0,
+      cache: 0,
+      output: 0,
+      total: 0,
+    });
   });
 
   it("returns 0 for unknown model", () => {

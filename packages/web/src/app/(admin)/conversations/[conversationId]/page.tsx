@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, Loader2, Info, Zap, Coins, Terminal, FileText, Mic, SearchCode, Database, Webhook } from "lucide-react";
+import { Trash2, Loader2, Zap, Coins, Terminal, FileText, Mic, SearchCode, Database, Webhook, Link2 } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -37,6 +37,9 @@ import {
 import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta, type HookExecution } from "@/lib/api";
 import { MarkdownRenderer } from "@/app/(admin)/playground/_components/markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
+import { MessageMetadataPills } from "@/components/messages/message-metadata-pills";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
@@ -165,12 +168,43 @@ export default function ConversationDetailPage() {
   const [totalMessages, setTotalMessages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Detailed view: shows per-message metadata pills + reasoning/tool panels.
+  // Off by default; the choice persists across pages via localStorage.
+  const [detailed, setDetailed] = useState(false);
+  // Message targeted by a shared deep link (#msg-<id>) — briefly ring-highlighted.
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingMoreRef = useRef(false);
   const prevScrollHeightRef = useRef<number | null>(null);
   const didInitialScrollRef = useRef(false);
+
+  // Read the persisted preference on mount (client-only, avoids SSR mismatch).
+  useEffect(() => {
+    setDetailed(localStorage.getItem("conversationDetailedView") === "true");
+  }, []);
+
+  const toggleDetailed = (value: boolean) => {
+    setDetailed(value);
+    localStorage.setItem("conversationDetailedView", String(value));
+  };
+
+  // Copy a deep link to a specific message. Opening it scrolls to and
+  // highlights that message (see the deep-link effect below).
+  const handleShare = async (messageId: string) => {
+    const url = `${window.location.origin}${window.location.pathname}#msg-${messageId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      window.history.replaceState(null, "", `#msg-${messageId}`);
+      toast.success(t("conversations.detail.linkCopied"));
+      // Flash the message so the user sees which one they just linked.
+      setHighlightId(messageId);
+      setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 2600);
+    } catch {
+      toast.error(t("conversations.detail.linkCopyFailed"));
+    }
+  };
 
   useEffect(() => {
     Promise.all([
@@ -240,6 +274,21 @@ export default function ConversationDetailPage() {
     return () => {
       handlers.forEach((cleanup) => cleanup());
     };
+  }, [loading]);
+
+  // Deep link (#msg-<id>): once messages are loaded, scroll to the targeted
+  // message and briefly highlight it. Only works if the message is in the
+  // loaded window (older messages beyond the first pages aren't fetched yet).
+  useEffect(() => {
+    if (loading) return;
+    const match = window.location.hash.match(/^#msg-(.+)$/);
+    if (!match) return;
+    const el = document.getElementById(`msg-${match[1]}`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    setHighlightId(match[1]);
+    const timer = setTimeout(() => setHighlightId(null), 2600);
+    return () => clearTimeout(timer);
   }, [loading]);
 
   // After prepending older messages, restore the relative scroll position so the user
@@ -398,6 +447,13 @@ export default function ConversationDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+        <Label
+          htmlFor="detailed-view"
+          className="mr-2 flex items-center gap-2 text-sm font-normal text-muted-foreground"
+        >
+          <Switch id="detailed-view" checked={detailed} onCheckedChange={toggleDetailed} />
+          {t("conversations.detail.detailedToggle")}
+        </Label>
         <Button variant="ghost" size="sm" onClick={() => setStateOpen(true)}>
           <Database className="h-4 w-4" />
           {t("conversations.state.button")}
@@ -480,22 +536,19 @@ export default function ConversationDetailPage() {
               );
             }
 
-            const tokenCount = msg.role === "user" ? msg.promptTokens : msg.completionTokens;
-            const costPerToken = conversation.conversationTokens > 0
-              ? conversation.conversationCost / conversation.conversationTokens
-              : 0;
-            const messageCost = tokenCount != null ? tokenCount * costPerToken : 0;
-
             return (
               <div
                 key={msg.id}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                id={`msg-${msg.id}`}
+                className={`flex scroll-mt-4 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[75%] min-w-0 overflow-hidden rounded-2xl px-4 py-3 ${
-                    msg.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
+                  className={`max-w-[75%] min-w-0 overflow-hidden rounded-2xl px-4 py-3 transition-colors duration-500 ${
+                    highlightId === msg.id
+                      ? "bg-accent text-accent-foreground ring-2 ring-accent-strong"
+                      : msg.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
                   }`}
                 >
                   {msg.attachments && msg.attachments.length > 0 && (
@@ -529,9 +582,9 @@ export default function ConversationDetailPage() {
                       {t("message.provenance.hook", { name: String(msg.metadata.hookName ?? "") })}
                     </span>
                   )}
-                  {/* Reasoning + steps panels above message text. Default open
-                      on the conversations page (audit/exploratory UX). */}
-                  {msg.role !== "user" && (
+                  {/* Reasoning + steps panels above message text — only in the
+                      detailed view (audit/exploratory UX; hidden in compact). */}
+                  {msg.role !== "user" && detailed && (
                     <MessageExtras
                       reasoning={msg.reasoning}
                       steps={msg.steps}
@@ -539,6 +592,9 @@ export default function ConversationDetailPage() {
                     />
                   )}
                   <MarkdownRenderer content={msg.content} />
+                  {msg.role !== "user" && detailed && (
+                    <MessageMetadataPills message={msg} />
+                  )}
                   <div
                     className={`mt-1 flex items-center gap-1.5 text-xs ${
                       msg.role === "user"
@@ -547,34 +603,33 @@ export default function ConversationDetailPage() {
                     }`}
                   >
                     <span>{formatTime(msg.createdAt)}</span>
-                    {tokenCount != null && tokenCount > 0 && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex cursor-default items-center">
-                            <Info className="h-3 w-3" />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="space-y-0.5">
-                          <p className="flex items-center gap-1 tabular-nums">
-                            <Zap className="h-3 w-3" />
-                            {msg.role === "user"
-                              ? t("conversations.detail.inputTokens", { count: tokenCount.toLocaleString() })
-                              : t("conversations.detail.outputTokens", { count: tokenCount.toLocaleString() })}
-                          </p>
-                          {messageCost > 0 && (
-                            <p className="flex items-center gap-1 tabular-nums">
-                              <Coins className="h-3 w-3" />
-                              ${messageCost.toFixed(4)}
-                            </p>
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleShare(msg.id)}
+                      className="inline-flex items-center rounded px-1 opacity-70 transition hover:opacity-100"
+                      title={t("conversations.detail.share")}
+                    >
+                      <Link2 className="h-3 w-3" />
+                    </button>
                     {msg.role !== "user" && (
                       <button
                         type="button"
                         onClick={() =>
-                          setDebugTarget({ conversationId, messageId: msg.id, instanceId })
+                          setDebugTarget({
+                            conversationId,
+                            messageId: msg.id,
+                            instanceId,
+                            model: msg.model,
+                            provider: msg.provider,
+                            promptTokens: msg.promptTokens,
+                            completionTokens: msg.completionTokens,
+                            cachedInputTokens: msg.cachedInputTokens,
+                            cacheCreationInputTokens: msg.cacheCreationInputTokens,
+                            cost: msg.cost,
+                            thinking: msg.thinking,
+                            temperature: msg.temperature,
+                            latency: msg.latency,
+                          })
                         }
                         className="inline-flex items-center gap-1 rounded px-1 text-muted-foreground transition hover:text-foreground"
                         title={t("message.debug.open")}
