@@ -335,4 +335,20 @@ describe("temperatureSupported", () => {
     expect(temperatureSupported("anthropic", "claude-sonnet-4-6", false)).toBe(true);
     expect(temperatureSupported("bedrock", "qwen.qwen3-32b-v1:0", false)).toBe(true);
   });
+  it("returns false for Anthropic models that removed sampling params (Opus 4.7/4.8, Sonnet 5, Fable 5)", () => {
+    expect(temperatureSupported("anthropic", "claude-opus-4-7", false)).toBe(false);
+    expect(temperatureSupported("anthropic", "claude-opus-4-8", false)).toBe(false);
+    expect(temperatureSupported("anthropic", "claude-sonnet-5", false)).toBe(false);
+    expect(temperatureSupported("anthropic", "claude-fable-5", false)).toBe(false);
+  });
+  it("returns false for Bedrock cross-region profiles of those models", () => {
+    expect(temperatureSupported("bedrock", "eu.anthropic.claude-opus-4-8", false)).toBe(false);
+    expect(temperatureSupported("bedrock", "us.anthropic.claude-sonnet-5", false)).toBe(false);
+    expect(temperatureSupported("bedrock", "anthropic.claude-opus-4-7", false)).toBe(false);
+  });
+  it("still allows temperature on Opus/Sonnet 4.6 and earlier (params not removed)", () => {
+    expect(temperatureSupported("anthropic", "claude-opus-4-6", false)).toBe(true);
+    expect(temperatureSupported("anthropic", "claude-opus-4-5", false)).toBe(true);
+    expect(temperatureSupported("bedrock", "eu.anthropic.claude-sonnet-4-6", false)).toBe(true);
+  });
 });
