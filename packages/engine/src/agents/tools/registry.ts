@@ -291,7 +291,14 @@ export function listAvailableTools(): ToolInfo[] {
  * collected. A file without a `defineTool` default export is skipped with a warn. */
 async function importRoot(dir: string, namespace: string | null): Promise<void> {
   if (!existsSync(dir)) return;
-  const files = readdirSync(dir).filter((f) => /\.tool\.(ts|js)$/.test(f));
+  // Sort so the registry (and thus the tool order in the serialized prompt
+  // prefix, which sits before the system prompt) is byte-stable across OSes,
+  // filesystems, redeploys and cluster nodes. readdirSync order is not
+  // guaranteed stable; an unstable tool order silently busts the provider
+  // prompt cache. Analogous to the skills `.orderBy(asc(skills.slug))` fix.
+  const files = readdirSync(dir)
+    .filter((f) => /\.tool\.(ts|js)$/.test(f))
+    .sort();
   for (const file of files) {
     try {
       const mod = (await import(join(dir, file))) as { default?: unknown };

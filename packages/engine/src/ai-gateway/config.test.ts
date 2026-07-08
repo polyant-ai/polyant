@@ -112,6 +112,34 @@ describe("estimateCost", () => {
     // regularInput clamps to 0; only the cache read is billed.
     expect(cost).toBeCloseTo((900 * 3.0 * 0.1) / 1_000_000, 12);
   });
+
+  it("applies the +10% cross-Region surcharge to Bedrock eu.* / global.* profiles", () => {
+    const base = (1000 * 3.0) / 1_000_000 + (500 * 15.0) / 1_000_000;
+    expect(estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-6", 1000, 500)).toBeCloseTo(
+      base * 1.1,
+      12,
+    );
+    expect(estimateCost("bedrock", "global.anthropic.claude-sonnet-4-6", 1000, 500)).toBeCloseTo(
+      base * 1.1,
+      12,
+    );
+  });
+
+  it("does NOT apply the cross-Region surcharge to in-Region (unprefixed) Bedrock models", () => {
+    const base = (1000 * 0.2) / 1_000_000 + (500 * 0.79) / 1_000_000;
+    expect(estimateCost("bedrock", "qwen.qwen3-32b-v1:0", 1000, 500)).toBeCloseTo(base, 12);
+  });
+
+  it("compounds the cross-Region surcharge with the cache discount", () => {
+    // 1000 total input, 800 cache read → (200 full + 800*0.1) input, then ×1.1.
+    const preSurcharge =
+      (200 * 3.0) / 1_000_000 + (800 * 3.0 * 0.1) / 1_000_000 + (500 * 15.0) / 1_000_000;
+    expect(
+      estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-6", 1000, 500, {
+        cachedInputTokens: 800,
+      }),
+    ).toBeCloseTo(preSurcharge * 1.1, 12);
+  });
 });
 
 describe("estimateSttCost", () => {

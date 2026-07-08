@@ -161,6 +161,27 @@ const CACHE_MULTIPLIERS: Record<string, { read: number; write: number }> = {
 const DEFAULT_CACHE_MULTIPLIER = { read: 1, write: 1 };
 
 /**
+ * Cross-Region inference surcharge for Bedrock (`eu.*` / `global.*` inference
+ * profiles). The Bedrock `costPerMillionTokens` table holds the BASE per-token
+ * rates (identical to Anthropic/OpenAI first-party); several 2026 pricing
+ * analyses report a flat ~10% premium for cross-Region inference profiles on
+ * top of that base. AWS's official docs do NOT document a surcharge (historic
+ * stance: billed at the source-Region price), so this is modeled as a single
+ * explicit knob rather than baked into every table entry: verify against a real
+ * Bedrock invoice and set to `1` (or the exact factor) if it differs. Applies
+ * to input, output and cache tokens alike.
+ */
+const BEDROCK_CROSS_REGION_SURCHARGE = 1.1;
+
+/** Matches Bedrock cross-Region inference profile IDs (`us.`/`eu.`/`apac.`/`global.`);
+ * in-Region raw model IDs carry no cross-Region surcharge. */
+function bedrockRegionalMultiplier(provider: string, model: string): number {
+  return provider === "bedrock" && /^(us|eu|apac|global)\./.test(model)
+    ? BEDROCK_CROSS_REGION_SURCHARGE
+    : 1;
+}
+
+/**
  * Estimate the USD cost of a single LLM call.
  *
  * `promptTokens` is the AI SDK's normalized TOTAL input count
@@ -185,12 +206,14 @@ export function estimateCost(
   const cacheWrite = Math.max(0, cache?.cacheCreationInputTokens ?? 0);
   const regularInput = Math.max(0, promptTokens - cacheRead - cacheWrite);
   const mult = CACHE_MULTIPLIERS[provider] ?? DEFAULT_CACHE_MULTIPLIER;
+  const regional = bedrockRegionalMultiplier(provider, model);
 
   return (
-    (regularInput * pricing.input) / 1_000_000 +
-    (cacheRead * pricing.input * mult.read) / 1_000_000 +
-    (cacheWrite * pricing.input * mult.write) / 1_000_000 +
-    (completionTokens * pricing.output) / 1_000_000
+    regional *
+    ((regularInput * pricing.input) / 1_000_000 +
+      (cacheRead * pricing.input * mult.read) / 1_000_000 +
+      (cacheWrite * pricing.input * mult.write) / 1_000_000 +
+      (completionTokens * pricing.output) / 1_000_000)
   );
 }
 

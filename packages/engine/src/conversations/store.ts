@@ -80,6 +80,10 @@ export interface ConversationListItem {
   conversationCost: number;
   serviceTokens: number;
   serviceCost: number;
+  /** Prompt-cache reads (cache HIT) across this conversation. Subset of totalTokens' input. */
+  cachedInputTokens: number;
+  /** Prompt-cache writes (cache creation) across this conversation. */
+  cacheCreationInputTokens: number;
   createdAt: Date | null;
   updatedAt: Date | null;
 }
@@ -452,6 +456,8 @@ export class ConversationStore {
           COALESCE(al_agg.conversation_cost, 0)::real AS conversation_cost,
           COALESCE(al_agg.service_tokens, 0)::int AS service_tokens,
           COALESCE(al_agg.service_cost, 0)::real AS service_cost,
+          COALESCE(al_agg.cached_input_tokens, 0)::int AS cached_input_tokens,
+          COALESCE(al_agg.cache_creation_input_tokens, 0)::int AS cache_creation_input_tokens,
           c.created_at,
           c.updated_at
         FROM conversations c
@@ -462,7 +468,9 @@ export class ConversationStore {
                  SUM(al.total_tokens) FILTER (WHERE al.call_type = 'conversation') AS conversation_tokens,
                  SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
                  SUM(al.total_tokens) FILTER (WHERE al.call_type = 'service') AS service_tokens,
-                 SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost
+                 SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost,
+                 SUM(al.cached_input_tokens) AS cached_input_tokens,
+                 SUM(al.cache_creation_input_tokens) AS cache_creation_input_tokens
           FROM ai_logs al
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true
@@ -493,6 +501,8 @@ export class ConversationStore {
         conversationCost: (r.conversation_cost as number) ?? 0,
         serviceTokens: (r.service_tokens as number) ?? 0,
         serviceCost: (r.service_cost as number) ?? 0,
+        cachedInputTokens: (r.cached_input_tokens as number) ?? 0,
+        cacheCreationInputTokens: (r.cache_creation_input_tokens as number) ?? 0,
         createdAt: r.created_at ? new Date(r.created_at as string) : null,
         updatedAt: r.updated_at ? new Date(r.updated_at as string) : null,
       })),
@@ -521,6 +531,8 @@ export class ConversationStore {
         COALESCE(al_agg.conversation_cost, 0)::real AS conversation_cost,
         COALESCE(al_agg.service_tokens, 0)::int AS service_tokens,
         COALESCE(al_agg.service_cost, 0)::real AS service_cost,
+        COALESCE(al_agg.cached_input_tokens, 0)::int AS cached_input_tokens,
+        COALESCE(al_agg.cache_creation_input_tokens, 0)::int AS cache_creation_input_tokens,
         c.created_at,
         c.updated_at
       FROM conversations c
@@ -532,12 +544,14 @@ export class ConversationStore {
                SUM(al.total_tokens) FILTER (WHERE al.call_type = 'conversation') AS conversation_tokens,
                SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
                SUM(al.total_tokens) FILTER (WHERE al.call_type = 'service') AS service_tokens,
-               SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost
+               SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost,
+               SUM(al.cached_input_tokens) AS cached_input_tokens,
+               SUM(al.cache_creation_input_tokens) AS cache_creation_input_tokens
         FROM ai_logs al
         WHERE al.conversation_id = c.conversation_id
       ) al_agg ON true
       WHERE c.conversation_id = ${conversationId} ${orgFilter}
-      GROUP BY c.id, i.name, al_agg.total_tokens, al_agg.total_cost, al_agg.conversation_tokens, al_agg.conversation_cost, al_agg.service_tokens, al_agg.service_cost
+      GROUP BY c.id, i.name, al_agg.total_tokens, al_agg.total_cost, al_agg.conversation_tokens, al_agg.conversation_cost, al_agg.service_tokens, al_agg.service_cost, al_agg.cached_input_tokens, al_agg.cache_creation_input_tokens
     `);
 
     const r = (rows as unknown as Array<Record<string, unknown>>)[0];
@@ -558,6 +572,8 @@ export class ConversationStore {
       conversationCost: (r.conversation_cost as number) ?? 0,
       serviceTokens: (r.service_tokens as number) ?? 0,
       serviceCost: (r.service_cost as number) ?? 0,
+      cachedInputTokens: (r.cached_input_tokens as number) ?? 0,
+      cacheCreationInputTokens: (r.cache_creation_input_tokens as number) ?? 0,
       createdAt: r.created_at ? new Date(r.created_at as string) : null,
       updatedAt: r.updated_at ? new Date(r.updated_at as string) : null,
     };
@@ -692,6 +708,8 @@ export class ConversationStore {
           COALESCE(al_agg.conversation_cost, 0)::real AS conversation_cost,
           COALESCE(al_agg.service_tokens, 0)::int AS service_tokens,
           COALESCE(al_agg.service_cost, 0)::real AS service_cost,
+          COALESCE(al_agg.cached_input_tokens, 0)::int AS cached_input_tokens,
+          COALESCE(al_agg.cache_creation_input_tokens, 0)::int AS cache_creation_input_tokens,
           c.created_at,
           c.updated_at
         FROM conversations c
@@ -704,12 +722,14 @@ export class ConversationStore {
                  SUM(al.total_tokens) FILTER (WHERE al.call_type = 'conversation') AS conversation_tokens,
                  SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
                  SUM(al.total_tokens) FILTER (WHERE al.call_type = 'service') AS service_tokens,
-                 SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost
+                 SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost,
+                 SUM(al.cached_input_tokens) AS cached_input_tokens,
+                 SUM(al.cache_creation_input_tokens) AS cache_creation_input_tokens
           FROM ai_logs al
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true
         WHERE ${matchFilter} ${instanceFilter}
-        GROUP BY c.id, i.name, al_agg.total_tokens, al_agg.total_cost, al_agg.conversation_tokens, al_agg.conversation_cost, al_agg.service_tokens, al_agg.service_cost
+        GROUP BY c.id, i.name, al_agg.total_tokens, al_agg.total_cost, al_agg.conversation_tokens, al_agg.conversation_cost, al_agg.service_tokens, al_agg.service_cost, al_agg.cached_input_tokens, al_agg.cache_creation_input_tokens
         ORDER BY MAX(ts_rank(cm.search_vector, ${tsQuery})) DESC NULLS LAST, c.updated_at DESC NULLS LAST
         LIMIT ${limit} OFFSET ${offset}
       `),
@@ -740,6 +760,8 @@ export class ConversationStore {
         conversationCost: (r.conversation_cost as number) ?? 0,
         serviceTokens: (r.service_tokens as number) ?? 0,
         serviceCost: (r.service_cost as number) ?? 0,
+        cachedInputTokens: (r.cached_input_tokens as number) ?? 0,
+        cacheCreationInputTokens: (r.cache_creation_input_tokens as number) ?? 0,
         createdAt: r.created_at ? new Date(r.created_at as string) : null,
         updatedAt: r.updated_at ? new Date(r.updated_at as string) : null,
       })),

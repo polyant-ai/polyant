@@ -12,7 +12,7 @@ function cacheControlOf(message: ModelMessage): unknown {
 
 describe("applyAnthropicPromptCaching", () => {
   it("moves system into a leading system message carrying the ephemeral breakpoint", () => {
-    const { system, messages } = applyAnthropicPromptCaching({
+    const { system, messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6",
       system: "SYSTEM PROMPT",
       messages: [{ role: "user", content: "hi" }],
     });
@@ -24,7 +24,7 @@ describe("applyAnthropicPromptCaching", () => {
   });
 
   it("does not set a history breakpoint on a single-turn conversation", () => {
-    const { messages } = applyAnthropicPromptCaching({
+    const { messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6",
       system: "S",
       messages: [{ role: "user", content: "first turn" }],
     });
@@ -41,7 +41,7 @@ describe("applyAnthropicPromptCaching", () => {
       { role: "assistant", content: "reply 1" },
       { role: "user", content: "turn 2 (current)" },
     ];
-    const { messages } = applyAnthropicPromptCaching({ system: "S", messages: history });
+    const { messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6", system: "S", messages: history });
 
     // messages = [systemMessage, user1, assistant1, user2]
     expect(messages).toHaveLength(4);
@@ -54,7 +54,7 @@ describe("applyAnthropicPromptCaching", () => {
   });
 
   it("still applies the history breakpoint when there is no system prompt", () => {
-    const { system, messages } = applyAnthropicPromptCaching({
+    const { system, messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6",
       system: undefined,
       messages: [
         { role: "user", content: "a" },
@@ -70,7 +70,7 @@ describe("applyAnthropicPromptCaching", () => {
   });
 
   it("preserves pre-existing providerOptions when adding the breakpoint", () => {
-    const { messages } = applyAnthropicPromptCaching({
+    const { messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6",
       system: undefined,
       messages: [
         {
@@ -93,7 +93,7 @@ describe("applyAnthropicPromptCaching", () => {
       { role: "user", content: "b" },
     ];
     const snapshot = JSON.stringify(input);
-    applyAnthropicPromptCaching({ system: "S", messages: input });
+    applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6", system: "S", messages: input });
     expect(JSON.stringify(input)).toBe(snapshot);
   });
 });

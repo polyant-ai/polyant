@@ -365,12 +365,16 @@ function foldSystemMessages(
 
 /**
  * Optional per-provider transform applied to the folded `{system, messages}`
- * immediately before the SDK call. Anthropic uses it to inject `cache_control`
- * breakpoints (see providers/anthropic.ts). Must be a pure function.
+ * immediately before the SDK call. Anthropic/Bedrock use it to inject cache
+ * breakpoints (see providers/anthropic.ts, providers/bedrock.ts). The `modelId`
+ * lets a hook gate provider-specific behaviour on the concrete model (e.g.
+ * Bedrock only injects a `cachePoint` for cache-capable model families). Must be
+ * a pure function.
  */
 export type PrepareMessages = (input: {
   system: string | undefined;
   messages: ModelMessage[];
+  modelId: string;
 }) => { system: string | undefined; messages: ModelMessage[] };
 
 export interface ProviderHooks {
@@ -383,9 +387,12 @@ export function createProvider(
   hooks?: ProviderHooks,
 ): ProviderAdapter {
   /** Fold inline system messages, then apply the provider's prepare hook (if any). */
-  const prepare = (request: ChatRequest): { system: string | undefined; messages: ModelMessage[] } => {
+  const prepare = (
+    request: ChatRequest,
+    modelId: string,
+  ): { system: string | undefined; messages: ModelMessage[] } => {
     const folded = foldSystemMessages(request.system, request.messages);
-    return hooks?.prepareMessages ? hooks.prepareMessages(folded) : folded;
+    return hooks?.prepareMessages ? hooks.prepareMessages({ ...folded, modelId }) : folded;
   };
 
   return {
@@ -396,7 +403,7 @@ export function createProvider(
 
       logLlmPayload(providerName, modelId, request);
 
-      const { system, messages } = prepare(request);
+      const { system, messages } = prepare(request, modelId);
       const result = await tracedGenerateText({
         model: createModel(modelId, request.apiKeys),
         system,
@@ -434,7 +441,7 @@ export function createProvider(
       // wrapAISDK wraps streamText in traceable, making it return a Promise.
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
-      const { system, messages } = prepare(request);
+      const { system, messages } = prepare(request, modelId);
       const result = await tracedStreamText({
         model: createModel(modelId, request.apiKeys),
         system,

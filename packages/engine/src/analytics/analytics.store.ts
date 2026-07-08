@@ -13,6 +13,10 @@ export interface OverviewStats {
   totalTokens: number;
   promptTokens: number;
   completionTokens: number;
+  /** Prompt-cache reads (cache HIT). Subset of promptTokens. */
+  cachedInputTokens: number;
+  /** Prompt-cache writes (cache creation). Subset of promptTokens. */
+  cacheCreationInputTokens: number;
   totalConversations: number;
   totalMessages: number;
   uniqueUsers: number;
@@ -102,6 +106,8 @@ async function getOverviewStats(
     total_tokens: number;
     prompt_tokens: number;
     completion_tokens: number;
+    cached_input_tokens: number;
+    cache_creation_input_tokens: number;
     avg_duration_ms: number;
     total_calls: number;
   }>(
@@ -111,6 +117,8 @@ async function getOverviewStats(
         COALESCE(SUM(total_tokens), 0)::int AS total_tokens,
         COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
         COALESCE(SUM(completion_tokens), 0)::int AS completion_tokens,
+        COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens,
+        COALESCE(SUM(cache_creation_input_tokens), 0)::int AS cache_creation_input_tokens,
         COALESCE(AVG(duration_ms), 0)::float AS avg_duration_ms,
         COUNT(*)::int AS total_calls
       FROM ai_logs
@@ -188,6 +196,8 @@ async function getOverviewStats(
     totalTokens: aiStats?.total_tokens ?? 0,
     promptTokens: aiStats?.prompt_tokens ?? 0,
     completionTokens: aiStats?.completion_tokens ?? 0,
+    cachedInputTokens: aiStats?.cached_input_tokens ?? 0,
+    cacheCreationInputTokens: aiStats?.cache_creation_input_tokens ?? 0,
     totalConversations,
     totalMessages: convStats?.total_messages ?? 0,
     uniqueUsers: convStats?.unique_users ?? 0,

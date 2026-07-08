@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createProvider, type PrepareMessages } from "./base.js";
+import { injectCacheBreakpoints, withProviderCacheMarker } from "./prompt-caching.js";
 
 /**
  * Beta header that enables interleaved thinking + tool use across multiple
@@ -29,54 +29,15 @@ const DEFAULT_THINKING_BUDGET = 5000;
  */
 const EPHEMERAL_CACHE_CONTROL = { cacheControl: { type: "ephemeral" as const } };
 
-/** Clone a message adding the ephemeral Anthropic cache breakpoint, preserving any existing providerOptions (deep-merged under `anthropic`). */
-function withCacheBreakpoint(message: ModelMessage): ModelMessage {
-  const existing = (message as { providerOptions?: Record<string, unknown> }).providerOptions ?? {};
-  const existingAnthropic = (existing.anthropic as Record<string, unknown> | undefined) ?? {};
-  return {
-    ...message,
-    providerOptions: {
-      ...existing,
-      anthropic: { ...existingAnthropic, ...EPHEMERAL_CACHE_CONTROL },
-    },
-  } as ModelMessage;
-}
-
 /**
- * Inject Anthropic prompt-cache breakpoints into a folded request.
- *
- * Two breakpoints (Anthropic allows up to 4):
- *  1. **tools + system** — the AI SDK only honours `cacheControl` on a system
- *     *message*, not on the top-level `system` string, so we move `system` into
- *     a leading `role: "system"` message carrying the breakpoint. Everything
- *     before it in wire order (the tool definitions) is cached with it. This is
- *     the dominant win: the system prompt is byte-identical across every
- *     conversation of an instance, so a write from one conversation is read by
- *     the next within the TTL.
- *  2. **history** — a breakpoint on the last message that precedes the current
- *     turn, so an append-only history becomes incrementally cacheable. It only
- *     fires from the 2nd turn onward (`messages.length >= 2`), which means
- *     single-turn conversations never pay a wasted history cache-write.
- *
- * Exported for unit testing; wired via `createProvider`'s `prepareMessages` hook.
+ * Inject Anthropic prompt-cache breakpoints (tools+system and history) into a
+ * folded request via the shared placement helper. Exported for unit testing;
+ * wired via `createProvider`'s `prepareMessages` hook.
  */
-export const applyAnthropicPromptCaching: PrepareMessages = ({ system, messages }) => {
-  const out = [...messages];
-
-  // Breakpoint 2 — last history message (the current turn is the last element).
-  if (out.length >= 2) {
-    const lastHistoryIdx = out.length - 2;
-    out[lastHistoryIdx] = withCacheBreakpoint(out[lastHistoryIdx]);
-  }
-
-  // Breakpoint 1 — tools + system, as a leading system message.
-  if (system && system.length > 0) {
-    const systemMessage = withCacheBreakpoint({ role: "system", content: system });
-    return { system: undefined, messages: [systemMessage, ...out] };
-  }
-
-  return { system, messages: out };
-};
+export const applyAnthropicPromptCaching: PrepareMessages = (input) =>
+  injectCacheBreakpoints(input, (message) =>
+    withProviderCacheMarker(message, "anthropic", EPHEMERAL_CACHE_CONTROL),
+  );
 
 export const AnthropicProvider = createProvider(
   "anthropic",
