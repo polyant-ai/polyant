@@ -36,7 +36,7 @@ const EXPECTED_MATRIX: Record<PermissionKey, Record<string, boolean>> = {
   "agent.knowledge:write": { owner: true, admin: true, member: true, viewer: false },
   "agent.governance:read": { owner: true, admin: true, member: true, viewer: true },
   "agent.governance:write": { owner: true, admin: true, member: false, viewer: false },
-  "agent.export:read": { owner: true, admin: true, member: true, viewer: false },
+  "agent.export:read": { owner: true, admin: true, member: false, viewer: false },
   "conversation:read": { owner: true, admin: true, member: true, viewer: true },
   "conversation:delete": { owner: true, admin: true, member: false, viewer: false },
   "memory:read": { owner: true, admin: true, member: true, viewer: true },

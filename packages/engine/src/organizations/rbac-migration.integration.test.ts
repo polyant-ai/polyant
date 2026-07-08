@@ -68,7 +68,7 @@ describe.skipIf(!DB_AVAILABLE)("migration 0051 — RBAC tenancy schema", () => {
       FROM roles r JOIN role_permissions rp ON rp.role_id = r.id
       WHERE r.is_system = true GROUP BY r.key`;
     const byKey = Object.fromEntries(counts.map((c) => [c.key, c.n]));
-    expect(byKey).toEqual({ owner: 33, admin: 32, member: 24, viewer: 14 });
+    expect(byKey).toEqual({ owner: 33, admin: 32, member: 23, viewer: 14 });
   });
 
   it("seeds the exact permission STRINGS that SYSTEM_ROLE_PERMISSIONS declares", async () => {

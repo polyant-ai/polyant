@@ -101,7 +101,6 @@ const MEMBER_PERMISSIONS: readonly PermissionKey[] = [
   Permission.ROOM_WRITE,
   Permission.TASK_WRITE,
   Permission.KNOWLEDGE_WRITE,
-  Permission.EXPORT_READ,
   Permission.MEMORY_WRITE,
 ];
 
@@ -109,6 +108,9 @@ const MEMBER_PERMISSIONS: readonly PermissionKey[] = [
 const ADMIN_PERMISSIONS: readonly PermissionKey[] = [
   ...MEMBER_PERMISSIONS,
   Permission.AGENT_DELETE,
+  // A full-config export enumerates secret key names, so it is admin-grade
+  // like SECRET_READ (issue #145).
+  Permission.EXPORT_READ,
   Permission.SECRET_READ,
   Permission.SECRET_WRITE,
   Permission.GOVERNANCE_WRITE,
