@@ -34,7 +34,9 @@ interface FakeRes {
   headers: Record<string, string>;
   writes: string[];
   ended: boolean;
+  socketTimeout: number | null;
   setHeader(k: string, v: string): void;
+  setTimeout(ms: number): void;
   write(chunk: string): boolean;
   end(): void;
 }
@@ -44,8 +46,12 @@ function makeRes(): FakeRes {
     headers: {},
     writes: [],
     ended: false,
+    socketTimeout: null,
     setHeader(k, v) {
       this.headers[k] = v;
+    },
+    setTimeout(ms) {
+      this.socketTimeout = ms;
     },
     write(chunk) {
       this.writes.push(chunk);
@@ -165,5 +171,43 @@ describe("InstanceChatStreamController.stream", () => {
     expect(events.find((e) => e.event === "error")?.data).toEqual({ message: "boom" });
     expect(events.at(-1)?.event).toBe("done");
     expect(res.ended).toBe(true);
+  });
+
+  it("disables the socket idle-timeout and heartbeats during output-less stretches, then clears them", async () => {
+    vi.useFakeTimers();
+    try {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      chatCompletionStream.mockResolvedValue({
+        textStream: (async function* () {})(),
+        fullStream: (async function* () {
+          await gate; // hold the stream open with no surfaced parts
+          yield { type: "raw" }; // ignored by the controller's switch default
+        })(),
+        completed: Promise.resolve({ text: "ok" }),
+      });
+
+      const res = makeRes();
+      const pings = () => res.writes.filter((w) => w === ": ping\n\n").length;
+      const p = controller.stream("acme", { model: "acme", messages: [] } as never, makeReq() as never, res as never);
+
+      // ~2 heartbeats fire while the stream is open with no token output
+      // (HEARTBEAT_MS = 25s → pings at 25s and 50s).
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(res.socketTimeout).toBe(0);
+      expect(pings()).toBeGreaterThanOrEqual(2);
+
+      // Let the stream finish: the interval must be cleared (no further pings).
+      release();
+      await p;
+      const afterDone = pings();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(pings()).toBe(afterDone);
+      expect(res.ended).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
