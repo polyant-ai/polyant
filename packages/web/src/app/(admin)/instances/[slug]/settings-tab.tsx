@@ -540,26 +540,29 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         </div>
 
         {/*
-          Extended thinking toggle. Shown only when the selected model supports
-          thinking; the user's preference is preserved in state across model
-          changes so it reapplies if they switch back to a capable model.
+          Extended thinking toggle. Always rendered — disabled (not hidden) when
+          the selected model does not support thinking, so the control never
+          vanishes on a model switch. The user's preference is preserved in
+          state across model changes so it reapplies if they switch back to a
+          capable model.
         */}
-        {canEnableThinking && (
-          <div className="flex items-start justify-between gap-4 border-t pt-4">
-            <div className="space-y-1">
-              <Label className="text-sm font-medium">
-                {t("settings.tab.thinking")}
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                {t("settings.tab.thinkingHelp")}
-              </p>
-            </div>
-            <Switch
-              checked={thinkingEnabled}
-              onCheckedChange={setThinkingEnabled}
-            />
+        <div className="flex items-start justify-between gap-4 border-t pt-4">
+          <div className="space-y-1">
+            <Label className="text-sm font-medium">
+              {t("settings.tab.thinking")}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {canEnableThinking
+                ? t("settings.tab.thinkingHelp")
+                : t("settings.tab.thinkingUnavailable")}
+            </p>
           </div>
-        )}
+          <Switch
+            checked={thinkingEnabled}
+            disabled={!canEnableThinking}
+            onCheckedChange={setThinkingEnabled}
+          />
+        </div>
 
         {/*
           Reasoning level (experiment, Nebius-only). Maps to reasoning_effort.

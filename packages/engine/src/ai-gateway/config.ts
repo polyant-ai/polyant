@@ -343,14 +343,38 @@ export function clampTemperature(value: number | null | undefined): number | nul
 }
 
 /**
+ * Models that reject the `temperature` parameter outright (HTTP 400), even with
+ * thinking OFF — the parameter must be omitted entirely, not just left at its
+ * default. This is a per-MODEL property, not a per-provider one:
+ *   - OpenAI reasoning families (o1/o3/o4, gpt-5) never accepted temperature.
+ *   - Anthropic removed sampling params (temperature/top_p/top_k) on Opus 4.7,
+ *     Opus 4.8, Sonnet 5 and Fable 5. Opus/Sonnet 4.6 and earlier still accept
+ *     temperature, so they are intentionally NOT matched here.
+ *   - Bedrock serves the same Claude models via cross-region inference profiles
+ *     (optional eu./us./apac./global. prefix before `anthropic.`).
+ */
+function rejectsTemperature(provider: string, modelId: string): boolean {
+  switch (provider) {
+    case "openai":
+      return /^(o[134]|gpt-5)/.test(modelId);
+    case "anthropic":
+      return /^claude-(opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
+    case "bedrock":
+      return /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-(opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
+    default:
+      return false;
+  }
+}
+
+/**
  * Whether a (provider, model, thinking) combination accepts a custom
  * temperature. Returns false when thinking is ON (Anthropic requires
- * temperature=1; we generalise to "omit" cross-provider) or when the model is
- * an OpenAI reasoning model (rejects temperature != 1). Mirrors the
+ * temperature=1; we generalise to "omit" cross-provider) or when the model
+ * rejects the parameter altogether (see rejectsTemperature). Mirrors the
  * provider/model pattern logic of isThinkingCapable.
  */
 export function temperatureSupported(provider: string, modelId: string, thinking: boolean): boolean {
   if (thinking) return false;
-  if (provider === "openai" && /^(o[134]|gpt-5)/.test(modelId)) return false;
+  if (rejectsTemperature(provider, modelId)) return false;
   return true;
 }
