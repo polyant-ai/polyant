@@ -543,14 +543,12 @@ export default function ConversationDetailPage() {
                 className={`flex scroll-mt-4 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[75%] min-w-0 overflow-hidden rounded-2xl px-4 py-3 transition-shadow ${
-                    msg.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
-                  } ${
+                  className={`max-w-[75%] min-w-0 overflow-hidden rounded-2xl px-4 py-3 transition-colors duration-500 ${
                     highlightId === msg.id
-                      ? "ring-2 ring-accent ring-offset-2 ring-offset-background"
-                      : ""
+                      ? "bg-accent text-accent-foreground ring-2 ring-accent-strong"
+                      : msg.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
                   }`}
                 >
                   {msg.attachments && msg.attachments.length > 0 && (
