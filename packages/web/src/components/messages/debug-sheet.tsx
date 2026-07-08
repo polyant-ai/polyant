@@ -218,7 +218,8 @@ export function DebugSheet({ open, onOpenChange, target }: DebugSheetProps) {
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-xl">
         <SheetHeader>
           <SheetTitle>{t("message.debug.title")}</SheetTitle>
-          <SheetDescription>{t("message.debug.description")}</SheetDescription>
+          {/* Kept for screen-reader context (Radix requires a description); hidden visually. */}
+          <SheetDescription className="sr-only">{t("message.debug.description")}</SheetDescription>
         </SheetHeader>
 
         <div className="flex flex-col gap-5 px-4 pb-8">

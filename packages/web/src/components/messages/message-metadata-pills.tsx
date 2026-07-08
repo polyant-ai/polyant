@@ -7,17 +7,47 @@
  *
  * Compact pill bar shown under an assistant message when "detailed view" is on.
  * Surfaces the per-message telemetry merged by the conversations API from
- * pipeline_traces: model, input/cache/output tokens (each with its USD cost),
- * total cost, turn latency, sampling temperature, extended-thinking flag, and
- * reasoning / tool-step counts.
+ * pipeline_traces: model + provider, input/cache/output tokens (each with its
+ * USD cost), total cost, turn latency, sampling temperature, extended-thinking
+ * flag, and reasoning / tool-step counts.
+ *
+ * Colour is semantic, not decorative: the total cost is the accent headline,
+ * cache (savings) is emerald, latency turns red only when the turn was slow,
+ * extended thinking is amber; everything else stays neutral. The provider gets
+ * a small colour dot so the AI vendor is recognisable at a glance.
  *
  * Renders nothing for user/system messages or when no telemetry is available.
  */
 
 import { Cpu, ArrowDown, ArrowUp, Zap, Coins, Wrench, Brain, Timer, Thermometer, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
 import type { ConversationMessage, ReasoningDetail } from "@/lib/api";
+
+type Tone = "neutral" | "good" | "notable" | "bad" | "headline";
+
+const TONE_CLASS: Record<Tone, string> = {
+  neutral: "border-border text-foreground",
+  good: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300",
+  notable: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300",
+  bad: "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300",
+  headline: "border-transparent bg-accent text-accent-foreground",
+};
+
+// Per-provider dot colour. Bounded set → categorical brand hint, not decoration.
+const PROVIDER_DOT: Record<string, string> = {
+  anthropic: "bg-orange-500",
+  openai: "bg-emerald-500",
+  bedrock: "bg-amber-500",
+  nebius: "bg-sky-500",
+  google: "bg-blue-500",
+  gemini: "bg-blue-500",
+};
+
+// Latency thresholds (ms): fast turns read green, genuinely slow ones red.
+const LATENCY_FAST_MS = 3000;
+const LATENCY_SLOW_MS = 15000;
 
 function formatCost(usd: number): string {
   return `$${usd.toFixed(4)}`;
@@ -32,6 +62,25 @@ function reasoningChars(reasoning: ReasoningDetail[] | null | undefined): number
   return reasoning.reduce(
     (n, r) => n + (r.type === "text" ? r.text.length : r.data.length),
     0,
+  );
+}
+
+function Pill({
+  tone = "neutral",
+  icon: Icon,
+  title,
+  children,
+}: {
+  tone?: Tone;
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Badge variant="outline" className={cn("gap-1 font-normal tabular-nums", TONE_CLASS[tone])} title={title}>
+      <Icon className={tone === "neutral" ? "text-muted-foreground" : "opacity-70"} />
+      {children}
+    </Badge>
   );
 }
 
@@ -58,50 +107,66 @@ export function MessageMetadataPills({ message }: { message: ConversationMessage
   // No telemetry at all (legacy row) → don't render an empty bar.
   if (promptTokens === 0 && completionTokens === 0 && !message.model) return null;
 
+  const sub = (text: string) => <span className="opacity-70">· {text}</span>;
+
+  const latencyTone: Tone =
+    lat?.totalMs == null
+      ? "neutral"
+      : lat.totalMs < LATENCY_FAST_MS
+        ? "good"
+        : lat.totalMs > LATENCY_SLOW_MS
+          ? "bad"
+          : "neutral";
+
+  const providerKey = message.provider?.toLowerCase() ?? "";
+  const dotClass = PROVIDER_DOT[providerKey] ?? "bg-muted-foreground";
+
   return (
     <div className="mt-2 flex flex-wrap items-center gap-1.5">
       {message.model && (
+        <Pill tone="neutral" icon={Cpu} title={t("conversations.detail.pills.model")}>
+          <span className="font-mono">{message.model}</span>
+        </Pill>
+      )}
+
+      {message.provider && (
         <Badge
           variant="outline"
-          className="gap-1 font-normal"
-          title={message.provider ? `${t("conversations.detail.pills.model")} · ${message.provider}` : t("conversations.detail.pills.model")}
+          className="gap-1.5 border-border font-normal"
+          title={t("conversations.detail.pills.provider")}
         >
-          <Cpu className="text-muted-foreground" />
-          <span className="font-mono">{message.model}</span>
+          <span className={cn("size-1.5 rounded-full", dotClass)} />
+          {message.provider}
         </Badge>
       )}
 
-      <Badge variant="secondary" className="gap-1 font-normal tabular-nums" title={t("conversations.detail.pills.input")}>
-        <ArrowDown className="text-muted-foreground" />
+      <Pill tone="neutral" icon={ArrowDown} title={t("conversations.detail.pills.input")}>
         {regularInput.toLocaleString()}
-        {hasCost && <span className="text-muted-foreground">· {formatCost(cost.input)}</span>}
-      </Badge>
+        {hasCost && sub(formatCost(cost.input))}
+      </Pill>
 
       {cacheTokens > 0 && (
-        <Badge variant="secondary" className="gap-1 font-normal tabular-nums" title={t("conversations.detail.pills.cache")}>
-          <Zap className="text-muted-foreground" />
+        <Pill tone="good" icon={Zap} title={t("conversations.detail.pills.cache")}>
           {cacheTokens.toLocaleString()}
-          {hasCost && <span className="text-muted-foreground">· {formatCost(cost.cache)}</span>}
-        </Badge>
+          {hasCost && sub(formatCost(cost.cache))}
+        </Pill>
       )}
 
-      <Badge variant="secondary" className="gap-1 font-normal tabular-nums" title={t("conversations.detail.pills.output")}>
-        <ArrowUp className="text-muted-foreground" />
+      <Pill tone="neutral" icon={ArrowUp} title={t("conversations.detail.pills.output")}>
         {completionTokens.toLocaleString()}
-        {hasCost && <span className="text-muted-foreground">· {formatCost(cost.output)}</span>}
-      </Badge>
+        {hasCost && sub(formatCost(cost.output))}
+      </Pill>
 
       {hasCost && (
-        <Badge variant="secondary" className="gap-1 tabular-nums" title={t("conversations.detail.pills.total")}>
-          <Coins className="text-muted-foreground" />
+        <Pill tone="headline" icon={Coins} title={t("conversations.detail.pills.total")}>
           {formatCost(cost.total)}
-        </Badge>
+        </Pill>
       )}
 
       {lat?.totalMs != null && (
-        <Badge
-          variant="outline"
-          className="gap-1 font-normal tabular-nums"
+        <Pill
+          tone={latencyTone}
+          icon={Timer}
           title={[
             lat.ttfbMs != null ? `TTFB ${formatMs(lat.ttfbMs)}` : null,
             lat.llmCallMs != null ? `LLM ${formatMs(lat.llmCallMs)}` : null,
@@ -109,38 +174,33 @@ export function MessageMetadataPills({ message }: { message: ConversationMessage
             lat.toolBuildingMs != null ? `${t("conversations.detail.pills.toolBuilding")} ${formatMs(lat.toolBuildingMs)}` : null,
           ].filter(Boolean).join(" · ") || t("conversations.detail.pills.latency")}
         >
-          <Timer className="text-muted-foreground" />
           {formatMs(lat.totalMs)}
-        </Badge>
+        </Pill>
       )}
 
       {message.temperature != null && (
-        <Badge variant="outline" className="gap-1 font-normal tabular-nums" title={t("conversations.detail.pills.temperature")}>
-          <Thermometer className="text-muted-foreground" />
+        <Pill tone="neutral" icon={Thermometer} title={t("conversations.detail.pills.temperature")}>
           {message.temperature}
-        </Badge>
+        </Pill>
       )}
 
       {message.thinking && (
-        <Badge variant="outline" className="gap-1 font-normal" title={t("conversations.detail.pills.thinking")}>
-          <Sparkles className="text-muted-foreground" />
+        <Pill tone="notable" icon={Sparkles} title={t("conversations.detail.pills.thinking")}>
           {t("conversations.detail.pills.thinking")}
-        </Badge>
+        </Pill>
       )}
 
       {reasoningLen > 0 && (
-        <Badge variant="outline" className="gap-1 font-normal tabular-nums" title={t("conversations.detail.pills.reasoning")}>
-          <Brain className="text-muted-foreground" />
+        <Pill tone="neutral" icon={Brain} title={t("conversations.detail.pills.reasoning")}>
           {reasoningLen.toLocaleString()}
-        </Badge>
+        </Pill>
       )}
 
       {toolCount > 0 && (
-        <Badge variant="outline" className="gap-1 font-normal tabular-nums" title={t("conversations.detail.pills.tools")}>
-          <Wrench className="text-muted-foreground" />
+        <Pill tone="neutral" icon={Wrench} title={t("conversations.detail.pills.tools")}>
           {toolCount}
-          {stepCount > 0 && <span className="text-muted-foreground">· {t("conversations.detail.pills.steps", { count: stepCount })}</span>}
-        </Badge>
+          {stepCount > 0 && sub(t("conversations.detail.pills.steps", { count: stepCount }))}
+        </Pill>
       )}
     </div>
   );
