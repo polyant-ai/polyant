@@ -400,6 +400,38 @@ export interface ConversationMessage {
   createdAt: string | null;
   promptTokens: number | null;
   completionTokens: number | null;
+  /** Prompt-cache read/write token counts (assistant messages only). */
+  cachedInputTokens?: number | null;
+  cacheCreationInputTokens?: number | null;
+  /** Model id used for this turn (assistant messages only). */
+  model?: string | null;
+  /** Provider that served the model (assistant messages only). */
+  provider?: string | null;
+  /** USD cost split (input/cache/output/total) for this turn. */
+  cost?: CostBreakdown | null;
+  /** Whether extended thinking was requested (assistant messages only). */
+  thinking?: boolean | null;
+  /** Sampling temperature requested (null → provider default). */
+  temperature?: number | null;
+  /** Per-phase latency (ms) for the assistant turn. */
+  latency?: MessageLatency | null;
+}
+
+/** USD cost of an assistant turn, split by pricing bucket. Mirrors the engine. */
+export interface CostBreakdown {
+  input: number;
+  cache: number;
+  output: number;
+  total: number;
+}
+
+/** Per-phase latency (ms) of an assistant turn. Mirrors pipeline_traces. */
+export interface MessageLatency {
+  contextPrepMs: number | null;
+  toolBuildingMs: number | null;
+  llmCallMs: number | null;
+  totalMs: number | null;
+  ttfbMs: number | null;
 }
 
 /**

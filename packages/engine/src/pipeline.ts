@@ -11,6 +11,7 @@ import type { ModelMessage } from "ai";
 import { config, DEFAULT_INSTANCE_ID } from "./config.js";
 import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
+import type { CostBreakdown } from "./ai-gateway/types.js";
 import { conversationStore } from "./conversations/index.js";
 import { ConversationStateBuffer } from "./conversations/state.buffer.js";
 import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
@@ -586,7 +587,22 @@ export interface PipelinePostOptions {
   /** Pre-generated assistant message UUID (streaming path), so the persisted id matches the one echoed to the client. */
   assistantMessageId?: string;
   toolCallTraces?: ToolCallTrace[];
-  usage: { promptTokens: number; completionTokens: number };
+  usage: {
+    promptTokens: number;
+    completionTokens: number;
+    cachedInputTokens?: number;
+    cacheCreationInputTokens?: number;
+  };
+  /** Model id used for this turn — persisted per-message on the trace. */
+  model?: string;
+  /** Provider that served the model. */
+  provider?: string;
+  /** USD cost split (input/cache/output/total) for this turn. */
+  cost?: CostBreakdown;
+  /** Whether extended thinking was requested for this turn. */
+  thinking?: boolean;
+  /** Sampling temperature requested (undefined → provider default). */
+  temperature?: number;
   durationMs: number;
   toolBuildingMs: number;
   ttfbMs?: number;
@@ -641,6 +657,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     const agentCall = ctx.inboundMetadata?.agentCall as AgentCallMetadata | undefined;
     traceStore.record({
       conversationId: ctx.conversationId,
+      messageId: opts.assistantMessageId,
       instanceId: ctx.instanceId,
       channel: opts.channel,
       contextPrepMs: opts.contextPrepMs,
@@ -650,6 +667,13 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       ttfbMs: opts.ttfbMs,
       promptTokens: opts.usage.promptTokens,
       completionTokens: opts.usage.completionTokens,
+      cachedInputTokens: opts.usage.cachedInputTokens,
+      cacheCreationInputTokens: opts.usage.cacheCreationInputTokens,
+      model: opts.model,
+      provider: opts.provider,
+      cost: opts.cost,
+      thinking: opts.thinking,
+      temperature: opts.temperature,
       toolCalls: opts.toolCallTraces,
       isStreaming: opts.isStreaming,
       parentConversationId: agentCall?.callerConversationId,

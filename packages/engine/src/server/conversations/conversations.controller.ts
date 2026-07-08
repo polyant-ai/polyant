@@ -117,11 +117,22 @@ export class ConversationsController {
       conversationStore.getMessages(id, { limit, offset, order }),
       conversationStore.getMessageTokenStats(id),
     ]);
-    const messages = result.messages.map((m) => ({
-      ...m,
-      promptTokens: tokenStats[m.id]?.promptTokens ?? null,
-      completionTokens: tokenStats[m.id]?.completionTokens ?? null,
-    }));
+    const messages = result.messages.map((m) => {
+      const stats = tokenStats[m.id];
+      return {
+        ...m,
+        promptTokens: stats?.promptTokens ?? null,
+        completionTokens: stats?.completionTokens ?? null,
+        cachedInputTokens: stats?.cachedInputTokens ?? null,
+        cacheCreationInputTokens: stats?.cacheCreationInputTokens ?? null,
+        model: stats?.model ?? null,
+        provider: stats?.provider ?? null,
+        cost: stats?.cost ?? null,
+        thinking: stats?.thinking ?? null,
+        temperature: stats?.temperature ?? null,
+        latency: stats?.latency ?? null,
+      };
+    });
     return { messages, total: result.total, limit, offset, order };
   }
 

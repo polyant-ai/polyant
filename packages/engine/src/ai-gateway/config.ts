@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { TierMapping } from "./types.js";
+import type { TierMapping, CostBreakdown } from "./types.js";
 
 export interface ProviderConfig {
   tiers: TierMapping;
@@ -249,10 +249,24 @@ export function estimateCost(
   completionTokens: number,
   cache?: CacheTokenUsage,
 ): number {
+  return estimateCostBreakdown(provider, model, promptTokens, completionTokens, cache).total;
+}
+
+/**
+ * Like `estimateCost`, but returns the per-bucket split (regular input, cache
+ * read+write, output) alongside the total. Persisted per-message on
+ * `pipeline_traces` so the admin panel can show input/cache/output costs.
+ */
+export function estimateCostBreakdown(
+  provider: string,
+  model: string,
+  promptTokens: number,
+  completionTokens: number,
+  cache?: CacheTokenUsage,
+): CostBreakdown {
   const config = providerConfigs[provider];
-  if (!config) return 0;
-  const pricing = config.costPerMillionTokens[model];
-  if (!pricing) return 0;
+  const pricing = config?.costPerMillionTokens[model];
+  if (!config || !pricing) return { input: 0, cache: 0, output: 0, total: 0 };
 
   const cacheRead = Math.max(0, cache?.cachedInputTokens ?? 0);
   const cacheWrite = Math.max(0, cache?.cacheCreationInputTokens ?? 0);
@@ -260,13 +274,13 @@ export function estimateCost(
   const mult = CACHE_MULTIPLIERS[provider] ?? DEFAULT_CACHE_MULTIPLIER;
   const regional = bedrockRegionalMultiplier(provider, model);
 
-  return (
-    regional *
-    ((regularInput * pricing.input) / 1_000_000 +
-      (cacheRead * pricing.input * mult.read) / 1_000_000 +
-      (cacheWrite * pricing.input * mult.write) / 1_000_000 +
-      (completionTokens * pricing.output) / 1_000_000)
-  );
+  const input = (regional * (regularInput * pricing.input)) / 1_000_000;
+  const cacheCost =
+    (regional * (cacheRead * pricing.input * mult.read)) / 1_000_000 +
+    (regional * (cacheWrite * pricing.input * mult.write)) / 1_000_000;
+  const output = (regional * (completionTokens * pricing.output)) / 1_000_000;
+
+  return { input, cache: cacheCost, output, total: input + cacheCost + output };
 }
 
 export const sttPricingPerMinute: Record<string, Record<string, number>> = {

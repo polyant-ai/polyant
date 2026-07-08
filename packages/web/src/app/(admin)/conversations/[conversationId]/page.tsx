@@ -37,6 +37,9 @@ import {
 import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta, type HookExecution } from "@/lib/api";
 import { MarkdownRenderer } from "@/app/(admin)/playground/_components/markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
+import { MessageMetadataPills } from "@/components/messages/message-metadata-pills";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
@@ -165,12 +168,25 @@ export default function ConversationDetailPage() {
   const [totalMessages, setTotalMessages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Detailed view: shows per-message metadata pills + reasoning/tool panels.
+  // Off by default; the choice persists across pages via localStorage.
+  const [detailed, setDetailed] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement | null>(null);
   const loadingMoreRef = useRef(false);
   const prevScrollHeightRef = useRef<number | null>(null);
   const didInitialScrollRef = useRef(false);
+
+  // Read the persisted preference on mount (client-only, avoids SSR mismatch).
+  useEffect(() => {
+    setDetailed(localStorage.getItem("conversationDetailedView") === "true");
+  }, []);
+
+  const toggleDetailed = (value: boolean) => {
+    setDetailed(value);
+    localStorage.setItem("conversationDetailedView", String(value));
+  };
 
   useEffect(() => {
     Promise.all([
@@ -398,6 +414,13 @@ export default function ConversationDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+        <Label
+          htmlFor="detailed-view"
+          className="mr-2 flex items-center gap-2 text-sm font-normal text-muted-foreground"
+        >
+          <Switch id="detailed-view" checked={detailed} onCheckedChange={toggleDetailed} />
+          {t("conversations.detail.detailedToggle")}
+        </Label>
         <Button variant="ghost" size="sm" onClick={() => setStateOpen(true)}>
           <Database className="h-4 w-4" />
           {t("conversations.state.button")}
@@ -484,7 +507,11 @@ export default function ConversationDetailPage() {
             const costPerToken = conversation.conversationTokens > 0
               ? conversation.conversationCost / conversation.conversationTokens
               : 0;
-            const messageCost = tokenCount != null ? tokenCount * costPerToken : 0;
+            // Assistant messages carry a real per-turn cost; fall back to the
+            // conversation-average estimate (user messages, legacy rows).
+            const messageCost = msg.role === "assistant" && msg.cost
+              ? msg.cost.total
+              : tokenCount != null ? tokenCount * costPerToken : 0;
 
             return (
               <div
@@ -529,9 +556,9 @@ export default function ConversationDetailPage() {
                       {t("message.provenance.hook", { name: String(msg.metadata.hookName ?? "") })}
                     </span>
                   )}
-                  {/* Reasoning + steps panels above message text. Default open
-                      on the conversations page (audit/exploratory UX). */}
-                  {msg.role !== "user" && (
+                  {/* Reasoning + steps panels above message text — only in the
+                      detailed view (audit/exploratory UX; hidden in compact). */}
+                  {msg.role !== "user" && detailed && (
                     <MessageExtras
                       reasoning={msg.reasoning}
                       steps={msg.steps}
@@ -539,6 +566,9 @@ export default function ConversationDetailPage() {
                     />
                   )}
                   <MarkdownRenderer content={msg.content} />
+                  {msg.role !== "user" && detailed && (
+                    <MessageMetadataPills message={msg} />
+                  )}
                   <div
                     className={`mt-1 flex items-center gap-1.5 text-xs ${
                       msg.role === "user"
@@ -574,7 +604,21 @@ export default function ConversationDetailPage() {
                       <button
                         type="button"
                         onClick={() =>
-                          setDebugTarget({ conversationId, messageId: msg.id, instanceId })
+                          setDebugTarget({
+                            conversationId,
+                            messageId: msg.id,
+                            instanceId,
+                            model: msg.model,
+                            provider: msg.provider,
+                            promptTokens: msg.promptTokens,
+                            completionTokens: msg.completionTokens,
+                            cachedInputTokens: msg.cachedInputTokens,
+                            cacheCreationInputTokens: msg.cacheCreationInputTokens,
+                            cost: msg.cost,
+                            thinking: msg.thinking,
+                            temperature: msg.temperature,
+                            latency: msg.latency,
+                          })
                         }
                         className="inline-flex items-center gap-1 rounded px-1 text-muted-foreground transition hover:text-foreground"
                         title={t("message.debug.open")}

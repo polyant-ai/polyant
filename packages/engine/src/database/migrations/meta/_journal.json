@@ -407,6 +407,20 @@
       "when": 1780876800000,
       "tag": "0064_add_instance_thinking_level",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1780963200000,
+      "tag": "0065_add_trace_message_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1781049600000,
+      "tag": "0066_add_trace_thinking_temperature",
+      "breakpoints": true
     }
   ]
 }
