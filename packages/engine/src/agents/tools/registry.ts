@@ -74,6 +74,10 @@ export interface ToolContext {
   provider?: string;
   /** Shared per-conversation key/value state (trusted, tool-to-tool). */
   state?: import("../../conversations/state.buffer.js").ConversationStateApi;
+  /** Read-only accessor for the recent conversation history (same contract the
+   *  SDK exposes to plugin tools). Lazy — built per turn by the supervisor from
+   *  `conversationId`; absent when there is no conversation id. */
+  conversation?: import("@polyant-ai/plugin-sdk").ConversationHistoryApi;
 }
 
 // ---------------------------------------------------------------------------

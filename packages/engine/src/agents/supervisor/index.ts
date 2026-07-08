@@ -25,6 +25,7 @@ import { asInstanceSlug } from "../../instances/identifiers.js";
 import type { ChatRequest } from "../../ai-gateway/types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import type { ConversationStateBuffer } from "../../conversations/state.buffer.js";
+import { buildConversationApi } from "../../conversations/conversation-history-api.js";
 import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
@@ -275,6 +276,11 @@ async function buildTools(opts: BuildToolsOptions) {
         apiKeys,
         provider,
         state: stateBuffer?.api(),
+        // Read-only recent-history accessor (SDK ConversationHistoryApi). Lazy:
+        // built here so tools that read `ctx.conversation` (e.g. specialty
+        // classification in searchAppointmentSlots) work, mirroring what the hook
+        // function-action already provides. No query until a tool actually calls it.
+        conversation: conversationId ? buildConversationApi(conversationId) : undefined,
       };
       const built = buildTool(def, ctx);
       // The name sent to the MODEL must match [a-zA-Z0-9_-]+ (Bedrock rejects
