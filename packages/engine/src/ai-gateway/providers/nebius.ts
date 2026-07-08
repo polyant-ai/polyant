@@ -12,8 +12,11 @@ import { createProvider } from "./base.js";
  * Because the endpoint is OpenAI-compatible we don't ship a bespoke adapter:
  * `@ai-sdk/openai-compatible` maps `reasoning_content` → reasoning blocks, so
  * the shared pipeline (base.ts steps/usage/reasoning + the typed-SSE playground)
- * works unchanged. Reasoning is a property of the model, not a request flag —
- * there is nothing to inject in providerOptions.
+ * works unchanged. Hybrid reasoning models (Qwen3.5 & friends) think BY DEFAULT,
+ * so the gateway (index.ts resolveCallConfig) drives thinking explicitly via
+ * providerOptions.nebius: `reasoningEffort` when ON, and the vLLM chat-template
+ * kwarg `chat_template_kwargs.enable_thinking=false` when OFF (reasoning_effort
+ * alone does NOT disable it). Both are forwarded verbatim into the request body.
  *
  * Docs: https://docs.tokenfactory.nebius.com — base URL confirmed against the
  * quickstart. `includeUsage` is enabled so streaming reports token usage.

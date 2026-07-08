@@ -21,6 +21,15 @@ vi.mock("./providers/anthropic.js", () => ({
   },
 }));
 
+const mockNebiusChat = vi.fn();
+vi.mock("./providers/nebius.js", () => ({
+  NebiusProvider: {
+    name: "nebius",
+    chat: (...args: unknown[]) => mockNebiusChat(...args),
+    chatStream: vi.fn(),
+  },
+}));
+
 vi.mock("./logger.js", () => ({
   aiLogger: {
     log: vi.fn(),
@@ -251,6 +260,35 @@ describe("AI Gateway", () => {
         }),
         expect.any(String),
       );
+    });
+
+    it("disables Nebius thinking via chat_template_kwargs when thinking is off", async () => {
+      mockNebiusChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "nebius", model: "Qwen/Qwen3.5-397B-A17B", thinking: false }),
+      );
+
+      expect(mockNebiusChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerOptions: expect.objectContaining({
+            nebius: { chat_template_kwargs: { enable_thinking: false } },
+          }),
+        }),
+        "Qwen/Qwen3.5-397B-A17B",
+      );
+    });
+
+    it("sends reasoningEffort (not the disable kwarg) for Nebius when thinking is on", async () => {
+      mockNebiusChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "nebius", model: "Qwen/Qwen3.5-397B-A17B", thinking: true, thinkingLevel: "high" }),
+      );
+
+      const opts = mockNebiusChat.mock.calls[0][0].providerOptions.nebius;
+      expect(opts).toEqual({ reasoningEffort: "high" });
+      expect(opts).not.toHaveProperty("chat_template_kwargs");
     });
   });
 
