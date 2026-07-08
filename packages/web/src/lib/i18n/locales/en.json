@@ -57,7 +57,7 @@
   "conversations.detail.cacheTokens": "Cache (read / write)",
   "conversations.list.cachedTokens": "Prompt-cache read tokens",
   "conversations.detail.systemMessage": "System message",
-  "conversations.detail.detailedToggle": "Message details",
+  "conversations.detail.detailedToggle": "Technical details",
   "conversations.detail.pills.model": "Model",
   "conversations.detail.pills.provider": "AI provider",
   "conversations.detail.pills.input": "Input",

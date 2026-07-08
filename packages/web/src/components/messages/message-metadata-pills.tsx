@@ -11,10 +11,11 @@
  * USD cost), total cost, turn latency, sampling temperature, extended-thinking
  * flag, and reasoning / tool-step counts.
  *
- * Colour is semantic, not decorative: the total cost is the accent headline,
- * cache (savings) is emerald, latency turns red only when the turn was slow,
- * extended thinking is amber; everything else stays neutral. The provider gets
- * a small colour dot so the AI vendor is recognisable at a glance.
+ * Colour identifies the *category* of information (not the value): identity =
+ * indigo, cost = emerald, latency = sky, config = amber, processing = violet.
+ * The colour lives in the pill icon; every pill sits on a solid `bg-background`
+ * so it contrasts with the muted message bubble. The provider carries a
+ * per-vendor colour dot so the AI vendor is recognisable at a glance.
  *
  * Renders nothing for user/system messages or when no telemetry is available.
  */
@@ -25,15 +26,14 @@ import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
 import type { ConversationMessage, ReasoningDetail } from "@/lib/api";
 
-type Tone = "neutral" | "good" | "notable" | "bad" | "headline";
-
-const TONE_CLASS: Record<Tone, string> = {
-  neutral: "border-border text-foreground",
-  good: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300",
-  notable: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300",
-  bad: "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300",
-  headline: "border-transparent bg-accent text-accent-foreground",
-};
+// Per-category icon colour. Colour = kind of information, never the value.
+const CATEGORY = {
+  identity: "text-indigo-600 dark:text-indigo-400",
+  cost: "text-emerald-600 dark:text-emerald-400",
+  latency: "text-sky-600 dark:text-sky-400",
+  config: "text-amber-600 dark:text-amber-400",
+  processing: "text-violet-600 dark:text-violet-400",
+} as const;
 
 // Per-provider dot colour. Bounded set → categorical brand hint, not decoration.
 const PROVIDER_DOT: Record<string, string> = {
@@ -44,10 +44,6 @@ const PROVIDER_DOT: Record<string, string> = {
   google: "bg-blue-500",
   gemini: "bg-blue-500",
 };
-
-// Latency thresholds (ms): fast turns read green, genuinely slow ones red.
-const LATENCY_FAST_MS = 3000;
-const LATENCY_SLOW_MS = 15000;
 
 function formatCost(usd: number): string {
   return `$${usd.toFixed(4)}`;
@@ -66,19 +62,25 @@ function reasoningChars(reasoning: ReasoningDetail[] | null | undefined): number
 }
 
 function Pill({
-  tone = "neutral",
+  iconColor,
   icon: Icon,
   title,
+  emphasis,
   children,
 }: {
-  tone?: Tone;
+  iconColor: string;
   icon: React.ComponentType<{ className?: string }>;
   title: string;
+  emphasis?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <Badge variant="outline" className={cn("gap-1 font-normal tabular-nums", TONE_CLASS[tone])} title={title}>
-      <Icon className={tone === "neutral" ? "text-muted-foreground" : "opacity-70"} />
+    <Badge
+      variant="outline"
+      className={cn("gap-1 border-border bg-background tabular-nums", emphasis ? "font-medium" : "font-normal")}
+      title={title}
+    >
+      <Icon className={iconColor} />
       {children}
     </Badge>
   );
@@ -107,24 +109,14 @@ export function MessageMetadataPills({ message }: { message: ConversationMessage
   // No telemetry at all (legacy row) → don't render an empty bar.
   if (promptTokens === 0 && completionTokens === 0 && !message.model) return null;
 
-  const sub = (text: string) => <span className="opacity-70">· {text}</span>;
-
-  const latencyTone: Tone =
-    lat?.totalMs == null
-      ? "neutral"
-      : lat.totalMs < LATENCY_FAST_MS
-        ? "good"
-        : lat.totalMs > LATENCY_SLOW_MS
-          ? "bad"
-          : "neutral";
-
+  const sub = (text: string) => <span className="text-muted-foreground">· {text}</span>;
   const providerKey = message.provider?.toLowerCase() ?? "";
   const dotClass = PROVIDER_DOT[providerKey] ?? "bg-muted-foreground";
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-1.5">
       {message.model && (
-        <Pill tone="neutral" icon={Cpu} title={t("conversations.detail.pills.model")}>
+        <Pill iconColor={CATEGORY.identity} icon={Cpu} title={t("conversations.detail.pills.model")}>
           <span className="font-mono">{message.model}</span>
         </Pill>
       )}
@@ -132,7 +124,7 @@ export function MessageMetadataPills({ message }: { message: ConversationMessage
       {message.provider && (
         <Badge
           variant="outline"
-          className="gap-1.5 border-border font-normal"
+          className="gap-1.5 border-border bg-background font-normal"
           title={t("conversations.detail.pills.provider")}
         >
           <span className={cn("size-1.5 rounded-full", dotClass)} />
@@ -140,32 +132,32 @@ export function MessageMetadataPills({ message }: { message: ConversationMessage
         </Badge>
       )}
 
-      <Pill tone="neutral" icon={ArrowDown} title={t("conversations.detail.pills.input")}>
+      <Pill iconColor={CATEGORY.cost} icon={ArrowDown} title={t("conversations.detail.pills.input")}>
         {regularInput.toLocaleString()}
         {hasCost && sub(formatCost(cost.input))}
       </Pill>
 
       {cacheTokens > 0 && (
-        <Pill tone="good" icon={Zap} title={t("conversations.detail.pills.cache")}>
+        <Pill iconColor={CATEGORY.cost} icon={Zap} title={t("conversations.detail.pills.cache")}>
           {cacheTokens.toLocaleString()}
           {hasCost && sub(formatCost(cost.cache))}
         </Pill>
       )}
 
-      <Pill tone="neutral" icon={ArrowUp} title={t("conversations.detail.pills.output")}>
+      <Pill iconColor={CATEGORY.cost} icon={ArrowUp} title={t("conversations.detail.pills.output")}>
         {completionTokens.toLocaleString()}
         {hasCost && sub(formatCost(cost.output))}
       </Pill>
 
       {hasCost && (
-        <Pill tone="headline" icon={Coins} title={t("conversations.detail.pills.total")}>
+        <Pill iconColor={CATEGORY.cost} icon={Coins} title={t("conversations.detail.pills.total")} emphasis>
           {formatCost(cost.total)}
         </Pill>
       )}
 
       {lat?.totalMs != null && (
         <Pill
-          tone={latencyTone}
+          iconColor={CATEGORY.latency}
           icon={Timer}
           title={[
             lat.ttfbMs != null ? `TTFB ${formatMs(lat.ttfbMs)}` : null,
@@ -179,25 +171,25 @@ export function MessageMetadataPills({ message }: { message: ConversationMessage
       )}
 
       {message.temperature != null && (
-        <Pill tone="neutral" icon={Thermometer} title={t("conversations.detail.pills.temperature")}>
+        <Pill iconColor={CATEGORY.config} icon={Thermometer} title={t("conversations.detail.pills.temperature")}>
           {message.temperature}
         </Pill>
       )}
 
       {message.thinking && (
-        <Pill tone="notable" icon={Sparkles} title={t("conversations.detail.pills.thinking")}>
+        <Pill iconColor={CATEGORY.config} icon={Sparkles} title={t("conversations.detail.pills.thinking")}>
           {t("conversations.detail.pills.thinking")}
         </Pill>
       )}
 
       {reasoningLen > 0 && (
-        <Pill tone="neutral" icon={Brain} title={t("conversations.detail.pills.reasoning")}>
+        <Pill iconColor={CATEGORY.processing} icon={Brain} title={t("conversations.detail.pills.reasoning")}>
           {reasoningLen.toLocaleString()}
         </Pill>
       )}
 
       {toolCount > 0 && (
-        <Pill tone="neutral" icon={Wrench} title={t("conversations.detail.pills.tools")}>
+        <Pill iconColor={CATEGORY.processing} icon={Wrench} title={t("conversations.detail.pills.tools")}>
           {toolCount}
           {stepCount > 0 && sub(t("conversations.detail.pills.steps", { count: stepCount }))}
         </Pill>
