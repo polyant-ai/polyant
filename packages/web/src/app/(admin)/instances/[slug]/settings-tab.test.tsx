@@ -64,6 +64,11 @@ vi.mock("@/lib/api", () => ({
     models: { list: (...args: unknown[]) => mockModelsList(...args) },
     tools: { requiredSecrets: (...args: unknown[]) => mockToolsRequiredSecrets(...args) },
   },
+  // The component does `reason instanceof ApiError` on load failures; without
+  // this export it was `instanceof undefined` → TypeError, breaking the error path.
+  ApiError: class ApiError extends Error {
+    status?: number;
+  },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
 
