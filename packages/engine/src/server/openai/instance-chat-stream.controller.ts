@@ -8,6 +8,17 @@ import { validateInstanceApiKey } from "./instance-api-key-auth.js";
 import type { ChatCompletionRequest } from "./openai.types.js";
 
 /**
+ * Keep-alive cadence for the SSE stream. Long, output-less tool calls (e.g.
+ * `claudeCode` cloning + analysing a repo for minutes) emit no stream parts, so
+ * without a periodic byte an idle timeout on the browser/proxy would sever the
+ * connection and the client would miss the final `done`. An SSE comment line
+ * (starting with ":") keeps it warm and is ignored by the stream parser. Matches
+ * the activity-stream heartbeat so both long-lived SSE endpoints stay warm below
+ * the typical 30–60s proxy idle cut-off.
+ */
+const HEARTBEAT_MS = 25_000;
+
+/**
  * Native streaming endpoint for the admin playground (and other first-party UIs).
  *
  * Unlike `/v1/chat/completions` (OpenAI-compatible), this endpoint emits a
@@ -59,15 +70,29 @@ export class InstanceChatStreamController {
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
+    // Disable the socket idle-timeout: a single long tool call can run for
+    // minutes with no token output, and Node's default socket timeout would
+    // otherwise tear down this long-lived response.
+    res.setTimeout(0);
 
     const send = (event: string, data: unknown) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
+    // Keep the connection warm during output-less stretches (see HEARTBEAT_MS).
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(": ping\n\n");
+      } catch {
+        // Socket already gone; the close handler / finally will clear this.
+      }
+    }, HEARTBEAT_MS);
+
     // Abort the underlying pipeline if the client disconnects.
     const abortController = new AbortController();
     req.on("close", () => {
+      clearInterval(heartbeat);
       if (!abortController.signal.aborted) abortController.abort();
     });
 
@@ -76,6 +101,7 @@ export class InstanceChatStreamController {
       stream = await this.openaiService.chatCompletionStream(request);
     } catch (err) {
       const message = err instanceof Error ? err.message : "stream initialisation failed";
+      clearInterval(heartbeat);
       send("error", { message });
       send("done", {});
       res.end();
@@ -184,6 +210,7 @@ export class InstanceChatStreamController {
       const message = err instanceof Error ? err.message : "stream error";
       send("error", { message });
     } finally {
+      clearInterval(heartbeat);
       res.end();
       // Safety net: if the loop threw before `completed` was awaited, swallow
       // its eventual rejection so it never surfaces as an unhandled rejection.
