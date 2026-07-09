@@ -9,6 +9,23 @@ RUN npm ci --workspace=@polyant/engine --include-workspace-root
 # Ensure workspace node_modules dir exists (even if empty) for COPY
 RUN mkdir -p packages/engine/node_modules
 
+# ── Stage: prod-deps (runtime deps only — no devDeps) ──────────
+# Separate prod-only install so the runtime image doesn't carry the dev tooling
+# (typescript, tsx, eslint, vitest, drizzle-kit, @types/*): the entrypoint runs
+# `node dist/...` (not tsx) and migrations use drizzle-orm (not drizzle-kit).
+# `npm prune --omit=dev` on the hoisted workspace tree is fragile → install prod
+# from scratch instead. BuildKit runs this stage in parallel with `build`, and
+# Docker layer caching skips it entirely when package-lock is unchanged.
+# @polyant-ai/plugin-sdk is an engine `dependency` (the core *.tool.ts author it),
+# so it survives here.
+FROM node:22-alpine AS prod-deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages/engine/package.json packages/engine/
+RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"0.1.0","private":true}' > packages/web/package.json
+RUN npm ci --omit=dev --workspace=@polyant/engine --include-workspace-root
+RUN mkdir -p packages/engine/node_modules
+
 # ── Stage 2: Build ─────────────────────────────────────────────
 FROM node:22-alpine AS build
 WORKDIR /app
@@ -24,9 +41,11 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Copy hoisted deps + non-hoisted workspace deps (e.g. langsmith)
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/packages/engine/node_modules ./packages/engine/node_modules
+# Copy hoisted deps + non-hoisted workspace deps (e.g. langsmith).
+# Runtime pulls from prod-deps (npm ci --omit=dev) — NOT deps — so the image
+# ships no dev tooling. The build stage above still uses deps (it needs tsc).
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/packages/engine/node_modules ./packages/engine/node_modules
 COPY --from=build /app/packages/engine/dist ./packages/engine/dist
 COPY packages/engine/package.json packages/engine/
 COPY package.json ./
