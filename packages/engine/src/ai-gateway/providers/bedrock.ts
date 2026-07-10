@@ -3,7 +3,7 @@
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { createProvider, type PrepareMessages } from "./base.js";
-import { injectCacheBreakpoints, withProviderCacheMarker } from "./prompt-caching.js";
+import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
 
 /**
  * Bedrock Converse cache breakpoint. Bedrock uses a `cachePoint` block (via
@@ -39,6 +39,17 @@ export const applyBedrockPromptCaching: PrepareMessages = (input) => {
   );
 };
 
+/**
+ * Moving cache breakpoint for the multi-step loop — marks the last message on
+ * each step (from step 1), gated to cache-capable model families so a
+ * `cachePoint` never reaches a model that rejects it. Wired via
+ * `createProvider`'s `stepMarker` hook.
+ */
+export const bedrockStepMarker = makeStepMarker(
+  (message) => withProviderCacheMarker(message, "bedrock", BEDROCK_CACHE_POINT),
+  (modelId) => BEDROCK_CACHE_CAPABLE.test(modelId),
+);
+
 export const BedrockProvider = createProvider(
   "bedrock",
   (modelId, apiKeys) => {
@@ -66,5 +77,5 @@ export const BedrockProvider = createProvider(
       credentialProvider: fromNodeProviderChain(),
     })(modelId);
   },
-  { prepareMessages: applyBedrockPromptCaching },
+  { prepareMessages: applyBedrockPromptCaching, stepMarker: bedrockStepMarker },
 );

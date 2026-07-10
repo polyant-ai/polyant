@@ -193,6 +193,10 @@ function mapUsage(u: unknown): MappedUsage {
   // ({ noCacheTokens, cacheReadTokens, cacheWriteTokens }); `inputTokens` is the
   // TOTAL (noCache + read + write). We fall back to the deprecated top-level
   // `cachedInputTokens` for cache reads on providers that don't fill the details.
+  // The gateway feeds this `totalUsage` (not the final-step `usage`), so the cache
+  // reads/writes are summed across EVERY step — a multi-step turn's incremental
+  // caching (the `prepareStep` marker) is counted once per step, never lost.
+  // Verified live on OpenAI/Anthropic/Bedrock.
   const details = (o.inputTokenDetails ?? {}) as Record<string, unknown>;
   return {
     promptTokens: num(o.inputTokens),
@@ -401,6 +405,12 @@ export type PrepareMessages = (input: {
 
 export interface ProviderHooks {
   prepareMessages?: PrepareMessages;
+  /**
+   * Multi-step cache marker (Phase 3). Wired into the AI SDK `prepareStep` hook
+   * so the tool messages that accumulate within one agentic turn become
+   * incrementally cacheable step-to-step. See `makeStepMarker` in prompt-caching.ts.
+   */
+  stepMarker?: (input: { stepNumber: number; messages: ModelMessage[]; modelId: string }) => { messages?: ModelMessage[] };
 }
 
 export function createProvider(
@@ -426,6 +436,10 @@ export function createProvider(
       logLlmPayload(providerName, modelId, request);
 
       const { system, messages } = prepare(request, modelId);
+      const prepareStep = hooks?.stepMarker
+        ? (o: { stepNumber: number; messages: ModelMessage[] }) =>
+            hooks.stepMarker!({ stepNumber: o.stepNumber, messages: o.messages, modelId })
+        : undefined;
       const result = await tracedGenerateText({
         model: createModel(modelId, request.apiKeys),
         system,
@@ -433,6 +447,7 @@ export function createProvider(
         tools: request.tools,
         stopWhen: stepCountIs(request.maxSteps ?? 1),
         abortSignal: request.abortSignal,
+        ...(prepareStep ? { prepareStep } : {}),
         ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
         ...(request.temperature != null ? { temperature: request.temperature } : {}),
       });
@@ -464,6 +479,10 @@ export function createProvider(
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
       const { system, messages } = prepare(request, modelId);
+      const prepareStep = hooks?.stepMarker
+        ? (o: { stepNumber: number; messages: ModelMessage[] }) =>
+            hooks.stepMarker!({ stepNumber: o.stepNumber, messages: o.messages, modelId })
+        : undefined;
       const result = await tracedStreamText({
         model: createModel(modelId, request.apiKeys),
         system,
@@ -471,6 +490,7 @@ export function createProvider(
         tools: request.tools,
         stopWhen: stepCountIs(request.maxSteps ?? 1),
         abortSignal: request.abortSignal,
+        ...(prepareStep ? { prepareStep } : {}),
         ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
         ...(request.temperature != null ? { temperature: request.temperature } : {}),
       });
