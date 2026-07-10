@@ -85,7 +85,7 @@ function resolveCallConfig(
   // unconditionally on the AnthropicProvider factory. Bedrock is DIFFERENT:
   // sending reasoningConfig to a non-reasoning Bedrock model is a hard
   // ValidationException (like the cachePoint), so it is gated on isThinkingCapable
-  // and mapped per family (Claude→budgetTokens, gpt-oss/Nova 2→maxReasoningEffort).
+  // and mapped per family (Claude→budgetTokens, gpt-oss→maxReasoningEffort).
   if (request.thinking) {
     if (providerName === "anthropic") {
       providerOptions = {
