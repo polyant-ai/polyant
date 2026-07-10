@@ -428,12 +428,35 @@ function buildPrepareStep(hooks: ProviderHooks | undefined, modelId: string) {
 }
 
 /**
+ * Compact structural summary of a messages array — role sequence + per-message
+ * content-part shapes — so a non-alternating roles / malformed-turn bug is
+ * visible at a glance (e.g. `user[text] , assistant[text] , user[text+text]`).
+ */
+function describeMessages(messages: ModelMessage[]): string {
+  return messages
+    .map((m) => {
+      const c = (m as { content?: unknown }).content;
+      if (typeof c === "string") return `${m.role}(str:${c.length})`;
+      if (Array.isArray(c)) return `${m.role}[${c.map((p) => (p as { type?: string }).type ?? "?").join("+")}]`;
+      return `${m.role}(?)`;
+    })
+    .join(" , ");
+}
+
+/**
  * Log the FULL detail of a provider SDK error (AI SDK `APICallError` & friends)
  * before it propagates. Without this an upstream 400/500 reaches the global HTTP
  * filter as a bare status message ("Bad Request"), with the provider's actual
- * reason (`responseBody`) discarded. Duck-typed so the SDK isn't imported here.
+ * reason (`responseBody`) discarded. `ctx` is the folded request actually sent to
+ * the SDK — dumped so role-alternation / message-shape bugs are visible. Duck-typed,
+ * no SDK import.
  */
-function logProviderError(providerName: string, modelId: string, err: unknown): void {
+function logProviderError(
+  providerName: string,
+  modelId: string,
+  err: unknown,
+  ctx?: { system: string | undefined; messages: ModelMessage[] },
+): void {
   const e = err as {
     name?: unknown;
     statusCode?: unknown;
@@ -450,23 +473,30 @@ function logProviderError(providerName: string, modelId: string, err: unknown): 
   if (e?.responseBody != null) parts.push(`body=${String(e.responseBody).slice(0, 2000)}`);
   if (typeof e?.url === "string") parts.push(`url=${e.url}`);
   console.error(parts.filter(Boolean).join(" "));
+  if (ctx) {
+    console.error(
+      `[ai-gateway]   system=${ctx.system ? `present(${ctx.system.length})` : "none"} | roles: ${describeMessages(ctx.messages)}`,
+    );
+    console.error(`[ai-gateway]   messages=${JSON.stringify(ctx.messages).slice(0, 4000)}`);
+  }
 }
 
 /**
- * Run a provider SDK call, logging full error detail before rethrowing (behaviour
- * otherwise unchanged). Accepts sync-or-async `run` because the SDK wrappers are
- * typed inconsistently — `tracedStreamText` returns a value synchronously while
- * `tracedGenerateText` returns a Promise.
+ * Run a provider SDK call, logging full error detail (+ the folded request) before
+ * rethrowing (behaviour otherwise unchanged). Accepts sync-or-async `run` because
+ * the SDK wrappers are typed inconsistently — `tracedStreamText` returns a value
+ * synchronously while `tracedGenerateText` returns a Promise.
  */
 async function withProviderErrorLog<T>(
   providerName: string,
   modelId: string,
+  ctx: { system: string | undefined; messages: ModelMessage[] },
   run: () => T | Promise<T>,
 ): Promise<Awaited<T>> {
   try {
     return await run();
   } catch (err) {
-    logProviderError(providerName, modelId, err);
+    logProviderError(providerName, modelId, err, ctx);
     throw err;
   }
 }
@@ -498,7 +528,7 @@ export function createProvider(
 
       const { system, messages } = prepare(request, modelId);
       const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const result = await withProviderErrorLog(providerName, modelId, () =>
+      const result = await withProviderErrorLog(providerName, modelId, { system, messages }, () =>
         tracedGenerateText({
           model: createModel(modelId, request.apiKeys),
           system,
@@ -540,7 +570,7 @@ export function createProvider(
       // tracing happens at the model middleware level, not the streamText level.
       const { system, messages } = prepare(request, modelId);
       const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const result = await withProviderErrorLog(providerName, modelId, () =>
+      const result = await withProviderErrorLog(providerName, modelId, { system, messages }, () =>
         tracedStreamText({
           model: createModel(modelId, request.apiKeys),
           system,
@@ -578,7 +608,7 @@ export function createProvider(
             return response;
           } catch (err) {
             // Stream-time provider errors surface here (not at the initial await).
-            logProviderError(providerName, modelId, err);
+            logProviderError(providerName, modelId, err, { system, messages });
             throw err;
           }
         })(),
