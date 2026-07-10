@@ -83,6 +83,10 @@ export interface Instance {
   stateInPromptEnabled: boolean;
   /** When true, the current date/time is injected into every turn. */
   datetimeInjectionEnabled: boolean;
+  /** Per-instance prompt-cache switch (off skips cache markers → no cache write). */
+  cacheEnabled: boolean;
+  /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
+  cacheTtl: string;
   /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload is persisted per turn (debug/analysis). */

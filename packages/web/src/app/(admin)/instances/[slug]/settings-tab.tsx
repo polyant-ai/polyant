@@ -130,6 +130,10 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // Inject the current date/time into every turn (default on).
   const [datetimeInjectionEnabled, setDatetimeInjectionEnabled] = useState(instance.datetimeInjectionEnabled);
 
+  // Prompt-cache control (default on, 1h). OpenAI = automatic (locked on); Nebius = none.
+  const [cacheEnabled, setCacheEnabled] = useState(instance.cacheEnabled);
+  const [cacheTtl, setCacheTtl] = useState(instance.cacheTtl);
+
   // Replay prior-turn tool results into the model's cross-turn history (default off).
   const [toolResultsInHistoryEnabled, setToolResultsInHistoryEnabled] = useState(
     instance.toolResultsInHistoryEnabled,
@@ -295,6 +299,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     temperature !== (instance.temperature ?? null) ||
     stateInPromptEnabled !== instance.stateInPromptEnabled ||
     datetimeInjectionEnabled !== instance.datetimeInjectionEnabled ||
+    cacheEnabled !== instance.cacheEnabled ||
+    cacheTtl !== instance.cacheTtl ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
     debugEnabled !== (instance.debugEnabled ?? false) ||
     memoryEnabled !== instance.memoryEnabled ||
@@ -344,6 +350,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         temperature: canSetTemperature ? temperature : null,
         stateInPromptEnabled,
         datetimeInjectionEnabled,
+        cacheEnabled,
+        cacheTtl,
         toolResultsInHistoryEnabled,
         debugEnabled,
         langsmithEnabled,
@@ -428,7 +436,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                   {t("settings.tab.viewPricing")}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-h-[80vh] w-[95vw] max-w-4xl overflow-y-auto">
+              <DialogContent className="max-h-[80vh] w-[95vw] max-w-5xl overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{t("settings.tab.pricingTitle")}</DialogTitle>
                   <p className="text-sm text-muted-foreground">{t("settings.tab.pricingClickHint")}</p>
@@ -445,6 +453,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                             <TableHead>{t("settings.tab.model")}</TableHead>
                             <TableHead className="w-20 text-right">{t("settings.tab.pricingInput")}</TableHead>
                             <TableHead className="w-20 text-right">{t("settings.tab.pricingOutput")}</TableHead>
+                            <TableHead className="w-24 text-right">{t("settings.tab.pricingCacheRead")}</TableHead>
+                            <TableHead className="w-24 text-right">{t("settings.tab.pricingCacheWrite")}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -473,6 +483,12 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                                 </TableCell>
                                 <TableCell className="text-right text-xs tabular-nums">
                                   ${m.costOutput.toFixed(2)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
+                                  {m.costCacheRead == null ? "—" : `$${m.costCacheRead.toFixed(2)}`}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
+                                  {m.costCacheWrite == null ? "—" : `$${m.costCacheWrite.toFixed(2)}`}
                                 </TableCell>
                               </TableRow>
                             );
@@ -664,6 +680,50 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             checked={datetimeInjectionEnabled}
             onCheckedChange={setDatetimeInjectionEnabled}
           />
+        </div>
+
+        {/*
+          Prompt-cache control. Anthropic/Bedrock honour the on/off switch (off
+          skips the cache marker → no cache write). OpenAI caches automatically
+          (locked on); Nebius has no prompt-cache API (unavailable). TTL applies to
+          the Anthropic cross-turn breakpoint (Bedrock is 5m fixed).
+        */}
+        <div className="border-t pt-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">{t("settings.tab.cache")}</Label>
+              <p className="text-xs text-muted-foreground">
+                {provider === "openai"
+                  ? t("settings.tab.cacheAutomaticHelp")
+                  : provider === "nebius"
+                    ? t("settings.tab.cacheUnavailableHelp")
+                    : t("settings.tab.cacheHelp")}
+              </p>
+            </div>
+            <Switch
+              checked={provider === "openai" ? true : provider === "nebius" ? false : cacheEnabled}
+              onCheckedChange={setCacheEnabled}
+              disabled={provider === "openai" || provider === "nebius"}
+            />
+          </div>
+          {(provider === "anthropic" || provider === "bedrock") && cacheEnabled && (
+            <div className="mt-3 flex items-center justify-between gap-4">
+              <Label className="text-sm">{t("settings.tab.cacheTtl")}</Label>
+              {provider === "anthropic" ? (
+                <Select value={cacheTtl} onValueChange={setCacheTtl}>
+                  <SelectTrigger className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5m">{t("settings.tab.cacheTtl5m")}</SelectItem>
+                    <SelectItem value="1h">{t("settings.tab.cacheTtl1h")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <span className="text-xs text-muted-foreground">{t("settings.tab.cacheTtlBedrock")}</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/*
