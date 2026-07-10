@@ -47,6 +47,8 @@ export interface InstanceConfig {
   temperature: number | null;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
+  /** When true, inject the current date/time into every turn (volatile tail). */
+  datetimeInjectionEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
@@ -121,6 +123,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       thinkingLevel: "medium",
       temperature: null,
       stateInPromptEnabled: false,
+      datetimeInjectionEnabled: true,
       toolResultsInHistoryEnabled: false,
       debugEnabled: false,
       optout: { enabled: false, stopKeywords: ["STOP"], resumeKeywords: ["START"], closingMessage: null, resumeMessage: null, injectPromptHint: true },
@@ -196,6 +199,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       ? clampTemperature(instance.temperature)
       : null,
     stateInPromptEnabled: instance.stateInPromptEnabled,
+    datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     optout: {

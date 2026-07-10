@@ -421,6 +421,13 @@
       "when": 1781049600000,
       "tag": "0066_add_trace_thinking_temperature",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1781136000000,
+      "tag": "0067_add_datetime_injection_flag",
+      "breakpoints": true
     }
   ]
 }

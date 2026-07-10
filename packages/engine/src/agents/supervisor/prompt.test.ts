@@ -17,7 +17,6 @@ const SECTION_CONTENT: Record<string, { title: string; content: string }> = {
   "05-skills": { title: "Skills", content: "# Skills (mandatory)\n\n{{skillsList}}" },
   "06-memory": { title: "Memory", content: "# Memory\n\nUse searchMemory proactively." },
   "07-user-identity": { title: "User Identity", content: "# User\n\nNo information available." },
-  "08-datetime": { title: "Datetime", content: "# Date and Time\n\nCurrent date and time: {{datetime}}" },
 };
 
 function makePromptRows(instanceId: string, overrides?: Partial<Record<string, string>>): PromptRow[] {
@@ -85,6 +84,9 @@ function buildPrompt(overrides?: {
   memoryEnabled?: boolean;
   conversationSummary?: string;
   contextPrompt?: string;
+  datetimeInjectionEnabled?: boolean;
+  optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
+  conversationState?: Record<string, unknown>;
 }) {
   return buildSupervisorSystemPrompt({
     instanceId: overrides?.instanceId ?? TEST_INSTANCE_ID,
@@ -116,8 +118,8 @@ describe("buildSupervisorSystemPrompt", () => {
     mockHasAllRequiredEnvBatch.mockResolvedValue(new Map());
   });
 
-  it("puts the 7 stable sections in `system` and the datetime in `turnContext`", async () => {
-    const { system, turnContext } = await buildPrompt();
+  it("puts the 7 stable sections + tags note in `system`; datetime as a tag in `turnContext`", async () => {
+    const { system, turnContext } = await buildPrompt({ datetimeInjectionEnabled: true });
     expect(system).toContain("# Identity");
     expect(system).toContain("# Personality");
     expect(system).toContain("# Available tools");
@@ -125,12 +127,13 @@ describe("buildSupervisorSystemPrompt", () => {
     expect(system).toContain("# Skills (mandatory)");
     expect(system).toContain("# Memory");
     expect(system).toContain("# User");
-    // Datetime is volatile → it moves out of the cacheable system prefix.
-    expect(system).not.toContain("# Date and Time");
-    expect(turnContext).toContain("# Date and Time");
-    // 7 stable sections → 6 separators.
+    expect(system).toContain("## Injected context"); // framework tags note
+    // Datetime is volatile → never in the cacheable system prefix; it rides the tail as a tag.
+    expect(system).not.toContain("<current_datetime>");
+    expect(turnContext).toContain("<current_datetime>");
+    // 7 stable sections + tags note = 8 blocks → 7 separators.
     const separatorCount = (system.match(/\n\n---\n\n/g) ?? []).length;
-    expect(separatorCount).toBe(6);
+    expect(separatorCount).toBe(7);
   });
 
   it("includes identity content in system", async () => {
@@ -143,11 +146,14 @@ describe("buildSupervisorSystemPrompt", () => {
     expect(system).toContain("Professional yet friendly.");
   });
 
-  it("renders the datetime template into turnContext, not system", async () => {
-    const { system, turnContext } = await buildPrompt();
-    expect(turnContext).not.toContain("{{datetime}}");
-    expect(turnContext).toContain("Current date and time:");
-    expect(system).not.toContain("Current date and time:");
+  it("injects datetime as a <current_datetime> tag in turnContext only when enabled", async () => {
+    const on = await buildPrompt({ datetimeInjectionEnabled: true });
+    expect(on.turnContext).toContain("<current_datetime>");
+    expect(on.turnContext).not.toContain("{{datetime}}");
+    expect(on.system).not.toContain("<current_datetime>");
+
+    const off = await buildPrompt({ datetimeInjectionEnabled: false });
+    expect(off.turnContext).not.toContain("<current_datetime>");
   });
 
   it("includes tool catalog in system when tools are provided", async () => {
@@ -176,13 +182,13 @@ describe("buildSupervisorSystemPrompt", () => {
 
   it("does not include conversation summary anywhere when none provided", async () => {
     const { system, turnContext } = await buildPrompt();
-    expect(system).not.toContain("Previous conversation context (summary)");
-    expect(turnContext).not.toContain("Previous conversation context (summary)");
+    expect(system).not.toContain("<conversation_summary>");
+    expect(turnContext).not.toContain("<conversation_summary>");
   });
 
   it("does not include channel identity section when channelIdentity is absent", async () => {
     const { turnContext } = await buildPrompt();
-    expect(turnContext).not.toContain("## Current channel");
+    expect(turnContext).not.toContain("<channel_identity>");
   });
 
   it("puts channel identity in turnContext when provided (WhatsApp case), never in system", async () => {
@@ -195,11 +201,11 @@ describe("buildSupervisorSystemPrompt", () => {
         userName: "Paolo",
       },
     });
-    expect(turnContext).toContain("## Current channel");
-    expect(turnContext).toContain("You are talking via whatsapp.");
+    expect(turnContext).toContain("<channel_identity>");
+    expect(turnContext).toContain("channel: whatsapp");
     expect(turnContext).toContain("+390000000001");
     expect(turnContext).toContain("Paolo");
-    expect(system).not.toContain("## Current channel");
+    expect(system).not.toContain("<channel_identity>");
     // CRM-specific guidance (e.g. HubSpot contact resolution hints) lives in
     // per-instance prompt sections, not in this code-injected block.
     expect(turnContext).not.toContain("hubspot");
@@ -214,18 +220,32 @@ describe("buildSupervisorSystemPrompt", () => {
         channelId: "123456789",
       },
     });
-    expect(turnContext).toContain("You are talking via telegram.");
-    expect(turnContext).toContain("- Channel ID: 123456789");
-    expect(turnContext).toContain("- User name: unknown");
+    expect(turnContext).toContain("channel: telegram");
+    expect(turnContext).toContain("channel_id: 123456789");
+    expect(turnContext).toContain("user_name: unknown");
   });
 
   it("puts the conversation summary in turnContext when provided, never in system", async () => {
     const { system, turnContext } = await buildPrompt({
       conversationSummary: "The user asked about the weather in Rome.",
     });
-    expect(turnContext).toContain("## Previous conversation context (summary)");
+    expect(turnContext).toContain("<conversation_summary>");
     expect(turnContext).toContain("The user asked about the weather in Rome.");
-    expect(system).not.toContain("Previous conversation context (summary)");
+    expect(system).not.toContain("<conversation_summary>");
+  });
+
+  it("renders the opt-out hint in the cached system prefix, not the turn tail", async () => {
+    const { system, turnContext } = await buildPrompt({
+      optoutHint: { stopKeywords: ["STOP"], resumeKeywords: ["START"] },
+    });
+    expect(system).toContain("## Messaging opt-out");
+    expect(turnContext).not.toContain("Messaging opt-out");
+  });
+
+  it("wraps conversation state in a <conversation_state> tag in turnContext", async () => {
+    const { turnContext } = await buildPrompt({ conversationState: { leadId: "L1" } });
+    expect(turnContext).toContain("<conversation_state>");
+    expect(turnContext).toContain("L1");
   });
 
   it("keeps the persisted webhook contextPrompt in the cacheable system prefix", async () => {
@@ -237,8 +257,8 @@ describe("buildSupervisorSystemPrompt", () => {
     expect(turnContext).not.toContain("Conversation Context");
   });
 
-  it("keeps 6 separators in system when a section is missing from DB", async () => {
-    // Return rows without 07-user-identity (and 08-datetime lives in turnContext)
+  it("keeps the right separator count when a section is missing from DB", async () => {
+    // Drop 07-user-identity: 6 sections + tags note = 7 blocks → 6 separators.
     const rows = makePromptRows(TEST_INSTANCE_ID).filter(
       (r) => r.sectionKey !== "07-user-identity",
     );
@@ -247,9 +267,9 @@ describe("buildSupervisorSystemPrompt", () => {
     const { system } = await buildPrompt();
     expect(system).toContain("# Identity");
     expect(system).toContain("# Memory");
-    // 6 stable sections (07 dropped) → 5 separators.
+    // 6 stable sections + tags note = 7 blocks → 6 separators.
     const separatorCount = (system.match(/\n\n---\n\n/g) ?? []).length;
-    expect(separatorCount).toBe(5);
+    expect(separatorCount).toBe(6);
   });
 
   it("calls getPrompts with the instance UUID", async () => {

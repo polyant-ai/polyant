@@ -24,10 +24,16 @@ const DEFAULT_THINKING_BUDGET = 5000;
  * Ephemeral cache breakpoint. Unlike OpenAI (automatic prefix caching, no
  * parameters), Anthropic requires an explicit `cache_control` marker and the
  * `@ai-sdk/anthropic` provider does NOT add one on its own — so without this
- * every Anthropic turn re-pays the full prompt at full price. Default TTL is
- * 5 minutes.
+ * every Anthropic turn re-pays the full prompt at full price.
+ *
+ * TTL is 1 hour (not the 5-minute default): Polyant's production traffic is
+ * dominated by slow async channels (WhatsApp/Telegram) where turns arrive
+ * minutes-to-sub-hour apart. With a 5m TTL the prefix expires between turns, so
+ * every turn re-pays the write premium and never collects a read — a net loss
+ * vs no cache. 1h keeps the prefix warm across those gaps. The write premium is
+ * higher (2x vs 1.25x) but is amortized by the read on the following turn.
  */
-const EPHEMERAL_CACHE_CONTROL = { cacheControl: { type: "ephemeral" as const } };
+const EPHEMERAL_CACHE_CONTROL = { cacheControl: { type: "ephemeral" as const, ttl: "1h" as const } };
 
 /**
  * Inject Anthropic prompt-cache breakpoints (tools+system and history) into a

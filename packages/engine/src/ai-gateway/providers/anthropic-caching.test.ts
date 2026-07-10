@@ -4,7 +4,7 @@ import { describe, it, expect } from "vitest";
 import type { ModelMessage } from "ai";
 import { applyAnthropicPromptCaching } from "./anthropic.js";
 
-const EPHEMERAL = { anthropic: { cacheControl: { type: "ephemeral" } } };
+const EPHEMERAL = { anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } } };
 
 function cacheControlOf(message: ModelMessage): unknown {
   return (message as { providerOptions?: Record<string, unknown> }).providerOptions;
@@ -83,7 +83,7 @@ describe("applyAnthropicPromptCaching", () => {
     });
 
     expect(cacheControlOf(messages[0])).toEqual({
-      anthropic: { other: true, cacheControl: { type: "ephemeral" } },
+      anthropic: { other: true, cacheControl: { type: "ephemeral", ttl: "1h" } },
     });
   });
 

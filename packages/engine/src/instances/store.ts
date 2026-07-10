@@ -43,6 +43,8 @@ export interface Instance {
   temperature: number | null;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
+  /** When true, inject the current date/time into every turn (volatile tail). */
+  datetimeInjectionEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed into the model's cross-turn history. */
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
@@ -169,6 +171,7 @@ type UpdatableInstanceFields = {
   thinkingLevel?: string;
   temperature?: number | null;
   stateInPromptEnabled?: boolean;
+  datetimeInjectionEnabled?: boolean;
   toolResultsInHistoryEnabled?: boolean;
   debugEnabled?: boolean;
   icon?: string | null;
@@ -198,6 +201,7 @@ const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
   "thinkingLevel",
   "temperature",
   "stateInPromptEnabled",
+  "datetimeInjectionEnabled",
   "toolResultsInHistoryEnabled",
   "debugEnabled",
   "icon",

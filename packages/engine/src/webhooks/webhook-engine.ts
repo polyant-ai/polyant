@@ -216,6 +216,7 @@ export async function triggerConversation(
         knowledgeEnabled: instanceConfig.knowledgeEnabled,
         thinkingEnabled: instanceConfig.thinkingEnabled,
         debugEnabled: instanceConfig.debugEnabled,
+        datetimeInjectionEnabled: instanceConfig.datetimeInjectionEnabled,
         includeHarness: harnessCategories,
         stateBuffer,
       });

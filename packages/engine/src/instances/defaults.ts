@@ -130,14 +130,6 @@ Automatic extraction handles the rest.`,
 
 No information available about the user.`,
   },
-  {
-    sectionKey: "08-datetime",
-    title: "Datetime",
-    content: `# Date and Time
-
-Current date and time: {{datetime}}
-Timezone: {{timezone}}`,
-  },
 ];
 
 /** Default enabled tool names — framework-level only, no domain-specific tools. */

@@ -124,6 +124,7 @@ describe("instances/config-resolver", () => {
         thinkingLevel: "medium",
         temperature: null,
         stateInPromptEnabled: false,
+        datetimeInjectionEnabled: true,
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
         optout: {

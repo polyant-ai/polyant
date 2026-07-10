@@ -78,6 +78,7 @@ function toInstanceDto(instance: Instance) {
     thinkingLevel: instance.thinkingLevel,
     temperature: instance.temperature,
     stateInPromptEnabled: instance.stateInPromptEnabled,
+    datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     optoutEnabled: instance.optoutEnabled,
@@ -234,6 +235,7 @@ export class InstancesController {
       thinkingLevel?: string;
       temperature?: number | null;
       stateInPromptEnabled?: boolean;
+      datetimeInjectionEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
       sttProvider?: "openai" | "aws" | "deepgram";

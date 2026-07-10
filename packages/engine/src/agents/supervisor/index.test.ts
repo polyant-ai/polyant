@@ -326,9 +326,14 @@ describe("supervise", () => {
       expect(callArgs.messages[0]).toEqual({ role: "user", content: "earlier" });
       const current = callArgs.messages[1];
       expect(current.role).toBe("user");
-      expect(current.content).toBe(
-        "<context>\n# Date and Time\n\nCurrent date and time: Monday\n</context>\n\nwhat time is it?",
-      );
+      // The current turn is now separate content blocks: user words FIRST (the
+      // block the cache breakpoint targets), volatile <context> LAST.
+      expect(Array.isArray(current.content)).toBe(true);
+      expect(current.content[0]).toEqual({ type: "text", text: "what time is it?" });
+      expect(current.content[current.content.length - 1]).toEqual({
+        type: "text",
+        text: "<context>\n# Date and Time\n\nCurrent date and time: Monday\n</context>",
+      });
       // The stable system prompt no longer carries the volatile datetime.
       expect(callArgs.system).toBe("System prompt content");
     });

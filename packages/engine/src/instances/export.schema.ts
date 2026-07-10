@@ -116,6 +116,7 @@ export const exportInstanceDataSchema = z.object({
   thinkingEnabled: z.boolean().default(false),
   temperature: z.number().nullable().default(null),
   stateInPromptEnabled: z.boolean().default(false),
+  datetimeInjectionEnabled: z.boolean().default(true),
   toolResultsInHistoryEnabled: z.boolean().default(false),
   debugEnabled: z.boolean().default(false),
   sttProvider: z.string().default("openai"),
