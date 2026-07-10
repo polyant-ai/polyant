@@ -193,6 +193,10 @@ function mapUsage(u: unknown): MappedUsage {
   // ({ noCacheTokens, cacheReadTokens, cacheWriteTokens }); `inputTokens` is the
   // TOTAL (noCache + read + write). We fall back to the deprecated top-level
   // `cachedInputTokens` for cache reads on providers that don't fill the details.
+  // The gateway feeds this `totalUsage` (not the final-step `usage`), so the cache
+  // reads/writes are summed across EVERY step — a multi-step turn's incremental
+  // caching (the `prepareStep` marker) is counted once per step, never lost.
+  // Verified live on OpenAI/Anthropic/Bedrock.
   const details = (o.inputTokenDetails ?? {}) as Record<string, unknown>;
   return {
     promptTokens: num(o.inputTokens),
