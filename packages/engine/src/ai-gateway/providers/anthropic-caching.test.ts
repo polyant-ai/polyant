@@ -5,6 +5,9 @@ import type { ModelMessage } from "ai";
 import { anthropicStepMarker, applyAnthropicPromptCaching } from "./anthropic.js";
 
 const EPHEMERAL = { anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } } };
+// The within-turn step marker uses the DEFAULT 5-minute TTL (no `ttl` field), not 1h —
+// see EPHEMERAL_STEP_CACHE_CONTROL in anthropic.ts.
+const STEP_EPHEMERAL = { anthropic: { cacheControl: { type: "ephemeral" } } };
 
 function cacheControlOf(message: ModelMessage): unknown {
   return (message as { providerOptions?: Record<string, unknown> }).providerOptions;
@@ -112,10 +115,14 @@ describe("anthropicStepMarker (multi-step prepareStep)", () => {
     expect(result.messages).toBeUndefined();
   });
 
-  it("marks the last message from step 1 onward, leaving earlier messages untouched", () => {
+  it("marks the last message from step 1 at the 5m within-turn TTL, leaving earlier messages untouched", () => {
     const out = anthropicStepMarker({ stepNumber: 1, messages, modelId: "claude-sonnet-4-6" }).messages;
     expect(out).toBeDefined();
-    expect(cacheControlOf(out![out!.length - 1])).toEqual(EPHEMERAL);
+    // Within-turn marker is 5m (default), NOT the cross-turn 1h: a 1h step marker
+    // would overpay the write and — landing after the 1h system/history breakpoints —
+    // would violate Anthropic's "longer TTL first" ordering.
+    expect(cacheControlOf(out![out!.length - 1])).toEqual(STEP_EPHEMERAL);
+    expect(cacheControlOf(out![out!.length - 1])).not.toEqual(EPHEMERAL);
     expect(cacheControlOf(out![0])).toBeUndefined();
     expect(cacheControlOf(out![1])).toBeUndefined();
   });

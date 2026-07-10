@@ -94,8 +94,9 @@ vi.mock("../tools/agent-invoke.helpers.js", () => ({
 
 vi.mock("../../channels/adapters/agent.adapter.js", () => ({}));
 
-import { supervise, superviseStream } from "./index.js";
+import { buildUserContent, supervise, superviseStream } from "./index.js";
 import type { SupervisorInput } from "./index.js";
+import type { Attachment } from "../../channels/types.js";
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -665,5 +666,47 @@ describe("superviseStream", () => {
       { role: "user", content: "prev" },
       { role: "user", content: "next" },
     ]);
+  });
+});
+
+describe("buildUserContent", () => {
+  const image: Attachment[] = [
+    { type: "image", data: Buffer.from("BASE64"), mimeType: "image/jpeg", fileName: "photo.jpg" },
+  ];
+
+  it("returns a plain string when there is no context and no attachments", () => {
+    expect(buildUserContent("hello", "")).toBe("hello");
+  });
+
+  it("puts user words FIRST and the volatile <context> tail LAST as separate blocks", () => {
+    const parts = buildUserContent("hello", "<current_datetime>now</current_datetime>") as {
+      type: string;
+      text?: string;
+    }[];
+    expect(Array.isArray(parts)).toBe(true);
+    expect(parts[0]).toEqual({ type: "text", text: "hello" });
+    expect(parts[parts.length - 1]).toEqual({
+      type: "text",
+      text: "<context>\n<current_datetime>now</current_datetime>\n</context>",
+    });
+  });
+
+  it("does NOT emit a leading empty text block for an uncaptioned attachment (regression)", () => {
+    // Image sent with no caption → message === "" + attachments. A LEADING empty
+    // text block is rejected by Anthropic/Bedrock; the first block must be the image.
+    const parts = buildUserContent("", "<current_datetime>now</current_datetime>", image) as {
+      type: string;
+      text?: string;
+    }[];
+    expect(parts.some((p) => p.type === "text" && p.text === "")).toBe(false);
+    expect(parts[0].type).toBe("image");
+    // Volatile context still rides the tail.
+    expect(parts[parts.length - 1]).toMatchObject({ type: "text" });
+  });
+
+  it("keeps the user-words block first when both a caption and an attachment are present", () => {
+    const parts = buildUserContent("caption", "", image) as { type: string; text?: string }[];
+    expect(parts[0]).toEqual({ type: "text", text: "caption" });
+    expect(parts[1].type).toBe("image");
   });
 });

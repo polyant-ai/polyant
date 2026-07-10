@@ -413,6 +413,18 @@ export interface ProviderHooks {
   stepMarker?: (input: { stepNumber: number; messages: ModelMessage[]; modelId: string }) => { messages?: ModelMessage[] };
 }
 
+/**
+ * Adapt a provider's `stepMarker` hook to the AI SDK `prepareStep` signature,
+ * binding the concrete `modelId` (the SDK's `prepareStep` gives a model object,
+ * not its id). Returns undefined when the provider supplies no marker, so
+ * OpenAI/Nebius calls stay byte-identical.
+ */
+function buildPrepareStep(hooks: ProviderHooks | undefined, modelId: string) {
+  if (!hooks?.stepMarker) return undefined;
+  return (o: { stepNumber: number; messages: ModelMessage[] }) =>
+    hooks.stepMarker!({ stepNumber: o.stepNumber, messages: o.messages, modelId });
+}
+
 export function createProvider(
   providerName: string,
   createModel: ModelFactory,
@@ -436,10 +448,7 @@ export function createProvider(
       logLlmPayload(providerName, modelId, request);
 
       const { system, messages } = prepare(request, modelId);
-      const prepareStep = hooks?.stepMarker
-        ? (o: { stepNumber: number; messages: ModelMessage[] }) =>
-            hooks.stepMarker!({ stepNumber: o.stepNumber, messages: o.messages, modelId })
-        : undefined;
+      const prepareStep = buildPrepareStep(hooks, modelId);
       const result = await tracedGenerateText({
         model: createModel(modelId, request.apiKeys),
         system,
@@ -479,10 +488,7 @@ export function createProvider(
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
       const { system, messages } = prepare(request, modelId);
-      const prepareStep = hooks?.stepMarker
-        ? (o: { stepNumber: number; messages: ModelMessage[] }) =>
-            hooks.stepMarker!({ stepNumber: o.stepNumber, messages: o.messages, modelId })
-        : undefined;
+      const prepareStep = buildPrepareStep(hooks, modelId);
       const result = await tracedStreamText({
         model: createModel(modelId, request.apiKeys),
         system,

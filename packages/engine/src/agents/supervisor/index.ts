@@ -404,7 +404,13 @@ export function buildUserContent(
   // next; volatile context LAST (must stay after the last breakpoint so it never
   // invalidates the cached prefix). Separate blocks also let the model tell the
   // user's words apart from system-injected context.
-  const parts: UserContent = [{ type: "text", text: message }];
+  //
+  // Skip an EMPTY user-words block: an image/document sent with no caption arrives
+  // as message === "" (see the channel adapters), and a LEADING empty text block is
+  // rejected by Anthropic/Bedrock ("text content blocks must be non-empty"). The
+  // volatile <context> tail below still rides after the attachments.
+  const parts: UserContent = [];
+  if (message) parts.push({ type: "text", text: message });
 
   for (const att of attachments ?? []) {
     if (!att.data) continue;
@@ -424,7 +430,9 @@ export function buildUserContent(
     parts.push({ type: "text" as const, text: `<context>\n${turnContext}\n</context>` });
   }
 
-  return parts;
+  // Degenerate case (all attachments lacked data, no context, empty message): fall
+  // back to the raw string rather than emit an empty content array.
+  return parts.length > 0 ? parts : message;
 }
 
 async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorContext> {

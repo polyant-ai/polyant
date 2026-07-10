@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createProvider, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
@@ -21,10 +22,11 @@ const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 const DEFAULT_THINKING_BUDGET = 5000;
 
 /**
- * Ephemeral cache breakpoint. Unlike OpenAI (automatic prefix caching, no
- * parameters), Anthropic requires an explicit `cache_control` marker and the
- * `@ai-sdk/anthropic` provider does NOT add one on its own — so without this
- * every Anthropic turn re-pays the full prompt at full price.
+ * Cross-turn cache breakpoints (tools+system and pre-turn history). Unlike OpenAI
+ * (automatic prefix caching, no parameters), Anthropic requires an explicit
+ * `cache_control` marker and the `@ai-sdk/anthropic` provider does NOT add one on
+ * its own — so without this every Anthropic turn re-pays the full prompt at full
+ * price.
  *
  * TTL is 1 hour (not the 5-minute default): Polyant's production traffic is
  * dominated by slow async channels (WhatsApp/Telegram) where turns arrive
@@ -36,23 +38,36 @@ const DEFAULT_THINKING_BUDGET = 5000;
 const EPHEMERAL_CACHE_CONTROL = { cacheControl: { type: "ephemeral" as const, ttl: "1h" as const } };
 
 /**
- * Inject Anthropic prompt-cache breakpoints (tools+system and history) into a
- * folded request via the shared placement helper. Exported for unit testing;
- * wired via `createProvider`'s `prepareMessages` hook.
+ * Within-turn (multi-step) cache breakpoint — the moving marker set on each step
+ * by `anthropicStepMarker`. Uses the DEFAULT 5-minute TTL, not 1h: within a
+ * single agentic turn the steps are seconds apart, so 5m is ample and its write
+ * premium (1.25x) is lower than 1h's (2x). Mixing the two TTLs is safe because
+ * Anthropic requires longer-TTL breakpoints to appear BEFORE shorter ones, and
+ * this marker always lands on the LAST message — after the 1h tools+system and
+ * history breakpoints. (Bedrock's `cachePoint` has no TTL, so its step marker
+ * reuses the same block.)
+ */
+const EPHEMERAL_STEP_CACHE_CONTROL = { cacheControl: { type: "ephemeral" as const } };
+
+/** Decorate a message with Anthropic's `cacheControl` marker — shared by both breakpoint paths. */
+const markAnthropic = (marker: Record<string, unknown>) => (message: ModelMessage): ModelMessage =>
+  withProviderCacheMarker(message, "anthropic", marker);
+
+/**
+ * Inject Anthropic cross-turn prompt-cache breakpoints (tools+system and history)
+ * into a folded request via the shared placement helper. Exported for unit
+ * testing; wired via `createProvider`'s `prepareMessages` hook.
  */
 export const applyAnthropicPromptCaching: PrepareMessages = (input) =>
-  injectCacheBreakpoints(input, (message) =>
-    withProviderCacheMarker(message, "anthropic", EPHEMERAL_CACHE_CONTROL),
-  );
+  injectCacheBreakpoints(input, markAnthropic(EPHEMERAL_CACHE_CONTROL));
 
 /**
  * Moving cache breakpoint for the multi-step loop — marks the last message on
  * each step (from step 1) so accumulating tool_use/tool_result blocks are cached
- * incrementally. Wired via `createProvider`'s `stepMarker` hook.
+ * incrementally, at the 5-minute within-turn TTL. Wired via `createProvider`'s
+ * `stepMarker` hook.
  */
-export const anthropicStepMarker = makeStepMarker((message) =>
-  withProviderCacheMarker(message, "anthropic", EPHEMERAL_CACHE_CONTROL),
-);
+export const anthropicStepMarker = makeStepMarker(markAnthropic(EPHEMERAL_STEP_CACHE_CONTROL));
 
 export const AnthropicProvider = createProvider(
   "anthropic",

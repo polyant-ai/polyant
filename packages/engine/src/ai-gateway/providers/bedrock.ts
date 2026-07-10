@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { ModelMessage } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { createProvider, type PrepareMessages } from "./base.js";
@@ -21,6 +22,10 @@ const BEDROCK_CACHE_POINT = { cachePoint: { type: "default" as const } };
  */
 const BEDROCK_CACHE_CAPABLE = /anthropic|nova/;
 
+/** Decorate a message with Bedrock's `cachePoint` marker — shared by both breakpoint paths. */
+const markBedrock = (message: ModelMessage): ModelMessage =>
+  withProviderCacheMarker(message, "bedrock", BEDROCK_CACHE_POINT);
+
 /**
  * Inject Bedrock `cachePoint` breakpoints (tools+system and history) for
  * cache-capable models only. Exported for unit testing; wired via
@@ -34,19 +39,19 @@ export const applyBedrockPromptCaching: PrepareMessages = (input) => {
   if (!BEDROCK_CACHE_CAPABLE.test(input.modelId)) {
     return { system: input.system, messages: input.messages };
   }
-  return injectCacheBreakpoints(input, (message) =>
-    withProviderCacheMarker(message, "bedrock", BEDROCK_CACHE_POINT),
-  );
+  return injectCacheBreakpoints(input, markBedrock);
 };
 
 /**
  * Moving cache breakpoint for the multi-step loop — marks the last message on
  * each step (from step 1), gated to cache-capable model families so a
- * `cachePoint` never reaches a model that rejects it. Wired via
+ * `cachePoint` never reaches a model that rejects it. Bedrock's `cachePoint` has
+ * no TTL variants, so the step marker reuses the same block as the cross-turn one
+ * (unlike Anthropic, where the within-turn marker drops to a 5m TTL). Wired via
  * `createProvider`'s `stepMarker` hook.
  */
 export const bedrockStepMarker = makeStepMarker(
-  (message) => withProviderCacheMarker(message, "bedrock", BEDROCK_CACHE_POINT),
+  markBedrock,
   (modelId) => BEDROCK_CACHE_CAPABLE.test(modelId),
 );
 
