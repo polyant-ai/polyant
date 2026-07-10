@@ -200,8 +200,11 @@ export interface CacheTokenUsage {
  *  - `write` : rate for a cache WRITE (cache_creation). Anthropic charges a
  *              premium — 2× for the 1-hour TTL we use cross-turn (1.25× for the
  *              5-minute default, used by Bedrock and by the within-turn step
- *              marker); OpenAI has NO separate write cost (automatic caching,
- *              `cacheWriteTokens` = 0), so its caching is pure upside.
+ *              marker). OpenAI charges NO write premium on the models we price
+ *              (all pre-GPT-5.6) — but GPT-5.6+ DOES charge 1.25× (`cache_write_tokens`),
+ *              so `openai.write` must become model-family-aware if such a model
+ *              is added to the catalog. OpenAI caching is also automatic + not
+ *              disableable, so the write is unavoidable there (no marker to skip).
  *
  * Providers without a modeled cache (e.g. Nebius) fall back to 1× so cached
  * tokens are never under-priced.
@@ -215,6 +218,10 @@ const CACHE_MULTIPLIERS: Record<string, { read: number; write: number }> = {
   // Bedrock cachePoint is 5m only (the AI SDK exposes no 1h wire shape) → 1.25×
   // write. Catalog is Anthropic-dominated; Nova/others report no cache tokens.
   bedrock: { read: 0.1, write: 1.25 },
+  // write 0 holds ONLY for pre-GPT-5.6 models (every OpenAI model we currently
+  // price). GPT-5.6+ charges a 1.25× cache-write premium — make this
+  // model-family-aware (per-model override) before adding a 5.6+ model, or its
+  // write cost is silently under-reported.
   openai: { read: 0.5, write: 0 },
 };
 const DEFAULT_CACHE_MULTIPLIER = { read: 1, write: 1 };
