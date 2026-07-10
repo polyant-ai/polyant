@@ -389,7 +389,7 @@
   "settings.tab.cache": "Prompt caching",
   "settings.tab.cacheHelp": "When on, the stable prompt prefix (tools + system + history) is cached with the provider so repeat turns read it cheaply. Off skips caching for this agent (no cache-write cost).",
   "settings.tab.cacheAutomaticHelp": "OpenAI caches automatically and cannot be turned off — it is always on for this provider.",
-  "settings.tab.cacheUnavailableHelp": "This provider has no prompt-cache API, so caching does not apply.",
+  "settings.tab.cacheNebiusHelp": "Nebius caches automatically but passes no cost discount — cached tokens are billed at the full input rate, and it can't be toggled.",
   "settings.tab.cacheTtl": "Cache lifetime",
   "settings.tab.cacheTtl5m": "5 minutes",
   "settings.tab.cacheTtl1h": "1 hour",

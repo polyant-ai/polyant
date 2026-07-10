@@ -167,7 +167,7 @@ describe("estimateCost", () => {
 });
 
 describe("cacheSupported", () => {
-  it("is false for Nebius (no prompt-cache API)", () => {
+  it("is false for Nebius (caches automatically but passes no cost discount)", () => {
     expect(cacheSupported("nebius", "Qwen/Qwen3-235B-A22B-Instruct-2507")).toBe(false);
   });
 

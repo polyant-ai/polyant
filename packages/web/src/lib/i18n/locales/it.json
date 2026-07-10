@@ -388,7 +388,7 @@
   "settings.tab.cache": "Prompt caching",
   "settings.tab.cacheHelp": "Se attivo, il prefisso stabile del prompt (tool + system + history) viene messo in cache dal provider, così i turni successivi lo rileggono a costo ridotto. Se disattivo, la cache è esclusa per questo agente (nessun costo di cache-write).",
   "settings.tab.cacheAutomaticHelp": "OpenAI mette in cache automaticamente e non è disattivabile: con questo provider è sempre attiva.",
-  "settings.tab.cacheUnavailableHelp": "Questo provider non ha API di prompt-cache, quindi la cache non si applica.",
+  "settings.tab.cacheNebiusHelp": "Nebius mette in cache automaticamente ma senza sconto — i token cached sono fatturati a prezzo input pieno, e non è disattivabile.",
   "settings.tab.cacheTtl": "Durata cache",
   "settings.tab.cacheTtl5m": "5 minuti",
   "settings.tab.cacheTtl1h": "1 ora",

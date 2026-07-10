@@ -696,12 +696,12 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                 {provider === "openai"
                   ? t("settings.tab.cacheAutomaticHelp")
                   : provider === "nebius"
-                    ? t("settings.tab.cacheUnavailableHelp")
+                    ? t("settings.tab.cacheNebiusHelp")
                     : t("settings.tab.cacheHelp")}
               </p>
             </div>
             <Switch
-              checked={provider === "openai" ? true : provider === "nebius" ? false : cacheEnabled}
+              checked={provider === "openai" || provider === "nebius" ? true : cacheEnabled}
               onCheckedChange={setCacheEnabled}
               disabled={provider === "openai" || provider === "nebius"}
             />

@@ -235,10 +235,13 @@ function resolveCacheRates(pricing: {
 export const BEDROCK_CACHE_CAPABLE = /anthropic|nova/;
 
 /**
- * Whether a provider+model supports prompt caching at all. Shared by the marker
- * gate and the model-catalog cost display so they can never drift: Nebius has no
- * cache API; Bedrock caches only the anthropic/nova families; OpenAI (automatic)
- * and Anthropic (explicit marker) always do.
+ * Whether a provider+model's prompt cache yields a COST DISCOUNT (and, for
+ * Anthropic/Bedrock, whether we inject a marker). Bedrock discounts only the
+ * anthropic/nova families; OpenAI (automatic) and Anthropic (explicit marker)
+ * always do. Nebius is FALSE even though it caches automatically and reports
+ * `cacheReadTokens` (verified live) — it passes NO discount (open feature
+ * request), so cached tokens bill at the full input rate and `resolveCacheRates`
+ * correctly leaves its cache rate = input.
  */
 export function cacheSupported(provider: string, model: string): boolean {
   switch (provider) {
