@@ -69,9 +69,9 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "eu.amazon.nova-2-lite-v1:0": { input: 0.06, output: 0.24 },
       "eu.amazon.nova-pro-v1:0": { input: 0.80, output: 3.20 },
       // Anthropic via Bedrock — EU inference profiles.
-      // Token rates match Anthropic first-party; the +10% regional-endpoint
-      // premium on eu.*/global.* profiles is intentionally not modeled (base rates,
-      // consistent across the table). Opus 4.5+ is $5/$25 (not the old $15/$75).
+      // Token rates match Anthropic first-party; cross-Region profiles are billed
+      // at the source-Region price (AWS's documented stance — no surcharge modeled).
+      // Opus 4.5+ is $5/$25 (not the old $15/$75).
       "eu.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00 },
       "eu.anthropic.claude-sonnet-4-20250514-v1:0": { input: 3.00, output: 15.00 },
       "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00 },
@@ -227,27 +227,6 @@ const CACHE_MULTIPLIERS: Record<string, { read: number; write: number }> = {
 const DEFAULT_CACHE_MULTIPLIER = { read: 1, write: 1 };
 
 /**
- * Cross-Region inference surcharge for Bedrock (`eu.*` / `global.*` inference
- * profiles). The Bedrock `costPerMillionTokens` table holds the BASE per-token
- * rates (identical to Anthropic/OpenAI first-party); several 2026 pricing
- * analyses report a flat ~10% premium for cross-Region inference profiles on
- * top of that base. AWS's official docs do NOT document a surcharge (historic
- * stance: billed at the source-Region price), so this is modeled as a single
- * explicit knob rather than baked into every table entry: verify against a real
- * Bedrock invoice and set to `1` (or the exact factor) if it differs. Applies
- * to input, output and cache tokens alike.
- */
-const BEDROCK_CROSS_REGION_SURCHARGE = 1.1;
-
-/** Matches Bedrock cross-Region inference profile IDs (`us.`/`eu.`/`apac.`/`global.`);
- * in-Region raw model IDs carry no cross-Region surcharge. */
-function bedrockRegionalMultiplier(provider: string, model: string): number {
-  return provider === "bedrock" && /^(us|eu|apac|global)\./.test(model)
-    ? BEDROCK_CROSS_REGION_SURCHARGE
-    : 1;
-}
-
-/**
  * Estimate the USD cost of a single LLM call.
  *
  * `promptTokens` is the AI SDK's normalized TOTAL input count
@@ -286,13 +265,12 @@ export function estimateCostBreakdown(
   const cacheWrite = Math.max(0, cache?.cacheCreationInputTokens ?? 0);
   const regularInput = Math.max(0, promptTokens - cacheRead - cacheWrite);
   const mult = CACHE_MULTIPLIERS[provider] ?? DEFAULT_CACHE_MULTIPLIER;
-  const regional = bedrockRegionalMultiplier(provider, model);
 
-  const input = (regional * (regularInput * pricing.input)) / 1_000_000;
+  const input = (regularInput * pricing.input) / 1_000_000;
   const cacheCost =
-    (regional * (cacheRead * pricing.input * mult.read)) / 1_000_000 +
-    (regional * (cacheWrite * pricing.input * mult.write)) / 1_000_000;
-  const output = (regional * (completionTokens * pricing.output)) / 1_000_000;
+    (cacheRead * pricing.input * mult.read) / 1_000_000 +
+    (cacheWrite * pricing.input * mult.write) / 1_000_000;
+  const output = (completionTokens * pricing.output) / 1_000_000;
 
   return { input, cache: cacheCost, output, total: input + cacheCost + output };
 }
