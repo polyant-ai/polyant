@@ -380,6 +380,9 @@ export interface AfterResponseOptions {
   inboundMetadata?: Record<string, unknown>;
   /** Set when a hook (not the LLM) authored the reply — persisted as the assistant row's metadata for UI badging. */
   provenance?: HookProvenance;
+  /** Message arrival time (pipeline start). Used as the user row's created_at so the
+   * commit-on-success write doesn't stamp it at end-of-turn (keeps user < assistant). */
+  receivedAt?: Date;
 }
 
 export function afterResponse(opts: AfterResponseOptions): void {
@@ -433,6 +436,9 @@ export function afterResponse(opts: AfterResponseOptions): void {
         content: opts.userMessage,
         attachments: attachmentMetas,
         metadata: opts.inboundMetadata,
+        // Stamp the user row at arrival time (not end-of-turn) so chronology is correct
+        // and it always precedes the assistant row persisted just below.
+        ...(opts.receivedAt ? { createdAt: opts.receivedAt } : {}),
       },
     ]);
 
@@ -713,6 +719,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     incomingSystemMessages: ctx.incomingSystemMessages,
     inboundMetadata: ctx.inboundMetadata,
     provenance,
+    receivedAt: new Date(ctx.pipelineStart),
   });
 
   // ContextPrompt is one-shot: if we loaded it for this turn, clear it so
