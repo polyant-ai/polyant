@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported } from "./config.js";
+import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
 
 describe("resolveModel", () => {
   it("resolves openai fast tier", () => {
@@ -163,6 +163,23 @@ describe("estimateCost", () => {
   it("prices Bedrock cross-Region (eu.*) profiles at the base rate — no surcharge", () => {
     const base = (1000 * 3.0) / 1_000_000 + (500 * 15.0) / 1_000_000;
     expect(estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-6", 1000, 500)).toBeCloseTo(base, 12);
+  });
+});
+
+describe("cacheSupported", () => {
+  it("is false for Nebius (no prompt-cache API)", () => {
+    expect(cacheSupported("nebius", "Qwen/Qwen3-235B-A22B-Instruct-2507")).toBe(false);
+  });
+
+  it("is true for OpenAI and Anthropic", () => {
+    expect(cacheSupported("openai", "gpt-4o")).toBe(true);
+    expect(cacheSupported("anthropic", "claude-sonnet-4-6")).toBe(true);
+  });
+
+  it("is family-gated for Bedrock (anthropic/nova only)", () => {
+    expect(cacheSupported("bedrock", "eu.anthropic.claude-sonnet-4-6")).toBe(true);
+    expect(cacheSupported("bedrock", "eu.amazon.nova-lite-v1:0")).toBe(true);
+    expect(cacheSupported("bedrock", "qwen.qwen3-32b-v1:0")).toBe(false);
   });
 });
 
