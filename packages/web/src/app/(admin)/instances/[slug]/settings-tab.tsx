@@ -447,14 +447,17 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                       <h4 className="mb-2 text-sm font-semibold">
                         {BRAND_NAMES[providerName] ?? providerName.charAt(0).toUpperCase() + providerName.slice(1)}
                       </h4>
-                      <Table>
+                      {/* table-fixed so column widths + break-all wrapping are honoured
+                          (max-width is ignored on auto-layout <td>, causing long model
+                          IDs to overflow into the price columns). */}
+                      <Table className="table-fixed">
                         <TableHeader>
                           <TableRow>
                             <TableHead>{t("settings.tab.model")}</TableHead>
                             <TableHead className="w-20 text-right">{t("settings.tab.pricingInput")}</TableHead>
                             <TableHead className="w-20 text-right">{t("settings.tab.pricingOutput")}</TableHead>
-                            <TableHead className="w-24 text-right">{t("settings.tab.pricingCacheRead")}</TableHead>
-                            <TableHead className="w-24 text-right">{t("settings.tab.pricingCacheWrite")}</TableHead>
+                            <TableHead className="w-28 text-right">{t("settings.tab.pricingCacheRead")}</TableHead>
+                            <TableHead className="w-28 text-right">{t("settings.tab.pricingCacheWrite")}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -470,7 +473,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                                   setPricingOpen(false);
                                 }}
                               >
-                                <TableCell className="max-w-0">
+                                <TableCell className="align-top">
                                   <span className="block break-all font-mono text-xs">{m.id}</span>
                                   {m.tier && (
                                     <Badge variant="secondary" className="mt-1 text-[10px]">
