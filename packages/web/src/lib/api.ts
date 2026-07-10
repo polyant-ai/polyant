@@ -250,6 +250,7 @@ export const api = {
         thinkingLevel?: string;
         temperature?: number | null;
         stateInPromptEnabled?: boolean;
+        datetimeInjectionEnabled?: boolean;
         toolResultsInHistoryEnabled?: boolean;
         debugEnabled?: boolean;
         sttProvider?: "openai" | "aws" | "deepgram";

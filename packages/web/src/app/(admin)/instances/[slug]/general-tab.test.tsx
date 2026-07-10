@@ -67,6 +67,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     authEnabled: false,
     thinkingEnabled: false,
     stateInPromptEnabled: false,
+    datetimeInjectionEnabled: true,
     toolResultsInHistoryEnabled: false,
     debugEnabled: false,
     optoutEnabled: false,

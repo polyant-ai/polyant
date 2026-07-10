@@ -81,6 +81,8 @@ export interface Instance {
   temperature?: number | null;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
+  /** When true, the current date/time is injected into every turn. */
+  datetimeInjectionEnabled: boolean;
   /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload is persisted per turn (debug/analysis). */

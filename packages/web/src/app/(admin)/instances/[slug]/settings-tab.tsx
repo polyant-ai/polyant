@@ -127,6 +127,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // Conversation state store: render known state read-only into the prompt (default off).
   const [stateInPromptEnabled, setStateInPromptEnabled] = useState(instance.stateInPromptEnabled);
 
+  // Inject the current date/time into every turn (default on).
+  const [datetimeInjectionEnabled, setDatetimeInjectionEnabled] = useState(instance.datetimeInjectionEnabled);
+
   // Replay prior-turn tool results into the model's cross-turn history (default off).
   const [toolResultsInHistoryEnabled, setToolResultsInHistoryEnabled] = useState(
     instance.toolResultsInHistoryEnabled,
@@ -291,6 +294,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     thinkingLevel !== (instance.thinkingLevel ?? "medium") ||
     temperature !== (instance.temperature ?? null) ||
     stateInPromptEnabled !== instance.stateInPromptEnabled ||
+    datetimeInjectionEnabled !== instance.datetimeInjectionEnabled ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
     debugEnabled !== (instance.debugEnabled ?? false) ||
     memoryEnabled !== instance.memoryEnabled ||
@@ -339,6 +343,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         thinkingLevel,
         temperature: canSetTemperature ? temperature : null,
         stateInPromptEnabled,
+        datetimeInjectionEnabled,
         toolResultsInHistoryEnabled,
         debugEnabled,
         langsmithEnabled,
@@ -638,6 +643,26 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           <Switch
             checked={stateInPromptEnabled}
             onCheckedChange={setStateInPromptEnabled}
+          />
+        </div>
+
+        {/*
+          Datetime injection. When on, the engine injects the current date/time
+          into every turn as a <current_datetime> tag. Default on; off = a
+          time-agnostic assistant.
+        */}
+        <div className="flex items-start justify-between gap-4 border-t pt-4">
+          <div className="space-y-1">
+            <Label className="text-sm font-medium">
+              {t("settings.tab.datetimeInjection")}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {t("settings.tab.datetimeInjectionHelp")}
+            </p>
+          </div>
+          <Switch
+            checked={datetimeInjectionEnabled}
+            onCheckedChange={setDatetimeInjectionEnabled}
           />
         </div>
 
