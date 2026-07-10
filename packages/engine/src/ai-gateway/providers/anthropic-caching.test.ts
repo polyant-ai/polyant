@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from "vitest";
 import type { ModelMessage } from "ai";
-import { applyAnthropicPromptCaching } from "./anthropic.js";
+import { anthropicStepMarker, applyAnthropicPromptCaching } from "./anthropic.js";
 
 const EPHEMERAL = { anthropic: { cacheControl: { type: "ephemeral" } } };
 
@@ -95,5 +95,38 @@ describe("applyAnthropicPromptCaching", () => {
     const snapshot = JSON.stringify(input);
     applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6", system: "S", messages: input });
     expect(JSON.stringify(input)).toBe(snapshot);
+  });
+});
+
+describe("anthropicStepMarker (multi-step prepareStep)", () => {
+  // Content shape is irrelevant to a message-level marker; these stand in for the
+  // user turn + accumulating assistant/tool-result messages of an agentic loop.
+  const messages: ModelMessage[] = [
+    { role: "user", content: "turn" },
+    { role: "assistant", content: "reply" },
+    { role: "user", content: "tool result stand-in" },
+  ];
+
+  it("does not mark on step 0 (initial turn carries the volatile context tail)", () => {
+    const result = anthropicStepMarker({ stepNumber: 0, messages, modelId: "claude-sonnet-4-6" });
+    expect(result.messages).toBeUndefined();
+  });
+
+  it("marks the last message from step 1 onward, leaving earlier messages untouched", () => {
+    const out = anthropicStepMarker({ stepNumber: 1, messages, modelId: "claude-sonnet-4-6" }).messages;
+    expect(out).toBeDefined();
+    expect(cacheControlOf(out![out!.length - 1])).toEqual(EPHEMERAL);
+    expect(cacheControlOf(out![0])).toBeUndefined();
+    expect(cacheControlOf(out![1])).toBeUndefined();
+  });
+
+  it("returns no messages for an empty array", () => {
+    expect(anthropicStepMarker({ stepNumber: 2, messages: [], modelId: "claude-sonnet-4-6" }).messages).toBeUndefined();
+  });
+
+  it("does not mutate the input messages array", () => {
+    const snapshot = JSON.stringify(messages);
+    anthropicStepMarker({ stepNumber: 1, messages, modelId: "claude-sonnet-4-6" });
+    expect(JSON.stringify(messages)).toBe(snapshot);
   });
 });

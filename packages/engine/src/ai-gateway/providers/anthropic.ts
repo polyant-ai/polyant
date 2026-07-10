@@ -2,7 +2,7 @@
 
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createProvider, type PrepareMessages } from "./base.js";
-import { injectCacheBreakpoints, withProviderCacheMarker } from "./prompt-caching.js";
+import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
 
 /**
  * Beta header that enables interleaved thinking + tool use across multiple
@@ -39,6 +39,15 @@ export const applyAnthropicPromptCaching: PrepareMessages = (input) =>
     withProviderCacheMarker(message, "anthropic", EPHEMERAL_CACHE_CONTROL),
   );
 
+/**
+ * Moving cache breakpoint for the multi-step loop — marks the last message on
+ * each step (from step 1) so accumulating tool_use/tool_result blocks are cached
+ * incrementally. Wired via `createProvider`'s `stepMarker` hook.
+ */
+export const anthropicStepMarker = makeStepMarker((message) =>
+  withProviderCacheMarker(message, "anthropic", EPHEMERAL_CACHE_CONTROL),
+);
+
 export const AnthropicProvider = createProvider(
   "anthropic",
   (modelId, apiKeys) => {
@@ -57,7 +66,7 @@ export const AnthropicProvider = createProvider(
       },
     })(modelId);
   },
-  { prepareMessages: applyAnthropicPromptCaching },
+  { prepareMessages: applyAnthropicPromptCaching, stepMarker: anthropicStepMarker },
 );
 
 /**
