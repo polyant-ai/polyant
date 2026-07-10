@@ -485,10 +485,10 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                                   ${m.costOutput.toFixed(2)}
                                 </TableCell>
                                 <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
-                                  {m.costCacheRead == null ? "—" : `$${m.costCacheRead.toFixed(2)}`}
+                                  ${(m.costCacheRead ?? m.costInput).toFixed(2)}
                                 </TableCell>
                                 <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
-                                  {m.costCacheWrite == null ? "—" : `$${m.costCacheWrite.toFixed(2)}`}
+                                  ${(m.costCacheWrite ?? m.costInput).toFixed(2)}
                                 </TableCell>
                               </TableRow>
                             );
