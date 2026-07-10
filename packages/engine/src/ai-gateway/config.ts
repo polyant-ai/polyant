@@ -198,15 +198,22 @@ export interface CacheTokenUsage {
  *              automatic caching discounts cached prompt tokens (≈ 0.5× on the
  *              4o/4.1 line, lower on gpt-5 — 0.5 is a documented approximation).
  *  - `write` : rate for a cache WRITE (cache_creation). Anthropic charges a
- *              premium (1.25× for the default 5-minute TTL); OpenAI has no
- *              separate write cost (automatic caching, `cacheWriteTokens` = 0).
+ *              premium — 2× for the 1-hour TTL we use cross-turn (1.25× for the
+ *              5-minute default, used by Bedrock and by the within-turn step
+ *              marker); OpenAI has NO separate write cost (automatic caching,
+ *              `cacheWriteTokens` = 0), so its caching is pure upside.
  *
  * Providers without a modeled cache (e.g. Nebius) fall back to 1× so cached
  * tokens are never under-priced.
  */
 const CACHE_MULTIPLIERS: Record<string, { read: number; write: number }> = {
-  anthropic: { read: 0.1, write: 1.25 },
-  // Bedrock catalog is Anthropic-dominated; Nova/others report no cache tokens.
+  // Cross-turn (system + history) writes use the 1h TTL → 2×. The within-turn
+  // step marker writes at 5m (1.25×), but its per-step increments are tiny next
+  // to the one-time system-prefix write, so keying the multiplier to the dominant
+  // 1h write is the right approximation (minor over-count on the 5m increments).
+  anthropic: { read: 0.1, write: 2.0 },
+  // Bedrock cachePoint is 5m only (the AI SDK exposes no 1h wire shape) → 1.25×
+  // write. Catalog is Anthropic-dominated; Nova/others report no cache tokens.
   bedrock: { read: 0.1, write: 1.25 },
   openai: { read: 0.5, write: 0 },
 };

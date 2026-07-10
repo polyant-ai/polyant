@@ -112,13 +112,13 @@ describe("estimateCost", () => {
     expect(cost).toBeLessThan(estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500));
   });
 
-  it("prices Anthropic cache writes at 1.25x the input rate", () => {
-    // 1000 total input, 600 written to cache → 400 full + 600 * 1.25
+  it("prices Anthropic cache writes at 2x the input rate (1h cross-turn TTL)", () => {
+    // 1000 total input, 600 written to cache → 400 full + 600 * 2.0
     const cost = estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500, {
       cacheCreationInputTokens: 600,
     });
     const expected =
-      (400 * 3.0) / 1_000_000 + (600 * 3.0 * 1.25) / 1_000_000 + (500 * 15.0) / 1_000_000;
+      (400 * 3.0) / 1_000_000 + (600 * 3.0 * 2.0) / 1_000_000 + (500 * 15.0) / 1_000_000;
     expect(cost).toBeCloseTo(expected, 12);
     // Cache writes cost MORE than the plain input rate (break-even trade-off).
     expect(cost).toBeGreaterThan(estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500));
