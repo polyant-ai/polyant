@@ -141,9 +141,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // Knowledge
   const [knowledgeEnabled, setKnowledgeEnabled] = useState(instance.knowledgeEnabled ?? false);
 
-  // Tool secret specs (dynamic, from API). Each entry describes how to render
-  // and persist the field (text input vs select dropdown).
-  const [toolSecretSpecs, setToolSecretSpecs] = useState<RequiredSecretSpec[]>([]);
+  // Required-secret specs (tools + hooks, dynamic, from API). Each entry describes
+  // how to render and persist the field (text input vs select dropdown).
+  const [requiredSecretSpecs, setRequiredSecretSpecs] = useState<RequiredSecretSpec[]>([]);
 
   // Secret input values, visibility toggles, and original value (for dirty tracking).
   // `initial` is the server-side value at load time (only populated for non-secret select fields).
@@ -199,7 +199,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
       else toast.error(t("settings.tab.loadFailed"));
 
       if (toolSecretsRes.status === "fulfilled") {
-        setToolSecretSpecs(toolSecretsRes.value.requiredSecrets);
+        setRequiredSecretSpecs(toolSecretsRes.value.requiredSecrets);
       }
 
       if (secretsRes.status === "fulfilled") {
@@ -223,7 +223,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   useEffect(() => {
     setSecretFields((prev) => {
       const next = { ...prev };
-      for (const spec of toolSecretSpecs) {
+      for (const spec of requiredSecretSpecs) {
         if (!(spec.key in next)) {
           // Pre-fill any non-sensitive field (select or readable text) from its
           // echoed `currentValue`. Sensitive fields never carry one, so they
@@ -234,7 +234,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
       }
       return next;
     });
-  }, [toolSecretSpecs]);
+  }, [requiredSecretSpecs]);
 
   const isConfigured = (key: string) =>
     secrets.some((s) => s.key === key && s.configured);
@@ -900,17 +900,17 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         )}
       </section>
 
-      {/* Tool Secrets */}
-      {toolSecretSpecs.length > 0 ? (
+      {/* Required secrets (tools + hooks) */}
+      {requiredSecretSpecs.length > 0 ? (
         <section className="space-y-4 rounded-lg border p-4">
           <div>
-            <Label className="text-base font-medium">{t("settings.tab.toolSecrets")}</Label>
+            <Label className="text-base font-medium">{t("settings.tab.requiredSecrets")}</Label>
             <p className="text-sm text-muted-foreground">
-              {t("settings.tab.toolSecretsHelp")}
+              {t("settings.tab.requiredSecretsHelp")}
             </p>
           </div>
 
-          {toolSecretSpecs.map((spec) => {
+          {requiredSecretSpecs.map((spec) => {
             const label = spec.label ?? humanizeSecretKey(spec.key);
             if (spec.type === "select") {
               return (
@@ -960,9 +960,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
       ) : (
         <section className="space-y-4 rounded-lg border p-4">
           <div>
-            <Label className="text-base font-medium">{t("settings.tab.toolSecrets")}</Label>
+            <Label className="text-base font-medium">{t("settings.tab.requiredSecrets")}</Label>
             <p className="text-sm text-muted-foreground">
-              {t("settings.tab.noToolSecrets")}
+              {t("settings.tab.noRequiredSecrets")}
             </p>
           </div>
         </section>

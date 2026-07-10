@@ -9,7 +9,13 @@ import { db } from "../../database/client.js";
 import { instanceTools } from "../../instances/instance-tools.schema.js";
 import { tools } from "../../agents/tools/tools.schema.js";
 import { eq, and, inArray } from "drizzle-orm";
-import { collectEnabledToolSecrets, attachReadableValues } from "./instance-tools.secrets-view.js";
+import {
+  collectInstanceRequiredSecrets,
+  enabledHookSecretSources,
+  attachReadableValues,
+} from "./instance-tools.secrets-view.js";
+import { listHooks } from "../../hooks/hooks.store.js";
+import { getHookRegistry } from "../../hooks/hook-registry.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
 @Controller("api/instances")
@@ -18,8 +24,14 @@ export class InstanceToolsController {
   @Get(":slug/tools/required-secrets")
   async getRequiredSecrets(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
-    const enabledNames = await getEnabledToolNames(instance.id);
-    const specs = collectEnabledToolSecrets(listAvailableTools(), enabledNames);
+    const enabledToolNames = await getEnabledToolNames(instance.id);
+    // Aggregate the secrets of BOTH enabled tools and enabled hooks, so a hook that
+    // declares a secret surfaces in the agent config exactly like a tool's.
+    const hookSources = enabledHookSecretSources(
+      await listHooks(instance.id),
+      (name) => getHookRegistry().get(name),
+    );
+    const specs = collectInstanceRequiredSecrets(listAvailableTools(), enabledToolNames, hookSources);
 
     // Fetch stored values only when at least one field is readable (non-sensitive);
     // true secrets are never echoed, so there is no reason to load them.
