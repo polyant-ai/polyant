@@ -149,7 +149,7 @@ describe("InstancesController", () => {
       const allowed = new Set([
         "id", "slug", "name", "description", "status", "provider", "model",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
-        "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "stateInPromptEnabled", "datetimeInjectionEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
+        "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "stateInPromptEnabled", "datetimeInjectionEnabled", "cacheEnabled", "cacheTtl", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint",
         "memory",
       ]);
