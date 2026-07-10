@@ -389,6 +389,47 @@ function foldSystemMessages(
   };
 }
 
+/** Content parts of a message as an array (empty string → no parts) — used to
+ * merge two same-role messages without losing or double-nesting content. */
+function contentParts(content: unknown): unknown[] {
+  if (typeof content === "string") return content.length > 0 ? [{ type: "text", text: content }] : [];
+  return Array.isArray(content) ? content : [];
+}
+
+/**
+ * Placeholder user turn prepended to an assistant-first conversation so strict
+ * chat templates (which require the message array to START with `user`) accept it.
+ * Request-only (never persisted); "[no-op]" marks it as an ignorable opener.
+ */
+const NOOP_USER_TURN: ModelMessage = { role: "user", content: "[no-op]" };
+
+/**
+ * Normalize a messages array for providers whose chat template is STRICT about
+ * roles (e.g. gemma/mistral served via Nebius or Bedrock reject anything that is
+ * not a clean user/assistant/… alternation starting with `user`):
+ *   1. Merge consecutive same-role messages (a sibling of foldSystemMessages) —
+ *      this also masks a same-`created_at` ordering flip in the persisted history.
+ *   2. Ensure the array starts with a user turn: proactive / agent-initiated
+ *      conversations legitimately open with an assistant greeting, so PREPEND a
+ *      harmless placeholder rather than drop the greeting.
+ * A well-formed conversation is returned unchanged (no cache-prefix churn). Pure.
+ */
+export function normalizeStrictConversation(messages: ModelMessage[]): ModelMessage[] {
+  const merged: ModelMessage[] = [];
+  for (const m of messages) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.role === m.role) {
+      merged[merged.length - 1] = {
+        ...prev,
+        content: [...contentParts(prev.content), ...contentParts(m.content)],
+      } as ModelMessage;
+    } else {
+      merged.push(m);
+    }
+  }
+  return merged.length > 0 && merged[0].role === "assistant" ? [NOOP_USER_TURN, ...merged] : merged;
+}
+
 /**
  * Optional per-provider transform applied to the folded `{system, messages}`
  * immediately before the SDK call. Anthropic/Bedrock use it to inject cache
@@ -413,6 +454,12 @@ export interface ProviderHooks {
    * incrementally cacheable step-to-step. See `makeStepMarker` in prompt-caching.ts.
    */
   stepMarker?: (input: { stepNumber: number; messages: ModelMessage[]; modelId: string }) => { messages?: ModelMessage[] };
+  /**
+   * When true, the folded messages are run through `normalizeStrictConversation`
+   * before the call — for providers hosting strict chat templates (Nebius,
+   * Bedrock) that reject non-alternating or assistant-first conversations.
+   */
+  strictTemplate?: boolean;
 }
 
 /**
@@ -512,10 +559,15 @@ export function createProvider(
     modelId: string,
   ): { system: string | undefined; messages: ModelMessage[] } => {
     const folded = foldSystemMessages(request.system, request.messages);
+    // Strict-template providers (Nebius/Bedrock) need a clean user-first alternation;
+    // a no-op for well-formed conversations, so the cached prefix is unchanged.
+    const prepared = hooks?.strictTemplate
+      ? { system: folded.system, messages: normalizeStrictConversation(folded.messages) }
+      : folded;
     // cacheConfig.enabled === false → skip ALL markers (no cache write). Undefined
     // = enabled (backward compatible). ttl selects the cross-turn Anthropic TTL.
-    if (request.cacheConfig?.enabled === false || !hooks?.prepareMessages) return folded;
-    return hooks.prepareMessages({ ...folded, modelId, ttl: request.cacheConfig?.ttl });
+    if (request.cacheConfig?.enabled === false || !hooks?.prepareMessages) return prepared;
+    return hooks.prepareMessages({ ...prepared, modelId, ttl: request.cacheConfig?.ttl });
   };
 
   return {

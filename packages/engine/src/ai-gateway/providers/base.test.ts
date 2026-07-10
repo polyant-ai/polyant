@@ -12,7 +12,8 @@ vi.mock("../langsmith.js", () => ({
   buildLangSmithProviderOptions: vi.fn(),
 }));
 
-import { buildSteps, aggregateReasoning, serializeTools, createProvider } from "./base.js";
+import type { ModelMessage } from "ai";
+import { buildSteps, aggregateReasoning, serializeTools, createProvider, normalizeStrictConversation } from "./base.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 
 // safeTokens and aggregateStepUsage are not exported, so we test them
@@ -581,5 +582,53 @@ describe("aggregateReasoning", () => {
       { type: "text", text: "a" },
       { type: "text", text: "b", signature: "s" },
     ]);
+  });
+});
+
+describe("normalizeStrictConversation", () => {
+  it("returns a well-formed user-first alternation unchanged", () => {
+    const msgs: ModelMessage[] = [
+      { role: "user", content: "a" },
+      { role: "assistant", content: "b" },
+      { role: "user", content: "c" },
+    ];
+    expect(normalizeStrictConversation(msgs)).toEqual(msgs);
+  });
+
+  it("merges consecutive same-role messages into one (parts concatenated)", () => {
+    const out = normalizeStrictConversation([
+      { role: "user", content: "a" },
+      { role: "user", content: "b" },
+      { role: "assistant", content: "c" },
+    ]);
+    expect(out).toHaveLength(2);
+    expect(out[0].role).toBe("user");
+    expect(out[0].content).toEqual([
+      { type: "text", text: "a" },
+      { type: "text", text: "b" },
+    ]);
+    expect(out[1]).toEqual({ role: "assistant", content: "c" });
+  });
+
+  it("prepends a [no-op] user turn when the conversation starts with assistant (proactive)", () => {
+    const out = normalizeStrictConversation([
+      { role: "assistant", content: "greeting" },
+      { role: "user", content: "reply" },
+    ]);
+    expect(out).toEqual([
+      { role: "user", content: "[no-op]" },
+      { role: "assistant", content: "greeting" },
+      { role: "user", content: "reply" },
+    ]);
+  });
+
+  it("does not mutate the input array or its messages", () => {
+    const input: ModelMessage[] = [
+      { role: "assistant", content: "x" },
+      { role: "user", content: "y" },
+    ];
+    const snapshot = JSON.stringify(input);
+    normalizeStrictConversation(input);
+    expect(JSON.stringify(input)).toBe(snapshot);
   });
 });

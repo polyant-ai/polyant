@@ -76,5 +76,5 @@ export const BedrockProvider = createProvider(
       credentialProvider: fromNodeProviderChain(),
     })(modelId);
   },
-  { prepareMessages: applyBedrockPromptCaching, stepMarker: bedrockStepMarker },
+  { prepareMessages: applyBedrockPromptCaching, stepMarker: bedrockStepMarker, strictTemplate: true },
 );
