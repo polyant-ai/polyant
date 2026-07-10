@@ -427,6 +427,50 @@ function buildPrepareStep(hooks: ProviderHooks | undefined, modelId: string) {
     hooks.stepMarker!({ stepNumber: o.stepNumber, messages: o.messages, modelId });
 }
 
+/**
+ * Log the FULL detail of a provider SDK error (AI SDK `APICallError` & friends)
+ * before it propagates. Without this an upstream 400/500 reaches the global HTTP
+ * filter as a bare status message ("Bad Request"), with the provider's actual
+ * reason (`responseBody`) discarded. Duck-typed so the SDK isn't imported here.
+ */
+function logProviderError(providerName: string, modelId: string, err: unknown): void {
+  const e = err as {
+    name?: unknown;
+    statusCode?: unknown;
+    responseBody?: unknown;
+    url?: unknown;
+    message?: unknown;
+  };
+  const parts = [
+    `[ai-gateway] ${providerName}/${modelId} call failed:`,
+    typeof e?.name === "string" ? e.name : "Error",
+    e?.statusCode != null ? `status=${String(e.statusCode)}` : "",
+    typeof e?.message === "string" ? e.message : String(err),
+  ];
+  if (e?.responseBody != null) parts.push(`body=${String(e.responseBody).slice(0, 2000)}`);
+  if (typeof e?.url === "string") parts.push(`url=${e.url}`);
+  console.error(parts.filter(Boolean).join(" "));
+}
+
+/**
+ * Run a provider SDK call, logging full error detail before rethrowing (behaviour
+ * otherwise unchanged). Accepts sync-or-async `run` because the SDK wrappers are
+ * typed inconsistently — `tracedStreamText` returns a value synchronously while
+ * `tracedGenerateText` returns a Promise.
+ */
+async function withProviderErrorLog<T>(
+  providerName: string,
+  modelId: string,
+  run: () => T | Promise<T>,
+): Promise<Awaited<T>> {
+  try {
+    return await run();
+  } catch (err) {
+    logProviderError(providerName, modelId, err);
+    throw err;
+  }
+}
+
 export function createProvider(
   providerName: string,
   createModel: ModelFactory,
@@ -454,17 +498,19 @@ export function createProvider(
 
       const { system, messages } = prepare(request, modelId);
       const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const result = await tracedGenerateText({
-        model: createModel(modelId, request.apiKeys),
-        system,
-        messages,
-        tools: request.tools,
-        stopWhen: stepCountIs(request.maxSteps ?? 1),
-        abortSignal: request.abortSignal,
-        ...(prepareStep ? { prepareStep } : {}),
-        ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
-        ...(request.temperature != null ? { temperature: request.temperature } : {}),
-      });
+      const result = await withProviderErrorLog(providerName, modelId, () =>
+        tracedGenerateText({
+          model: createModel(modelId, request.apiKeys),
+          system,
+          messages,
+          tools: request.tools,
+          stopWhen: stepCountIs(request.maxSteps ?? 1),
+          abortSignal: request.abortSignal,
+          ...(prepareStep ? { prepareStep } : {}),
+          ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
+          ...(request.temperature != null ? { temperature: request.temperature } : {}),
+        }),
+      );
 
       // v5+: per-turn reasoning blocks are exposed at the top level as `reasoning`
       // (array). Normalised for type safety.
@@ -494,39 +540,47 @@ export function createProvider(
       // tracing happens at the model middleware level, not the streamText level.
       const { system, messages } = prepare(request, modelId);
       const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const result = await tracedStreamText({
-        model: createModel(modelId, request.apiKeys),
-        system,
-        messages,
-        tools: request.tools,
-        stopWhen: stepCountIs(request.maxSteps ?? 1),
-        abortSignal: request.abortSignal,
-        ...(prepareStep ? { prepareStep } : {}),
-        ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
-        ...(request.temperature != null ? { temperature: request.temperature } : {}),
-      });
+      const result = await withProviderErrorLog(providerName, modelId, () =>
+        tracedStreamText({
+          model: createModel(modelId, request.apiKeys),
+          system,
+          messages,
+          tools: request.tools,
+          stopWhen: stepCountIs(request.maxSteps ?? 1),
+          abortSignal: request.abortSignal,
+          ...(prepareStep ? { prepareStep } : {}),
+          ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
+          ...(request.temperature != null ? { temperature: request.temperature } : {}),
+        }),
+      );
 
       return {
         textStream: result.textStream,
         fullStream: result.fullStream,
         response: (async () => {
-          const finalText = await result.text;
-          // v5+: totalUsage is the cross-step total (usage = final step only).
-          const finalUsage = await (result as unknown as { totalUsage?: Promise<unknown> }).totalUsage;
-          const steps = await result.steps;
-          // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
-          const topReasoning = await (result as unknown as { reasoning?: Promise<unknown[]> }).reasoning;
-          const response = buildChatResponse(
-            finalText,
-            normalizeSdkSteps(steps),
-            topReasoning,
-            mapUsage(finalUsage),
-            Date.now() - start,
-            modelId,
-            providerName,
-          );
-          if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
-          return response;
+          try {
+            const finalText = await result.text;
+            // v5+: totalUsage is the cross-step total (usage = final step only).
+            const finalUsage = await (result as unknown as { totalUsage?: Promise<unknown> }).totalUsage;
+            const steps = await result.steps;
+            // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
+            const topReasoning = await (result as unknown as { reasoning?: Promise<unknown[]> }).reasoning;
+            const response = buildChatResponse(
+              finalText,
+              normalizeSdkSteps(steps),
+              topReasoning,
+              mapUsage(finalUsage),
+              Date.now() - start,
+              modelId,
+              providerName,
+            );
+            if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
+            return response;
+          } catch (err) {
+            // Stream-time provider errors surface here (not at the initial await).
+            logProviderError(providerName, modelId, err);
+            throw err;
+          }
         })(),
       };
     },
