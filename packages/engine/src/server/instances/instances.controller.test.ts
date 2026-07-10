@@ -79,6 +79,9 @@ vi.mock("../../ai-gateway/config.js", () => ({
     if (value == null || !Number.isFinite(value)) return null;
     return Math.min(2, Math.max(0, value));
   },
+  resolveCacheMultiplier: (provider: string) => ({ read: 0.1, write: provider === "openai" ? 0 : 1.25 }),
+  cacheSupported: (provider: string, model: string): boolean =>
+    provider === "bedrock" ? /anthropic|nova/.test(model) : provider !== "nebius",
 }));
 vi.mock("../../instances/icon-validator.js", () => ({ validateIconDataUri: vi.fn() }));
 vi.mock("../../embeddings-gateway/provider-resolver.js", () => ({
@@ -388,6 +391,14 @@ describe("InstancesController", () => {
       const openai = res.providers.openai.models;
       expect(openai.find((m) => m.id === "o3")?.supportsTemperature).toBe(false);
       expect(openai.find((m) => m.id === "gpt-4o")?.supportsTemperature).toBe(true);
+    });
+
+    it("exposes per-model cache costs and cache support", () => {
+      const res = controller.getModels();
+      const gpt4o = res.providers.openai.models.find((m) => m.id === "gpt-4o");
+      expect(gpt4o?.supportsCache).toBe(true);
+      expect(gpt4o?.costCacheRead).toBeCloseTo(2.5 * 0.1, 10); // input 2.5 × read 0.1
+      expect(gpt4o?.costCacheWrite).toBe(0); // OpenAI pre-5.6 → no write premium
     });
   });
 });

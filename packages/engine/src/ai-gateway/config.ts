@@ -27,6 +27,11 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "gpt-5.4": { input: 2.50, output: 15.00 },
       "gpt-5.4-mini": { input: 0.75, output: 4.50 },
       "gpt-5.4-nano": { input: 0.20, output: 1.25 },
+      // GPT-5.6 family (Sol/Terra/Luna tiers). Unlike pre-5.6 OpenAI, these price
+      // cache read at 0.1x and cache WRITE at 1.25x — see MODEL_CACHE_MULTIPLIERS.
+      "gpt-5.6-sol": { input: 5.00, output: 30.00 },
+      "gpt-5.6-terra": { input: 2.50, output: 15.00 },
+      "gpt-5.6-luna": { input: 1.00, output: 6.00 },
       // Reasoning
       "o3": { input: 2.00, output: 8.00 },
     },
@@ -218,13 +223,54 @@ const CACHE_MULTIPLIERS: Record<string, { read: number; write: number }> = {
   // Bedrock cachePoint is 5m only (the AI SDK exposes no 1h wire shape) → 1.25×
   // write. Catalog is Anthropic-dominated; Nova/others report no cache tokens.
   bedrock: { read: 0.1, write: 1.25 },
-  // write 0 holds ONLY for pre-GPT-5.6 models (every OpenAI model we currently
-  // price). GPT-5.6+ charges a 1.25× cache-write premium — make this
-  // model-family-aware (per-model override) before adding a 5.6+ model, or its
-  // write cost is silently under-reported.
+  // Pre-GPT-5.6 default: cache read 0.5×, NO write premium. GPT-5.6 prices cache
+  // differently (read 0.1×, write 1.25×) — see MODEL_CACHE_MULTIPLIERS, which
+  // overrides this per model.
   openai: { read: 0.5, write: 0 },
 };
 const DEFAULT_CACHE_MULTIPLIER = { read: 1, write: 1 };
+
+/**
+ * Per-MODEL cache-multiplier overrides, layered on top of the per-provider
+ * CACHE_MULTIPLIERS. Needed where a model prices cache differently from its
+ * provider baseline: OpenAI GPT-5.6 charges cache read 0.1× and cache WRITE
+ * 1.25×, unlike the pre-5.6 OpenAI default (read 0.5×, no write premium).
+ */
+const MODEL_CACHE_MULTIPLIERS: Record<string, { read: number; write: number }> = {
+  "gpt-5.6-sol": { read: 0.1, write: 1.25 },
+  "gpt-5.6-terra": { read: 0.1, write: 1.25 },
+  "gpt-5.6-luna": { read: 0.1, write: 1.25 },
+};
+
+/** Cache multiplier for a call: per-model override wins, else the provider default. */
+export function resolveCacheMultiplier(provider: string, model: string): { read: number; write: number } {
+  return MODEL_CACHE_MULTIPLIERS[model] ?? CACHE_MULTIPLIERS[provider] ?? DEFAULT_CACHE_MULTIPLIER;
+}
+
+/**
+ * Bedrock model families that support Converse prompt caching (`cachePoint`).
+ * A cachePoint on any other family (Qwen, Nemotron, gpt-oss …) makes Bedrock
+ * reject the whole call with a ValidationException, so both the runtime marker
+ * gate (providers/bedrock.ts) and the cost display consume this ONE source.
+ */
+export const BEDROCK_CACHE_CAPABLE = /anthropic|nova/;
+
+/**
+ * Whether a provider+model supports prompt caching at all. Shared by the marker
+ * gate and the model-catalog cost display so they can never drift: Nebius has no
+ * cache API; Bedrock caches only the anthropic/nova families; OpenAI (automatic)
+ * and Anthropic (explicit marker) always do.
+ */
+export function cacheSupported(provider: string, model: string): boolean {
+  switch (provider) {
+    case "nebius":
+      return false;
+    case "bedrock":
+      return BEDROCK_CACHE_CAPABLE.test(model);
+    default:
+      return true;
+  }
+}
 
 /**
  * Estimate the USD cost of a single LLM call.
@@ -264,7 +310,7 @@ export function estimateCostBreakdown(
   const cacheRead = Math.max(0, cache?.cachedInputTokens ?? 0);
   const cacheWrite = Math.max(0, cache?.cacheCreationInputTokens ?? 0);
   const regularInput = Math.max(0, promptTokens - cacheRead - cacheWrite);
-  const mult = CACHE_MULTIPLIERS[provider] ?? DEFAULT_CACHE_MULTIPLIER;
+  const mult = resolveCacheMultiplier(provider, model);
 
   const input = (regularInput * pricing.input) / 1_000_000;
   const cacheCost =

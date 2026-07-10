@@ -5,6 +5,7 @@ import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { createProvider, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
+import { BEDROCK_CACHE_CAPABLE } from "../config.js";
 
 /**
  * Bedrock Converse cache breakpoint. Bedrock uses a `cachePoint` block (via
@@ -14,13 +15,6 @@ import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from 
  * cross-Region turn re-pays the full prompt.
  */
 const BEDROCK_CACHE_POINT = { cachePoint: { type: "default" as const } };
-
-/**
- * Only these Bedrock model families support Converse prompt caching. Injecting a
- * `cachePoint` for any other model (Qwen, Nemotron, gpt-oss, MiniMax …) makes
- * Bedrock reject the whole call with a ValidationException, so gate strictly.
- */
-const BEDROCK_CACHE_CAPABLE = /anthropic|nova/;
 
 /** Decorate a message with Bedrock's `cachePoint` marker — shared by both breakpoint paths. */
 const markBedrock = (message: ModelMessage): ModelMessage =>

@@ -166,6 +166,15 @@ export interface ModelInfo {
   costInput: number;
   costOutput: number;
   /**
+   * Per-1M-token cache read/write cost in USD, or null when the model has no
+   * prompt caching (Nebius, non-anthropic/nova Bedrock). costCacheWrite === 0
+   * means the model caches but charges no write premium (OpenAI pre-GPT-5.6).
+   */
+  costCacheRead: number | null;
+  costCacheWrite: number | null;
+  /** True when the provider+model supports prompt caching at all. */
+  supportsCache: boolean;
+  /**
    * True when the model supports extended thinking / reasoning.
    * Computed server-side from `isThinkingCapable(provider, modelId)`; the
    * frontend uses this to decide whether to show the "Extended thinking"

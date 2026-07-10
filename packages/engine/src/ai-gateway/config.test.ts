@@ -133,6 +133,25 @@ describe("estimateCost", () => {
     expect(cost).toBeCloseTo(expected, 12);
   });
 
+  it("prices GPT-5.6 cache read at 0.1x and cache WRITE at 1.25x (per-model override)", () => {
+    // gpt-5.6-luna: input $1/1M, output $6/1M. 1000 input = 200 full + 600 read + 200 write.
+    const cost = estimateCost("openai", "gpt-5.6-luna", 1000, 500, {
+      cachedInputTokens: 600,
+      cacheCreationInputTokens: 200,
+    });
+    const expected =
+      (200 * 1.0) / 1_000_000 + // regular input
+      (600 * 1.0 * 0.1) / 1_000_000 + // cache read 0.1x
+      (200 * 1.0 * 1.25) / 1_000_000 + // cache write 1.25x
+      (500 * 6.0) / 1_000_000; // output
+    expect(cost).toBeCloseTo(expected, 12);
+    // The per-model override must NOT leak to the pre-5.6 provider default.
+    expect(estimateCost("openai", "gpt-4o", 1000, 0, { cacheCreationInputTokens: 1000 })).toBeCloseTo(
+      0, // gpt-4o write multiplier is 0 → cache writes are free
+      12,
+    );
+  });
+
   it("clamps a cache breakdown larger than the prompt total to non-negative regular input", () => {
     const cost = estimateCost("anthropic", "claude-sonnet-4-6", 500, 0, {
       cachedInputTokens: 900,

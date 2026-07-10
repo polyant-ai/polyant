@@ -37,7 +37,7 @@ import {
 import { countMemories } from "../../memory/index.js";
 import { countDocuments } from "../../knowledge/index.js";
 import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
-import { providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported } from "../../ai-gateway/config.js";
+import { providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported, resolveCacheMultiplier, cacheSupported } from "../../ai-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
@@ -123,20 +123,30 @@ export class InstancesController {
   @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
-    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; supportsThinking: boolean; supportsTemperature: boolean }[] }> = {};
+    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number | null; costCacheWrite: number | null; supportsCache: boolean; supportsThinking: boolean; supportsTemperature: boolean }[] }> = {};
     for (const [name, cfg] of Object.entries(providerConfigs)) {
       const tierByModel = new Map(Object.entries(cfg.tiers).map(([tier, modelId]) => [modelId, tier]));
-      const models = Object.entries(cfg.costPerMillionTokens).map(([modelId, cost]) => ({
-        id: modelId,
-        tier: tierByModel.get(modelId) ?? null,
-        costInput: cost.input,
-        costOutput: cost.output,
-        // Computed server-side from the same single source of truth used by the
-        // runtime gate (config-resolver), so the toggle visibility on the
-        // frontend cannot drift from the actual capability.
-        supportsThinking: isThinkingCapable(name, modelId),
-        supportsTemperature: temperatureSupported(name, modelId, false),
-      }));
+      const models = Object.entries(cfg.costPerMillionTokens).map(([modelId, cost]) => {
+        const supportsCache = cacheSupported(name, modelId);
+        const cacheMult = resolveCacheMultiplier(name, modelId);
+        return {
+          id: modelId,
+          tier: tierByModel.get(modelId) ?? null,
+          costInput: cost.input,
+          costOutput: cost.output,
+          // Per-1M cache rates = input rate × the resolved multiplier, or null when
+          // the model has no prompt caching (Nebius, non-anthropic/nova Bedrock).
+          // A 0 write (e.g. OpenAI pre-5.6) means "caches, but no write premium".
+          costCacheRead: supportsCache ? cost.input * cacheMult.read : null,
+          costCacheWrite: supportsCache ? cost.input * cacheMult.write : null,
+          supportsCache,
+          // Computed server-side from the same single source of truth used by the
+          // runtime gate (config-resolver), so the toggle visibility on the
+          // frontend cannot drift from the actual capability.
+          supportsThinking: isThinkingCapable(name, modelId),
+          supportsTemperature: temperatureSupported(name, modelId, false),
+        };
+      });
       providers[name] = { models };
     }
     return { providers };
