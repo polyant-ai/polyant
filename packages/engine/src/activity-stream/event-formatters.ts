@@ -81,22 +81,12 @@ export function summarizeArgs(toolName: string, args: unknown): string {
 
     // ── Dev / lifecycle tools — values are paths, slugs, repos, urls. Safe
     //    to display verbatim (no PII).
-    case "gitCloneRepo":
-      return truncate(str(a.repo) ?? str(a.url) ?? "", 80);
     case "listDirectory":
     case "readFile":
     case "writeFile":
       return truncate(str(a.path) ?? "", 80);
     case "readSkill":
       return truncate(str(a.name) ?? "", 80);
-    case "ghIssue":
-    case "ghPr": {
-      const numStr = typeof a.number === "number" && Number.isFinite(a.number) ? `#${a.number}` : null;
-      return truncate(
-        [str(a.action), str(a.repo), numStr, str(a.title)].filter(Boolean).join(" "),
-        80,
-      );
-    }
     case "httpRequest":
       return truncate(
         [str(a.method) ?? "GET", str(a.url)].filter(Boolean).join(" "),
@@ -252,9 +242,6 @@ export function formatArgsForSpotlight(toolName: string, args: unknown): string 
     case "slackPostMessage":
       formatted = fmt(["channel"]); // message body stripped
       break;
-    case "gitCloneRepo":
-      formatted = fmt(["repo", "url"]);
-      break;
     case "listDirectory":
     case "readFile":
     case "writeFile":
@@ -262,10 +249,6 @@ export function formatArgsForSpotlight(toolName: string, args: unknown): string 
       break;
     case "readSkill":
       formatted = fmt(["name"]);
-      break;
-    case "ghIssue":
-    case "ghPr":
-      formatted = fmt(["action", "repo", "number", "title"]);
       break;
     default: {
       // Unknown tool: emit values verbatim (truncated) for keys that don't
