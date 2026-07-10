@@ -463,6 +463,13 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                         <TableBody>
                           {models.map((m) => {
                             const isSelected = provider === providerName && model === m.id;
+                            // A cache rate "doesn't count" when it's free (0) or billed at the
+                            // full input rate (no discount — Nebius / non-cacheable models): show
+                            // "—" instead of a figure that implies a saving.
+                            const fmtCache = (v: number | undefined) => {
+                              const val = v ?? m.costInput;
+                              return val === 0 || val === m.costInput ? "—" : `$${val.toFixed(2)}`;
+                            };
                             return (
                               <TableRow
                                 key={m.id}
@@ -488,10 +495,10 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                                   ${m.costOutput.toFixed(2)}
                                 </TableCell>
                                 <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
-                                  ${(m.costCacheRead ?? m.costInput).toFixed(2)}
+                                  {fmtCache(m.costCacheRead)}
                                 </TableCell>
                                 <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
-                                  ${(m.costCacheWrite ?? m.costInput).toFixed(2)}
+                                  {fmtCache(m.costCacheWrite)}
                                 </TableCell>
                               </TableRow>
                             );
