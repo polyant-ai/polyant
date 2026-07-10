@@ -68,3 +68,43 @@ export const BedrockProvider = createProvider(
   },
   { prepareMessages: applyBedrockPromptCaching },
 );
+
+/** Claude reasoning budgets (Bedrock accepts a token budget in [1024, 64000]). */
+const BEDROCK_THINKING_BUDGETS: Record<"low" | "medium" | "high", number> = {
+  low: 4096,
+  medium: 12000,
+  high: 24000,
+};
+
+/** gpt-oss takes an effort level; Claude takes a token budget. */
+function isEffortBasedReasoning(modelId: string): boolean {
+  return /openai\.gpt-oss/i.test(modelId);
+}
+
+/**
+ * Bedrock reasoning takes two shapes depending on the model family, both riding
+ * `providerOptions.bedrock.reasoningConfig`:
+ *   - Anthropic Claude → a token BUDGET (budgetTokens)
+ *   - OpenAI gpt-oss   → an EFFORT string (maxReasoningEffort)
+ *
+ * Only called for a reasoning-capable Bedrock model (gated by isThinkingCapable
+ * upstream) and only when thinking is ON — thinking OFF omits reasoningConfig
+ * entirely so the model falls back to its own default (gpt-oss has no true off).
+ *
+ * VALIDATED live (eu-south-1, gpt-oss-120b): maxReasoningEffort is accepted and
+ * effective (low ≈ 43 vs high ≈ 408 reasoning chars); budgetTokens is silently
+ * ignored for gpt-oss (the AI SDK emits a warning), which is why the split matters.
+ */
+export function buildBedrockReasoningOptions(
+  modelId: string,
+  level: string,
+): { reasoningConfig: Record<string, unknown> } {
+  const normalized: "low" | "medium" | "high" =
+    level === "low" || level === "high" ? level : "medium";
+  if (isEffortBasedReasoning(modelId)) {
+    return { reasoningConfig: { type: "enabled", maxReasoningEffort: normalized } };
+  }
+  return {
+    reasoningConfig: { type: "enabled", budgetTokens: BEDROCK_THINKING_BUDGETS[normalized] },
+  };
+}

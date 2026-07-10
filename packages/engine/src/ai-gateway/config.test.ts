@@ -270,12 +270,21 @@ describe("isThinkingCapable", () => {
       ["eu.anthropic.claude-sonnet-5", true],
       ["global.anthropic.claude-sonnet-5", true],
       ["anthropic.claude-opus-4-20250514-v1:0", true],
+      // OpenAI open-weight (gpt-oss) — effort-based reasoning, raw IDs (no region prefix).
+      ["openai.gpt-oss-120b-1:0", true],
+      ["openai.gpt-oss-20b-1:0", true],
       ["anthropic.claude-3-5-haiku-20241022-v1:0", false],
+      // Nova 2 excluded on purpose (its reasoningConfig rejects a set maxTokens,
+      // verified live); Nova v1 is not a reasoning model at all.
+      ["eu.amazon.nova-2-lite-v1:0", false],
       ["amazon.nova-lite-v1:0", false],
+      ["eu.amazon.nova-lite-v1:0", false],
       ["amazon.nova-pro-v1:0", false],
       ["meta.llama4-scout-17b-instruct-v1:0", false],
       ["meta.llama3-1-70b-instruct-v1:0", false],
       ["qwen.qwen3-32b-v1:0", false],
+      ["nvidia.nemotron-super-3-120b", false],
+      ["minimax.minimax-m2.5", false],
       ["mistral.mistral-large-2402-v1:0", false],
     ])("bedrock/%s -> %s", (model, expected) => {
       expect(isThinkingCapable("bedrock", model)).toBe(expected);

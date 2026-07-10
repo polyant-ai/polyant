@@ -4,7 +4,7 @@ import { resolveModel, estimateCostBreakdown, isThinkingCapable } from "./config
 import { sanitizeMessagesForModel } from "./vision.js";
 import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
-import { BedrockProvider } from "./providers/bedrock.js";
+import { BedrockProvider, buildBedrockReasoningOptions } from "./providers/bedrock.js";
 import { NebiusProvider } from "./providers/nebius.js";
 import { aiLogger } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
@@ -80,9 +80,12 @@ function resolveCallConfig(
   }
 
   // Inject provider-specific thinking/reasoning configuration when requested.
-  // The SDK forwards these to the provider; non-thinking-capable models ignore
-  // the fields. Anthropic also requires the interleaved beta header which is
-  // set unconditionally on the AnthropicProvider factory.
+  // For OpenAI/Anthropic the SDK forwards these fields and non-capable models
+  // ignore them; Anthropic also needs the interleaved beta header, set
+  // unconditionally on the AnthropicProvider factory. Bedrock is DIFFERENT:
+  // sending reasoningConfig to a non-reasoning Bedrock model is a hard
+  // ValidationException (like the cachePoint), so it is gated on isThinkingCapable
+  // and mapped per family (Claude→budgetTokens, gpt-oss/Nova 2→maxReasoningEffort).
   if (request.thinking) {
     if (providerName === "anthropic") {
       providerOptions = {
@@ -98,6 +101,14 @@ function resolveCallConfig(
         openai: {
           ...(providerOptions?.openai ?? {}),
           ...buildOpenAIReasoningOptions(),
+        } as Record<string, unknown>,
+      };
+    } else if (providerName === "bedrock" && isThinkingCapable(providerName, modelId)) {
+      providerOptions = {
+        ...providerOptions,
+        bedrock: {
+          ...(providerOptions?.bedrock ?? {}),
+          ...buildBedrockReasoningOptions(modelId, request.thinkingLevel ?? "medium"),
         } as Record<string, unknown>,
       };
     }

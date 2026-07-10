@@ -103,7 +103,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // returned the following errors: ... roles must alternate"), so they
       // cannot drive the agentic tool loop — only single-turn chat. Every model
       // kept below passes a multi-turn tool round-trip.
-      // Reasoning toggle stays Claude-only — see isThinkingCapable.
+      // Reasoning toggle covers Claude + gpt-oss — see isThinkingCapable.
       // Qwen3 — dense + MoE. Prices are the Europe (Milan) tier.
       "qwen.qwen3-32b-v1:0": { input: 0.20, output: 0.79 },
       "qwen.qwen3-coder-30b-a3b-v1:0": { input: 0.20, output: 0.79 },
@@ -309,8 +309,8 @@ export function estimateSttCost(
  *   - OpenAI    : reasoning families o1*, o3*, o4*, gpt-5*
  *   - Anthropic : claude-3-7-*, claude-sonnet-4-*, claude-opus-4-*,
  *                 claude-haiku-4-*, and any claude-*-4-[56]-*
- *   - Bedrock   : Anthropic-hosted Claude 4 family (sonnet-4, opus-4), with or
- *                 without a region inference-profile prefix (eu./us./apac./global.)
+ *   - Bedrock   : Anthropic Claude 4+ (budget-based) + OpenAI gpt-oss (effort-based),
+ *                 with or without a region inference-profile prefix (eu./us./apac./global.)
  *
  * The capability flag is consumed in two places:
  *   - GET /api/instances/models (frontend hint to show/hide the toggle)
@@ -330,10 +330,15 @@ export function isThinkingCapable(provider: string, modelId: string): boolean {
       //   claude-sonnet-4-5-20250929, claude-opus-4-6, claude-haiku-4-5-*
       return /^claude-(3-7|opus-4|sonnet-4|sonnet-5|haiku-4)/.test(modelId);
     case "bedrock":
-      // Bedrock-hosted Claude 4+ variants. Model IDs are cross-region inference
-      // profiles, so an optional region prefix (eu./us./apac./global.) precedes
-      // the `anthropic.` segment — without it, eu.* profiles were never matched.
-      return /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-(sonnet-4|sonnet-5|opus-4)/.test(modelId);
+      // Bedrock reasoning families (validated live in eu-south-1). Model IDs may
+      // carry a cross-region inference profile prefix (eu./us./apac./global.):
+      //   - Anthropic Claude 4+ → budget-based reasoning (reasoningConfig.budgetTokens)
+      //   - OpenAI gpt-oss      → effort-based reasoning (reasoningConfig.maxReasoningEffort)
+      // Both shapes are translated in providers/bedrock.ts (buildBedrockReasoningOptions).
+      // Excluded on purpose: Amazon Nova 2 (its reasoningConfig rejects a set
+      // maxTokens, which the pipeline may send) and Qwen3/Nemotron/MiniMax (their
+      // Converse reasoning parameter is unverified). Add them once handled/validated.
+      return /^(?:(?:eu|us|apac|global)\.)?(?:anthropic\.claude-(?:sonnet-4|sonnet-5|opus-4)|openai\.gpt-oss)/.test(modelId);
     case "nebius":
       // Reasoning families served by Nebius Token Factory (emit reasoning_content).
       // IDs carry an org prefix (Qwen/, deepseek-ai/, zai-org/, nvidia/, …), so
