@@ -120,10 +120,19 @@ export interface TokenUsage {
 /**
  * USD cost of a single LLM call, split by pricing bucket. `total` is the sum of
  * `input + cache + output` — the same scalar returned by `estimateCost()`.
+ *
+ * `cache` is the combined cache cost (`cacheRead + cacheWrite`), kept as the
+ * canonical bucket; the two are also exposed separately because cache reads and
+ * writes price very differently (Anthropic ≈ 0.1× read vs 1.25× write), so the
+ * split is what actually tells you whether caching is paying off.
  */
 export interface CostBreakdown {
   input: number;
   cache: number;
+  /** Cost of cache-read (hit) tokens. Subset of `cache`. */
+  cacheRead: number;
+  /** Cost of cache-write (creation) tokens. Subset of `cache`. */
+  cacheWrite: number;
   output: number;
   total: number;
 }

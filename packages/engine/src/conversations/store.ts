@@ -81,9 +81,14 @@ export interface ConversationListItem {
   conversationCost: number;
   serviceTokens: number;
   serviceCost: number;
-  /** Prompt-cache reads (cache HIT) across this conversation. Subset of totalTokens' input. */
+  /**
+   * Prompt-cache reads (cache HIT) for this conversation's `conversation` calls
+   * only — NOT service/auto-task calls (title/summary/memory). Scoped this way so
+   * the list reconciles with the per-message telemetry, which is conversation-only
+   * (pipeline_traces skips auto-tasks). Subset of `conversationTokens`' input.
+   */
   cachedInputTokens: number;
-  /** Prompt-cache writes (cache creation) across this conversation. */
+  /** Prompt-cache writes (cache creation) for this conversation's `conversation` calls only. */
   cacheCreationInputTokens: number;
   createdAt: Date | null;
   updatedAt: Date | null;
@@ -495,8 +500,8 @@ export class ConversationStore {
                  SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
                  SUM(al.total_tokens) FILTER (WHERE al.call_type = 'service') AS service_tokens,
                  SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost,
-                 SUM(al.cached_input_tokens) AS cached_input_tokens,
-                 SUM(al.cache_creation_input_tokens) AS cache_creation_input_tokens
+                 SUM(al.cached_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cached_input_tokens,
+                 SUM(al.cache_creation_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cache_creation_input_tokens
           FROM ai_logs al
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true
@@ -571,8 +576,8 @@ export class ConversationStore {
                SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
                SUM(al.total_tokens) FILTER (WHERE al.call_type = 'service') AS service_tokens,
                SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost,
-               SUM(al.cached_input_tokens) AS cached_input_tokens,
-               SUM(al.cache_creation_input_tokens) AS cache_creation_input_tokens
+               SUM(al.cached_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cached_input_tokens,
+               SUM(al.cache_creation_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cache_creation_input_tokens
         FROM ai_logs al
         WHERE al.conversation_id = c.conversation_id
       ) al_agg ON true
@@ -749,8 +754,8 @@ export class ConversationStore {
                  SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
                  SUM(al.total_tokens) FILTER (WHERE al.call_type = 'service') AS service_tokens,
                  SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost,
-                 SUM(al.cached_input_tokens) AS cached_input_tokens,
-                 SUM(al.cache_creation_input_tokens) AS cache_creation_input_tokens
+                 SUM(al.cached_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cached_input_tokens,
+                 SUM(al.cache_creation_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cache_creation_input_tokens
           FROM ai_logs al
           WHERE al.conversation_id = c.conversation_id
         ) al_agg ON true

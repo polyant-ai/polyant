@@ -266,7 +266,7 @@ export function estimateCostBreakdown(
 ): CostBreakdown {
   const config = providerConfigs[provider];
   const pricing = config?.costPerMillionTokens[model];
-  if (!config || !pricing) return { input: 0, cache: 0, output: 0, total: 0 };
+  if (!config || !pricing) return { input: 0, cache: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 };
 
   const cacheRead = Math.max(0, cache?.cachedInputTokens ?? 0);
   const cacheWrite = Math.max(0, cache?.cacheCreationInputTokens ?? 0);
@@ -275,12 +275,19 @@ export function estimateCostBreakdown(
   const regional = bedrockRegionalMultiplier(provider, model);
 
   const input = (regional * (regularInput * pricing.input)) / 1_000_000;
-  const cacheCost =
-    (regional * (cacheRead * pricing.input * mult.read)) / 1_000_000 +
-    (regional * (cacheWrite * pricing.input * mult.write)) / 1_000_000;
+  const cacheReadCost = (regional * (cacheRead * pricing.input * mult.read)) / 1_000_000;
+  const cacheWriteCost = (regional * (cacheWrite * pricing.input * mult.write)) / 1_000_000;
+  const cacheCost = cacheReadCost + cacheWriteCost;
   const output = (regional * (completionTokens * pricing.output)) / 1_000_000;
 
-  return { input, cache: cacheCost, output, total: input + cacheCost + output };
+  return {
+    input,
+    cache: cacheCost,
+    cacheRead: cacheReadCost,
+    cacheWrite: cacheWriteCost,
+    output,
+    total: input + cacheCost + output,
+  };
 }
 
 export const sttPricingPerMinute: Record<string, Record<string, number>> = {

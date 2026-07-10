@@ -65,6 +65,8 @@
   "conversations.detail.pills.provider": "AI provider",
   "conversations.detail.pills.input": "Input",
   "conversations.detail.pills.cache": "Cache",
+  "conversations.detail.pills.cacheRead": "Cache read",
+  "conversations.detail.pills.cacheWrite": "Cache write",
   "conversations.detail.pills.output": "Output",
   "conversations.detail.pills.total": "Total cost",
   "conversations.detail.pills.tools": "Tool calls",
