@@ -45,6 +45,10 @@ export interface Instance {
   stateInPromptEnabled: boolean;
   /** When true, inject the current date/time into every turn (volatile tail). */
   datetimeInjectionEnabled: boolean;
+  /** Per-instance prompt-cache switch (off = skip all cache markers, no cache write). */
+  cacheEnabled: boolean;
+  /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
+  cacheTtl: string;
   /** When true, prior-turn tool calls + results are reconstructed into the model's cross-turn history. */
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
@@ -172,6 +176,8 @@ type UpdatableInstanceFields = {
   temperature?: number | null;
   stateInPromptEnabled?: boolean;
   datetimeInjectionEnabled?: boolean;
+  cacheEnabled?: boolean;
+  cacheTtl?: string;
   toolResultsInHistoryEnabled?: boolean;
   debugEnabled?: boolean;
   icon?: string | null;
@@ -202,6 +208,8 @@ const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
   "temperature",
   "stateInPromptEnabled",
   "datetimeInjectionEnabled",
+  "cacheEnabled",
+  "cacheTtl",
   "toolResultsInHistoryEnabled",
   "debugEnabled",
   "icon",

@@ -373,6 +373,55 @@ describe("createProvider – temperature forwarding", () => {
   });
 });
 
+describe("createProvider – cache gating (cacheConfig)", () => {
+  const makeHooks = () => ({
+    prepareMessages: vi.fn((input: { system: string | undefined; messages: unknown[]; modelId: string; ttl?: string }) => ({
+      system: input.system,
+      messages: input.messages,
+    })),
+    stepMarker: vi.fn(() => ({})),
+  });
+
+  it("skips the cache marker AND prepareStep when cacheConfig.enabled is false", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    spy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+    const hooks = makeHooks();
+    const adapter = createProvider("test-provider", (_m) => ({} as any), hooks as any);
+
+    await adapter.chat({ ...baseRequest, system: "SYS", cacheConfig: { enabled: false, ttl: "1h" } }, "gpt-4o");
+
+    expect(hooks.prepareMessages).not.toHaveBeenCalled();
+    expect(spy.mock.calls[0][0]).not.toHaveProperty("prepareStep");
+  });
+
+  it("applies the marker + prepareStep and forwards the ttl when enabled", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    spy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+    const hooks = makeHooks();
+    const adapter = createProvider("test-provider", (_m) => ({} as any), hooks as any);
+
+    await adapter.chat({ ...baseRequest, system: "SYS", cacheConfig: { enabled: true, ttl: "5m" } }, "gpt-4o");
+
+    expect(hooks.prepareMessages).toHaveBeenCalledWith(expect.objectContaining({ ttl: "5m" }));
+    expect(spy.mock.calls[0][0]).toHaveProperty("prepareStep");
+  });
+
+  it("enables caching (marker + prepareStep) when cacheConfig is omitted — backward compatible", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    spy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+    const hooks = makeHooks();
+    const adapter = createProvider("test-provider", (_m) => ({} as any), hooks as any);
+
+    await adapter.chat({ ...baseRequest, system: "SYS" }, "gpt-4o");
+
+    expect(hooks.prepareMessages).toHaveBeenCalled();
+    expect(spy.mock.calls[0][0]).toHaveProperty("prepareStep");
+  });
+});
+
 describe("createProvider – system message folding", () => {
   it("folds a mid-array system message into the top-level system and strips it from messages", async () => {
     const generateTextSpy = vi.mocked(tracedGenerateText);

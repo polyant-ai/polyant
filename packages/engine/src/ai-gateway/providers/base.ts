@@ -4,7 +4,7 @@ import { type LanguageModel, type ModelMessage, stepCountIs } from "ai";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { config } from "../../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
-import type { ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
+import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 
 type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => LanguageModel;
@@ -401,6 +401,8 @@ export type PrepareMessages = (input: {
   system: string | undefined;
   messages: ModelMessage[];
   modelId: string;
+  /** Cross-turn cache TTL (Anthropic). Undefined → provider default (1h). */
+  ttl?: CacheTtl;
 }) => { system: string | undefined; messages: ModelMessage[] };
 
 export interface ProviderHooks {
@@ -436,7 +438,10 @@ export function createProvider(
     modelId: string,
   ): { system: string | undefined; messages: ModelMessage[] } => {
     const folded = foldSystemMessages(request.system, request.messages);
-    return hooks?.prepareMessages ? hooks.prepareMessages({ ...folded, modelId }) : folded;
+    // cacheConfig.enabled === false → skip ALL markers (no cache write). Undefined
+    // = enabled (backward compatible). ttl selects the cross-turn Anthropic TTL.
+    if (request.cacheConfig?.enabled === false || !hooks?.prepareMessages) return folded;
+    return hooks.prepareMessages({ ...folded, modelId, ttl: request.cacheConfig?.ttl });
   };
 
   return {
@@ -448,7 +453,7 @@ export function createProvider(
       logLlmPayload(providerName, modelId, request);
 
       const { system, messages } = prepare(request, modelId);
-      const prepareStep = buildPrepareStep(hooks, modelId);
+      const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
       const result = await tracedGenerateText({
         model: createModel(modelId, request.apiKeys),
         system,
@@ -488,7 +493,7 @@ export function createProvider(
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
       const { system, messages } = prepare(request, modelId);
-      const prepareStep = buildPrepareStep(hooks, modelId);
+      const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
       const result = await tracedStreamText({
         model: createModel(modelId, request.apiKeys),
         system,

@@ -6,7 +6,7 @@ import { getAllSecretsById } from "./secrets.store.js";
 import { SECRET_KEYS } from "./secrets.store.js";
 import { TtlCache } from "../utils/ttl-cache.js";
 import { isThinkingCapable, resolveModel, clampTemperature, temperatureSupported } from "../ai-gateway/config.js";
-import type { ModelTier } from "../ai-gateway/types.js";
+import type { CacheTtl, ModelTier } from "../ai-gateway/types.js";
 import type { STTCredentials, STTProviderName } from "../stt-gateway/types.js";
 
 export interface InstanceConfig {
@@ -49,6 +49,8 @@ export interface InstanceConfig {
   stateInPromptEnabled: boolean;
   /** When true, inject the current date/time into every turn (volatile tail). */
   datetimeInjectionEnabled: boolean;
+  /** Per-instance prompt-cache control, forwarded verbatim to the ai-gateway ChatRequest. */
+  cacheConfig: { enabled: boolean; ttl: CacheTtl };
   /** When true, prior-turn tool calls + results are reconstructed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
@@ -124,6 +126,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       temperature: null,
       stateInPromptEnabled: false,
       datetimeInjectionEnabled: true,
+      cacheConfig: { enabled: true, ttl: "1h" },
       toolResultsInHistoryEnabled: false,
       debugEnabled: false,
       optout: { enabled: false, stopKeywords: ["STOP"], resumeKeywords: ["START"], closingMessage: null, resumeMessage: null, injectPromptHint: true },
@@ -200,6 +203,10 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       : null,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
+    cacheConfig: {
+      enabled: instance.cacheEnabled,
+      ttl: instance.cacheTtl === "5m" ? "5m" : "1h",
+    },
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     optout: {

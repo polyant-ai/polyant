@@ -35,6 +35,15 @@ export const instances = pgTable("instances", {
    */
   datetimeInjectionEnabled: boolean("datetime_injection_enabled").notNull().default(true),
   /**
+   * Per-instance prompt-cache switch. Off skips ALL cache markers (Anthropic
+   * `cacheControl` / Bedrock `cachePoint`) so the provider never pays a cache
+   * write; on caches at `cacheTtl`. Default on = prior behaviour. No effect on
+   * OpenAI (automatic caching) or Nebius (no cache API).
+   */
+  cacheEnabled: boolean("cache_enabled").notNull().default(true),
+  /** Cross-turn Anthropic cache TTL: "5m" or "1h" (default "1h"). Bedrock is 5m regardless. */
+  cacheTtl: text("cache_ttl").notNull().default("1h"),
+  /**
    * When true, prior-turn tool calls + results are reconstructed (truncated) into
    * the model's cross-turn history so it "remembers" what tools returned. Default
    * false keeps the history text-only (see conversations/store.ts getRecentMessages).

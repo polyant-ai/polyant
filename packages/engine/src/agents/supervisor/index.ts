@@ -65,6 +65,8 @@ export interface SupervisorInput {
   stateInPromptEnabled?: boolean;
   /** When true, inject the current date/time into every turn (resolved from instance config). */
   datetimeInjectionEnabled?: boolean;
+  /** Per-instance prompt-cache control, forwarded to the ai-gateway ChatRequest. */
+  cacheConfig?: { enabled: boolean; ttl: "5m" | "1h" };
   /** Informational opt-out hint to render into the prompt (set when the instance enables it). */
   optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
   /** When true, the exact LLM request payload (system + messages + tools) is captured and returned for debug. */
@@ -516,6 +518,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
       maxSteps: 15,
       abortSignal: input.abortSignal,
       captureDebug: input.debugEnabled ?? false,
+      cacheConfig: input.cacheConfig,
     },
     {
       conversationId: input.conversationId,
@@ -580,6 +583,7 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
       maxSteps: 15,
       abortSignal: input.abortSignal,
       captureDebug: input.debugEnabled ?? false,
+      cacheConfig: input.cacheConfig,
     },
     {
       conversationId: input.conversationId,

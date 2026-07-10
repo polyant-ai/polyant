@@ -103,6 +103,8 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     temperature: instance.temperature,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
+    cacheEnabled: instance.cacheEnabled,
+    cacheTtl: instance.cacheTtl === "5m" ? "5m" : "1h",
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     sttProvider: instance.sttProvider,

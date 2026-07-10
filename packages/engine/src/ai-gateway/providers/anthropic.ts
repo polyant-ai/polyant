@@ -22,52 +22,39 @@ const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 const DEFAULT_THINKING_BUDGET = 5000;
 
 /**
- * Cross-turn cache breakpoints (tools+system and pre-turn history). Unlike OpenAI
- * (automatic prefix caching, no parameters), Anthropic requires an explicit
- * `cache_control` marker and the `@ai-sdk/anthropic` provider does NOT add one on
- * its own — so without this every Anthropic turn re-pays the full prompt at full
- * price.
- *
- * TTL is 1 hour (not the 5-minute default): Polyant's production traffic is
- * dominated by slow async channels (WhatsApp/Telegram) where turns arrive
- * minutes-to-sub-hour apart. With a 5m TTL the prefix expires between turns, so
- * every turn re-pays the write premium and never collects a read — a net loss
- * vs no cache. 1h keeps the prefix warm across those gaps. The write premium is
- * higher (2x vs 1.25x) but is amortized by the read on the following turn.
+ * Anthropic requires an explicit `cache_control` marker (the `@ai-sdk/anthropic`
+ * provider adds none), so without this every turn re-pays the full prompt. Two
+ * TTLs, selected per instance by `cacheConfig.ttl` (default 1h):
+ *  - 1h — best for Polyant's slow async channels (WhatsApp/Telegram): turns
+ *    arrive minutes-to-sub-hour apart, so a 5m prefix would expire between turns
+ *    and re-pay the write (2×) with no read. 1h keeps it warm; the 2× write
+ *    amortizes on the next read.
+ *  - 5m — cheaper write (1.25×), for interactive/bursty instances.
  */
-const EPHEMERAL_CACHE_CONTROL = { cacheControl: { type: "ephemeral" as const, ttl: "1h" as const } };
-
-/**
- * Within-turn (multi-step) cache breakpoint — the moving marker set on each step
- * by `anthropicStepMarker`. Uses the DEFAULT 5-minute TTL, not 1h: within a
- * single agentic turn the steps are seconds apart, so 5m is ample and its write
- * premium (1.25x) is lower than 1h's (2x). Mixing the two TTLs is safe because
- * Anthropic requires longer-TTL breakpoints to appear BEFORE shorter ones, and
- * this marker always lands on the LAST message — after the 1h tools+system and
- * history breakpoints. (Bedrock's `cachePoint` has no TTL, so its step marker
- * reuses the same block.)
- */
-const EPHEMERAL_STEP_CACHE_CONTROL = { cacheControl: { type: "ephemeral" as const } };
+const CACHE_CONTROL_1H = { cacheControl: { type: "ephemeral" as const, ttl: "1h" as const } };
+const CACHE_CONTROL_5M = { cacheControl: { type: "ephemeral" as const } };
 
 /** Decorate a message with Anthropic's `cacheControl` marker — shared by both breakpoint paths. */
 const markAnthropic = (marker: Record<string, unknown>) => (message: ModelMessage): ModelMessage =>
   withProviderCacheMarker(message, "anthropic", marker);
 
 /**
- * Inject Anthropic cross-turn prompt-cache breakpoints (tools+system and history)
- * into a folded request via the shared placement helper. Exported for unit
- * testing; wired via `createProvider`'s `prepareMessages` hook.
+ * Inject Anthropic cross-turn breakpoints (tools+system and history) at the
+ * instance's chosen TTL (default 1h). Exported for unit testing; wired via
+ * `createProvider`'s `prepareMessages` hook.
  */
 export const applyAnthropicPromptCaching: PrepareMessages = (input) =>
-  injectCacheBreakpoints(input, markAnthropic(EPHEMERAL_CACHE_CONTROL));
+  injectCacheBreakpoints(input, markAnthropic(input.ttl === "5m" ? CACHE_CONTROL_5M : CACHE_CONTROL_1H));
 
 /**
- * Moving cache breakpoint for the multi-step loop — marks the last message on
- * each step (from step 1) so accumulating tool_use/tool_result blocks are cached
- * incrementally, at the 5-minute within-turn TTL. Wired via `createProvider`'s
- * `stepMarker` hook.
+ * Within-turn moving breakpoint — marks the last message from step 1 so
+ * accumulating tool_use/tool_result blocks cache incrementally. ALWAYS 5m (steps
+ * are seconds apart): cheaper write, and — landing after the cross-turn
+ * breakpoints — it respects Anthropic's "longer-TTL-first" ordering rule even
+ * when the instance runs the cross-turn breakpoints at 1h. Wired via
+ * `createProvider`'s `stepMarker` hook.
  */
-export const anthropicStepMarker = makeStepMarker(markAnthropic(EPHEMERAL_STEP_CACHE_CONTROL));
+export const anthropicStepMarker = makeStepMarker(markAnthropic(CACHE_CONTROL_5M));
 
 export const AnthropicProvider = createProvider(
   "anthropic",

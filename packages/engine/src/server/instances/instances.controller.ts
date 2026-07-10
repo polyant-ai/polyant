@@ -79,6 +79,8 @@ function toInstanceDto(instance: Instance) {
     temperature: instance.temperature,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
+    cacheEnabled: instance.cacheEnabled,
+    cacheTtl: instance.cacheTtl,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     optoutEnabled: instance.optoutEnabled,
@@ -246,6 +248,8 @@ export class InstancesController {
       temperature?: number | null;
       stateInPromptEnabled?: boolean;
       datetimeInjectionEnabled?: boolean;
+      cacheEnabled?: boolean;
+      cacheTtl?: string;
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
       sttProvider?: "openai" | "aws" | "deepgram";

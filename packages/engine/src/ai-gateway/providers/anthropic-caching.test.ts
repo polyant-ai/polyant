@@ -99,6 +99,25 @@ describe("applyAnthropicPromptCaching", () => {
     applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6", system: "S", messages: input });
     expect(JSON.stringify(input)).toBe(snapshot);
   });
+
+  it("defaults the cross-turn breakpoint to the 1h TTL when ttl is omitted", () => {
+    const { messages } = applyAnthropicPromptCaching({
+      modelId: "claude-sonnet-4-6",
+      system: "SYS",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(cacheControlOf(messages[0])).toEqual(EPHEMERAL); // 1h
+  });
+
+  it("uses the 5m TTL on the cross-turn breakpoint when ttl='5m'", () => {
+    const { messages } = applyAnthropicPromptCaching({
+      modelId: "claude-sonnet-4-6",
+      system: "SYS",
+      messages: [{ role: "user", content: "hi" }],
+      ttl: "5m",
+    });
+    expect(cacheControlOf(messages[0])).toEqual(STEP_EPHEMERAL); // 5m, no ttl field
+  });
 });
 
 describe("anthropicStepMarker (multi-step prepareStep)", () => {
