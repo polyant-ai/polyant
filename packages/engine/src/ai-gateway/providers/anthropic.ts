@@ -93,7 +93,7 @@ type AnthropicThinkingOptions =
  *     These REJECT the legacy shape with a 400.
  *   - legacy models (Opus 4.6 and earlier, Haiku/Sonnet 4.x) → `thinking.type:
  *     "enabled"` + a per-level token budget.
- * The gateway supplies `adaptive` from `isReasoningAdaptive(provider, model)`.
+ * The gateway supplies `adaptive` from `reasoningControlFor(provider, model) === "adaptive"`.
  */
 export function buildAnthropicThinkingOptions(level: string, adaptive: boolean): AnthropicThinkingOptions {
   const lvl: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";

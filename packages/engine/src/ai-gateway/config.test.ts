@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, isReasoningAdaptive, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
+import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
 
 describe("resolveModel", () => {
   it("resolves openai fast tier", () => {
@@ -380,26 +380,32 @@ describe("isReasoningAlwaysOn", () => {
   });
 });
 
-describe("isReasoningAdaptive", () => {
+describe("reasoningControlFor", () => {
   it.each([
-    // Newer Claude (adaptive API) — Anthropic 1P + Bedrock profiles.
-    ["anthropic", "claude-opus-4-8", true],
-    ["anthropic", "claude-opus-4-7", true],
-    ["anthropic", "claude-sonnet-5", true],
-    ["bedrock", "eu.anthropic.claude-opus-4-8", true],
-    ["bedrock", "global.anthropic.claude-sonnet-5", true],
-    // Legacy Claude (enabled + budgetTokens).
-    ["anthropic", "claude-opus-4-6", false],
-    ["anthropic", "claude-sonnet-4-6", false],
-    ["anthropic", "claude-haiku-4-5-20251001", false],
-    ["bedrock", "eu.anthropic.claude-opus-4-6-v1", false],
-    // Non-Claude / other providers never adaptive.
-    ["openai", "gpt-5.6-sol", false],
-    ["nebius", "Qwen/Qwen3.5-397B-A17B", false],
-    ["bedrock", "openai.gpt-oss-120b-1:0", false],
-    ["anthropic", "", false],
+    // adaptive — newer Claude (Anthropic 1P + Bedrock profiles).
+    ["anthropic", "claude-opus-4-8", "adaptive"],
+    ["anthropic", "claude-opus-4-7", "adaptive"],
+    ["anthropic", "claude-sonnet-5", "adaptive"],
+    ["bedrock", "eu.anthropic.claude-opus-4-8", "adaptive"],
+    ["bedrock", "global.anthropic.claude-sonnet-5", "adaptive"],
+    // budget — legacy Claude (enabled + budgetTokens) + Bedrock MiniMax.
+    ["anthropic", "claude-opus-4-6", "budget"],
+    ["anthropic", "claude-sonnet-4-6", "budget"],
+    ["anthropic", "claude-haiku-4-5-20251001", "budget"],
+    ["bedrock", "eu.anthropic.claude-opus-4-6-v1", "budget"],
+    ["bedrock", "eu.anthropic.claude-haiku-4-5-20251001-v1:0", "budget"],
+    ["bedrock", "minimax.minimax-m2.5", "budget"],
+    // effort — OpenAI/Nebius reasoning + Bedrock gpt-oss.
+    ["openai", "gpt-5.6-sol", "effort"],
+    ["openai", "o3", "effort"],
+    ["nebius", "Qwen/Qwen3.5-397B-A17B", "effort"],
+    ["bedrock", "openai.gpt-oss-120b-1:0", "effort"],
+    // non-reasoning / empty -> undefined.
+    ["openai", "gpt-4o", undefined],
+    ["bedrock", "eu.amazon.nova-lite-v1:0", undefined],
+    ["anthropic", "", undefined],
   ])("%s/%s -> %s", (provider, model, expected) => {
-    expect(isReasoningAdaptive(provider, model)).toBe(expected);
+    expect(reasoningControlFor(provider, model)).toBe(expected);
   });
 });
 

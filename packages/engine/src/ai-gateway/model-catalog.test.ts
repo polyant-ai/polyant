@@ -5,7 +5,7 @@ import { providerConfigs, type ModelCapabilities } from "./model-catalog.js";
 import {
   reasoningCapableFallback,
   reasoningAlwaysOnFallback,
-  reasoningAdaptiveFallback,
+  reasoningControlFallback,
   temperatureRejectedFallback,
   cacheCapableFallback,
 } from "./config.js";
@@ -47,6 +47,12 @@ describe("model catalog integrity", () => {
       }
     }
   });
+
+  it("reasoningControl is present exactly when reasoning is true", () => {
+    for (const [provider, modelId, caps] of ALL) {
+      expect(caps.reasoningControl !== undefined, `${provider}/${modelId} control⟺reasoning`).toBe(caps.reasoning);
+    }
+  });
 });
 
 // Behaviour-preserving migration guard: capability values were seeded from the
@@ -57,7 +63,7 @@ describe("catalog capabilities match the regex fallback (migration guard)", () =
   it.each(ALL)("%s/%s", (provider, modelId, caps) => {
     expect(caps.reasoning).toBe(reasoningCapableFallback(provider, modelId));
     expect(caps.reasoningAlwaysOn ?? false).toBe(reasoningAlwaysOnFallback(modelId));
-    expect(caps.reasoningAdaptive ?? false).toBe(reasoningAdaptiveFallback(provider, modelId));
+    expect(caps.reasoningControl).toBe(reasoningControlFallback(provider, modelId));
     expect(caps.temperature).toBe(!temperatureRejectedFallback(provider, modelId));
     expect(caps.cache).toBe(cacheCapableFallback(provider, modelId));
     expect(caps.vision).toBe(visionCapableFallback(modelId));

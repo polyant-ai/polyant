@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateCostBreakdown, isThinkingCapable, isReasoningAlwaysOn, isReasoningAdaptive } from "./config.js";
+import { resolveModel, estimateCostBreakdown, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
 import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
@@ -93,7 +93,7 @@ function resolveCallConfig(
         ...providerOptions,
         anthropic: {
           ...(providerOptions?.anthropic ?? {}),
-          ...buildAnthropicThinkingOptions(thinkingLevel, isReasoningAdaptive(providerName, modelId)),
+          ...buildAnthropicThinkingOptions(thinkingLevel, reasoningControlFor(providerName, modelId) === "adaptive"),
         } as Record<string, unknown>,
       };
     } else if (providerName === "openai") {
@@ -109,7 +109,7 @@ function resolveCallConfig(
         ...providerOptions,
         bedrock: {
           ...(providerOptions?.bedrock ?? {}),
-          ...buildBedrockReasoningOptions(modelId, thinkingLevel, isReasoningAdaptive(providerName, modelId)),
+          ...buildBedrockReasoningOptions(thinkingLevel, reasoningControlFor(providerName, modelId) ?? "budget"),
         } as Record<string, unknown>,
       };
     }

@@ -86,37 +86,29 @@ const BEDROCK_THINKING_BUDGETS: Record<"low" | "medium" | "high", number> = {
   high: 24000,
 };
 
-/** gpt-oss takes an effort level; Claude takes a token budget. */
-function isEffortBasedReasoning(modelId: string): boolean {
-  return /openai\.gpt-oss/i.test(modelId);
-}
-
 /**
- * Bedrock reasoning takes three shapes on `providerOptions.bedrock.reasoningConfig`:
- *   - adaptive Claude (Opus 4.7/4.8, Sonnet 5) → `type:"adaptive"` + maxReasoningEffort.
- *     These REJECT the legacy `type:"enabled"` + budgetTokens with a 400 (live-verified),
- *     exactly like Anthropic 1P — the gateway passes `adaptive` from isReasoningAdaptive.
- *   - OpenAI gpt-oss → `type:"enabled"` + an EFFORT string (maxReasoningEffort).
- *   - legacy Claude (Opus 4.6 and earlier, Haiku/Sonnet 4.x) + MiniMax → `type:"enabled"`
+ * Bedrock reasoning takes three shapes on `providerOptions.bedrock.reasoningConfig`,
+ * selected by the model's catalog `reasoningControl` (NO model-id regex here — the
+ * gateway passes `control` from `reasoningControlFor`):
+ *   - "adaptive" (Claude Opus 4.7/4.8, Sonnet 5) → `type:"adaptive"` + maxReasoningEffort.
+ *     REJECT the legacy `type:"enabled"` + budgetTokens with a 400 (live-verified).
+ *   - "effort" (gpt-oss) → `type:"enabled"` + an EFFORT string (maxReasoningEffort).
+ *   - "budget" (Claude 4.6-and-earlier, Haiku/Sonnet 4.x, MiniMax) → `type:"enabled"`
  *     + a token BUDGET (budgetTokens).
  *
  * Only called for a reasoning-capable Bedrock model (gated by isThinkingCapable
  * upstream) and only when thinking is ON.
- *
- * VALIDATED live (eu-south-1): gpt-oss maxReasoningEffort effective; adaptive Claude
- * requires the adaptive shape; budgetTokens ignored for gpt-oss (SDK warns).
  */
 export function buildBedrockReasoningOptions(
-  modelId: string,
   level: string,
-  adaptive: boolean,
+  control: "effort" | "budget" | "adaptive",
 ): { reasoningConfig: Record<string, unknown> } {
   const normalized: "low" | "medium" | "high" =
     level === "low" || level === "high" ? level : "medium";
-  if (adaptive) {
+  if (control === "adaptive") {
     return { reasoningConfig: { type: "adaptive", maxReasoningEffort: normalized } };
   }
-  if (isEffortBasedReasoning(modelId)) {
+  if (control === "effort") {
     return { reasoningConfig: { type: "enabled", maxReasoningEffort: normalized } };
   }
   return {

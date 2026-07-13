@@ -91,14 +91,35 @@ export function temperatureRejectedFallback(provider: string, modelId: string): 
 }
 
 /**
- * Adaptive-thinking fallback (true = model uses the newer `thinking.type:"adaptive"`
- * + effort API instead of legacy `enabled` + budgetTokens). Anthropic Claude
- * Opus 4.7/4.8, Sonnet 5, Fable 5 — on both Anthropic 1P and Bedrock (optional
- * region prefix). LIVE-VERIFIED: these reject the `enabled` shape with a 400.
+ * Reasoning-CONTROL fallback — how a reasoning-capable model is driven on the
+ * wire, for un-catalogued ids. Consolidates the last two mechanism regexes here
+ * (adaptive-Claude + Bedrock gpt-oss effort) so NO provider file branches on a
+ * model-id regex. Returns `undefined` for non-reasoning ids.
+ *   - adaptive: Anthropic/Bedrock Claude Opus 4.7/4.8, Sonnet 5, Fable 5 (reject
+ *     the legacy `enabled`+budgetTokens shape with a 400 — live-verified).
+ *   - effort: OpenAI/Nebius reasoning_effort; Bedrock gpt-oss maxReasoningEffort.
+ *   - budget: Anthropic/Bedrock Claude 4.6-and-earlier + Bedrock MiniMax.
  */
-export function reasoningAdaptiveFallback(provider: string, modelId: string): boolean {
-  if (provider !== "anthropic" && provider !== "bedrock") return false;
-  return /claude-(?:opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
+export function reasoningControlFallback(
+  provider: string,
+  modelId: string,
+): "effort" | "budget" | "adaptive" | undefined {
+  if (!reasoningCapableFallback(provider, modelId)) return undefined;
+  const claudeAdaptive =
+    (provider === "anthropic" || provider === "bedrock") &&
+    /claude-(?:opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
+  if (claudeAdaptive) return "adaptive";
+  switch (provider) {
+    case "openai":
+    case "nebius":
+      return "effort";
+    case "bedrock":
+      return /openai\.gpt-oss/i.test(modelId) ? "effort" : "budget";
+    case "anthropic":
+      return "budget";
+    default:
+      return undefined;
+  }
 }
 
 /** Cache-eligibility fallback: Nebius none, Bedrock anthropic/nova only, else yes. */
@@ -267,18 +288,21 @@ export function isReasoningAlwaysOn(modelId: string): boolean {
 }
 
 /**
- * Returns true when a Claude model uses the NEWER thinking API (`thinking.type:
- * "adaptive"` + effort) instead of legacy `enabled` + budgetTokens. Consumed by
- * the ai-gateway to build the correct thinking payload per model — sending the
- * legacy shape to these models is a hard 400 (Opus 4.7/4.8, Sonnet 5, Fable 5),
- * on both Anthropic 1P and Bedrock. Catalog lookup with a logged regex fallback.
+ * How a (provider, model)'s reasoning is CONTROLLED on the wire — `effort` |
+ * `budget` | `adaptive`, or `undefined` for non-reasoning models. The ai-gateway
+ * builds the per-model thinking payload from this instead of any model-id regex.
+ * Catalog lookup (`reasoningControl`) with a logged fallback. Sending the wrong
+ * shape is a hard 400 for adaptive Claude (Opus 4.7/4.8, Sonnet 5, Fable 5).
  */
-export function isReasoningAdaptive(provider: string, modelId: string): boolean {
-  if (!provider || !modelId) return false;
+export function reasoningControlFor(
+  provider: string,
+  modelId: string,
+): "effort" | "budget" | "adaptive" | undefined {
+  if (!provider || !modelId) return undefined;
   const entry = getModelCapabilities(provider, modelId);
-  if (entry) return entry.reasoningAdaptive ?? false;
-  warnCatalogFallback("isReasoningAdaptive", provider, modelId);
-  return reasoningAdaptiveFallback(provider, modelId);
+  if (entry) return entry.reasoningControl;
+  warnCatalogFallback("reasoningControlFor", provider, modelId);
+  return reasoningControlFallback(provider, modelId);
 }
 
 /**

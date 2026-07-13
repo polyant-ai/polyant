@@ -49,36 +49,36 @@ describe("buildOpenAIReasoningOptions", () => {
 });
 
 describe("buildBedrockReasoningOptions", () => {
-  it("legacy Claude → a token budget in [1024, 64000], scaled by level", () => {
-    const { reasoningConfig } = buildBedrockReasoningOptions("eu.anthropic.claude-sonnet-4-6", "medium", false);
+  it("budget control → a token budget in [1024, 64000], scaled by level", () => {
+    const { reasoningConfig } = buildBedrockReasoningOptions("medium", "budget");
     expect(reasoningConfig.type).toBe("enabled");
     expect(reasoningConfig.budgetTokens).toBeGreaterThanOrEqual(1024);
     expect(reasoningConfig.budgetTokens).toBeLessThanOrEqual(64000);
     expect(reasoningConfig).not.toHaveProperty("maxReasoningEffort");
-    const low = buildBedrockReasoningOptions("eu.anthropic.claude-opus-4-6-v1", "low", false).reasoningConfig.budgetTokens as number;
-    const high = buildBedrockReasoningOptions("eu.anthropic.claude-opus-4-6-v1", "high", false).reasoningConfig.budgetTokens as number;
+    const low = buildBedrockReasoningOptions("low", "budget").reasoningConfig.budgetTokens as number;
+    const high = buildBedrockReasoningOptions("high", "budget").reasoningConfig.budgetTokens as number;
     expect(low).toBeLessThan(high);
   });
 
-  it("adaptive Claude → adaptive block + effort (Opus 4.7/4.8, Sonnet 5)", () => {
-    const { reasoningConfig } = buildBedrockReasoningOptions("eu.anthropic.claude-opus-4-8", "low", true);
+  it("adaptive control → adaptive block + effort (Opus 4.7/4.8, Sonnet 5)", () => {
+    const { reasoningConfig } = buildBedrockReasoningOptions("low", "adaptive");
     expect(reasoningConfig).toEqual({ type: "adaptive", maxReasoningEffort: "low" });
   });
 
-  it("gpt-oss → enabled + effort (not a budget)", () => {
-    const { reasoningConfig } = buildBedrockReasoningOptions("openai.gpt-oss-120b-1:0", "high", false);
+  it("effort control → enabled + effort (not a budget; gpt-oss)", () => {
+    const { reasoningConfig } = buildBedrockReasoningOptions("high", "effort");
     expect(reasoningConfig).toEqual({ type: "enabled", maxReasoningEffort: "high" });
   });
 
   it("normalises an unknown level to medium", () => {
-    expect(buildBedrockReasoningOptions("openai.gpt-oss-120b-1:0", "bogus", false).reasoningConfig).toEqual({
+    expect(buildBedrockReasoningOptions("bogus", "effort").reasoningConfig).toEqual({
       type: "enabled",
       maxReasoningEffort: "medium",
     });
   });
 
   it("is shaped so it can be spread into providerOptions.bedrock", () => {
-    const providerOptions = { bedrock: { foo: "bar", ...buildBedrockReasoningOptions("openai.gpt-oss-120b-1:0", "medium", false) } };
+    const providerOptions = { bedrock: { foo: "bar", ...buildBedrockReasoningOptions("medium", "effort") } };
     expect(providerOptions.bedrock).toMatchObject({
       foo: "bar",
       reasoningConfig: { type: "enabled", maxReasoningEffort: "medium" },
