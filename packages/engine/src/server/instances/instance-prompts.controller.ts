@@ -14,7 +14,6 @@ const PromptSectionKeys = z.enum([
   "05-skills",
   "06-memory",
   "07-user-identity",
-  "08-datetime",
 ]);
 
 const PatchPromptsSchema = z.object({
@@ -26,7 +25,7 @@ const PatchPromptsSchema = z.object({
       }),
     )
     .min(1)
-    .max(8),
+    .max(7),
 });
 
 @Controller("api/instances")

@@ -42,7 +42,7 @@ const {
       tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o3" },
       costPerMillionTokens: {
         "gpt-4o-mini": { input: 0.15, output: 0.6 },
-        "gpt-4o": { input: 2.5, output: 10 },
+        "gpt-4o": { input: 2.5, output: 10, cacheRead: 1.25, cacheWrite: 0 },
         "o3": { input: 2.0, output: 8.0 },
       },
     },
@@ -79,6 +79,9 @@ vi.mock("../../ai-gateway/config.js", () => ({
     if (value == null || !Number.isFinite(value)) return null;
     return Math.min(2, Math.max(0, value));
   },
+  cacheSupported: (provider: string, model: string): boolean =>
+    provider === "bedrock" ? /anthropic|nova/.test(model) : provider !== "nebius",
+  isReasoningAlwaysOn: (modelId: string): boolean => /gpt-oss/i.test(modelId),
 }));
 vi.mock("../../instances/icon-validator.js", () => ({ validateIconDataUri: vi.fn() }));
 vi.mock("../../embeddings-gateway/provider-resolver.js", () => ({
@@ -146,7 +149,7 @@ describe("InstancesController", () => {
       const allowed = new Set([
         "id", "slug", "name", "description", "status", "provider", "model",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
-        "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "stateInPromptEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
+        "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "stateInPromptEnabled", "datetimeInjectionEnabled", "cacheEnabled", "cacheTtl", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint",
         "memory",
       ]);
@@ -388,6 +391,18 @@ describe("InstancesController", () => {
       const openai = res.providers.openai.models;
       expect(openai.find((m) => m.id === "o3")?.supportsTemperature).toBe(false);
       expect(openai.find((m) => m.id === "gpt-4o")?.supportsTemperature).toBe(true);
+    });
+
+    it("exposes absolute per-model cache costs (with input-rate fallback) and cache support", () => {
+      const res = controller.getModels();
+      const gpt4o = res.providers.openai.models.find((m) => m.id === "gpt-4o");
+      expect(gpt4o?.supportsCache).toBe(true);
+      expect(gpt4o?.costCacheRead).toBe(1.25); // absolute catalog rate
+      expect(gpt4o?.costCacheWrite).toBe(0); // OpenAI pre-5.6 → no write premium
+      // A model with no cache rates falls back to the full input rate.
+      const o3 = res.providers.openai.models.find((m) => m.id === "o3");
+      expect(o3?.costCacheRead).toBe(2.0);
+      expect(o3?.costCacheWrite).toBe(2.0);
     });
   });
 });

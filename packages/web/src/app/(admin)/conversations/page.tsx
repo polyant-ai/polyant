@@ -237,13 +237,13 @@ export default function ConversationsPage() {
                           (+{conv.serviceTokens.toLocaleString()})
                         </span>
                       )}
-                      {conv.cachedInputTokens > 0 && (
+                      {conv.cachedInputTokens + conv.cacheCreationInputTokens > 0 && (
                         <span
                           className="inline-flex items-center gap-0.5 text-xs text-muted-foreground/60 ml-1 tabular-nums"
-                          title={t("conversations.list.cachedTokens")}
+                          title={`${t("conversations.list.cachedTokens")} — ${t("conversations.detail.pills.cacheRead")}: ${conv.cachedInputTokens.toLocaleString()}, ${t("conversations.detail.pills.cacheWrite")}: ${conv.cacheCreationInputTokens.toLocaleString()}`}
                         >
                           <Database className="h-3 w-3" />
-                          {conv.cachedInputTokens.toLocaleString()}
+                          {(conv.cachedInputTokens + conv.cacheCreationInputTokens).toLocaleString()}
                         </span>
                       )}
                     </TableCell>

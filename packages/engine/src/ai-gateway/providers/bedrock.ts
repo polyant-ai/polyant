@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { ModelMessage } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { createProvider, type PrepareMessages } from "./base.js";
-import { injectCacheBreakpoints, withProviderCacheMarker } from "./prompt-caching.js";
+import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
+import { BEDROCK_CACHE_CAPABLE } from "../config.js";
 
 /**
  * Bedrock Converse cache breakpoint. Bedrock uses a `cachePoint` block (via
@@ -14,12 +16,9 @@ import { injectCacheBreakpoints, withProviderCacheMarker } from "./prompt-cachin
  */
 const BEDROCK_CACHE_POINT = { cachePoint: { type: "default" as const } };
 
-/**
- * Only these Bedrock model families support Converse prompt caching. Injecting a
- * `cachePoint` for any other model (Qwen, Nemotron, gpt-oss, MiniMax …) makes
- * Bedrock reject the whole call with a ValidationException, so gate strictly.
- */
-const BEDROCK_CACHE_CAPABLE = /anthropic|nova/;
+/** Decorate a message with Bedrock's `cachePoint` marker — shared by both breakpoint paths. */
+const markBedrock = (message: ModelMessage): ModelMessage =>
+  withProviderCacheMarker(message, "bedrock", BEDROCK_CACHE_POINT);
 
 /**
  * Inject Bedrock `cachePoint` breakpoints (tools+system and history) for
@@ -34,10 +33,21 @@ export const applyBedrockPromptCaching: PrepareMessages = (input) => {
   if (!BEDROCK_CACHE_CAPABLE.test(input.modelId)) {
     return { system: input.system, messages: input.messages };
   }
-  return injectCacheBreakpoints(input, (message) =>
-    withProviderCacheMarker(message, "bedrock", BEDROCK_CACHE_POINT),
-  );
+  return injectCacheBreakpoints(input, markBedrock);
 };
+
+/**
+ * Moving cache breakpoint for the multi-step loop — marks the last message on
+ * each step (from step 1), gated to cache-capable model families so a
+ * `cachePoint` never reaches a model that rejects it. Bedrock's `cachePoint` has
+ * no TTL variants, so the step marker reuses the same block as the cross-turn one
+ * (unlike Anthropic, where the within-turn marker drops to a 5m TTL). Wired via
+ * `createProvider`'s `stepMarker` hook.
+ */
+export const bedrockStepMarker = makeStepMarker(
+  markBedrock,
+  (modelId) => BEDROCK_CACHE_CAPABLE.test(modelId),
+);
 
 export const BedrockProvider = createProvider(
   "bedrock",
@@ -66,7 +76,7 @@ export const BedrockProvider = createProvider(
       credentialProvider: fromNodeProviderChain(),
     })(modelId);
   },
-  { prepareMessages: applyBedrockPromptCaching },
+  { prepareMessages: applyBedrockPromptCaching, stepMarker: bedrockStepMarker, strictTemplate: true },
 );
 
 /** Claude reasoning budgets (Bedrock accepts a token budget in [1024, 64000]). */

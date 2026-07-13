@@ -81,6 +81,9 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
         thinkingEnabled: data.thinkingEnabled,
         temperature: data.temperature,
         stateInPromptEnabled: data.stateInPromptEnabled,
+        datetimeInjectionEnabled: data.datetimeInjectionEnabled,
+        cacheEnabled: data.cacheEnabled,
+        cacheTtl: data.cacheTtl,
         toolResultsInHistoryEnabled: data.toolResultsInHistoryEnabled,
         debugEnabled: data.debugEnabled,
         sttProvider: data.sttProvider,
@@ -198,6 +201,9 @@ export async function importOverwriteInstance(
         thinkingEnabled: data.thinkingEnabled,
         temperature: data.temperature,
         stateInPromptEnabled: data.stateInPromptEnabled,
+        datetimeInjectionEnabled: data.datetimeInjectionEnabled,
+        cacheEnabled: data.cacheEnabled,
+        cacheTtl: data.cacheTtl,
         toolResultsInHistoryEnabled: data.toolResultsInHistoryEnabled,
         debugEnabled: data.debugEnabled,
         sttProvider: data.sttProvider,
@@ -326,6 +332,9 @@ async function importPrompts(
   prompts: ExportInstanceData["prompts"],
 ): Promise<void> {
   for (const p of prompts) {
+    // Anti-resurrection: the 08-datetime section was removed with the datetime
+    // flag; drop it from any legacy bundle so an import can't recreate it.
+    if (p.sectionKey === "08-datetime") continue;
     await tx
       .insert(instancePrompts)
       .values({

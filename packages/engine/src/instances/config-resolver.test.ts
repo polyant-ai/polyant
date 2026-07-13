@@ -65,6 +65,8 @@ const fakeInstance = {
   authEnabled: true,
   thinkingEnabled: false,
   stateInPromptEnabled: false,
+  cacheEnabled: true,
+  cacheTtl: "1h",
   toolResultsInHistoryEnabled: false,
   debugEnabled: false,
   icon: null,
@@ -124,6 +126,8 @@ describe("instances/config-resolver", () => {
         thinkingLevel: "medium",
         temperature: null,
         stateInPromptEnabled: false,
+        datetimeInjectionEnabled: true,
+        cacheConfig: { enabled: true, ttl: "1h" },
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
         optout: {
@@ -181,6 +185,7 @@ describe("instances/config-resolver", () => {
         // but gpt-4o supports temperature so the gate passes; null means "use provider default".
         temperature: null,
         stateInPromptEnabled: false,
+        cacheConfig: { enabled: true, ttl: "1h" },
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
         optout: {

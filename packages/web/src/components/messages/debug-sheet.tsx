@@ -90,8 +90,9 @@ function UsageSection({ target }: { target: DebugSheetTarget }) {
   const { t } = useI18n();
   const prompt = target.promptTokens ?? 0;
   const completion = target.completionTokens ?? 0;
-  const cache = (target.cachedInputTokens ?? 0) + (target.cacheCreationInputTokens ?? 0);
-  const regularInput = Math.max(0, prompt - cache);
+  const cacheRead = target.cachedInputTokens ?? 0;
+  const cacheWrite = target.cacheCreationInputTokens ?? 0;
+  const regularInput = Math.max(0, prompt - cacheRead - cacheWrite);
   const cost = target.cost;
 
   if (!target.model && prompt === 0 && completion === 0) return null;
@@ -99,7 +100,12 @@ function UsageSection({ target }: { target: DebugSheetTarget }) {
   const fmtCost = (usd: number | undefined) => (usd != null ? `$${usd.toFixed(4)}` : "—");
   const rows: Array<{ label: string; tokens: number; cost: number | undefined }> = [
     { label: t("conversations.detail.pills.input"), tokens: regularInput, cost: cost?.input },
-    { label: t("conversations.detail.pills.cache"), tokens: cache, cost: cost?.cache },
+    ...(cacheRead > 0
+      ? [{ label: t("conversations.detail.pills.cacheRead"), tokens: cacheRead, cost: cost?.cacheRead }]
+      : []),
+    ...(cacheWrite > 0
+      ? [{ label: t("conversations.detail.pills.cacheWrite"), tokens: cacheWrite, cost: cost?.cacheWrite }]
+      : []),
     { label: t("conversations.detail.pills.output"), tokens: completion, cost: cost?.output },
   ];
 

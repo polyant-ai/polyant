@@ -69,3 +69,38 @@ export function injectCacheBreakpoints(
 
   return { system, messages: out };
 }
+
+/** Input the AI SDK `prepareStep` hook passes us (subset we use) plus the model id. */
+export type StepMarkerInput = { stepNumber: number; messages: ModelMessage[]; modelId: string };
+
+/**
+ * Build a `prepareStep` marker — the multi-step companion to
+ * `injectCacheBreakpoints`. Within one agentic turn the AI SDK grows the messages
+ * array (assistant tool-calls + tool results) on each step; the one-shot
+ * breakpoints cover the system prefix and the pre-turn history but NOT the
+ * accumulating tool content, so steps 2..N re-send it at full input price. This
+ * marks the LAST message on each step so the accumulated prefix is cached
+ * step-to-step (a moving breakpoint, on top of the stable system breakpoint).
+ *
+ * Skips step 0 on purpose: the initial user turn carries the per-turn volatile
+ * `<context>` tail, and single-step turns (maxSteps=1 service calls, or a
+ * tool-less answer) must not pay a wasted cache-write. From step 1 onward the
+ * last message is a stable within-turn tool-result/assistant message — never the
+ * volatile user turn — so this is independent of where the volatile block lives.
+ *
+ * `applyMarker` is the provider-specific decorator; `isCacheCapable` gates
+ * providers (Bedrock) where marking a non-cache-capable model errors the call.
+ * Pure function — never mutates the input array.
+ */
+export function makeStepMarker(
+  applyMarker: (message: ModelMessage) => ModelMessage,
+  isCacheCapable?: (modelId: string) => boolean,
+): (input: StepMarkerInput) => { messages?: ModelMessage[] } {
+  return ({ stepNumber, messages, modelId }) => {
+    if (stepNumber < 1 || messages.length === 0) return {};
+    if (isCacheCapable && !isCacheCapable(modelId)) return {};
+    const out = [...messages];
+    out[out.length - 1] = applyMarker(out[out.length - 1]);
+    return { messages: out };
+  };
+}

@@ -127,6 +127,13 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // Conversation state store: render known state read-only into the prompt (default off).
   const [stateInPromptEnabled, setStateInPromptEnabled] = useState(instance.stateInPromptEnabled);
 
+  // Inject the current date/time into every turn (default on).
+  const [datetimeInjectionEnabled, setDatetimeInjectionEnabled] = useState(instance.datetimeInjectionEnabled);
+
+  // Prompt-cache control (default on, 1h). OpenAI = automatic (locked on); Nebius = none.
+  const [cacheEnabled, setCacheEnabled] = useState(instance.cacheEnabled);
+  const [cacheTtl, setCacheTtl] = useState(instance.cacheTtl);
+
   // Replay prior-turn tool results into the model's cross-turn history (default off).
   const [toolResultsInHistoryEnabled, setToolResultsInHistoryEnabled] = useState(
     instance.toolResultsInHistoryEnabled,
@@ -141,9 +148,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // Knowledge
   const [knowledgeEnabled, setKnowledgeEnabled] = useState(instance.knowledgeEnabled ?? false);
 
-  // Tool secret specs (dynamic, from API). Each entry describes how to render
-  // and persist the field (text input vs select dropdown).
-  const [toolSecretSpecs, setToolSecretSpecs] = useState<RequiredSecretSpec[]>([]);
+  // Required-secret specs (tools + hooks, dynamic, from API). Each entry describes
+  // how to render and persist the field (text input vs select dropdown).
+  const [requiredSecretSpecs, setRequiredSecretSpecs] = useState<RequiredSecretSpec[]>([]);
 
   // Secret input values, visibility toggles, and original value (for dirty tracking).
   // `initial` is the server-side value at load time (only populated for non-secret select fields).
@@ -199,7 +206,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
       else toast.error(t("settings.tab.loadFailed"));
 
       if (toolSecretsRes.status === "fulfilled") {
-        setToolSecretSpecs(toolSecretsRes.value.requiredSecrets);
+        setRequiredSecretSpecs(toolSecretsRes.value.requiredSecrets);
       }
 
       if (secretsRes.status === "fulfilled") {
@@ -223,7 +230,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   useEffect(() => {
     setSecretFields((prev) => {
       const next = { ...prev };
-      for (const spec of toolSecretSpecs) {
+      for (const spec of requiredSecretSpecs) {
         if (!(spec.key in next)) {
           // Pre-fill any non-sensitive field (select or readable text) from its
           // echoed `currentValue`. Sensitive fields never carry one, so they
@@ -234,7 +241,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
       }
       return next;
     });
-  }, [toolSecretSpecs]);
+  }, [requiredSecretSpecs]);
 
   const isConfigured = (key: string) =>
     secrets.some((s) => s.key === key && s.configured);
@@ -297,6 +304,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     thinkingLevel !== (instance.thinkingLevel ?? "medium") ||
     temperature !== (instance.temperature ?? null) ||
     stateInPromptEnabled !== instance.stateInPromptEnabled ||
+    datetimeInjectionEnabled !== instance.datetimeInjectionEnabled ||
+    cacheEnabled !== instance.cacheEnabled ||
+    cacheTtl !== instance.cacheTtl ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
     debugEnabled !== (instance.debugEnabled ?? false) ||
     memoryEnabled !== instance.memoryEnabled ||
@@ -345,6 +355,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         thinkingLevel,
         temperature: canSetTemperature ? temperature : null,
         stateInPromptEnabled,
+        datetimeInjectionEnabled,
+        cacheEnabled,
+        cacheTtl,
         toolResultsInHistoryEnabled,
         debugEnabled,
         langsmithEnabled,
@@ -429,7 +442,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                   {t("settings.tab.viewPricing")}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-h-[80vh] w-[95vw] max-w-4xl overflow-y-auto">
+              <DialogContent className="max-h-[80vh] w-[95vw] max-w-5xl overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{t("settings.tab.pricingTitle")}</DialogTitle>
                   <p className="text-sm text-muted-foreground">{t("settings.tab.pricingClickHint")}</p>
@@ -440,17 +453,29 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                       <h4 className="mb-2 text-sm font-semibold">
                         {BRAND_NAMES[providerName] ?? providerName.charAt(0).toUpperCase() + providerName.slice(1)}
                       </h4>
-                      <Table>
+                      {/* table-fixed so column widths + break-all wrapping are honoured
+                          (max-width is ignored on auto-layout <td>, causing long model
+                          IDs to overflow into the price columns). */}
+                      <Table className="table-fixed">
                         <TableHeader>
                           <TableRow>
                             <TableHead>{t("settings.tab.model")}</TableHead>
                             <TableHead className="w-20 text-right">{t("settings.tab.pricingInput")}</TableHead>
                             <TableHead className="w-20 text-right">{t("settings.tab.pricingOutput")}</TableHead>
+                            <TableHead className="w-28 text-right">{t("settings.tab.pricingCacheRead")}</TableHead>
+                            <TableHead className="w-28 text-right">{t("settings.tab.pricingCacheWrite")}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {models.map((m) => {
                             const isSelected = provider === providerName && model === m.id;
+                            // A cache rate "doesn't count" when it's free (0) or billed at the
+                            // full input rate (no discount — Nebius / non-cacheable models): show
+                            // "—" instead of a figure that implies a saving.
+                            const fmtCache = (v: number | undefined) => {
+                              const val = v ?? m.costInput;
+                              return val === 0 || val === m.costInput ? "—" : `$${val.toFixed(2)}`;
+                            };
                             return (
                               <TableRow
                                 key={m.id}
@@ -461,7 +486,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                                   setPricingOpen(false);
                                 }}
                               >
-                                <TableCell className="max-w-0">
+                                <TableCell className="align-top">
                                   <span className="block break-all font-mono text-xs">{m.id}</span>
                                   {m.tier && (
                                     <Badge variant="secondary" className="mt-1 text-[10px]">
@@ -474,6 +499,12 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                                 </TableCell>
                                 <TableCell className="text-right text-xs tabular-nums">
                                   ${m.costOutput.toFixed(2)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
+                                  {fmtCache(m.costCacheRead)}
+                                </TableCell>
+                                <TableCell className="text-right text-xs tabular-nums text-muted-foreground">
+                                  {fmtCache(m.costCacheWrite)}
                                 </TableCell>
                               </TableRow>
                             );
@@ -647,6 +678,70 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             checked={stateInPromptEnabled}
             onCheckedChange={setStateInPromptEnabled}
           />
+        </div>
+
+        {/*
+          Datetime injection. When on, the engine injects the current date/time
+          into every turn as a <current_datetime> tag. Default on; off = a
+          time-agnostic assistant.
+        */}
+        <div className="flex items-start justify-between gap-4 border-t pt-4">
+          <div className="space-y-1">
+            <Label className="text-sm font-medium">
+              {t("settings.tab.datetimeInjection")}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {t("settings.tab.datetimeInjectionHelp")}
+            </p>
+          </div>
+          <Switch
+            checked={datetimeInjectionEnabled}
+            onCheckedChange={setDatetimeInjectionEnabled}
+          />
+        </div>
+
+        {/*
+          Prompt-cache control. Anthropic/Bedrock honour the on/off switch (off
+          skips the cache marker → no cache write). OpenAI caches automatically
+          (locked on); Nebius has no prompt-cache API (unavailable). TTL applies to
+          the Anthropic cross-turn breakpoint (Bedrock is 5m fixed).
+        */}
+        <div className="border-t pt-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">{t("settings.tab.cache")}</Label>
+              <p className="text-xs text-muted-foreground">
+                {provider === "openai"
+                  ? t("settings.tab.cacheAutomaticHelp")
+                  : provider === "nebius"
+                    ? t("settings.tab.cacheNebiusHelp")
+                    : t("settings.tab.cacheHelp")}
+              </p>
+            </div>
+            <Switch
+              checked={provider === "openai" || provider === "nebius" ? true : cacheEnabled}
+              onCheckedChange={setCacheEnabled}
+              disabled={provider === "openai" || provider === "nebius"}
+            />
+          </div>
+          {(provider === "anthropic" || provider === "bedrock") && cacheEnabled && (
+            <div className="mt-3 flex items-center justify-between gap-4">
+              <Label className="text-sm">{t("settings.tab.cacheTtl")}</Label>
+              {provider === "anthropic" ? (
+                <Select value={cacheTtl} onValueChange={setCacheTtl}>
+                  <SelectTrigger className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5m">{t("settings.tab.cacheTtl5m")}</SelectItem>
+                    <SelectItem value="1h">{t("settings.tab.cacheTtl1h")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <span className="text-xs text-muted-foreground">{t("settings.tab.cacheTtlBedrock")}</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/*
@@ -908,17 +1003,17 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         )}
       </section>
 
-      {/* Tool Secrets */}
-      {toolSecretSpecs.length > 0 ? (
+      {/* Required secrets (tools + hooks) */}
+      {requiredSecretSpecs.length > 0 ? (
         <section className="space-y-4 rounded-lg border p-4">
           <div>
-            <Label className="text-base font-medium">{t("settings.tab.toolSecrets")}</Label>
+            <Label className="text-base font-medium">{t("settings.tab.requiredSecrets")}</Label>
             <p className="text-sm text-muted-foreground">
-              {t("settings.tab.toolSecretsHelp")}
+              {t("settings.tab.requiredSecretsHelp")}
             </p>
           </div>
 
-          {toolSecretSpecs.map((spec) => {
+          {requiredSecretSpecs.map((spec) => {
             const label = spec.label ?? humanizeSecretKey(spec.key);
             if (spec.type === "select") {
               return (
@@ -968,9 +1063,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
       ) : (
         <section className="space-y-4 rounded-lg border p-4">
           <div>
-            <Label className="text-base font-medium">{t("settings.tab.toolSecrets")}</Label>
+            <Label className="text-base font-medium">{t("settings.tab.requiredSecrets")}</Label>
             <p className="text-sm text-muted-foreground">
-              {t("settings.tab.noToolSecrets")}
+              {t("settings.tab.noRequiredSecrets")}
             </p>
           </div>
         </section>

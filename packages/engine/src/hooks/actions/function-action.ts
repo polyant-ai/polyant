@@ -4,6 +4,7 @@ import { createAuditLogger } from "../../audit/audit-logger.js";
 import { buildConversationApi } from "../../conversations/conversation-history-api.js";
 import { getHookRegistry } from "../hook-registry.js";
 import { buildHookContext } from "../hook-context.js";
+import { scopeSecrets } from "../../agents/tools/registry.js";
 import type { HookActionExecutor, HookRunContext } from "../hook-types.js";
 
 /**
@@ -18,9 +19,29 @@ export const functionActionExecutor: HookActionExecutor = {
     const def = getHookRegistry().get(functionName);
     if (!def) throw new Error(`hook function "${functionName}" is not registered`);
 
+    // Gate on missing required secrets (mirrors the supervisor skipping tools with
+    // unconfigured secrets). Optional specs are ignored — the handler decides.
+    // Throwing here means the runner audits the misconfiguration instead of running
+    // the hook with `undefined` secrets and failing opaquely downstream.
+    const missing = def.requiredSecrets
+      .filter((s) => !s.optional)
+      .map((s) => s.key)
+      .filter((k) => !ctx.secrets[k]);
+    if (missing.length > 0) {
+      throw new Error(
+        `hook function "${functionName}" is missing required secret(s): ${missing.join(", ")}`,
+      );
+    }
+
+    // Least-privilege: the hook only sees the secrets it declared (mirrors the
+    // supervisor's per-tool `scopeSecrets`). Undeclared keys are absent — a hook,
+    // like a tool, can be third-party plugin code.
+    const declared = new Set(def.requiredSecrets.map((s) => s.key));
+    const scopedCtx: HookRunContext = { ...ctx, secrets: scopeSecrets(ctx.secrets, declared) ?? {} };
+
     const audit = createAuditLogger(functionName, ctx.instanceId, ctx.conversationId);
     const conversation = buildConversationApi(ctx.conversationId);
-    const hookCtx = buildHookContext(hook.event, payload, ctx, conversation, audit);
+    const hookCtx = buildHookContext(hook.event, payload, scopedCtx, conversation, audit);
 
     const result = await def.handler(hookCtx);
     if (!result) return;
