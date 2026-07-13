@@ -3,6 +3,7 @@
 import { type LanguageModel, type ModelMessage, stepCountIs } from "ai";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { config } from "../../config.js";
+import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
@@ -547,6 +548,27 @@ async function withProviderErrorLog<T>(
   }
 }
 
+/**
+ * Transport-layer backstop for the sampling temperature: never forward a
+ * `temperature` to a model that rejects it (reasoning models, or when thinking
+ * is on). config-resolver already gates this for every current caller (it stores
+ * `null` when unsupported); this guarantees it at the single point where the
+ * value is read into the SDK call, so any future caller that builds a ChatRequest
+ * directly (e.g. a new endpoint) can't leak a stale temperature into a 400. Uses
+ * the same `temperatureSupported` predicate as config-resolver, so a legitimately
+ * supported temperature is never stripped.
+ */
+function temperatureCallParam(
+  providerName: string,
+  modelId: string,
+  request: ChatRequest,
+): { temperature?: number } {
+  if (request.temperature == null) return {};
+  return temperatureSupported(providerName, modelId, !!request.thinking)
+    ? { temperature: request.temperature }
+    : {};
+}
+
 export function createProvider(
   providerName: string,
   createModel: ModelFactory,
@@ -589,7 +611,7 @@ export function createProvider(
           abortSignal: request.abortSignal,
           ...(prepareStep ? { prepareStep } : {}),
           ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
-          ...(request.temperature != null ? { temperature: request.temperature } : {}),
+          ...temperatureCallParam(providerName, modelId, request),
         }),
       );
 
@@ -631,7 +653,7 @@ export function createProvider(
           abortSignal: request.abortSignal,
           ...(prepareStep ? { prepareStep } : {}),
           ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
-          ...(request.temperature != null ? { temperature: request.temperature } : {}),
+          ...temperatureCallParam(providerName, modelId, request),
         }),
       );
 

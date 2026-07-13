@@ -345,6 +345,18 @@ describe("AI Gateway", () => {
       expect(cfg.budgetTokens).toBeGreaterThan(0);
     });
 
+    it("sends Bedrock adaptive reasoningConfig for the Claude-5 generation (rejects budget_tokens)", async () => {
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "bedrock", model: "us.anthropic.claude-sonnet-5", thinking: true, thinkingLevel: "high" }),
+      );
+
+      const cfg = mockBedrockChat.mock.calls[0][0].providerOptions.bedrock.reasoningConfig;
+      expect(cfg).toEqual({ type: "adaptive", maxReasoningEffort: "high" });
+      expect(cfg).not.toHaveProperty("budgetTokens");
+    });
+
     it("omits Bedrock reasoningConfig when thinking is off", async () => {
       mockBedrockChat.mockResolvedValue(makeChatResponse());
 
