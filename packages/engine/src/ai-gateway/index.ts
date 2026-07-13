@@ -92,7 +92,7 @@ function resolveCallConfig(
         ...providerOptions,
         anthropic: {
           ...(providerOptions?.anthropic ?? {}),
-          ...buildAnthropicThinkingOptions(),
+          ...buildAnthropicThinkingOptions(modelId, request.thinkingLevel ?? "medium"),
         } as Record<string, unknown>,
       };
     } else if (providerName === "openai") {

@@ -5,7 +5,7 @@ import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { createProvider, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
-import { BEDROCK_CACHE_CAPABLE } from "../config.js";
+import { BEDROCK_CACHE_CAPABLE, requiresAdaptiveThinking } from "../config.js";
 
 /**
  * Bedrock Converse cache breakpoint. Bedrock uses a `cachePoint` block (via
@@ -92,9 +92,12 @@ function isEffortBasedReasoning(modelId: string): boolean {
 }
 
 /**
- * Bedrock reasoning takes two shapes depending on the model family, both riding
+ * Bedrock reasoning takes three shapes depending on the model family, all riding
  * `providerOptions.bedrock.reasoningConfig`:
- *   - Anthropic Claude → a token BUDGET (budgetTokens)
+ *   - Claude-5 generation → ADAPTIVE thinking + effort (type:"adaptive" +
+ *     maxReasoningEffort). The SDK maps this to `thinking:{type:"adaptive"}` +
+ *     `output_config:{effort}`. These models 400 on the old budget shape.
+ *   - Older Anthropic Claude → a token BUDGET (budgetTokens)
  *   - OpenAI gpt-oss   → an EFFORT string (maxReasoningEffort)
  *
  * Only called for a reasoning-capable Bedrock model (gated by isThinkingCapable
@@ -113,6 +116,9 @@ export function buildBedrockReasoningOptions(
     level === "low" || level === "high" ? level : "medium";
   if (isEffortBasedReasoning(modelId)) {
     return { reasoningConfig: { type: "enabled", maxReasoningEffort: normalized } };
+  }
+  if (requiresAdaptiveThinking("bedrock", modelId)) {
+    return { reasoningConfig: { type: "adaptive", maxReasoningEffort: normalized } };
   }
   return {
     reasoningConfig: { type: "enabled", budgetTokens: BEDROCK_THINKING_BUDGETS[normalized] },

@@ -4,6 +4,7 @@ import type { ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createProvider, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
+import { requiresAdaptiveThinking } from "../config.js";
 
 /**
  * Beta header that enables interleaved thinking + tool use across multiple
@@ -81,10 +82,22 @@ export const AnthropicProvider = createProvider(
  * Build the `providerOptions.anthropic` object for a thinking-enabled call.
  * Used by the AI gateway when forwarding requests with `thinking: true`.
  *
- * Returns the budget configuration the SDK forwards to Anthropic; callers
- * merge it into their `providerOptions` map.
+ * Two shapes, chosen by model generation (callers merge the result into their
+ * `providerOptions` map):
+ *   - Claude-5 generation (Fable 5, Sonnet 5, Opus 4.7/4.8): ADAPTIVE thinking +
+ *     an effort level. The SDK forwards this as `thinking:{type:"adaptive"}` +
+ *     `output_config:{effort}`. These models 400 on `type:"enabled"`+budgetTokens.
+ *   - Older Claude: a manual token BUDGET (`type:"enabled"` + budgetTokens).
  */
-export function buildAnthropicThinkingOptions(): { thinking: { type: "enabled"; budgetTokens: number } } {
+export function buildAnthropicThinkingOptions(
+  modelId: string,
+  level: string,
+): Record<string, unknown> {
+  if (requiresAdaptiveThinking("anthropic", modelId)) {
+    const effort: "low" | "medium" | "high" =
+      level === "low" || level === "high" ? level : "medium";
+    return { thinking: { type: "adaptive" }, effort };
+  }
   return {
     thinking: {
       type: "enabled",

@@ -413,20 +413,17 @@ export function clampTemperature(value: number | null | undefined): number | nul
 }
 
 /**
- * Models that reject the `temperature` parameter outright (HTTP 400), even with
- * thinking OFF — the parameter must be omitted entirely, not just left at its
- * default. This is a per-MODEL property, not a per-provider one:
- *   - OpenAI reasoning families (o1/o3/o4, gpt-5) never accepted temperature.
- *   - Anthropic removed sampling params (temperature/top_p/top_k) on Opus 4.7,
- *     Opus 4.8, Sonnet 5 and Fable 5. Opus/Sonnet 4.6 and earlier still accept
- *     temperature, so they are intentionally NOT matched here.
- *   - Bedrock serves the same Claude models via cross-region inference profiles
- *     (optional eu./us./apac./global. prefix before `anthropic.`).
+ * The Claude generation (Fable 5, Sonnet 5, Opus 4.7/4.8) that reworked its API
+ * surface in one go: it dropped the sampling params (temperature/top_p/top_k) AND
+ * replaced manual extended thinking (`thinking:{type:"enabled",budget_tokens}`)
+ * with adaptive thinking + an effort level. Opus/Sonnet 4.6 and earlier are
+ * intentionally NOT matched — they still accept both. Bedrock serves the same
+ * models via cross-region inference profiles (optional eu./us./apac./global.
+ * prefix before `anthropic.`). Single source of truth for the two predicates
+ * below so a future model only has to be added in one place.
  */
-function rejectsTemperature(provider: string, modelId: string): boolean {
+function isClaude5GenerationModel(provider: string, modelId: string): boolean {
   switch (provider) {
-    case "openai":
-      return /^(o[134]|gpt-5)/.test(modelId);
     case "anthropic":
       return /^claude-(opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
     case "bedrock":
@@ -434,6 +431,30 @@ function rejectsTemperature(provider: string, modelId: string): boolean {
     default:
       return false;
   }
+}
+
+/**
+ * Models that reject the `temperature` parameter outright (HTTP 400), even with
+ * thinking OFF — the parameter must be omitted entirely, not just left at its
+ * default. This is a per-MODEL property, not a per-provider one: OpenAI reasoning
+ * families (o1/o3/o4, gpt-5) never accepted temperature; the Claude-5 generation
+ * removed it (see isClaude5GenerationModel).
+ */
+function rejectsTemperature(provider: string, modelId: string): boolean {
+  if (provider === "openai") return /^(o[134]|gpt-5)/.test(modelId);
+  return isClaude5GenerationModel(provider, modelId);
+}
+
+/**
+ * Whether a Claude model requires ADAPTIVE thinking (`thinking:{type:"adaptive"}`
+ * + an effort level) instead of a manual token budget. True for the Claude-5
+ * generation (Fable 5, Sonnet 5, Opus 4.7/4.8), which 400s on
+ * `thinking:{type:"enabled",budget_tokens}`. Older Claude (Opus/Sonnet 4.6 and
+ * earlier) still take a budget. Consumed by the Anthropic + Bedrock thinking-
+ * option builders (providers/anthropic.ts, providers/bedrock.ts).
+ */
+export function requiresAdaptiveThinking(provider: string, modelId: string): boolean {
+  return isClaude5GenerationModel(provider, modelId);
 }
 
 /**
