@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported } from "./config.js";
+import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported } from "./config.js";
 
 describe("resolveModel", () => {
   it("resolves openai fast tier", () => {
@@ -331,6 +331,24 @@ describe("isThinkingCapable", () => {
       expect(isThinkingCapable("anthropic", "claude-3-5-sonnet-20241022")).toBe(false);
       expect(isThinkingCapable("anthropic", "claude-3-7-sonnet-20250219")).toBe(true);
     });
+  });
+});
+
+describe("isReasoningAlwaysOn", () => {
+  it.each([
+    // gpt-oss reasons on EVERY call (no off), whatever provider serves it.
+    ["openai.gpt-oss-120b-1:0", true],
+    ["openai.gpt-oss-20b-1:0", true],
+    ["us.openai.gpt-oss-120b-1:0", true],
+    ["openai/gpt-oss-120b", true],
+    // Hybrid (Qwen) / budget-based (Claude) / OpenAI reasoning all have a real off.
+    ["Qwen/Qwen3.5-397B-A17B", false],
+    ["eu.anthropic.claude-sonnet-5", false],
+    ["o3", false],
+    ["gpt-4o", false],
+    ["", false],
+  ])("%s -> %s", (model, expected) => {
+    expect(isReasoningAlwaysOn(model)).toBe(expected);
   });
 });
 

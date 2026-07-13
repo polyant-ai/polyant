@@ -266,12 +266,18 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // The capability flag is computed server-side (single source of truth in
   // ai-gateway/config.ts), so the UI cannot drift from runtime behaviour.
   const canEnableThinking = !!selectedModelInfo?.supportsThinking;
+  // gpt-oss & co. reason on EVERY call — there is no off, only an effort level.
+  // The toggle is locked ON for these models; we also persist it ON so the
+  // backend applies the effort (a stale `false` would make it skip
+  // reasoning_effort and silently fall back to the model default).
+  const alwaysOnThinking = !!selectedModelInfo?.reasoningAlwaysOn;
+  const thinkingToPersist = alwaysOnThinking || thinkingEnabled;
 
   // Effective thinking mirrors the engine's runtime gate (config-resolver.ts):
   // a stale `thinkingEnabled=true` persisted for a now-non-capable model has no
   // effect. Without this gate the temperature field stays wrongly locked (and
   // its hidden toggle is unreachable) after switching to a non-thinking model.
-  const effectiveThinkingEnabled = thinkingEnabled && canEnableThinking;
+  const effectiveThinkingEnabled = thinkingToPersist && canEnableThinking;
 
   // Temperature control is available only when the model supports it AND the
   // user has not enabled extended thinking (reasoning mode ignores temperature).
@@ -287,7 +293,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     provider !== (instance.provider ?? "") ||
     model !== (instance.model ?? "") ||
     embeddingProvider !== ((instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai") ||
-    thinkingEnabled !== instance.thinkingEnabled ||
+    thinkingToPersist !== instance.thinkingEnabled ||
     thinkingLevel !== (instance.thinkingLevel ?? "medium") ||
     temperature !== (instance.temperature ?? null) ||
     stateInPromptEnabled !== instance.stateInPromptEnabled ||
@@ -335,7 +341,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         memoryEnabled,
         knowledgeEnabled,
         authEnabled,
-        thinkingEnabled,
+        thinkingEnabled: thinkingToPersist,
         thinkingLevel,
         temperature: canSetTemperature ? temperature : null,
         stateInPromptEnabled,
@@ -552,14 +558,16 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               {t("settings.tab.thinking")}
             </Label>
             <p className="text-xs text-muted-foreground">
-              {canEnableThinking
-                ? t("settings.tab.thinkingHelp")
-                : t("settings.tab.thinkingUnavailable")}
+              {alwaysOnThinking
+                ? t("settings.tab.thinkingAlwaysOn")
+                : canEnableThinking
+                  ? t("settings.tab.thinkingHelp")
+                  : t("settings.tab.thinkingUnavailable")}
             </p>
           </div>
           <Switch
-            checked={thinkingEnabled}
-            disabled={!canEnableThinking}
+            checked={alwaysOnThinking || thinkingEnabled}
+            disabled={!canEnableThinking || alwaysOnThinking}
             onCheckedChange={setThinkingEnabled}
           />
         </div>
@@ -569,7 +577,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           Shown only for Nebius reasoning models with thinking on. Portable set
           low|medium|high — minimal/xhigh/max are rejected by some Nebius models.
         */}
-        {canEnableThinking && thinkingEnabled && provider === "nebius" && (
+        {effectiveThinkingEnabled && provider === "nebius" && (
           <div className="flex items-start justify-between gap-4 border-t pt-4">
             <div className="space-y-1">
               <Label className="text-sm font-medium">

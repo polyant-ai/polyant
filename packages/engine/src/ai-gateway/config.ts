@@ -352,6 +352,30 @@ export function isThinkingCapable(provider: string, modelId: string): boolean {
 }
 
 /**
+ * Returns true when the model reasons on EVERY call and cannot be switched off —
+ * only the effort (low|medium|high) is adjustable, there is no "off".
+ *
+ * Today this is OpenAI's open-weight gpt-oss (Harmony format, post-trained with
+ * CoT-RL), served by Bedrock (`openai.gpt-oss-*`) and Nebius (`…/gpt-oss-*`).
+ * Distinct from a HYBRID reasoner (Qwen3.5 with `enable_thinking`) or Claude/
+ * OpenAI extended-thinking, all of which have a real off. A model that is
+ * always-on is necessarily thinking-capable, so callers use this to REFINE the
+ * `isThinkingCapable` verdict — not replace it.
+ *
+ * Consumed by:
+ *   - GET /api/instances/models → the frontend disables the thinking toggle and
+ *     shows an "always reasons" hint instead of faking an OFF that does nothing.
+ *   - ai-gateway resolveCallConfig (Nebius) → never send the Qwen-only
+ *     `enable_thinking:false` kwarg to a model that ignores it.
+ *
+ * Provider-agnostic on purpose: gpt-oss is gpt-oss whatever serves it.
+ */
+export function isReasoningAlwaysOn(modelId: string): boolean {
+  if (!modelId) return false;
+  return /gpt-oss/i.test(modelId);
+}
+
+/**
  * Clamp a sampling temperature into the valid [0, 2] range. `null`/`undefined`
  * pass through as `null` (meaning "use the provider default"); non-finite
  * inputs are treated as unset.

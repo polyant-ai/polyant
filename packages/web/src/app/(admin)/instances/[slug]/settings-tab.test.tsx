@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SettingsTab } from "./settings-tab";
 import type { Instance } from "@/lib/api";
@@ -643,6 +643,38 @@ describe("SettingsTab", () => {
         expect.objectContaining({ temperature: 0.5 }),
       );
     });
+  });
+
+  it("locks the thinking toggle ON with an always-on hint for a no-off reasoning model", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        bedrock: {
+          models: [
+            { id: "openai.gpt-oss-120b-1:0", tier: "standard", costInput: 0.2, costOutput: 0.79, supportsThinking: true, reasoningAlwaysOn: true, supportsTemperature: false },
+          ],
+        },
+      },
+    });
+
+    render(
+      <SettingsTab
+        instance={makeInstance({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinkingEnabled: false })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // gpt-oss reasons on every call: the UI states it (hint) instead of a working
+    // off switch, and the toggle is locked ON + disabled.
+    expect(screen.getByText("settings.tab.thinkingAlwaysOn")).toBeInTheDocument();
+
+    const thinkingBlock = screen.getByText("settings.tab.thinking").closest("div.flex");
+    const toggle = within(thinkingBlock as HTMLElement).getByRole("switch");
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeDisabled();
   });
 });
 

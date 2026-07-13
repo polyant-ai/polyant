@@ -306,6 +306,21 @@ describe("AI Gateway", () => {
       expect(opts).not.toHaveProperty("chat_template_kwargs");
     });
 
+    it("omits the disable kwarg for gpt-oss when thinking is off (it has no true off)", async () => {
+      mockNebiusChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "nebius", model: "openai/gpt-oss-120b", thinking: false }),
+      );
+
+      // gpt-oss ignores enable_thinking (a Qwen-only chat-template kwarg), so
+      // sending it just masks the truth. The gateway must send nothing and let
+      // the model fall back to its own reasoning default.
+      const opts = mockNebiusChat.mock.calls[0][0].providerOptions.nebius;
+      expect(opts).not.toHaveProperty("chat_template_kwargs");
+      expect(opts).toEqual({});
+    });
+
     it("sends Bedrock effort-based reasoningConfig for gpt-oss when thinking is on", async () => {
       mockBedrockChat.mockResolvedValue(makeChatResponse());
 
