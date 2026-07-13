@@ -4,14 +4,6 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createProvider } from "./base.js";
 import { isThinkingCapable } from "../config.js";
 
-/**
- * Default reasoning effort for OpenAI o-series / reasoning-capable models when
- * `request.thinking === true`. The SDK forwards this to the provider; non-
- * reasoning models ignore the field.
- *
- * Reference: https://platform.openai.com/docs/guides/reasoning#reasoning-effort
- */
-const DEFAULT_REASONING_EFFORT = "medium";
 
 export const OpenAIProvider = createProvider("openai", (modelId, apiKeys) => {
   const apiKey = apiKeys?.openai;
@@ -38,12 +30,13 @@ export const OpenAIProvider = createProvider("openai", (modelId, apiKeys) => {
 });
 
 /**
- * Build the `providerOptions.openai` object for a reasoning-enabled call.
- * Used by the AI gateway when forwarding requests with `thinking: true`.
+ * Build the `providerOptions.openai` object for a reasoning-enabled call at the
+ * requested `level`. The SDK maps `reasoningEffort` → the provider's
+ * `reasoning.effort`; non-reasoning models ignore it (and the SDK warns).
  *
- * The SDK maps `reasoningEffort` to the provider's `reasoning.effort` field;
- * non-reasoning models silently ignore it.
+ * Reference: https://platform.openai.com/docs/guides/reasoning#reasoning-effort
  */
-export function buildOpenAIReasoningOptions(): { reasoningEffort: "low" | "medium" | "high" } {
-  return { reasoningEffort: DEFAULT_REASONING_EFFORT };
+export function buildOpenAIReasoningOptions(level: string): { reasoningEffort: "low" | "medium" | "high" } {
+  const lvl: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";
+  return { reasoningEffort: lvl };
 }

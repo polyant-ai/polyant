@@ -92,25 +92,30 @@ function isEffortBasedReasoning(modelId: string): boolean {
 }
 
 /**
- * Bedrock reasoning takes two shapes depending on the model family, both riding
- * `providerOptions.bedrock.reasoningConfig`:
- *   - Anthropic Claude → a token BUDGET (budgetTokens)
- *   - OpenAI gpt-oss   → an EFFORT string (maxReasoningEffort)
+ * Bedrock reasoning takes three shapes on `providerOptions.bedrock.reasoningConfig`:
+ *   - adaptive Claude (Opus 4.7/4.8, Sonnet 5) → `type:"adaptive"` + maxReasoningEffort.
+ *     These REJECT the legacy `type:"enabled"` + budgetTokens with a 400 (live-verified),
+ *     exactly like Anthropic 1P — the gateway passes `adaptive` from isReasoningAdaptive.
+ *   - OpenAI gpt-oss → `type:"enabled"` + an EFFORT string (maxReasoningEffort).
+ *   - legacy Claude (Opus 4.6 and earlier, Haiku/Sonnet 4.x) + MiniMax → `type:"enabled"`
+ *     + a token BUDGET (budgetTokens).
  *
  * Only called for a reasoning-capable Bedrock model (gated by isThinkingCapable
- * upstream) and only when thinking is ON — thinking OFF omits reasoningConfig
- * entirely so the model falls back to its own default (gpt-oss has no true off).
+ * upstream) and only when thinking is ON.
  *
- * VALIDATED live (eu-south-1, gpt-oss-120b): maxReasoningEffort is accepted and
- * effective (low ≈ 43 vs high ≈ 408 reasoning chars); budgetTokens is silently
- * ignored for gpt-oss (the AI SDK emits a warning), which is why the split matters.
+ * VALIDATED live (eu-south-1): gpt-oss maxReasoningEffort effective; adaptive Claude
+ * requires the adaptive shape; budgetTokens ignored for gpt-oss (SDK warns).
  */
 export function buildBedrockReasoningOptions(
   modelId: string,
   level: string,
+  adaptive: boolean,
 ): { reasoningConfig: Record<string, unknown> } {
   const normalized: "low" | "medium" | "high" =
     level === "low" || level === "high" ? level : "medium";
+  if (adaptive) {
+    return { reasoningConfig: { type: "adaptive", maxReasoningEffort: normalized } };
+  }
   if (isEffortBasedReasoning(modelId)) {
     return { reasoningConfig: { type: "enabled", maxReasoningEffort: normalized } };
   }

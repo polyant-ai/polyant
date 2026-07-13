@@ -46,9 +46,10 @@ export function reasoningCapableFallback(provider: string, modelId: string): boo
       // Claude 3.7 + the Claude 4 family (sonnet, opus, haiku) and sonnet-5.
       return /^claude-(3-7|opus-4|sonnet-4|sonnet-5|haiku-4)/.test(modelId);
     case "bedrock":
-      // Anthropic Claude 4+ (budget) + OpenAI gpt-oss (effort), with or without a
-      // cross-region inference-profile prefix (eu./us./apac./global.).
-      return /^(?:(?:eu|us|apac|global)\.)?(?:anthropic\.claude-(?:sonnet-4|sonnet-5|opus-4)|openai\.gpt-oss)/.test(modelId);
+      // Anthropic Claude 4+ (haiku/sonnet/opus — haiku LIVE-VERIFIED to reason on
+      // Bedrock) + OpenAI gpt-oss (effort) + MiniMax M (live-verified), with or
+      // without a cross-region inference-profile prefix (eu./us./apac./global.).
+      return /^(?:(?:eu|us|apac|global)\.)?(?:anthropic\.claude-(?:haiku-4|sonnet-4|sonnet-5|opus-4)|openai\.gpt-oss)|^minimax\.minimax-m/.test(modelId);
     case "nebius":
       // Reasoning families served by Nebius (emit reasoning_content). IDs carry an
       // org prefix, so match the model segment case-insensitively.
@@ -87,6 +88,17 @@ export function temperatureRejectedFallback(provider: string, modelId: string): 
     default:
       return false;
   }
+}
+
+/**
+ * Adaptive-thinking fallback (true = model uses the newer `thinking.type:"adaptive"`
+ * + effort API instead of legacy `enabled` + budgetTokens). Anthropic Claude
+ * Opus 4.7/4.8, Sonnet 5, Fable 5 — on both Anthropic 1P and Bedrock (optional
+ * region prefix). LIVE-VERIFIED: these reject the `enabled` shape with a 400.
+ */
+export function reasoningAdaptiveFallback(provider: string, modelId: string): boolean {
+  if (provider !== "anthropic" && provider !== "bedrock") return false;
+  return /claude-(?:opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
 }
 
 /** Cache-eligibility fallback: Nebius none, Bedrock anthropic/nova only, else yes. */
@@ -252,6 +264,21 @@ export function isReasoningAlwaysOn(modelId: string): boolean {
   if (entry) return entry.reasoningAlwaysOn ?? false;
   warnCatalogFallback("isReasoningAlwaysOn", "", modelId);
   return reasoningAlwaysOnFallback(modelId);
+}
+
+/**
+ * Returns true when a Claude model uses the NEWER thinking API (`thinking.type:
+ * "adaptive"` + effort) instead of legacy `enabled` + budgetTokens. Consumed by
+ * the ai-gateway to build the correct thinking payload per model — sending the
+ * legacy shape to these models is a hard 400 (Opus 4.7/4.8, Sonnet 5, Fable 5),
+ * on both Anthropic 1P and Bedrock. Catalog lookup with a logged regex fallback.
+ */
+export function isReasoningAdaptive(provider: string, modelId: string): boolean {
+  if (!provider || !modelId) return false;
+  const entry = getModelCapabilities(provider, modelId);
+  if (entry) return entry.reasoningAdaptive ?? false;
+  warnCatalogFallback("isReasoningAdaptive", provider, modelId);
+  return reasoningAdaptiveFallback(provider, modelId);
 }
 
 /**

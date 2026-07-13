@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
+import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, isReasoningAdaptive, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
 
 describe("resolveModel", () => {
   it("resolves openai fast tier", () => {
@@ -290,6 +290,10 @@ describe("isThinkingCapable", () => {
       ["eu.anthropic.claude-sonnet-5", true],
       ["global.anthropic.claude-sonnet-5", true],
       ["anthropic.claude-opus-4-20250514-v1:0", true],
+      // Haiku 4.5 DOES reason on Bedrock (live-verified) — catalogued as such.
+      ["eu.anthropic.claude-haiku-4-5-20251001-v1:0", true],
+      // MiniMax M2.5 reasons on Bedrock (live-verified).
+      ["minimax.minimax-m2.5", true],
       // OpenAI open-weight (gpt-oss) — effort-based reasoning, raw IDs (no region prefix).
       ["openai.gpt-oss-120b-1:0", true],
       ["openai.gpt-oss-20b-1:0", true],
@@ -304,7 +308,6 @@ describe("isThinkingCapable", () => {
       ["meta.llama3-1-70b-instruct-v1:0", false],
       ["qwen.qwen3-32b-v1:0", false],
       ["nvidia.nemotron-super-3-120b", false],
-      ["minimax.minimax-m2.5", false],
       ["mistral.mistral-large-2402-v1:0", false],
     ])("bedrock/%s -> %s", (model, expected) => {
       expect(isThinkingCapable("bedrock", model)).toBe(expected);
@@ -374,6 +377,29 @@ describe("isReasoningAlwaysOn", () => {
     ["", false],
   ])("%s -> %s", (model, expected) => {
     expect(isReasoningAlwaysOn(model)).toBe(expected);
+  });
+});
+
+describe("isReasoningAdaptive", () => {
+  it.each([
+    // Newer Claude (adaptive API) — Anthropic 1P + Bedrock profiles.
+    ["anthropic", "claude-opus-4-8", true],
+    ["anthropic", "claude-opus-4-7", true],
+    ["anthropic", "claude-sonnet-5", true],
+    ["bedrock", "eu.anthropic.claude-opus-4-8", true],
+    ["bedrock", "global.anthropic.claude-sonnet-5", true],
+    // Legacy Claude (enabled + budgetTokens).
+    ["anthropic", "claude-opus-4-6", false],
+    ["anthropic", "claude-sonnet-4-6", false],
+    ["anthropic", "claude-haiku-4-5-20251001", false],
+    ["bedrock", "eu.anthropic.claude-opus-4-6-v1", false],
+    // Non-Claude / other providers never adaptive.
+    ["openai", "gpt-5.6-sol", false],
+    ["nebius", "Qwen/Qwen3.5-397B-A17B", false],
+    ["bedrock", "openai.gpt-oss-120b-1:0", false],
+    ["anthropic", "", false],
+  ])("%s/%s -> %s", (provider, model, expected) => {
+    expect(isReasoningAdaptive(provider, model)).toBe(expected);
   });
 });
 

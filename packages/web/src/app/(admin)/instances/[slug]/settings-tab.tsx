@@ -604,11 +604,12 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         </div>
 
         {/*
-          Reasoning level (experiment, Nebius-only). Maps to reasoning_effort.
-          Shown only for Nebius reasoning models with thinking on. Portable set
-          low|medium|high — minimal/xhigh/max are rejected by some Nebius models.
+          Reasoning level (effort). Applied by every provider: OpenAI/Nebius
+          reasoning_effort, Bedrock/Anthropic effort or budget per model. Shown
+          for ANY thinking-capable model whenever thinking is on (incl. always-on
+          models like gpt-oss). Portable set low|medium|high.
         */}
-        {effectiveThinkingEnabled && provider === "nebius" && (
+        {effectiveThinkingEnabled && (
           <div className="flex items-start justify-between gap-4 border-t pt-4">
             <div className="space-y-1">
               <Label className="text-sm font-medium">

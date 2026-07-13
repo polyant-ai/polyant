@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateCostBreakdown, isThinkingCapable, isReasoningAlwaysOn } from "./config.js";
+import { resolveModel, estimateCostBreakdown, isThinkingCapable, isReasoningAlwaysOn, isReasoningAdaptive } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
 import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
@@ -86,13 +86,14 @@ function resolveCallConfig(
   // sending reasoningConfig to a non-reasoning Bedrock model is a hard
   // ValidationException (like the cachePoint), so it is gated on isThinkingCapable
   // and mapped per family (Claude→budgetTokens, gpt-oss→maxReasoningEffort).
+  const thinkingLevel = request.thinkingLevel ?? "medium";
   if (request.thinking) {
     if (providerName === "anthropic") {
       providerOptions = {
         ...providerOptions,
         anthropic: {
           ...(providerOptions?.anthropic ?? {}),
-          ...buildAnthropicThinkingOptions(),
+          ...buildAnthropicThinkingOptions(thinkingLevel, isReasoningAdaptive(providerName, modelId)),
         } as Record<string, unknown>,
       };
     } else if (providerName === "openai") {
@@ -100,7 +101,7 @@ function resolveCallConfig(
         ...providerOptions,
         openai: {
           ...(providerOptions?.openai ?? {}),
-          ...buildOpenAIReasoningOptions(),
+          ...buildOpenAIReasoningOptions(thinkingLevel),
         } as Record<string, unknown>,
       };
     } else if (providerName === "bedrock" && isThinkingCapable(providerName, modelId)) {
@@ -108,7 +109,7 @@ function resolveCallConfig(
         ...providerOptions,
         bedrock: {
           ...(providerOptions?.bedrock ?? {}),
-          ...buildBedrockReasoningOptions(modelId, request.thinkingLevel ?? "medium"),
+          ...buildBedrockReasoningOptions(modelId, thinkingLevel, isReasoningAdaptive(providerName, modelId)),
         } as Record<string, unknown>,
       };
     }

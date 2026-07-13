@@ -39,6 +39,14 @@ export interface ModelCapabilities {
    * (gpt-oss). Implies `reasoning: true`. Drives `isReasoningAlwaysOn`.
    */
   reasoningAlwaysOn?: boolean;
+  /**
+   * Anthropic Claude models that use the NEWER thinking API — `thinking.type:
+   * "adaptive"` + `output_config.effort` — instead of the legacy `thinking.type:
+   * "enabled"` + `budgetTokens`. LIVE-VERIFIED: Opus 4.7/4.8, Sonnet 5, Fable 5
+   * REJECT the enabled shape (400). Applies on both Anthropic 1P and Bedrock.
+   * Only meaningful for reasoning-capable Claude models; drives `isReasoningAdaptive`.
+   */
+  reasoningAdaptive?: boolean;
   /** Accepts image/file input parts (drives `modelSupportsVision`). */
   vision: boolean;
   /**
@@ -110,13 +118,13 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // Opus 4.7/4.8 + Sonnet 5 removed the sampling params → temperature:false.
       // Haiku 4.5 (fast)
       "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 2.00, reasoning: true, vision: true, temperature: true, cache: true },
-      // Sonnet family
-      "claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, reasoning: true, vision: true, temperature: false, cache: true },
+      // Sonnet family (sonnet-5 uses the adaptive thinking API)
+      "claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, reasoning: true, reasoningAdaptive: true, vision: true, temperature: false, cache: true },
       "claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, reasoning: true, vision: true, temperature: true, cache: true },
       "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, reasoning: true, vision: true, temperature: true, cache: true },
-      // Opus family
-      "claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, vision: true, temperature: false, cache: true },
-      "claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, vision: true, temperature: false, cache: true },
+      // Opus family (4.7/4.8 use the adaptive thinking API; 4.6 uses legacy budget)
+      "claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, reasoningAdaptive: true, vision: true, temperature: false, cache: true },
+      "claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, reasoningAdaptive: true, vision: true, temperature: false, cache: true },
       "claude-opus-4-6": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, vision: true, temperature: true, cache: true },
     },
   },
@@ -146,27 +154,29 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // Opus 4.5+ is $5/$25 (not the old $15/$75). Bedrock reasoning covers
       // sonnet-4/sonnet-5/opus-4 (NOT haiku, NOT fable). Sonnet 5 / Opus 4.7-4.8 /
       // Fable 5 reject temperature (mirrors 1P).
-      "eu.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 1.25, reasoning: false, vision: true, temperature: true, cache: true },
+      // Haiku 4.5 on Bedrock DOES reason (live-verified: 1306 reasoning chars via
+      // budgetTokens) — the old regex wrongly excluded it.
+      "eu.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 1.25, reasoning: true, vision: true, temperature: true, cache: true },
       "eu.anthropic.claude-sonnet-4-20250514-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, vision: true, temperature: true, cache: true },
       "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, vision: true, temperature: true, cache: true },
       "eu.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, vision: true, temperature: true, cache: true },
       // ponytail: profile ID follows the sonnet-4-6 form; confirm EU invocability + pricing before promoting to `standard`.
-      "eu.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, vision: true, temperature: false, cache: true },
+      "eu.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningAdaptive: true, vision: true, temperature: false, cache: true },
       "eu.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, vision: true, temperature: true, cache: true },
       "eu.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, vision: true, temperature: true, cache: true },
-      "eu.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, vision: true, temperature: false, cache: true },
-      "eu.anthropic.claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, vision: true, temperature: false, cache: true },
-      "eu.anthropic.claude-fable-5": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: false, vision: true, temperature: false, cache: true },
+      "eu.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningAdaptive: true, vision: true, temperature: false, cache: true },
+      "eu.anthropic.claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningAdaptive: true, vision: true, temperature: false, cache: true },
+      // (Bedrock EU has NO claude-fable-5 — "Model not found" live — so no entry.)
       // Anthropic via Bedrock — Global inference profiles (use-case form may be required)
-      "global.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 1.25, reasoning: false, vision: true, temperature: true, cache: true },
+      "global.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 1.25, reasoning: true, vision: true, temperature: true, cache: true },
       "global.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, vision: true, temperature: true, cache: true },
       "global.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, vision: true, temperature: true, cache: true },
-      "global.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, vision: true, temperature: false, cache: true },
+      "global.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningAdaptive: true, vision: true, temperature: false, cache: true },
       "global.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, vision: true, temperature: true, cache: true },
       "global.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, vision: true, temperature: true, cache: true },
-      "global.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, vision: true, temperature: false, cache: true },
-      "global.anthropic.claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, vision: true, temperature: false, cache: true },
-      "global.anthropic.claude-fable-5": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: false, vision: true, temperature: false, cache: true },
+      "global.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningAdaptive: true, vision: true, temperature: false, cache: true },
+      "global.anthropic.claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningAdaptive: true, vision: true, temperature: false, cache: true },
+      // (Bedrock global claude-fable-5 is unusable — "data retention mode 'default' not available" live — so no entry.)
       // Non-Anthropic models — direct on-demand IDs (NOT eu.* profiles). In
       // eu-south-1 these are In-Region / ON_DEMAND, so the raw model ID is used.
       // Prices are the Europe (Milan) Standard tier from the AWS pricing page.
@@ -183,8 +193,10 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // OpenAI open-weight (gpt-oss) — effort-based reasoning, always on (no off).
       "openai.gpt-oss-20b-1:0": { input: 0.09, output: 0.40, reasoning: true, reasoningAlwaysOn: true, vision: false, temperature: true, cache: false },
       "openai.gpt-oss-120b-1:0": { input: 0.20, output: 0.79, reasoning: true, reasoningAlwaysOn: true, vision: false, temperature: true, cache: false },
-      // MiniMax
-      "minimax.minimax-m2.5": { input: 0.36, output: 1.44, reasoning: false, vision: false, temperature: true, cache: false },
+      // MiniMax — DOES reason on Bedrock (live-verified: 2602→4023 reasoning chars
+      // low→high via budgetTokens). It also reasons with reasoning OFF, but is left
+      // toggleable (not a tier default); see verification notes.
+      "minimax.minimax-m2.5": { input: 0.36, output: 1.44, reasoning: true, vision: false, temperature: true, cache: false },
     },
   },
   nebius: {

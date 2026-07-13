@@ -15,11 +15,15 @@ import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from 
 const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 
 /**
- * Default budget (in tokens) Anthropic spends on extended-thinking content
- * when `request.thinking === true`. Configurable per call via the request
- * options if/when we expose finer control.
+ * Legacy extended-thinking budgets (tokens) per reasoning level, for models on
+ * the OLD `thinking.type:"enabled"` API. Newer models (Opus 4.7/4.8, Sonnet 5,
+ * Fable 5) use `thinking.type:"adaptive"` + effort instead (see build fn).
  */
-const DEFAULT_THINKING_BUDGET = 5000;
+const ANTHROPIC_THINKING_BUDGETS: Record<"low" | "medium" | "high", number> = {
+  low: 4096,
+  medium: 12000,
+  high: 24000,
+};
 
 /**
  * Anthropic requires an explicit `cache_control` marker (the `@ai-sdk/anthropic`
@@ -77,18 +81,22 @@ export const AnthropicProvider = createProvider(
   { prepareMessages: applyAnthropicPromptCaching, stepMarker: anthropicStepMarker },
 );
 
+type AnthropicThinkingOptions =
+  | { thinking: { type: "enabled"; budgetTokens: number } }
+  | { thinking: { type: "adaptive" }; effort: "low" | "medium" | "high" };
+
 /**
- * Build the `providerOptions.anthropic` object for a thinking-enabled call.
- * Used by the AI gateway when forwarding requests with `thinking: true`.
- *
- * Returns the budget configuration the SDK forwards to Anthropic; callers
- * merge it into their `providerOptions` map.
+ * Build the `providerOptions.anthropic` object for a thinking-enabled call, at
+ * the requested reasoning `level`. Two shapes:
+ *   - `adaptive` models (Opus 4.7/4.8, Sonnet 5, Fable 5) → `thinking.type:
+ *     "adaptive"` + top-level `effort` (SDK maps to `output_config.effort`).
+ *     These REJECT the legacy shape with a 400.
+ *   - legacy models (Opus 4.6 and earlier, Haiku/Sonnet 4.x) → `thinking.type:
+ *     "enabled"` + a per-level token budget.
+ * The gateway supplies `adaptive` from `isReasoningAdaptive(provider, model)`.
  */
-export function buildAnthropicThinkingOptions(): { thinking: { type: "enabled"; budgetTokens: number } } {
-  return {
-    thinking: {
-      type: "enabled",
-      budgetTokens: DEFAULT_THINKING_BUDGET,
-    },
-  };
+export function buildAnthropicThinkingOptions(level: string, adaptive: boolean): AnthropicThinkingOptions {
+  const lvl: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";
+  if (adaptive) return { thinking: { type: "adaptive" }, effort: lvl };
+  return { thinking: { type: "enabled", budgetTokens: ANTHROPIC_THINKING_BUDGETS[lvl] } };
 }
