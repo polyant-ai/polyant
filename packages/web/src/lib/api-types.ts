@@ -81,6 +81,12 @@ export interface Instance {
   temperature?: number | null;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
+  /** When true, the current date/time is injected into every turn. */
+  datetimeInjectionEnabled: boolean;
+  /** Per-instance prompt-cache switch (off skips cache markers → no cache write). */
+  cacheEnabled: boolean;
+  /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
+  cacheTtl: string;
   /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload is persisted per turn (debug/analysis). */
@@ -163,6 +169,16 @@ export interface ModelInfo {
   tier: string | null;
   costInput: number;
   costOutput: number;
+  /**
+   * Absolute per-1M-token cache read/write cost in USD. Falls back to the input
+   * rate when the model has no cache discount (Nebius / non-anthropic-nova Bedrock
+   * report cached tokens but bill them full). costCacheWrite === 0 = caches with
+   * no write premium (OpenAI pre-GPT-5.6).
+   */
+  costCacheRead: number;
+  costCacheWrite: number;
+  /** True when the provider+model has real prompt caching (a discount) — a UI hint. */
+  supportsCache: boolean;
   /**
    * True when the model supports extended thinking / reasoning.
    * Computed server-side from `isThinkingCapable(provider, modelId)`; the
@@ -421,6 +437,10 @@ export interface ConversationMessage {
 export interface CostBreakdown {
   input: number;
   cache: number;
+  /** Cost of cache-read (hit) tokens. Subset of `cache`. Absent on rows persisted before the split shipped. */
+  cacheRead?: number;
+  /** Cost of cache-write (creation) tokens. Subset of `cache`. Absent on rows persisted before the split shipped. */
+  cacheWrite?: number;
   output: number;
   total: number;
 }

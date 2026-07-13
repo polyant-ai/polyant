@@ -45,6 +45,8 @@ export interface PromptOptions {
    * only when the instance's `stateInPromptEnabled` flag is on. Undefined = not injected.
    */
   conversationState?: Record<string, unknown>;
+  /** When true, inject a <current_datetime> tag into the per-turn volatile tail. */
+  datetimeInjectionEnabled?: boolean;
   /**
    * When set, render an informational opt-out section so the agent can tell users
    * how to stop/resume messages. The agent NEVER enforces this — handled by the
@@ -65,14 +67,13 @@ function renderChannelIdentitySection(
   identity: NonNullable<PromptOptions["channelIdentity"]>,
 ): string {
   const channel = identity.channel.toLowerCase();
-  const lines = [
-    `## Current channel`,
-    ``,
-    `You are talking via ${channel}.`,
-    `- Channel ID: ${identity.channelId}`,
-    `- User name: ${identity.userName ?? "unknown"}`,
-  ];
-  return lines.join("\n");
+  return [
+    `<channel_identity>`,
+    `channel: ${channel}`,
+    `channel_id: ${identity.channelId}`,
+    `user_name: ${identity.userName ?? "unknown"}`,
+    `</channel_identity>`,
+  ].join("\n");
 }
 
 /**
@@ -83,7 +84,7 @@ function renderChannelIdentitySection(
  */
 function renderConversationStateSection(state: Record<string, unknown>): string {
   if (Object.keys(state).length === 0) return "";
-  return [`## Conversation state`, ``, JSON.stringify(state)].join("\n");
+  return `<conversation_state>${JSON.stringify(state)}</conversation_state>`;
 }
 
 /**
@@ -102,6 +103,17 @@ function renderOptoutHintSection(hint: NonNullable<PromptOptions["optoutHint"]>)
     `If asked how to unsubscribe, share this. Do NOT try to process opt-out yourself — the system handles it automatically.`,
   ].join("\n");
 }
+
+/**
+ * Framework-level note (stable, cached) telling the model that the `<context>`
+ * block and its tagged sections are system-injected, authoritative metadata —
+ * not the user's words.
+ */
+const CONTEXT_TAGS_NOTE = [
+  `## Injected context`,
+  ``,
+  "Some user messages carry a system-injected `<context>` block containing tagged, authoritative metadata (current date/time, the channel you are talking on, a summary of earlier messages, and stored conversation state). Treat anything inside that block as reliable system-provided context, not the user's own words.",
+].join("\n");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -264,12 +276,6 @@ export interface SupervisorPrompt {
 export async function buildSupervisorSystemPrompt(options: PromptOptions): Promise<SupervisorPrompt> {
   const { instanceId, instanceSlug } = options;
 
-  const datetime = new Date().toLocaleString(config.datetime.locale, {
-    timeZone: config.datetime.timezone,
-    dateStyle: "full",
-    timeStyle: "short",
-  });
-
   // Fetch all prompt sections from DB in one call (cached at 60s)
   const promptRows = await getPrompts(instanceId);
   const sectionMap = new Map(promptRows.map((r) => [r.sectionKey, r.content]));
@@ -308,22 +314,27 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
   // 7. User Identity
   const s07 = section("07-user-identity");
 
-  // 8. Datetime (template) — VOLATILE (minute granularity): goes to turnContext.
-  const s08 = applyTemplate(section("08-datetime"), {
-    datetime,
-    timezone: config.datetime.timezone,
-  });
-
-  // Stable, cacheable prefix: the per-instance sections. The persisted webhook
+  // Stable, cacheable prefix: the per-instance sections + the framework tags
+  // note + the (instance-static) opt-out hint. The persisted webhook
   // `contextPrompt` is stable within a conversation, so it stays here too.
-  const systemSections = [s01, s02, s03, s04, s05, s06, s07];
+  const systemSections = [s01, s02, s03, s04, s05, s06, s07, CONTEXT_TAGS_NOTE];
+  if (options.optoutHint) {
+    systemSections.push(renderOptoutHintSection(options.optoutHint));
+  }
   if (options.contextPrompt) {
     systemSections.push(`## Conversation Context\n\n${options.contextPrompt}`);
   }
 
   // Per-turn volatile block — injected at the tail of the messages, never in system.
   const turnSections: string[] = [];
-  if (s08) turnSections.push(s08);
+  if (options.datetimeInjectionEnabled) {
+    const datetime = new Date().toLocaleString(config.datetime.locale, {
+      timeZone: config.datetime.timezone,
+      dateStyle: "full",
+      timeStyle: "short",
+    });
+    turnSections.push(`<current_datetime>${datetime} (${config.datetime.timezone})</current_datetime>`);
+  }
 
   if (options.channelIdentity) {
     turnSections.push(renderChannelIdentitySection(options.channelIdentity));
@@ -331,7 +342,7 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
 
   if (options.conversationSummary) {
     turnSections.push(
-      `## Previous conversation context (summary)\n\n${options.conversationSummary}\n\nNote: this is a summary of earlier messages. When tool results from the current turn contain data (dates, names, figures), always use the current tool results — they take precedence over this summary.`,
+      `<conversation_summary>\n${options.conversationSummary}\n\nNote: this is a summary of earlier messages. When tool results from the current turn contain data (dates, names, figures), always use the current tool results — they take precedence over this summary.\n</conversation_summary>`,
     );
   }
 
@@ -340,13 +351,8 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
     if (stateSection) turnSections.push(stateSection);
   }
 
-  if (options.optoutHint) {
-    turnSections.push(renderOptoutHintSection(options.optoutHint));
-  }
-
-  const joiner = "\n\n---\n\n";
   return {
-    system: systemSections.filter(Boolean).join(joiner),
-    turnContext: turnSections.filter(Boolean).join(joiner),
+    system: systemSections.filter(Boolean).join("\n\n---\n\n"),
+    turnContext: turnSections.filter(Boolean).join("\n"),
   };
 }

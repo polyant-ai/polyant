@@ -63,6 +63,10 @@ export interface SupervisorInput {
   temperature?: number | null;
   /** When true, the current conversation state is rendered read-only into the system prompt. */
   stateInPromptEnabled?: boolean;
+  /** When true, inject the current date/time into every turn (resolved from instance config). */
+  datetimeInjectionEnabled?: boolean;
+  /** Per-instance prompt-cache control, forwarded to the ai-gateway ChatRequest. */
+  cacheConfig?: { enabled: boolean; ttl: "5m" | "1h" };
   /** Informational opt-out hint to render into the prompt (set when the instance enables it). */
   optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
   /** When true, the exact LLM request payload (system + messages + tools) is captured and returned for debug. */
@@ -388,20 +392,29 @@ interface SupervisorContext {
  * invalidating it from inside the system prompt. Empty `turnContext` → the raw
  * message is used unchanged (backward compatible).
  */
-function buildUserContent(
+export function buildUserContent(
   message: string,
   turnContext: string,
   attachments?: Attachment[],
 ): string | UserContent {
-  const text = turnContext
-    ? `<context>\n${turnContext}\n</context>\n\n${message}`
-    : message;
+  const hasCtx = turnContext.length > 0;
 
-  if (!attachments?.length) return text;
+  // Fast path: no volatile context and no attachments → plain string (backward compatible).
+  if (!hasCtx && !attachments?.length) return message;
 
-  const parts: UserContent = [{ type: "text", text }];
+  // User words FIRST (stable — the block the cache breakpoint targets); attachments
+  // next; volatile context LAST (must stay after the last breakpoint so it never
+  // invalidates the cached prefix). Separate blocks also let the model tell the
+  // user's words apart from system-injected context.
+  //
+  // Skip an EMPTY user-words block: an image/document sent with no caption arrives
+  // as message === "" (see the channel adapters), and a LEADING empty text block is
+  // rejected by Anthropic/Bedrock ("text content blocks must be non-empty"). The
+  // volatile <context> tail below still rides after the attachments.
+  const parts: UserContent = [];
+  if (message) parts.push({ type: "text", text: message });
 
-  for (const att of attachments) {
+  for (const att of attachments ?? []) {
     if (!att.data) continue;
     const isImage = att.type === "image" || att.mimeType?.startsWith("image/");
     if (isImage) {
@@ -415,7 +428,13 @@ function buildUserContent(
     }
   }
 
-  return parts;
+  if (hasCtx) {
+    parts.push({ type: "text" as const, text: `<context>\n${turnContext}\n</context>` });
+  }
+
+  // Degenerate case (all attachments lacked data, no context, empty message): fall
+  // back to the raw string rather than emit an empty content array.
+  return parts.length > 0 ? parts : message;
 }
 
 async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorContext> {
@@ -458,6 +477,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     contextPrompt: input.contextPrompt,
     channelIdentity: input.channelIdentity,
     conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
+    datetimeInjectionEnabled: input.datetimeInjectionEnabled,
     optoutHint: input.optoutHint,
   });
 
@@ -498,6 +518,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
       maxSteps: 15,
       abortSignal: input.abortSignal,
       captureDebug: input.debugEnabled ?? false,
+      cacheConfig: input.cacheConfig,
     },
     {
       conversationId: input.conversationId,
@@ -562,6 +583,7 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
       maxSteps: 15,
       abortSignal: input.abortSignal,
       captureDebug: input.debugEnabled ?? false,
+      cacheConfig: input.cacheConfig,
     },
     {
       conversationId: input.conversationId,

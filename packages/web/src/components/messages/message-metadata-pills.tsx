@@ -20,7 +20,7 @@
  * Renders nothing for user/system messages or when no telemetry is available.
  */
 
-import { Cpu, ArrowDown, ArrowUp, Zap, Coins, Wrench, Brain, Timer, Thermometer, Sparkles } from "lucide-react";
+import { Cpu, ArrowDown, ArrowUp, Zap, Database, Coins, Wrench, Brain, Timer, Thermometer, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
@@ -137,10 +137,17 @@ export function MessageMetadataPills({ message }: { message: ConversationMessage
         {hasCost && sub(formatCost(cost.input))}
       </Pill>
 
-      {cacheTokens > 0 && (
-        <Pill iconColor={CATEGORY.cost} icon={Zap} title={t("conversations.detail.pills.cache")}>
-          {cacheTokens.toLocaleString()}
-          {hasCost && sub(formatCost(cost.cache))}
+      {cacheRead > 0 && (
+        <Pill iconColor={CATEGORY.cost} icon={Zap} title={t("conversations.detail.pills.cacheRead")}>
+          {cacheRead.toLocaleString()}
+          {hasCost && cost.cacheRead != null && sub(formatCost(cost.cacheRead))}
+        </Pill>
+      )}
+
+      {cacheWrite > 0 && (
+        <Pill iconColor={CATEGORY.cost} icon={Database} title={t("conversations.detail.pills.cacheWrite")}>
+          {cacheWrite.toLocaleString()}
+          {hasCost && cost.cacheWrite != null && sub(formatCost(cost.cacheWrite))}
         </Pill>
       )}
 

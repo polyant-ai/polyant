@@ -194,6 +194,8 @@ export async function executeRoomCycle(
         memoryEnabled: instanceConfig.memoryEnabled,
         thinkingEnabled: instanceConfig.thinkingEnabled,
         debugEnabled: instanceConfig.debugEnabled,
+        datetimeInjectionEnabled: instanceConfig.datetimeInjectionEnabled,
+        cacheConfig: instanceConfig.cacheConfig,
         includeHarness: new Set(["room"]),
         stateBuffer,
       });

@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from "vitest";
 import type { ModelMessage } from "ai";
-import { applyBedrockPromptCaching } from "./bedrock.js";
+import { applyBedrockPromptCaching, bedrockStepMarker } from "./bedrock.js";
 
 const CACHE_POINT = { bedrock: { cachePoint: { type: "default" } } };
 
@@ -67,5 +67,32 @@ describe("applyBedrockPromptCaching", () => {
     expect(messages).toHaveLength(2); // [systemMessage, userTurn]
     expect(providerOptionsOf(messages[0])).toEqual(CACHE_POINT);
     expect(providerOptionsOf(messages[1])).toBeUndefined();
+  });
+});
+
+describe("bedrockStepMarker (multi-step prepareStep)", () => {
+  const messages: ModelMessage[] = [
+    { role: "user", content: "turn" },
+    { role: "assistant", content: "reply" },
+    { role: "user", content: "tool result stand-in" },
+  ];
+
+  it("does not mark on step 0", () => {
+    expect(
+      bedrockStepMarker({ stepNumber: 0, messages, modelId: "eu.anthropic.claude-sonnet-4-6" }).messages,
+    ).toBeUndefined();
+  });
+
+  it("marks the last message from step 1 for a cache-capable model", () => {
+    const out = bedrockStepMarker({ stepNumber: 1, messages, modelId: "eu.anthropic.claude-sonnet-4-6" }).messages;
+    expect(out).toBeDefined();
+    expect(providerOptionsOf(out![out!.length - 1])).toEqual(CACHE_POINT);
+    expect(providerOptionsOf(out![0])).toBeUndefined();
+  });
+
+  it("does not mark a non-cache-capable model even at step >= 1 (no ValidationException risk)", () => {
+    expect(
+      bedrockStepMarker({ stepNumber: 2, messages, modelId: "qwen.qwen3-32b-v1:0" }).messages,
+    ).toBeUndefined();
   });
 });

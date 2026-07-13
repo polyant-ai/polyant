@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported } from "./config.js";
+import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
 
 describe("resolveModel", () => {
   it("resolves openai fast tier", () => {
@@ -66,6 +66,11 @@ describe("estimateCost", () => {
     expect(b.cache).toBeGreaterThan(0);
     expect(b.output).toBeGreaterThan(0);
     expect(b.input + b.cache + b.output).toBeCloseTo(b.total, 12);
+    // cache splits into read + write, and a write costs more than a read (Anthropic 1.25× vs 0.1×).
+    expect(b.cacheRead + b.cacheWrite).toBeCloseTo(b.cache, 12);
+    expect(b.cacheRead).toBeGreaterThan(0);
+    expect(b.cacheWrite).toBeGreaterThan(0);
+    expect(b.cacheWrite).toBeGreaterThan(b.cacheRead);
     // total must match the scalar estimateCost for the same inputs.
     expect(b.total).toBeCloseTo(
       estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500, {
@@ -80,6 +85,8 @@ describe("estimateCost", () => {
     expect(estimateCostBreakdown("openai", "gpt-5-turbo", 1000, 1000)).toEqual({
       input: 0,
       cache: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
       output: 0,
       total: 0,
     });
@@ -112,13 +119,13 @@ describe("estimateCost", () => {
     expect(cost).toBeLessThan(estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500));
   });
 
-  it("prices Anthropic cache writes at 1.25x the input rate", () => {
-    // 1000 total input, 600 written to cache → 400 full + 600 * 1.25
+  it("prices Anthropic cache writes at 2x the input rate (1h cross-turn TTL)", () => {
+    // 1000 total input, 600 written to cache → 400 full + 600 * 2.0
     const cost = estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500, {
       cacheCreationInputTokens: 600,
     });
     const expected =
-      (400 * 3.0) / 1_000_000 + (600 * 3.0 * 1.25) / 1_000_000 + (500 * 15.0) / 1_000_000;
+      (400 * 3.0) / 1_000_000 + (600 * 3.0 * 2.0) / 1_000_000 + (500 * 15.0) / 1_000_000;
     expect(cost).toBeCloseTo(expected, 12);
     // Cache writes cost MORE than the plain input rate (break-even trade-off).
     expect(cost).toBeGreaterThan(estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500));
@@ -133,6 +140,25 @@ describe("estimateCost", () => {
     expect(cost).toBeCloseTo(expected, 12);
   });
 
+  it("prices GPT-5.6 cache read at 0.1x and cache WRITE at 1.25x (per-model override)", () => {
+    // gpt-5.6-luna: input $1/1M, output $6/1M. 1000 input = 200 full + 600 read + 200 write.
+    const cost = estimateCost("openai", "gpt-5.6-luna", 1000, 500, {
+      cachedInputTokens: 600,
+      cacheCreationInputTokens: 200,
+    });
+    const expected =
+      (200 * 1.0) / 1_000_000 + // regular input
+      (600 * 1.0 * 0.1) / 1_000_000 + // cache read 0.1x
+      (200 * 1.0 * 1.25) / 1_000_000 + // cache write 1.25x
+      (500 * 6.0) / 1_000_000; // output
+    expect(cost).toBeCloseTo(expected, 12);
+    // The per-model override must NOT leak to the pre-5.6 provider default.
+    expect(estimateCost("openai", "gpt-4o", 1000, 0, { cacheCreationInputTokens: 1000 })).toBeCloseTo(
+      0, // gpt-4o write multiplier is 0 → cache writes are free
+      12,
+    );
+  });
+
   it("clamps a cache breakdown larger than the prompt total to non-negative regular input", () => {
     const cost = estimateCost("anthropic", "claude-sonnet-4-6", 500, 0, {
       cachedInputTokens: 900,
@@ -141,32 +167,26 @@ describe("estimateCost", () => {
     expect(cost).toBeCloseTo((900 * 3.0 * 0.1) / 1_000_000, 12);
   });
 
-  it("applies the +10% cross-Region surcharge to Bedrock eu.* / global.* profiles", () => {
+  it("prices Bedrock cross-Region (eu.*) profiles at the base rate — no surcharge", () => {
     const base = (1000 * 3.0) / 1_000_000 + (500 * 15.0) / 1_000_000;
-    expect(estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-6", 1000, 500)).toBeCloseTo(
-      base * 1.1,
-      12,
-    );
-    expect(estimateCost("bedrock", "global.anthropic.claude-sonnet-4-6", 1000, 500)).toBeCloseTo(
-      base * 1.1,
-      12,
-    );
+    expect(estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-6", 1000, 500)).toBeCloseTo(base, 12);
+  });
+});
+
+describe("cacheSupported", () => {
+  it("is false for Nebius (caches automatically but passes no cost discount)", () => {
+    expect(cacheSupported("nebius", "Qwen/Qwen3-235B-A22B-Instruct-2507")).toBe(false);
   });
 
-  it("does NOT apply the cross-Region surcharge to in-Region (unprefixed) Bedrock models", () => {
-    const base = (1000 * 0.2) / 1_000_000 + (500 * 0.79) / 1_000_000;
-    expect(estimateCost("bedrock", "qwen.qwen3-32b-v1:0", 1000, 500)).toBeCloseTo(base, 12);
+  it("is true for OpenAI and Anthropic", () => {
+    expect(cacheSupported("openai", "gpt-4o")).toBe(true);
+    expect(cacheSupported("anthropic", "claude-sonnet-4-6")).toBe(true);
   });
 
-  it("compounds the cross-Region surcharge with the cache discount", () => {
-    // 1000 total input, 800 cache read → (200 full + 800*0.1) input, then ×1.1.
-    const preSurcharge =
-      (200 * 3.0) / 1_000_000 + (800 * 3.0 * 0.1) / 1_000_000 + (500 * 15.0) / 1_000_000;
-    expect(
-      estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-6", 1000, 500, {
-        cachedInputTokens: 800,
-      }),
-    ).toBeCloseTo(preSurcharge * 1.1, 12);
+  it("is family-gated for Bedrock (anthropic/nova only)", () => {
+    expect(cacheSupported("bedrock", "eu.anthropic.claude-sonnet-4-6")).toBe(true);
+    expect(cacheSupported("bedrock", "eu.amazon.nova-lite-v1:0")).toBe(true);
+    expect(cacheSupported("bedrock", "qwen.qwen3-32b-v1:0")).toBe(false);
   });
 });
 

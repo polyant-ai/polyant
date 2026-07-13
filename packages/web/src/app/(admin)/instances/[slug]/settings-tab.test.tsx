@@ -90,6 +90,9 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     authEnabled: false,
     thinkingEnabled: false,
     stateInPromptEnabled: false,
+    datetimeInjectionEnabled: true,
+    cacheEnabled: true,
+    cacheTtl: "1h",
     toolResultsInHistoryEnabled: false,
     debugEnabled: false,
     optoutEnabled: false,
@@ -221,10 +224,10 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Find memory toggle: the switches are in order - memory is the first one after the selects
+    // Memory is the 4th switch from the end (memory, knowledge, auth, langsmith);
+    // selecting from the tail is robust to the model-gated thinking toggle at the front.
     const switches = screen.getAllByRole("switch");
-    // The first switch is memory toggle
-    const memorySwitch = switches[0];
+    const memorySwitch = switches[switches.length - 4];
     await user.click(memorySwitch);
 
     expect(lastSaveAction.current?.isDirty).toBe(true);
@@ -411,12 +414,13 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Toggle memory on to create a dirty state. Switch order in the AI-model +
-    // memory sections: [0] = "state in prompt", [1] = "tool results in history",
-    // [2] = "debug mode", [3] = memory; the thinking toggle is hidden for
-    // non-reasoning models (gpt-4o).
+    // Toggle memory on to create a dirty state. Switch order (thinking toggle
+    // hidden for non-reasoning gpt-4o): [0] state in prompt, [1] datetime,
+    // [2] tool results in history, [3] debug mode, [4] memory.
+    // Memory is the 4th switch from the end (memory, knowledge, auth, langsmith);
+    // selecting from the tail is robust to the model-gated thinking toggle at the front.
     const switches = screen.getAllByRole("switch");
-    await user.click(switches[3]); // memory switch
+    await user.click(switches[switches.length - 4]); // memory switch
 
     await lastSaveAction.current!.onSave();
 
