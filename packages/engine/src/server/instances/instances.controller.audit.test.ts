@@ -23,7 +23,7 @@ const {
   mockProviderConfigs: {
     openai: {
       tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o1" },
-      costPerMillionTokens: { "gpt-4o-mini": { input: 0.15, output: 0.6 } },
+      models: { "gpt-4o-mini": { input: 0.15, output: 0.6 } },
     },
   },
   mockStopAll: vi.fn(),

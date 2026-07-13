@@ -1,14 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { ModelMessage } from "ai";
+import { findModelCapabilities } from "./model-catalog.js";
+import { warnCatalogFallback } from "./config.js";
 
-// ponytail: allowlist of vision-capable model families — an unlisted model has its
-// image/file content parts stripped to a text note (degraded, never a provider 400).
-// Fails safe; upgrade to a real per-model capability table if the catalog drifts.
+// Allowlist of vision-capable model families — the LOGGED fallback for model ids
+// absent from the per-model catalog. An unlisted model has its image/file content
+// parts stripped to a text note (degraded, never a provider 400). Fails safe.
+// Exported so the catalog-integrity test can cross-check catalogued rows.
 const VISION_CAPABLE = /gpt-4o|gpt-4\.1|gpt-5|chatgpt|claude|nova-lite|nova-pro|nova-2|vision|\bo[134]\b|-vl-|minicpm-v|cosmos3|kimi-k2\.6/i;
 
-export function modelSupportsVision(model: string): boolean {
+export function visionCapableFallback(model: string): boolean {
   return VISION_CAPABLE.test(model);
+}
+
+/**
+ * Whether a model accepts image/file input. Reads the catalog `vision` field
+ * (cross-provider lookup — this gate receives no provider); falls back to the
+ * regex heuristic (logged) for un-catalogued ids.
+ */
+export function modelSupportsVision(model: string): boolean {
+  const entry = findModelCapabilities(model);
+  if (entry) return entry.vision;
+  warnCatalogFallback("modelSupportsVision", "", model);
+  return visionCapableFallback(model);
 }
 
 // Bedrock's Converse API rejects blank text content blocks (OpenAI/Anthropic tolerate

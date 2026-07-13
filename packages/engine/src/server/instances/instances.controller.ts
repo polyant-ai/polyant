@@ -128,7 +128,7 @@ export class InstancesController {
     const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; supportsCache: boolean; supportsThinking: boolean; reasoningAlwaysOn: boolean; supportsTemperature: boolean }[] }> = {};
     for (const [name, cfg] of Object.entries(providerConfigs)) {
       const tierByModel = new Map(Object.entries(cfg.tiers).map(([tier, modelId]) => [modelId, tier]));
-      const models = Object.entries(cfg.costPerMillionTokens).map(([modelId, cost]) => ({
+      const models = Object.entries(cfg.models).map(([modelId, cost]) => ({
         id: modelId,
         tier: tierByModel.get(modelId) ?? null,
         costInput: cost.input,
@@ -435,7 +435,7 @@ export class InstancesController {
       const cfg = providerConfigs[effectiveProvider];
       const validModels = cfg ? [
         ...Object.values(cfg.tiers),
-        ...Object.keys(cfg.costPerMillionTokens),
+        ...Object.keys(cfg.models),
       ] : [];
       if (!validModels.includes(model)) {
         throw new BadRequestException(`Invalid model "${model}" for provider "${effectiveProvider}". Valid models: ${validModels.join(", ")}`);

@@ -40,7 +40,7 @@ const {
   mockProviderConfigs: {
     openai: {
       tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o3" },
-      costPerMillionTokens: {
+      models: {
         "gpt-4o-mini": { input: 0.15, output: 0.6 },
         "gpt-4o": { input: 2.5, output: 10, cacheRead: 1.25, cacheWrite: 0 },
         "o3": { input: 2.0, output: 8.0 },
@@ -48,7 +48,7 @@ const {
     },
     bedrock: {
       tiers: { fast: "titan", standard: "titan", heavy: "titan" },
-      costPerMillionTokens: {},
+      models: {},
     },
   },
 }));

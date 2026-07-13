@@ -236,8 +236,8 @@ describe("providerConfigs", () => {
   it("each tier model has cost data", () => {
     for (const provider of Object.values(providerConfigs)) {
       for (const model of Object.values(provider.tiers)) {
-        expect(provider.costPerMillionTokens).toHaveProperty(model);
-        const pricing = provider.costPerMillionTokens[model];
+        expect(provider.models).toHaveProperty(model);
+        const pricing = provider.models[model];
         expect(pricing.input).toBeGreaterThan(0);
         expect(pricing.output).toBeGreaterThan(0);
       }
