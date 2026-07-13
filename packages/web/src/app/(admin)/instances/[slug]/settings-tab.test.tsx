@@ -131,6 +131,16 @@ function setupDefaultMocks() {
   mockToolsRequiredSecrets.mockResolvedValue({ requiredSecrets: [] });
 }
 
+/**
+ * The memory Switch, scoped to the Memory section via its unique help text.
+ * Robust to switch reordering — index-based lookups (switches[0]/[3]) broke when
+ * the always-visible thinking toggle (#178) shifted every switch down by one.
+ */
+function getMemorySwitch(): HTMLElement {
+  const section = screen.getByText("settings.tab.memoryHelp").closest("section");
+  return within(section as HTMLElement).getByRole("switch");
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("SettingsTab", () => {
@@ -221,11 +231,7 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Find memory toggle: the switches are in order - memory is the first one after the selects
-    const switches = screen.getAllByRole("switch");
-    // The first switch is memory toggle
-    const memorySwitch = switches[0];
-    await user.click(memorySwitch);
+    await user.click(getMemorySwitch());
 
     expect(lastSaveAction.current?.isDirty).toBe(true);
   });
@@ -411,12 +417,8 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Toggle memory on to create a dirty state. Switch order in the AI-model +
-    // memory sections: [0] = "state in prompt", [1] = "tool results in history",
-    // [2] = "debug mode", [3] = memory; the thinking toggle is hidden for
-    // non-reasoning models (gpt-4o).
-    const switches = screen.getAllByRole("switch");
-    await user.click(switches[3]); // memory switch
+    // Toggle memory on to create a dirty state.
+    await user.click(getMemorySwitch());
 
     await lastSaveAction.current!.onSave();
 
@@ -541,8 +543,7 @@ describe("SettingsTab", () => {
     });
 
     // Toggle memory to trigger dirty state
-    const switches = screen.getAllByRole("switch");
-    await user.click(switches[0]);
+    await user.click(getMemorySwitch());
 
     await lastSaveAction.current!.onSave();
 
