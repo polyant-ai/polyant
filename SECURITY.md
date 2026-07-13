@@ -42,7 +42,7 @@ The following are **in scope**:
 - Authentication / authorization bypass in the admin panel or management API
 - SQL injection, command injection, path traversal, SSRF
 - Secret exposure (encrypted storage, tokens, keys)
-- RCE via tool execution (e.g. `gitCloneRepo`, `claudeCode`, `httpRequest`)
+- RCE via tool execution (e.g. `github:cloneRepo`, `claudeCode`, `httpRequest`)
 - XSS / CSRF in the admin panel
 - Cryptographic weaknesses in the AES-256-GCM secret-storage layer
 - Prompt-injection vulnerabilities that lead to privilege escalation or data exfiltration across instances
