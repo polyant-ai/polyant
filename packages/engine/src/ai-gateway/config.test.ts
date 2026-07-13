@@ -66,6 +66,11 @@ describe("estimateCost", () => {
     expect(b.cache).toBeGreaterThan(0);
     expect(b.output).toBeGreaterThan(0);
     expect(b.input + b.cache + b.output).toBeCloseTo(b.total, 12);
+    // cache splits into read + write, and a write costs more than a read (Anthropic 1.25× vs 0.1×).
+    expect(b.cacheRead + b.cacheWrite).toBeCloseTo(b.cache, 12);
+    expect(b.cacheRead).toBeGreaterThan(0);
+    expect(b.cacheWrite).toBeGreaterThan(0);
+    expect(b.cacheWrite).toBeGreaterThan(b.cacheRead);
     // total must match the scalar estimateCost for the same inputs.
     expect(b.total).toBeCloseTo(
       estimateCost("anthropic", "claude-sonnet-4-6", 1000, 500, {
@@ -80,6 +85,8 @@ describe("estimateCost", () => {
     expect(estimateCostBreakdown("openai", "gpt-5-turbo", 1000, 1000)).toEqual({
       input: 0,
       cache: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
       output: 0,
       total: 0,
     });

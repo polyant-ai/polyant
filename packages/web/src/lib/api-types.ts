@@ -437,6 +437,10 @@ export interface ConversationMessage {
 export interface CostBreakdown {
   input: number;
   cache: number;
+  /** Cost of cache-read (hit) tokens. Subset of `cache`. Absent on rows persisted before the split shipped. */
+  cacheRead?: number;
+  /** Cost of cache-write (creation) tokens. Subset of `cache`. Absent on rows persisted before the split shipped. */
+  cacheWrite?: number;
   output: number;
   total: number;
 }
