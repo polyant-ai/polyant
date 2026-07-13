@@ -50,7 +50,7 @@
     "dotenv": "^16.4.0",
     "drizzle-orm": "^0.45.2",
     "grammy": "^1.40.0",
-    "helmet": "^8.1.0",
+    "helmet": "^8.3.0",
     "jose": "^6.2.2",
     "langsmith": "^0.7.2",
     "postgres": "^3.4.0",
