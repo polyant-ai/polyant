@@ -524,7 +524,6 @@ function logProviderError(
     console.error(
       `[ai-gateway]   system=${ctx.system ? `present(${ctx.system.length})` : "none"} | roles: ${describeMessages(ctx.messages)}`,
     );
-    console.error(`[ai-gateway]   messages=${JSON.stringify(ctx.messages).slice(0, 4000)}`);
   }
 }
 
