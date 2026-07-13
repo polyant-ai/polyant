@@ -5,7 +5,14 @@ import type { TierMapping, CostBreakdown } from "./types.js";
 export interface ProviderConfig {
   tiers: TierMapping;
   costPerMillionTokens: {
-    [model: string]: { input: number; output: number };
+    /**
+     * All rates are USD per 1M tokens. `cacheRead`/`cacheWrite` are ABSOLUTE
+     * published cache prices (NOT multipliers of `input`). Omit them when the
+     * model has no cache pricing — the estimator then bills cached tokens at the
+     * full `input` rate, which is correct for providers that report cached tokens
+     * but give no discount (e.g. Nebius) and for non-cacheable families.
+     */
+    [model: string]: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   };
 }
 
@@ -17,18 +24,24 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       heavy: "o3",
     },
     costPerMillionTokens: {
+      // Pre-GPT-5.6 OpenAI: cache read 0.5× input, NO write premium (cacheWrite 0).
       // GPT-4o family
-      "gpt-4o-mini": { input: 0.15, output: 0.60 },
-      "gpt-4o": { input: 2.50, output: 10.00 },
+      "gpt-4o-mini": { input: 0.15, output: 0.60, cacheRead: 0.075, cacheWrite: 0 },
+      "gpt-4o": { input: 2.50, output: 10.00, cacheRead: 1.25, cacheWrite: 0 },
       // GPT-4.1 family
-      "gpt-4.1": { input: 2.00, output: 8.00 },
-      "gpt-4.1-mini": { input: 0.40, output: 1.60 },
+      "gpt-4.1": { input: 2.00, output: 8.00, cacheRead: 1.00, cacheWrite: 0 },
+      "gpt-4.1-mini": { input: 0.40, output: 1.60, cacheRead: 0.20, cacheWrite: 0 },
       // GPT-5.4 family
-      "gpt-5.4": { input: 2.50, output: 15.00 },
-      "gpt-5.4-mini": { input: 0.75, output: 4.50 },
-      "gpt-5.4-nano": { input: 0.20, output: 1.25 },
+      "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 1.25, cacheWrite: 0 },
+      "gpt-5.4-mini": { input: 0.75, output: 4.50, cacheRead: 0.375, cacheWrite: 0 },
+      "gpt-5.4-nano": { input: 0.20, output: 1.25, cacheRead: 0.10, cacheWrite: 0 },
+      // GPT-5.6 family (Sol/Terra/Luna) — cache read 0.1×, cache WRITE 1.25×
+      // (absolute published rates; unlike pre-5.6 these DO charge a write premium).
+      "gpt-5.6-sol": { input: 5.00, output: 30.00, cacheRead: 0.50, cacheWrite: 6.25 },
+      "gpt-5.6-terra": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 3.125 },
+      "gpt-5.6-luna": { input: 1.00, output: 6.00, cacheRead: 0.10, cacheWrite: 1.25 },
       // Reasoning
-      "o3": { input: 2.00, output: 8.00 },
+      "o3": { input: 2.00, output: 8.00, cacheRead: 1.00, cacheWrite: 0 },
     },
   },
   anthropic: {
@@ -38,16 +51,18 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       heavy: "claude-opus-4-8",
     },
     costPerMillionTokens: {
+      // Anthropic 1P: cache read 0.1× input; cache WRITE 2× input (the 1h cross-turn
+      // TTL we default to — a 5m instance over-reports writes slightly, accepted).
       // Haiku 4.5 (fast)
-      "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00 },
+      "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 2.00 },
       // Sonnet family
-      "claude-sonnet-5": { input: 3.00, output: 15.00 },
-      "claude-sonnet-4-6": { input: 3.00, output: 15.00 },
-      "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00 },
+      "claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00 },
+      "claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00 },
+      "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00 },
       // Opus family
-      "claude-opus-4-8": { input: 5.00, output: 25.00 },
-      "claude-opus-4-7": { input: 5.00, output: 25.00 },
-      "claude-opus-4-6": { input: 5.00, output: 25.00 },
+      "claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00 },
+      "claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00 },
+      "claude-opus-4-6": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00 },
     },
   },
   bedrock: {
@@ -64,35 +79,36 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // Amazon Nova — EU inference profiles (the `fast` tier targets
       // eu.amazon.nova-lite-v1:0). Raw model IDs are omitted: they are not
       // invocable on-demand from EU regions, only via these eu.* profiles.
-      "eu.amazon.nova-micro-v1:0": { input: 0.035, output: 0.14 },
-      "eu.amazon.nova-lite-v1:0": { input: 0.06, output: 0.24 },
-      "eu.amazon.nova-2-lite-v1:0": { input: 0.06, output: 0.24 },
-      "eu.amazon.nova-pro-v1:0": { input: 0.80, output: 3.20 },
-      // Anthropic via Bedrock — EU inference profiles.
-      // Token rates match Anthropic first-party; the +10% regional-endpoint
-      // premium on eu.*/global.* profiles is intentionally not modeled (base rates,
-      // consistent across the table). Opus 4.5+ is $5/$25 (not the old $15/$75).
-      "eu.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00 },
-      "eu.anthropic.claude-sonnet-4-20250514-v1:0": { input: 3.00, output: 15.00 },
-      "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00 },
-      "eu.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00 },
+      "eu.amazon.nova-micro-v1:0": { input: 0.035, output: 0.14, cacheRead: 0.0035, cacheWrite: 0.04375 },
+      "eu.amazon.nova-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075 },
+      "eu.amazon.nova-2-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075 },
+      "eu.amazon.nova-pro-v1:0": { input: 0.80, output: 3.20, cacheRead: 0.08, cacheWrite: 1.00 },
+      // Anthropic via Bedrock — EU inference profiles. Bedrock caches at 5m only →
+      // cache read 0.1× input, cache WRITE 1.25× input (absolute rates below).
+      // Token rates match Anthropic first-party; cross-Region profiles are billed
+      // at the source-Region price (AWS's documented stance — no surcharge modeled).
+      // Opus 4.5+ is $5/$25 (not the old $15/$75).
+      "eu.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 1.25 },
+      "eu.anthropic.claude-sonnet-4-20250514-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75 },
+      "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75 },
+      "eu.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75 },
       // ponytail: profile ID follows the sonnet-4-6 form; confirm EU invocability + pricing before promoting to `standard`.
-      "eu.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00 },
-      "eu.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00 },
-      "eu.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00 },
-      "eu.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00 },
-      "eu.anthropic.claude-opus-4-8": { input: 5.00, output: 25.00 },
-      "eu.anthropic.claude-fable-5": { input: 5.00, output: 25.00 },
+      "eu.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75 },
+      "eu.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25 },
+      "eu.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25 },
+      "eu.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25 },
+      "eu.anthropic.claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25 },
+      "eu.anthropic.claude-fable-5": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25 },
       // Anthropic via Bedrock — Global inference profiles (use-case form may be required)
-      "global.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00 },
-      "global.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00 },
-      "global.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00 },
-      "global.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00 },
-      "global.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00 },
-      "global.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00 },
-      "global.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00 },
-      "global.anthropic.claude-opus-4-8": { input: 5.00, output: 25.00 },
-      "global.anthropic.claude-fable-5": { input: 5.00, output: 25.00 },
+      "global.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 1.25 },
+      "global.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75 },
+      "global.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75 },
+      "global.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75 },
+      "global.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25 },
+      "global.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25 },
+      "global.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25 },
+      "global.anthropic.claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25 },
+      "global.anthropic.claude-fable-5": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25 },
       // Non-Anthropic models — direct on-demand IDs (NOT eu.* profiles). In
       // eu-south-1 these are In-Region / ON_DEMAND, so the raw model ID is used.
       // Prices are the Europe (Milan) Standard tier from the AWS pricing page.
@@ -192,45 +208,50 @@ export interface CacheTokenUsage {
 }
 
 /**
- * Per-provider cache pricing multipliers, relative to the base `input` rate.
- *
- *  - `read`  : rate for a cache HIT (cache_read). Anthropic ≈ 0.1×; OpenAI's
- *              automatic caching discounts cached prompt tokens (≈ 0.5× on the
- *              4o/4.1 line, lower on gpt-5 — 0.5 is a documented approximation).
- *  - `write` : rate for a cache WRITE (cache_creation). Anthropic charges a
- *              premium (1.25× for the default 5-minute TTL); OpenAI has no
- *              separate write cost (automatic caching, `cacheWriteTokens` = 0).
- *
- * Providers without a modeled cache (e.g. Nebius) fall back to 1× so cached
- * tokens are never under-priced.
+ * Resolve the ABSOLUTE per-1M cache read/write rates for a model. Cache rates
+ * live directly on the catalog entry (`cacheRead`/`cacheWrite`, published $/1M —
+ * not multipliers). When a rate is absent they fall back to the full `input`
+ * rate: the correct default for providers that report cached tokens but give no
+ * discount (Nebius) and for non-cacheable families. This is the single pricing
+ * source — there is no separate multiplier table.
  */
-const CACHE_MULTIPLIERS: Record<string, { read: number; write: number }> = {
-  anthropic: { read: 0.1, write: 1.25 },
-  // Bedrock catalog is Anthropic-dominated; Nova/others report no cache tokens.
-  bedrock: { read: 0.1, write: 1.25 },
-  openai: { read: 0.5, write: 0 },
-};
-const DEFAULT_CACHE_MULTIPLIER = { read: 1, write: 1 };
+function resolveCacheRates(pricing: {
+  input: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+}): { read: number; write: number } {
+  return {
+    read: pricing.cacheRead ?? pricing.input,
+    write: pricing.cacheWrite ?? pricing.input,
+  };
+}
 
 /**
- * Cross-Region inference surcharge for Bedrock (`eu.*` / `global.*` inference
- * profiles). The Bedrock `costPerMillionTokens` table holds the BASE per-token
- * rates (identical to Anthropic/OpenAI first-party); several 2026 pricing
- * analyses report a flat ~10% premium for cross-Region inference profiles on
- * top of that base. AWS's official docs do NOT document a surcharge (historic
- * stance: billed at the source-Region price), so this is modeled as a single
- * explicit knob rather than baked into every table entry: verify against a real
- * Bedrock invoice and set to `1` (or the exact factor) if it differs. Applies
- * to input, output and cache tokens alike.
+ * Bedrock model families that support Converse prompt caching (`cachePoint`).
+ * A cachePoint on any other family (Qwen, Nemotron, gpt-oss …) makes Bedrock
+ * reject the whole call with a ValidationException, so both the runtime marker
+ * gate (providers/bedrock.ts) and the cost display consume this ONE source.
  */
-const BEDROCK_CROSS_REGION_SURCHARGE = 1.1;
+export const BEDROCK_CACHE_CAPABLE = /anthropic|nova/;
 
-/** Matches Bedrock cross-Region inference profile IDs (`us.`/`eu.`/`apac.`/`global.`);
- * in-Region raw model IDs carry no cross-Region surcharge. */
-function bedrockRegionalMultiplier(provider: string, model: string): number {
-  return provider === "bedrock" && /^(us|eu|apac|global)\./.test(model)
-    ? BEDROCK_CROSS_REGION_SURCHARGE
-    : 1;
+/**
+ * Whether a provider+model's prompt cache yields a COST DISCOUNT (and, for
+ * Anthropic/Bedrock, whether we inject a marker). Bedrock discounts only the
+ * anthropic/nova families; OpenAI (automatic) and Anthropic (explicit marker)
+ * always do. Nebius is FALSE even though it caches automatically and reports
+ * `cacheReadTokens` (verified live) — it passes NO discount (open feature
+ * request), so cached tokens bill at the full input rate and `resolveCacheRates`
+ * correctly leaves its cache rate = input.
+ */
+export function cacheSupported(provider: string, model: string): boolean {
+  switch (provider) {
+    case "nebius":
+      return false;
+    case "bedrock":
+      return BEDROCK_CACHE_CAPABLE.test(model);
+    default:
+      return true;
+  }
 }
 
 /**
@@ -238,9 +259,9 @@ function bedrockRegionalMultiplier(provider: string, model: string): number {
  *
  * `promptTokens` is the AI SDK's normalized TOTAL input count
  * (`inputTokens` = noCache + cacheRead + cacheWrite). When a `cache` breakdown
- * is supplied, cache reads and writes are re-priced with the provider
- * multipliers above and the remainder is billed at the full input rate. Omitting
- * `cache` reproduces the legacy full-price behaviour exactly.
+ * is supplied, cache reads and writes are priced with the model's ABSOLUTE cache
+ * rates (`resolveCacheRates`, falling back to the input rate) and the remainder
+ * at the full input rate. Omitting `cache` reproduces full-price behaviour.
  */
 export function estimateCost(
   provider: string,
@@ -271,14 +292,13 @@ export function estimateCostBreakdown(
   const cacheRead = Math.max(0, cache?.cachedInputTokens ?? 0);
   const cacheWrite = Math.max(0, cache?.cacheCreationInputTokens ?? 0);
   const regularInput = Math.max(0, promptTokens - cacheRead - cacheWrite);
-  const mult = CACHE_MULTIPLIERS[provider] ?? DEFAULT_CACHE_MULTIPLIER;
-  const regional = bedrockRegionalMultiplier(provider, model);
+  const rates = resolveCacheRates(pricing);
 
-  const input = (regional * (regularInput * pricing.input)) / 1_000_000;
-  const cacheReadCost = (regional * (cacheRead * pricing.input * mult.read)) / 1_000_000;
-  const cacheWriteCost = (regional * (cacheWrite * pricing.input * mult.write)) / 1_000_000;
+  const input = (regularInput * pricing.input) / 1_000_000;
+  const cacheReadCost = (cacheRead * rates.read) / 1_000_000;
+  const cacheWriteCost = (cacheWrite * rates.write) / 1_000_000;
   const cacheCost = cacheReadCost + cacheWriteCost;
-  const output = (regional * (completionTokens * pricing.output)) / 1_000_000;
+  const output = (completionTokens * pricing.output) / 1_000_000;
 
   return {
     input,

@@ -272,6 +272,8 @@ async function main() {
         agentCallMetadata: agentMeta,
         stateBuffer: ctx.stateBuffer,
         stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
+        datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
+        cacheConfig: ctx.instanceConfig.cacheConfig,
         debugEnabled: ctx.instanceConfig.debugEnabled,
         optoutHint:
           ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
@@ -416,6 +418,8 @@ async function main() {
         agentCallMetadata: agentMetaStream,
         stateBuffer: ctx.stateBuffer,
         stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
+        datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
+        cacheConfig: ctx.instanceConfig.cacheConfig,
         debugEnabled: ctx.instanceConfig.debugEnabled,
         optoutHint:
           ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint

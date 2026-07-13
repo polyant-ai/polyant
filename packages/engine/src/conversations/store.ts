@@ -297,6 +297,10 @@ export class ConversationStore {
     messages: Array<{
       /** Explicit row id. When omitted the column default (random UUID) is used. */
       id?: string;
+      /** Explicit created_at. When omitted the column default (now()) is used — set it
+       * to a message's true arrival time so a commit-on-success user row is not stamped
+       * at end-of-turn (which also keeps the user row ordered before the assistant). */
+      createdAt?: Date;
       role: string;
       content: string;
       steps?: StepDetail[];
@@ -312,6 +316,7 @@ export class ConversationStore {
     await db.insert(conversationMessages).values(
       messages.map((m) => ({
         ...(m.id ? { id: m.id } : {}),
+        ...(m.createdAt ? { createdAt: m.createdAt } : {}),
         conversationId,
         role: m.role,
         // Postgres `text` rejects NUL bytes; `jsonb` rejects NUL escapes
