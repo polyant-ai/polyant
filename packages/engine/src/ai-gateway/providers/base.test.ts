@@ -12,7 +12,8 @@ vi.mock("../langsmith.js", () => ({
   buildLangSmithProviderOptions: vi.fn(),
 }));
 
-import { buildSteps, aggregateReasoning, serializeTools, createProvider } from "./base.js";
+import type { ModelMessage } from "ai";
+import { buildSteps, aggregateReasoning, serializeTools, createProvider, normalizeStrictConversation } from "./base.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 
 // safeTokens and aggregateStepUsage are not exported, so we test them
@@ -373,6 +374,55 @@ describe("createProvider – temperature forwarding", () => {
   });
 });
 
+describe("createProvider – cache gating (cacheConfig)", () => {
+  const makeHooks = () => ({
+    prepareMessages: vi.fn((input: { system: string | undefined; messages: unknown[]; modelId: string; ttl?: string }) => ({
+      system: input.system,
+      messages: input.messages,
+    })),
+    stepMarker: vi.fn(() => ({})),
+  });
+
+  it("skips the cache marker AND prepareStep when cacheConfig.enabled is false", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    spy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+    const hooks = makeHooks();
+    const adapter = createProvider("test-provider", (_m) => ({} as any), hooks as any);
+
+    await adapter.chat({ ...baseRequest, system: "SYS", cacheConfig: { enabled: false, ttl: "1h" } }, "gpt-4o");
+
+    expect(hooks.prepareMessages).not.toHaveBeenCalled();
+    expect(spy.mock.calls[0][0]).not.toHaveProperty("prepareStep");
+  });
+
+  it("applies the marker + prepareStep and forwards the ttl when enabled", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    spy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+    const hooks = makeHooks();
+    const adapter = createProvider("test-provider", (_m) => ({} as any), hooks as any);
+
+    await adapter.chat({ ...baseRequest, system: "SYS", cacheConfig: { enabled: true, ttl: "5m" } }, "gpt-4o");
+
+    expect(hooks.prepareMessages).toHaveBeenCalledWith(expect.objectContaining({ ttl: "5m" }));
+    expect(spy.mock.calls[0][0]).toHaveProperty("prepareStep");
+  });
+
+  it("enables caching (marker + prepareStep) when cacheConfig is omitted — backward compatible", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    spy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+    const hooks = makeHooks();
+    const adapter = createProvider("test-provider", (_m) => ({} as any), hooks as any);
+
+    await adapter.chat({ ...baseRequest, system: "SYS" }, "gpt-4o");
+
+    expect(hooks.prepareMessages).toHaveBeenCalled();
+    expect(spy.mock.calls[0][0]).toHaveProperty("prepareStep");
+  });
+});
+
 describe("createProvider – system message folding", () => {
   it("folds a mid-array system message into the top-level system and strips it from messages", async () => {
     const generateTextSpy = vi.mocked(tracedGenerateText);
@@ -532,5 +582,53 @@ describe("aggregateReasoning", () => {
       { type: "text", text: "a" },
       { type: "text", text: "b", signature: "s" },
     ]);
+  });
+});
+
+describe("normalizeStrictConversation", () => {
+  it("returns a well-formed user-first alternation unchanged", () => {
+    const msgs: ModelMessage[] = [
+      { role: "user", content: "a" },
+      { role: "assistant", content: "b" },
+      { role: "user", content: "c" },
+    ];
+    expect(normalizeStrictConversation(msgs)).toEqual(msgs);
+  });
+
+  it("merges consecutive same-role messages into one (parts concatenated)", () => {
+    const out = normalizeStrictConversation([
+      { role: "user", content: "a" },
+      { role: "user", content: "b" },
+      { role: "assistant", content: "c" },
+    ]);
+    expect(out).toHaveLength(2);
+    expect(out[0].role).toBe("user");
+    expect(out[0].content).toEqual([
+      { type: "text", text: "a" },
+      { type: "text", text: "b" },
+    ]);
+    expect(out[1]).toEqual({ role: "assistant", content: "c" });
+  });
+
+  it("prepends a [no-op] user turn when the conversation starts with assistant (proactive)", () => {
+    const out = normalizeStrictConversation([
+      { role: "assistant", content: "greeting" },
+      { role: "user", content: "reply" },
+    ]);
+    expect(out).toEqual([
+      { role: "user", content: "[no-op]" },
+      { role: "assistant", content: "greeting" },
+      { role: "user", content: "reply" },
+    ]);
+  });
+
+  it("does not mutate the input array or its messages", () => {
+    const input: ModelMessage[] = [
+      { role: "assistant", content: "x" },
+      { role: "user", content: "y" },
+    ];
+    const snapshot = JSON.stringify(input);
+    normalizeStrictConversation(input);
+    expect(JSON.stringify(input)).toBe(snapshot);
   });
 });

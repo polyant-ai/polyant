@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createProvider, type PrepareMessages } from "./base.js";
-import { injectCacheBreakpoints, withProviderCacheMarker } from "./prompt-caching.js";
+import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
 
 /**
  * Beta header that enables interleaved thinking + tool use across multiple
@@ -21,23 +22,39 @@ const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 const DEFAULT_THINKING_BUDGET = 5000;
 
 /**
- * Ephemeral cache breakpoint. Unlike OpenAI (automatic prefix caching, no
- * parameters), Anthropic requires an explicit `cache_control` marker and the
- * `@ai-sdk/anthropic` provider does NOT add one on its own — so without this
- * every Anthropic turn re-pays the full prompt at full price. Default TTL is
- * 5 minutes.
+ * Anthropic requires an explicit `cache_control` marker (the `@ai-sdk/anthropic`
+ * provider adds none), so without this every turn re-pays the full prompt. Two
+ * TTLs, selected per instance by `cacheConfig.ttl` (default 1h):
+ *  - 1h — best for Polyant's slow async channels (WhatsApp/Telegram): turns
+ *    arrive minutes-to-sub-hour apart, so a 5m prefix would expire between turns
+ *    and re-pay the write (2×) with no read. 1h keeps it warm; the 2× write
+ *    amortizes on the next read.
+ *  - 5m — cheaper write (1.25×), for interactive/bursty instances.
  */
-const EPHEMERAL_CACHE_CONTROL = { cacheControl: { type: "ephemeral" as const } };
+const CACHE_CONTROL_1H = { cacheControl: { type: "ephemeral" as const, ttl: "1h" as const } };
+const CACHE_CONTROL_5M = { cacheControl: { type: "ephemeral" as const } };
+
+/** Decorate a message with Anthropic's `cacheControl` marker — shared by both breakpoint paths. */
+const markAnthropic = (marker: Record<string, unknown>) => (message: ModelMessage): ModelMessage =>
+  withProviderCacheMarker(message, "anthropic", marker);
 
 /**
- * Inject Anthropic prompt-cache breakpoints (tools+system and history) into a
- * folded request via the shared placement helper. Exported for unit testing;
- * wired via `createProvider`'s `prepareMessages` hook.
+ * Inject Anthropic cross-turn breakpoints (tools+system and history) at the
+ * instance's chosen TTL (default 1h). Exported for unit testing; wired via
+ * `createProvider`'s `prepareMessages` hook.
  */
 export const applyAnthropicPromptCaching: PrepareMessages = (input) =>
-  injectCacheBreakpoints(input, (message) =>
-    withProviderCacheMarker(message, "anthropic", EPHEMERAL_CACHE_CONTROL),
-  );
+  injectCacheBreakpoints(input, markAnthropic(input.ttl === "5m" ? CACHE_CONTROL_5M : CACHE_CONTROL_1H));
+
+/**
+ * Within-turn moving breakpoint — marks the last message from step 1 so
+ * accumulating tool_use/tool_result blocks cache incrementally. ALWAYS 5m (steps
+ * are seconds apart): cheaper write, and — landing after the cross-turn
+ * breakpoints — it respects Anthropic's "longer-TTL-first" ordering rule even
+ * when the instance runs the cross-turn breakpoints at 1h. Wired via
+ * `createProvider`'s `stepMarker` hook.
+ */
+export const anthropicStepMarker = makeStepMarker(markAnthropic(CACHE_CONTROL_5M));
 
 export const AnthropicProvider = createProvider(
   "anthropic",
@@ -57,7 +74,7 @@ export const AnthropicProvider = createProvider(
       },
     })(modelId);
   },
-  { prepareMessages: applyAnthropicPromptCaching },
+  { prepareMessages: applyAnthropicPromptCaching, stepMarker: anthropicStepMarker },
 );
 
 /**

@@ -465,6 +465,32 @@ describe("ConversationStore", () => {
       ]);
     });
 
+    it("stamps the row with an explicit createdAt when provided (arrival time)", async () => {
+      const id = uid();
+      const insChain = createChainMock(undefined);
+      mockDb.insert.mockReturnValue(insChain as any);
+      const arrival = new Date("2026-07-10T18:00:00.000Z");
+
+      await conversationStore.appendMessages(id, [
+        { role: "user", content: "Hi", createdAt: arrival },
+      ]);
+
+      expect(insChain.values).toHaveBeenCalledWith([
+        expect.objectContaining({ role: "user", createdAt: arrival }),
+      ]);
+    });
+
+    it("omits createdAt from the insert when not provided (column default now())", async () => {
+      const id = uid();
+      const insChain = createChainMock(undefined);
+      mockDb.insert.mockReturnValue(insChain as any);
+
+      await conversationStore.appendMessages(id, [{ role: "assistant", content: "x" }]);
+
+      const values = insChain.values.mock.calls[0][0] as Array<Record<string, unknown>>;
+      expect(values[0]).not.toHaveProperty("createdAt");
+    });
+
     it("maps steps to null when not provided", async () => {
       const id = uid();
       const insChain = createChainMock(undefined);

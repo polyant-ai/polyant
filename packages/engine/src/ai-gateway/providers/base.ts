@@ -4,7 +4,7 @@ import { type LanguageModel, type ModelMessage, stepCountIs } from "ai";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { config } from "../../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
-import type { ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
+import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 
 type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => LanguageModel;
@@ -193,6 +193,10 @@ function mapUsage(u: unknown): MappedUsage {
   // ({ noCacheTokens, cacheReadTokens, cacheWriteTokens }); `inputTokens` is the
   // TOTAL (noCache + read + write). We fall back to the deprecated top-level
   // `cachedInputTokens` for cache reads on providers that don't fill the details.
+  // The gateway feeds this `totalUsage` (not the final-step `usage`), so the cache
+  // reads/writes are summed across EVERY step — a multi-step turn's incremental
+  // caching (the `prepareStep` marker) is counted once per step, never lost.
+  // Verified live on OpenAI/Anthropic/Bedrock.
   const details = (o.inputTokenDetails ?? {}) as Record<string, unknown>;
   return {
     promptTokens: num(o.inputTokens),
@@ -385,6 +389,47 @@ function foldSystemMessages(
   };
 }
 
+/** Content parts of a message as an array (empty string → no parts) — used to
+ * merge two same-role messages without losing or double-nesting content. */
+function contentParts(content: unknown): unknown[] {
+  if (typeof content === "string") return content.length > 0 ? [{ type: "text", text: content }] : [];
+  return Array.isArray(content) ? content : [];
+}
+
+/**
+ * Placeholder user turn prepended to an assistant-first conversation so strict
+ * chat templates (which require the message array to START with `user`) accept it.
+ * Request-only (never persisted); "[no-op]" marks it as an ignorable opener.
+ */
+const NOOP_USER_TURN: ModelMessage = { role: "user", content: "[no-op]" };
+
+/**
+ * Normalize a messages array for providers whose chat template is STRICT about
+ * roles (e.g. gemma/mistral served via Nebius or Bedrock reject anything that is
+ * not a clean user/assistant/… alternation starting with `user`):
+ *   1. Merge consecutive same-role messages (a sibling of foldSystemMessages) —
+ *      this also masks a same-`created_at` ordering flip in the persisted history.
+ *   2. Ensure the array starts with a user turn: proactive / agent-initiated
+ *      conversations legitimately open with an assistant greeting, so PREPEND a
+ *      harmless placeholder rather than drop the greeting.
+ * A well-formed conversation is returned unchanged (no cache-prefix churn). Pure.
+ */
+export function normalizeStrictConversation(messages: ModelMessage[]): ModelMessage[] {
+  const merged: ModelMessage[] = [];
+  for (const m of messages) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.role === m.role) {
+      merged[merged.length - 1] = {
+        ...prev,
+        content: [...contentParts(prev.content), ...contentParts(m.content)],
+      } as ModelMessage;
+    } else {
+      merged.push(m);
+    }
+  }
+  return merged.length > 0 && merged[0].role === "assistant" ? [NOOP_USER_TURN, ...merged] : merged;
+}
+
 /**
  * Optional per-provider transform applied to the folded `{system, messages}`
  * immediately before the SDK call. Anthropic/Bedrock use it to inject cache
@@ -397,10 +442,109 @@ export type PrepareMessages = (input: {
   system: string | undefined;
   messages: ModelMessage[];
   modelId: string;
+  /** Cross-turn cache TTL (Anthropic). Undefined → provider default (1h). */
+  ttl?: CacheTtl;
 }) => { system: string | undefined; messages: ModelMessage[] };
 
 export interface ProviderHooks {
   prepareMessages?: PrepareMessages;
+  /**
+   * Multi-step cache marker (Phase 3). Wired into the AI SDK `prepareStep` hook
+   * so the tool messages that accumulate within one agentic turn become
+   * incrementally cacheable step-to-step. See `makeStepMarker` in prompt-caching.ts.
+   */
+  stepMarker?: (input: { stepNumber: number; messages: ModelMessage[]; modelId: string }) => { messages?: ModelMessage[] };
+  /**
+   * When true, the folded messages are run through `normalizeStrictConversation`
+   * before the call — for providers hosting strict chat templates (Nebius,
+   * Bedrock) that reject non-alternating or assistant-first conversations.
+   */
+  strictTemplate?: boolean;
+}
+
+/**
+ * Adapt a provider's `stepMarker` hook to the AI SDK `prepareStep` signature,
+ * binding the concrete `modelId` (the SDK's `prepareStep` gives a model object,
+ * not its id). Returns undefined when the provider supplies no marker, so
+ * OpenAI/Nebius calls stay byte-identical.
+ */
+function buildPrepareStep(hooks: ProviderHooks | undefined, modelId: string) {
+  if (!hooks?.stepMarker) return undefined;
+  return (o: { stepNumber: number; messages: ModelMessage[] }) =>
+    hooks.stepMarker!({ stepNumber: o.stepNumber, messages: o.messages, modelId });
+}
+
+/**
+ * Compact structural summary of a messages array — role sequence + per-message
+ * content-part shapes — so a non-alternating roles / malformed-turn bug is
+ * visible at a glance (e.g. `user[text] , assistant[text] , user[text+text]`).
+ */
+function describeMessages(messages: ModelMessage[]): string {
+  return messages
+    .map((m) => {
+      const c = (m as { content?: unknown }).content;
+      if (typeof c === "string") return `${m.role}(str:${c.length})`;
+      if (Array.isArray(c)) return `${m.role}[${c.map((p) => (p as { type?: string }).type ?? "?").join("+")}]`;
+      return `${m.role}(?)`;
+    })
+    .join(" , ");
+}
+
+/**
+ * Log the FULL detail of a provider SDK error (AI SDK `APICallError` & friends)
+ * before it propagates. Without this an upstream 400/500 reaches the global HTTP
+ * filter as a bare status message ("Bad Request"), with the provider's actual
+ * reason (`responseBody`) discarded. `ctx` is the folded request actually sent to
+ * the SDK — dumped so role-alternation / message-shape bugs are visible. Duck-typed,
+ * no SDK import.
+ */
+function logProviderError(
+  providerName: string,
+  modelId: string,
+  err: unknown,
+  ctx?: { system: string | undefined; messages: ModelMessage[] },
+): void {
+  const e = err as {
+    name?: unknown;
+    statusCode?: unknown;
+    responseBody?: unknown;
+    url?: unknown;
+    message?: unknown;
+  };
+  const parts = [
+    `[ai-gateway] ${providerName}/${modelId} call failed:`,
+    typeof e?.name === "string" ? e.name : "Error",
+    e?.statusCode != null ? `status=${String(e.statusCode)}` : "",
+    typeof e?.message === "string" ? e.message : String(err),
+  ];
+  if (e?.responseBody != null) parts.push(`body=${String(e.responseBody).slice(0, 2000)}`);
+  if (typeof e?.url === "string") parts.push(`url=${e.url}`);
+  console.error(parts.filter(Boolean).join(" "));
+  if (ctx) {
+    console.error(
+      `[ai-gateway]   system=${ctx.system ? `present(${ctx.system.length})` : "none"} | roles: ${describeMessages(ctx.messages)}`,
+    );
+  }
+}
+
+/**
+ * Run a provider SDK call, logging full error detail (+ the folded request) before
+ * rethrowing (behaviour otherwise unchanged). Accepts sync-or-async `run` because
+ * the SDK wrappers are typed inconsistently — `tracedStreamText` returns a value
+ * synchronously while `tracedGenerateText` returns a Promise.
+ */
+async function withProviderErrorLog<T>(
+  providerName: string,
+  modelId: string,
+  ctx: { system: string | undefined; messages: ModelMessage[] },
+  run: () => T | Promise<T>,
+): Promise<Awaited<T>> {
+  try {
+    return await run();
+  } catch (err) {
+    logProviderError(providerName, modelId, err, ctx);
+    throw err;
+  }
 }
 
 export function createProvider(
@@ -414,7 +558,15 @@ export function createProvider(
     modelId: string,
   ): { system: string | undefined; messages: ModelMessage[] } => {
     const folded = foldSystemMessages(request.system, request.messages);
-    return hooks?.prepareMessages ? hooks.prepareMessages({ ...folded, modelId }) : folded;
+    // Strict-template providers (Nebius/Bedrock) need a clean user-first alternation;
+    // a no-op for well-formed conversations, so the cached prefix is unchanged.
+    const prepared = hooks?.strictTemplate
+      ? { system: folded.system, messages: normalizeStrictConversation(folded.messages) }
+      : folded;
+    // cacheConfig.enabled === false → skip ALL markers (no cache write). Undefined
+    // = enabled (backward compatible). ttl selects the cross-turn Anthropic TTL.
+    if (request.cacheConfig?.enabled === false || !hooks?.prepareMessages) return prepared;
+    return hooks.prepareMessages({ ...prepared, modelId, ttl: request.cacheConfig?.ttl });
   };
 
   return {
@@ -426,16 +578,20 @@ export function createProvider(
       logLlmPayload(providerName, modelId, request);
 
       const { system, messages } = prepare(request, modelId);
-      const result = await tracedGenerateText({
-        model: createModel(modelId, request.apiKeys),
-        system,
-        messages,
-        tools: request.tools,
-        stopWhen: stepCountIs(request.maxSteps ?? 1),
-        abortSignal: request.abortSignal,
-        ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
-        ...(request.temperature != null ? { temperature: request.temperature } : {}),
-      });
+      const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
+      const result = await withProviderErrorLog(providerName, modelId, { system, messages }, () =>
+        tracedGenerateText({
+          model: createModel(modelId, request.apiKeys),
+          system,
+          messages,
+          tools: request.tools,
+          stopWhen: stepCountIs(request.maxSteps ?? 1),
+          abortSignal: request.abortSignal,
+          ...(prepareStep ? { prepareStep } : {}),
+          ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
+          ...(request.temperature != null ? { temperature: request.temperature } : {}),
+        }),
+      );
 
       // v5+: per-turn reasoning blocks are exposed at the top level as `reasoning`
       // (array). Normalised for type safety.
@@ -464,38 +620,48 @@ export function createProvider(
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
       const { system, messages } = prepare(request, modelId);
-      const result = await tracedStreamText({
-        model: createModel(modelId, request.apiKeys),
-        system,
-        messages,
-        tools: request.tools,
-        stopWhen: stepCountIs(request.maxSteps ?? 1),
-        abortSignal: request.abortSignal,
-        ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
-        ...(request.temperature != null ? { temperature: request.temperature } : {}),
-      });
+      const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
+      const result = await withProviderErrorLog(providerName, modelId, { system, messages }, () =>
+        tracedStreamText({
+          model: createModel(modelId, request.apiKeys),
+          system,
+          messages,
+          tools: request.tools,
+          stopWhen: stepCountIs(request.maxSteps ?? 1),
+          abortSignal: request.abortSignal,
+          ...(prepareStep ? { prepareStep } : {}),
+          ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
+          ...(request.temperature != null ? { temperature: request.temperature } : {}),
+        }),
+      );
 
       return {
         textStream: result.textStream,
         fullStream: result.fullStream,
         response: (async () => {
-          const finalText = await result.text;
-          // v5+: totalUsage is the cross-step total (usage = final step only).
-          const finalUsage = await (result as unknown as { totalUsage?: Promise<unknown> }).totalUsage;
-          const steps = await result.steps;
-          // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
-          const topReasoning = await (result as unknown as { reasoning?: Promise<unknown[]> }).reasoning;
-          const response = buildChatResponse(
-            finalText,
-            normalizeSdkSteps(steps),
-            topReasoning,
-            mapUsage(finalUsage),
-            Date.now() - start,
-            modelId,
-            providerName,
-          );
-          if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
-          return response;
+          try {
+            const finalText = await result.text;
+            // v5+: totalUsage is the cross-step total (usage = final step only).
+            const finalUsage = await (result as unknown as { totalUsage?: Promise<unknown> }).totalUsage;
+            const steps = await result.steps;
+            // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
+            const topReasoning = await (result as unknown as { reasoning?: Promise<unknown[]> }).reasoning;
+            const response = buildChatResponse(
+              finalText,
+              normalizeSdkSteps(steps),
+              topReasoning,
+              mapUsage(finalUsage),
+              Date.now() - start,
+              modelId,
+              providerName,
+            );
+            if (request.captureDebug) response.debugPayload = buildDebugPayload(request);
+            return response;
+          } catch (err) {
+            // Stream-time provider errors surface here (not at the initial await).
+            logProviderError(providerName, modelId, err, { system, messages });
+            throw err;
+          }
         })(),
       };
     },

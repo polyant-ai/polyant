@@ -2,9 +2,12 @@
 
 import { describe, it, expect } from "vitest";
 import type { ModelMessage } from "ai";
-import { applyAnthropicPromptCaching } from "./anthropic.js";
+import { anthropicStepMarker, applyAnthropicPromptCaching } from "./anthropic.js";
 
-const EPHEMERAL = { anthropic: { cacheControl: { type: "ephemeral" } } };
+const EPHEMERAL = { anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } } };
+// The within-turn step marker uses the DEFAULT 5-minute TTL (no `ttl` field), not 1h —
+// see EPHEMERAL_STEP_CACHE_CONTROL in anthropic.ts.
+const STEP_EPHEMERAL = { anthropic: { cacheControl: { type: "ephemeral" } } };
 
 function cacheControlOf(message: ModelMessage): unknown {
   return (message as { providerOptions?: Record<string, unknown> }).providerOptions;
@@ -83,7 +86,7 @@ describe("applyAnthropicPromptCaching", () => {
     });
 
     expect(cacheControlOf(messages[0])).toEqual({
-      anthropic: { other: true, cacheControl: { type: "ephemeral" } },
+      anthropic: { other: true, cacheControl: { type: "ephemeral", ttl: "1h" } },
     });
   });
 
@@ -95,5 +98,61 @@ describe("applyAnthropicPromptCaching", () => {
     const snapshot = JSON.stringify(input);
     applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6", system: "S", messages: input });
     expect(JSON.stringify(input)).toBe(snapshot);
+  });
+
+  it("defaults the cross-turn breakpoint to the 1h TTL when ttl is omitted", () => {
+    const { messages } = applyAnthropicPromptCaching({
+      modelId: "claude-sonnet-4-6",
+      system: "SYS",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(cacheControlOf(messages[0])).toEqual(EPHEMERAL); // 1h
+  });
+
+  it("uses the 5m TTL on the cross-turn breakpoint when ttl='5m'", () => {
+    const { messages } = applyAnthropicPromptCaching({
+      modelId: "claude-sonnet-4-6",
+      system: "SYS",
+      messages: [{ role: "user", content: "hi" }],
+      ttl: "5m",
+    });
+    expect(cacheControlOf(messages[0])).toEqual(STEP_EPHEMERAL); // 5m, no ttl field
+  });
+});
+
+describe("anthropicStepMarker (multi-step prepareStep)", () => {
+  // Content shape is irrelevant to a message-level marker; these stand in for the
+  // user turn + accumulating assistant/tool-result messages of an agentic loop.
+  const messages: ModelMessage[] = [
+    { role: "user", content: "turn" },
+    { role: "assistant", content: "reply" },
+    { role: "user", content: "tool result stand-in" },
+  ];
+
+  it("does not mark on step 0 (initial turn carries the volatile context tail)", () => {
+    const result = anthropicStepMarker({ stepNumber: 0, messages, modelId: "claude-sonnet-4-6" });
+    expect(result.messages).toBeUndefined();
+  });
+
+  it("marks the last message from step 1 at the 5m within-turn TTL, leaving earlier messages untouched", () => {
+    const out = anthropicStepMarker({ stepNumber: 1, messages, modelId: "claude-sonnet-4-6" }).messages;
+    expect(out).toBeDefined();
+    // Within-turn marker is 5m (default), NOT the cross-turn 1h: a 1h step marker
+    // would overpay the write and — landing after the 1h system/history breakpoints —
+    // would violate Anthropic's "longer TTL first" ordering.
+    expect(cacheControlOf(out![out!.length - 1])).toEqual(STEP_EPHEMERAL);
+    expect(cacheControlOf(out![out!.length - 1])).not.toEqual(EPHEMERAL);
+    expect(cacheControlOf(out![0])).toBeUndefined();
+    expect(cacheControlOf(out![1])).toBeUndefined();
+  });
+
+  it("returns no messages for an empty array", () => {
+    expect(anthropicStepMarker({ stepNumber: 2, messages: [], modelId: "claude-sonnet-4-6" }).messages).toBeUndefined();
+  });
+
+  it("does not mutate the input messages array", () => {
+    const snapshot = JSON.stringify(messages);
+    anthropicStepMarker({ stepNumber: 1, messages, modelId: "claude-sonnet-4-6" });
+    expect(JSON.stringify(messages)).toBe(snapshot);
   });
 });

@@ -37,4 +37,4 @@ export const NebiusProvider = createProvider("nebius", (modelId, apiKeys) => {
     includeUsage: true,
   });
   return factory(modelId);
-});
+}, { strictTemplate: true });
