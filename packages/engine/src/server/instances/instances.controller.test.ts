@@ -81,6 +81,7 @@ vi.mock("../../ai-gateway/config.js", () => ({
   },
   cacheSupported: (provider: string, model: string): boolean =>
     provider === "bedrock" ? /anthropic|nova/.test(model) : provider !== "nebius",
+  isReasoningAlwaysOn: (modelId: string): boolean => /gpt-oss/i.test(modelId),
 }));
 vi.mock("../../instances/icon-validator.js", () => ({ validateIconDataUri: vi.fn() }));
 vi.mock("../../embeddings-gateway/provider-resolver.js", () => ({

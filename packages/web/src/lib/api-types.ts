@@ -187,6 +187,13 @@ export interface ModelInfo {
    */
   supportsThinking: boolean;
   /**
+   * True when the model reasons on every call and cannot be turned off (only its
+   * effort is adjustable) — e.g. gpt-oss. Computed server-side from
+   * `isReasoningAlwaysOn(modelId)`. The frontend locks the thinking toggle ON and
+   * shows an "always reasons" hint instead of a working off switch.
+   */
+  reasoningAlwaysOn: boolean;
+  /**
    * True when the model supports user-configurable sampling temperature.
    * False for reasoning/o-series models where the API ignores or rejects
    * the parameter.

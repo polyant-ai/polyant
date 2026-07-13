@@ -30,6 +30,21 @@ vi.mock("./providers/nebius.js", () => ({
   },
 }));
 
+// Mock only the provider transport; keep the real buildBedrockReasoningOptions so
+// the resolveCallConfig integration test exercises the actual budget/effort mapping.
+const mockBedrockChat = vi.fn();
+vi.mock("./providers/bedrock.js", async (importActual) => {
+  const actual = await importActual<typeof import("./providers/bedrock.js")>();
+  return {
+    ...actual,
+    BedrockProvider: {
+      name: "bedrock",
+      chat: (...args: unknown[]) => mockBedrockChat(...args),
+      chatStream: vi.fn(),
+    },
+  };
+});
+
 vi.mock("./logger.js", () => ({
   aiLogger: {
     log: vi.fn(),
@@ -289,6 +304,69 @@ describe("AI Gateway", () => {
       const opts = mockNebiusChat.mock.calls[0][0].providerOptions.nebius;
       expect(opts).toEqual({ reasoningEffort: "high" });
       expect(opts).not.toHaveProperty("chat_template_kwargs");
+    });
+
+    it("omits the disable kwarg for gpt-oss when thinking is off (it has no true off)", async () => {
+      mockNebiusChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "nebius", model: "openai/gpt-oss-120b", thinking: false }),
+      );
+
+      // gpt-oss ignores enable_thinking (a Qwen-only chat-template kwarg), so
+      // sending it just masks the truth. The gateway must send nothing and let
+      // the model fall back to its own reasoning default.
+      const opts = mockNebiusChat.mock.calls[0][0].providerOptions.nebius;
+      expect(opts).not.toHaveProperty("chat_template_kwargs");
+      expect(opts).toEqual({});
+    });
+
+    it("sends Bedrock effort-based reasoningConfig for gpt-oss when thinking is on", async () => {
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinking: true, thinkingLevel: "high" }),
+      );
+
+      expect(mockBedrockChat.mock.calls[0][0].providerOptions.bedrock).toEqual({
+        reasoningConfig: { type: "enabled", maxReasoningEffort: "high" },
+      });
+    });
+
+    it("sends Bedrock budget-based reasoningConfig for Claude when thinking is on", async () => {
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "bedrock", model: "eu.anthropic.claude-sonnet-4-6", thinking: true }),
+      );
+
+      const cfg = mockBedrockChat.mock.calls[0][0].providerOptions.bedrock.reasoningConfig;
+      expect(cfg.type).toBe("enabled");
+      expect(cfg.budgetTokens).toBeGreaterThan(0);
+    });
+
+    it("omits Bedrock reasoningConfig when thinking is off", async () => {
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinking: false }),
+      );
+
+      const opts = mockBedrockChat.mock.calls[0][0].providerOptions;
+      expect(opts?.bedrock).toBeUndefined();
+    });
+
+    it("omits Bedrock reasoningConfig for a non-reasoning model even if thinking is on", async () => {
+      // Guard: sending reasoningConfig to e.g. nova-lite v1 is a hard Bedrock
+      // ValidationException, so the isThinkingCapable gate must suppress it.
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "bedrock", model: "eu.amazon.nova-lite-v1:0", thinking: true }),
+      );
+
+      const opts = mockBedrockChat.mock.calls[0][0].providerOptions;
+      expect(opts?.bedrock).toBeUndefined();
     });
   });
 

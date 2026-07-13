@@ -383,6 +383,7 @@
   "settings.tab.thinking": "Reasoning esteso",
   "settings.tab.thinkingHelp": "Abilita il ragionamento esteso sui modelli che lo supportano. Aumenta la qualità delle risposte e il costo.",
   "settings.tab.thinkingUnavailable": "Il modello selezionato non supporta il reasoning esteso.",
+  "settings.tab.thinkingAlwaysOn": "Questo modello ragiona sempre: il pensiero non può essere disattivato, puoi solo regolarne l'intensità.",
   "settings.tab.stateInPrompt": "Stato conversazione nel prompt",
   "settings.tab.stateInPromptHelp": "Se attivo, lo stato per-conversazione (identità del canale e valori salvati dai tool) viene mostrato in sola lettura al modello nel system prompt. Se disattivo resta solo tra i tool.",
   "settings.tab.datetimeInjection": "Inietta data/ora corrente",

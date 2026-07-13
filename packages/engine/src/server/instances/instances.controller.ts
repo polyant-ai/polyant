@@ -37,7 +37,7 @@ import {
 import { countMemories } from "../../memory/index.js";
 import { countDocuments } from "../../knowledge/index.js";
 import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
-import { providerConfigs, isThinkingCapable, clampTemperature, temperatureSupported, cacheSupported } from "../../ai-gateway/config.js";
+import { providerConfigs, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported } from "../../ai-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
@@ -125,7 +125,7 @@ export class InstancesController {
   @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
-    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; supportsCache: boolean; supportsThinking: boolean; supportsTemperature: boolean }[] }> = {};
+    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; supportsCache: boolean; supportsThinking: boolean; reasoningAlwaysOn: boolean; supportsTemperature: boolean }[] }> = {};
     for (const [name, cfg] of Object.entries(providerConfigs)) {
       const tierByModel = new Map(Object.entries(cfg.tiers).map(([tier, modelId]) => [modelId, tier]));
       const models = Object.entries(cfg.costPerMillionTokens).map(([modelId, cost]) => ({
@@ -145,6 +145,9 @@ export class InstancesController {
         // Computed server-side from the same source used by the runtime gate
         // (config-resolver), so frontend toggle visibility can't drift.
         supportsThinking: isThinkingCapable(name, modelId),
+        // gpt-oss & co. reason on every call (no off) — the UI locks the toggle
+        // ON and shows a hint rather than pretending it can be disabled.
+        reasoningAlwaysOn: isReasoningAlwaysOn(modelId),
         supportsTemperature: temperatureSupported(name, modelId, false),
       }));
       providers[name] = { models };

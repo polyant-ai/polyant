@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SettingsTab } from "./settings-tab";
 import type { Instance } from "@/lib/api";
@@ -134,6 +134,16 @@ function setupDefaultMocks() {
   mockToolsRequiredSecrets.mockResolvedValue({ requiredSecrets: [] });
 }
 
+/**
+ * The memory Switch, scoped to the Memory section via its unique help text.
+ * Robust to switch reordering — index-based lookups (switches[0]/[3]) broke when
+ * the always-visible thinking toggle (#178) shifted every switch down by one.
+ */
+function getMemorySwitch(): HTMLElement {
+  const section = screen.getByText("settings.tab.memoryHelp").closest("section");
+  return within(section as HTMLElement).getByRole("switch");
+}
+
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("SettingsTab", () => {
@@ -224,11 +234,7 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Memory is the 4th switch from the end (memory, knowledge, auth, langsmith);
-    // selecting from the tail is robust to the model-gated thinking toggle at the front.
-    const switches = screen.getAllByRole("switch");
-    const memorySwitch = switches[switches.length - 4];
-    await user.click(memorySwitch);
+    await user.click(getMemorySwitch());
 
     expect(lastSaveAction.current?.isDirty).toBe(true);
   });
@@ -414,13 +420,8 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Toggle memory on to create a dirty state. Switch order (thinking toggle
-    // hidden for non-reasoning gpt-4o): [0] state in prompt, [1] datetime,
-    // [2] tool results in history, [3] debug mode, [4] memory.
-    // Memory is the 4th switch from the end (memory, knowledge, auth, langsmith);
-    // selecting from the tail is robust to the model-gated thinking toggle at the front.
-    const switches = screen.getAllByRole("switch");
-    await user.click(switches[switches.length - 4]); // memory switch
+    // Toggle memory on to create a dirty state.
+    await user.click(getMemorySwitch());
 
     await lastSaveAction.current!.onSave();
 
@@ -545,8 +546,7 @@ describe("SettingsTab", () => {
     });
 
     // Toggle memory to trigger dirty state
-    const switches = screen.getAllByRole("switch");
-    await user.click(switches[0]);
+    await user.click(getMemorySwitch());
 
     await lastSaveAction.current!.onSave();
 
@@ -647,6 +647,38 @@ describe("SettingsTab", () => {
         expect.objectContaining({ temperature: 0.5 }),
       );
     });
+  });
+
+  it("locks the thinking toggle ON with an always-on hint for a no-off reasoning model", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        bedrock: {
+          models: [
+            { id: "openai.gpt-oss-120b-1:0", tier: "standard", costInput: 0.2, costOutput: 0.79, supportsThinking: true, reasoningAlwaysOn: true, supportsTemperature: false },
+          ],
+        },
+      },
+    });
+
+    render(
+      <SettingsTab
+        instance={makeInstance({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinkingEnabled: false })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // gpt-oss reasons on every call: the UI states it (hint) instead of a working
+    // off switch, and the toggle is locked ON + disabled.
+    expect(screen.getByText("settings.tab.thinkingAlwaysOn")).toBeInTheDocument();
+
+    const thinkingBlock = screen.getByText("settings.tab.thinking").closest("div.flex");
+    const toggle = within(thinkingBlock as HTMLElement).getByRole("switch");
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeDisabled();
   });
 });
 

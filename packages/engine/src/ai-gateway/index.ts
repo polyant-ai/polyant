@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateCostBreakdown, isThinkingCapable } from "./config.js";
+import { resolveModel, estimateCostBreakdown, isThinkingCapable, isReasoningAlwaysOn } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
 import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
-import { BedrockProvider } from "./providers/bedrock.js";
+import { BedrockProvider, buildBedrockReasoningOptions } from "./providers/bedrock.js";
 import { NebiusProvider } from "./providers/nebius.js";
 import { aiLogger } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
@@ -80,9 +80,12 @@ function resolveCallConfig(
   }
 
   // Inject provider-specific thinking/reasoning configuration when requested.
-  // The SDK forwards these to the provider; non-thinking-capable models ignore
-  // the fields. Anthropic also requires the interleaved beta header which is
-  // set unconditionally on the AnthropicProvider factory.
+  // For OpenAI/Anthropic the SDK forwards these fields and non-capable models
+  // ignore them; Anthropic also needs the interleaved beta header, set
+  // unconditionally on the AnthropicProvider factory. Bedrock is DIFFERENT:
+  // sending reasoningConfig to a non-reasoning Bedrock model is a hard
+  // ValidationException (like the cachePoint), so it is gated on isThinkingCapable
+  // and mapped per family (Claude→budgetTokens, gpt-oss→maxReasoningEffort).
   if (request.thinking) {
     if (providerName === "anthropic") {
       providerOptions = {
@@ -100,6 +103,14 @@ function resolveCallConfig(
           ...buildOpenAIReasoningOptions(),
         } as Record<string, unknown>,
       };
+    } else if (providerName === "bedrock" && isThinkingCapable(providerName, modelId)) {
+      providerOptions = {
+        ...providerOptions,
+        bedrock: {
+          ...(providerOptions?.bedrock ?? {}),
+          ...buildBedrockReasoningOptions(modelId, request.thinkingLevel ?? "medium"),
+        } as Record<string, unknown>,
+      };
     }
   }
 
@@ -110,7 +121,10 @@ function resolveCallConfig(
   // the request body. Drive BOTH states so the admin `thinking` toggle actually
   // controls the model (without it, "off" left the model reasoning by default).
   // Gated on isThinkingCapable so the Qwen-specific kwarg never reaches a
-  // non-reasoning model.
+  // non-reasoning model. EXCEPTION: gpt-oss (isReasoningAlwaysOn) reasons on
+  // every call and IGNORES enable_thinking (that kwarg is Qwen-only), so its
+  // "off" must send nothing — it falls back to its own reasoning default. There
+  // is no off; the frontend disables the toggle for these models accordingly.
   if (providerName === "nebius" && isThinkingCapable(providerName, modelId)) {
     providerOptions = {
       ...providerOptions,
@@ -118,7 +132,9 @@ function resolveCallConfig(
         ...(providerOptions?.nebius ?? {}),
         ...(request.thinking
           ? { reasoningEffort: request.thinkingLevel ?? "medium" }
-          : { chat_template_kwargs: { enable_thinking: false } }),
+          : isReasoningAlwaysOn(modelId)
+            ? {}
+            : { chat_template_kwargs: { enable_thinking: false } }),
       } as Record<string, unknown>,
     };
   }
