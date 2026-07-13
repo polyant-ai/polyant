@@ -72,24 +72,30 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       heavy: "o3",
     },
     models: {
-      // Pre-GPT-5.6 OpenAI: cache read 0.5× input, NO write premium (cacheWrite 0).
-      // GPT-4o family
+      // Cache-read rates are LIVE-VERIFIED per model against the published pricing
+      // page — NOT a blanket multiplier. gpt-4o family = 0.5× input, gpt-4.1 gen =
+      // 0.25×, gpt-5.4/5.6 = 0.1×. cacheWrite 0 (no write premium) pre-5.6.
+      // GPT-4o family (cached 0.5× input)
       "gpt-4o-mini": { input: 0.15, output: 0.60, cacheRead: 0.075, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
       "gpt-4o": { input: 2.50, output: 10.00, cacheRead: 1.25, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
-      // GPT-4.1 family
-      "gpt-4.1": { input: 2.00, output: 8.00, cacheRead: 1.00, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
-      "gpt-4.1-mini": { input: 0.40, output: 1.60, cacheRead: 0.20, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
-      // GPT-5.4 family — reasoning, and reject the temperature param.
-      "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 1.25, cacheWrite: 0, reasoning: true, vision: true, temperature: false, cache: true },
-      "gpt-5.4-mini": { input: 0.75, output: 4.50, cacheRead: 0.375, cacheWrite: 0, reasoning: true, vision: true, temperature: false, cache: true },
-      "gpt-5.4-nano": { input: 0.20, output: 1.25, cacheRead: 0.10, cacheWrite: 0, reasoning: true, vision: true, temperature: false, cache: true },
+      // GPT-4.1 family (cached 0.25× input)
+      "gpt-4.1": { input: 2.00, output: 8.00, cacheRead: 0.50, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
+      "gpt-4.1-mini": { input: 0.40, output: 1.60, cacheRead: 0.10, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
+      // GPT-5.4 family — reasoning, reject temperature; cached 0.1× input (official).
+      "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 0, reasoning: true, vision: true, temperature: false, cache: true },
+      "gpt-5.4-mini": { input: 0.75, output: 4.50, cacheRead: 0.075, cacheWrite: 0, reasoning: true, vision: true, temperature: false, cache: true },
+      "gpt-5.4-nano": { input: 0.20, output: 1.25, cacheRead: 0.02, cacheWrite: 0, reasoning: true, vision: true, temperature: false, cache: true },
       // GPT-5.6 family (Sol/Terra/Luna) — cache read 0.1×, cache WRITE 1.25×
       // (absolute published rates; unlike pre-5.6 these DO charge a write premium).
-      "gpt-5.6-sol": { input: 5.00, output: 30.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, vision: true, temperature: false, cache: true },
-      "gpt-5.6-terra": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 3.125, reasoning: true, vision: true, temperature: false, cache: true },
-      "gpt-5.6-luna": { input: 1.00, output: 6.00, cacheRead: 0.10, cacheWrite: 1.25, reasoning: true, vision: true, temperature: false, cache: true },
-      // Reasoning
-      "o3": { input: 2.00, output: 8.00, cacheRead: 1.00, cacheWrite: 0, reasoning: true, vision: true, temperature: false, cache: true },
+      // reasoningAlwaysOn: LIVE-VERIFIED — with reasoning OFF they still spend
+      // reasoning tokens (sol 105 / terra 51 / luna 88), so there is no true off
+      // (unlike gpt-5.4, which goes to 0). The UI locks the thinking toggle ON.
+      "gpt-5.6-sol": { input: 5.00, output: 30.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningAlwaysOn: true, vision: true, temperature: false, cache: true },
+      "gpt-5.6-terra": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 3.125, reasoning: true, reasoningAlwaysOn: true, vision: true, temperature: false, cache: true },
+      "gpt-5.6-luna": { input: 1.00, output: 6.00, cacheRead: 0.10, cacheWrite: 1.25, reasoning: true, reasoningAlwaysOn: true, vision: true, temperature: false, cache: true },
+      // Reasoning — o-series is a pure reasoning model: LIVE-VERIFIED it reasons
+      // even with reasoning OFF (576 tokens), so reasoningAlwaysOn.
+      "o3": { input: 2.00, output: 8.00, cacheRead: 1.00, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, vision: true, temperature: false, cache: true },
     },
   },
   anthropic: {

@@ -58,10 +58,16 @@ export function reasoningCapableFallback(provider: string, modelId: string): boo
   }
 }
 
-/** Always-on-reasoning fallback — gpt-oss reasons every call whatever serves it. */
+/**
+ * Always-on-reasoning fallback. LIVE-VERIFIED families that reason on every call
+ * even with reasoning OFF (no true off-switch, only effort is tunable):
+ *   - gpt-oss (open-weight, Harmony CoT) — whatever provider serves it
+ *   - OpenAI o-series (o1/o3/o4) — pure reasoning models
+ *   - OpenAI gpt-5.6 (Sol/Terra/Luna) — reason by default; gpt-5.4 does NOT (has a real off)
+ */
 export function reasoningAlwaysOnFallback(modelId: string): boolean {
   if (!modelId) return false;
-  return /gpt-oss/i.test(modelId);
+  return /gpt-oss|^o[134]\b|gpt-5\.6/i.test(modelId);
 }
 
 /**
@@ -230,8 +236,8 @@ export function isThinkingCapable(provider: string, modelId: string): boolean {
 
 /**
  * Returns true when the model reasons on EVERY call and cannot be switched off —
- * only the effort (low|medium|high) is adjustable, there is no "off" (today:
- * OpenAI's open-weight gpt-oss). A model that is always-on is necessarily
+ * only the effort (low|medium|high) is adjustable, there is no "off" (gpt-oss,
+ * the OpenAI o-series, and gpt-5.6 — all live-verified). A model that is always-on is necessarily
  * thinking-capable, so callers use this to REFINE the `isThinkingCapable`
  * verdict — not replace it. Takes model id alone (provider-agnostic: gpt-oss is
  * gpt-oss whatever serves it), so it does a cross-provider catalog lookup.

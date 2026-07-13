@@ -361,10 +361,15 @@ describe("isReasoningAlwaysOn", () => {
     ["openai.gpt-oss-20b-1:0", true],
     ["us.openai.gpt-oss-120b-1:0", true],
     ["openai/gpt-oss-120b", true],
-    // Hybrid (Qwen) / budget-based (Claude) / OpenAI reasoning all have a real off.
+    // OpenAI o-series + gpt-5.6 reason on every call (LIVE-VERIFIED: they still
+    // spend reasoning tokens with reasoning OFF). gpt-5.4 has a real off.
+    ["o3", true],
+    ["gpt-5.6-sol", true],
+    ["gpt-5.6-luna", true],
+    ["gpt-5.4", false],
+    // Hybrid (Qwen) / budget-based (Claude) have a real off.
     ["Qwen/Qwen3.5-397B-A17B", false],
     ["eu.anthropic.claude-sonnet-5", false],
-    ["o3", false],
     ["gpt-4o", false],
     ["", false],
   ])("%s -> %s", (model, expected) => {
