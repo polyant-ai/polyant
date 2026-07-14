@@ -351,6 +351,29 @@ describe("createProvider – temperature forwarding", () => {
     expect(generateTextSpy.mock.calls[0][0]).not.toHaveProperty("temperature");
   });
 
+  it("strips a set temperature for a model that rejects it (defense-in-depth)", async () => {
+    const generateTextSpy = vi.mocked(tracedGenerateText);
+    generateTextSpy.mockClear();
+    generateTextSpy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+
+    // o3 is an OpenAI reasoning model — temperature is a hard 400 there.
+    const adapter = createProvider("openai", (_modelId) => ({} as any));
+    await adapter.chat({ ...baseRequest, temperature: 0.5 }, "o3");
+
+    expect(generateTextSpy.mock.calls[0][0]).not.toHaveProperty("temperature");
+  });
+
+  it("strips a set temperature when thinking is on (reasoning mode)", async () => {
+    const generateTextSpy = vi.mocked(tracedGenerateText);
+    generateTextSpy.mockClear();
+    generateTextSpy.mockResolvedValueOnce(fakeGenerateTextResult as any);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({} as any));
+    await adapter.chat({ ...baseRequest, temperature: 0.5, thinking: true }, "claude-sonnet-4-6");
+
+    expect(generateTextSpy.mock.calls[0][0]).not.toHaveProperty("temperature");
+  });
+
   it("passes temperature to streamText when set", async () => {
     const streamTextSpy = vi.mocked(tracedStreamText);
     streamTextSpy.mockClear();

@@ -188,6 +188,23 @@ describe("cacheSupported", () => {
     expect(cacheSupported("bedrock", "eu.amazon.nova-lite-v1:0")).toBe(true);
     expect(cacheSupported("bedrock", "qwen.qwen3-32b-v1:0")).toBe(false);
   });
+
+  // Invariant guarding the latent mispricing trap: a model reported as
+  // cache-supported (supportsCache=true in /models) but MISSING `cacheRead`
+  // falls back to the full input rate in resolveCacheRates, so its cache-read
+  // cost is OVER-estimated (never under) on the dashboard. Absence of a rate is
+  // only correct when cacheSupported is false (Nebius / non-anthropic-nova Bedrock).
+  it("every cache-supported model has an explicit cacheRead rate", () => {
+    const offenders: string[] = [];
+    for (const [provider, cfg] of Object.entries(providerConfigs)) {
+      for (const [model, pricing] of Object.entries(cfg.models)) {
+        if (cacheSupported(provider, model) && pricing.cacheRead == null) {
+          offenders.push(`${provider}/${model}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });
 
 describe("estimateSttCost", () => {

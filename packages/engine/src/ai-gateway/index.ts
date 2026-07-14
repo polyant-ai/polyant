@@ -80,14 +80,16 @@ function resolveCallConfig(
   }
 
   // Inject provider-specific thinking/reasoning configuration when requested.
-  // For OpenAI/Anthropic the SDK forwards these fields and non-capable models
-  // ignore them; Anthropic also needs the interleaved beta header, set
-  // unconditionally on the AnthropicProvider factory. Bedrock is DIFFERENT:
-  // sending reasoningConfig to a non-reasoning Bedrock model is a hard
-  // ValidationException (like the cachePoint), so it is gated on isThinkingCapable
-  // and mapped per family (Claude→budgetTokens, gpt-oss→maxReasoningEffort).
+  // Gated on isThinkingCapable for ALL providers (defense-in-depth): config-
+  // resolver already clears a stale `thinking=true` for a non-capable model, but
+  // gating here too guarantees the ai-gateway boundary never sends thinking
+  // config to a model that would ignore it (OpenAI/Anthropic) or hard-reject it
+  // (Bedrock's ValidationException, like the cachePoint). Anthropic also needs
+  // the interleaved beta header, set unconditionally on the AnthropicProvider
+  // factory. Shape is mapped per family in the build* helpers via the catalog's
+  // reasoningControl (adaptive+effort / budget / effort).
   const thinkingLevel = request.thinkingLevel ?? "medium";
-  if (request.thinking) {
+  if (request.thinking && isThinkingCapable(providerName, modelId)) {
     if (providerName === "anthropic") {
       providerOptions = {
         ...providerOptions,
@@ -104,7 +106,7 @@ function resolveCallConfig(
           ...buildOpenAIReasoningOptions(thinkingLevel),
         } as Record<string, unknown>,
       };
-    } else if (providerName === "bedrock" && isThinkingCapable(providerName, modelId)) {
+    } else if (providerName === "bedrock") {
       providerOptions = {
         ...providerOptions,
         bedrock: {

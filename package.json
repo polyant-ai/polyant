@@ -37,9 +37,9 @@
   },
   "overrides": {
     "path-to-regexp": "^8.4.1",
-    "next": "^16.2.7",
+    "next": "^16.2.10",
     "axios": "^1.15.0",
-    "langsmith": "^0.5.19"
+    "langsmith": "^0.7.3"
   },
   "dependencies": {
     "axios": "^1.15.0",
