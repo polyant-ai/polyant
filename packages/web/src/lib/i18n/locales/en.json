@@ -353,7 +353,7 @@
   "settings.tab.embedderHint": "Provider used for memory and knowledge-base embeddings, independent of the chat model. Changing it permanently deletes existing memories and the knowledge base (embeddings are not portable across providers).",
   "settings.tab.systemDefault": "System Default",
   "settings.tab.reasoningLevel": "Reasoning level",
-  "settings.tab.reasoningLevelHelp": "Reasoning intensity (Nebius reasoning_effort). Higher spends more tokens thinking.",
+  "settings.tab.reasoningLevelHelp": "Reasoning intensity (effort). Higher spends more tokens thinking. Applied by all thinking-capable models.",
   "settings.temperature.label": "Temperature",
   "settings.temperature.placeholder": "Provider default",
   "settings.temperature.unsupportedReasoningHint": "Temperature is not configurable for reasoning models.",

@@ -5,7 +5,7 @@ import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { createProvider, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
-import { BEDROCK_CACHE_CAPABLE, requiresAdaptiveThinking } from "../config.js";
+import { cacheSupported } from "../config.js";
 
 /**
  * Bedrock Converse cache breakpoint. Bedrock uses a `cachePoint` block (via
@@ -30,7 +30,7 @@ const markBedrock = (message: ModelMessage): ModelMessage =>
  * class as the Anthropic caching path.
  */
 export const applyBedrockPromptCaching: PrepareMessages = (input) => {
-  if (!BEDROCK_CACHE_CAPABLE.test(input.modelId)) {
+  if (!cacheSupported("bedrock", input.modelId)) {
     return { system: input.system, messages: input.messages };
   }
   return injectCacheBreakpoints(input, markBedrock);
@@ -46,7 +46,7 @@ export const applyBedrockPromptCaching: PrepareMessages = (input) => {
  */
 export const bedrockStepMarker = makeStepMarker(
   markBedrock,
-  (modelId) => BEDROCK_CACHE_CAPABLE.test(modelId),
+  (modelId) => cacheSupported("bedrock", modelId),
 );
 
 export const BedrockProvider = createProvider(
@@ -86,41 +86,35 @@ const BEDROCK_THINKING_BUDGETS: Record<"low" | "medium" | "high", number> = {
   high: 24000,
 };
 
-/** gpt-oss takes an effort level; Claude takes a token budget. */
-function isEffortBasedReasoning(modelId: string): boolean {
-  return /openai\.gpt-oss/i.test(modelId);
-}
-
 /**
- * Bedrock reasoning takes three shapes depending on the model family, all riding
- * `providerOptions.bedrock.reasoningConfig`:
- *   - Claude-5 generation → ADAPTIVE thinking + effort (type:"adaptive" +
- *     maxReasoningEffort). The SDK maps this to `thinking:{type:"adaptive"}` +
- *     `output_config:{effort}`. These models 400 on the old budget shape.
- *   - Older Anthropic Claude → a token BUDGET (budgetTokens)
- *   - OpenAI gpt-oss   → an EFFORT string (maxReasoningEffort)
+ * Bedrock reasoning takes three shapes on `providerOptions.bedrock.reasoningConfig`,
+ * selected by the model's catalog `reasoningControl` (NO model-id regex here — the
+ * gateway passes `control` from `reasoningControlFor`):
+ *   - "adaptive" (Claude Opus 4.7/4.8, Sonnet 5) → `type:"adaptive"` + maxReasoningEffort.
+ *     REJECT the legacy `type:"enabled"` + budgetTokens with a 400 (live-verified).
+ *   - "effort" (gpt-oss) → `type:"enabled"` + an EFFORT string (maxReasoningEffort).
+ *   - "budget" (Claude 4.6-and-earlier, Haiku/Sonnet 4.x, MiniMax) → `type:"enabled"`
+ *     + a token BUDGET (budgetTokens).
  *
  * Only called for a reasoning-capable Bedrock model (gated by isThinkingCapable
- * upstream) and only when thinking is ON — thinking OFF omits reasoningConfig
- * entirely so the model falls back to its own default (gpt-oss has no true off).
- *
- * VALIDATED live (eu-south-1, gpt-oss-120b): maxReasoningEffort is accepted and
- * effective (low ≈ 43 vs high ≈ 408 reasoning chars); budgetTokens is silently
- * ignored for gpt-oss (the AI SDK emits a warning), which is why the split matters.
+ * upstream) and only when thinking is ON.
  */
 export function buildBedrockReasoningOptions(
-  modelId: string,
   level: string,
+  control: "effort" | "budget" | "adaptive",
 ): { reasoningConfig: Record<string, unknown> } {
-  const normalized: "low" | "medium" | "high" =
-    level === "low" || level === "high" ? level : "medium";
-  if (isEffortBasedReasoning(modelId)) {
-    return { reasoningConfig: { type: "enabled", maxReasoningEffort: normalized } };
+  // adaptive/effort forward the level as-is — the gateway (resolveReasoningLevel)
+  // already clamped it to this model's catalog `reasoningLevels` (adaptive Claude
+  // accept up to `max`; gpt-oss only low/medium/high). budget maps to a token
+  // preset (budget models expose only the three preset levels).
+  if (control === "adaptive") {
+    return { reasoningConfig: { type: "adaptive", maxReasoningEffort: level } };
   }
-  if (requiresAdaptiveThinking("bedrock", modelId)) {
-    return { reasoningConfig: { type: "adaptive", maxReasoningEffort: normalized } };
+  if (control === "effort") {
+    return { reasoningConfig: { type: "enabled", maxReasoningEffort: level } };
   }
+  const budgetKey: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";
   return {
-    reasoningConfig: { type: "enabled", budgetTokens: BEDROCK_THINKING_BUDGETS[normalized] },
+    reasoningConfig: { type: "enabled", budgetTokens: BEDROCK_THINKING_BUDGETS[budgetKey] },
   };
 }

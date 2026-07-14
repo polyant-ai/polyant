@@ -4,7 +4,6 @@ import type { ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createProvider, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
-import { requiresAdaptiveThinking } from "../config.js";
 
 /**
  * Beta header that enables interleaved thinking + tool use across multiple
@@ -16,11 +15,15 @@ import { requiresAdaptiveThinking } from "../config.js";
 const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 
 /**
- * Default budget (in tokens) Anthropic spends on extended-thinking content
- * when `request.thinking === true`. Configurable per call via the request
- * options if/when we expose finer control.
+ * Legacy extended-thinking budgets (tokens) per reasoning level, for models on
+ * the OLD `thinking.type:"enabled"` API. Newer models (Opus 4.7/4.8, Sonnet 5,
+ * Fable 5) use `thinking.type:"adaptive"` + effort instead (see build fn).
  */
-const DEFAULT_THINKING_BUDGET = 5000;
+const ANTHROPIC_THINKING_BUDGETS: Record<"low" | "medium" | "high", number> = {
+  low: 4096,
+  medium: 12000,
+  high: 24000,
+};
 
 /**
  * Anthropic requires an explicit `cache_control` marker (the `@ai-sdk/anthropic`
@@ -78,30 +81,25 @@ export const AnthropicProvider = createProvider(
   { prepareMessages: applyAnthropicPromptCaching, stepMarker: anthropicStepMarker },
 );
 
+type AnthropicThinkingOptions =
+  | { thinking: { type: "enabled"; budgetTokens: number } }
+  | { thinking: { type: "adaptive" }; effort: string };
+
 /**
- * Build the `providerOptions.anthropic` object for a thinking-enabled call.
- * Used by the AI gateway when forwarding requests with `thinking: true`.
- *
- * Two shapes, chosen by model generation (callers merge the result into their
- * `providerOptions` map):
- *   - Claude-5 generation (Fable 5, Sonnet 5, Opus 4.7/4.8): ADAPTIVE thinking +
- *     an effort level. The SDK forwards this as `thinking:{type:"adaptive"}` +
- *     `output_config:{effort}`. These models 400 on `type:"enabled"`+budgetTokens.
- *   - Older Claude: a manual token BUDGET (`type:"enabled"` + budgetTokens).
+ * Build the `providerOptions.anthropic` object for a thinking-enabled call, at
+ * the requested reasoning `level`. Two shapes:
+ *   - `adaptive` models (Opus 4.7/4.8, Sonnet 5, Fable 5) → `thinking.type:
+ *     "adaptive"` + top-level `effort` (SDK maps to `output_config.effort`).
+ *     `effort` is forwarded as-is — the gateway already clamped it to the model's
+ *     catalog `reasoningLevels` (adaptive Claude accept low/medium/high/xhigh/max).
+ *     These REJECT the legacy shape with a 400.
+ *   - legacy models (Opus 4.6 and earlier, Haiku/Sonnet 4.x) → `thinking.type:
+ *     "enabled"` + a per-level token budget (budget models expose only the three
+ *     preset levels, so the budget key is always one of low/medium/high).
+ * The gateway supplies `adaptive` from `reasoningControlFor(provider, model) === "adaptive"`.
  */
-export function buildAnthropicThinkingOptions(
-  modelId: string,
-  level: string,
-): Record<string, unknown> {
-  if (requiresAdaptiveThinking("anthropic", modelId)) {
-    const effort: "low" | "medium" | "high" =
-      level === "low" || level === "high" ? level : "medium";
-    return { thinking: { type: "adaptive" }, effort };
-  }
-  return {
-    thinking: {
-      type: "enabled",
-      budgetTokens: DEFAULT_THINKING_BUDGET,
-    },
-  };
+export function buildAnthropicThinkingOptions(level: string, adaptive: boolean): AnthropicThinkingOptions {
+  if (adaptive) return { thinking: { type: "adaptive" }, effort: level };
+  const budgetKey: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";
+  return { thinking: { type: "enabled", budgetTokens: ANTHROPIC_THINKING_BUDGETS[budgetKey] } };
 }

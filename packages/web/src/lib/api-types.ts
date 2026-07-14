@@ -194,6 +194,13 @@ export interface ModelInfo {
    */
   reasoningAlwaysOn: boolean;
   /**
+   * The reasoning-effort levels this model actually accepts (live-verified,
+   * server-side from the catalog). The Settings tab renders the level picker from
+   * this exact set — e.g. gpt-5.x add "xhigh", adaptive Claude add "xhigh"+"max",
+   * o3/gpt-oss/Nebius are low/medium/high. Empty for non-reasoning models.
+   */
+  reasoningLevels: ("low" | "medium" | "high" | "xhigh" | "max")[];
+  /**
    * True when the model supports user-configurable sampling temperature.
    * False for reasoning/o-series models where the API ignores or rejects
    * the parameter.

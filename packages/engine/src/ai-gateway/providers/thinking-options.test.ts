@@ -5,89 +5,80 @@ import { buildAnthropicThinkingOptions } from "./anthropic.js";
 import { buildOpenAIReasoningOptions } from "./openai.js";
 import { buildBedrockReasoningOptions } from "./bedrock.js";
 
+// NOTE: the builders FORWARD the reasoning level as-is (adaptive/effort paths) —
+// the ai-gateway (resolveReasoningLevel) is the single place that clamps a
+// requested level to the model's catalog reasoningLevels. Only the budget path
+// maps to a fixed low/medium/high token preset.
+
 describe("buildAnthropicThinkingOptions", () => {
-  it("uses a manual token budget for older Claude models", () => {
-    const opts = buildAnthropicThinkingOptions("claude-sonnet-4-6", "medium") as {
-      thinking: { type: string; budgetTokens: number };
-    };
-    expect(opts.thinking.type).toBe("enabled");
-    expect(opts.thinking.budgetTokens).toBeGreaterThan(0);
+  it("legacy (budget): enabled block with a level-scaled token budget", () => {
+    const low = buildAnthropicThinkingOptions("low", false) as { thinking: { type: string; budgetTokens: number } };
+    const high = buildAnthropicThinkingOptions("high", false) as { thinking: { type: string; budgetTokens: number } };
+    expect(low.thinking.type).toBe("enabled");
+    expect(low.thinking.budgetTokens).toBeGreaterThan(0);
+    expect(low.thinking.budgetTokens).toBeLessThan(high.thinking.budgetTokens);
   });
 
-  it("uses adaptive thinking + effort for the Claude-5 generation (rejects budget_tokens)", () => {
-    const opts = buildAnthropicThinkingOptions("claude-sonnet-5", "high");
-    expect(opts).toEqual({ thinking: { type: "adaptive" }, effort: "high" });
+  it("budget maps an out-of-preset level to the medium preset", () => {
+    const bogus = buildAnthropicThinkingOptions("bogus", false) as { thinking: { budgetTokens: number } };
+    const medium = buildAnthropicThinkingOptions("medium", false) as { thinking: { budgetTokens: number } };
+    expect(bogus.thinking.budgetTokens).toBe(medium.thinking.budgetTokens);
   });
 
-  it("normalises an unknown level to medium effort (adaptive path)", () => {
-    expect(buildAnthropicThinkingOptions("claude-opus-4-8", "bogus")).toEqual({
-      thinking: { type: "adaptive" },
-      effort: "medium",
-    });
+  it("adaptive forwards the level as-is (incl. xhigh/max — gateway clamps, not the builder)", () => {
+    expect(buildAnthropicThinkingOptions("high", true)).toEqual({ thinking: { type: "adaptive" }, effort: "high" });
+    expect(buildAnthropicThinkingOptions("xhigh", true)).toEqual({ thinking: { type: "adaptive" }, effort: "xhigh" });
+    expect(buildAnthropicThinkingOptions("max", true)).toEqual({ thinking: { type: "adaptive" }, effort: "max" });
   });
 
   it("is shaped so it can be spread into providerOptions.anthropic", () => {
-    const providerOptions = { anthropic: { foo: "bar", ...buildAnthropicThinkingOptions("claude-sonnet-5", "medium") } };
-    expect(providerOptions.anthropic).toMatchObject({
-      foo: "bar",
-      thinking: { type: "adaptive" },
-      effort: "medium",
-    });
+    const providerOptions = { anthropic: { foo: "bar", ...buildAnthropicThinkingOptions("medium", false) } };
+    expect(providerOptions.anthropic).toMatchObject({ foo: "bar", thinking: { type: "enabled" } });
   });
 });
 
 describe("buildOpenAIReasoningOptions", () => {
-  it("returns a reasoning effort the SDK forwards to the provider", () => {
-    const opts = buildOpenAIReasoningOptions();
-    expect(["low", "medium", "high"]).toContain(opts.reasoningEffort);
+  it("forwards the level as-is (gateway clamps)", () => {
+    expect(buildOpenAIReasoningOptions("low").reasoningEffort).toBe("low");
+    expect(buildOpenAIReasoningOptions("high").reasoningEffort).toBe("high");
+    expect(buildOpenAIReasoningOptions("xhigh").reasoningEffort).toBe("xhigh");
   });
 
   it("is shaped so it can be spread into providerOptions.openai", () => {
-    const providerOptions = { openai: { foo: "bar", ...buildOpenAIReasoningOptions() } };
+    const providerOptions = { openai: { foo: "bar", ...buildOpenAIReasoningOptions("medium") } };
     expect(providerOptions.openai).toMatchObject({ foo: "bar", reasoningEffort: "medium" });
   });
 });
 
 describe("buildBedrockReasoningOptions", () => {
-  it("maps older Claude to a token budget within Bedrock's [1024, 64000] range", () => {
-    const { reasoningConfig } = buildBedrockReasoningOptions("eu.anthropic.claude-sonnet-4-6", "medium");
+  it("budget control → a token budget in [1024, 64000], scaled by level", () => {
+    const { reasoningConfig } = buildBedrockReasoningOptions("medium", "budget");
     expect(reasoningConfig.type).toBe("enabled");
     expect(reasoningConfig.budgetTokens).toBeGreaterThanOrEqual(1024);
     expect(reasoningConfig.budgetTokens).toBeLessThanOrEqual(64000);
     expect(reasoningConfig).not.toHaveProperty("maxReasoningEffort");
+    const low = buildBedrockReasoningOptions("low", "budget").reasoningConfig.budgetTokens as number;
+    const high = buildBedrockReasoningOptions("high", "budget").reasoningConfig.budgetTokens as number;
+    expect(low).toBeLessThan(high);
   });
 
-  it("scales the older-Claude budget with the level (low < medium < high)", () => {
-    const low = buildBedrockReasoningOptions("anthropic.claude-sonnet-4-6", "low").reasoningConfig.budgetTokens as number;
-    const medium = buildBedrockReasoningOptions("anthropic.claude-sonnet-4-6", "medium").reasoningConfig.budgetTokens as number;
-    const high = buildBedrockReasoningOptions("anthropic.claude-sonnet-4-6", "high").reasoningConfig.budgetTokens as number;
-    expect(low).toBeLessThan(medium);
-    expect(medium).toBeLessThan(high);
+  it("budget maps an out-of-preset level to the medium preset", () => {
+    const bogus = buildBedrockReasoningOptions("bogus", "budget").reasoningConfig.budgetTokens;
+    const medium = buildBedrockReasoningOptions("medium", "budget").reasoningConfig.budgetTokens;
+    expect(bogus).toBe(medium);
   });
 
-  it("maps the Claude-5 generation to adaptive thinking + effort (rejects budget_tokens)", () => {
-    // The SDK serialises this to thinking:{type:"adaptive"} + output_config:{effort}.
-    for (const modelId of ["anthropic.claude-sonnet-5", "us.anthropic.claude-opus-4-8", "anthropic.claude-opus-4-7"]) {
-      const { reasoningConfig } = buildBedrockReasoningOptions(modelId, "high");
-      expect(reasoningConfig).toEqual({ type: "adaptive", maxReasoningEffort: "high" });
-      expect(reasoningConfig).not.toHaveProperty("budgetTokens");
-    }
+  it("adaptive control → adaptive block, forwards the level (incl. xhigh/max)", () => {
+    expect(buildBedrockReasoningOptions("low", "adaptive").reasoningConfig).toEqual({ type: "adaptive", maxReasoningEffort: "low" });
+    expect(buildBedrockReasoningOptions("max", "adaptive").reasoningConfig).toEqual({ type: "adaptive", maxReasoningEffort: "max" });
   });
 
-  it("maps gpt-oss to an effort level (not a budget)", () => {
-    const { reasoningConfig } = buildBedrockReasoningOptions("openai.gpt-oss-120b-1:0", "high");
-    expect(reasoningConfig).toEqual({ type: "enabled", maxReasoningEffort: "high" });
-  });
-
-  it("normalises an unknown level to medium", () => {
-    expect(buildBedrockReasoningOptions("openai.gpt-oss-120b-1:0", "bogus").reasoningConfig).toEqual({
-      type: "enabled",
-      maxReasoningEffort: "medium",
-    });
+  it("effort control → enabled + effort, forwards the level (gpt-oss)", () => {
+    expect(buildBedrockReasoningOptions("high", "effort").reasoningConfig).toEqual({ type: "enabled", maxReasoningEffort: "high" });
   });
 
   it("is shaped so it can be spread into providerOptions.bedrock", () => {
-    const providerOptions = { bedrock: { foo: "bar", ...buildBedrockReasoningOptions("openai.gpt-oss-120b-1:0", "medium") } };
+    const providerOptions = { bedrock: { foo: "bar", ...buildBedrockReasoningOptions("medium", "effort") } };
     expect(providerOptions.bedrock).toMatchObject({
       foo: "bar",
       reasoningConfig: { type: "enabled", maxReasoningEffort: "medium" },

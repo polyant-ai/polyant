@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
+import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, reasoningLevelsFor, resolveReasoningLevel, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
 
 describe("resolveModel", () => {
   it("resolves openai fast tier", () => {
@@ -197,7 +197,7 @@ describe("cacheSupported", () => {
   it("every cache-supported model has an explicit cacheRead rate", () => {
     const offenders: string[] = [];
     for (const [provider, cfg] of Object.entries(providerConfigs)) {
-      for (const [model, pricing] of Object.entries(cfg.costPerMillionTokens)) {
+      for (const [model, pricing] of Object.entries(cfg.models)) {
         if (cacheSupported(provider, model) && pricing.cacheRead == null) {
           offenders.push(`${provider}/${model}`);
         }
@@ -253,8 +253,8 @@ describe("providerConfigs", () => {
   it("each tier model has cost data", () => {
     for (const provider of Object.values(providerConfigs)) {
       for (const model of Object.values(provider.tiers)) {
-        expect(provider.costPerMillionTokens).toHaveProperty(model);
-        const pricing = provider.costPerMillionTokens[model];
+        expect(provider.models).toHaveProperty(model);
+        const pricing = provider.models[model];
         expect(pricing.input).toBeGreaterThan(0);
         expect(pricing.output).toBeGreaterThan(0);
       }
@@ -307,6 +307,10 @@ describe("isThinkingCapable", () => {
       ["eu.anthropic.claude-sonnet-5", true],
       ["global.anthropic.claude-sonnet-5", true],
       ["anthropic.claude-opus-4-20250514-v1:0", true],
+      // Haiku 4.5 DOES reason on Bedrock (live-verified) — catalogued as such.
+      ["eu.anthropic.claude-haiku-4-5-20251001-v1:0", true],
+      // MiniMax M2.5 reasons on Bedrock (live-verified).
+      ["minimax.minimax-m2.5", true],
       // OpenAI open-weight (gpt-oss) — effort-based reasoning, raw IDs (no region prefix).
       ["openai.gpt-oss-120b-1:0", true],
       ["openai.gpt-oss-20b-1:0", true],
@@ -321,7 +325,6 @@ describe("isThinkingCapable", () => {
       ["meta.llama3-1-70b-instruct-v1:0", false],
       ["qwen.qwen3-32b-v1:0", false],
       ["nvidia.nemotron-super-3-120b", false],
-      ["minimax.minimax-m2.5", false],
       ["mistral.mistral-large-2402-v1:0", false],
     ])("bedrock/%s -> %s", (model, expected) => {
       expect(isThinkingCapable("bedrock", model)).toBe(expected);
@@ -378,14 +381,82 @@ describe("isReasoningAlwaysOn", () => {
     ["openai.gpt-oss-20b-1:0", true],
     ["us.openai.gpt-oss-120b-1:0", true],
     ["openai/gpt-oss-120b", true],
-    // Hybrid (Qwen) / budget-based (Claude) / OpenAI reasoning all have a real off.
+    // OpenAI o-series + gpt-5.6 reason on every call (LIVE-VERIFIED: they still
+    // spend reasoning tokens with reasoning OFF). gpt-5.4 has a real off.
+    ["o3", true],
+    ["gpt-5.6-sol", true],
+    ["gpt-5.6-luna", true],
+    ["gpt-5.4", false],
+    // Hybrid (Qwen) / budget-based (Claude) have a real off.
     ["Qwen/Qwen3.5-397B-A17B", false],
     ["eu.anthropic.claude-sonnet-5", false],
-    ["o3", false],
     ["gpt-4o", false],
     ["", false],
   ])("%s -> %s", (model, expected) => {
     expect(isReasoningAlwaysOn(model)).toBe(expected);
+  });
+});
+
+describe("reasoningControlFor", () => {
+  it.each([
+    // adaptive — newer Claude (Anthropic 1P + Bedrock profiles).
+    ["anthropic", "claude-opus-4-8", "adaptive"],
+    ["anthropic", "claude-opus-4-7", "adaptive"],
+    ["anthropic", "claude-sonnet-5", "adaptive"],
+    ["bedrock", "eu.anthropic.claude-opus-4-8", "adaptive"],
+    ["bedrock", "global.anthropic.claude-sonnet-5", "adaptive"],
+    // budget — legacy Claude (enabled + budgetTokens) + Bedrock MiniMax.
+    ["anthropic", "claude-opus-4-6", "budget"],
+    ["anthropic", "claude-sonnet-4-6", "budget"],
+    ["anthropic", "claude-haiku-4-5-20251001", "budget"],
+    ["bedrock", "eu.anthropic.claude-opus-4-6-v1", "budget"],
+    ["bedrock", "eu.anthropic.claude-haiku-4-5-20251001-v1:0", "budget"],
+    ["bedrock", "minimax.minimax-m2.5", "budget"],
+    // effort — OpenAI/Nebius reasoning + Bedrock gpt-oss.
+    ["openai", "gpt-5.6-sol", "effort"],
+    ["openai", "o3", "effort"],
+    ["nebius", "Qwen/Qwen3.5-397B-A17B", "effort"],
+    ["bedrock", "openai.gpt-oss-120b-1:0", "effort"],
+    // non-reasoning / empty -> undefined.
+    ["openai", "gpt-4o", undefined],
+    ["bedrock", "eu.amazon.nova-lite-v1:0", undefined],
+    ["anthropic", "", undefined],
+  ])("%s/%s -> %s", (provider, model, expected) => {
+    expect(reasoningControlFor(provider, model)).toBe(expected);
+  });
+});
+
+describe("reasoningLevelsFor", () => {
+  it.each([
+    // Live-verified per-model sets.
+    ["openai", "gpt-5.4", ["low", "medium", "high", "xhigh"]],
+    ["openai", "gpt-5.6-sol", ["low", "medium", "high", "xhigh"]],
+    ["openai", "o3", ["low", "medium", "high"]],
+    ["anthropic", "claude-opus-4-8", ["low", "medium", "high", "xhigh", "max"]],
+    ["anthropic", "claude-sonnet-4-6", ["low", "medium", "high"]], // budget presets
+    ["bedrock", "eu.anthropic.claude-sonnet-5", ["low", "medium", "high", "xhigh", "max"]],
+    ["bedrock", "openai.gpt-oss-120b-1:0", ["low", "medium", "high"]],
+    ["nebius", "Qwen/Qwen3.5-397B-A17B", ["low", "medium", "high"]],
+  ])("%s/%s -> %j", (provider, model, expected) => {
+    expect(reasoningLevelsFor(provider, model)).toEqual(expected);
+  });
+
+  it("is empty for non-reasoning models", () => {
+    expect(reasoningLevelsFor("openai", "gpt-4o")).toEqual([]);
+    expect(reasoningLevelsFor("bedrock", "eu.amazon.nova-lite-v1:0")).toEqual([]);
+  });
+});
+
+describe("resolveReasoningLevel", () => {
+  it("passes through a level the model accepts", () => {
+    expect(resolveReasoningLevel("openai", "gpt-5.6-sol", "xhigh")).toBe("xhigh");
+    expect(resolveReasoningLevel("anthropic", "claude-opus-4-8", "max")).toBe("max");
+  });
+  it("clamps an out-of-range level to medium (never 400s the provider)", () => {
+    expect(resolveReasoningLevel("openai", "o3", "xhigh")).toBe("medium"); // o3 has no xhigh
+    expect(resolveReasoningLevel("bedrock", "openai.gpt-oss-120b-1:0", "max")).toBe("medium");
+    expect(resolveReasoningLevel("nebius", "Qwen/Qwen3.5-397B-A17B", "xhigh")).toBe("medium");
+    expect(resolveReasoningLevel("openai", "gpt-5.4", "bogus")).toBe("medium");
   });
 });
 

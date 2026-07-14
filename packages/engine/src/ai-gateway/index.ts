@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateCostBreakdown, isThinkingCapable, isReasoningAlwaysOn } from "./config.js";
+import { resolveModel, estimateCostBreakdown, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, resolveReasoningLevel } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
 import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
@@ -86,15 +86,19 @@ function resolveCallConfig(
   // config to a model that would ignore it (OpenAI/Anthropic) or hard-reject it
   // (Bedrock's ValidationException, like the cachePoint). Anthropic also needs
   // the interleaved beta header, set unconditionally on the AnthropicProvider
-  // factory. Shape is mapped per family in the build* helpers (Claude-5 →
-  // adaptive+effort, older Claude → budgetTokens, gpt-oss → maxReasoningEffort).
+  // factory. Shape is mapped per family in the build* helpers via the catalog's
+  // reasoningControl (adaptive+effort / budget / effort).
+  // Clamp the requested level to what THIS model accepts (per the catalog's
+  // live-verified reasoningLevels) — a stale/out-of-range effort (e.g. xhigh on o3,
+  // max on gpt-oss) would otherwise 400. Falls back to "medium" (universally valid).
+  const thinkingLevel = resolveReasoningLevel(providerName, modelId, request.thinkingLevel ?? "medium");
   if (request.thinking && isThinkingCapable(providerName, modelId)) {
     if (providerName === "anthropic") {
       providerOptions = {
         ...providerOptions,
         anthropic: {
           ...(providerOptions?.anthropic ?? {}),
-          ...buildAnthropicThinkingOptions(modelId, request.thinkingLevel ?? "medium"),
+          ...buildAnthropicThinkingOptions(thinkingLevel, reasoningControlFor(providerName, modelId) === "adaptive"),
         } as Record<string, unknown>,
       };
     } else if (providerName === "openai") {
@@ -102,7 +106,7 @@ function resolveCallConfig(
         ...providerOptions,
         openai: {
           ...(providerOptions?.openai ?? {}),
-          ...buildOpenAIReasoningOptions(),
+          ...buildOpenAIReasoningOptions(thinkingLevel),
         } as Record<string, unknown>,
       };
     } else if (providerName === "bedrock") {
@@ -110,7 +114,7 @@ function resolveCallConfig(
         ...providerOptions,
         bedrock: {
           ...(providerOptions?.bedrock ?? {}),
-          ...buildBedrockReasoningOptions(modelId, request.thinkingLevel ?? "medium"),
+          ...buildBedrockReasoningOptions(thinkingLevel, reasoningControlFor(providerName, modelId) ?? "budget"),
         } as Record<string, unknown>,
       };
     }
@@ -133,7 +137,7 @@ function resolveCallConfig(
       nebius: {
         ...(providerOptions?.nebius ?? {}),
         ...(request.thinking
-          ? { reasoningEffort: request.thinkingLevel ?? "medium" }
+          ? { reasoningEffort: resolveReasoningLevel(providerName, modelId, request.thinkingLevel ?? "medium") }
           : isReasoningAlwaysOn(modelId)
             ? {}
             : { chat_template_kwargs: { enable_thinking: false } }),

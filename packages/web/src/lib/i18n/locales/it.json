@@ -352,7 +352,7 @@
   "settings.tab.embedderHint": "Provider usato per gli embedding di memoria e knowledge base, indipendente dal modello di chat. Cambiarlo elimina permanentemente le memorie e la knowledge base esistenti (gli embedding non sono portabili tra provider).",
   "settings.tab.systemDefault": "Default di Sistema",
   "settings.tab.reasoningLevel": "Livello di reasoning",
-  "settings.tab.reasoningLevelHelp": "Intensità del ragionamento (reasoning_effort di Nebius). Più alto = più token spesi a ragionare.",
+  "settings.tab.reasoningLevelHelp": "Intensità del ragionamento (effort). Più alto = più token spesi a ragionare. Applicato da tutti i modelli thinking-capable.",
   "settings.temperature.label": "Temperatura",
   "settings.temperature.placeholder": "Predefinita del provider",
   "settings.temperature.unsupportedReasoningHint": "La temperatura non è configurabile per i modelli di ragionamento.",

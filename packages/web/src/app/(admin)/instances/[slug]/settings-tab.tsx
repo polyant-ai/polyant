@@ -82,6 +82,16 @@ const BRAND_NAMES: Record<string, string> = {
   langsmith: "LangSmith",
 };
 
+// Display labels for reasoning-effort levels (values come from the model's
+// live-verified reasoningLevels set exposed by /api/instances/models).
+const REASONING_LEVEL_LABELS: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+};
+
 // Model-catalog dialog: a flattened row (model + its provider) and the
 // column keys the table can sort by.
 type CatalogRow = ModelsResponse["providers"][string]["models"][number] & { provider: string };
@@ -733,11 +743,12 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         </div>
 
         {/*
-          Reasoning level (experiment, Nebius-only). Maps to reasoning_effort.
-          Shown only for Nebius reasoning models with thinking on. Portable set
-          low|medium|high — minimal/xhigh/max are rejected by some Nebius models.
+          Reasoning level (effort). Applied by every provider: OpenAI/Nebius
+          reasoning_effort, Bedrock/Anthropic effort or budget per model. Shown
+          for ANY thinking-capable model whenever thinking is on (incl. always-on
+          models like gpt-oss). Portable set low|medium|high.
         */}
-        {effectiveThinkingEnabled && provider === "nebius" && (
+        {effectiveThinkingEnabled && (
           <div className="flex items-start justify-between gap-4 border-t pt-4">
             <div className="space-y-1">
               <Label className="text-sm font-medium">
@@ -752,9 +763,14 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="low">Low</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="high">High</SelectItem>
+                {/* Options are the model's actual accepted levels (live-verified,
+                    from /models) — e.g. gpt-5.x add "xhigh", adaptive Claude add
+                    "xhigh"+"max". Fallback to the three presets if unknown. */}
+                {(selectedModelInfo?.reasoningLevels?.length ? selectedModelInfo.reasoningLevels : ["low", "medium", "high"]).map((lvl) => (
+                  <SelectItem key={lvl} value={lvl}>
+                    {REASONING_LEVEL_LABELS[lvl] ?? lvl}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

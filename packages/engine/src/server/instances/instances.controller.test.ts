@@ -40,7 +40,7 @@ const {
   mockProviderConfigs: {
     openai: {
       tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o3" },
-      costPerMillionTokens: {
+      models: {
         "gpt-4o-mini": { input: 0.15, output: 0.6 },
         "gpt-4o": { input: 2.5, output: 10, cacheRead: 1.25, cacheWrite: 0 },
         "o3": { input: 2.0, output: 8.0 },
@@ -48,7 +48,7 @@ const {
     },
     bedrock: {
       tiers: { fast: "titan", standard: "titan", heavy: "titan" },
-      costPerMillionTokens: {},
+      models: {},
     },
   },
 }));
@@ -82,6 +82,8 @@ vi.mock("../../ai-gateway/config.js", () => ({
   cacheSupported: (provider: string, model: string): boolean =>
     provider === "bedrock" ? /anthropic|nova/.test(model) : provider !== "nebius",
   isReasoningAlwaysOn: (modelId: string): boolean => /gpt-oss/i.test(modelId),
+  reasoningLevelsFor: (_provider: string, modelId: string): string[] =>
+    /^(o[134]|gpt-5|claude|anthropic)/.test(modelId) ? ["low", "medium", "high"] : [],
 }));
 vi.mock("../../instances/icon-validator.js", () => ({ validateIconDataUri: vi.fn() }));
 vi.mock("../../embeddings-gateway/provider-resolver.js", () => ({

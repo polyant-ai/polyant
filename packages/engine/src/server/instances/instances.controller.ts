@@ -37,7 +37,8 @@ import {
 import { countMemories } from "../../memory/index.js";
 import { countDocuments } from "../../knowledge/index.js";
 import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
-import { providerConfigs, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported } from "../../ai-gateway/config.js";
+import { providerConfigs, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
+import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
@@ -125,10 +126,10 @@ export class InstancesController {
   @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
-    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; supportsCache: boolean; supportsThinking: boolean; reasoningAlwaysOn: boolean; supportsTemperature: boolean }[] }> = {};
+    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; supportsCache: boolean; supportsThinking: boolean; reasoningAlwaysOn: boolean; reasoningLevels: readonly ReasoningLevel[]; supportsTemperature: boolean }[] }> = {};
     for (const [name, cfg] of Object.entries(providerConfigs)) {
       const tierByModel = new Map(Object.entries(cfg.tiers).map(([tier, modelId]) => [modelId, tier]));
-      const models = Object.entries(cfg.costPerMillionTokens).map(([modelId, cost]) => ({
+      const models = Object.entries(cfg.models).map(([modelId, cost]) => ({
         id: modelId,
         tier: tierByModel.get(modelId) ?? null,
         costInput: cost.input,
@@ -148,6 +149,9 @@ export class InstancesController {
         // gpt-oss & co. reason on every call (no off) — the UI locks the toggle
         // ON and shows a hint rather than pretending it can be disabled.
         reasoningAlwaysOn: isReasoningAlwaysOn(modelId),
+        // The effort levels this model accepts (live-verified). The FE renders the
+        // level picker from this exact set — empty for non-reasoning models.
+        reasoningLevels: reasoningLevelsFor(name, modelId),
         supportsTemperature: temperatureSupported(name, modelId, false),
       }));
       providers[name] = { models };
@@ -277,8 +281,11 @@ export class InstancesController {
     if (body.temperature !== undefined) {
       body.temperature = clampTemperature(body.temperature);
     }
-    if (body.thinkingLevel !== undefined && !["low", "medium", "high"].includes(body.thinkingLevel)) {
-      throw new BadRequestException('thinkingLevel must be one of "low", "medium", "high"');
+    // Accept the full effort union; the ai-gateway clamps to the chosen model's
+    // catalog reasoningLevels at call time (so xhigh/max never reach a model that
+    // rejects them), and the FE only offers the model's actual subset.
+    if (body.thinkingLevel !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(body.thinkingLevel)) {
+      throw new BadRequestException('thinkingLevel must be one of "low", "medium", "high", "xhigh", "max"');
     }
     // Capture the pre-update state to detect an embedding-provider switch.
     const before = await findInstanceBySlug(asInstanceSlug(slug));
@@ -435,7 +442,7 @@ export class InstancesController {
       const cfg = providerConfigs[effectiveProvider];
       const validModels = cfg ? [
         ...Object.values(cfg.tiers),
-        ...Object.keys(cfg.costPerMillionTokens),
+        ...Object.keys(cfg.models),
       ] : [];
       if (!validModels.includes(model)) {
         throw new BadRequestException(`Invalid model "${model}" for provider "${effectiveProvider}". Valid models: ${validModels.join(", ")}`);
