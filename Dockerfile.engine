@@ -5,6 +5,10 @@ COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
 # Create a minimal package.json for web to satisfy workspace resolution
 RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"0.1.0","private":true}' > packages/web/package.json
+# Puppeteer bundles a glibc Chromium that can't run on Alpine (musl); the runtime
+# stage installs Alpine's chromium and points Puppeteer at it. Skip the download.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 RUN npm ci --workspace=@polyant/engine --include-workspace-root
 # Ensure workspace node_modules dir exists (even if empty) for COPY
 RUN mkdir -p packages/engine/node_modules
@@ -23,6 +27,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
 RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"0.1.0","private":true}' > packages/web/package.json
+# Skip Puppeteer's bundled (glibc) Chromium download — the runtime image uses the
+# Alpine chromium package; downloading here would be dead weight never copied out.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 RUN npm ci --omit=dev --workspace=@polyant/engine --include-workspace-root
 RUN mkdir -p packages/engine/node_modules
 
@@ -40,6 +48,26 @@ RUN npm run build:docker -w @polyant/engine
 FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
+# System binaries the built-in tools shell out to (restored from the old
+# packages/engine/Dockerfile that PR #181 dropped):
+#   - git       → gitCloneRepo
+#   - gh        → ghIssue / ghPr (pinned download; the apk package has no version pin)
+#   - chromium  → markdownToPdf via Puppeteer (+ fonts/libs)
+ARG GH_CLI_VERSION=2.65.0
+RUN apk add --no-cache \
+      git curl bash \
+      chromium nss freetype freetype-dev harfbuzz ca-certificates ttf-freefont font-noto-emoji && \
+    ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && \
+    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_${ARCH}.tar.gz" \
+      | tar -xz -C /tmp && \
+    mv "/tmp/gh_${GH_CLI_VERSION}_linux_${ARCH}/bin/gh" /usr/local/bin/gh && \
+    chmod +x /usr/local/bin/gh && \
+    rm -rf /tmp/gh_*
+
+# Point Puppeteer at the Alpine chromium instead of its own bundled (glibc) binary.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Copy hoisted deps + non-hoisted workspace deps (e.g. langsmith).
 # Runtime pulls from prod-deps (npm ci --omit=dev) — NOT deps — so the image
