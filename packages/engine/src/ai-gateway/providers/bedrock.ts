@@ -103,15 +103,18 @@ export function buildBedrockReasoningOptions(
   level: string,
   control: "effort" | "budget" | "adaptive",
 ): { reasoningConfig: Record<string, unknown> } {
-  const normalized: "low" | "medium" | "high" =
-    level === "low" || level === "high" ? level : "medium";
+  // adaptive/effort forward the level as-is — the gateway (resolveReasoningLevel)
+  // already clamped it to this model's catalog `reasoningLevels` (adaptive Claude
+  // accept up to `max`; gpt-oss only low/medium/high). budget maps to a token
+  // preset (budget models expose only the three preset levels).
   if (control === "adaptive") {
-    return { reasoningConfig: { type: "adaptive", maxReasoningEffort: normalized } };
+    return { reasoningConfig: { type: "adaptive", maxReasoningEffort: level } };
   }
   if (control === "effort") {
-    return { reasoningConfig: { type: "enabled", maxReasoningEffort: normalized } };
+    return { reasoningConfig: { type: "enabled", maxReasoningEffort: level } };
   }
+  const budgetKey: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";
   return {
-    reasoningConfig: { type: "enabled", budgetTokens: BEDROCK_THINKING_BUDGETS[normalized] },
+    reasoningConfig: { type: "enabled", budgetTokens: BEDROCK_THINKING_BUDGETS[budgetKey] },
   };
 }

@@ -5,8 +5,13 @@ import { buildAnthropicThinkingOptions } from "./anthropic.js";
 import { buildOpenAIReasoningOptions } from "./openai.js";
 import { buildBedrockReasoningOptions } from "./bedrock.js";
 
+// NOTE: the builders FORWARD the reasoning level as-is (adaptive/effort paths) —
+// the ai-gateway (resolveReasoningLevel) is the single place that clamps a
+// requested level to the model's catalog reasoningLevels. Only the budget path
+// maps to a fixed low/medium/high token preset.
+
 describe("buildAnthropicThinkingOptions", () => {
-  it("legacy models: enabled block with a level-scaled token budget", () => {
+  it("legacy (budget): enabled block with a level-scaled token budget", () => {
     const low = buildAnthropicThinkingOptions("low", false) as { thinking: { type: string; budgetTokens: number } };
     const high = buildAnthropicThinkingOptions("high", false) as { thinking: { type: string; budgetTokens: number } };
     expect(low.thinking.type).toBe("enabled");
@@ -14,16 +19,16 @@ describe("buildAnthropicThinkingOptions", () => {
     expect(low.thinking.budgetTokens).toBeLessThan(high.thinking.budgetTokens);
   });
 
-  it("adaptive models: adaptive block + effort (rejects the legacy shape live)", () => {
-    const opts = buildAnthropicThinkingOptions("high", true) as { thinking: { type: string }; effort: string };
-    expect(opts.thinking.type).toBe("adaptive");
-    expect(opts.effort).toBe("high");
-    expect(opts).not.toHaveProperty("thinking.budgetTokens");
+  it("budget maps an out-of-preset level to the medium preset", () => {
+    const bogus = buildAnthropicThinkingOptions("bogus", false) as { thinking: { budgetTokens: number } };
+    const medium = buildAnthropicThinkingOptions("medium", false) as { thinking: { budgetTokens: number } };
+    expect(bogus.thinking.budgetTokens).toBe(medium.thinking.budgetTokens);
   });
 
-  it("normalises an unknown level to medium", () => {
-    const opts = buildAnthropicThinkingOptions("bogus", true) as { effort: string };
-    expect(opts.effort).toBe("medium");
+  it("adaptive forwards the level as-is (incl. xhigh/max — gateway clamps, not the builder)", () => {
+    expect(buildAnthropicThinkingOptions("high", true)).toEqual({ thinking: { type: "adaptive" }, effort: "high" });
+    expect(buildAnthropicThinkingOptions("xhigh", true)).toEqual({ thinking: { type: "adaptive" }, effort: "xhigh" });
+    expect(buildAnthropicThinkingOptions("max", true)).toEqual({ thinking: { type: "adaptive" }, effort: "max" });
   });
 
   it("is shaped so it can be spread into providerOptions.anthropic", () => {
@@ -33,13 +38,10 @@ describe("buildAnthropicThinkingOptions", () => {
 });
 
 describe("buildOpenAIReasoningOptions", () => {
-  it("passes the requested level through as reasoningEffort", () => {
+  it("forwards the level as-is (gateway clamps)", () => {
     expect(buildOpenAIReasoningOptions("low").reasoningEffort).toBe("low");
     expect(buildOpenAIReasoningOptions("high").reasoningEffort).toBe("high");
-  });
-
-  it("normalises an unknown level to medium", () => {
-    expect(buildOpenAIReasoningOptions("bogus").reasoningEffort).toBe("medium");
+    expect(buildOpenAIReasoningOptions("xhigh").reasoningEffort).toBe("xhigh");
   });
 
   it("is shaped so it can be spread into providerOptions.openai", () => {
@@ -60,21 +62,19 @@ describe("buildBedrockReasoningOptions", () => {
     expect(low).toBeLessThan(high);
   });
 
-  it("adaptive control → adaptive block + effort (Opus 4.7/4.8, Sonnet 5)", () => {
-    const { reasoningConfig } = buildBedrockReasoningOptions("low", "adaptive");
-    expect(reasoningConfig).toEqual({ type: "adaptive", maxReasoningEffort: "low" });
+  it("budget maps an out-of-preset level to the medium preset", () => {
+    const bogus = buildBedrockReasoningOptions("bogus", "budget").reasoningConfig.budgetTokens;
+    const medium = buildBedrockReasoningOptions("medium", "budget").reasoningConfig.budgetTokens;
+    expect(bogus).toBe(medium);
   });
 
-  it("effort control → enabled + effort (not a budget; gpt-oss)", () => {
-    const { reasoningConfig } = buildBedrockReasoningOptions("high", "effort");
-    expect(reasoningConfig).toEqual({ type: "enabled", maxReasoningEffort: "high" });
+  it("adaptive control → adaptive block, forwards the level (incl. xhigh/max)", () => {
+    expect(buildBedrockReasoningOptions("low", "adaptive").reasoningConfig).toEqual({ type: "adaptive", maxReasoningEffort: "low" });
+    expect(buildBedrockReasoningOptions("max", "adaptive").reasoningConfig).toEqual({ type: "adaptive", maxReasoningEffort: "max" });
   });
 
-  it("normalises an unknown level to medium", () => {
-    expect(buildBedrockReasoningOptions("bogus", "effort").reasoningConfig).toEqual({
-      type: "enabled",
-      maxReasoningEffort: "medium",
-    });
+  it("effort control → enabled + effort, forwards the level (gpt-oss)", () => {
+    expect(buildBedrockReasoningOptions("high", "effort").reasoningConfig).toEqual({ type: "enabled", maxReasoningEffort: "high" });
   });
 
   it("is shaped so it can be spread into providerOptions.bedrock", () => {

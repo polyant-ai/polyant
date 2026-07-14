@@ -36,7 +36,9 @@ export const OpenAIProvider = createProvider("openai", (modelId, apiKeys) => {
  *
  * Reference: https://platform.openai.com/docs/guides/reasoning#reasoning-effort
  */
-export function buildOpenAIReasoningOptions(level: string): { reasoningEffort: "low" | "medium" | "high" } {
-  const lvl: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";
-  return { reasoningEffort: lvl };
+export function buildOpenAIReasoningOptions(level: string): { reasoningEffort: string } {
+  // Forward the level as-is: the gateway (resolveReasoningLevel) has already
+  // clamped it to this model's catalog `reasoningLevels` (e.g. gpt-5.x accept
+  // `xhigh`, o3 only low/medium/high), so it is always a value the API accepts.
+  return { reasoningEffort: level };
 }

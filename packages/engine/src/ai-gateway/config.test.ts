@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
+import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, reasoningLevelsFor, resolveReasoningLevel, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
 
 describe("resolveModel", () => {
   it("resolves openai fast tier", () => {
@@ -423,6 +423,40 @@ describe("reasoningControlFor", () => {
     ["anthropic", "", undefined],
   ])("%s/%s -> %s", (provider, model, expected) => {
     expect(reasoningControlFor(provider, model)).toBe(expected);
+  });
+});
+
+describe("reasoningLevelsFor", () => {
+  it.each([
+    // Live-verified per-model sets.
+    ["openai", "gpt-5.4", ["low", "medium", "high", "xhigh"]],
+    ["openai", "gpt-5.6-sol", ["low", "medium", "high", "xhigh"]],
+    ["openai", "o3", ["low", "medium", "high"]],
+    ["anthropic", "claude-opus-4-8", ["low", "medium", "high", "xhigh", "max"]],
+    ["anthropic", "claude-sonnet-4-6", ["low", "medium", "high"]], // budget presets
+    ["bedrock", "eu.anthropic.claude-sonnet-5", ["low", "medium", "high", "xhigh", "max"]],
+    ["bedrock", "openai.gpt-oss-120b-1:0", ["low", "medium", "high"]],
+    ["nebius", "Qwen/Qwen3.5-397B-A17B", ["low", "medium", "high"]],
+  ])("%s/%s -> %j", (provider, model, expected) => {
+    expect(reasoningLevelsFor(provider, model)).toEqual(expected);
+  });
+
+  it("is empty for non-reasoning models", () => {
+    expect(reasoningLevelsFor("openai", "gpt-4o")).toEqual([]);
+    expect(reasoningLevelsFor("bedrock", "eu.amazon.nova-lite-v1:0")).toEqual([]);
+  });
+});
+
+describe("resolveReasoningLevel", () => {
+  it("passes through a level the model accepts", () => {
+    expect(resolveReasoningLevel("openai", "gpt-5.6-sol", "xhigh")).toBe("xhigh");
+    expect(resolveReasoningLevel("anthropic", "claude-opus-4-8", "max")).toBe("max");
+  });
+  it("clamps an out-of-range level to medium (never 400s the provider)", () => {
+    expect(resolveReasoningLevel("openai", "o3", "xhigh")).toBe("medium"); // o3 has no xhigh
+    expect(resolveReasoningLevel("bedrock", "openai.gpt-oss-120b-1:0", "max")).toBe("medium");
+    expect(resolveReasoningLevel("nebius", "Qwen/Qwen3.5-397B-A17B", "xhigh")).toBe("medium");
+    expect(resolveReasoningLevel("openai", "gpt-5.4", "bogus")).toBe("medium");
   });
 });
 

@@ -6,6 +6,7 @@ import {
   reasoningCapableFallback,
   reasoningAlwaysOnFallback,
   reasoningControlFallback,
+  reasoningLevelsFallback,
   temperatureRejectedFallback,
   cacheCapableFallback,
 } from "./config.js";
@@ -53,6 +54,16 @@ describe("model catalog integrity", () => {
       expect(caps.reasoningControl !== undefined, `${provider}/${modelId} control⟺reasoning`).toBe(caps.reasoning);
     }
   });
+
+  it("reasoningLevels is present exactly when reasoning is true, non-empty, includes medium", () => {
+    for (const [provider, modelId, caps] of ALL) {
+      expect(caps.reasoningLevels !== undefined, `${provider}/${modelId} levels⟺reasoning`).toBe(caps.reasoning);
+      if (caps.reasoningLevels) {
+        expect(caps.reasoningLevels.length, `${provider}/${modelId} empty levels`).toBeGreaterThan(0);
+        expect(caps.reasoningLevels, `${provider}/${modelId} missing medium`).toContain("medium");
+      }
+    }
+  });
 });
 
 // Behaviour-preserving migration guard: capability values were seeded from the
@@ -64,6 +75,7 @@ describe("catalog capabilities match the regex fallback (migration guard)", () =
     expect(caps.reasoning).toBe(reasoningCapableFallback(provider, modelId));
     expect(caps.reasoningAlwaysOn ?? false).toBe(reasoningAlwaysOnFallback(modelId));
     expect(caps.reasoningControl).toBe(reasoningControlFallback(provider, modelId));
+    expect(caps.reasoningLevels ?? []).toEqual(reasoningLevelsFallback(provider, modelId));
     expect(caps.temperature).toBe(!temperatureRejectedFallback(provider, modelId));
     expect(caps.cache).toBe(cacheCapableFallback(provider, modelId));
     expect(caps.vision).toBe(visionCapableFallback(modelId));

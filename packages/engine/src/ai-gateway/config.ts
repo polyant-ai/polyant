@@ -2,7 +2,7 @@
 
 import type { TierMapping, CostBreakdown } from "./types.js";
 import { providerConfigs, getModelCapabilities, findModelCapabilities } from "./model-catalog.js";
-import type { ModelCapabilities } from "./model-catalog.js";
+import type { ModelCapabilities, ReasoningLevel } from "./model-catalog.js";
 
 // The per-model catalog (data) lives in model-catalog.ts; re-exported here so
 // existing importers (`./config.js`) keep working. This file holds the LOGIC:
@@ -303,6 +303,47 @@ export function reasoningControlFor(
   if (entry) return entry.reasoningControl;
   warnCatalogFallback("reasoningControlFor", provider, modelId);
   return reasoningControlFallback(provider, modelId);
+}
+
+/**
+ * Reasoning-LEVELS fallback (which efforts a model accepts) for un-catalogued
+ * ids. Derived from the control + the one live-verified per-model exception:
+ * OpenAI gpt-5.x add `xhigh`; adaptive Claude add `xhigh`+`max`; everything else
+ * (o3, gpt-oss, Nebius, budget presets) is low/medium/high. Empty for non-reasoning.
+ */
+export function reasoningLevelsFallback(provider: string, modelId: string): readonly ReasoningLevel[] {
+  const control = reasoningControlFallback(provider, modelId);
+  if (!control) return [];
+  if (control === "adaptive") return ["low", "medium", "high", "xhigh", "max"];
+  if (control === "effort" && provider === "openai" && /^gpt-5/.test(modelId)) {
+    return ["low", "medium", "high", "xhigh"];
+  }
+  return ["low", "medium", "high"];
+}
+
+/**
+ * The reasoning-effort levels a (provider, model) accepts. Catalog lookup
+ * (`reasoningLevels`, LIVE-VERIFIED) with a logged fallback. Consumed by the
+ * frontend (renders the level picker), the API (validation), and the gateway
+ * (clamps a requested level). Empty for non-reasoning models.
+ */
+export function reasoningLevelsFor(provider: string, modelId: string): readonly ReasoningLevel[] {
+  if (!provider || !modelId) return [];
+  const entry = getModelCapabilities(provider, modelId);
+  if (entry) return entry.reasoningLevels ?? [];
+  warnCatalogFallback("reasoningLevelsFor", provider, modelId);
+  return reasoningLevelsFallback(provider, modelId);
+}
+
+/**
+ * Clamp a requested reasoning level to what the model actually accepts, falling
+ * back to "medium" (which every reasoning model supports). Prevents a direct API
+ * caller from sending an out-of-range effort that the provider 400s on — the
+ * single enforcement point at the ai-gateway boundary.
+ */
+export function resolveReasoningLevel(provider: string, modelId: string, requested: string): ReasoningLevel {
+  const levels = reasoningLevelsFor(provider, modelId);
+  return (levels as readonly string[]).includes(requested) ? (requested as ReasoningLevel) : "medium";
 }
 
 /**
