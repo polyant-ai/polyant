@@ -17,8 +17,14 @@ COPY --from=deps /app/packages/web/node_modules ./packages/web/node_modules
 COPY package.json package-lock.json ./
 COPY packages/web/ packages/web/
 
-# NEXT_PUBLIC_API_URL must be empty at build time for relative paths
-ENV NEXT_PUBLIC_API_URL=""
+# Engine URL for the Next.js /api rewrites, inlined at build time.
+# Default "" = relative paths for gateway-routed topologies (AWS ALB routes
+# /api/* to the engine). Deployments where Next itself must proxy to the
+# engine (e.g. Render, separate web/engine services) MUST pass the engine
+# URL as a build arg — Render injects service env vars as build args when
+# they are declared via ARG.
+ARG NEXT_PUBLIC_API_URL=""
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN npm run build -w @polyant/web
 
 # ── Stage 3: Runtime ───────────────────────────────────────────
