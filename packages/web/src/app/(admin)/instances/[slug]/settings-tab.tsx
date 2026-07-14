@@ -331,19 +331,22 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   ) => {
     const active = catalogSort.key === key;
     const Arrow = active ? (catalogSort.dir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+    // whitespace-normal so long labels (e.g. "Cache scrittura") wrap inside the
+    // fixed column instead of overflowing into the next one; the button is w-full
+    // so the flex constrains the label to the cell width.
     return (
-      <TableHead className={cn(opts?.width, opts?.right && "text-right")}>
+      <TableHead className={cn("align-bottom whitespace-normal", opts?.width, opts?.right && "text-right")}>
         <button
           type="button"
           onClick={() => toggleCatalogSort(key)}
           className={cn(
-            "inline-flex items-center gap-1 hover:text-foreground",
-            opts?.right && "flex-row-reverse",
+            "flex w-full items-center gap-1 hover:text-foreground",
+            opts?.right ? "justify-end" : "justify-start",
             active ? "text-foreground" : "text-muted-foreground",
           )}
         >
-          {t(labelKey)}
-          <Arrow className={cn("h-3 w-3", !active && "opacity-40")} />
+          <span>{t(labelKey)}</span>
+          <Arrow className={cn("h-3 w-3 shrink-0", !active && "opacity-40")} />
         </button>
       </TableHead>
     );
@@ -530,7 +533,11 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                   {t("settings.tab.viewPricing")}
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-h-[85vh] w-[95vw] max-w-6xl overflow-y-auto">
+              {/* sm:max-w-6xl (with the sm: variant) is required to override
+                  shadcn's default sm:max-w-lg — a plain max-w-6xl is a different
+                  variant, so tailwind-merge keeps both and the narrow default wins
+                  from the sm breakpoint up. */}
+              <DialogContent className="max-h-[85vh] w-[95vw] sm:max-w-6xl overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{t("settings.tab.pricingTitle")}</DialogTitle>
                   <p className="text-sm text-muted-foreground">{t("settings.tab.pricingClickHint")}</p>
@@ -606,7 +613,10 @@ export function SettingsTab({ instance, onUpdate }: Props) {
                               <TableCell className="align-top text-xs">
                                 {BRAND_NAMES[m.provider] ?? m.provider.charAt(0).toUpperCase() + m.provider.slice(1)}
                               </TableCell>
-                              <TableCell className="align-top">
+                              {/* whitespace-normal overrides shadcn's cell default of
+                                  whitespace-nowrap — without it break-all can't wrap and
+                                  long model ids overflow into the price columns. */}
+                              <TableCell className="align-top whitespace-normal">
                                 <span className="block break-all font-mono text-xs">{m.id}</span>
                                 {m.tier && (
                                   <Badge variant="secondary" className="mt-1 text-[10px]">
