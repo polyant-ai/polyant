@@ -39,6 +39,13 @@ const nextConfig: NextConfig = {
       { source: "/api/activity-stream/:path*", destination: `${ENGINE_URL}/api/activity-stream/:path*` },
       { source: "/memories/:path*", destination: `${ENGINE_URL}/memories/:path*` },
       { source: "/health", destination: `${ENGINE_URL}/health` },
+      // Unauthenticated proxy canary for deploy health checks (e.g. Render
+      // healthCheckPath). /api/* is excluded from the auth middleware matcher,
+      // and the engine's /health is @Public, so this returns 200 only when the
+      // rewrite layer actually reaches the engine — a broken proxy (empty
+      // ENGINE_URL) self-rewrites to a 404 and fails the deploy. /health above
+      // cannot serve this purpose: the auth middleware 302s it to /login.
+      { source: "/api/health", destination: `${ENGINE_URL}/health` },
       { source: "/v1/:path*", destination: `${ENGINE_URL}/v1/:path*` },
     ];
   },
