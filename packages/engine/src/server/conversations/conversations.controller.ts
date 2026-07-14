@@ -29,6 +29,16 @@ function requireInstanceId(instanceId: string | undefined): InstanceSlug {
   return asInstanceSlug(trimmed);
 }
 
+/** Parse an optional ISO-8601 datetime query param; 400 on a malformed value. */
+function parseIsoDateParam(name: string, value: string | undefined): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw new BadRequestException(`${name} must be an ISO-8601 datetime`);
+  }
+  return d;
+}
+
 /**
  * Look up a conversation and verify it belongs to the requested instance scope.
  * Returns 404 on either miss or mismatch — never reveals existence across instances.
@@ -57,6 +67,8 @@ export class ConversationsController {
     @Query("search") search?: string,
     @Query("limit") limitStr?: string,
     @Query("offset") offsetStr?: string,
+    @Query("updatedSince") updatedSinceStr?: string,
+    @Query("updatedUntil") updatedUntilStr?: string,
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const { limit, offset } = parsePagination(limitStr, offsetStr, { defaultLimit: 20, maxLimit: 100 });
@@ -73,9 +85,16 @@ export class ConversationsController {
       return { ...result, limit, offset };
     }
 
+    // Half-open [updatedSince, updatedUntil) window on updated_at — applies to
+    // the list path only (the search path is FTS-ranked, not time-windowed).
+    const updatedSince = parseIsoDateParam("updatedSince", updatedSinceStr);
+    const updatedUntil = parseIsoDateParam("updatedUntil", updatedUntilStr);
+
     const result = await conversationStore.listConversations({
       instanceId: instanceSlug,
       source,
+      updatedSince,
+      updatedUntil,
       limit,
       offset,
       orgId,

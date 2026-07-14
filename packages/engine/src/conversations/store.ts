@@ -449,10 +449,21 @@ export class ConversationStore {
     }));
   }
 
-  /** List conversations with message count, optionally filtered by instance. */
+  /**
+   * List conversations with message count, optionally filtered by instance.
+   *
+   * `updatedSince`/`updatedUntil` bound the half-open window `[since, until)`
+   * on `updated_at` — the field this list already sorts by and that the
+   * `idx_conversations_instance_updated` index covers, so windowed polling
+   * (e.g. an external analytics pull) stays index-supported. Note `updated_at`
+   * tracks last *activity* (bumped when the post-turn summary/title regenerates),
+   * not every message insert, so incremental pullers should overlap windows.
+   */
   async listConversations(options: {
     instanceId?: InstanceSlug;
     source?: string;
+    updatedSince?: Date;
+    updatedUntil?: Date;
     limit?: number;
     offset?: number;
     orgId?: string;
@@ -463,6 +474,8 @@ export class ConversationStore {
     const conditions: ReturnType<typeof sql>[] = [];
     if (options.instanceId) conditions.push(sql`c.instance_id = ${options.instanceId}`);
     if (options.source) conditions.push(sql`c.source = ${options.source}`);
+    if (options.updatedSince) conditions.push(sql`c.updated_at >= ${options.updatedSince.toISOString()}::timestamptz`);
+    if (options.updatedUntil) conditions.push(sql`c.updated_at < ${options.updatedUntil.toISOString()}::timestamptz`);
     // Cross-org gate: an aggregate list (no instanceId) returns only caller-org
     // rows; a foreign-org instanceId param yields zero rows (ANDed at the store).
     if (options.orgId) conditions.push(buildOrgScopedAgentFilter(options.orgId, "c.instance_id"));

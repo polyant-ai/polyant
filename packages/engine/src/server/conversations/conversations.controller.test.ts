@@ -14,6 +14,8 @@ const { mockStore, mockLoadConversationState } = vi.hoisted(() => ({
   mockStore: {
     getConversation: vi.fn(),
     getMessageDebug: vi.fn(),
+    listConversations: vi.fn(),
+    searchConversations: vi.fn(),
   },
   mockLoadConversationState: vi.fn(),
 }));
@@ -72,6 +74,38 @@ describe("ConversationsController — debug + state endpoints", () => {
       await expect(
         controller.getMessageDebug("acme:web:api-1", VALID_UUID, undefined),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
+  describe("list — updatedSince/updatedUntil window", () => {
+    beforeEach(() => {
+      mockStore.listConversations.mockResolvedValue({ conversations: [], total: 0 });
+    });
+
+    it("parses ISO datetimes and passes Date objects to the store", async () => {
+      await controller.list("acme", undefined, undefined, undefined, undefined,
+        "2026-07-01T00:00:00Z", "2026-07-14T00:00:00Z", undefined);
+
+      expect(mockStore.listConversations).toHaveBeenCalledTimes(1);
+      const opts = mockStore.listConversations.mock.calls[0][0];
+      expect(opts.updatedSince).toBeInstanceOf(Date);
+      expect(opts.updatedUntil).toBeInstanceOf(Date);
+      expect(opts.updatedSince.toISOString()).toBe("2026-07-01T00:00:00.000Z");
+    });
+
+    it("leaves the window undefined when the params are absent", async () => {
+      await controller.list("acme", undefined, undefined, undefined, undefined, undefined, undefined, undefined);
+
+      const opts = mockStore.listConversations.mock.calls[0][0];
+      expect(opts.updatedSince).toBeUndefined();
+      expect(opts.updatedUntil).toBeUndefined();
+    });
+
+    it("rejects a malformed updatedSince with 400 before touching the store", async () => {
+      await expect(
+        controller.list("acme", undefined, undefined, undefined, undefined, "not-a-date", undefined, undefined),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mockStore.listConversations).not.toHaveBeenCalled();
     });
   });
 
