@@ -288,6 +288,7 @@ describe("isThinkingCapable", () => {
     it.each([
       ["claude-3-7-sonnet-20250219", true],
       ["claude-sonnet-5", true],
+      ["claude-fable-5", true],
       ["claude-sonnet-4-6", true],
       ["claude-sonnet-4-5-20250929", true],
       ["claude-opus-4-8", true],

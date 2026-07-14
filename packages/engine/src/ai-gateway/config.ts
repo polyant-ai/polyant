@@ -43,8 +43,8 @@ export function reasoningCapableFallback(provider: string, modelId: string): boo
       // Reasoning families: o1, o3, o4 (any suffix) and the gpt-5 line.
       return /^(o[134]|gpt-5)/.test(modelId);
     case "anthropic":
-      // Claude 3.7 + the Claude 4 family (sonnet, opus, haiku) and sonnet-5.
-      return /^claude-(3-7|opus-4|sonnet-4|sonnet-5|haiku-4)/.test(modelId);
+      // Claude 3.7 + the Claude 4 family (sonnet, opus, haiku), sonnet-5, fable-5.
+      return /^claude-(3-7|opus-4|sonnet-4|sonnet-5|haiku-4|fable-5)/.test(modelId);
     case "bedrock":
       // Anthropic Claude 4+ (haiku/sonnet/opus — haiku LIVE-VERIFIED to reason on
       // Bedrock) + OpenAI gpt-oss (effort) + MiniMax M (live-verified), with or

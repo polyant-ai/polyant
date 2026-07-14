@@ -144,6 +144,11 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
       "claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
       "claude-opus-4-6": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
+      // Fable 5 — Claude-5 generation ($10/$50; cache read 0.1×, 1h write 2×).
+      // LIVE-VERIFIED on Anthropic 1P: adaptive thinking (low..max, rejects the
+      // legacy budget shape), vision, temperature rejected, not always-on. (Only
+      // on the anthropic provider — Bedrock has no invocable fable-5 profile.)
+      "claude-fable-5": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 20.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
     },
   },
   bedrock: {
