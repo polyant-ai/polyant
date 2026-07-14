@@ -41,4 +41,12 @@ COPY --from=build /app/packages/web/public ./packages/web/public
 
 EXPOSE 3000
 
+# Next.js standalone server.js reads PORT/HOSTNAME at runtime. Without HOSTNAME
+# Docker auto-injects the container id, and the server binds to it instead of
+# all interfaces → unreachable on the published port. Set it here so the image
+# is self-contained (the AWS task def also sets it, but plain `docker run` /
+# compose / Render would not).
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
 CMD ["node", "packages/web/server.js"]
