@@ -1224,6 +1224,82 @@ describe("ConversationStore", () => {
   });
 
   // =========================================================================
+  // renameConversation
+  // =========================================================================
+  describe("renameConversation", () => {
+    // idChanged path: messages, ai_logs, pipeline_traces, tool_audit_logs,
+    // hook_executions, memories, conversation_state, conversations
+    const EXPECTED_UPDATE_CALLS = 8;
+
+    it("propagates the new id across all conversation-scoped tables and returns true", async () => {
+      const id = uid("agent:whatsapp:+3900");
+      const newId = uid("agent:whatsapp:+3911");
+      const sideChain = createChainMock(undefined);
+      const convChain = createChainMock([{ id: "uuid-1" }]); // returning length > 0
+      let n = 0;
+      mockDb.update.mockImplementation(() => {
+        n++;
+        return n === EXPECTED_UPDATE_CALLS ? (convChain as any) : (sideChain as any);
+      });
+
+      const result = await conversationStore.renameConversation(id, newId, "New title");
+
+      expect(result).toBe(true);
+      expect(mockDb.update).toHaveBeenCalledTimes(EXPECTED_UPDATE_CALLS);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("touches only the conversations row when the id is unchanged (title-only edit)", async () => {
+      const id = uid("agent:whatsapp:+3922");
+      const convChain = createChainMock([{ id: "uuid-1" }]);
+      mockDb.update.mockReturnValue(convChain as any);
+
+      const result = await conversationStore.renameConversation(id, id, "Renamed only");
+
+      expect(result).toBe(true);
+      expect(mockDb.update).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns false when the conversation row is not found (empty returning)", async () => {
+      const id = uid("agent:whatsapp:+3955");
+      const convChain = createChainMock([]); // returning length === 0
+      mockDb.update.mockReturnValue(convChain as any);
+
+      const result = await conversationStore.renameConversation(id, id, "x");
+      expect(result).toBe(false);
+    });
+
+    it("clears the title cache for the old id after a rename", async () => {
+      const oldId = uid("agent:whatsapp:+3933");
+      const newId = uid("agent:whatsapp:+3944");
+
+      // Prime the old id's title cache.
+      const updChain = createChainMock(undefined);
+      mockDb.update.mockReturnValue(updChain as any);
+      await conversationStore.updateTitle(oldId, "Old cached");
+
+      vi.clearAllMocks();
+
+      const sideChain = createChainMock(undefined);
+      const convChain = createChainMock([{ id: "uuid-1" }]);
+      let n = 0;
+      mockDb.update.mockImplementation(() => {
+        n++;
+        return n === EXPECTED_UPDATE_CALLS ? (convChain as any) : (sideChain as any);
+      });
+      await conversationStore.renameConversation(oldId, newId, "New");
+
+      vi.clearAllMocks();
+
+      // Cache cleared → getTitle falls back to DB.
+      const selChain = createChainMock([{ title: "Reloaded" }]);
+      mockDb.select.mockReturnValue(selChain as any);
+      expect(await conversationStore.getTitle(oldId)).toBe("Reloaded");
+      expect(mockDb.select).toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
   // replaceOldestMessages (#99) — transactional compaction
   // =========================================================================
   describe("replaceOldestMessages (#99)", () => {

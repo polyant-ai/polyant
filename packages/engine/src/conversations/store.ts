@@ -946,6 +946,82 @@ export class ConversationStore {
   }
 
   /** Delete a conversation and all its messages (atomic). */
+  /**
+   * Rename a conversation's stable text key across every table that stores it,
+   * optionally updating the title. Mirrors the `deleteConversation` cascade's
+   * table set — UPDATE instead of DELETE — so nothing is orphaned and the
+   * renamed conversation stays fully browsable. When `newConversationId` equals
+   * `conversationId` only the title is touched. Runs in one transaction; the
+   * caller guarantees the new id is free (the unique constraint is the backstop).
+   *
+   * Side effect by design: renaming a channel conversation away from its
+   * canonical `<slug>:<channel>:<identity>` key means the next inbound message
+   * recomputes that key, finds no rows, and starts a fresh conversation — a
+   * "reset" that preserves the archived history.
+   */
+  async renameConversation(
+    conversationId: string,
+    newConversationId: string,
+    title?: string,
+  ): Promise<boolean> {
+    const idChanged = newConversationId !== conversationId;
+    return db.transaction(async (tx) => {
+      if (idChanged) {
+        await tx
+          .update(conversationMessages)
+          .set({ conversationId: newConversationId })
+          .where(eq(conversationMessages.conversationId, conversationId));
+        await tx
+          .update(aiLogs)
+          .set({ conversationId: newConversationId })
+          .where(eq(aiLogs.conversationId, conversationId));
+        await tx
+          .update(pipelineTraces)
+          .set({ conversationId: newConversationId })
+          .where(eq(pipelineTraces.conversationId, conversationId));
+        await tx
+          .update(toolAuditLogs)
+          .set({ conversationId: newConversationId })
+          .where(eq(toolAuditLogs.conversationId, conversationId));
+        await tx
+          .update(hookExecutions)
+          .set({ conversationId: newConversationId })
+          .where(eq(hookExecutions.conversationId, conversationId));
+        await tx
+          .update(memories)
+          .set({ sourceConversationId: newConversationId })
+          .where(eq(memories.sourceConversationId, conversationId));
+        await tx
+          .update(conversationState)
+          .set({ scopeKey: newConversationId })
+          .where(
+            and(
+              eq(conversationState.scope, "conversation"),
+              eq(conversationState.scopeKey, conversationId),
+            ),
+          );
+      }
+
+      const result = await tx
+        .update(conversations)
+        .set({
+          ...(idChanged ? { conversationId: newConversationId } : {}),
+          ...(title !== undefined ? { title: stripNulString(title) } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.conversationId, conversationId))
+        .returning();
+
+      // Caches are keyed by the id — drop stale entries for both old and new.
+      this.summaryCache.delete(conversationId);
+      this.titleCache.delete(conversationId);
+      this.summaryCache.delete(newConversationId);
+      this.titleCache.delete(newConversationId);
+
+      return result.length > 0;
+    });
+  }
+
   async deleteConversation(conversationId: string): Promise<boolean> {
     return db.transaction(async (tx) => {
       // Drop everything tied to this conversation_id in one transaction so the

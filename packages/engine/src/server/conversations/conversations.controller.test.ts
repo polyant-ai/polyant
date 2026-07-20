@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 
 /**
  * Unit tests for the per-turn debug + conversation-state endpoints on
@@ -16,6 +16,7 @@ const { mockStore, mockLoadConversationState } = vi.hoisted(() => ({
     getMessageDebug: vi.fn(),
     listConversations: vi.fn(),
     searchConversations: vi.fn(),
+    renameConversation: vi.fn(),
   },
   mockLoadConversationState: vi.fn(),
 }));
@@ -106,6 +107,83 @@ describe("ConversationsController — debug + state endpoints", () => {
         controller.list("acme", undefined, undefined, undefined, undefined, "not-a-date", undefined, undefined),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(mockStore.listConversations).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("rename", () => {
+    it("propagates a new id + title and returns the target id", async () => {
+      // 1st getConversation = scope load; 2nd = conflict pre-check (free).
+      mockStore.getConversation
+        .mockResolvedValueOnce({ instanceId: "acme" })
+        .mockResolvedValueOnce(null);
+      mockStore.renameConversation.mockResolvedValue(true);
+
+      const result = await controller.rename(
+        "acme:whatsapp:%2B3900",
+        { conversationId: "acme:whatsapp:archived-1", title: "Round 1" },
+        "acme",
+      );
+
+      expect(result).toEqual({ renamed: true, conversationId: "acme:whatsapp:archived-1" });
+      expect(mockStore.renameConversation).toHaveBeenCalledWith(
+        "acme:whatsapp:+3900",
+        "acme:whatsapp:archived-1",
+        "Round 1",
+      );
+    });
+
+    it("rejects a new id whose prefix is not the instance slug (routing/IDOR guard)", async () => {
+      mockStore.getConversation.mockResolvedValueOnce({ instanceId: "acme" });
+
+      await expect(
+        controller.rename("acme:web:api-1", { conversationId: "evil:web:api-1" }, "acme"),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mockStore.renameConversation).not.toHaveBeenCalled();
+    });
+
+    it("returns 409 when the target id is already in use", async () => {
+      mockStore.getConversation
+        .mockResolvedValueOnce({ instanceId: "acme" })
+        .mockResolvedValueOnce({ instanceId: "acme" }); // conflict: target exists
+
+      await expect(
+        controller.rename("acme:web:api-1", { conversationId: "acme:web:api-2" }, "acme"),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(mockStore.renameConversation).not.toHaveBeenCalled();
+    });
+
+    it("rejects an explicitly empty title", async () => {
+      mockStore.getConversation.mockResolvedValueOnce({ instanceId: "acme" });
+
+      await expect(
+        controller.rename("acme:web:api-1", { title: "   " }, "acme"),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mockStore.renameConversation).not.toHaveBeenCalled();
+    });
+
+    it("allows a title-only edit (id unchanged, no conflict check)", async () => {
+      mockStore.getConversation.mockResolvedValueOnce({ instanceId: "acme" });
+      mockStore.renameConversation.mockResolvedValue(true);
+
+      const result = await controller.rename("acme:web:api-1", { title: "New title" }, "acme");
+
+      expect(result).toEqual({ renamed: true, conversationId: "acme:web:api-1" });
+      // getConversation called once (scope load only — no conflict pre-check).
+      expect(mockStore.getConversation).toHaveBeenCalledTimes(1);
+      expect(mockStore.renameConversation).toHaveBeenCalledWith(
+        "acme:web:api-1",
+        "acme:web:api-1",
+        "New title",
+      );
+    });
+
+    it("returns 404 (IDOR guard) for a conversation owned by another instance", async () => {
+      mockStore.getConversation.mockResolvedValueOnce({ instanceId: "other" });
+
+      await expect(
+        controller.rename("acme:web:api-1", { title: "x" }, "acme"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(mockStore.renameConversation).not.toHaveBeenCalled();
     });
   });
 

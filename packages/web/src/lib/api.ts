@@ -473,6 +473,16 @@ export const api = {
         `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,
         { method: "DELETE" },
       ),
+    /** Rename the conversation id (propagated across all linked tables) and/or its title. */
+    rename: (
+      conversationId: string,
+      instanceId: string,
+      body: { conversationId?: string; title?: string },
+    ) =>
+      request<{ renamed: boolean; conversationId: string }>(
+        `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,
+        { method: "PATCH", body: JSON.stringify(body) },
+      ),
   },
   memories: {
     list: (params?: {

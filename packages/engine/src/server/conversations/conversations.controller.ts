@@ -4,9 +4,12 @@ import {
   Controller,
   Get,
   Delete,
+  Patch,
+  Body,
   Param,
   Query,
   BadRequestException,
+  ConflictException,
   NotFoundException,
 } from "@nestjs/common";
 import { conversationStore } from "../../conversations/store.js";
@@ -208,6 +211,49 @@ export class ConversationsController {
 
     const state = await loadConversationState(id);
     return { state };
+  }
+
+  // PATCH /api/conversations/:conversationId — rename the conversation's stable
+  // text key (propagated across every linked table) and/or its title. No dedicated
+  // conversation-write permission exists; this is a mutation of comparable weight
+  // to delete, so it reuses CONVERSATION_DELETE as the write gate.
+  @RequirePermission(Permission.CONVERSATION_DELETE)
+  @Patch(":conversationId")
+  async rename(
+    @Param("conversationId") conversationId: string,
+    @Body() body: { conversationId?: string; title?: string },
+    @Query("instanceId") instanceId?: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    const uid = requireInstanceId(instanceId);
+    const id = decodeURIComponent(conversationId);
+    await loadConversationScoped(id, uid, user?.orgId);
+
+    const rawNewId = body.conversationId?.trim();
+    const rawTitle = body.title?.trim();
+    if (body.conversationId === undefined && body.title === undefined) {
+      throw new BadRequestException("Provide conversationId and/or title to update");
+    }
+    if (body.title !== undefined && !rawTitle) {
+      throw new BadRequestException("title must not be empty");
+    }
+
+    const targetId = rawNewId && rawNewId.length > 0 ? rawNewId : id;
+    if (targetId !== id) {
+      // The web derives the instance scope from the id prefix and the row's
+      // instance_id column is NOT changed by a rename — a different prefix would
+      // make the conversation unopenable and break IDOR scoping. Pin the prefix.
+      if (targetId.split(":")[0] !== uid) {
+        throw new BadRequestException(`conversationId must start with "${uid}:"`);
+      }
+      const existing = await conversationStore.getConversation(targetId, user?.orgId);
+      if (existing) {
+        throw new ConflictException(`Conversation id already in use: ${targetId}`);
+      }
+    }
+
+    await conversationStore.renameConversation(id, targetId, rawTitle);
+    return { renamed: true, conversationId: targetId };
   }
 
   @RequirePermission(Permission.CONVERSATION_DELETE)

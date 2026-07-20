@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, Loader2, Zap, Coins, Terminal, FileText, Mic, SearchCode, Database, Webhook, Link2 } from "lucide-react";
+import { Trash2, Loader2, Zap, Coins, Terminal, FileText, Mic, SearchCode, Database, Webhook, Link2, Pencil } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -34,6 +34,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta, type HookExecution } from "@/lib/api";
 import { MarkdownRenderer } from "@/app/(admin)/playground/_components/markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
@@ -165,6 +174,10 @@ export default function ConversationDetailPage() {
   const [hookExecutions, setHookExecutions] = useState<HookExecution[]>([]);
   const [debugTarget, setDebugTarget] = useState<DebugSheetTarget | null>(null);
   const [stateOpen, setStateOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [renameId, setRenameId] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const [totalMessages, setTotalMessages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -343,6 +356,44 @@ export default function ConversationDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, messages.length, totalMessages]);
 
+  const openRename = () => {
+    setRenameTitle(conversation?.title ?? "");
+    setRenameId(conversationId);
+    setRenameOpen(true);
+  };
+
+  const handleRename = async () => {
+    const nextId = renameId.trim();
+    const nextTitle = renameTitle.trim();
+    if (!nextTitle) {
+      toast.error(t("conversations.detail.renameTitleRequired"));
+      return;
+    }
+    if (!nextId) {
+      toast.error(t("conversations.detail.renameIdRequired"));
+      return;
+    }
+    setRenaming(true);
+    try {
+      await api.conversations.rename(conversationId, instanceId, {
+        conversationId: nextId,
+        title: nextTitle,
+      });
+      toast.success(t("conversations.detail.renamed"));
+      setRenameOpen(false);
+      if (nextId !== conversationId) {
+        // The id changed → the current route is stale; navigate to the new one.
+        router.push(`/conversations/${encodeURIComponent(nextId)}`);
+      } else {
+        setConversation((c) => (c ? { ...c, title: nextTitle } : c));
+      }
+    } catch (err) {
+      toast.error(getUserErrorMessage(err, t("conversations.detail.renameFailed")));
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   const handleDelete = async () => {
     try {
       await api.conversations.delete(conversationId, instanceId);
@@ -457,6 +508,10 @@ export default function ConversationDetailPage() {
         <Button variant="ghost" size="sm" onClick={() => setStateOpen(true)}>
           <Database className="h-4 w-4" />
           {t("conversations.state.button")}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={openRename}>
+          <Pencil className="h-4 w-4" />
+          {t("conversations.detail.renameButton")}
         </Button>
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -662,6 +717,49 @@ export default function ConversationDetailPage() {
         conversationId={conversationId}
         instanceId={instanceId}
       />
+
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("conversations.detail.renameTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("conversations.detail.renameDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-title">{t("conversations.detail.renameTitleLabel")}</Label>
+              <Input
+                id="rename-title"
+                value={renameTitle}
+                onChange={(e) => setRenameTitle(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-id">{t("conversations.detail.renameIdLabel")}</Label>
+              <Input
+                id="rename-id"
+                value={renameId}
+                onChange={(e) => setRenameId(e.target.value)}
+                className="font-mono text-xs"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("conversations.detail.renameIdHint")}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameOpen(false)} disabled={renaming}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={handleRename} disabled={renaming}>
+              {renaming && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
