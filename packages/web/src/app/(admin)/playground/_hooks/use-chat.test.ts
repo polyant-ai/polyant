@@ -173,7 +173,8 @@ describe("chatReducer", () => {
     it("maps persisted steps + reasoning into live shape", () => {
       const s = chatReducer(createInitialState(SLUG), {
         type: "LOAD_CONVERSATION",
-        conversationId: "api-abc",
+        // Real conversationId shape: `${slug}:${channel}:${channelId}`.
+        conversationId: "x:web:api-abc",
         instanceSlug: "x",
         messages: [
           {
@@ -210,14 +211,31 @@ describe("chatReducer", () => {
       expect(s.messages[0].reasoning).toEqual([
         { type: "text", text: "th", signature: "sig" },
       ]);
-      expect(s.chatId).toBe("abc"); // strips api- prefix
+      expect(s.chatId).toBe("abc"); // channelId `api-abc` → chatId `abc`
+      expect(s.conversationId).toBe("x:web:api-abc");
       expect(s.instanceSlug).toBe("x");
+    });
+
+    it("recovers a chatId that round-trips back to the same conversationId", () => {
+      // Regression: the old code tested startsWith("api-") on the FULL id, so the
+      // chatId became the whole conversationId and continuing the conversation
+      // minted a brand-new one (losing per-conversation state, e.g. OAuth tokens).
+      const conversationId = "assistant:web:api-1e6c9f70-1234-4abc-9def-0123456789ab";
+      const s = chatReducer(createInitialState(SLUG), {
+        type: "LOAD_CONVERSATION",
+        conversationId,
+        messages: [],
+      });
+      expect(s.chatId).toBe("1e6c9f70-1234-4abc-9def-0123456789ab");
+      // The engine rebuilds channelId as `api-${chatId}`; the resulting
+      // conversationId must equal the original.
+      expect(`assistant:web:api-${s.chatId}`).toBe(conversationId);
     });
 
     it("handles messages without steps/reasoning (legacy)", () => {
       const s = chatReducer(createInitialState(SLUG), {
         type: "LOAD_CONVERSATION",
-        conversationId: "api-x",
+        conversationId: "x:web:api-legacy1",
         messages: [
           {
             id: "m1",

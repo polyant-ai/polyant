@@ -342,10 +342,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         isStreaming: false,
         createdAt: msg.createdAt ?? null,
       }));
-      // Extract chatId from conversationId (format: api-{uuid})
-      const chatId = action.conversationId.startsWith("api-")
-        ? action.conversationId.slice(4)
-        : action.conversationId;
+      // Recover the chatId so continuing this conversation reuses the SAME
+      // conversationId instead of minting a new one. Format is
+      // `${slug}:${channel}:${channelId}`, and for the web playground the engine
+      // derives `channelId = api-${chatId}` (see openai.service deriveChannelId).
+      // The old code tested `startsWith("api-")` on the FULL id (`slug:web:api-…`),
+      // which never matched, so the chatId became the whole conversationId and the
+      // next turn diverged to a brand-new conversation.
+      const channelId = action.conversationId.split(":").slice(2).join(":");
+      const chatId = channelId.startsWith("api-") ? channelId.slice(4) : channelId;
       return {
         ...state,
         messages: loaded,
