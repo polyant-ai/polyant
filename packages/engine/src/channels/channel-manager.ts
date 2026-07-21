@@ -99,6 +99,10 @@ export class ChannelManager {
   ): Promise<void> {
     const adapter = this.adapters.get(instanceSlug)?.get(channelType);
     if (!adapter?.sendTyping) return;
+    // Typing is an outbound signal to the contact — suppress it for opted-out
+    // contacts, symmetrically with sendOutbound (the pipeline would short-circuit
+    // anyway, leaving a lingering "typing…" with no reply).
+    if (await this.isOptoutSuppressed(instanceSlug, channelType, channelId)) return;
     await adapter.sendTyping(channelId, messageSid);
   }
 
