@@ -87,8 +87,11 @@ const configSchema = z.object({
 
   // Datetime (used in supervisor system prompt)
   datetime: z.object({
-    timezone: z.string().default("UTC"),
-    locale: z.string().default("en-US"),
+    // No explicit DATETIME_TIMEZONE / DATETIME_LOCALE → follow the runtime zone/locale
+    // (driven by TZ and LANG/LC_ALL respectively, else the system defaults).
+    // resolvedOptions() reflects the env vars set before Node started.
+    timezone: z.string().default(Intl.DateTimeFormat().resolvedOptions().timeZone),
+    locale: z.string().default(Intl.DateTimeFormat().resolvedOptions().locale),
   }),
 
   // Auth (Auth.js JWT decryption + credentials provider)

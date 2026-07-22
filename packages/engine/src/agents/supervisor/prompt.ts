@@ -333,7 +333,9 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
       dateStyle: "full",
       timeStyle: "short",
     });
-    turnSections.push(`<current_datetime>${datetime} (${config.datetime.timezone})</current_datetime>`);
+    turnSections.push(
+      `<current_datetime>\nThe current date and time is ${datetime} (${config.datetime.timezone}). Treat this as the present moment.\n</current_datetime>`,
+    );
   }
 
   if (options.channelIdentity) {
