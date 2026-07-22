@@ -659,6 +659,8 @@
   "hooks.editTitle": "Edit hook",
   "hooks.dialogDescription": "The selected hook function runs when the event fires.",
   "hooks.saved": "Hook saved",
+  "hooks.enabled": "Hook enabled",
+  "hooks.disabled": "Hook disabled",
   "hooks.saveFailed": "Failed to save hook",
   "hooks.deleted": "Hook deleted",
   "hooks.deleteFailed": "Failed to delete hook",

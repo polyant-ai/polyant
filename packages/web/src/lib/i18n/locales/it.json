@@ -658,6 +658,8 @@
   "hooks.editTitle": "Modifica hook",
   "hooks.dialogDescription": "La hook function selezionata viene eseguita quando scatta l'evento.",
   "hooks.saved": "Hook salvato",
+  "hooks.enabled": "Hook abilitato",
+  "hooks.disabled": "Hook disabilitato",
   "hooks.saveFailed": "Salvataggio hook non riuscito",
   "hooks.deleted": "Hook eliminato",
   "hooks.deleteFailed": "Eliminazione hook non riuscita",

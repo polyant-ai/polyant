@@ -143,6 +143,7 @@ export function HooksTab({ slug }: Props) {
     setHooks((prev) => prev.map((h) => (h.id === hook.id ? { ...h, enabled } : h)));
     try {
       await api.hooks.update(slug, hook.id, { enabled });
+      toast.success(t(enabled ? "hooks.enabled" : "hooks.disabled"));
     } catch (err) {
       setHooks((prev) => prev.map((h) => (h.id === hook.id ? { ...h, enabled: hook.enabled } : h)));
       toast.error(getUserErrorMessage(err, t("hooks.saveFailed")));
