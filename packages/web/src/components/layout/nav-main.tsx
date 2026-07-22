@@ -21,6 +21,13 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
+// Segment-aware active match: `/audit` must NOT match `/audit-logs`, but
+// `/audit-logs` must still match its own sub-routes (`/audit-logs/123`).
+export function isNavActive(pathname: string, url: string): boolean {
+  if (url === "/") return pathname === "/";
+  return pathname === url || pathname.startsWith(url + "/");
+}
+
 export function NavMain({
   label,
   items,
@@ -36,10 +43,7 @@ export function NavMain({
       <SidebarGroupContent>
         <SidebarMenu>
           {items.map((item) => {
-            const isActive =
-              item.url === "/"
-                ? pathname === "/"
-                : pathname.startsWith(item.url);
+            const isActive = isNavActive(pathname, item.url);
 
             return (
               <SidebarMenuItem key={item.title}>
