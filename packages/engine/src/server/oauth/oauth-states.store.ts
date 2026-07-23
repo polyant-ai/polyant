@@ -3,6 +3,7 @@
 import { eq, lt } from "drizzle-orm";
 import { db } from "../../database/client.js";
 import { oauthStates } from "./oauth-states.schema.js";
+import { encrypt, decrypt } from "../../crypto/index.js";
 
 // Authorize links are short-lived; the user clicks within minutes.
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -25,6 +26,7 @@ export async function createOAuthState(input: {
 }): Promise<void> {
   await db.insert(oauthStates).values({
     ...input,
+    codeVerifier: input.codeVerifier ? encrypt(input.codeVerifier) : null,
     expiresAt: new Date(Date.now() + STATE_TTL_MS),
   });
 }
@@ -57,6 +59,6 @@ export async function consumeOAuthState(state: string): Promise<OAuthStateRow | 
     conversationId: row.conversationId,
     instanceId: row.instanceId,
     provider: row.provider,
-    codeVerifier: row.codeVerifier,
+    codeVerifier: row.codeVerifier ? decrypt(row.codeVerifier) : null,
   };
 }

@@ -15,7 +15,7 @@ export const oauthStates = pgTable(
     conversationId: text("conversation_id").notNull(),
     instanceId: text("instance_id").notNull(),
     provider: text("provider").notNull(),
-    codeVerifier: text("code_verifier"),
+    codeVerifier: text("code_verifier"), // AES-256-GCM (crypto/index.ts), never stored in clear
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

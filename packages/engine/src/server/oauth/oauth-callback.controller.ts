@@ -15,9 +15,19 @@ import { consumeOAuthState } from "./oauth-states.store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { errMsg } from "../../utils/error.js";
 
+/** Escape the 5 HTML-significant characters. `title`/`body` below can carry an
+ *  attacker-controlled path segment (`providerName`) before it is validated
+ *  against the registry, so every call is escaped here — one point of
+ *  enforcement rather than per call site. */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
 /** Minimal browser-facing page. The user lands here after authorizing. */
 function page(title: string, body: string): string {
-  return `<!doctype html><meta charset="utf-8"><title>${title}</title><body style="font-family:system-ui;max-width:32rem;margin:4rem auto;text-align:center"><h2>${title}</h2><p>${body}</p></body>`;
+  const t = escapeHtml(title);
+  const b = escapeHtml(body);
+  return `<!doctype html><meta charset="utf-8"><title>${t}</title><body style="font-family:system-ui;max-width:32rem;margin:4rem auto;text-align:center"><h2>${t}</h2><p>${b}</p></body>`;
 }
 
 // Generic OAuth callback for every provider in the registry. `state` is a
