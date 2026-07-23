@@ -1,14 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { buildHookPayload, hasResponseMutatingHook, type PipelineContext } from "./pipeline.js";
+import {
+  buildHookPayload,
+  hasResponseMutatingHook,
+  runResponseGeneratedHooks,
+  type PipelineContext,
+} from "./pipeline.js";
 import { asInstanceSlug } from "./instances/identifiers.js";
 import { getEnabledHooks } from "./hooks/hooks.store.js";
 import { getHookRegistry } from "./hooks/hook-registry.js";
-import type { HookFunctionDefinition } from "./hooks/hook-types.js";
+import { runHooks, firstReplaceResponse, firstRegenerate } from "./hooks/hook-runner.js";
+import type { HookExecutionSummary, HookFunctionDefinition } from "./hooks/hook-types.js";
 
 vi.mock("./hooks/hooks.store.js", () => ({ getEnabledHooks: vi.fn() }));
 vi.mock("./hooks/hook-registry.js", () => ({ getHookRegistry: vi.fn() }));
+vi.mock("./hooks/hook-runner.js", () => ({
+  runHooks: vi.fn(),
+  firstHalt: vi.fn(),
+  firstReplaceResponse: vi.fn(),
+  firstRegenerate: vi.fn(),
+  collectInjectContext: vi.fn(() => []),
+  hookProvenance: vi.fn(() => undefined),
+}));
 
 function ctxWith(overrides: Partial<PipelineContext>): PipelineContext {
   return {
@@ -48,6 +62,11 @@ describe("buildHookPayload", () => {
   it("should_include_response_when_text_given", () => {
     const payload = buildHookPayload(ctxWith({}), "ciao", "risposta");
     expect(payload?.response).toEqual({ text: "risposta", regenerationCount: 0 });
+  });
+
+  it("should_propagate_a_non_zero_regenerationCount", () => {
+    const payload = buildHookPayload(ctxWith({}), "ciao", "risposta", 2);
+    expect(payload?.response).toEqual({ text: "risposta", regenerationCount: 2 });
   });
 
   it("should_return_undefined_for_auto_task_turns", () => {
@@ -127,5 +146,46 @@ describe("hasResponseMutatingHook", () => {
   it("should_return_false_when_getEnabledHooks_rejects", async () => {
     vi.mocked(getEnabledHooks).mockRejectedValue(new Error("db down"));
     expect(await hasResponseMutatingHook(slug)).toBe(false);
+  });
+});
+
+describe("runResponseGeneratedHooks", () => {
+  beforeEach(() => {
+    vi.mocked(runHooks).mockReset();
+    vi.mocked(firstReplaceResponse).mockReset();
+    vi.mocked(firstRegenerate).mockReset();
+  });
+
+  it("builds the payload with the passed regenerationCount and maps replace/regenerate onto the outcome", async () => {
+    const summaries: HookExecutionSummary[] = [
+      { hookId: "h1", event: "response_generated", actionType: "function", toolName: "t", success: true, durationMs: 1 },
+    ];
+    vi.mocked(runHooks).mockResolvedValue(summaries);
+    vi.mocked(firstReplaceResponse).mockReturnValue({ message: "replaced" });
+    vi.mocked(firstRegenerate).mockReturnValue({ reason: "dirty" });
+
+    const outcome = await runResponseGeneratedHooks(ctxWith({}), "hi", "out", 2);
+
+    expect(runHooks).toHaveBeenCalledWith(
+      "response_generated",
+      expect.objectContaining({ response: { text: "out", regenerationCount: 2 } }),
+      expect.anything(),
+    );
+    expect(outcome).toEqual({
+      summaries,
+      replace: { message: "replaced" },
+      regenerate: { reason: "dirty" },
+    });
+  });
+
+  it("returns empty summaries and never calls runHooks when hooks must not fire", async () => {
+    const outcome = await runResponseGeneratedHooks(
+      ctxWith({ channelIdentity: undefined }),
+      "hi",
+      "out",
+      0,
+    );
+    expect(outcome).toEqual({ summaries: [] });
+    expect(runHooks).not.toHaveBeenCalled();
   });
 });

@@ -28,10 +28,11 @@ import type { ToolCallTrace } from "./analytics/traces.schema.js";
 import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
 import { emitConversation } from "./activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "./activity-stream/emit-helpers.js";
-import { runHooks, firstHalt, firstReplaceResponse, collectInjectContext, hookProvenance, type HookProvenance } from "./hooks/hook-runner.js";
+import { runHooks, firstHalt, firstReplaceResponse, firstRegenerate, collectInjectContext, hookProvenance, type HookProvenance } from "./hooks/hook-runner.js";
 import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./hooks/hook-types.js";
 import { getEnabledHooks } from "./hooks/hooks.store.js";
 import { getHookRegistry } from "./hooks/hook-registry.js";
+import type { ResponseGeneratedOutcome } from "./hooks/response-replay.js";
 
 /**
  * Channel types that should NOT produce `category: "inbound"` events:
@@ -348,6 +349,25 @@ function buildHookRunContext(ctx: PipelineContext, abortSignal?: AbortSignal): H
   };
 }
 
+/**
+ * Run the `response_generated` hooks for one pass and interpret their outcome.
+ * Extracted from runPipelinePost so the replay loop can run it BEFORE persistence.
+ * Returns empty summaries when hooks must not fire (auto-task / no channel identity).
+ */
+export async function runResponseGeneratedHooks(
+  ctx: PipelineContext,
+  messageText: string,
+  responseText: string,
+  regenerationCount: number,
+  abortSignal?: AbortSignal,
+): Promise<ResponseGeneratedOutcome> {
+  const payload = buildHookPayload(ctx, messageText, responseText, regenerationCount);
+  if (!payload) return { summaries: [] };
+  const hookCtx = buildHookRunContext(ctx, abortSignal);
+  const summaries = await runHooks("response_generated", payload, hookCtx);
+  return { summaries, replace: firstReplaceResponse(summaries), regenerate: firstRegenerate(summaries) };
+}
+
 // ---------------------------------------------------------------------------
 // afterResponse — fire-and-forget post-processing (extracted from ~lines 118-200)
 // ---------------------------------------------------------------------------
@@ -618,6 +638,10 @@ export interface PipelinePostOptions {
   abortSignal?: AbortSignal;
   /** Set by a caller when the turn's reply was authored by a hook (pre-LLM halt), so it is badged in the UI. */
   provenance?: HookProvenance;
+  /** Pre-computed response_generated outcome (buffered replay path). When set,
+   *  runPipelinePost does NOT re-run those hooks and does NOT re-apply replace —
+   *  the caller already produced the final `resultText`. */
+  responseGenerated?: ResponseGeneratedOutcome;
 }
 
 export interface PipelinePostResult {
@@ -644,15 +668,18 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // Streaming caveat: the text has already streamed to the client.
   const hookPayload = buildHookPayload(ctx, opts.messageText, finalText);
   const hookCtx = hookPayload ? buildHookRunContext(ctx, opts.abortSignal) : undefined;
-  if (hookPayload && hookCtx) {
-    hookExecutions.push(...(await runHooks("response_generated", hookPayload, hookCtx)));
-  }
 
-  // A response_generated hook may replace the reply text (post-LLM). Provenance
-  // badges the persisted assistant row as hook-authored — from the replace hook
-  // here, or from the caller's pre-LLM halt (opts.provenance).
-  const replace = firstReplaceResponse(hookExecutions);
-  if (replace) finalText = replace.message;
+  // Buffered replay path pre-runs response_generated (with the real count) and
+  // has already folded any replace into resultText — reuse its summaries, do not
+  // re-run or re-apply. Streaming/halt paths run them here (count 0), as before.
+  if (opts.responseGenerated) {
+    hookExecutions.push(...opts.responseGenerated.summaries);
+  } else if (hookPayload && hookCtx) {
+    const summaries = await runHooks("response_generated", hookPayload, hookCtx);
+    hookExecutions.push(...summaries);
+    const replace = firstReplaceResponse(summaries);
+    if (replace) finalText = replace.message;
+  }
   const provenance = hookProvenance(hookExecutions) ?? opts.provenance;
 
   const totalMs = Date.now() - ctx.pipelineStart;
