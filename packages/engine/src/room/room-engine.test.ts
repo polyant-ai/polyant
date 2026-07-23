@@ -260,7 +260,7 @@ describe("executeRoomCycle", () => {
       // response_generated ran with the LLM's text on the payload.
       expect(mockRunHooks).toHaveBeenCalledWith(
         "response_generated",
-        expect.objectContaining({ response: { text: "I've processed the events." } }),
+        expect.objectContaining({ response: { text: "I've processed the events.", regenerationCount: 0 } }),
         expect.anything(),
       );
       // Persisted assistant reply is the replacement, badged with provenance.

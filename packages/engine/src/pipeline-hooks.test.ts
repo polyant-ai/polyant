@@ -47,7 +47,7 @@ describe("buildHookPayload", () => {
 
   it("should_include_response_when_text_given", () => {
     const payload = buildHookPayload(ctxWith({}), "ciao", "risposta");
-    expect(payload?.response).toEqual({ text: "risposta" });
+    expect(payload?.response).toEqual({ text: "risposta", regenerationCount: 0 });
   });
 
   it("should_return_undefined_for_auto_task_turns", () => {
