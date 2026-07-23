@@ -23,7 +23,10 @@ const MAX_PAYLOAD_BYTES = 65_536;
  * Timing-safe to avoid leaking the secret through comparison timing.
  */
 function bearerMatches(authHeader: string | undefined, expected: string): boolean {
-  if (!authHeader?.startsWith("Bearer ")) return false;
+  if (!authHeader) return false;
+  // RFC 7235: the auth-scheme token is case-insensitive — accept "bearer" in
+  // any case. Only the scheme is normalized; the key bytes are compared as-is.
+  if (authHeader.slice(0, 7).toLowerCase() !== "bearer ") return false;
   const provided = Buffer.from(authHeader.slice(7), "utf-8");
   const exp = Buffer.from(expected, "utf-8");
   return provided.length === exp.length && timingSafeEqual(provided, exp);
@@ -50,6 +53,14 @@ export class WebhookController {
     // tokens exist (tokens are 32-byte random — not enumerable regardless).
     if (!result) {
       webhookLog.warn("Webhook", `unknown token ${webhookToken.slice(0, 8)}...`);
+      return { ok: true };
+    }
+
+    // Fail closed: if the config can't be decrypted we can't tell whether the
+    // source requires auth, so drop rather than process a possibly-protected
+    // source unauthenticated. Return 200 like the unknown-token case (no probe).
+    if (result.configReadable === false) {
+      webhookLog.warn("Webhook", `unreadable config for source "${result.source.name}", dropping`);
       return { ok: true };
     }
 

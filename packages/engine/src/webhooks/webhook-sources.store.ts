@@ -161,7 +161,9 @@ export async function rotateWebhookToken(id: string, instanceId: InstanceUuid): 
   return newToken;
 }
 
-export async function findByWebhookToken(token: string): Promise<{ source: EventSource; instanceId: InstanceUuid } | null> {
+export async function findByWebhookToken(
+  token: string,
+): Promise<{ source: EventSource; instanceId: InstanceUuid; configReadable: boolean } | null> {
   const rows = await db
     .select()
     .from(eventSources)
@@ -171,13 +173,18 @@ export async function findByWebhookToken(token: string): Promise<{ source: Event
   if (!rows[0]) return null;
 
   let config: Record<string, unknown> = {};
+  // `configReadable` lets the ingest handler fail closed: an undecryptable
+  // config means we can't tell whether the source requires auth, so it must
+  // not be treated as an open source (which would bypass the auth gate).
+  let configReadable = true;
   try {
     config = JSON.parse(decrypt(rows[0].config)) as Record<string, unknown>;
   } catch {
+    configReadable = false;
     webhookLog.warn("WebhookSources", `failed to decrypt config for token ${token.slice(0, 8)}...`);
   }
   const rowInstanceId = asInstanceUuid(rows[0].instanceId);
-  return { source: { ...rows[0], config, instanceId: rowInstanceId }, instanceId: rowInstanceId };
+  return { source: { ...rows[0], config, instanceId: rowInstanceId }, instanceId: rowInstanceId, configReadable };
 }
 
 async function verifyEventSourceOwnership(eventSourceId: string, instanceId: InstanceUuid): Promise<boolean> {
