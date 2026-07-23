@@ -360,7 +360,7 @@ describe("generateWithReplay", () => {
     const evaluate = vi.fn(async (_t: string, r: number) =>
       r === 0 ? { summaries: [], regenerate: { reason: "x" }, replace: { message: "ignored" } } : clean,
     );
-    const { generate: _g, finalText } = { generate, finalText: (await generateWithReplay({ generate, evaluate, maxRegenerations: 5 })).finalText };
+    const { finalText } = await generateWithReplay({ generate, evaluate, maxRegenerations: 5 });
     expect(generate).toHaveBeenCalledTimes(2);
     expect(finalText).toBe("gen1");
   });
