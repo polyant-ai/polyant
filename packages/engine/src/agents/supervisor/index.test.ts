@@ -70,6 +70,12 @@ vi.mock("../../config.js", () => ({
   config: { agent: { callTimeoutMs: 60000 }, plugins: {} },
 }));
 
+// supervisor/index.ts imports makeOAuthAccess → oauth-access → oauth-providers →
+// secrets.store → database/client, whose top-level postgres() would run against
+// the mocked (postgres-less) config. Stub the DB client so no real connection is
+// created; these tests never touch the OAuth token vault.
+vi.mock("../../database/client.js", () => ({ db: {}, queryClient: {} }));
+
 vi.mock("../../instances/instance-tools.store.js", () => ({
   getEnabledToolNames: mockGetEnabledToolNames,
 }));

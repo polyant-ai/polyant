@@ -72,6 +72,38 @@ export default defineTool({
 skipped with a warning (the deployment continues). Duplicate final names fail the
 boot loudly.
 
+### `oauthProviders` (optional) — plugin-contributed OAuth providers
+
+A plugin that ships OAuth tools declares the providers they need under
+`oauthProviders`; the engine registers them into its OAuth broker at boot, so no
+engine change is needed to add a provider.
+
+```json
+{
+  "name": "acme-tools", "version": "1.0.0", "engine": ">=0.1.0",
+  "oauthProviders": [
+    {
+      "name": "notion",
+      "authorizeUrl": "https://api.notion.com/v1/oauth/authorize",
+      "tokenUrl": "https://api.notion.com/v1/oauth/token",
+      "scope": "",
+      "extraAuthorizeParams": { "owner": "user" },
+      "pkce": true
+    }
+  ]
+}
+```
+
+A tool then references the provider by name via `ctx.oauth.requireToken("notion")`
+and declares its per-instance client credentials with
+`oauthRequiredSecrets("notion")` (secrets `notion_oauth_client_id` /
+`notion_oauth_client_secret`). `name` is a flat, global key (it flows into the
+secret keys, the token vault, and the `/oauth/<name>/callback` route), so it is
+not namespaced. Two plugins may declare the same provider only if the definitions
+are identical; a same-name divergent definition fails the boot — use distinct
+names (e.g. `google-gmail`) for divergent scopes. The `OAuthProviderSpec` type is
+exported from the SDK as optional typing for manifests.
+
 ## Loading a plugin — dev
 
 The loader resolves roots from two sources (env wins de-dup):

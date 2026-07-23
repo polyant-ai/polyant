@@ -26,6 +26,7 @@ import type { ChatRequest, CostBreakdown } from "../../ai-gateway/types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import type { ConversationStateBuffer } from "../../conversations/state.buffer.js";
 import { buildConversationApi } from "../../conversations/conversation-history-api.js";
+import { makeOAuthAccess } from "../tools/oauth-access.js";
 import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
@@ -298,6 +299,8 @@ async function buildTools(opts: BuildToolsOptions) {
         // function-action already provides. No query until a tool actually calls it.
         conversation: conversationId ? buildConversationApi(conversationId) : undefined,
       };
+      // ctx.oauth closes over ctx, so it is assigned after the literal.
+      ctx.oauth = makeOAuthAccess(ctx);
       const built = buildTool(def, ctx);
       // The name sent to the MODEL must match [a-zA-Z0-9_-]+ (Bedrock rejects
       // ':', and OpenAI/Anthropic want the same). Namespaced plugin tools

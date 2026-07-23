@@ -6,6 +6,23 @@ import { satisfies, valid, validRange } from "semver";
 import { z } from "zod";
 
 /**
+ * Shape of one entry in a plugin manifest's `oauthProviders` array. A plugin
+ * contributes OAuth providers to the engine's broker registry by declaring them
+ * in `plugin.json`; the engine validates + registers them at boot. Structurally
+ * matches `OAuthProvider` in server/oauth/oauth-providers.ts (and the SDK's
+ * exported `OAuthProviderSpec`) — the compiler enforces the match at the
+ * `registerOAuthProvider()` call site in the tool loader.
+ */
+export const oauthProviderManifestSchema = z.object({
+  name: z.string().min(1),
+  authorizeUrl: z.string().min(1),
+  tokenUrl: z.string().min(1),
+  scope: z.string(),
+  extraAuthorizeParams: z.record(z.string(), z.string()).default({}),
+  pkce: z.boolean().default(false),
+});
+
+/**
  * A plugin repo declares a `plugin.json` at its root. This is the discovery
  * contract: `name` + `namespace` decide the tool-name prefix, `engine` gates
  * compatibility, `toolsDir` says where the `*.tool.ts` files live.
@@ -24,6 +41,8 @@ export const pluginManifestSchema = z.object({
   /** Tool-name prefix applied to every tool in this plugin. Defaults to `name`.
    * Empty string is rejected — there is no "unprefixed plugin" option. */
   namespace: z.string().min(1).optional(),
+  /** OAuth providers this plugin contributes to the engine's broker registry. */
+  oauthProviders: z.array(oauthProviderManifestSchema).default([]),
 });
 
 export type PluginManifest = z.infer<typeof pluginManifestSchema> & { namespace: string };

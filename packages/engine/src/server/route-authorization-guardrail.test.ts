@@ -33,6 +33,7 @@ import { OpenAIController } from "./openai/openai.controller.js";
 import { InstanceChatStreamController } from "./openai/instance-chat-stream.controller.js";
 import { MembersController } from "./members/members.controller.js";
 import { ActivityStreamController } from "../activity-stream/activity-stream.controller.js";
+import { OAuthCallbackController } from "./oauth/oauth-callback.controller.js";
 
 /**
  * The authoritative list of every controller registered in the NestJS server.
@@ -68,6 +69,7 @@ const ALL_CONTROLLERS = [
   InstanceChatStreamController,
   MembersController,
   ActivityStreamController,
+  OAuthCallbackController,
 ] as const;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

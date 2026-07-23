@@ -326,8 +326,8 @@ describe("instances/store", () => {
 
       expect(result).toBe(true);
       expect(mockDb.transaction).toHaveBeenCalled();
-      // conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + instances
-      expect(mockDb.delete).toHaveBeenCalledTimes(6);
+      // conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + principal_secrets + instances
+      expect(mockDb.delete).toHaveBeenCalledTimes(7);
     });
 
     it("also deletes conversation_messages when the instance has conversations", async () => {
@@ -339,8 +339,8 @@ describe("instances/store", () => {
       const result = await deleteInstance(asInstanceSlug("default"));
 
       expect(result).toBe(true);
-      // conversation_messages + conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + instances
-      expect(mockDb.delete).toHaveBeenCalledTimes(7);
+      // conversation_messages + conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + principal_secrets + instances
+      expect(mockDb.delete).toHaveBeenCalledTimes(8);
     });
 
     it("returns false when no instance row is deleted", async () => {

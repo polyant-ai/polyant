@@ -20,6 +20,7 @@ import {
 import { config } from "../../config.js";
 import { resolvePluginRoots } from "../../plugin-system/plugin-roots.js";
 import { engineSatisfies } from "../../plugin-system/plugin-manifest.js";
+import { registerOAuthProvider } from "../../server/oauth/oauth-providers.js";
 import { findStrictModeViolations, findIllegalToolName } from "./strict-mode-lint.js";
 
 // Re-export the authoring contract from the SDK so core tools keep importing
@@ -57,6 +58,20 @@ function getEngineVersion(): string {
 // this object).
 // ---------------------------------------------------------------------------
 
+/** ctx.oauth result: a valid token, or a ready-to-return connect-link result.
+ *  Mirrors the SDK's OAuthTokenResult (structural, like ToolContext itself). */
+export type OAuthTokenResult =
+  | { ok: true; token: string }
+  | { ok: false; result: Record<string, unknown> };
+
+/** Tool-facing OAuth accessor (`ctx.oauth`). The engine owns the broker; a tool
+ *  only asks for a valid per-conversation token or the connect link. Mirrors the
+ *  SDK's OAuthAccessApi so plugin tools authored against the SDK are satisfied. */
+export interface OAuthAccessApi {
+  requireToken(provider: string): Promise<OAuthTokenResult>;
+  connectResult(provider: string): Promise<Record<string, unknown>>;
+}
+
 export interface ToolContext {
   /** Instance identifier (slug, not UUID). */
   instanceId: InstanceSlug;
@@ -72,8 +87,11 @@ export interface ToolContext {
   apiKeys?: import("../../ai-gateway/types.js").ChatRequest["apiKeys"];
   /** AI provider name (e.g. "openai", "anthropic") for tool-level LLM calls. */
   provider?: string;
-  /** Shared per-conversation key/value state (trusted, tool-to-tool). */
+  /** Shared per-conversation key/value state (trusted, tool-to-tool, CLEARTEXT). */
   state?: import("../../conversations/state.buffer.js").ConversationStateApi;
+  /** Per-conversation OAuth access (engine-brokered tokens + refresh). Backed by
+   *  oauth-access.ts; consumed by OAuth tools (core or plugin) via ctx.oauth. */
+  oauth?: OAuthAccessApi;
   /** Read-only accessor for the recent conversation history (same contract the
    *  SDK exposes to plugin tools). Lazy — built per turn by the supervisor from
    *  `conversationId`; absent when there is no conversation id. */
@@ -357,6 +375,10 @@ export async function loadAllTools(): Promise<void> {
       );
       continue;
     }
+    // Contribute this plugin's OAuth providers to the broker registry. Gated by
+    // engineSatisfies above → an incompatible plugin contributes nothing. A
+    // divergent same-name provider throws here and aborts the boot (loud).
+    for (const provider of manifest.oauthProviders) registerOAuthProvider(provider);
     await importRoot(join(root, manifest.toolsDir), manifest.namespace);
   }
 
