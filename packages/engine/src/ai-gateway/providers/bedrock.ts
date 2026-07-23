@@ -92,7 +92,9 @@ const BEDROCK_THINKING_BUDGETS: Record<"low" | "medium" | "high", number> = {
  * gateway passes `control` from `reasoningControlFor`):
  *   - "adaptive" (Claude Opus 4.7/4.8, Sonnet 5) → `type:"adaptive"` + maxReasoningEffort.
  *     REJECT the legacy `type:"enabled"` + budgetTokens with a 400 (live-verified).
- *   - "effort" (gpt-oss) → `type:"enabled"` + an EFFORT string (maxReasoningEffort).
+ *   - "effort" (gpt-oss; MiniMax) → `type:"enabled"` + an EFFORT string (maxReasoningEffort).
+ *     gpt-oss honours the level; MiniMax ignores it (always reasons) but accepts the
+ *     shape without the warning `budgetTokens` triggers on non-Anthropic models.
  *   - "budget" (Claude 4.6-and-earlier, Haiku/Sonnet 4.x, MiniMax) → `type:"enabled"`
  *     + a token BUDGET (budgetTokens).
  *

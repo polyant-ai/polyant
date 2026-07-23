@@ -65,22 +65,30 @@ export function reasoningCapableFallback(provider: string, modelId: string): boo
  *   - gpt-oss (open-weight, Harmony CoT) — whatever provider serves it
  *   - OpenAI o-series (o1/o3/o4) — pure reasoning models
  *   - OpenAI gpt-5.6 (Sol/Terra/Luna) — reason by default; gpt-5.4 does NOT (has a real off)
+ *   - MiniMax M (Bedrock `minimax.minimax-m*` AND Nebius `MiniMaxAI/MiniMax-M*`) — both
+ *     reason on every call, no working off-switch (live-verified).
+ *   - Nebius Kimi K2 + Qwen `-Thinking` — enable_thinking:false is a no-op (live-verified,
+ *     still emit reasoning), unlike the toggleable Qwen3.5/GLM which DO turn off.
  */
 export function reasoningAlwaysOnFallback(modelId: string): boolean {
   if (!modelId) return false;
-  return /gpt-oss|^o[134]\b|gpt-5\.6/i.test(modelId);
+  return /gpt-oss|^o[134]\b|gpt-5\.6|minimax-m|kimi-k2|-thinking/i.test(modelId);
 }
 
 /**
  * Temperature-REJECTION fallback (true = model rejects the `temperature` param).
- *   - OpenAI reasoning families (o1/o3/o4, gpt-5) never accepted temperature.
+ *   - OpenAI always-on reasoning families reject it: o-series (o1/o3/o4) + gpt-5.6
+ *     (Sol/Terra/Luna). gpt-5.4 does NOT — LIVE-VERIFIED it accepts temperature with
+ *     reasoning OFF (200) and 400s only with reasoning ON, so it is temperature:true
+ *     (the reasoning-ON case is handled by temperatureSupported, not by omitting the
+ *     param wholesale). Mirrors reasoningAlwaysOnFallback's OpenAI split.
  *   - Anthropic removed sampling params on Opus 4.7/4.8, Sonnet 5, Fable 5.
  *   - Bedrock serves the same Claude models via optional region profiles.
  */
 export function temperatureRejectedFallback(provider: string, modelId: string): boolean {
   switch (provider) {
     case "openai":
-      return /^(o[134]|gpt-5)/.test(modelId);
+      return /^o[134]\b|gpt-5\.6/.test(modelId);
     case "anthropic":
       return /^claude-(opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
     case "bedrock":
@@ -97,8 +105,10 @@ export function temperatureRejectedFallback(provider: string, modelId: string): 
  * model-id regex. Returns `undefined` for non-reasoning ids.
  *   - adaptive: Anthropic/Bedrock Claude Opus 4.7/4.8, Sonnet 5, Fable 5 (reject
  *     the legacy `enabled`+budgetTokens shape with a 400 — live-verified).
- *   - effort: OpenAI/Nebius reasoning_effort; Bedrock gpt-oss maxReasoningEffort.
- *   - budget: Anthropic/Bedrock Claude 4.6-and-earlier + Bedrock MiniMax.
+ *   - effort: OpenAI/Nebius reasoning_effort; Bedrock gpt-oss + MiniMax
+ *     maxReasoningEffort (MiniMax ignores the level — always reasons — but the effort
+ *     shape is the one the SDK forwards without a warning, unlike budgetTokens).
+ *   - budget: Anthropic/Bedrock Claude 4.6-and-earlier.
  */
 export function reasoningControlFallback(
   provider: string,
@@ -114,7 +124,7 @@ export function reasoningControlFallback(
     case "nebius":
       return "effort";
     case "bedrock":
-      return /openai\.gpt-oss/i.test(modelId) ? "effort" : "budget";
+      return /openai\.gpt-oss|minimax\.minimax-m/i.test(modelId) ? "effort" : "budget";
     case "anthropic":
       return "budget";
     default:
@@ -357,16 +367,36 @@ export function clampTemperature(value: number | null | undefined): number | nul
 }
 
 /**
- * Whether a (provider, model, thinking) combination accepts a custom
- * temperature. Returns false when thinking is ON (Anthropic requires
- * temperature=1; we generalise to "omit" cross-provider) or when the model
- * rejects the parameter altogether. Reads the catalog `temperature` field;
- * falls back to the regex heuristic (logged) for un-catalogued ids.
+ * Whether a (provider, model, thinking) combination accepts a custom temperature.
+ * Two gates, both LIVE-VERIFIED against the provider APIs:
+ *   1. The catalog `temperature` field — `false` means the param is rejected on
+ *      EVERY call (OpenAI o-series + gpt-5.6; Anthropic Opus 4.7/4.8, Sonnet 5,
+ *      Fable 5). These are blocked regardless of thinking.
+ *   2. Under thinking, a custom temperature is rejected ONLY by the proprietary
+ *      strict-reasoning APIs — Anthropic extended thinking (forces temperature=1)
+ *      and OpenAI 1P reasoning (gpt-5.4: 200 on temp-only vs 400 on temp+reasoning).
+ *      Anthropic-on-Bedrock is those same models (budget/adaptive control). Every
+ *      open-weight / vLLM reasoner ACCEPTS temperature alongside reasoning —
+ *      gpt-oss, Bedrock MiniMax, and ALL Nebius reasoners (Qwen3.5/GLM/DeepSeek/
+ *      Kimi/MiniMax/Hermes/Nemotron/Cosmos — live-verified: every one 200s on
+ *      temp+reasoning_effort). (`reasoningAlwaysOn` used to proxy this but wrongly
+ *      blocked the toggleable Nebius reasoners.)
+ * Un-catalogued ids keep the conservative blanket block under thinking + the
+ * logged regex fallback.
  */
 export function temperatureSupported(provider: string, modelId: string, thinking: boolean): boolean {
-  if (thinking) return false;
   const entry = getModelCapabilities(provider, modelId);
-  if (entry) return entry.temperature;
+  if (entry) {
+    if (!entry.temperature) return false;
+    if (thinking) {
+      if (provider === "anthropic" || provider === "openai") return false;
+      // Bedrock hosts both: Anthropic Claude (budget/adaptive → reject) and
+      // open-weight gpt-oss/MiniMax (effort → accept).
+      if (provider === "bedrock" && entry.reasoningControl !== "effort") return false;
+    }
+    return true;
+  }
+  if (thinking) return false;
   warnCatalogFallback("temperatureSupported", provider, modelId);
   return !temperatureRejectedFallback(provider, modelId);
 }
