@@ -20,6 +20,7 @@ import {
 import { config } from "../../config.js";
 import { resolvePluginRoots } from "../../plugin-system/plugin-roots.js";
 import { engineSatisfies } from "../../plugin-system/plugin-manifest.js";
+import { registerOAuthProvider } from "../../server/oauth/oauth-providers.js";
 import { findStrictModeViolations, findIllegalToolName } from "./strict-mode-lint.js";
 
 // Re-export the authoring contract from the SDK so core tools keep importing
@@ -374,6 +375,10 @@ export async function loadAllTools(): Promise<void> {
       );
       continue;
     }
+    // Contribute this plugin's OAuth providers to the broker registry. Gated by
+    // engineSatisfies above → an incompatible plugin contributes nothing. A
+    // divergent same-name provider throws here and aborts the boot (loud).
+    for (const provider of manifest.oauthProviders) registerOAuthProvider(provider);
     await importRoot(join(root, manifest.toolsDir), manifest.namespace);
   }
 

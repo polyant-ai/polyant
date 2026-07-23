@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { fileURLToPath } from "url";
 import { join, dirname } from "path";
-import { readPluginManifest, engineSatisfies } from "./plugin-manifest.js";
+import { readPluginManifest, engineSatisfies, pluginManifestSchema } from "./plugin-manifest.js";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const fixtures = join(__dir, "../../test/fixtures");
@@ -23,7 +23,7 @@ describe("readPluginManifest", () => {
 });
 
 describe("engineSatisfies", () => {
-  const mk = (engine: string) => ({ name: "p", version: "1.0.0", engine, toolsDir: "tools", hooksDir: "hooks", namespace: "p" });
+  const mk = (engine: string) => ({ name: "p", version: "1.0.0", engine, toolsDir: "tools", hooksDir: "hooks", namespace: "p", oauthProviders: [] });
 
   it("true when the engine version is inside the range", () => {
     expect(engineSatisfies(mk(">=0.1.0"), "0.1.0")).toBe(true);
@@ -37,5 +37,34 @@ describe("engineSatisfies", () => {
   it("fail-closed on an unparseable range or version", () => {
     expect(engineSatisfies(mk("not-a-range"), "0.1.0")).toBe(false);
     expect(engineSatisfies(mk(">=0.1.0"), "garbage")).toBe(false);
+  });
+});
+
+describe("oauthProviders in manifest", () => {
+  const base = { name: "p", version: "1.0.0", engine: ">=0.1.0" };
+
+  it("defaults to [] when absent", () => {
+    const r = pluginManifestSchema.safeParse(base);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.oauthProviders).toEqual([]);
+  });
+
+  it("parses a provider and defaults extraAuthorizeParams + pkce", () => {
+    const r = pluginManifestSchema.safeParse({
+      ...base,
+      oauthProviders: [{ name: "notion", authorizeUrl: "https://a", tokenUrl: "https://t", scope: "read" }],
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.oauthProviders[0]).toMatchObject({ name: "notion", extraAuthorizeParams: {}, pkce: false });
+    }
+  });
+
+  it("rejects a provider missing tokenUrl", () => {
+    const r = pluginManifestSchema.safeParse({
+      ...base,
+      oauthProviders: [{ name: "x", authorizeUrl: "https://a", scope: "" }],
+    });
+    expect(r.success).toBe(false);
   });
 });

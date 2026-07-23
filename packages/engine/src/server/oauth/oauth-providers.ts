@@ -3,19 +3,18 @@
 // Generic OAuth broker: a data-driven provider registry shared by the tools that
 // consume a provider (via oauth-access.ts, which builds the authorize link when a
 // token is missing) and the /oauth/:provider/callback controller (swaps the code
-// for a token). Adding a provider = one registry entry.
+// for a token).
+//
+// The registry is POPULATED AT BOOT from plugin manifests (`oauthProviders` in
+// plugin.json) — it starts EMPTY. The engine ships only the broker mechanism;
+// providers come from plugins, so a plugin can ship a provider without any engine
+// change. `registerOAuthProvider` is the only writer.
 //
 // Client credentials are PER-INSTANCE ONLY: read from instance_secrets under
 // `<provider>_oauth_client_id` / `<provider>_oauth_client_secret` (no env
 // fallback). The client_secret is resolved ONLY server-side in the callback — it
 // never enters tool/LLM context. The redirect URI is computed here (once) so the
 // authorize link and the token exchange always agree.
-//
-// ponytail: interim demo of the OAuth-per-conversation mechanism —
-//   - token lands in conversation_state IN CLEARTEXT (needs the per-principal vault)
-//   - `state` is the raw conversationId (no CSRF nonce / PKCE)
-//   - refresh_token + expiry are discarded (Google tokens die in ~1h)
-// See docs/superpowers/specs/2026-07-17-oauth-per-user-design.md.
 
 import { randomBytes, createHash } from "crypto";
 import { config } from "../../config.js";
@@ -65,39 +64,58 @@ export interface OAuthCredentials {
   clientSecret?: string;
 }
 
-/** Static provider metadata — NO credentials (those are per-instance, resolved
- *  separately). Adding a provider is one entry here + its client credentials. */
-const REGISTRY: Record<string, OAuthProvider> = {
-  github: {
-    name: "github",
-    authorizeUrl: "https://github.com/login/oauth/authorize",
-    tokenUrl: "https://github.com/login/oauth/access_token",
-    scope: "repo read:user",
-    extraAuthorizeParams: { allow_signup: "false" },
-    // ponytail: GitHub OAuth App PKCE support is not clearly documented — leave
-    // off (the state nonce still closes CSRF); flip to true once verified.
-    pkce: false,
-  },
-  google: {
-    name: "google",
-    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-    tokenUrl: "https://oauth2.googleapis.com/token",
-    // openid+email identify the user; gmail.readonly reads mail; gmail.compose
-    // creates drafts AND sends (covers both gmailCreateDraft and gmailSend).
-    scope:
-      "openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
-    // access_type=offline + prompt=consent are what yield a refresh_token.
-    extraAuthorizeParams: { response_type: "code", access_type: "offline", prompt: "consent" },
-    pkce: true,
-  },
-};
+/** Provider metadata registry — populated at boot from plugin manifests
+ *  (`oauthProviders` in plugin.json), keyed by provider name. Starts EMPTY: the
+ *  engine ships the mechanism, plugins ship the providers. NO credentials here
+ *  (those are per-instance, resolved separately). */
+const REGISTRY = new Map<string, OAuthProvider>();
+
+/** Normalized equality of two provider specs. `extraAuthorizeParams` is compared
+ *  independently of key order so two manifests that differ only in ordering are
+ *  NOT a false divergence. */
+function sameProvider(a: OAuthProvider, b: OAuthProvider): boolean {
+  const norm = (p: OAuthProvider) =>
+    JSON.stringify({
+      name: p.name,
+      authorizeUrl: p.authorizeUrl,
+      tokenUrl: p.tokenUrl,
+      scope: p.scope,
+      pkce: p.pkce,
+      extraAuthorizeParams: Object.fromEntries(
+        Object.entries(p.extraAuthorizeParams).sort(([x], [y]) => x.localeCompare(y)),
+      ),
+    });
+  return norm(a) === norm(b);
+}
+
+/** Register a provider (the only writer of REGISTRY). Dedup on an identical
+ *  definition (no-op); a same-name DIVERGENT definition throws so the loader lets
+ *  it abort the boot, like a duplicate tool name. */
+export function registerOAuthProvider(p: OAuthProvider): void {
+  const existing = REGISTRY.get(p.name);
+  if (existing) {
+    if (!sameProvider(existing, p)) {
+      throw new Error(
+        `OAuth provider conflict "${p.name}": two plugins declare it with divergent ` +
+          `definitions. Rename one (e.g. "${p.name}-<purpose>") or align authorizeUrl/tokenUrl/scope/pkce.`,
+      );
+    }
+    return;
+  }
+  REGISTRY.set(p.name, p);
+}
 
 export function getOAuthProvider(name: string): OAuthProvider | undefined {
-  return REGISTRY[name];
+  return REGISTRY.get(name);
 }
 
 export function knownProviderNames(): string[] {
-  return Object.keys(REGISTRY);
+  return Array.from(REGISTRY.keys());
+}
+
+/** Test-only: clear the registry between tests. */
+export function _resetOAuthRegistryForTests(): void {
+  REGISTRY.clear();
 }
 
 /** The instance_secrets key names holding a provider's client credentials.
