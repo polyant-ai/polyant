@@ -111,9 +111,20 @@ git -C /Users/paolovalletta/Desktop/projects/polyant-ai/polyant-sdk commit -s \
 
 ### Task 2: Engine mirrors + `firstRegenerate` + local SDK install
 
+> **Execution note (added during implementation):** making `regenerationCount`
+> required breaks every existing `response` payload constructor, so this task
+> also updated all three to keep the tree compiling (commit `e7c4079`):
+> `buildHookPayload` (pipeline.ts) gained a `regenerationCount = 0` param;
+> `room-engine.ts` and `webhook-engine.ts` — which DO run `response_generated`
+> hooks (for `replaceResponse`) but have no replay loop — pass
+> `regenerationCount: 0`. Consequence: Task 5 no longer needs to modify
+> `buildHookPayload`'s code (only add its regression test).
+
 **Files:**
 - Modify: `packages/engine/src/hooks/hook-types.ts`
 - Modify: `packages/engine/src/hooks/hook-runner.ts`
+- Modify: `packages/engine/src/pipeline.ts` (buildHookPayload — set regenerationCount)
+- Modify: `packages/engine/src/room/room-engine.ts`, `packages/engine/src/webhooks/webhook-engine.ts` (pass `regenerationCount: 0`)
 - Test: `packages/engine/src/hooks/hook-runner.test.ts`
 
 **Interfaces:**
@@ -446,6 +457,13 @@ git commit -s \
 ---
 
 ### Task 5: Pipeline — payload count, `runResponseGeneratedHooks`, `runPipelinePost` opt-in
+
+> **Execution note (added during implementation):** `buildHookPayload`'s
+> `regenerationCount = 0` param + `response` field were already implemented in
+> Task 2 (commit `e7c4079`). So Steps 1–4 below now just ADD the regression test
+> (it passes GREEN immediately — do not expect RED, and skip the Step 3 code edit
+> since it already exists). Steps 5+ (`runResponseGeneratedHooks` +
+> `runPipelinePost` opt-in) are unchanged and remain this task's real work.
 
 **Files:**
 - Modify: `packages/engine/src/pipeline.ts`

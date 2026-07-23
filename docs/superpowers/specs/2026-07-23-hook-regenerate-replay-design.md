@@ -165,9 +165,12 @@ pattern.
   `mutatesResponse` is ignored with a warning (mirrors the existing
   `replaceResponse` handling in `hooks/actions/function-action.ts`).
 - **v1 scope**: only the buffered conversational path (Telegram / WhatsApp /
-  Slack / Web / `/v1`). Room and Webhook engines call `supervise()` directly and
-  wire only `message_received`, so they run no `response_generated` hook and
-  therefore no replay — identical to the current limitation of `replaceResponse`.
+  Slack / Web / `/v1`) supports replay. Room and Webhook engines call
+  `supervise()` directly and DO run `response_generated` hooks (they already
+  honor `replaceResponse`), but they have **no replay loop** — so `regenerate` is
+  not honored there and they pass `regenerationCount: 0` on the payload. Adding
+  replay to those engines is out of scope for v1. (This corrects an earlier draft
+  of this doc that wrongly said room/webhook wire only `message_received`.)
 - **Pure streaming path** (instance with no `mutatesResponse` hook) and
   **pre-LLM halt path**: `regenerate` is ignored with a warning (no LLM turn to
   replay). Consequence, confirmed with the requester: to get replay the author
