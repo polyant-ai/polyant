@@ -698,6 +698,8 @@ export interface EventSource {
   enabled: boolean;
   webhookUrl: string;
   webhookToken: string;
+  /** Non-secret config; string values are masked (••••last4) by the API. */
+  config?: Record<string, unknown>;
   definitions: EventDefinition[];
 }
 

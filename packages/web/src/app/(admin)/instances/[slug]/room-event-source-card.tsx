@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
+import { WebhookAuthSection } from "./room-event-source-auth";
 
 export interface EventSource {
   id: string;
@@ -38,6 +39,8 @@ export interface EventSource {
   enabled: boolean;
   webhookUrl: string;
   webhookToken: string;
+  /** Non-secret config; string values are masked (••••last4) by the API. */
+  config?: Record<string, unknown>;
   definitions: EventDefinition[];
 }
 
@@ -178,7 +181,7 @@ interface Props {
   onToggleEnabled: (id: string, enabled: boolean) => void;
   onCopyWebhook: (url: string) => void;
   onRotateToken: (id: string) => void;
-  onUpdateSource: (id: string, data: { name?: string }) => void;
+  onUpdateSource: (id: string, data: { name?: string; config?: Record<string, unknown> }) => void;
   onDeleteSource: (id: string) => void;
   onAddDefinition: (sourceId: string, data: {
     name: string; matchingPrompt: string; interpretationPrompt: string;
@@ -317,6 +320,11 @@ export function EventSourceCard({
             <Label className="text-xs text-muted-foreground">{t("room.sources.webhookUrl")}</Label>
             <code className="block text-xs bg-muted rounded px-2 py-1 break-all">{source.webhookUrl}</code>
           </div>
+
+          <WebhookAuthSection
+            currentMasked={typeof source.config?.authKey === "string" ? source.config.authKey : ""}
+            onSave={(authKey) => onUpdateSource(source.id, { config: { authKey } })}
+          />
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">
