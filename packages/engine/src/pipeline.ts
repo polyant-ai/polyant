@@ -299,6 +299,7 @@ export function buildHookPayload(
   ctx: PipelineContext,
   messageText: string,
   responseText?: string,
+  regenerationCount = 0,
 ): HookEventPayload | undefined {
   if (ctx.isAutoTaskTurn || !ctx.channelIdentity) return undefined;
   return {
@@ -307,7 +308,7 @@ export function buildHookPayload(
     channel: { type: ctx.channelIdentity.channel, id: ctx.channelIdentity.channelId },
     user: { name: ctx.channelIdentity.userName ?? "" },
     message: { text: messageText },
-    ...(responseText !== undefined ? { response: { text: responseText } } : {}),
+    ...(responseText !== undefined ? { response: { text: responseText, regenerationCount } } : {}),
   };
 }
 
