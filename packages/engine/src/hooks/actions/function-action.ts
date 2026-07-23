@@ -8,6 +8,22 @@ import { scopeSecrets } from "../../agents/tools/registry.js";
 import type { HookActionExecutor, HookRunContext } from "../hook-types.js";
 
 /**
+ * Warn when a hook returns a mutation control (replaceResponse, regenerate)
+ * without declaring mutatesResponse:true.
+ */
+function warnIfMutationUndeclared(
+  mutatesResponse: boolean | undefined,
+  functionName: string,
+  action: "replaceResponse" | "regenerate",
+): void {
+  if (!mutatesResponse) {
+    console.warn(
+      `[hooks] "${functionName}" returned ${action} without declaring mutatesResponse:true — honored only on non-streamed turns.`,
+    );
+  }
+}
+
+/**
  * `function` action: run a registered hook function and map its control return
  * onto the runner's `capture`. Throws on misconfiguration (missing/unknown
  * function) — the runner catches, audits, and continues.
@@ -50,21 +66,13 @@ export const functionActionExecutor: HookActionExecutor = {
     if (result.replaceResponse?.message?.trim()) {
       // Runtime enforcement of replaceResponse ⇒ mutatesResponse (can't be static —
       // it's a handler return). Never a silent no-op: warn when the flag is missing.
-      if (!def.mutatesResponse) {
-        console.warn(
-          `[hooks] "${functionName}" returned replaceResponse without declaring mutatesResponse:true — honored only on non-streamed turns.`,
-        );
-      }
+      warnIfMutationUndeclared(def.mutatesResponse, functionName, "replaceResponse");
       capture({ replaceResponse: { message: result.replaceResponse.message } });
     }
     if (result.regenerate) {
       // Same runtime gate as replaceResponse: regenerate mutates the turn, so it
       // is honored only on non-streamed (declare-and-buffer) turns.
-      if (!def.mutatesResponse) {
-        console.warn(
-          `[hooks] "${functionName}" returned regenerate without declaring mutatesResponse:true — honored only on non-streamed turns.`,
-        );
-      }
+      warnIfMutationUndeclared(def.mutatesResponse, functionName, "regenerate");
       capture({ regenerate: { reason: result.regenerate.reason } });
     }
     if (typeof result.injectContext === "string" && result.injectContext.trim()) {
