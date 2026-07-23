@@ -22,7 +22,7 @@ There is no MCP code in the repo today — this is greenfield. The design delibe
 | Auth (V1) | **Static per-instance** — bearer or custom header, credentials encrypted per instance |
 | Auth (future) | `authMode` column + AI SDK `authProvider` hook reserved for per-user / OAuth 2.1 (V2) |
 | Enablement | **Server-level** on/off. No per-tool catalog sync, no drift handling. Optional per-server allow-list |
-| Library | **`@ai-sdk/mcp` `createMCPClient`** (first-party Vercel, aligned to the installed `ai@6`) — not `@modelcontextprotocol/sdk` directly |
+| Library | **`@ai-sdk/mcp@^1.0` `createMCPClient`** (first-party Vercel; the 1.x line matches `ai@6`'s `@ai-sdk/provider@3.x` — 2.x pulls provider@4 and breaks typecheck) — not `@modelcontextprotocol/sdk` directly |
 | Connection lifecycle | **Per-turn** — open in `buildTools`, close in a `finally` at the end of `supervise`/`superviseStream` and on abort |
 
 ### Non-goals (V2+)
@@ -54,7 +54,7 @@ await client.close();
 
 `client.tools()` returns tools whose `inputSchema` is JSON Schema and whose `execute` uses the connected client — the exact shape `buildTool` already produces, so no Zod round-trip and no bespoke transport code. The `authProvider` field is the built-in seam for V2 OAuth.
 
-**Implementation note:** pin `@ai-sdk/mcp` to the version matching the installed `ai@6.x` (same discipline as the `@ai-sdk/openai-compatible` pin — a mismatched `@ai-sdk/provider` major breaks typecheck). Re-align on every `ai` bump.
+**Implementation note (verified 2026-07-23):** pin **`@ai-sdk/mcp@^1.0`** (latest 1.x = `1.0.64`), NOT the dist-tag `latest` (2.x). Same discipline as the `@ai-sdk/openai-compatible` pin — a mismatched `@ai-sdk/provider` major breaks typecheck. Concretely: `ai@6.0.194` resolves `@ai-sdk/provider@3.0.10`; `@ai-sdk/mcp@1.x` depends on `@ai-sdk/provider@3.x` (aligned ✓), while `@ai-sdk/mcp@2.x` depends on `@ai-sdk/provider@4.x` (`LanguageModelV4` — `"v4" not assignable to "v2/v3"`, the exact break CLAUDE.md documents for openai-compatible). `ai@6` bundles NO MCP client of its own, so the separate package is required. `createMCPClient` (aliased `experimental_createMCPClient`) and the V2 OAuth seam (`OAuthClientProvider`, `auth`, `UnauthorizedError`) are all exported by the 1.x line. Re-align the pin on every `ai` bump (verify `ai`'s `@ai-sdk/provider` major, then pick the `@ai-sdk/mcp` line that matches it).
 
 ## Architecture
 
