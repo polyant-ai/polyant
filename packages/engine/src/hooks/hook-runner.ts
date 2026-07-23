@@ -13,6 +13,7 @@ import type {
   HookExecutionCapture,
   HookExecutionSummary,
   HookHaltSignal,
+  HookRegenerateSignal,
   HookReplaceSignal,
   HookRunContext,
   InstanceHookRow,
@@ -31,6 +32,11 @@ export function firstHalt(summaries: HookExecutionSummary[]): HookHaltSignal | u
 /** First response replacement requested across a run's summaries, or undefined. */
 export function firstReplaceResponse(summaries: HookExecutionSummary[]): HookReplaceSignal | undefined {
   return summaries.find((s) => s.replaceResponse)?.replaceResponse;
+}
+
+/** First regenerate requested across a run's summaries, or undefined. */
+export function firstRegenerate(summaries: HookExecutionSummary[]): HookRegenerateSignal | undefined {
+  return summaries.find((s) => s.regenerate)?.regenerate;
 }
 
 /**
@@ -132,6 +138,7 @@ export async function runHooks(
       result: captured.result,
       halt: captured.halt,
       replaceResponse: captured.replaceResponse,
+      regenerate: captured.regenerate,
       injectContext: captured.injectContext,
     });
     audit.log({

@@ -17,6 +17,11 @@ export interface HookReplaceSignal {
   message: string;
 }
 
+/** Payload of a regenerate request (post-LLM replay of the supervisor turn). */
+export interface HookRegenerateSignal {
+  reason?: string;
+}
+
 /** Conversation lifecycle events a hook can subscribe to. */
 export const HOOK_EVENTS = [
   "conversation_start",
@@ -46,7 +51,7 @@ export interface HookEventPayload {
   user: { name: string };
   message: { text: string };
   /** Present only on response_generated / response_sent. */
-  response?: { text: string };
+  response?: { text: string; regenerationCount: number };
 }
 
 /** Runtime context threaded from the pipeline into hook execution. */
@@ -101,6 +106,8 @@ export interface HookExecutionSummary {
   halt?: HookHaltSignal;
   /** Present when this hook requested a post-LLM response replacement. */
   replaceResponse?: HookReplaceSignal;
+  /** Present when this hook requested a post-LLM turn replay. */
+  regenerate?: HookRegenerateSignal;
   /** Present when this hook requested context injection. */
   injectContext?: string;
 }
@@ -117,6 +124,8 @@ export interface HookExecutionCapture {
   halt?: HookHaltSignal;
   /** Set when the hook requested a post-LLM response replacement. */
   replaceResponse?: HookReplaceSignal;
+  /** Set when the hook requested a post-LLM turn replay. */
+  regenerate?: HookRegenerateSignal;
   /** Set when the hook requested context injection. */
   injectContext?: string;
 }
