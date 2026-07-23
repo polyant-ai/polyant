@@ -10,6 +10,7 @@ import { aiLogs } from "../ai-gateway/logger.js";
 import { toolAuditLogs } from "../audit/audit.schema.js";
 import { hookExecutions } from "../hooks/hooks.schema.js";
 import { memories } from "../memory/schema.js";
+import { principalSecrets } from "./principal-secrets.schema.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilter, buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
 
@@ -1056,6 +1057,17 @@ export class ConversationStore {
           and(
             eq(conversationState.scope, "conversation"),
             eq(conversationState.scopeKey, conversationId),
+          ),
+        );
+      // principal_secrets (encrypted per-conversation OAuth tokens) share the
+      // conversation scope/scope_key keying — drop them too so deleting a
+      // conversation leaves no third-party access behind (right-to-be-forgotten).
+      await tx
+        .delete(principalSecrets)
+        .where(
+          and(
+            eq(principalSecrets.scope, "conversation"),
+            eq(principalSecrets.scopeKey, conversationId),
           ),
         );
 

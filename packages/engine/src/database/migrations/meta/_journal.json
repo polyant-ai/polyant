@@ -435,6 +435,20 @@
       "when": 1781222400000,
       "tag": "0068_add_cache_config",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1781308800000,
+      "tag": "0069_principal_secrets",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1781395200000,
+      "tag": "0070_oauth_states",
+      "breakpoints": true
     }
   ]
 }

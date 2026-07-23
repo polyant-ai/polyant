@@ -1141,8 +1141,8 @@ describe("ConversationStore", () => {
   // deleteConversation
   // =========================================================================
   describe("deleteConversation", () => {
-    // Order: messages, ai_logs, pipeline_traces, tool_audit_logs, hook_executions, memories, conversation_state, conversations
-    const EXPECTED_DELETE_CALLS = 8;
+    // Order: messages, ai_logs, pipeline_traces, tool_audit_logs, hook_executions, memories, conversation_state, principal_secrets, conversations
+    const EXPECTED_DELETE_CALLS = 9;
 
     it("cascades delete across all conversation-scoped tables and returns true when found", async () => {
       const id = uid();
