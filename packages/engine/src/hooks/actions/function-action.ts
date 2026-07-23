@@ -57,6 +57,16 @@ export const functionActionExecutor: HookActionExecutor = {
       }
       capture({ replaceResponse: { message: result.replaceResponse.message } });
     }
+    if (result.regenerate) {
+      // Same runtime gate as replaceResponse: regenerate mutates the turn, so it
+      // is honored only on non-streamed (declare-and-buffer) turns.
+      if (!def.mutatesResponse) {
+        console.warn(
+          `[hooks] "${functionName}" returned regenerate without declaring mutatesResponse:true — honored only on non-streamed turns.`,
+        );
+      }
+      capture({ regenerate: { reason: result.regenerate.reason } });
+    }
     if (typeof result.injectContext === "string" && result.injectContext.trim()) {
       capture({ injectContext: result.injectContext.slice(0, 4000) });
     }

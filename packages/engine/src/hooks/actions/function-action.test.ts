@@ -94,6 +94,24 @@ describe("functionActionExecutor", () => {
     warn.mockRestore();
   });
 
+  it("should_capture_regenerate_and_warn_when_mutatesResponse_not_declared", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { promise, captured } = run(def({ mutatesResponse: false, handler: () => ({ regenerate: { reason: "dirty" } }) }));
+    await promise;
+    expect(captured.regenerate).toEqual({ reason: "dirty" });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("mutatesResponse"));
+    warn.mockRestore();
+  });
+
+  it("should_capture_regenerate_without_warning_when_mutatesResponse_declared", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { promise, captured } = run(def({ mutatesResponse: true, handler: () => ({ regenerate: {} }) }));
+    await promise;
+    expect(captured.regenerate).toEqual({});
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("should_capture_injectContext_when_handler_returns_it", async () => {
     const { promise, captured } = run(def({ handler: () => ({ injectContext: "ctx" }) }));
     await promise;
