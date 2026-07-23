@@ -95,8 +95,9 @@ const BEDROCK_THINKING_BUDGETS: Record<"low" | "medium" | "high", number> = {
  *   - "effort" (gpt-oss; MiniMax) → `type:"enabled"` + an EFFORT string (maxReasoningEffort).
  *     gpt-oss honours the level; MiniMax ignores it (always reasons) but accepts the
  *     shape without the warning `budgetTokens` triggers on non-Anthropic models.
- *   - "budget" (Claude 4.6-and-earlier, Haiku/Sonnet 4.x, MiniMax) → `type:"enabled"`
- *     + a token BUDGET (budgetTokens).
+ *   - "budget" (Claude 4.6-and-earlier, Haiku/Sonnet 4.x) → `type:"enabled"`
+ *     + a token BUDGET (budgetTokens). NOT MiniMax — it is "effort" (see above);
+ *     budgetTokens is Anthropic-only and warns on non-Anthropic Bedrock models.
  *
  * Only called for a reasoning-capable Bedrock model (gated by isThinkingCapable
  * upstream) and only when thinking is ON.

@@ -111,7 +111,9 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // temperature: true — LIVE-VERIFIED on /v1/responses: temperature accepted
       // (HTTP 200) with reasoning OFF, rejected (400) when reasoning is ON. So it
       // is temperature-capable, gated to reasoning-OFF by temperatureSupported
-      // (which allows temperature under thinking only for reasoningAlwaysOn models).
+      // (which, under thinking, blocks a custom temperature for EVERY OpenAI +
+      // Anthropic model regardless of reasoningAlwaysOn — so gpt-5.4 keeps
+      // temperature only with reasoning OFF).
       // Cached 0.1× input (official).
       "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       "gpt-5.4-mini": { input: 0.75, output: 4.50, cacheRead: 0.075, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
