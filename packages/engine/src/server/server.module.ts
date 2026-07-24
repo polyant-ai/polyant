@@ -32,6 +32,7 @@ import { AuditController } from "./audit/audit.controller.js";
 import { InstanceExportController } from "./instances/instance-export.controller.js";
 import { AttachmentsController } from "./attachments/attachments.controller.js";
 import { OAuthCallbackController } from "./oauth/oauth-callback.controller.js";
+import { McpOAuthCallbackController } from "./oauth/mcp-oauth-callback.controller.js";
 import { SkillsModule } from "../skills/skills.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { ActivityStreamModule } from "../activity-stream/activity-stream.module.js";
@@ -93,6 +94,7 @@ import { OrganizationsModule } from "../organizations/organizations.module.js";
     InstanceExportController,
     AttachmentsController,
     OAuthCallbackController,
+    McpOAuthCallbackController,
   ],
 })
 export class ServerModule {}
