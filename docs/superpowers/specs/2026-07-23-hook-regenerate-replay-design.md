@@ -196,6 +196,22 @@ the product-level stop condition (§4/§5 own that).
 - `pipeline_traces` stays one row per turn (the last generation's timing/usage) +
   a `regenerated turn (reason, attempt=N)` log line. No new DB column in v1.
 
+### 10.1 Caveat — replay re-executes tools (side-effect amplification)
+
+`regenerate` re-runs the **entire** supervisor turn, tools included. A turn that
+invoked a non-idempotent tool (e.g. `slackPostMessage`, an HTTP POST) can fire it
+up to `MAX_REGENERATIONS + 1` (6) times, each fully acted upon — a larger blast
+radius than the already-documented 1× abort accept-waste for cancelled runs.
+Additionally, the conversation `stateBuffer` accumulates writes across discarded
+passes (buffer-first reads mean pass N sees passes 0..N-1's writes), so
+read-modify-write tools over-count.
+
+Mitigation is by **configuration, not code**: enable a `regenerate` hook only on
+instances whose turns are side-effect-free or whose tools are idempotent.
+Separately, deterministic models (`temperature: 0`) reproduce identical output on
+replay and so exhaust the cap without improvement — `regenerate` suits sporadic /
+sampled output corruption, not systematic errors.
+
 ## 11. Testing
 
 - `runResponseGeneratedHooks`: interprets `regenerate` / `replace`, and the §7
