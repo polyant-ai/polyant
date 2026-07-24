@@ -478,39 +478,49 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   // can never clobber a core/plugin tool name (warn instead of overwrite —
   // core tools are DB-governed, MCP servers are instance-configured and less trusted).
   const mcp = await buildMcpTools({ instanceUuid, conversationId: input.conversationId });
-  for (const [name, mcpTool] of Object.entries(mcp.tools)) {
-    if (name in tools) {
-      console.warn(`MCP tool name collision: "${name}" already equipped by a core/plugin tool — skipping`);
-      continue;
+
+  // Everything below opens no new resources, but it DOES await (DB calls in
+  // buildSupervisorSystemPrompt) and can throw before `ctx` (carrying
+  // `mcpClose`) reaches the caller. If that happens, close the just-opened
+  // MCP clients here — otherwise they leak (the caller never gets `mcpClose`).
+  try {
+    for (const [name, mcpTool] of Object.entries(mcp.tools)) {
+      if (name in tools) {
+        console.warn(`MCP tool name collision: "${name}" already equipped by a core/plugin tool — skipping`);
+        continue;
+      }
+      tools[name] = mcpTool;
     }
-    tools[name] = mcpTool;
+
+    const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
+      tools,
+      instanceId: instanceUuid,
+      instanceSlug,
+      memoryEnabled: input.memoryEnabled,
+      conversationSummary: input.conversationSummary,
+      contextPrompt: input.contextPrompt,
+      channelIdentity: input.channelIdentity,
+      conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
+      datetimeInjectionEnabled: input.datetimeInjectionEnabled,
+      optoutHint: input.optoutHint,
+    });
+
+    pipelineLog.systemPrompt(instanceSlug, systemPrompt);
+    pipelineLog.supervisorStart(instanceSlug, Object.keys(tools).length);
+
+    // Build user message — multimodal when attachments are present. The per-turn
+    // volatile context rides the tail of this message (see buildUserContent).
+    const userContent = buildUserContent(input.message, turnContext, input.attachments);
+    const messages: ModelMessage[] = [
+      ...(input.conversationHistory ?? []),
+      { role: "user", content: userContent },
+    ];
+
+    return { instanceId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals, mcpClose: mcp.close };
+  } catch (err) {
+    await mcp.close().catch(() => { /* best-effort */ });
+    throw err;
   }
-
-  const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
-    tools,
-    instanceId: instanceUuid,
-    instanceSlug,
-    memoryEnabled: input.memoryEnabled,
-    conversationSummary: input.conversationSummary,
-    contextPrompt: input.contextPrompt,
-    channelIdentity: input.channelIdentity,
-    conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
-    datetimeInjectionEnabled: input.datetimeInjectionEnabled,
-    optoutHint: input.optoutHint,
-  });
-
-  pipelineLog.systemPrompt(instanceSlug, systemPrompt);
-  pipelineLog.supervisorStart(instanceSlug, Object.keys(tools).length);
-
-  // Build user message — multimodal when attachments are present. The per-turn
-  // volatile context rides the tail of this message (see buildUserContent).
-  const userContent = buildUserContent(input.message, turnContext, input.attachments);
-  const messages: ModelMessage[] = [
-    ...(input.conversationHistory ?? []),
-    { role: "user", content: userContent },
-  ];
-
-  return { instanceId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals, mcpClose: mcp.close };
 }
 
 // ---------------------------------------------------------------------------
@@ -520,30 +530,40 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
 export async function superviseStream(input: SupervisorInput): Promise<SupervisorStreamOutput> {
   const ctx = await prepareSupervisor(input);
 
-  const stream = await chatStream(
-    {
-      tier: "standard",
-      provider: input.provider,
-      model: input.model,
-      thinking: input.thinkingEnabled ?? false,
-      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-      ...(input.temperature != null ? { temperature: input.temperature } : {}),
-      apiKeys: input.apiKeys,
-      langsmith: input.langsmith,
-      system: ctx.systemPrompt,
-      messages: ctx.messages,
-      tools: ctx.tools,
-      maxSteps: 15,
-      abortSignal: input.abortSignal,
-      captureDebug: input.debugEnabled ?? false,
-      cacheConfig: input.cacheConfig,
-    },
-    {
-      conversationId: input.conversationId,
-      instanceId: ctx.instanceId,
-      agentCallMetadata: input.agentCallMetadata,
-    }
-  );
+  // chatStream() can throw synchronously (unsupported streaming config,
+  // resolveCallConfig failure) before any stream/`completed` object exists —
+  // in that case the `.finally(() => ctx.mcpClose())` below never gets a
+  // chance to attach, so close here instead.
+  let stream: Awaited<ReturnType<typeof chatStream>>;
+  try {
+    stream = await chatStream(
+      {
+        tier: "standard",
+        provider: input.provider,
+        model: input.model,
+        thinking: input.thinkingEnabled ?? false,
+        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+        ...(input.temperature != null ? { temperature: input.temperature } : {}),
+        apiKeys: input.apiKeys,
+        langsmith: input.langsmith,
+        system: ctx.systemPrompt,
+        messages: ctx.messages,
+        tools: ctx.tools,
+        maxSteps: 15,
+        abortSignal: input.abortSignal,
+        captureDebug: input.debugEnabled ?? false,
+        cacheConfig: input.cacheConfig,
+      },
+      {
+        conversationId: input.conversationId,
+        instanceId: ctx.instanceId,
+        agentCallMetadata: input.agentCallMetadata,
+      }
+    );
+  } catch (err) {
+    await ctx.mcpClose().catch(() => { /* best-effort */ });
+    throw err;
+  }
 
   // Wrap textStream to capture TTFB (time to first token)
   let ttfbMs: number | undefined;

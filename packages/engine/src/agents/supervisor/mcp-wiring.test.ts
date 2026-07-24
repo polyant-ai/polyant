@@ -155,6 +155,16 @@ describe("supervise + MCP tools", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it("calls close() when buildSupervisorSystemPrompt throws (leak window after buildMcpTools opens clients)", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    mockBuildMcpTools.mockResolvedValue({ tools: { mcp__gh__x: mcpTool }, close });
+    mockBuildPrompt.mockRejectedValue(new Error("prompt boom"));
+
+    await expect(supervise({ message: "hi" })).rejects.toThrow("prompt boom");
+
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
   it("does not let an MCP tool clobber a same-named core tool", async () => {
     mockGetToolRegistry.mockReturnValue(
       new Map([["search", { name: "search", description: "Core search", category: "workspace", create: vi.fn() }]]),
@@ -222,6 +232,18 @@ describe("superviseStream + MCP tools", () => {
 
     const result = await superviseStream({ message: "hi" });
     await expect(result.completed).rejects.toThrow("stream boom");
+
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls close() when chatStream() throws synchronously (before a stream/completed exists)", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    mockBuildMcpTools.mockResolvedValue({ tools: { mcp__gh__x: mcpTool }, close });
+    mockChatStream.mockImplementation(() => {
+      throw new Error("chatStream boom");
+    });
+
+    await expect(superviseStream({ message: "hi" })).rejects.toThrow("chatStream boom");
 
     expect(close).toHaveBeenCalledTimes(1);
   });
