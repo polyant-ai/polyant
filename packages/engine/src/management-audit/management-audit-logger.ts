@@ -13,6 +13,8 @@ export const ManagementAuditAction = {
   SecretWrite: "secret.write",
   SecretDelete: "secret.delete",
   MemberRemove: "member.remove",
+  McpServerWrite: "mcp_server.write",
+  McpServerDelete: "mcp_server.delete",
 } as const;
 
 export type ManagementAuditActionValue =
@@ -23,6 +25,7 @@ export const ManagementAuditTarget = {
   Agent: "agent",
   Secret: "secret",
   Member: "member",
+  McpServer: "mcp_server",
 } as const;
 
 export type ManagementAuditTargetValue =
