@@ -206,6 +206,13 @@ export interface ModelInfo {
    * the parameter.
    */
   supportsTemperature: boolean;
+  /**
+   * True when a custom temperature survives WITH extended thinking on. Open-weight/
+   * vLLM reasoners (gpt-oss, Bedrock MiniMax, all Nebius reasoners) accept both; the
+   * strict-reasoning APIs (Anthropic extended thinking, OpenAI 1P) reject it. Lets the
+   * Settings tab keep the temperature field editable under thinking where allowed.
+   */
+  supportsTemperatureWithThinking: boolean;
 }
 
 export interface ModelsResponse {

@@ -126,7 +126,7 @@ export class InstancesController {
   @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
-    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; supportsCache: boolean; supportsThinking: boolean; reasoningAlwaysOn: boolean; reasoningLevels: readonly ReasoningLevel[]; supportsTemperature: boolean }[] }> = {};
+    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; supportsCache: boolean; supportsThinking: boolean; reasoningAlwaysOn: boolean; reasoningLevels: readonly ReasoningLevel[]; supportsTemperature: boolean; supportsTemperatureWithThinking: boolean }[] }> = {};
     for (const [name, cfg] of Object.entries(providerConfigs)) {
       const tierByModel = new Map(Object.entries(cfg.tiers).map(([tier, modelId]) => [modelId, tier]));
       const models = Object.entries(cfg.models).map(([modelId, cost]) => ({
@@ -153,6 +153,11 @@ export class InstancesController {
         // level picker from this exact set — empty for non-reasoning models.
         reasoningLevels: reasoningLevelsFor(name, modelId),
         supportsTemperature: temperatureSupported(name, modelId, false),
+        // Whether a custom temperature survives WITH thinking on. True for open-weight/
+        // vLLM reasoners (gpt-oss, Bedrock MiniMax, all Nebius reasoners); false for the
+        // strict-reasoning APIs (Anthropic extended thinking, OpenAI 1P). Lets the FE
+        // keep the temperature field editable under thinking where the model allows it.
+        supportsTemperatureWithThinking: temperatureSupported(name, modelId, true),
       }));
       providers[name] = { models };
     }
