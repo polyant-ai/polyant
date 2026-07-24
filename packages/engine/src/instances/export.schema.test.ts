@@ -107,6 +107,41 @@ describe("instanceBundleSchema back-compat", () => {
     expect(() => instanceBundleSchema.parse(bundle)).toThrow();
   });
 
+  it("should_accept_the_1.2_version_literal", () => {
+    const bundle = legacyV1Bundle();
+    (bundle as { version: string }).version = "1.2";
+    expect(() => instanceBundleSchema.parse(bundle)).not.toThrow();
+  });
+
+  it("should_default_mcpServers_to_empty_for_legacy_bundles", () => {
+    const parsed = instanceBundleSchema.parse(legacyV1Bundle());
+    expect(parsed.instance.mcpServers).toEqual([]);
+  });
+
+  it("should_round_trip_an_mcp_server_entry_on_a_1.2_bundle", () => {
+    const bundle = legacyV1Bundle();
+    (bundle as { version: string }).version = "1.2";
+    (bundle.instance as Record<string, unknown>).mcpServers = [
+      {
+        slug: "github",
+        name: "GitHub",
+        url: "https://mcp.example.com",
+        authMode: "static",
+        enabled: false,
+        config: { auth: { type: "bearer" } },
+      },
+    ];
+
+    const parsed = instanceBundleSchema.parse(bundle);
+    expect(parsed.instance.mcpServers[0]).toMatchObject({
+      slug: "github",
+      name: "GitHub",
+      url: "https://mcp.example.com",
+      authMode: "static",
+      enabled: false,
+    });
+  });
+
   it("should_round_trip_hooks_and_channel_config_on_a_1.1_bundle", () => {
     const bundle = legacyV1Bundle();
     bundle.version = INSTANCE_BUNDLE_VERSION;
