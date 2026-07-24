@@ -97,6 +97,30 @@ describe("exportMcpServers", () => {
     expect((exported[0].config.staticClient as Record<string, unknown>)).toMatchObject({ clientId: "public-id" });
   });
 
+  it("SECURITY: an oauth server export never carries the dcrClient client_secret or registration_access_token", async () => {
+    listMcpServers.mockResolvedValue([
+      {
+        id: "s4", slug: "atlassian", name: "Atlassian", url: "https://mcp.atlassian.example.com",
+        authMode: "oauth", enabled: true,
+        config: {
+          scopes: ["read"],
+          dcrClient: {
+            client_id: "dcr-client-id",
+            client_secret: "super-secret-dcr-client-secret",
+            registration_access_token: "super-secret-registration-access-token",
+          },
+        },
+      },
+    ]);
+
+    const exported = await exportMcpServers(IID);
+    const serialized = JSON.stringify(exported);
+
+    expect(serialized).not.toContain("super-secret-dcr-client-secret");
+    expect(serialized).not.toContain("super-secret-registration-access-token");
+    expect(exported[0].config).not.toHaveProperty("dcrClient");
+  });
+
   it("carries slug/name/url/authMode/enabled through unchanged", async () => {
     listMcpServers.mockResolvedValue([
       {

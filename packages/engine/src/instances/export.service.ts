@@ -21,6 +21,7 @@ import { listEventSourcesWithDefinitions } from "../webhooks/webhook-sources.sto
 import { listByInstance as listScheduledTasks } from "../scheduled-tasks/store.js";
 import { listHooks } from "../hooks/hooks.store.js";
 import { listMcpServers, type McpAuthMode } from "./mcp-servers.store.js";
+import { MCP_SECRET_PATHS } from "../server/instances/mcp-config-mask.js";
 import { INSTANCE_BUNDLE_VERSION, type InstanceBundle, type ExportInstanceData } from "./export.schema.js";
 
 // Credential-like config keys, stripped from channel config before export so a
@@ -277,26 +278,35 @@ async function exportHooks(instanceId: InstanceUuid) {
 // stripSensitiveKeys (above) is FLAT (top-level key-name matching) — MCP
 // secrets are NESTED (config.auth.token, config.staticClient.clientSecret,
 // config.dcrClient.client_secret), so a flat strip would miss them entirely.
-// Mirrors the per-authMode secret paths in server/instances/mcp-config-mask.ts
-// (used there to MASK for API responses), but here we DELETE the field — a
-// bundle must never carry a token/secret at rest, masked or not. dcrClient is
-// dropped ENTIRELY rather than just its client_secret field: a DCR
-// registration response also carries a registration_access_token (itself a
-// bearer credential), and an export has no use for a DCR client anyway — a
-// fresh connect flow re-registers it. authServerInfo is left untouched — it
-// only carries the authorization server's public URLs.
+// The leaf paths themselves come from the SAME MCP_SECRET_PATHS const that
+// server/instances/mcp-config-mask.ts uses to MASK those fields for API
+// responses — a single source of truth, so a future secret field added to
+// one and missed in the other can't silently leak. Here we DELETE the field
+// (rather than mask it) — a bundle must never carry a token/secret at rest.
+// authServerInfo is left untouched — it only carries the authorization
+// server's public URLs.
+function deleteAtPath(obj: Record<string, unknown>, path: string[]): void {
+  let cur: Record<string, unknown> = obj;
+  for (let i = 0; i < path.length - 1; i++) {
+    const next = cur[path[i]];
+    if (typeof next !== "object" || next === null) return;
+    cur = next as Record<string, unknown>;
+  }
+  delete cur[path[path.length - 1]];
+}
+
 export function stripMcpSecrets(authMode: McpAuthMode, config: Record<string, unknown>): Record<string, unknown> {
   const copy = structuredClone(config);
-  if (authMode === "static") {
-    const auth = copy.auth;
-    if (auth && typeof auth === "object") delete (auth as Record<string, unknown>).token;
-  } else {
-    const staticClient = copy.staticClient;
-    if (staticClient && typeof staticClient === "object") {
-      delete (staticClient as Record<string, unknown>).clientSecret;
-    }
-    delete copy.dcrClient;
+  for (const path of MCP_SECRET_PATHS[authMode]) {
+    deleteAtPath(copy, path);
   }
+  // Beyond the shared leaf paths: dcrClient is dropped ENTIRELY (not just its
+  // client_secret leaf) because a DCR registration response also carries a
+  // registration_access_token — a second bearer credential the mask's leaf
+  // list doesn't need to know about (the response path redacts client_secret
+  // per-field), but an export has no use for a DCR client anyway — a fresh
+  // connect flow re-registers it.
+  delete copy.dcrClient;
   return copy;
 }
 

@@ -24,7 +24,7 @@ import { eventSources, eventDefinitions } from "../webhooks/webhooks.schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { computeNextRun } from "../scheduled-tasks/schedule-utils.js";
 import { instanceMcpServers } from "./mcp-servers.schema.js";
-import { mcpServerConfigSchema, type McpAuthMode } from "./mcp-servers.store.js";
+import { mcpServerConfigSchema, MCP_AUTH_MODES, type McpAuthMode } from "./mcp-servers.store.js";
 import { generateToken, encrypt } from "../crypto/index.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
@@ -40,7 +40,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface ImportWarning {
-  type: "missing_skill" | "missing_tool" | "secret_required" | "channel_credentials" | "skill_env_required" | "event_source_credentials" | "mcp_server_credentials";
+  type: "missing_skill" | "missing_tool" | "secret_required" | "channel_credentials" | "skill_env_required" | "event_source_credentials" | "mcp_server_credentials" | "mcp_server_invalid";
   message: string;
 }
 
@@ -540,8 +540,25 @@ export async function importMcpServers(
   const warnings: ImportWarning[] = [];
 
   for (const server of servers) {
-    const config = server.config ?? {};
     const authMode = server.authMode as McpAuthMode;
+
+    // exportMcpServerSchema.authMode is z.string() (export must round-trip
+    // whatever a future/foreign version writes), so an unknown value (e.g.
+    // "oidc", or garbage) is NOT rejected by the bundle schema. Guard it here:
+    // mcpServerConfigSchema falls back to the all-optional oauth schema for
+    // any authMode !== "static", so a bogus mode would otherwise validate and
+    // insert an ENABLED row the runtime doesn't recognize (no DB CHECK on
+    // auth_mode). Skip the server entirely rather than persist garbage —
+    // mirrors the per-item degradation used for channels/skills/tools above.
+    if (!MCP_AUTH_MODES.includes(authMode)) {
+      warnings.push({
+        type: "mcp_server_invalid",
+        message: `MCP server "${server.slug}" has unknown authMode "${server.authMode}" — skipped`,
+      });
+      continue;
+    }
+
+    const config = server.config ?? {};
 
     // A server can be safely (re)enabled on import ONLY if its stripped config
     // alone satisfies the auth mode's validation schema — i.e. it needs no

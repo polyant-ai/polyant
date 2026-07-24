@@ -9,7 +9,10 @@ const MASK = "••••";
 // (both the bearer and header variants share `auth.token`); oauth carries
 // two independent secrets — the admin-entered `staticClient.clientSecret`
 // and the server-issued `dcrClient.client_secret` (DCR spec field name).
-const SECRET_PATHS: Record<McpAuthMode, string[][]> = {
+// Exported so export.service.ts's stripMcpSecrets can derive its deletions
+// from this SAME list instead of hand-duplicating the secret paths (a
+// future secret field added here and missed there would leak into a bundle).
+export const MCP_SECRET_PATHS: Record<McpAuthMode, string[][]> = {
   static: [["auth", "token"]],
   oauth: [
     ["staticClient", "clientSecret"],
@@ -42,7 +45,7 @@ function setPath(obj: Record<string, unknown>, path: string[], value: unknown): 
 /** Deep-copy of config with every secret field redacted to MASK+last4 (for API responses). */
 export function maskMcpConfig(authMode: McpAuthMode, config: Record<string, unknown>): Record<string, unknown> {
   const copy = structuredClone(config);
-  for (const path of SECRET_PATHS[authMode]) {
+  for (const path of MCP_SECRET_PATHS[authMode]) {
     const value = getPath(copy, path);
     if (value !== undefined && value !== null && value !== "") {
       setPath(copy, path, MASK + String(value).slice(-4));
@@ -63,7 +66,7 @@ export function mergeMaskedMcpSecrets(
   existing: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
   const copy = structuredClone(incoming);
-  for (const path of SECRET_PATHS[authMode]) {
+  for (const path of MCP_SECRET_PATHS[authMode]) {
     const incomingValue = getPath(copy, path);
     const isMasked = incomingValue === undefined || (typeof incomingValue === "string" && incomingValue.startsWith(MASK));
     if (!isMasked) continue;

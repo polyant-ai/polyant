@@ -79,6 +79,26 @@ describe("importMcpServers", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("skips a server with an unknown authMode entirely (not inserted) and warns", async () => {
+    const { tx, inserted } = makeFakeTx();
+
+    const warnings = await importMcpServers(tx, "instance-1", [
+      {
+        slug: "rogue",
+        name: "Rogue",
+        url: "https://mcp.example.com",
+        authMode: "oidc", // not a member of MCP_AUTH_MODES
+        enabled: true,
+        config: {},
+      },
+    ]);
+
+    expect(inserted).toHaveLength(0);
+    expect(warnings).toEqual([
+      { type: "mcp_server_invalid", message: expect.stringContaining("rogue") },
+    ]);
+  });
+
   it("persists the stripped config verbatim (round-trips through encryption, no secret re-added)", async () => {
     const { tx, inserted } = makeFakeTx();
 
