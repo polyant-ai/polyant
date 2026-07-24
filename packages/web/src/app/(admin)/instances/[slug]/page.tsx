@@ -38,6 +38,7 @@ import { SkillsTab } from "./skills-tab";
 import { SettingsTab } from "./settings-tab";
 import { KnowledgeTab } from "./knowledge-tab";
 import { ChannelsTab } from "./channels-tab";
+import { McpServersTab } from "./mcp-servers-tab";
 import { AnalyticsTab } from "./analytics-tab";
 import { TriggersTab } from "./triggers-tab";
 import { RoomTab } from "./room-tab";
@@ -63,7 +64,7 @@ function HeaderSaveButton() {
 
 const TAB_VALUES = [
   "general", "prompts", "tools", "skills", "knowledge", "settings",
-  "channels", "analytics", "triggers", "room", "hooks", "privacy",
+  "channels", "mcp", "analytics", "triggers", "room", "hooks", "privacy",
 ] as const;
 const DEFAULT_TAB = "general";
 
@@ -233,6 +234,7 @@ function InstanceDetailContent() {
           <TabsTrigger value="knowledge">{t("instances.detail.tabKnowledge")}</TabsTrigger>
           <TabsTrigger value="settings">{t("instances.detail.tabSettings")}</TabsTrigger>
           <TabsTrigger value="channels">{t("instances.detail.tabChannels")}</TabsTrigger>
+          <TabsTrigger value="mcp">{t("instances.detail.tabMcp")}</TabsTrigger>
           <TabsTrigger value="analytics">{t("instances.detail.tabAnalytics")}</TabsTrigger>
           <TabsTrigger value="triggers">{t("instances.detail.tabTriggers")}</TabsTrigger>
           <TabsTrigger value="room">{t("instances.detail.tabRoom")}</TabsTrigger>
@@ -273,6 +275,9 @@ function InstanceDetailContent() {
         </TabsContent>
         <TabsContent value="channels" className="mt-6">
           <ChannelsTab slug={instance.slug} />
+        </TabsContent>
+        <TabsContent value="mcp" className="mt-6">
+          <McpServersTab slug={instance.slug} />
         </TabsContent>
         <TabsContent value="analytics" className="mt-6">
           <AnalyticsTab slug={instance.slug} />

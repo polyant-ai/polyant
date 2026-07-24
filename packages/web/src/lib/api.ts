@@ -68,6 +68,9 @@ export type {
   ActivityLogEntry,
   OptoutContact,
   EmbeddingWipeResult,
+  McpAuthMode,
+  McpServer,
+  McpTestResult,
 } from "./api-types";
 
 // Re-export value-level constants (the `export type` block above only carries types).
@@ -116,6 +119,9 @@ import type {
   OptoutContact,
   EmbeddingWipeResult,
   OrganizationMember,
+  McpAuthMode,
+  McpServer,
+  McpTestResult,
 } from "./api-types";
 
 // ── HTTP Client ─────────────────────────────────────────────────────
@@ -369,6 +375,32 @@ export const api = {
         `/api/instances/${encodeURIComponent(slug)}/channels/${encodeURIComponent(channelType)}`,
         { method: "DELETE" },
       ),
+  },
+  mcpServers: {
+    list: (slug: string) =>
+      request<McpServer[]>(`/api/instances/${encodeURIComponent(slug)}/mcp-servers`),
+    set: (
+      slug: string,
+      serverSlug: string,
+      body: { name: string; url: string; authMode: McpAuthMode; enabled: boolean; config: Record<string, unknown> },
+    ) =>
+      request<{ ok: boolean }>(
+        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}`,
+        { method: "PUT", body: JSON.stringify(body) },
+      ),
+    delete: (slug: string, serverSlug: string) =>
+      request<{ deleted: boolean }>(
+        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}`,
+        { method: "DELETE" },
+      ),
+    test: (
+      slug: string,
+      body: { name: string; url: string; authMode: McpAuthMode; enabled: boolean; config: Record<string, unknown> },
+    ) =>
+      request<McpTestResult>(`/api/instances/${encodeURIComponent(slug)}/mcp-servers/test`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
   knowledge: {
     list: (slug: string) =>

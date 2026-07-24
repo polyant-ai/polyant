@@ -771,3 +771,25 @@ export interface OptoutContact {
   source: string;
   updatedAt: string | null;
 }
+
+// ── MCP Servers ───────────────────────────────────────────────────────
+
+export type McpAuthMode = "static" | "oauth";
+
+export interface McpServer {
+  id: string;
+  slug: string;
+  name: string;
+  url: string;
+  authMode: McpAuthMode;
+  enabled: boolean;
+  /** Secret fields (token / clientSecret) are masked (`••••1234`) — see mcp-config-mask.ts on the engine. */
+  config: Record<string, unknown>;
+}
+
+export interface McpTestResult {
+  ok: boolean;
+  tools?: string[];
+  requiresOAuth?: boolean;
+  error?: string;
+}
