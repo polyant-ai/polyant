@@ -22,6 +22,7 @@ const oauthConfigSchema = z.object({
   scopes: z.array(z.string()).optional(),
   staticClient: z.object({ clientId: z.string().min(1), clientSecret: z.string().optional() }).optional(),
   dcrClient: z.record(z.unknown()).optional(),
+  authServerInfo: z.object({ authorizationServerUrl: z.string(), tokenEndpoint: z.string() }).optional(),
   allowList: z.array(z.string()).optional(),
 });
 

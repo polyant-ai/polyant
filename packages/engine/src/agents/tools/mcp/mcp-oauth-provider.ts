@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { OAuthClientProvider, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from "@ai-sdk/mcp";
+import type {
+  OAuthClientProvider,
+  OAuthClientInformation,
+  OAuthClientMetadata,
+  OAuthTokens,
+  OAuthAuthorizationServerInformation,
+} from "@ai-sdk/mcp";
 import { generateToken } from "../../../crypto/index.js";
 import { config } from "../../../config.js";
 import { type InstanceUuid } from "../../../instances/identifiers.js";
@@ -51,13 +57,15 @@ export class McpVaultOAuthProvider implements OAuthClientProvider {
   }
 
   get clientMetadata(): OAuthClientMetadata {
-    const cfg = this.deps.config as { scopes?: string[]; staticClient?: { clientSecret?: string } };
+    const cfg = this.deps.config as { scopes?: string[] };
     return {
       redirect_uris: [this.redirectUrl],
       client_name: `Polyant (${this.deps.serverSlug})`,
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      token_endpoint_auth_method: cfg.staticClient?.clientSecret ? "client_secret_post" : "none",
+      // DCR always registers a public client (PKCE); confidential clients are
+      // configured via `staticClient` and authenticate through clientInformation(), not DCR.
+      token_endpoint_auth_method: "none",
       scope: cfg.scopes?.join(" "),
     };
   }
@@ -74,6 +82,22 @@ export class McpVaultOAuthProvider implements OAuthClientProvider {
 
   async saveClientInformation(info: OAuthClientInformation): Promise<void> {
     await mergeMcpServerConfig(this.deps.instanceUuid, this.deps.serverSlug, { dcrClient: info });
+  }
+
+  /**
+   * Implementing these two members (both optional on `OAuthClientProvider`) diverts the SDK's
+   * `saveAuthorizationServerInformation()` helper away from its `saveClientInformation` fallback
+   * (verified in node_modules/@ai-sdk/mcp/dist/index.mjs): without them, every authorize run
+   * writes a spurious `dcrClient` even for a `staticClient`-only server — and since
+   * `clientInformation()` prefers `dcrClient` over `staticClient`, a later staticClient secret
+   * rotation would be silently ignored.
+   */
+  authorizationServerInformation(): OAuthAuthorizationServerInformation | undefined {
+    return (this.deps.config as { authServerInfo?: OAuthAuthorizationServerInformation }).authServerInfo;
+  }
+
+  async saveAuthorizationServerInformation(info: OAuthAuthorizationServerInformation): Promise<void> {
+    await mergeMcpServerConfig(this.deps.instanceUuid, this.deps.serverSlug, { authServerInfo: info });
   }
 
   async tokens(): Promise<OAuthTokens | undefined> {

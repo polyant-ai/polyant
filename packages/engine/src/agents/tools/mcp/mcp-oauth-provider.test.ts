@@ -95,4 +95,24 @@ describe("McpVaultOAuthProvider", () => {
     const p = makeMcpOAuthProvider({ ...deps, config: { staticClient: { clientId: "static-cid", clientSecret: "sek" } } as any });
     expect(await p.clientInformation()).toMatchObject({ client_id: "static-cid", client_secret: "sek" });
   });
+
+  it("should_always_request_a_public_client_via_dcr", () => {
+    const p = makeMcpOAuthProvider(deps);
+    expect(p.clientMetadata.token_endpoint_auth_method).toBe("none");
+  });
+
+  it("should_persist_authorization_server_information_to_server_config_not_client_information", async () => {
+    const p = makeMcpOAuthProvider(deps);
+    await p.saveAuthorizationServerInformation!({ authorizationServerUrl: "https://gh.test", tokenEndpoint: "https://gh.test/token" });
+    expect(merged[0]).toMatchObject({
+      slug: "gh",
+      patch: { authServerInfo: { authorizationServerUrl: "https://gh.test", tokenEndpoint: "https://gh.test/token" } },
+    });
+  });
+
+  it("should_read_authorization_server_information_from_server_config", async () => {
+    const authServerInfo = { authorizationServerUrl: "https://gh.test", tokenEndpoint: "https://gh.test/token" };
+    const p = makeMcpOAuthProvider({ ...deps, config: { authServerInfo } as any });
+    expect(await p.authorizationServerInformation!()).toEqual(authServerInfo);
+  });
 });
