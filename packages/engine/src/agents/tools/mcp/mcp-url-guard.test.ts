@@ -19,6 +19,12 @@ describe("assertSafeMcpUrl", () => {
     expect(() => assertSafeMcpUrl("https://mcp.example.com/sse", prodEnv)).not.toThrow();
   });
 
+  it("should_reject_bracketed_ipv6_private_host_in_prod", () => {
+    expect(() => assertSafeMcpUrl("https://[::1]/mcp", prodEnv)).toThrow();
+    expect(() => assertSafeMcpUrl("https://[fe80::1]/mcp", prodEnv)).toThrow();
+    expect(() => assertSafeMcpUrl("https://[fc00::1]/mcp", prodEnv)).toThrow();
+  });
+
   it("should_reject_non_http_scheme", () => {
     expect(() => assertSafeMcpUrl("file:///etc/passwd")).toThrow();
   });

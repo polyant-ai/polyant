@@ -6,7 +6,8 @@ import { RequirePermission, Permission } from "../../authz/index.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { asInstanceUuid } from "../../instances/identifiers.js";
-import { findInstanceOrFail, maskSensitiveConfig } from "./instance-helpers.js";
+import { findInstanceOrFail } from "./instance-helpers.js";
+import { maskMcpConfig, mergeMaskedMcpSecrets } from "./mcp-config-mask.js";
 import {
   setMcpServer,
   getMcpServer,
@@ -41,7 +42,7 @@ export class McpServersController {
   async list(@Param("slug") slug: string) {
     const inst = await findInstanceOrFail(slug);
     const servers = await listMcpServers(asInstanceUuid(inst.id));
-    return servers.map((s) => ({ ...s, config: maskSensitiveConfig(s.config as Record<string, unknown>) }));
+    return servers.map((s) => ({ ...s, config: maskMcpConfig(s.authMode, s.config as Record<string, unknown>) }));
   }
 
   @RequirePermission(Permission.CHANNEL_WRITE)
@@ -62,15 +63,23 @@ export class McpServersController {
 
     const inst = await findInstanceOrFail(slug);
 
-    // Merge masked (••••) values back to the existing config to preserve
-    // unchanged secrets (same pattern as InstanceChannelsController.setChannel).
+    // Restore masked (••••) secret fields from the existing config so a
+    // client re-submitting the masked GET response doesn't overwrite the
+    // real secret (nested paths — see mcp-config-mask.ts).
     const existing = await getMcpServer(asInstanceUuid(inst.id), serverSlug);
-    const merged: Record<string, unknown> = { ...((existing?.config as Record<string, unknown>) ?? {}) };
-    for (const [k, v] of Object.entries(parsed.data.config)) {
-      if (typeof v === "string" && v.startsWith("••••")) continue;
-      merged[k] = v;
+    const effective = mergeMaskedMcpSecrets(
+      parsed.data.authMode,
+      parsed.data.config,
+      existing?.config as Record<string, unknown> | undefined,
+    );
+    try {
+      mcpServerConfigSchema(parsed.data.authMode, effective); // validate the effective config
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        throw new BadRequestException(err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", "));
+      }
+      throw err;
     }
-    mcpServerConfigSchema(parsed.data.authMode, merged); // validate the effective config
 
     await setMcpServer(asInstanceUuid(inst.id), {
       slug: serverSlug,
@@ -78,7 +87,7 @@ export class McpServersController {
       url: parsed.data.url,
       authMode: parsed.data.authMode,
       enabled: parsed.data.enabled,
-      config: merged,
+      config: effective,
     });
     this.auditLogger.log({
       action: ManagementAuditAction.McpServerWrite,

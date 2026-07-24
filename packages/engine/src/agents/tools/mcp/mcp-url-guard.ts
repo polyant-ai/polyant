@@ -27,7 +27,9 @@ export function assertSafeMcpUrl(raw: string, env: NodeJS.ProcessEnv = process.e
   }
   if (env.NODE_ENV === "production") {
     if (u.protocol !== "https:") throw new BadRequestException("HTTPS required in production");
-    if (PRIVATE_HOST.test(u.hostname)) {
+    // IPv6 literals are bracketed in URL#hostname (e.g. "[::1]") — strip the
+    // brackets before testing, or loopback/link-local/ULA IPv6 hosts never match.
+    if (PRIVATE_HOST.test(u.hostname.replace(/^\[|\]$/g, ""))) {
       throw new BadRequestException("Private/loopback hosts are not allowed");
     }
   }
