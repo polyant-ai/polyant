@@ -41,7 +41,7 @@ import {
   runResponseGeneratedHooks,
   type PipelinePreResult,
 } from "./pipeline.js";
-import { generateWithReplay, MAX_REGENERATIONS } from "./hooks/response-replay.js";
+import { generateWithReplay, MAX_REGENERATIONS, EMPTY_SPEND, addPassSpend } from "./hooks/response-replay.js";
 import { hookProvenance } from "./hooks/hook-runner.js";
 import { runOptoutGate } from "./optout/index.js";
 
@@ -282,10 +282,18 @@ async function main() {
           : undefined,
     };
 
+    // Replay runs supervise up to MAX_REGENERATIONS+1×; accumulate the true spend
+    // across every pass so pipeline_traces reflects the whole turn, not just the
+    // delivered pass (each pass already logs to ai_logs on its own).
+    let spend = EMPTY_SPEND;
     let replay;
     try {
       replay = await generateWithReplay({
-        generate: () => supervise(superviseArgs),
+        generate: async () => {
+          const r = await supervise(superviseArgs);
+          spend = addPassSpend(spend, r);
+          return r;
+        },
         evaluate: (text, regen) => runResponseGeneratedHooks(ctx, messageText, text, regen, abortSignal),
         maxRegenerations: MAX_REGENERATIONS,
         abortSignal,
@@ -322,14 +330,21 @@ async function main() {
       debugPayload: result.debugPayload,
       assistantMessageId,
       toolCallTraces: result.toolCallTraces,
-      usage: result.usage,
+      // Spend fields are the SUM across replay passes; content fields (steps, tools,
+      // reasoning, model…) are the delivered (last) pass.
+      usage: {
+        promptTokens: spend.promptTokens,
+        completionTokens: spend.completionTokens,
+        cachedInputTokens: spend.cachedInputTokens,
+        cacheCreationInputTokens: spend.cacheCreationInputTokens,
+      },
       model: result.model,
       provider: result.provider,
-      cost: result.cost,
+      cost: spend.cost,
       thinking: result.thinking,
       temperature: result.temperature,
-      durationMs: result.durationMs,
-      toolBuildingMs: result.toolBuildingMs,
+      durationMs: spend.llmCallMs,
+      toolBuildingMs: spend.toolBuildingMs,
       isStreaming: false,
       abortSignal,
     });

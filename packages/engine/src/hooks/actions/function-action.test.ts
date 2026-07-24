@@ -94,11 +94,13 @@ describe("functionActionExecutor", () => {
     warn.mockRestore();
   });
 
-  it("should_capture_regenerate_and_warn_when_mutatesResponse_not_declared", async () => {
+  it("should_drop_regenerate_and_warn_when_mutatesResponse_not_declared", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { promise, captured } = run(def({ mutatesResponse: false, handler: () => ({ regenerate: { reason: "dirty" } }) }));
     await promise;
-    expect(captured.regenerate).toEqual({ reason: "dirty" });
+    // Hard gate: regenerate replays the whole turn, so it is DROPPED (not honored) when
+    // the hook forgot mutatesResponse — never a surprise multi-pass cost.
+    expect(captured.regenerate).toBeUndefined();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("mutatesResponse"));
     warn.mockRestore();
   });

@@ -188,4 +188,12 @@ describe("runResponseGeneratedHooks", () => {
     expect(outcome).toEqual({ summaries: [] });
     expect(runHooks).not.toHaveBeenCalled();
   });
+
+  it("skips hooks entirely on an aborted signal (abort-safe: no side effects on a discarded turn)", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const outcome = await runResponseGeneratedHooks(ctxWith({}), "hi", "out", 0, ac.signal);
+    expect(outcome).toEqual({ summaries: [] });
+    expect(runHooks).not.toHaveBeenCalled();
+  });
 });

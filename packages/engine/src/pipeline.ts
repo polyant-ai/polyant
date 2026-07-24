@@ -361,6 +361,12 @@ export async function runResponseGeneratedHooks(
   regenerationCount: number,
   abortSignal?: AbortSignal,
 ): Promise<ResponseGeneratedOutcome> {
+  // Abort-safe: a cancelled run must leave zero side effects. On the buffered replay
+  // path this runs INSIDE the generate/evaluate loop, BEFORE runPipelinePost's abort
+  // gate — so it is the gate for response_generated hook side effects (state writes,
+  // ai.chat, external calls). Once aborted, skip them entirely (they'd fire again on
+  // the coordinator's restarted run).
+  if (abortSignal?.aborted) return { summaries: [] };
   const payload = buildHookPayload(ctx, messageText, responseText, regenerationCount);
   if (!payload) return { summaries: [] };
   const hookCtx = buildHookRunContext(ctx, abortSignal);

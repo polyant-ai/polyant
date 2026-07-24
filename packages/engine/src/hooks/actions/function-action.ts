@@ -8,17 +8,15 @@ import { scopeSecrets } from "../../agents/tools/registry.js";
 import type { HookActionExecutor, HookRunContext } from "../hook-types.js";
 
 /**
- * Warn when a hook returns a mutation control (replaceResponse, regenerate)
- * without declaring mutatesResponse:true.
+ * Warn when a hook returns `replaceResponse` without declaring mutatesResponse:true.
+ * replaceResponse is a cheap text swap, so it is still honored on non-streamed turns
+ * (warn-only). `regenerate` diverges — see its call site — because it replays the
+ * whole turn and is therefore HARD-gated on the flag.
  */
-function warnIfMutationUndeclared(
-  mutatesResponse: boolean | undefined,
-  functionName: string,
-  action: "replaceResponse" | "regenerate",
-): void {
+function warnReplaceUndeclared(mutatesResponse: boolean | undefined, functionName: string): void {
   if (!mutatesResponse) {
     console.warn(
-      `[hooks] "${functionName}" returned ${action} without declaring mutatesResponse:true — honored only on non-streamed turns.`,
+      `[hooks] "${functionName}" returned replaceResponse without declaring mutatesResponse:true — honored only on non-streamed turns.`,
     );
   }
 }
@@ -66,14 +64,22 @@ export const functionActionExecutor: HookActionExecutor = {
     if (result.replaceResponse?.message?.trim()) {
       // Runtime enforcement of replaceResponse ⇒ mutatesResponse (can't be static —
       // it's a handler return). Never a silent no-op: warn when the flag is missing.
-      warnIfMutationUndeclared(def.mutatesResponse, functionName, "replaceResponse");
+      warnReplaceUndeclared(def.mutatesResponse, functionName);
       capture({ replaceResponse: { message: result.replaceResponse.message } });
     }
     if (result.regenerate) {
-      // Same runtime gate as replaceResponse: regenerate mutates the turn, so it
-      // is honored only on non-streamed (declare-and-buffer) turns.
-      warnIfMutationUndeclared(def.mutatesResponse, functionName, "regenerate");
-      capture({ regenerate: { reason: result.regenerate.reason } });
+      // regenerate replays the ENTIRE turn (system prompt + tools) up to MAX_REGENERATIONS×
+      // — far costlier than replaceResponse's text swap. So unlike replaceResponse it is
+      // HARD-gated on mutatesResponse: honored only when declared, else warn + DROP, so a
+      // hook missing the flag can never trigger a surprise multi-pass cost on a non-streamed
+      // turn. (On streamed turns it never reaches the buffered replay loop anyway.)
+      if (def.mutatesResponse) {
+        capture({ regenerate: { reason: result.regenerate.reason } });
+      } else {
+        console.warn(
+          `[hooks] "${functionName}" returned regenerate without declaring mutatesResponse:true — ignored.`,
+        );
+      }
     }
     if (typeof result.injectContext === "string" && result.injectContext.trim()) {
       capture({ injectContext: result.injectContext.slice(0, 4000) });
