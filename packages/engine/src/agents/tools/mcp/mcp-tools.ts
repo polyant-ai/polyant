@@ -2,7 +2,7 @@
 
 import { tool as aiTool, type Tool } from "ai";
 import { z } from "zod";
-import { createMCPClient, UnauthorizedError } from "@ai-sdk/mcp";
+import { createMCPClient, UnauthorizedError, type MCPClient } from "@ai-sdk/mcp";
 import { type InstanceUuid } from "../../../instances/identifiers.js";
 import { toModelToolName } from "../registry.js";
 import { listEnabledMcpServers, type McpServerRecord } from "../../../instances/mcp-servers.store.js";
@@ -44,8 +44,9 @@ export async function buildMcpTools(opts: { instanceUuid: InstanceUuid; conversa
       ? { type: "http" as const, url: server.url, authProvider: provider }
       : { type: "http" as const, url: server.url, headers: staticHeaders(server) };
 
+    let client: MCPClient | undefined;
     try {
-      const client = await createMCPClient({ transport });
+      client = await createMCPClient({ transport });
       const toolSet = await client.tools();
       for (const [toolName, t] of Object.entries(toolSet)) {
         if (allowList && !allowList.includes(toolName)) continue;
@@ -53,6 +54,14 @@ export async function buildMcpTools(opts: { instanceUuid: InstanceUuid; conversa
       }
       clients.push(client);
     } catch (e) {
+      // if a client opened but enumeration failed, don't leak it
+      if (client) {
+        try {
+          await client.close();
+        } catch {
+          /* best-effort */
+        }
+      }
       if (e instanceof UnauthorizedError && provider?.pendingAuthorizeUrl) {
         tools[toModelToolName(`mcp:${server.slug}:connect`)] = connectTool(server, provider.pendingAuthorizeUrl);
       } else {

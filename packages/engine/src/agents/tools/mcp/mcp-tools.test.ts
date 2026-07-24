@@ -21,13 +21,29 @@ describe("buildMcpTools", () => {
 
   it("should_namespace_and_wrap_static_server_tools", async () => {
     servers.push({ slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token: "t" } } });
+    const close = vi.fn();
     createMCPClient.mockResolvedValue({
       tools: async () => ({ create_issue: { description: "d", inputSchema: {}, execute: async () => "ok" } }),
-      close: vi.fn(),
+      close,
     });
-    const { tools, close } = await buildMcpTools({ instanceUuid: IID, conversationId: "c1" });
+    const { tools, close: closeAll } = await buildMcpTools({ instanceUuid: IID, conversationId: "c1" });
     expect(Object.keys(tools)).toContain("mcp__gh__create_issue");
-    await close();
+    await closeAll();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("should_close_client_when_tools_enumeration_throws", async () => {
+    servers.push({ slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token: "t" } } });
+    const close = vi.fn();
+    createMCPClient.mockResolvedValue({
+      tools: async () => {
+        throw new Error("enumeration failed");
+      },
+      close,
+    });
+    const { tools } = await buildMcpTools({ instanceUuid: IID, conversationId: "c1" });
+    expect(Object.keys(tools)).toHaveLength(0);
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("should_synthesize_connect_tool_on_unauthorized", async () => {

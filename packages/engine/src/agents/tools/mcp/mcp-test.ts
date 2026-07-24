@@ -26,9 +26,14 @@ export async function testMcpConnection(opts: McpTestOptions): Promise<McpTestRe
     const auth = (opts.config as { auth?: { type: string; token: string; headerName?: string } }).auth;
     const headers = auth ? (auth.type === "bearer" ? { Authorization: `Bearer ${auth.token}` } : { [auth.headerName!]: auth.token }) : {};
     const client = await createMCPClient({ transport: { type: "http", url: opts.url, headers } });
-    const toolSet = await client.tools();
-    await client.close();
-    return { ok: true, tools: Object.keys(toolSet) };
+    try {
+      const toolSet = await client.tools();
+      return { ok: true, tools: Object.keys(toolSet) };
+    } finally {
+      await client.close().catch(() => {
+        /* best-effort */
+      });
+    }
   } catch (e) {
     if (e instanceof UnauthorizedError) return { ok: true, requiresOAuth: true };
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
