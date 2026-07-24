@@ -388,8 +388,16 @@ describe("isReasoningAlwaysOn", () => {
     ["gpt-5.6-sol", true],
     ["gpt-5.6-luna", true],
     ["gpt-5.4", false],
-    // Hybrid (Qwen) / budget-based (Claude) have a real off.
+    // MiniMax (Bedrock + Nebius), Kimi K2, Qwen3-Next-Thinking reason on every call,
+    // no working off-switch (live-verified: enable_thinking:false still reasons).
+    ["minimax.minimax-m2.5", true],
+    ["MiniMaxAI/MiniMax-M2.5", true],
+    ["moonshotai/Kimi-K2.6", true],
+    ["moonshotai/Kimi-K2.7-Code", true],
+    ["Qwen/Qwen3-Next-80B-A3B-Thinking", true],
+    // Toggleable hybrids (Qwen3.5, GLM) / budget-based (Claude) have a real off.
     ["Qwen/Qwen3.5-397B-A17B", false],
+    ["zai-org/GLM-5.2", false],
     ["eu.anthropic.claude-sonnet-5", false],
     ["gpt-4o", false],
     ["", false],
@@ -412,7 +420,7 @@ describe("reasoningControlFor", () => {
     ["anthropic", "claude-haiku-4-5-20251001", "budget"],
     ["bedrock", "eu.anthropic.claude-opus-4-6-v1", "budget"],
     ["bedrock", "eu.anthropic.claude-haiku-4-5-20251001-v1:0", "budget"],
-    ["bedrock", "minimax.minimax-m2.5", "budget"],
+    ["bedrock", "minimax.minimax-m2.5", "effort"],
     // effort — OpenAI/Nebius reasoning + Bedrock gpt-oss.
     ["openai", "gpt-5.6-sol", "effort"],
     ["openai", "o3", "effort"],
@@ -483,14 +491,44 @@ describe("clampTemperature", () => {
 });
 
 describe("temperatureSupported", () => {
-  it("returns false when thinking is on, any provider", () => {
-    expect(temperatureSupported("openai", "gpt-4o", true)).toBe(false);
+  it("blocks temperature under thinking for proprietary strict-reasoning APIs (Anthropic + OpenAI)", () => {
+    // Anthropic extended thinking forces temperature=1; OpenAI 1P reasoning 400s on
+    // temp+reasoning (gpt-5.4: 200 temp-only vs 400 temp+reasoning). Verified.
     expect(temperatureSupported("anthropic", "claude-sonnet-4-6", true)).toBe(false);
+    expect(temperatureSupported("openai", "gpt-5.4", true)).toBe(false);
+    expect(temperatureSupported("openai", "gpt-5.4-mini", true)).toBe(false);
+    expect(temperatureSupported("openai", "gpt-4o", true)).toBe(false);
+    // Anthropic-on-Bedrock is the same models (budget/adaptive control) → blocked too.
+    expect(temperatureSupported("bedrock", "eu.anthropic.claude-sonnet-4-6", true)).toBe(false);
     expect(temperatureSupported("bedrock", "eu.amazon.nova-lite-v1:0", true)).toBe(false);
   });
-  it("returns false for OpenAI reasoning models", () => {
+  it("keeps temperature under thinking for open-weight/vLLM reasoners (gpt-oss, MiniMax, all Nebius)", () => {
+    // Live-verified: gpt-oss (Bedrock) accepts effort+temperature; MiniMax (Bedrock)
+    // reasons always + accepts temp; EVERY Nebius reasoner 200s on temp+reasoning_effort.
+    expect(temperatureSupported("bedrock", "openai.gpt-oss-120b-1:0", true)).toBe(true);
+    expect(temperatureSupported("bedrock", "openai.gpt-oss-20b-1:0", true)).toBe(true);
+    expect(temperatureSupported("bedrock", "minimax.minimax-m2.5", true)).toBe(true);
+    expect(temperatureSupported("nebius", "openai/gpt-oss-120b", true)).toBe(true);
+    expect(temperatureSupported("nebius", "Qwen/Qwen3.5-397B-A17B", true)).toBe(true);
+    expect(temperatureSupported("nebius", "zai-org/GLM-5.2", true)).toBe(true);
+    expect(temperatureSupported("nebius", "MiniMaxAI/MiniMax-M2.5", true)).toBe(true);
+    expect(temperatureSupported("nebius", "deepseek-ai/DeepSeek-V4-Pro", true)).toBe(true);
+  });
+  it("blocks temperature entirely for always-on reasoners whose API rejects it (o3/gpt-5.6)", () => {
+    // reasoningAlwaysOn AND temperature:false → never usable, even the thinking-on path.
+    expect(temperatureSupported("openai", "o3", true)).toBe(false);
     expect(temperatureSupported("openai", "o3", false)).toBe(false);
-    expect(temperatureSupported("openai", "gpt-5.4", false)).toBe(false);
+    expect(temperatureSupported("openai", "gpt-5.6-sol", true)).toBe(false);
+    expect(temperatureSupported("openai", "gpt-5.6-sol", false)).toBe(false);
+  });
+  it("unlocks temperature with reasoning OFF for gpt-5.4 family (real off-switch)", () => {
+    // Live-verified: /v1/responses returns 200 for temperature-only on gpt-5.4/mini/nano.
+    expect(temperatureSupported("openai", "gpt-5.4", false)).toBe(true);
+    expect(temperatureSupported("openai", "gpt-5.4-mini", false)).toBe(true);
+    expect(temperatureSupported("openai", "gpt-5.4-nano", false)).toBe(true);
+  });
+  it("returns false for always-on OpenAI reasoning models (o-series), incl. un-catalogued via fallback", () => {
+    expect(temperatureSupported("openai", "o3", false)).toBe(false);
     expect(temperatureSupported("openai", "o1", false)).toBe(false);
     expect(temperatureSupported("openai", "o4", false)).toBe(false);
   });

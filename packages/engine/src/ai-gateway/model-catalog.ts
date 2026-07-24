@@ -107,10 +107,17 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // GPT-4.1 family (cached 0.25× input)
       "gpt-4.1": { input: 2.00, output: 8.00, cacheRead: 0.50, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
       "gpt-4.1-mini": { input: 0.40, output: 1.60, cacheRead: 0.10, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
-      // GPT-5.4 family — reasoning, reject temperature; cached 0.1× input (official).
-      "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.4-mini": { input: 0.75, output: 4.50, cacheRead: 0.075, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.4-nano": { input: 0.20, output: 1.25, cacheRead: 0.02, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      // GPT-5.4 family — reasoning with a REAL off-switch (NOT reasoningAlwaysOn).
+      // temperature: true — LIVE-VERIFIED on /v1/responses: temperature accepted
+      // (HTTP 200) with reasoning OFF, rejected (400) when reasoning is ON. So it
+      // is temperature-capable, gated to reasoning-OFF by temperatureSupported
+      // (which, under thinking, blocks a custom temperature for EVERY OpenAI +
+      // Anthropic model regardless of reasoningAlwaysOn — so gpt-5.4 keeps
+      // temperature only with reasoning OFF).
+      // Cached 0.1× input (official).
+      "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
+      "gpt-5.4-mini": { input: 0.75, output: 4.50, cacheRead: 0.075, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
+      "gpt-5.4-nano": { input: 0.20, output: 1.25, cacheRead: 0.02, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       // GPT-5.6 family (Sol/Terra/Luna) — cache read 0.1×, cache WRITE 1.25×
       // (absolute published rates; unlike pre-5.6 these DO charge a write premium).
       // reasoningAlwaysOn: LIVE-VERIFIED — with reasoning OFF they still spend
@@ -216,10 +223,17 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // OpenAI open-weight (gpt-oss) — effort-based reasoning, always on (no off).
       "openai.gpt-oss-20b-1:0": { input: 0.09, output: 0.40, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
       "openai.gpt-oss-120b-1:0": { input: 0.20, output: 0.79, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
-      // MiniMax — DOES reason on Bedrock (live-verified: 2602→4023 reasoning chars
-      // low→high via budgetTokens). It also reasons with reasoning OFF, but is left
-      // toggleable (not a tier default); see verification notes.
-      "minimax.minimax-m2.5": { input: 0.36, output: 1.44, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
+      // MiniMax M2.5 — reasoningAlwaysOn (LIVE-VERIFIED 2026-07-23): returns a
+      // reasoningContent block on EVERY call with NO working off-switch (thinking:
+      // disabled / enable_thinking:false in additionalModelRequestFields all still
+      // reason), matching AWS's model card. NO effective reasoning control either:
+      // `budgetTokens` is Anthropic-only (SDK warns + strips it — the prior
+      // "budget" classification was wrong), and `maxReasoningEffort` is forwarded
+      // cleanly but INERT (low≈high, ~3300-3600 chars). Classified reasoningControl
+      // "effort" only so the gateway sends the clean (non-warning) wire shape;
+      // MiniMax ignores the level. temperature:true coexists with the always-on
+      // reasoning (temp accepted while reasoning — verified).
+      "minimax.minimax-m2.5": { input: 0.36, output: 1.44, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
     },
   },
   nebius: {
@@ -245,13 +259,16 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "google/gemma-3-27b-it": { input: 0.10, output: 0.30, reasoning: false, vision: false, temperature: true, cache: false },
       // — Reasoning [R] (emit reasoning_content) —
       "Qwen/Qwen3.5-397B-A17B": { input: 0.60, output: 3.60, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
-      "Qwen/Qwen3-Next-80B-A3B-Thinking": { input: 0.15, output: 1.20, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
+      // Qwen3-Next "-Thinking" reasons on EVERY call — enable_thinking:false is a
+      // no-op (LIVE-VERIFIED: still emits reasoning) → reasoningAlwaysOn.
+      "Qwen/Qwen3-Next-80B-A3B-Thinking": { input: 0.15, output: 1.20, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
       "deepseek-ai/DeepSeek-V4-Pro": { input: 1.75, output: 3.50, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
       "zai-org/GLM-5.1": { input: 1.40, output: 4.40, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
       "zai-org/GLM-5.2": { input: 1.40, output: 4.40, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
       "openai/gpt-oss-120b": { input: 0.15, output: 0.60, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
-      "moonshotai/Kimi-K2.7-Code": { input: 0.95, output: 4.00, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
-      "MiniMaxAI/MiniMax-M2.5": { input: 0.30, output: 1.20, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
+      // Kimi K2 + MiniMax reason on every call (enable_thinking:false no-op, LIVE-VERIFIED) → reasoningAlwaysOn.
+      "moonshotai/Kimi-K2.7-Code": { input: 0.95, output: 4.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
+      "MiniMaxAI/MiniMax-M2.5": { input: 0.30, output: 1.20, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
       "NousResearch/Hermes-4-70B": { input: 0.13, output: 0.40, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
       "NousResearch/Hermes-4-405B": { input: 1.00, output: 3.00, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
       // NVIDIA Nemotron family [R]
@@ -262,7 +279,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "nvidia/Nemotron-3-Ultra-550b-a55b": { input: 1.00, output: 3.00, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
       // — Vision-language [V] (also reasoning where noted) —
       "nvidia/Cosmos3-Super-Reasoner": { input: 0.10, output: 0.30, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: false }, // [R][V]
-      "moonshotai/Kimi-K2.6": { input: 0.95, output: 4.00, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: false }, // [R][V]
+      "moonshotai/Kimi-K2.6": { input: 0.95, output: 4.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: false }, // [R][V] always-on (LIVE-VERIFIED)
       "Qwen/Qwen2.5-VL-72B-Instruct": { input: 0.25, output: 0.75, reasoning: false, vision: true, temperature: true, cache: false },
       "openbmb/MiniCPM-V-4_5": { input: 0.658, output: 1.11, reasoning: false, vision: true, temperature: true, cache: false },
     },
