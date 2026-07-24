@@ -121,6 +121,14 @@ describe("maskSensitiveConfig", () => {
       debug: false,
     });
   });
+
+  it("hides short secrets fully so slice(-4) can't leak most of them", () => {
+    // ≤8 chars: no last-4 hint, otherwise a 4-char secret would be shown whole.
+    expect(maskSensitiveConfig({ authKey: "1234" }).authKey).toBe("••••");
+    expect(maskSensitiveConfig({ authKey: "12345678" }).authKey).toBe("••••");
+    // >8 chars keeps the last-4 hint.
+    expect(maskSensitiveConfig({ authKey: "123456789" }).authKey).toBe("••••6789");
+  });
 });
 
 // ---------------------------------------------------------------------------

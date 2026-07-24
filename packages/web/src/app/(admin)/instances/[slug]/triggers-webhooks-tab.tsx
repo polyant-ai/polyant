@@ -86,10 +86,16 @@ export function TriggersWebhooksTab({ slug }: Props) {
     }
   }
 
-  async function handleUpdateSource(id: string, data: { name?: string }) {
+  async function handleUpdateSource(id: string, data: { name?: string; config?: Record<string, unknown> }) {
     try {
       await api.eventSources.update(slug, id, data);
-      setSources((prev) => prev.map((s) => (s.id === id ? { ...s, ...data } : s)));
+      // A config change (e.g. the auth secret) must be reloaded so the masked
+      // value reflects; a plain name edit can update optimistically.
+      if (data.config) {
+        await loadSources();
+      } else {
+        setSources((prev) => prev.map((s) => (s.id === id ? { ...s, ...data } : s)));
+      }
       toast.success(t("common.saved"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("room.source.updateFailed")));

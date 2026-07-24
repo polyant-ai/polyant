@@ -7,6 +7,7 @@ import {
 } from "../../webhooks/webhook-sources.store.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { maskSensitiveConfig } from "../instances/instance-helpers.js";
 import { config } from "../../config.js";
 import {
   createEventSourceSchema, updateEventSourceSchema,
@@ -27,9 +28,7 @@ export class EventSourcesController {
     const sources = await listEventSourcesWithDefinitions(asInstanceSlug(slug));
     return sources.map((s) => ({
       ...s,
-      config: Object.fromEntries(
-        Object.entries(s.config).map(([k, v]) => [k, typeof v === "string" && v.length > 4 ? `••••${v.slice(-4)}` : v]),
-      ),
+      config: maskSensitiveConfig(s.config),
       webhookUrl: buildWebhookUrl(s.webhookToken),
     }));
   }
