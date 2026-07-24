@@ -15,6 +15,7 @@ import { InstanceToolsController } from "./instances/instance-tools.controller.j
 import { InstanceSkillsController } from "./instances/instance-skills.controller.js";
 import { InstanceSecretsController } from "./instances/instance-secrets.controller.js";
 import { InstanceChannelsController } from "./instances/instance-channels.controller.js";
+import { McpServersController } from "./instances/mcp-servers.controller.js";
 import { ConversationsController } from "./conversations/conversations.controller.js";
 import { AnalyticsController } from "./analytics/analytics.controller.js";
 import { ToolsController } from "./tools/tools.controller.js";
@@ -75,6 +76,7 @@ import { OrganizationsModule } from "../organizations/organizations.module.js";
     InstanceSkillsController,
     InstanceSecretsController,
     InstanceChannelsController,
+    McpServersController,
     ConversationsController,
     AnalyticsController,
     ToolsController,
