@@ -25,7 +25,7 @@ vi.mock("../audit/audit-logger.js", () => ({
   createAuditLogger: () => ({ log: auditLogMock }),
 }));
 
-import { runHooks, collectInjectContext, hookProvenance } from "./hook-runner.js";
+import { runHooks, collectInjectContext, hookProvenance, firstRegenerate } from "./hook-runner.js";
 import type { HookEventPayload, HookExecutionSummary, HookRunContext, InstanceHookRow } from "./hook-types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
@@ -222,6 +222,30 @@ describe("runHooks", () => {
     expect(await runHooks("message_received", payload, baseCtx)).toEqual([]);
     getEnabledHooksMock.mockRejectedValue(new Error("db down"));
     expect(await runHooks("message_received", payload, baseCtx)).toEqual([]);
+  });
+});
+
+describe("firstRegenerate", () => {
+  function summary(overrides: Partial<HookExecutionSummary & { regenerate?: { reason?: string } }>): HookExecutionSummary {
+    return {
+      hookId: "h",
+      event: "message_received",
+      actionType: "function",
+      toolName: "t",
+      success: true,
+      durationMs: 1,
+      ...overrides,
+    } as HookExecutionSummary;
+  }
+
+  it("returns the first regenerate signal across summaries", () => {
+    expect(
+      firstRegenerate([summary({}), summary({ regenerate: { reason: "dirty" } })]),
+    ).toEqual({ reason: "dirty" });
+  });
+
+  it("returns undefined when no summary requested regenerate", () => {
+    expect(firstRegenerate([summary({}), summary({})])).toBeUndefined();
   });
 });
 

@@ -38,8 +38,10 @@ import {
   runPipelinePre,
   runPipelinePost,
   hasResponseMutatingHook,
+  runResponseGeneratedHooks,
   type PipelinePreResult,
 } from "./pipeline.js";
+import { generateWithReplay, MAX_REGENERATIONS, EMPTY_SPEND, addPassSpend } from "./hooks/response-replay.js";
 import { hookProvenance } from "./hooks/hook-runner.js";
 import { runOptoutGate } from "./optout/index.js";
 
@@ -244,41 +246,57 @@ async function main() {
       return { text: finalText };
     }
 
-    // Phase 3: Supervisor (LLM call + tool building)
+    // Phase 3: Supervisor (LLM call + tool building), with response_generated
+    // replay: a hook may discard the output and ask to re-run the real turn.
     const agentMeta = msg.metadata?.agentCall as AgentCallMetadata | undefined;
-    let result;
+    const superviseArgs = {
+      message: messageText,
+      conversationHistory: ctx.history,
+      instanceId: ctx.instanceId,
+      conversationId: ctx.conversationId,
+      conversationSummary: ctx.conversationSummary,
+      contextPrompt: ctx.contextPrompt,
+      channelIdentity: ctx.channelIdentity,
+      provider: ctx.instanceConfig.provider,
+      model: ctx.instanceConfig.model,
+      apiKeys: ctx.instanceConfig.apiKeys,
+      secrets: ctx.instanceConfig.secrets,
+      langsmith: ctx.langsmith,
+      memoryEnabled: ctx.instanceConfig.memoryEnabled,
+      knowledgeEnabled: ctx.instanceConfig.knowledgeEnabled,
+      thinkingEnabled: ctx.instanceConfig.thinkingEnabled,
+      thinkingLevel: ctx.instanceConfig.thinkingLevel,
+      temperature: ctx.instanceConfig.temperature ?? undefined,
+      attachments: msg.attachments,
+      abortSignal,
+      agentCallDepth: agentMeta?.depth,
+      agentCallMetadata: agentMeta,
+      stateBuffer: ctx.stateBuffer,
+      stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
+      datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
+      cacheConfig: ctx.instanceConfig.cacheConfig,
+      debugEnabled: ctx.instanceConfig.debugEnabled,
+      optoutHint:
+        ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
+          ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
+          : undefined,
+    };
+
+    // Replay runs supervise up to MAX_REGENERATIONS+1×; accumulate the true spend
+    // across every pass so pipeline_traces reflects the whole turn, not just the
+    // delivered pass (each pass already logs to ai_logs on its own).
+    let spend = EMPTY_SPEND;
+    let replay;
     try {
-      result = await supervise({
-        message: messageText,
-        conversationHistory: ctx.history,
-        instanceId: ctx.instanceId,
-        conversationId: ctx.conversationId,
-        conversationSummary: ctx.conversationSummary,
-        contextPrompt: ctx.contextPrompt,
-        channelIdentity: ctx.channelIdentity,
-        provider: ctx.instanceConfig.provider,
-        model: ctx.instanceConfig.model,
-        apiKeys: ctx.instanceConfig.apiKeys,
-        secrets: ctx.instanceConfig.secrets,
-        langsmith: ctx.langsmith,
-        memoryEnabled: ctx.instanceConfig.memoryEnabled,
-        knowledgeEnabled: ctx.instanceConfig.knowledgeEnabled,
-        thinkingEnabled: ctx.instanceConfig.thinkingEnabled,
-        thinkingLevel: ctx.instanceConfig.thinkingLevel,
-        temperature: ctx.instanceConfig.temperature ?? undefined,
-        attachments: msg.attachments,
+      replay = await generateWithReplay({
+        generate: async () => {
+          const r = await supervise(superviseArgs);
+          spend = addPassSpend(spend, r);
+          return r;
+        },
+        evaluate: (text, regen) => runResponseGeneratedHooks(ctx, messageText, text, regen, abortSignal),
+        maxRegenerations: MAX_REGENERATIONS,
         abortSignal,
-        agentCallDepth: agentMeta?.depth,
-        agentCallMetadata: agentMeta,
-        stateBuffer: ctx.stateBuffer,
-        stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
-        datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
-        cacheConfig: ctx.instanceConfig.cacheConfig,
-        debugEnabled: ctx.instanceConfig.debugEnabled,
-        optoutHint:
-          ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
-            ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
-            : undefined,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
@@ -287,27 +305,46 @@ async function main() {
       }
       throw err;
     }
+    const { result, finalText: replayText, outcome } = replay;
+    // Only a genuine cap exhaustion warrants this warning: a mid-loop abort also
+    // leaves `outcome.regenerate` set, but there the run is being cancelled (and
+    // runPipelinePost's abort gate skips persistence), not hitting the cap.
+    if (outcome.regenerate && !abortSignal?.aborted) {
+      console.warn(
+        `[pipeline] ${ctx.conversationId}: regenerate still requested after MAX_REGENERATIONS=${MAX_REGENERATIONS} — delivering last output`,
+      );
+    }
 
-    // Phase 4+5: Trace + afterResponse (skipped on abort)
+    // Phase 4+5: Trace + afterResponse (skipped on abort). Pass the pre-computed
+    // response_generated outcome so runPipelinePost neither re-runs those hooks
+    // nor re-applies replace (replayText already reflects it).
     const { finalText } = await runPipelinePost({
       ctx,
       contextPrepMs,
       messageText,
       channel: msg.channelType,
-      resultText: result.text,
+      resultText: replayText,
+      responseGenerated: outcome,
       steps: result.steps,
       reasoning: result.reasoning,
       debugPayload: result.debugPayload,
       assistantMessageId,
       toolCallTraces: result.toolCallTraces,
-      usage: result.usage,
+      // Spend fields are the SUM across replay passes; content fields (steps, tools,
+      // reasoning, model…) are the delivered (last) pass.
+      usage: {
+        promptTokens: spend.promptTokens,
+        completionTokens: spend.completionTokens,
+        cachedInputTokens: spend.cachedInputTokens,
+        cacheCreationInputTokens: spend.cacheCreationInputTokens,
+      },
       model: result.model,
       provider: result.provider,
-      cost: result.cost,
+      cost: spend.cost,
       thinking: result.thinking,
       temperature: result.temperature,
-      durationMs: result.durationMs,
-      toolBuildingMs: result.toolBuildingMs,
+      durationMs: spend.llmCallMs,
+      toolBuildingMs: spend.toolBuildingMs,
       isStreaming: false,
       abortSignal,
     });
