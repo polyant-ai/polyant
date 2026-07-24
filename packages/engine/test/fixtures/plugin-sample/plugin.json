@@ -1,1 +1,1 @@
-{ "name": "sample", "version": "1.0.0", "engine": ">=0.1.0", "namespace": "sample" }
+{ "name": "sample", "version": "1.0.0", "engine": ">=0.1.0", "namespace": "sample", "oauthProviders": [{ "name": "sample-svc", "authorizeUrl": "https://auth.example/authorize", "tokenUrl": "https://auth.example/token", "scope": "read" }] }

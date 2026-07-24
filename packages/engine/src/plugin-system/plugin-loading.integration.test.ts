@@ -33,6 +33,7 @@ import {
   getToolRegistry,
   _resetRegistryForTests,
 } from "../agents/tools/registry.js";
+import { getOAuthProvider, _resetOAuthRegistryForTests } from "../server/oauth/oauth-providers.js";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const fixtures = join(__dir, "../../test/fixtures");
@@ -44,6 +45,7 @@ const badSchemaFixture = join(fixtures, "plugin-badschema");
 describe("plugin loading (serialized contract, integration)", () => {
   beforeEach(() => {
     _resetRegistryForTests();
+    _resetOAuthRegistryForTests();
     vi.clearAllMocks();
     // Core tools dir → []; fixture tool dirs → their real tool filename.
     vi.mocked(readdirSync).mockImplementation((dir: unknown) => {
@@ -79,6 +81,11 @@ describe("plugin loading (serialized contract, integration)", () => {
 
     // incompatible (engine >=99.0.0) → skipped.
     expect(getToolRegistry().has("incompatible:nope")).toBe(false);
+
+    // The compatible plugin's OAuth provider is registered; the incompatible
+    // plugin's is NOT (the engine-range gate applies to providers too).
+    expect(getOAuthProvider("sample-svc")).toBeDefined();
+    expect(getOAuthProvider("incompatible-svc")).toBeUndefined();
   });
 
   it("isolates a plugin that throws at import — boot continues, good plugins still load", async () => {

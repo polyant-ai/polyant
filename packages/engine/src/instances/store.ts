@@ -6,6 +6,7 @@ import { DEFAULT_EMBEDDING_DIM, embeddingProviderFor } from "../embeddings-gatew
 import type { EmbeddingProvider } from "../embeddings-gateway/types.js";
 import { instances } from "./schema.js";
 import { conversations, conversationMessages, conversationState } from "../conversations/schema.js";
+import { principalSecrets } from "../conversations/principal-secrets.schema.js";
 import { memories } from "../memory/schema.js";
 import { knowledgeDocuments } from "../knowledge/schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
@@ -277,6 +278,8 @@ export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
     await tx.delete(scheduledTasks).where(eq(scheduledTasks.instanceId, slug));
     // conversation_state is slug-keyed operational/PII data — drop it too.
     await tx.delete(conversationState).where(eq(conversationState.instanceId, slug));
+    // principal_secrets (encrypted OAuth tokens) are slug-keyed too.
+    await tx.delete(principalSecrets).where(eq(principalSecrets.instanceId, slug));
 
     const result = await tx.delete(instances).where(eq(instances.slug, slug)).returning();
     return result.length > 0;

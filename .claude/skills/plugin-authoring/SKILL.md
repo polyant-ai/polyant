@@ -63,6 +63,18 @@ under its `plugin.json` namespace, skipping engine-range mismatches.
 
 `src/plugins/` is gitignored (runtime drop dir). External plugins live in their own repos and reference `@polyant-ai/plugin-sdk` as a public git dependency (`git+https://github.com/polyant-ai/polyant-sdk.git#v1.0.0`).
 
+## OAuth providers (for OAuth tools)
+
+A plugin whose tools use `ctx.oauth` declares the providers they need under
+`oauthProviders` in `plugin.json` (`{ name, authorizeUrl, tokenUrl, scope,
+extraAuthorizeParams?, pkce? }`) — the engine registers them into its OAuth
+broker at boot, so shipping a provider needs no engine change. The tool then
+calls `ctx.oauth.requireToken("<name>")` and declares client credentials via
+`oauthRequiredSecrets("<name>")`. Provider `name` is a flat global key (secret
+keys, token vault, `/oauth/<name>/callback`) — not namespaced; a same-name
+divergent definition across two plugins fails the boot (use distinct names for
+divergent scopes). `OAuthProviderSpec` is exported from the SDK as optional typing.
+
 ## Verify
 - `npm run typecheck -w @polyant/engine`
 - `npx vitest run --root packages/engine "src/agents/tools/" "src/plugin-system/"`

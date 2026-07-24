@@ -5,6 +5,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { config } from "../../config.js";
 import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
+import { stripReasoningTags } from "../strip-reasoning-tags.js";
 import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 
@@ -347,7 +348,12 @@ function buildChatResponse(
     normaliseReasoningDetails(topLevelReasoning) ?? aggregateReasoning(steps);
 
   return {
-    text,
+    // Strip chain-of-thought the model may have leaked inline into the reply
+    // text (e.g. <reasoning>…</reasoning>). Both chat and chatStream funnel
+    // their final text through here, so this is the single provider-agnostic
+    // chokepoint upstream of persistence and every channel. steps[].text is
+    // intentionally left raw so the debug trail still shows what was emitted.
+    text: stripReasoningTags(text),
     steps,
     ...(reasoning ? { reasoning } : {}),
     usage: {
