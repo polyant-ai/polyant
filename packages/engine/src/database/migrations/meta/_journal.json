@@ -449,6 +449,13 @@
       "when": 1781395200000,
       "tag": "0070_oauth_states",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1781568000000,
+      "tag": "0071_instance_mcp_servers",
+      "breakpoints": true
     }
   ]
 }
