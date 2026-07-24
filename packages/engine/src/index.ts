@@ -298,7 +298,10 @@ async function main() {
       throw err;
     }
     const { result, finalText: replayText, outcome } = replay;
-    if (outcome.regenerate) {
+    // Only a genuine cap exhaustion warrants this warning: a mid-loop abort also
+    // leaves `outcome.regenerate` set, but there the run is being cancelled (and
+    // runPipelinePost's abort gate skips persistence), not hitting the cap.
+    if (outcome.regenerate && !abortSignal?.aborted) {
       console.warn(
         `[pipeline] ${ctx.conversationId}: regenerate still requested after MAX_REGENERATIONS=${MAX_REGENERATIONS} — delivering last output`,
       );
