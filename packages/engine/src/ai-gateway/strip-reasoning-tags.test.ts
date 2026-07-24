@@ -42,6 +42,36 @@ describe("stripReasoningTags", () => {
     expect(stripReasoningTags("a <div>hello</div> b")).toBe("a <div>hello</div> b");
   });
 
+  // Cases below are verbatim shapes observed leaking into persisted replies:
+  // Qwen leaks ChatML tokens on Bedrock, gpt-oss leaks harmony `to=functions.`.
+  it("strips a leaked ChatML pipe token (im_start) but keeps the reply", () => {
+    const reported =
+      'In quale zona preferisce effettuare la visita?\n<|im_start|>\n{"name": "searchAppointmentSlots"}';
+    const out = stripReasoningTags(reported);
+    expect(out).not.toContain("<|im_start|>");
+    expect(out).toContain("In quale zona preferisce effettuare la visita?");
+  });
+
+  it("strips a paired ChatML tool_call block including its JSON payload", () => {
+    const out = stripReasoningTags(
+      'ok\n<|tool_call|>\n{"name":"clinicInfo","arguments":{"city":"Ovada"}}\n</|tool_call|>',
+    );
+    expect(out).toBe("ok");
+  });
+
+  it("strips the plain-text harmony to=functions call syntax (no angle brackets)", () => {
+    const out = stripReasoningTags(
+      "Ho appena registrato la richiamata.\n\nto=functions.innova__registraRichiamata",
+    );
+    expect(out).not.toContain("to=functions");
+    expect(out).toContain("Ho appena registrato la richiamata.");
+  });
+
+  it("does not strip ordinary pipes or an unpaired '<|' without a closing '|>'", () => {
+    expect(stripReasoningTags("| a | b |\n|---|---|")).toBe("| a | b |\n|---|---|");
+    expect(stripReasoningTags("use a <| b as a guard")).toBe("use a <| b as a guard");
+  });
+
   it("passes clean text through unchanged", () => {
     expect(stripReasoningTags("Ciao, come posso aiutarti?")).toBe("Ciao, come posso aiutarti?");
   });
