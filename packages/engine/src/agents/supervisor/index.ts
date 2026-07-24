@@ -31,6 +31,7 @@ import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
 import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
+import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
 
 export interface SupervisorInput {
   message: string;
@@ -383,6 +384,8 @@ interface SupervisorContext {
   toolBuildingMs: number;
   toolCallTraces: ToolCallTrace[];
   signals: SupervisorSignals;
+  /** Closes every MCP client opened for this turn. Always await it, win or lose. */
+  mcpClose: () => Promise<void>;
 }
 
 /**
@@ -471,6 +474,18 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   });
   const toolBuildingMs = Date.now() - toolBuildStart;
 
+  // MCP tools are additive: merge them in after core tools so an MCP server
+  // can never clobber a core/plugin tool name (warn instead of overwrite —
+  // core tools are DB-governed, MCP servers are instance-configured and less trusted).
+  const mcp = await buildMcpTools({ instanceUuid, conversationId: input.conversationId });
+  for (const [name, mcpTool] of Object.entries(mcp.tools)) {
+    if (name in tools) {
+      console.warn(`MCP tool name collision: "${name}" already equipped by a core/plugin tool — skipping`);
+      continue;
+    }
+    tools[name] = mcpTool;
+  }
+
   const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
     tools,
     instanceId: instanceUuid,
@@ -495,7 +510,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     { role: "user", content: userContent },
   ];
 
-  return { instanceId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals };
+  return { instanceId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals, mcpClose: mcp.close };
 }
 
 // ---------------------------------------------------------------------------
@@ -540,10 +555,11 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
     }
   })();
 
-  return {
-    textStream: ttfbTextStream,
-    fullStream: stream.fullStream,
-    completed: stream.response.then((response) => {
+  // The stream outlives this function's return, so MCP clients can't close
+  // synchronously here — tear them down once `completed` settles (success or
+  // error), via `.finally` on the mapped promise below.
+  const completed = stream.response
+    .then((response) => {
       pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
       return {
         text: response.text,
@@ -563,55 +579,67 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
         replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
         ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
       };
-    }),
+    })
+    .finally(() => ctx.mcpClose());
+
+  return {
+    textStream: ttfbTextStream,
+    fullStream: stream.fullStream,
+    completed,
   };
 }
 
 export async function supervise(input: SupervisorInput): Promise<SupervisorOutput> {
   const ctx = await prepareSupervisor(input);
 
-  const response = await chat(
-    {
-      tier: "standard",
-      provider: input.provider,
-      model: input.model,
-      thinking: input.thinkingEnabled ?? false,
-      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-      ...(input.temperature != null ? { temperature: input.temperature } : {}),
-      apiKeys: input.apiKeys,
-      langsmith: input.langsmith,
-      system: ctx.systemPrompt,
-      messages: ctx.messages,
-      tools: ctx.tools,
-      maxSteps: 15,
-      abortSignal: input.abortSignal,
-      captureDebug: input.debugEnabled ?? false,
-      cacheConfig: input.cacheConfig,
-    },
-    {
-      conversationId: input.conversationId,
-      instanceId: ctx.instanceId,
-      agentCallMetadata: input.agentCallMetadata,
-    }
-  );
+  try {
+    const response = await chat(
+      {
+        tier: "standard",
+        provider: input.provider,
+        model: input.model,
+        thinking: input.thinkingEnabled ?? false,
+        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+        ...(input.temperature != null ? { temperature: input.temperature } : {}),
+        apiKeys: input.apiKeys,
+        langsmith: input.langsmith,
+        system: ctx.systemPrompt,
+        messages: ctx.messages,
+        tools: ctx.tools,
+        maxSteps: 15,
+        abortSignal: input.abortSignal,
+        captureDebug: input.debugEnabled ?? false,
+        cacheConfig: input.cacheConfig,
+      },
+      {
+        conversationId: input.conversationId,
+        instanceId: ctx.instanceId,
+        agentCallMetadata: input.agentCallMetadata,
+      }
+    );
 
-  pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
+    pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
 
-  return {
-    text: response.text,
-    steps: response.steps,
-    ...(response.reasoning ? { reasoning: response.reasoning } : {}),
-    usage: response.usage,
-    model: response.model,
-    provider: response.provider,
-    ...(response.cost ? { cost: response.cost } : {}),
-    thinking: response.thinking,
-    temperature: response.temperature,
-    durationMs: response.durationMs,
-    toolBuildingMs: ctx.toolBuildingMs,
-    toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
-    replyHandled: ctx.signals.replyHandled || undefined,
-    replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
-    ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
-  };
+    return {
+      text: response.text,
+      steps: response.steps,
+      ...(response.reasoning ? { reasoning: response.reasoning } : {}),
+      usage: response.usage,
+      model: response.model,
+      provider: response.provider,
+      ...(response.cost ? { cost: response.cost } : {}),
+      thinking: response.thinking,
+      temperature: response.temperature,
+      durationMs: response.durationMs,
+      toolBuildingMs: ctx.toolBuildingMs,
+      toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
+      replyHandled: ctx.signals.replyHandled || undefined,
+      replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
+      ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
+    };
+  } finally {
+    // Non-streamed: the turn is fully done by the time we get here (success or
+    // throw) — safe to tear down MCP clients synchronously.
+    await ctx.mcpClose();
+  }
 }

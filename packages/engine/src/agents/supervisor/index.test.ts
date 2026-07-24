@@ -17,6 +17,7 @@ const {
   mockCreateTaskTool,
   mockBuildPrompt,
   mockPipelineLog,
+  mockBuildMcpTools,
 } = vi.hoisted(() => ({
   mockChat: vi.fn(),
   mockChatStream: vi.fn(),
@@ -31,6 +32,10 @@ const {
     supervisorStart: vi.fn(),
     supervisorDone: vi.fn(),
   },
+  // MCP wiring (Task 8): these pre-existing tests don't exercise MCP tools —
+  // default to an empty result so `prepareSupervisor` doesn't hit the real
+  // (unmocked-here) mcp-servers store.
+  mockBuildMcpTools: vi.fn(),
 }));
 
 vi.mock("../../ai-gateway/index.js", () => ({
@@ -100,6 +105,10 @@ vi.mock("../tools/agent-invoke.helpers.js", () => ({
 
 vi.mock("../../channels/adapters/agent.adapter.js", () => ({}));
 
+vi.mock("../tools/mcp/mcp-tools.js", () => ({
+  buildMcpTools: mockBuildMcpTools,
+}));
+
 import { buildUserContent, supervise, superviseStream } from "./index.js";
 import type { SupervisorInput } from "./index.js";
 import type { Attachment } from "../../channels/types.js";
@@ -133,6 +142,7 @@ beforeEach(() => {
   mockCreateTaskTool.mockReturnValue({ _type: "task-tool" });
   mockBuildPrompt.mockResolvedValue({ system: "System prompt content", turnContext: "" });
   mockChat.mockResolvedValue(defaultChatResponse);
+  mockBuildMcpTools.mockResolvedValue({ tools: {}, close: vi.fn().mockResolvedValue(undefined) });
 });
 
 // =========================================================================
