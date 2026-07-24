@@ -38,4 +38,14 @@ describe("mcp-servers.store", () => {
     // the persisted row's config column must NOT be plaintext
     expect(rows[0].config).not.toContain("secret-token");
   });
+
+  it("should_strip_stray_token_key_from_oauth_config_before_persisting", async () => {
+    await setMcpServer(IID, {
+      slug: "oauth-server", name: "OAuth Server", url: "https://mcp.example.com", authMode: "oauth", enabled: true,
+      config: { scopes: ["repo"], token: "leak" },
+    });
+    const enabled = await listEnabledMcpServers(IID);
+    expect(enabled[0].config).toMatchObject({ scopes: ["repo"] });
+    expect(enabled[0].config).not.toHaveProperty("token");
+  });
 });

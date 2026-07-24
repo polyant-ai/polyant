@@ -74,8 +74,8 @@ export interface SetMcpServerInput {
 }
 
 export async function setMcpServer(instanceId: InstanceUuid, input: SetMcpServerInput): Promise<void> {
-  mcpServerConfigSchema(input.authMode, input.config); // validate before encrypt
-  const encryptedConfig = encrypt(JSON.stringify(input.config));
+  const validated = mcpServerConfigSchema(input.authMode, input.config); // strips unknown keys before persisting
+  const encryptedConfig = encrypt(JSON.stringify(validated));
   await db
     .insert(instanceMcpServers)
     .values({ instanceId, slug: input.slug, name: input.name, url: input.url, authMode: input.authMode, enabled: input.enabled, config: encryptedConfig })
@@ -108,7 +108,7 @@ export async function deleteMcpServer(instanceId: InstanceUuid, slug: string): P
 export async function mergeMcpServerConfig(instanceId: InstanceUuid, slug: string, patch: Record<string, unknown>): Promise<void> {
   const current = await getMcpServer(instanceId, slug);
   if (!current) return;
-  const merged = { ...(current.config as Record<string, unknown>), ...patch };
+  const merged = mcpServerConfigSchema(current.authMode, { ...(current.config as Record<string, unknown>), ...patch });
   await db
     .update(instanceMcpServers)
     .set({ config: encrypt(JSON.stringify(merged)), updatedAt: new Date() })
