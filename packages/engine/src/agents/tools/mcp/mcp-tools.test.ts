@@ -9,6 +9,14 @@ vi.mock("@ai-sdk/mcp", () => ({ createMCPClient, UnauthorizedError: FakeUnauthor
 const servers: any[] = [];
 vi.mock("../../../instances/mcp-servers.store.js", () => ({ listEnabledMcpServers: vi.fn(async () => servers) }));
 vi.mock("./mcp-oauth-provider.js", () => ({ makeMcpOAuthProvider: () => ({ pendingAuthorizeUrl: "https://gh.test/authorize" }) }));
+// Keep the real config (registry.ts, imported transitively via this module,
+// depends on it for postgres/etc.) but shrink the connect timeout so the
+// timeout-path tests below stay fast (not 0 — must stay clearly slower than
+// the mocked promises' microtask resolution).
+vi.mock("../../../config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../config.js")>();
+  return { ...actual, config: { ...actual.config, mcp: { connectTimeoutMs: 30 } } };
+});
 
 const { buildMcpTools } = await import("./mcp-tools.js");
 const IID = asInstanceUuid("iid");
@@ -66,6 +74,48 @@ describe("buildMcpTools", () => {
     servers.push({ slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token: "t" } } });
     createMCPClient.mockRejectedValue(new Error("connection refused"));
     const { tools } = await buildMcpTools({ instanceUuid: IID, conversationId: "c1" });
+    expect(Object.keys(tools)).toHaveLength(0);
+  });
+
+  it("should_skip_server_once_connect_timeout_elapses_and_close_a_late_resolving_client", async () => {
+    servers.push({ slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token: "t" } } });
+    const close = vi.fn().mockResolvedValue(undefined);
+    let resolveTools!: (v: unknown) => void;
+    createMCPClient.mockResolvedValue({
+      // Never resolves within the mocked 30ms timeout — simulates a hung server.
+      tools: () => new Promise((resolve) => { resolveTools = resolve; }),
+      close,
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const { tools } = await buildMcpTools({ instanceUuid: IID, conversationId: "c1" });
+
+    // Timed out -> treated exactly like a dead server: skipped, not thrown.
+    expect(Object.keys(tools)).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled(); // tools() is still pending, nothing to close yet
+
+    // The server eventually replies, after buildMcpTools already gave up on it.
+    resolveTools({});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(close).toHaveBeenCalledOnce(); // the late client must not leak
+
+    warnSpy.mockRestore();
+  });
+
+  it("should_skip_server_when_the_turn_abortSignal_fires_during_connect", async () => {
+    servers.push({ slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token: "t" } } });
+    const close = vi.fn().mockResolvedValue(undefined);
+    createMCPClient.mockResolvedValue({
+      tools: () => new Promise(() => { /* never resolves */ }),
+      close,
+    });
+    const controller = new AbortController();
+
+    const buildPromise = buildMcpTools({ instanceUuid: IID, conversationId: "c1", abortSignal: controller.signal });
+    controller.abort(new Error("turn cancelled"));
+    const { tools } = await buildPromise;
+
     expect(Object.keys(tools)).toHaveLength(0);
   });
 });

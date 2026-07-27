@@ -271,6 +271,7 @@ export function McpServersTab({ slug }: Props) {
     setTestResult(null);
     try {
       const result = await api.mcpServers.test(slug, {
+        slug: form.slug || undefined,
         name: form.name || form.slug,
         url: form.url,
         authMode: form.authMode,

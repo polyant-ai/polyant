@@ -477,7 +477,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   // MCP tools are additive: merge them in after core tools so an MCP server
   // can never clobber a core/plugin tool name (warn instead of overwrite —
   // core tools are DB-governed, MCP servers are instance-configured and less trusted).
-  const mcp = await buildMcpTools({ instanceUuid, conversationId: input.conversationId });
+  const mcp = await buildMcpTools({ instanceUuid, conversationId: input.conversationId, abortSignal: input.abortSignal });
 
   // Everything below opens no new resources, but it DOES await (DB calls in
   // buildSupervisorSystemPrompt) and can throw before `ctx` (carrying
@@ -489,7 +489,11 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
         console.warn(`MCP tool name collision: "${name}" already equipped by a core/plugin tool — skipping`);
         continue;
       }
-      tools[name] = mcpTool;
+      // MCP tools bypass buildTools' per-tool ctx (they're pre-built by the SDK),
+      // but still go through the same audit wrapper as every other tool so a
+      // call records a toolCallTraces entry + tool-error log, keyed by the
+      // tool's already-namespaced model name (mcp__<slug>__<tool>).
+      tools[name] = wrapToolWithAudit(name, mcpTool, instanceSlug, input.conversationId, toolCallTraces, signals);
     }
 
     const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({

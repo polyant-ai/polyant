@@ -33,6 +33,14 @@ const setBodySchema = z.object({
   config: z.record(z.unknown()),
 });
 
+// `test` has no `:serverSlug` route param (the candidate being tested may not
+// be saved yet), so — unlike `set` — it needs the slug IN the body to look up
+// an existing server's secrets to restore. Optional: a first-time test of a
+// brand-new server naturally has no `slug` and no existing config to merge.
+const testBodySchema = setBodySchema.extend({
+  slug: z.string().optional(),
+});
+
 @Controller("api/instances")
 export class McpServersController {
   private readonly auditLogger = createManagementAuditLogger();
@@ -121,7 +129,7 @@ export class McpServersController {
   @RequirePermission(Permission.CHANNEL_WRITE)
   @Post(":slug/mcp-servers/test")
   async test(@Param("slug") slug: string, @Body() body: unknown) {
-    const parsed = setBodySchema.safeParse(body);
+    const parsed = testBodySchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException(
         parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", "),
@@ -129,11 +137,24 @@ export class McpServersController {
     }
     assertSafeMcpUrl(parsed.data.url);
 
-    await findInstanceOrFail(slug);
+    const inst = await findInstanceOrFail(slug);
+
+    // Mirror `set`: restore masked (••••) secret fields from the existing
+    // server config so testing an edited server without re-typing its token
+    // doesn't probe the connection with no auth at all. Only possible when
+    // the candidate identifies an existing server (`slug` present) — a
+    // brand-new/unsaved server has nothing to restore from.
+    const existing = parsed.data.slug ? await getMcpServer(asInstanceUuid(inst.id), parsed.data.slug) : undefined;
+    const effective = mergeMaskedMcpSecrets(
+      parsed.data.authMode,
+      parsed.data.config,
+      existing?.config as Record<string, unknown> | undefined,
+    );
+
     return testMcpConnection({
       url: parsed.data.url,
       authMode: parsed.data.authMode,
-      config: parsed.data.config,
+      config: effective,
     });
   }
 }

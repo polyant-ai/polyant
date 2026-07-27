@@ -194,6 +194,15 @@ const configSchema = z.object({
   plugins: z.object({
     dirs: z.array(z.string()).default([]),
   }),
+
+  // External MCP (Model Context Protocol) client servers (instance-configured,
+  // consumed via @ai-sdk/mcp).
+  //   connectTimeoutMs: bounds the per-server createMCPClient()+tools() round
+  //     trip so one hung/slow server can't stall every turn. On expiry the
+  //     server is treated exactly like a dead server (log warn + skip).
+  mcp: z.object({
+    connectTimeoutMs: z.coerce.number().int().positive().default(10000),
+  }),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -305,6 +314,9 @@ function loadConfig(): Config {
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s.length > 0),
+    },
+    mcp: {
+      connectTimeoutMs: process.env.MCP_CONNECT_TIMEOUT_MS,
     },
   });
 

@@ -395,7 +395,7 @@ export const api = {
       ),
     test: (
       slug: string,
-      body: { name: string; url: string; authMode: McpAuthMode; enabled: boolean; config: Record<string, unknown> },
+      body: { slug?: string; name: string; url: string; authMode: McpAuthMode; enabled: boolean; config: Record<string, unknown> },
     ) =>
       request<McpTestResult>(`/api/instances/${encodeURIComponent(slug)}/mcp-servers/test`, {
         method: "POST",

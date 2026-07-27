@@ -104,4 +104,50 @@ describe("McpServersController", () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(store.setMcpServer).not.toHaveBeenCalled();
   });
+
+  it("should_restore_stored_secret_when_testing_an_existing_server_with_a_masked_token", async () => {
+    store.getMcpServer.mockResolvedValue({
+      id: "row-1",
+      slug: "gh",
+      name: "GH",
+      url: "https://mcp.example.com",
+      authMode: "static",
+      enabled: true,
+      config: { auth: { type: "bearer", token: "real-secret-1234" } },
+    });
+    const c = new McpServersController();
+
+    await c.test("acme", {
+      slug: "gh",
+      name: "GH",
+      url: "https://mcp.example.com",
+      authMode: "static",
+      enabled: true,
+      config: { auth: { type: "bearer", token: "••••1234" } },
+    } as any);
+
+    expect(store.getMcpServer).toHaveBeenCalledWith("uuid-1", "gh");
+    const { testMcpConnection } = await import("../../agents/tools/mcp/mcp-test.js");
+    expect(testMcpConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ config: { auth: { type: "bearer", token: "real-secret-1234" } } }),
+    );
+  });
+
+  it("should_skip_the_secret_merge_when_testing_a_brand_new_unsaved_server", async () => {
+    const c = new McpServersController();
+
+    await c.test("acme", {
+      name: "New server",
+      url: "https://mcp.example.com",
+      authMode: "static",
+      enabled: true,
+      config: { auth: { type: "bearer", token: "fresh-token" } },
+    } as any);
+
+    expect(store.getMcpServer).not.toHaveBeenCalled();
+    const { testMcpConnection } = await import("../../agents/tools/mcp/mcp-test.js");
+    expect(testMcpConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ config: { auth: { type: "bearer", token: "fresh-token" } } }),
+    );
+  });
 });

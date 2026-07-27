@@ -180,6 +180,31 @@ describe("supervise + MCP tools", () => {
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("search"));
     warnSpy.mockRestore();
   });
+
+  it("audit-wraps a merged MCP tool: invoking it records a toolCallTraces entry", async () => {
+    const mcpToolWithExecute = {
+      description: "MCP tool",
+      inputSchema: { type: "object" },
+      execute: vi.fn().mockResolvedValue({ ok: true }),
+    };
+    mockBuildMcpTools.mockResolvedValue({
+      tools: { mcp__gh__x: mcpToolWithExecute },
+      close: vi.fn().mockResolvedValue(undefined),
+    });
+    // Simulate the AI SDK invoking the merged tool mid-turn, exactly like it
+    // would for any other equipped tool.
+    mockChat.mockImplementation(async (opts) => {
+      await opts.tools.mcp__gh__x.execute({});
+      return defaultChatResponse;
+    });
+
+    const result = await supervise({ message: "hi" });
+
+    expect(mcpToolWithExecute.execute).toHaveBeenCalledOnce();
+    expect(result.toolCallTraces).toEqual([
+      expect.objectContaining({ name: "mcp__gh__x", success: true }),
+    ]);
+  });
 });
 
 describe("superviseStream + MCP tools", () => {
