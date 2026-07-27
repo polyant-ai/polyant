@@ -273,6 +273,12 @@ async function main() {
       agentCallDepth: agentMeta?.depth,
       agentCallMetadata: agentMeta,
       stateBuffer: ctx.stateBuffer,
+      // Equip channel-category harness tools on the inbound path: a tool whose
+      // category equals the inbound channel type becomes available (today only
+      // send_whatsapp_template on whatsapp). No-op for channels without a
+      // matching harness tool. Deliberately generic (no category allow-list) —
+      // see spec §5 Fix 1.
+      includeHarness: new Set([msg.channelType]),
       stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
       datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
       cacheConfig: ctx.instanceConfig.cacheConfig,
