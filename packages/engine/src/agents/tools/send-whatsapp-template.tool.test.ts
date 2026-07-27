@@ -18,15 +18,20 @@ vi.mock("../../channels/adapters/whatsapp/stub-templates.js", () => ({
   renderStubTemplate: mockRenderStubTemplate,
 }));
 
-import { createMockAudit } from "../../test-utils.js";
+import { createMockAudit, createMockState } from "../../test-utils.js";
+import type { ConversationStateApi } from "../../conversations/state.buffer.js";
 import def from "./send-whatsapp-template.tool.js";
 
-function buildExecute(conversationId: string | undefined = "conv-1") {
+function buildExecute(
+  conversationId: string | undefined = "conv-1",
+  state?: ConversationStateApi,
+) {
   const ctx = {
     instanceId: "inst-1",
     secrets: {},
     audit: createMockAudit(),
     conversationId,
+    state,
   } as any;
   // execute now takes (input, ctx); bind the ctx so call sites pass input only.
   return (input: any) => def.execute(input, ctx);
@@ -45,11 +50,44 @@ describe("send_whatsapp_template tool (Twilio Content API mode)", () => {
     expect(def.category).toBe("whatsapp");
   });
 
-  it("returns error when trigger context is missing", async () => {
+  it("returns error when neither trigger context nor channel identity is available", async () => {
     mockGetTriggerContext.mockReturnValueOnce(null);
-    const execute = buildExecute();
+    const execute = buildExecute(); // no state seeded
     const res = (await execute({ contentSid: "HXabc123", variables: [] })) as { error: string };
-    expect(res.error).toMatch(/No active trigger context/i);
+    expect(res.error).toMatch(/No outbound target/i);
+    expect(mockSendOutboundTemplate).not.toHaveBeenCalled();
+  });
+
+  it("falls back to ctx.state.channel when there is no trigger context (whatsapp)", async () => {
+    mockGetTriggerContext.mockReturnValueOnce(null);
+    mockSendOutboundTemplate.mockResolvedValueOnce("SM_INBOUND_1");
+    const state = createMockState({ _channel: { type: "whatsapp", id: "+393334678966" } });
+
+    const execute = buildExecute("inst-1:whatsapp:+393334678966", state);
+    const res = (await execute({ contentSid: "HXabc123", variables: ["Mario"] })) as {
+      replyHandled: boolean;
+      target: string;
+    };
+
+    expect(mockSendOutboundTemplate).toHaveBeenCalledWith(
+      "inst-1",
+      "whatsapp",
+      "+393334678966",
+      "HXabc123",
+      { "1": "Mario" },
+    );
+    expect(res.replyHandled).toBe(true);
+    expect(res.target).toBe("+393334678966");
+  });
+
+  it("errors when the fallback channel identity is not whatsapp", async () => {
+    mockGetTriggerContext.mockReturnValueOnce(null);
+    const state = createMockState({ _channel: { type: "telegram", id: "12345" } });
+
+    const execute = buildExecute("inst-1:telegram:12345", state);
+    const res = (await execute({ contentSid: "HXabc123", variables: [] })) as { error: string };
+
+    expect(res.error).toMatch(/not whatsapp/i);
     expect(mockSendOutboundTemplate).not.toHaveBeenCalled();
   });
 
