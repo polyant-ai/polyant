@@ -43,6 +43,7 @@ import {
 } from "./pipeline.js";
 import { generateWithReplay, MAX_REGENERATIONS, EMPTY_SPEND, addPassSpend } from "./hooks/response-replay.js";
 import { hookProvenance } from "./hooks/hook-runner.js";
+import { resolveDeliveredReply } from "./reply-delivery.js";
 import { runOptoutGate } from "./optout/index.js";
 
 // ---------------------------------------------------------------------------
@@ -315,6 +316,15 @@ async function main() {
       );
     }
 
+    // A tool may already have delivered the reply (e.g. send_whatsapp_template
+    // sent an interactive Content template): persist what the user actually saw
+    // and let the adapter send nothing more. Mirrors the webhook engine.
+    const { persistText, toolDelivered } = resolveDeliveredReply({
+      replyHandled: result.replyHandled,
+      replyText: result.replyText,
+      llmText: replayText,
+    });
+
     // Phase 4+5: Trace + afterResponse (skipped on abort). Pass the pre-computed
     // response_generated outcome so runPipelinePost neither re-runs those hooks
     // nor re-applies replace (replayText already reflects it).
@@ -323,7 +333,7 @@ async function main() {
       contextPrepMs,
       messageText,
       channel: msg.channelType,
-      resultText: replayText,
+      resultText: persistText,
       responseGenerated: outcome,
       steps: result.steps,
       reasoning: result.reasoning,
@@ -350,7 +360,7 @@ async function main() {
     });
 
     return {
-      text: finalText,
+      text: toolDelivered ? "" : finalText,
       toolCalls: result.toolCallTraces?.map((t) => ({ name: t.name, durationMs: t.duration_ms })),
       usage: result.usage ? { promptTokens: result.usage.promptTokens, completionTokens: result.usage.completionTokens } : undefined,
     };
