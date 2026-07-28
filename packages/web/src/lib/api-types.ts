@@ -780,3 +780,22 @@ export interface OptoutContact {
   source: string;
   updatedAt: string | null;
 }
+
+// ── Tenancy (GET /api/me) ───────────────────────────────────────────
+
+/** A workspace as the frontend addresses it in a tenant-scoped URL. */
+export interface TenantWorkspace {
+  slug: string;
+  name: string;
+  isDefault: boolean;
+}
+
+/**
+ * The caller's own tenancy. `organization: null` is a valid response — a JWT
+ * minted before RBAC carries no orgId — and means "sign in again", not "error".
+ */
+export interface TenantContextPayload {
+  user: { id: string; email: string; name: string | null };
+  organization: { slug: string; name: string } | null;
+  workspaces: TenantWorkspace[];
+}
