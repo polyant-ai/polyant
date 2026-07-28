@@ -19,12 +19,15 @@ export interface NavItem {
   title: string;
   url: string;
   icon: LucideIcon;
+  exact?: boolean;
 }
 
 // Segment-aware active match: `/audit` must NOT match `/audit-logs`, but
 // `/audit-logs` must still match its own sub-routes (`/audit-logs/123`).
-export function isNavActive(pathname: string, url: string): boolean {
-  if (url === "/") return pathname === "/";
+// `exact` opts out of the sub-route match — the dashboard sits at the org root,
+// which is a prefix of every other org route.
+export function isNavActive(pathname: string, url: string, exact = false): boolean {
+  if (exact || url === "/") return pathname === url;
   return pathname === url || pathname.startsWith(url + "/");
 }
 
@@ -43,7 +46,7 @@ export function NavMain({
       <SidebarGroupContent>
         <SidebarMenu>
           {items.map((item) => {
-            const isActive = isNavActive(pathname, item.url);
+            const isActive = isNavActive(pathname, item.url, item.exact);
 
             return (
               <SidebarMenuItem key={item.title}>
