@@ -50,6 +50,7 @@ specs. Dedicated ports mean it won't collide with a running dev stack.
 | `setup/seed-rbac.ts` | Seed the 3 privilege-ladder users (Owner/Member/Viewer). |
 | `fixtures/auth.ts` | `loginAs(page, role)` — drives the real /login form. |
 | `rbac/members-access.spec.ts` | First DB-integrated test: members-management access per role. |
+| `rbac/tenant-urls.spec.ts` | Tenant-scoped URL routing: root resolution, legacy redirects, 404 on foreign slugs. |
 
 ## Seeded users (default org)
 

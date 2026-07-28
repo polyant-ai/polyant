@@ -172,6 +172,12 @@ export function buildEngineEnv(): Record<string, string> {
     ENCRYPTION_KEY,
     AUTHZ_ENFORCE: "true",
     LOG_LEVEL: "warn",
+    // /api/auth/credentials/verify is hardcoded to 5 req/60s
+    // (credentials.controller.ts, independent of THROTTLE_LIMIT/THROTTLE_TTL_MS).
+    // Specs log in per-test with no shared storageState, so a login-heavy spec
+    // (e.g. tenant-urls.spec.ts's 7 tests) trips it deterministically. Disabling
+    // throttling only in this dedicated test engine — never in dev/prod.
+    THROTTLE_ENABLED: "false",
   };
 }
 
