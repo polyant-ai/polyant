@@ -42,6 +42,12 @@ Neither identifier is part of the request contract in any meaningful way:
    `findDefaultWorkspaceId()`. No API can place an agent in another workspace,
    and no workspace endpoint exists.
 
+**The seeded slugs are asymmetric**: migration 0051 seeds the organization as
+`default` but the workspace as **`general`** (name "General"). So the canonical
+URL of a fresh install is `/organizations/default/workspaces/general/…`. Nothing
+may hardcode either value — both come from `GET /api/me` — but tests and
+fixtures must use the real pair.
+
 Cross-org isolation is `principal.orgId !== scope.organizationId → deny`, plus
 the `:orgSlug` re-resolution inside `MembersService`.
 
@@ -55,7 +61,7 @@ that reshapes the API paths is what gives the segment meaning.
 | Question | Decision |
 |---|---|
 | Goal of this spec | Canonical URLs only. No new user-facing capability. |
-| Segments | Both, `workspaceSlug` fixed to `default`. |
+| Segments | Both, addressing the single seeded workspace. |
 | Route partitioning | Three tiers, each URL truthful about its real scope. |
 | Slug source | New `GET /api/me` in the engine. |
 | Mechanism | Real dynamic segments (directory move), client-side validation. |
@@ -102,29 +108,46 @@ Two placements are deliberate and easy to get wrong:
 
 ## 5. Components
 
-### 5.1 Engine — `GET /api/me` (new)
+### 5.1 Engine — `GET /api/me` (new method on an existing controller)
 
-`packages/engine/src/server/me/` — controller + service.
+`MeController` already exists at `packages/engine/src/users/me.controller.ts`
+(`@Controller("api/me")`, currently one `POST password` method), and
+`packages/web/next.config.ts` already rewrites `/api/me/:path*`. So this is a new
+`@Get()` on that controller plus a bare `/api/me` rewrite entry — not a new
+module.
 
 ```ts
 {
-  user: { id, email, name, isPlatformAdmin },
+  user: { id, email, name },
   organization: { slug, name } | null,
   workspaces: [{ slug, name, isDefault }]
 }
 ```
 
+`isPlatformAdmin` is deliberately **absent**. `AuthenticatedUser` documents why:
+platform-admin status is resolved from the DB on each privileged check so it
+stays revocable, instead of being frozen in the identity. Including it here would
+mean either freezing it or taking an `AuthzModule` dependency for a field no
+consumer needs yet — the future console can add it when it exists.
+
 Derived from the principal's `orgId`: resolve the organization row and its
 workspaces. Guarded by `@RequirePermission(Permission.ORG_READ)`, which every
 system role holds (Viewer included), so no role is locked out of the shell.
 
-`organization: null` is a **valid** response, not an error: it is what a legacy
-pre-RBAC JWT (minted before `orgId` existed) produces. The frontend turns it
-into an actionable "sign in again" state — re-signing re-mints the token with
-`orgId`.
+The decorator is **required**, not optional: `PermissionGuard.handleUndeclared`
+denies any route without `@RequirePermission` once `AUTHZ_ENFORCE=true`, so
+leaving it off would break the endpoint in exactly the deployment that enforces.
 
-Also needs a `/api/me` entry in the `rewrites()` list of
-`packages/web/next.config.ts`, like every other proxied engine route.
+`organization: null` is a **valid** response, not an error: it is what a legacy
+pre-RBAC JWT (minted before `orgId` existed) produces in shadow mode. In enforce
+mode that same token instead produces a **403**, because a principal with no
+`orgId` yields no scope to authorize against. Both outcomes have the same
+remedy, so the frontend collapses them into one "sign in again" state —
+re-signing re-mints the token with `orgId`.
+
+Also needs a bare `/api/me` entry in the `rewrites()` list of
+`packages/web/next.config.ts`: the existing `/api/me/:path*` entry does not match
+the collection path itself.
 
 ### 5.2 Web — `TenantProvider` (in `(admin)/layout.tsx`)
 
@@ -183,8 +206,8 @@ guard validates the params against the already-cached response → pages call
 |---|---|
 | `/api/me` fails (network / 5xx) | Error state with retry inside tenant subtrees; children never mount with unvalidated params. Deployment-level pages unaffected. |
 | Slug mismatch | `notFound()`. |
-| `organization: null` (legacy JWT) | Actionable "sign in again" state — not a 404. |
-| 403 on `/api/me` (enforce mode only) | Dedicated error state. |
+| `organization: null` (legacy JWT, shadow mode) | Actionable "sign in again" state — not a 404. |
+| 403 on `/api/me` (legacy JWT, enforce mode) | The same "sign in again" state: same cause, same remedy. |
 
 ## 8. Legacy URLs
 
@@ -193,8 +216,22 @@ pages at the old flat locations: the five workspace-level lists (`/instances`,
 `/conversations`, `/playground`, `/activity`, `/memory`), `/members`,
 `/audit-logs`, and also `/instances/[slug]` and `/conversations/[conversationId]`
 — which forward their param, because deep links are the ones people actually
-bookmark. The post-login redirect in `auth.config.ts` and the in-code links
-across the twelve files that contain them move to the path helpers.
+bookmark.
+
+`auth.config.ts` needs **no change**: its three `Response.redirect(new URL("/",
+…))` targets stay correct because `/` is the resolver. This is a happy
+consequence of putting the resolution there — the Edge middleware never needs
+tenancy knowledge, which it could not obtain anyway (no DB access in the Edge
+runtime).
+
+Fourteen in-code link sites across eight files move to the path helpers:
+`conversations/[conversationId]/page.tsx` (4), `conversations/page.tsx` (1),
+`instances/page.tsx` (3), `instances/[slug]/page.tsx` (3),
+`instances/create-instance-dialog.tsx` (1),
+`instances/[slug]/scheduled-task-runs-section.tsx` (1),
+`instances/[slug]/triggers-runs-tab.tsx` (1). The `skills/*` links stay flat,
+and `href={`/api/attachments/…`}` sites are API URLs, not routes — leave both
+alone.
 
 The stubs live for **one release** and are then deleted; that removal gets a
 follow-up issue at implementation time, otherwise they stay forever.
