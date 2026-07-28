@@ -1017,5 +1017,12 @@
   "members.removed": "Membro rimosso",
   "members.removeFailed": "Rimozione del membro non riuscita",
   "members.loadFailed": "Caricamento dei membri non riuscito",
-  "permissions.denied": "Non hai i permessi per eseguire questa azione."
+  "permissions.denied": "Non hai i permessi per eseguire questa azione.",
+
+  "tenant.noOrganization.title": "La tua sessione precede le organizzazioni",
+  "tenant.noOrganization.description": "Esegui di nuovo l'accesso per collegare la sessione a un'organizzazione. Non perdi nulla: viene solo rinnovata la sessione.",
+  "tenant.noOrganization.action": "Accedi di nuovo",
+  "tenant.error.title": "Impossibile caricare la tua organizzazione",
+  "tenant.error.description": "Il server non ha risposto. Controlla la connessione e riprova.",
+  "tenant.error.retry": "Riprova"
 }
