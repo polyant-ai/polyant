@@ -113,6 +113,16 @@ export interface SupervisorInput {
   abortSignal?: AbortSignal;
   /** Per-run shared conversation state buffer; its `.api()` is exposed to tools as `ctx.state`. */
   stateBuffer?: ConversationStateBuffer;
+  /**
+   * Whether an MCP oauth server may be attempted this turn (authorize link handed
+   * out + tokens/PKCE verifier persisted against `conversationId`). Set true ONLY
+   * by the conversational entry point, where a real user sits behind a stable,
+   * reused conversationId. Room/webhook are "supervise-direct" and mint a FRESH
+   * conversationId every cycle (design spec §8.3) — leave this unset (defaults to
+   * false in buildMcpTools) there, or oauth servers get attempted with no one to
+   * authorize and leak an unreused oauth_states/principal_secrets row every cycle.
+   */
+  allowOAuth?: boolean;
 }
 
 export interface SupervisorOutput {
@@ -477,7 +487,13 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   // MCP tools are additive: merge them in after core tools so an MCP server
   // can never clobber a core/plugin tool name (warn instead of overwrite —
   // core tools are DB-governed, MCP servers are instance-configured and less trusted).
-  const mcp = await buildMcpTools({ instanceUuid, conversationId: input.conversationId, abortSignal: input.abortSignal });
+  const mcp = await buildMcpTools({
+    instanceUuid,
+    instanceSlug,
+    conversationId: input.conversationId,
+    abortSignal: input.abortSignal,
+    allowOAuth: input.allowOAuth ?? false,
+  });
 
   // Everything below opens no new resources, but it DOES await (DB calls in
   // buildSupervisorSystemPrompt) and can throw before `ctx` (carrying

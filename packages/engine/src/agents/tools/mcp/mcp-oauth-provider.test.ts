@@ -2,11 +2,15 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { OAuthClientProvider } from "@ai-sdk/mcp";
-import { asInstanceUuid } from "../../../instances/identifiers.js";
+import { asInstanceUuid, asInstanceSlug } from "../../../instances/identifiers.js";
 
 const vault = new Map<string, string>();
+// Captures the raw args every setPrincipalSecret call was made with, so tests can
+// assert on the exact `instanceId` value passed (slug vs uuid — Defect C).
+const setPrincipalSecretCalls: Array<{ scopeKey: string; instanceId: unknown; key: string }> = [];
 vi.mock("../../../conversations/principal-secrets.store.js", () => ({
-  setPrincipalSecret: vi.fn(async (scopeKey: string, _iid: unknown, key: string, value: string) => {
+  setPrincipalSecret: vi.fn(async (scopeKey: string, instanceId: unknown, key: string, value: string) => {
+    setPrincipalSecretCalls.push({ scopeKey, instanceId, key });
     vault.set(`${scopeKey}:${key}`, value);
   }),
   getPrincipalSecret: vi.fn(async (scopeKey: string, key: string) => {
@@ -30,13 +34,16 @@ vi.mock("../../../instances/mcp-servers.store.js", () => ({
 vi.mock("../../../config.js", () => ({ config: { server: { baseUrl: "https://polyant.test", port: 4000 } } }));
 
 const { makeMcpOAuthProvider, mcpRedirectUrl } = await import("./mcp-oauth-provider.js");
-const deps = { instanceUuid: asInstanceUuid("iid"), conversationId: "conv-1", serverSlug: "gh", config: {} as any };
+// instanceUuid and instanceSlug are deliberately different strings so a test
+// asserting "the slug was used" cannot pass by accident if the uuid were used instead.
+const deps = { instanceUuid: asInstanceUuid("iid"), instanceSlug: asInstanceSlug("my-slug"), conversationId: "conv-1", serverSlug: "gh", config: {} as any };
 
 describe("McpVaultOAuthProvider", () => {
   beforeEach(() => {
     vault.clear();
     states.length = 0;
     merged.length = 0;
+    setPrincipalSecretCalls.length = 0;
   });
 
   it("should_build_redirect_url", () => {
@@ -53,6 +60,26 @@ describe("McpVaultOAuthProvider", () => {
     await p.saveTokens({ access_token: "at", token_type: "bearer" } as any);
     expect(await p.tokens()).toMatchObject({ access_token: "at" });
     expect(vault.has("conv-1:mcp_gh_tokens")).toBe(true);
+  });
+
+  // Defect C: deleteInstance()'s cascade deletes principal_secrets BY SLUG
+  // (instances/store.ts), matching every other setPrincipalSecret caller
+  // (oauth-token-service.ts, oauth-callback.controller.ts). Passing the uuid here
+  // orphans the row permanently on instance deletion.
+  it("should_key_saveTokens_by_instance_slug_not_uuid", async () => {
+    const p = makeMcpOAuthProvider(deps);
+    await p.saveTokens({ access_token: "at", token_type: "bearer" } as any);
+    expect(setPrincipalSecretCalls).toContainEqual(
+      expect.objectContaining({ instanceId: "my-slug", key: "mcp_gh_tokens" }),
+    );
+  });
+
+  it("should_key_saveCodeVerifier_by_instance_slug_not_uuid", async () => {
+    const p = makeMcpOAuthProvider(deps);
+    await p.saveCodeVerifier("verifier-abc");
+    expect(setPrincipalSecretCalls).toContainEqual(
+      expect.objectContaining({ instanceId: "my-slug", key: "mcp_gh_verifier" }),
+    );
   });
 
   it("should_persist_dcr_client_to_server_config", async () => {

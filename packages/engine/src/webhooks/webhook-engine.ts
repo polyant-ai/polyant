@@ -220,6 +220,10 @@ export async function triggerConversation(
         cacheConfig: instanceConfig.cacheConfig,
         includeHarness: harnessCategories,
         stateBuffer,
+        // Webhook is supervise-direct with no browser present to authorize an MCP
+        // oauth server, even when the conversationId happens to be channel-stable.
+        // Leave MCP oauth servers off (design spec §8.3); see SupervisorInput.allowOAuth.
+        allowOAuth: false,
       });
     } catch (err) {
       webhookLog.error("TriggerEngine", `supervise() failed for "${definition.name}"`, err);

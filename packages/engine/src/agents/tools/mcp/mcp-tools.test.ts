@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { asInstanceUuid } from "../../../instances/identifiers.js";
+import { asInstanceUuid, asInstanceSlug } from "../../../instances/identifiers.js";
 
 class FakeUnauthorized extends Error {}
 const createMCPClient = vi.fn();
@@ -20,6 +20,7 @@ vi.mock("../../../config.js", async (importOriginal) => {
 
 const { buildMcpTools } = await import("./mcp-tools.js");
 const IID = asInstanceUuid("iid");
+const SLUG = asInstanceSlug("my-instance");
 
 describe("buildMcpTools", () => {
   beforeEach(() => {
@@ -34,7 +35,7 @@ describe("buildMcpTools", () => {
       tools: async () => ({ create_issue: { description: "d", inputSchema: {}, execute: async () => "ok" } }),
       close,
     });
-    const { tools, close: closeAll } = await buildMcpTools({ instanceUuid: IID, conversationId: "c1" });
+    const { tools, close: closeAll } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
     expect(Object.keys(tools)).toContain("mcp__gh__create_issue");
     await closeAll();
     expect(close).toHaveBeenCalledOnce();
@@ -49,7 +50,7 @@ describe("buildMcpTools", () => {
       },
       close,
     });
-    const { tools } = await buildMcpTools({ instanceUuid: IID, conversationId: "c1" });
+    const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
     expect(Object.keys(tools)).toHaveLength(0);
     expect(close).toHaveBeenCalledOnce();
   });
@@ -57,7 +58,7 @@ describe("buildMcpTools", () => {
   it("should_synthesize_connect_tool_on_unauthorized", async () => {
     servers.push({ slug: "gh", url: "https://x", authMode: "oauth", config: {} });
     createMCPClient.mockRejectedValue(new FakeUnauthorized());
-    const { tools } = await buildMcpTools({ instanceUuid: IID, conversationId: "c1" });
+    const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1", allowOAuth: true });
     expect(Object.keys(tools)).toContain("mcp__gh__connect");
     const out = await (tools["mcp__gh__connect"] as any).execute({});
     expect(out).toMatchObject({ status: "action_required", url: "https://gh.test/authorize" });
@@ -65,7 +66,9 @@ describe("buildMcpTools", () => {
 
   it("should_skip_oauth_server_when_no_conversationId", async () => {
     servers.push({ slug: "gh", url: "https://x", authMode: "oauth", config: {} });
-    const { tools } = await buildMcpTools({ instanceUuid: IID, conversationId: undefined });
+    // allowOAuth granted, but no stable conversation to persist tokens against —
+    // the defensive fallback guard must hold on its own, independent of allowOAuth.
+    const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: undefined, allowOAuth: true });
     expect(Object.keys(tools)).toHaveLength(0);
     expect(createMCPClient).not.toHaveBeenCalled();
   });
@@ -73,7 +76,7 @@ describe("buildMcpTools", () => {
   it("should_skip_dead_server_without_throwing", async () => {
     servers.push({ slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token: "t" } } });
     createMCPClient.mockRejectedValue(new Error("connection refused"));
-    const { tools } = await buildMcpTools({ instanceUuid: IID, conversationId: "c1" });
+    const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
     expect(Object.keys(tools)).toHaveLength(0);
   });
 
@@ -88,7 +91,7 @@ describe("buildMcpTools", () => {
     });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
-    const { tools } = await buildMcpTools({ instanceUuid: IID, conversationId: "c1" });
+    const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
 
     // Timed out -> treated exactly like a dead server: skipped, not thrown.
     expect(Object.keys(tools)).toHaveLength(0);
@@ -112,10 +115,116 @@ describe("buildMcpTools", () => {
     });
     const controller = new AbortController();
 
-    const buildPromise = buildMcpTools({ instanceUuid: IID, conversationId: "c1", abortSignal: controller.signal });
+    const buildPromise = buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1", abortSignal: controller.signal });
     controller.abort(new Error("turn cancelled"));
     const { tools } = await buildPromise;
 
     expect(Object.keys(tools)).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Defect A: remote tool names are attacker/operator-controlled and only get
+  // ':' -> '__' from toModelToolName — a name with '.', '/', spaces, or
+  // non-ASCII chars must be SANITIZED (kept, renamed), never dropped, or the
+  // provider 400s the whole turn.
+  // ---------------------------------------------------------------------------
+
+  it("should_sanitize_remote_tool_names_outside_the_provider_charset", async () => {
+    servers.push({ slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token: "t" } } });
+    createMCPClient.mockResolvedValue({
+      tools: async () => ({
+        "create.issue": { description: "d", inputSchema: {}, execute: async () => "created" },
+        "search files": { description: "d", inputSchema: {}, execute: async () => "found" },
+        "wéird!": { description: "d", inputSchema: {}, execute: async () => "weird" },
+      }),
+      close: vi.fn(),
+    });
+
+    const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
+
+    const keys = Object.keys(tools);
+    expect(keys).toHaveLength(3);
+    for (const key of keys) {
+      expect(key).toMatch(/^[a-zA-Z0-9_-]+$/);
+    }
+  });
+
+  it("should_still_invoke_the_remote_tool_through_its_sanitized_key", async () => {
+    servers.push({ slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token: "t" } } });
+    const execute = vi.fn().mockResolvedValue("created");
+    createMCPClient.mockResolvedValue({
+      tools: async () => ({ "create.issue": { description: "d", inputSchema: {}, execute } }),
+      close: vi.fn(),
+    });
+
+    const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
+
+    expect(Object.keys(tools)).toContain("mcp__gh__create_issue");
+    await (tools["mcp__gh__create_issue"] as any).execute({});
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it("should_skip_a_second_remote_tool_that_sanitizes_to_the_same_key", async () => {
+    servers.push({ slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token: "t" } } });
+    const firstExecute = vi.fn().mockResolvedValue("first");
+    const secondExecute = vi.fn().mockResolvedValue("second");
+    createMCPClient.mockResolvedValue({
+      // "create.issue" and "create/issue" both sanitize to "create_issue".
+      tools: async () => ({
+        "create.issue": { description: "first", inputSchema: {}, execute: firstExecute },
+        "create/issue": { description: "second", inputSchema: {}, execute: secondExecute },
+      }),
+      close: vi.fn(),
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
+
+    expect(Object.keys(tools).filter((k) => k.endsWith("create_issue"))).toHaveLength(1);
+    await (tools["mcp__gh__create_issue"] as any).execute({});
+    expect(firstExecute).toHaveBeenCalledOnce();
+    expect(secondExecute).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("create/issue"));
+
+    warnSpy.mockRestore();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Defect B: an oauth server must not be attempted just because a (possibly
+  // ephemeral) conversationId happens to be truthy — the caller must explicitly
+  // grant allowOAuth.
+  // ---------------------------------------------------------------------------
+
+  it("should_skip_oauth_server_for_a_room_conversation_when_allowOAuth_is_not_set", async () => {
+    servers.push({ slug: "gh", url: "https://x", authMode: "oauth", config: {} });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "room:inst:123" });
+
+    expect(Object.keys(tools)).toHaveLength(0);
+    expect(createMCPClient).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("gh"));
+
+    warnSpy.mockRestore();
+  });
+
+  it("should_skip_oauth_server_for_a_webhook_match_when_allowOAuth_is_not_set", async () => {
+    servers.push({ slug: "gh", url: "https://x", authMode: "oauth", config: {} });
+
+    const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "event-match:def-1" });
+
+    expect(Object.keys(tools)).toHaveLength(0);
+    expect(createMCPClient).not.toHaveBeenCalled();
+  });
+
+  it("should_still_attempt_oauth_server_for_a_normal_conversational_id_when_allowOAuth_is_true", async () => {
+    servers.push({ slug: "gh", url: "https://x", authMode: "oauth", config: {} });
+    createMCPClient.mockRejectedValue(new FakeUnauthorized());
+
+    const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "inst:web:user1", allowOAuth: true });
+
+    // The attempt happened (createMCPClient was invoked) and synthesized the connect tool.
+    expect(createMCPClient).toHaveBeenCalledOnce();
+    expect(Object.keys(tools)).toContain("mcp__gh__connect");
   });
 });

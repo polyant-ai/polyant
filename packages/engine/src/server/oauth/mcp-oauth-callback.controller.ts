@@ -8,6 +8,7 @@ import { consumeOAuthState } from "./oauth-states.store.js";
 import { getMcpServer } from "../../instances/mcp-servers.store.js";
 import { makeMcpOAuthProvider } from "../../agents/tools/mcp/mcp-oauth-provider.js";
 import { asInstanceUuid } from "../../instances/identifiers.js";
+import { resolveInstanceSlug } from "../../instances/resolve-instance-id.js";
 import { errMsg } from "../../utils/error.js";
 
 /** Escape the 5 HTML-significant characters (mirrors oauth-callback.controller.ts). */
@@ -56,9 +57,17 @@ export class McpOAuthCallbackController {
       res.status(404).type("html").send(page("Errore", "Server MCP non trovato"));
       return;
     }
+    // setPrincipalSecret's principal_secrets rows are cascade-deleted BY SLUG
+    // (deleteInstance(), instances/store.ts) — resolve it here so saveTokens/
+    // saveCodeVerifier key their writes the same way every other caller does.
+    const instanceSlug = await resolveInstanceSlug(instanceUuid);
+    if (!instanceSlug) {
+      res.status(404).type("html").send(page("Errore", "Istanza non trovata"));
+      return;
+    }
 
     try {
-      const provider = makeMcpOAuthProvider({ instanceUuid, conversationId: pending.conversationId, serverSlug, config: server.config });
+      const provider = makeMcpOAuthProvider({ instanceUuid, instanceSlug, conversationId: pending.conversationId, serverSlug, config: server.config });
       // The oauth_states row is already consumed above; seed the provider's
       // storedState() with it so the SDK's own CSRF check (storedState ===
       // callbackState) passes.

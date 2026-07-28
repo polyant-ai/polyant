@@ -130,10 +130,27 @@ describe("supervise + MCP tools", () => {
     expect(toolsArg).toHaveProperty("mcp__gh__x", mcpTool);
   });
 
-  it("passes instanceUuid + conversationId to buildMcpTools", async () => {
+  it("passes instanceUuid + instanceSlug + conversationId + allowOAuth to buildMcpTools", async () => {
     await supervise({ message: "hi", conversationId: "conv-1" });
 
-    expect(mockBuildMcpTools).toHaveBeenCalledWith({ instanceUuid: "uuid-123", conversationId: "conv-1" });
+    expect(mockBuildMcpTools).toHaveBeenCalledWith({
+      instanceUuid: "uuid-123",
+      instanceSlug: "default",
+      conversationId: "conv-1",
+      allowOAuth: false,
+    });
+  });
+
+  it("defaults allowOAuth to false when the caller does not opt in (room/webhook safe default)", async () => {
+    await supervise({ message: "hi", conversationId: "room:inst:123" });
+
+    expect(mockBuildMcpTools).toHaveBeenCalledWith(expect.objectContaining({ allowOAuth: false }));
+  });
+
+  it("forwards allowOAuth: true when the conversational caller opts in", async () => {
+    await supervise({ message: "hi", conversationId: "conv-1", allowOAuth: true });
+
+    expect(mockBuildMcpTools).toHaveBeenCalledWith(expect.objectContaining({ allowOAuth: true }));
   });
 
   it("calls close() exactly once after a successful turn", async () => {

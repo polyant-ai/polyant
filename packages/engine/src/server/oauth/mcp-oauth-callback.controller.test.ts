@@ -5,6 +5,7 @@ import type { Response } from "express";
 
 const mockConsumeOAuthState = vi.fn();
 const mockGetMcpServer = vi.fn();
+const mockResolveInstanceSlug = vi.fn();
 const mockMakeMcpOAuthProvider = vi.fn();
 const mockAuth = vi.fn();
 
@@ -14,6 +15,10 @@ vi.mock("./oauth-states.store.js", () => ({
 
 vi.mock("../../instances/mcp-servers.store.js", () => ({
   getMcpServer: (...args: unknown[]) => mockGetMcpServer(...args),
+}));
+
+vi.mock("../../instances/resolve-instance-id.js", () => ({
+  resolveInstanceSlug: (...args: unknown[]) => mockResolveInstanceSlug(...args),
 }));
 
 vi.mock("../../agents/tools/mcp/mcp-oauth-provider.js", () => ({
@@ -46,6 +51,7 @@ describe("McpOAuthCallbackController.callback", () => {
     controller = new McpOAuthCallbackController();
     providerStub = { setStoredState: vi.fn() };
     mockMakeMcpOAuthProvider.mockReturnValue(providerStub);
+    mockResolveInstanceSlug.mockResolvedValue("my-instance");
   });
 
   it("400s when code or state query params are missing", async () => {
@@ -90,6 +96,19 @@ describe("McpOAuthCallbackController.callback", () => {
     expect(mockAuth).not.toHaveBeenCalled();
   });
 
+  it("404s when the instance no longer exists (slug resolution fails)", async () => {
+    mockConsumeOAuthState.mockResolvedValue(PENDING);
+    mockGetMcpServer.mockResolvedValue(SERVER);
+    mockResolveInstanceSlug.mockResolvedValue(undefined);
+    const res = mockResponse();
+
+    await controller.callback("code", "state", res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(mockAuth).not.toHaveBeenCalled();
+    expect(mockMakeMcpOAuthProvider).not.toHaveBeenCalled();
+  });
+
   it("exchanges the code via auth() and confirms success", async () => {
     mockConsumeOAuthState.mockResolvedValue(PENDING);
     mockGetMcpServer.mockResolvedValue(SERVER);
@@ -98,8 +117,12 @@ describe("McpOAuthCallbackController.callback", () => {
 
     await controller.callback("code-abc", "state-1", res);
 
+    // Defect C: the vault-write side (saveTokens/saveCodeVerifier) must be keyed
+    // by the instance SLUG, matching deleteInstance()'s slug-keyed cascade —
+    // not the uuid consumed from the oauth_states row.
     expect(mockMakeMcpOAuthProvider).toHaveBeenCalledWith({
       instanceUuid: "iid",
+      instanceSlug: "my-instance",
       conversationId: "c1",
       serverSlug: "gh",
       config: SERVER.config,

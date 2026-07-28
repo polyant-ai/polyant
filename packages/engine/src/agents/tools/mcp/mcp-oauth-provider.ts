@@ -9,7 +9,7 @@ import type {
 } from "@ai-sdk/mcp";
 import { generateToken } from "../../../crypto/index.js";
 import { config } from "../../../config.js";
-import { type InstanceUuid } from "../../../instances/identifiers.js";
+import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
 import { getPrincipalSecret, setPrincipalSecret } from "../../../conversations/principal-secrets.store.js";
 import { createOAuthState } from "../../../server/oauth/oauth-states.store.js";
 import { mergeMcpServerConfig } from "../../../instances/mcp-servers.store.js";
@@ -23,6 +23,14 @@ export function mcpRedirectUrl(): string {
 
 export interface McpOAuthProviderDeps {
   instanceUuid: InstanceUuid;
+  /**
+   * Used ONLY for the `principal_secrets` writes (saveTokens/saveCodeVerifier):
+   * `deleteInstance()`'s cascade deletes `principal_secrets` BY SLUG (instances/store.ts),
+   * matching every other `setPrincipalSecret` caller (oauth-token-service.ts,
+   * oauth-callback.controller.ts). `instanceUuid` stays the key for the
+   * uuid-FK-keyed server-config writes (`mergeMcpServerConfig`).
+   */
+  instanceSlug: InstanceSlug;
   conversationId: string;
   serverSlug: string;
   config: McpServerConfig;
@@ -106,11 +114,11 @@ export class McpVaultOAuthProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
-    await setPrincipalSecret(this.deps.conversationId, this.deps.instanceUuid, tokensKey(this.deps.serverSlug), JSON.stringify(tokens));
+    await setPrincipalSecret(this.deps.conversationId, this.deps.instanceSlug, tokensKey(this.deps.serverSlug), JSON.stringify(tokens));
   }
 
   async saveCodeVerifier(verifier: string): Promise<void> {
-    await setPrincipalSecret(this.deps.conversationId, this.deps.instanceUuid, verifierKey(this.deps.serverSlug), verifier);
+    await setPrincipalSecret(this.deps.conversationId, this.deps.instanceSlug, verifierKey(this.deps.serverSlug), verifier);
   }
 
   async codeVerifier(): Promise<string> {
