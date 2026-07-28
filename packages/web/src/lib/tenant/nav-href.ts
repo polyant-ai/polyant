@@ -14,9 +14,10 @@ export interface NavScopeContext {
 }
 
 /**
- * Build a navigation href for a scope. When the tenancy is not yet resolved a
- * tenant-scoped entry points at `/` — the resolver forwards to the right place,
- * so links stay clickable instead of vanishing and reappearing.
+ * Build a navigation href for a scope. `"/"` is a last-resort href for a
+ * tenant-scoped entry whose tenancy is not yet resolved — the caller renders
+ * that entry DISABLED (see `nav-main.tsx`'s `disabled` prop), not a working
+ * forward, so links neither misnavigate nor vanish and reappear.
  */
 export function navHref(scope: NavScope, path: string, ctx: NavScopeContext): string {
   if (scope === "deployment") return path;

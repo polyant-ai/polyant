@@ -184,10 +184,14 @@ functions, no React. This is the only place the URL shape is written down.
 ### 5.5 Web — navigation
 
 Each `app-sidebar.tsx` item gains `scope: "workspace" | "org" | "deployment"`
-and its href is built through the path helpers. The active workspace comes from
-`useParams()`, falling back to the `isDefault` workspace from the provider, so
-workspace-scope items stay clickable from `/settings`. Workspace-scope items are
-disabled while the tenant is unresolved.
+and its href is built through the path helpers. The organization always comes
+from the verified tenancy (never the URL); the workspace is taken from
+`useParams()` only when it names a workspace the caller actually holds,
+falling back to the `isDefault` workspace from the provider otherwise, so
+workspace-scope items stay clickable from `/settings`. Workspace/org-scope
+items are rendered DISABLED (a plain `<span>`, no `Link`, `aria-disabled`) while
+the tenant is unresolved, rather than pointed at `/` — that avoids the
+misnavigation without items vanishing and reappearing.
 
 `isNavActive` already matches segment-aware with `startsWith`, so longer hrefs
 work as-is — **except** the Dashboard item, whose current `url === "/"` special
