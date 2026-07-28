@@ -39,6 +39,15 @@ describe("buildOrgScopedAgentFilter", () => {
     expect(text).toMatch(/"c"\."instance_id"\s+in\s*\(/i);
   });
 
+  it("should_target_the_agents_table_own_slug_column_when_asked", () => {
+    // Used by the agent LIST endpoints, whose FROM is `instances` itself: the
+    // outer column is the unqualified `slug`, the subquery aliases its own copy
+    // as `i`, so the reference stays unambiguous.
+    const { sql: text, params } = render(buildOrgScopedAgentFilter("org-a", "slug"));
+    expect(text).toMatch(/"slug"\s+in\s*\(\s*select\s+i\.slug/i);
+    expect(params).toContain("org-a");
+  });
+
   it("should_reject_a_column_outside_the_allowlist", () => {
     expect(() =>
       // @ts-expect-error — exercising the runtime guard with a disallowed column.

@@ -22,6 +22,7 @@ import {
   createInstance,
   updateInstance,
   deleteInstance,
+  resolvePrincipalOrgId,
   type Instance,
 } from "../../instances/store.js";
 import { seedInstancePrompts } from "../../instances/prompts.store.js";
@@ -114,11 +115,16 @@ function parseDataUri(dataUri: string): { contentType: string; body: Buffer } | 
 export class InstancesController {
   private readonly auditLogger = createManagementAuditLogger();
 
-  // GET /api/instances — list all instances
+  // GET /api/instances — list the caller organization's instances
   @RequirePermission(Permission.AGENT_READ)
   @Get()
-  async list() {
-    const all = await listAllInstances();
+  async list(@CurrentUser() user?: AuthenticatedUser) {
+    // Agents are org-owned, and this route carries no `:slug` for the guard to
+    // scope on — so the org filter is applied here. An unresolvable organization
+    // yields an empty list (fail closed), never the whole deployment.
+    const orgId = await resolvePrincipalOrgId(user?.orgId);
+    if (!orgId) return { instances: [] };
+    const all = await listAllInstances(orgId);
     return { instances: all.map(toInstanceDto) };
   }
 
@@ -208,11 +214,27 @@ export class InstancesController {
   ) {
     this.validateSlug(body.slug);
     this.validateModelConfig(body.provider, body.model);
+    // Resolve the owning organization up front: the store fails closed on an
+    // unresolvable one, and that is a caller-side condition (a principal with no
+    // org claim on a multi-org deployment), not a server fault — surface it as a
+    // 400 rather than letting the throw escape as a 500.
+    const orgId = await resolvePrincipalOrgId(user?.orgId);
+    if (!orgId) {
+      throw new BadRequestException(
+        "Cannot resolve the caller's organization — the agent has no workspace to be created in.",
+      );
+    }
     // Rely on the DB unique constraint as the authoritative duplicate check.
     // A pre-select + insert would introduce a TOCTOU race window.
     let instance: Instance;
     try {
-      instance = await createInstance({ ...body, slug: asInstanceSlug(body.slug) });
+      // `orgId` last: it comes from the authenticated principal and must never be
+      // overridable by a field of the request body.
+      instance = await createInstance({
+        ...body,
+        slug: asInstanceSlug(body.slug),
+        orgId,
+      });
     } catch (err: unknown) {
       if (isUniqueViolation(err)) {
         throw new ConflictException(`Slug "${body.slug}" already exists`);
