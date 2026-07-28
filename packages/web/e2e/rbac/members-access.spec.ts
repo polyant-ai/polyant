@@ -21,7 +21,7 @@ import { expect, test, type Response } from "@playwright/test";
 import { getTestUser } from "../setup/test-env.js";
 import { loginAs } from "../fixtures/auth.js";
 
-const MEMBERS_PATH = "/members";
+const MEMBERS_PATH = "/organizations/default/members";
 
 /** GET …/api/organizations/:slug/members — the call the page makes on load. */
 function isMembersListResponse(response: Response): boolean {
