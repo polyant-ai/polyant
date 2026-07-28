@@ -171,10 +171,12 @@ present only in the `"ready"` branch. It **must not** block the whole admin shel
 
 ### 5.3 Web — `TenantScopeGuard` (in the nested layouts)
 
-Reads the route params, compares them against the provider, calls `notFound()`
-on a mismatch, and republishes the active org/workspace for pages to consume.
-The comparison itself lives in a pure `validateTenantParams(me, orgSlug,
-workspaceSlug?)` so it is unit-testable without React.
+Reads the route params, compares them against the provider, and calls
+`notFound()` on a mismatch. It publishes nothing — it takes both slugs as
+props from the layouts, and pages read them back via `useParams` through
+`useTenantPaths`, not through the guard. The comparison itself lives in a pure
+`validateTenantParams(me, orgSlug, workspaceSlug?)` so it is unit-testable
+without React.
 
 ### 5.4 Web — `lib/tenant/paths.ts`
 
@@ -235,7 +237,7 @@ consequence of putting the resolution there — the Edge middleware never needs
 tenancy knowledge, which it could not obtain anyway (no DB access in the Edge
 runtime).
 
-Fourteen in-code link sites across eight files move to the path helpers:
+Fourteen in-code link sites across seven files move to the path helpers:
 `conversations/[conversationId]/page.tsx` (4), `conversations/page.tsx` (1),
 `instances/page.tsx` (3), `instances/[slug]/page.tsx` (3),
 `instances/create-instance-dialog.tsx` (1),

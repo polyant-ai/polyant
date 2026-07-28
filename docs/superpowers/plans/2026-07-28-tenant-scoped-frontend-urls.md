@@ -30,6 +30,15 @@
 
 ### Task 1: Engine — `GET /api/me` returns the caller's tenancy
 
+> **Post-implementation note:** the `user: { id, email, name }` block specified
+> below for `TenantContext` was dropped during final review before merge. No
+> consumer read it, it was avoidable PII to carry in a tenancy payload, and it
+> is unrepresentable for a management API key principal (which has no user).
+> The shipped `TenantContext` is `{ organization, workspaces }` only — see
+> `packages/engine/src/organizations/tenant.service.ts`. This task's steps are
+> left as originally planned/executed for historical accuracy; do not follow
+> the `user` field literally.
+
 **Files:**
 - Modify: `packages/engine/src/organizations/organizations.store.ts` (append two queries)
 - Create: `packages/engine/src/organizations/tenant.service.ts`
@@ -40,7 +49,7 @@
 - Modify: `packages/web/next.config.ts:38`
 
 **Interfaces:**
-- Produces: `TenantContext` (`{ user: { id, email, name: string | null }, organization: { slug, name } | null, workspaces: WorkspaceIdentity[] }`); `TenantService.getContextFor(user: AuthenticatedUser): Promise<TenantContext>`; store functions `findOrganizationById(organizationId: string): Promise<OrganizationIdentity | null>` and `listWorkspacesByOrganization(organizationId: string): Promise<WorkspaceIdentity[]>`.
+- Produces: `TenantContext` (`{ organization: { slug, name } | null, workspaces: WorkspaceIdentity[] }` — an earlier draft also carried `user: { id, email, name: string | null }`, dropped during final review, see note above); `TenantService.getContextFor(user: AuthenticatedUser): Promise<TenantContext>`; store functions `findOrganizationById(organizationId: string): Promise<OrganizationIdentity | null>` and `listWorkspacesByOrganization(organizationId: string): Promise<WorkspaceIdentity[]>`.
 - Consumes: nothing (first task).
 
 `organization: null` is a valid answer — a JWT minted before RBAC carries no `orgId`. Do NOT throw for it.
@@ -102,6 +111,9 @@ describe("TenantService.getContextFor", () => {
 
     expect(context.organization).toEqual({ slug: "default", name: "Default" });
     expect(context.workspaces).toEqual([{ slug: "default", name: "Default", isDefault: true }]);
+    // `context.user` was dropped from the shipped TenantContext during final
+    // review (see the note above this task) — this assertion does not exist
+    // in the shipped `tenant.service.test.ts`.
     expect(context.user).toEqual({ id: "user-1", email: "owner@example.test", name: "Owner" });
     expect(mockFindOrganizationById).toHaveBeenCalledWith(ORG_ID);
   });
@@ -124,6 +136,9 @@ describe("TenantService.getContextFor", () => {
     expect(mockListWorkspacesByOrganization).not.toHaveBeenCalled();
   });
 
+  // This test existed only to cover the `user.name` normalisation that was
+  // dropped along with the `user` block (see the note above this task) — it
+  // has no equivalent in the shipped test file.
   it("normalises a missing name to null", async () => {
     mockFindOrganizationById.mockResolvedValue({ id: ORG_ID, slug: "default", name: "Default" });
     mockListWorkspacesByOrganization.mockResolvedValue([]);
@@ -193,7 +208,9 @@ export async function listWorkspacesByOrganization(
 
 - [ ] **Step 4: Create the service**
 
-Create `packages/engine/src/organizations/tenant.service.ts`:
+Create `packages/engine/src/organizations/tenant.service.ts` (the `user` block
+below was dropped during final review — see the note at the top of this task;
+this is the SHIPPED shape, not the originally-planned one):
 
 ```ts
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -207,20 +224,14 @@ import {
 } from "./organizations.store.js";
 
 /**
- * What the admin panel needs to render tenant-scoped URLs: who the caller is,
- * which organization they act within, and which workspaces that organization
- * holds.
+ * What the admin panel needs to render tenant-scoped URLs: which organization
+ * the caller acts within, and which workspaces that organization holds.
  *
  * `isPlatformAdmin` is deliberately absent — platform-admin status is resolved
  * from the DB on each privileged check so it stays revocable (see
  * `AuthenticatedUser`), and no consumer needs it here yet.
  */
 export interface TenantContext {
-  readonly user: {
-    readonly id: string;
-    readonly email: string;
-    readonly name: string | null;
-  };
   readonly organization: { readonly slug: string; readonly name: string } | null;
   readonly workspaces: readonly WorkspaceIdentity[];
 }
@@ -233,24 +244,17 @@ export class TenantService {
    * turns that into a "sign in again" prompt. Never throw for it.
    */
   async getContextFor(user: AuthenticatedUser): Promise<TenantContext> {
-    const identity = {
-      id: user.userId,
-      email: user.email,
-      name: user.name ?? null,
-    };
-
     if (!user.orgId) {
-      return { user: identity, organization: null, workspaces: [] };
+      return { organization: null, workspaces: [] };
     }
 
     const organization = await findOrganizationById(user.orgId);
     if (!organization) {
-      return { user: identity, organization: null, workspaces: [] };
+      return { organization: null, workspaces: [] };
     }
 
     const workspaces = await listWorkspacesByOrganization(organization.id);
     return {
-      user: identity,
       organization: { slug: organization.slug, name: organization.name },
       workspaces,
     };
@@ -533,6 +537,13 @@ git commit -F /tmp/t2.txt
 
 ### Task 3: Web — API client `me.get()` and the param validator
 
+> **Post-implementation note:** the `user: { id, email, name }` field specified
+> below for `TenantContextPayload` was dropped during final review before
+> merge, matching the engine's `TenantContext` (see the note on Task 1) — no
+> consumer read it, it was avoidable PII, and it is unrepresentable for a
+> management API key principal. The shipped `TenantContextPayload` is
+> `{ organization, workspaces }` only — see `packages/web/src/lib/api-types.ts`.
+
 **Files:**
 - Modify: `packages/web/src/lib/api-types.ts` (append two interfaces)
 - Modify: `packages/web/src/lib/api.ts` (import the type; add `me.get`)
@@ -541,7 +552,7 @@ git commit -F /tmp/t2.txt
 
 **Interfaces:**
 - Consumes: nothing from Task 2 (independent).
-- Produces: `TenantWorkspace` (`{ slug: string; name: string; isDefault: boolean }`); `TenantContextPayload` (`{ user: { id: string; email: string; name: string | null }; organization: { slug: string; name: string } | null; workspaces: TenantWorkspace[] }`); `api.me.get(): Promise<TenantContextPayload>`; `TenantScope = Pick<TenantContextPayload, "organization" | "workspaces">`; `validateTenantParams(scope: TenantScope, orgSlug: string, workspaceSlug?: string): boolean`. The validator takes the NARROW `TenantScope`, not the whole payload, so the guard can pass what it holds without fabricating `user` fields.
+- Produces: `TenantWorkspace` (`{ slug: string; name: string; isDefault: boolean }`); `TenantContextPayload` (`{ organization: { slug: string; name: string } | null; workspaces: TenantWorkspace[] }` — an earlier draft also carried `user: { id: string; email: string; name: string | null }`, dropped during final review, see note above); `api.me.get(): Promise<TenantContextPayload>`; `TenantScope = Pick<TenantContextPayload, "organization" | "workspaces">`; `validateTenantParams(scope: TenantScope, orgSlug: string, workspaceSlug?: string): boolean`.
 
 `DEFAULT_ORG_SLUG` is NOT removed here — the members page cannot read a route param until Task 6 moves it. Removing it now would break the build.
 
@@ -557,7 +568,6 @@ import type { TenantContextPayload } from "@/lib/api-types";
 
 function makePayload(overrides: Partial<TenantContextPayload> = {}): TenantContextPayload {
   return {
-    user: { id: "user-1", email: "owner@example.test", name: "Owner" },
     organization: { slug: "default", name: "Default" },
     workspaces: [
       { slug: "default", name: "Default", isDefault: true },
@@ -620,7 +630,6 @@ export interface TenantWorkspace {
  * minted before RBAC carries no orgId — and means "sign in again", not "error".
  */
 export interface TenantContextPayload {
-  user: { id: string; email: string; name: string | null };
   organization: { slug: string; name: string } | null;
   workspaces: TenantWorkspace[];
 }
@@ -702,6 +711,11 @@ git commit -F /tmp/t3.txt
 
 ### Task 4: Web — `TenantProvider`, the fallback UI, and mounting both
 
+> **Post-implementation note:** the `PAYLOAD`/`makePayload` test fixtures below
+> still carry a `user` field inherited from the pre-review `TenantContextPayload`
+> shape (see the note on Task 3). It was dropped before merge; the shipped
+> `tenant-context.test.tsx` fixture has no `user` key.
+
 **Files:**
 - Create: `packages/web/src/lib/tenant/tenant-context.tsx`
 - Create: `packages/web/src/lib/tenant/tenant-context.test.tsx`
@@ -762,7 +776,6 @@ function renderProbe() {
 }
 
 const PAYLOAD = {
-  user: { id: "user-1", email: "owner@example.test", name: "Owner" },
   organization: { slug: "default", name: "Default" },
   workspaces: [{ slug: "default", name: "Default", isDefault: true }],
 };
