@@ -111,4 +111,37 @@ describe("AuthorizationService", () => {
       expect(bindingCache.has(bindingCacheKey("user-1", "org-1"))).toBe(false);
     });
   });
+
+  describe("invalidateSuperadminCache", () => {
+    it("should_report_false_immediately_when_the_flag_is_revoked", async () => {
+      mockReadPlatformAdminFlag.mockResolvedValue(true);
+      const svc = makeService();
+      expect(await svc.isPlatformAdmin("user-1")).toBe(true);
+
+      // Revocation: the DB flag flips and the write path flushes the cache.
+      mockReadPlatformAdminFlag.mockResolvedValue(false);
+      svc.invalidateSuperadminCache("user-1");
+
+      // No timer advance — the 5-min TTL must NOT be the thing that saves us.
+      expect(await svc.isPlatformAdmin("user-1")).toBe(false);
+      expect(mockReadPlatformAdminFlag).toHaveBeenCalledTimes(2);
+    });
+
+    it("should_leave_other_users_cached_when_one_user_is_invalidated", async () => {
+      mockReadPlatformAdminFlag.mockResolvedValue(true);
+      const svc = makeService();
+      await svc.isPlatformAdmin("user-1");
+      await svc.isPlatformAdmin("user-2");
+
+      svc.invalidateSuperadminCache("user-1");
+
+      expect(superadminCache.has("user-1")).toBe(false);
+      expect(superadminCache.get("user-2")).toBe(true);
+    });
+
+    it("should_not_throw_when_the_user_is_not_cached", () => {
+      const svc = makeService();
+      expect(() => svc.invalidateSuperadminCache("never-seen")).not.toThrow();
+    });
+  });
 });
