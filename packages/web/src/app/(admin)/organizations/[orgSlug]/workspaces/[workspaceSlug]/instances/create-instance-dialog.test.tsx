@@ -11,6 +11,7 @@ const refreshMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: vi.fn(() => ({ push: pushMock, refresh: refreshMock })),
+  useParams: () => ({ orgSlug: "default", workspaceSlug: "general" }),
 }));
 
 vi.mock("@/lib/i18n/context", () => ({
@@ -181,7 +182,9 @@ describe("CreateInstanceDialog", () => {
 
     await waitFor(() => {
       expect(onCreated).toHaveBeenCalled();
-      expect(pushMock).toHaveBeenCalledWith("/instances/my-bot");
+      expect(pushMock).toHaveBeenCalledWith(
+        "/organizations/default/workspaces/general/instances/my-bot",
+      );
     });
   });
 

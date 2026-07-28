@@ -35,6 +35,7 @@ import {
 import { ChannelIcon } from "@/components/channel-icon";
 import { useI18n } from "@/lib/i18n/context";
 import { formatRelativeTime, truncate } from "@/lib/format";
+import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 
 function isSearchResult(
   c: ConversationListItem,
@@ -44,6 +45,7 @@ function isSearchResult(
 
 export default function ConversationsPage() {
   const { t } = useI18n();
+  const paths = useTenantPaths();
   const PAGE_SIZE = 20;
   const { page, setPage, search, setSearch, debouncedSearch, totalPages, setTotal, offset } = usePagination({ pageSize: PAGE_SIZE });
   const [conversations, setConversations] = useState<ConversationListItem[]>(
@@ -176,7 +178,7 @@ export default function ConversationsPage() {
                   <TableRow key={conv.id} className="cursor-pointer">
                     <TableCell className="font-medium max-w-0 truncate">
                       <Link
-                        href={`/conversations/${encodeURIComponent(conv.conversationId)}`}
+                        href={paths.workspace(`/conversations/${encodeURIComponent(conv.conversationId)}`)}
                         className="hover:underline"
                       >
                         {conv.title

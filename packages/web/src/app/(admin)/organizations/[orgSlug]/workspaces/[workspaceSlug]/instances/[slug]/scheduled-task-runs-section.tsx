@@ -39,6 +39,7 @@ import {
 import { api, getUserErrorMessage, type ScheduledTaskRun, type ScheduledTask } from "@/lib/api";
 import { parseUTC, formatRelativeTime, formatDuration } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
+import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { MarkdownRenderer } from "@/app/(admin)/organizations/[orgSlug]/workspaces/[workspaceSlug]/playground/_components/markdown-renderer";
 
 interface Props {
@@ -79,6 +80,7 @@ function RunStatusBadge({ status }: { status: string }) {
 
 export function ScheduledTaskRunsSection({ slug, tasks }: Props) {
   const { t } = useI18n();
+  const paths = useTenantPaths();
   const [runs, setRuns] = useState<ScheduledTaskRun[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -288,7 +290,7 @@ export function ScheduledTaskRunsSection({ slug, tasks }: Props) {
                               )}
                               {run.conversationId && (
                                 <a
-                                  href={`/conversations/${encodeURIComponent(run.conversationId)}`}
+                                  href={paths.workspace(`/conversations/${encodeURIComponent(run.conversationId)}`)}
                                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                                   onClick={(e) => e.stopPropagation()}
                                 >
