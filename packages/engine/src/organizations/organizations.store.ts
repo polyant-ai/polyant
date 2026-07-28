@@ -107,3 +107,48 @@ export async function ensureOwnerBinding(
       ],
     });
 }
+
+/** An organization as the management plane and the frontend URLs address it. */
+export interface OrganizationIdentity {
+  readonly id: string;
+  readonly slug: string;
+  readonly name: string;
+}
+
+/** A workspace as the frontend addresses it in a tenant-scoped URL. */
+export interface WorkspaceIdentity {
+  readonly slug: string;
+  readonly name: string;
+  readonly isDefault: boolean;
+}
+
+/** Resolve an organization by UUID — the `orgId` the JWT carries. */
+export async function findOrganizationById(
+  organizationId: string,
+): Promise<OrganizationIdentity | null> {
+  const [row] = await db
+    .select({
+      id: organizations.id,
+      slug: organizations.slug,
+      name: organizations.name,
+    })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Every workspace in an organization, slug-ordered so the list is stable. */
+export async function listWorkspacesByOrganization(
+  organizationId: string,
+): Promise<WorkspaceIdentity[]> {
+  return db
+    .select({
+      slug: workspaces.slug,
+      name: workspaces.name,
+      isDefault: workspaces.isDefault,
+    })
+    .from(workspaces)
+    .where(eq(workspaces.organizationId, organizationId))
+    .orderBy(workspaces.slug);
+}
