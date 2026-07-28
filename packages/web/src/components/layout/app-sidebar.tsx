@@ -29,8 +29,8 @@ import { NavMain, type NavItem } from "@/components/layout/nav-main";
 import { NavUser, type NavUserProps } from "@/components/layout/nav-user";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
-import { navHref, type NavScope } from "@/lib/tenant/nav-href";
-import { useTenant, defaultWorkspaceSlug } from "@/lib/tenant/tenant-context";
+import { navHref, resolveNavScope, type NavScope } from "@/lib/tenant/nav-href";
+import { useTenant } from "@/lib/tenant/tenant-context";
 
 interface NavItemDef {
   titleKey: TranslationKey;
@@ -72,16 +72,13 @@ export function AppSidebar(
   const tenant = useTenant();
   const params = useParams<{ orgSlug?: string; workspaceSlug?: string }>();
 
-  // Prefer the tenant the URL is already addressing; fall back to the caller's
-  // own organization and its default workspace so workspace-scope items stay
-  // clickable from deployment-level pages like /settings.
-  //
-  // Both slugs are plain strings, NOT a wrapper object: an object literal is a
-  // new reference every render, so exhaustive-deps would reject it as a
-  // dependency (and memoising it would only move the problem).
-  const orgSlug =
-    params.orgSlug ?? (tenant.status === "ready" ? tenant.organization.slug : null);
-  const workspaceSlug = params.workspaceSlug ?? defaultWorkspaceSlug(tenant);
+  // The organization always comes from the verified tenancy (never the URL —
+  // see resolveNavScope's doc comment); the workspace is honoured from the URL
+  // only when it names a workspace the caller actually holds. Both slugs are
+  // plain strings, NOT a wrapper object: an object literal is a new reference
+  // every render, so exhaustive-deps would reject it as a dependency (and
+  // memoising it would only move the problem).
+  const { orgSlug, workspaceSlug } = resolveNavScope(tenant, params);
 
   const toNavItems = useCallback(
     (defs: NavItemDef[]): NavItem[] =>
