@@ -87,6 +87,11 @@ export function AppSidebar(
         url: navHref(d.scope, d.path, { orgSlug, workspaceSlug }),
         icon: d.icon,
         exact: d.exact,
+        // Deployment items need no tenancy; org/workspace items are disabled
+        // until the slug their own scope requires has resolved, so a click
+        // during the loading window cannot misnavigate to the dashboard.
+        disabled:
+          d.scope !== "deployment" && (d.scope === "org" ? !orgSlug : !workspaceSlug),
       })),
     [t, orgSlug, workspaceSlug],
   );

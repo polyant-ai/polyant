@@ -20,6 +20,8 @@ export interface NavItem {
   url: string;
   icon: LucideIcon;
   exact?: boolean;
+  /** True while the tenancy needed to resolve `url` is not yet known. */
+  disabled?: boolean;
 }
 
 // Segment-aware active match: `/audit` must NOT match `/audit-logs`, but
@@ -47,6 +49,17 @@ export function NavMain({
         <SidebarMenu>
           {items.map((item) => {
             const isActive = isNavActive(pathname, item.url, item.exact);
+
+            if (item.disabled) {
+              return (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton tooltip={item.title} aria-disabled="true">
+                    <item.icon />
+                    <span>{item.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            }
 
             return (
               <SidebarMenuItem key={item.title}>
