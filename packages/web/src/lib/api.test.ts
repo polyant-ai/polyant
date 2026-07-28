@@ -386,7 +386,7 @@ describe("api.members", () => {
 
   it("list() targets the default org members endpoint", async () => {
     const fetchFn = mockFetch(mockResponse({ members: [] }));
-    await api.members.list();
+    await api.members.list("default");
     const [url] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
     expect(parsed.pathname).toBe("/api/organizations/default/members");
@@ -394,7 +394,7 @@ describe("api.members", () => {
 
   it("assign() PUTs the role to the member endpoint", async () => {
     const fetchFn = mockFetch(mockResponse({ assigned: true }));
-    await api.members.assign("user-1", "admin");
+    await api.members.assign("user-1", "admin", "default");
     const [url, init] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
     expect(parsed.pathname).toBe("/api/organizations/default/members/user-1");
@@ -404,7 +404,7 @@ describe("api.members", () => {
 
   it("remove() DELETEs the member endpoint", async () => {
     const fetchFn = mockFetch(mockResponse({ removed: true }));
-    await api.members.remove("user-1");
+    await api.members.remove("user-1", "default");
     const [url, init] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
     expect(parsed.pathname).toBe("/api/organizations/default/members/user-1");

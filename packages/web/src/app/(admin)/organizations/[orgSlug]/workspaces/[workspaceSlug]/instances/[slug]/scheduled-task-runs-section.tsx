@@ -39,7 +39,7 @@ import {
 import { api, getUserErrorMessage, type ScheduledTaskRun, type ScheduledTask } from "@/lib/api";
 import { parseUTC, formatRelativeTime, formatDuration } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
-import { MarkdownRenderer } from "@/app/(admin)/playground/_components/markdown-renderer";
+import { MarkdownRenderer } from "@/app/(admin)/organizations/[orgSlug]/workspaces/[workspaceSlug]/playground/_components/markdown-renderer";
 
 interface Props {
   slug: string;
