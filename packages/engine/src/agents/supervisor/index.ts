@@ -31,6 +31,7 @@ import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
 import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
+import { agentsShareOrganization } from "../../authz/agent-tenancy.js";
 
 export interface SupervisorInput {
   message: string;
@@ -329,6 +330,14 @@ async function buildTools(opts: BuildToolsOptions) {
       const target = await findInstanceBySlug(asInstanceSlug(targetSlug));
       if (!target) {
         console.warn(`[supervisor] agent tool '${entryName}': target instance not found`);
+        continue;
+      }
+      // Tenancy backstop, independent of how the row got into instance_tools:
+      // an `ask_` handoff runs the target's whole pipeline, so it must never
+      // cross an organization boundary. The tools API rejects such an entry at
+      // write time; this also neutralises rows written before that gate existed.
+      if (!(await agentsShareOrganization(instanceId, targetSlug))) {
+        console.warn(`[supervisor] agent tool '${entryName}': target is in another organization — skipped`);
         continue;
       }
       const adapter = channelManager.getAdapter(target.slug, "agent") as AgentChannelAdapter | undefined;
