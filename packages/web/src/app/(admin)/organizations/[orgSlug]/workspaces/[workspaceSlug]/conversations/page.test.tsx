@@ -50,6 +50,13 @@ vi.mock("@/hooks/use-pagination", () => ({
   })),
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useParams: () => ({ orgSlug: "default", workspaceSlug: "general" }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/organizations/default/workspaces/general/conversations",
+}));
+
 vi.mock("next/link", () => ({
   default: ({
     children,
@@ -199,7 +206,10 @@ describe("ConversationsPage", () => {
     });
 
     const link = screen.getByText("Test Conversation").closest("a");
-    expect(link).toHaveAttribute("href", "/conversations/conv-abc");
+    expect(link).toHaveAttribute(
+      "href",
+      "/organizations/default/workspaces/general/conversations/conv-abc",
+    );
   });
 
   it("fetches instances for the filter dropdown", async () => {

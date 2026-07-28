@@ -54,6 +54,7 @@ import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-s
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
 import { formatRelativeTime, parseUTC } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
+import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 
 const MESSAGES_PAGE_SIZE = 50;
 
@@ -162,6 +163,7 @@ export default function ConversationDetailPage() {
   const { t } = useI18n();
   const params = useParams<{ conversationId: string }>();
   const router = useRouter();
+  const paths = useTenantPaths();
   const conversationId = decodeURIComponent(params.conversationId);
   // Every conversation id is `<instanceSlug>:<channelType>:<channelId>` — see
   // packages/engine/src/index.ts. We derive the instance scope from the id
@@ -235,7 +237,7 @@ export default function ConversationDetailPage() {
       })
       .catch(() => {
         toast.error(t("conversations.detail.notFound"));
-        router.push("/conversations");
+        router.push(paths.workspace("/conversations"));
       })
       .finally(() => setLoading(false));
   }, [conversationId, router, t]);
@@ -383,7 +385,7 @@ export default function ConversationDetailPage() {
       setRenameOpen(false);
       if (nextId !== conversationId) {
         // The id changed → the current route is stale; navigate to the new one.
-        router.push(`/conversations/${encodeURIComponent(nextId)}`);
+        router.push(paths.workspace(`/conversations/${encodeURIComponent(nextId)}`));
       } else {
         setConversation((c) => (c ? { ...c, title: nextTitle } : c));
       }
@@ -398,7 +400,7 @@ export default function ConversationDetailPage() {
     try {
       await api.conversations.delete(conversationId, instanceId);
       toast.success(t("conversations.detail.deleted"));
-      router.push("/conversations");
+      router.push(paths.workspace("/conversations"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("conversations.detail.deleteFailed")));
     }
@@ -427,7 +429,7 @@ export default function ConversationDetailPage() {
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/conversations">{t("conversations.detail.breadcrumb")}</Link>
+              <Link href={paths.workspace("/conversations")}>{t("conversations.detail.breadcrumb")}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

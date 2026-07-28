@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { api, getUserErrorMessage } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 
 interface Props {
   open: boolean;
@@ -37,6 +38,7 @@ function toSlug(name: string): string {
 export function CreateInstanceDialog({ open, onOpenChange, onCreated }: Props) {
   const router = useRouter();
   const { t } = useI18n();
+  const paths = useTenantPaths();
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -67,7 +69,7 @@ export function CreateInstanceDialog({ open, onOpenChange, onCreated }: Props) {
       toast.success(t("instances.create.success"));
       resetForm();
       onCreated();
-      router.push(`/instances/${instance.slug}`);
+      router.push(paths.workspace(`/instances/${encodeURIComponent(instance.slug)}`));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("instances.create.error")));
     } finally {

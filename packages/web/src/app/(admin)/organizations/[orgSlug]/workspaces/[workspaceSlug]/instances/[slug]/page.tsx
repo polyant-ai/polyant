@@ -45,6 +45,7 @@ import { HooksTab } from "./hooks-tab";
 import { PrivacyTab } from "./privacy-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { useI18n } from "@/lib/i18n/context";
+import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 
 function HeaderSaveButton() {
   const { saveAction } = usePageActions();
@@ -73,6 +74,7 @@ function InstanceDetailContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { t } = useI18n();
+  const paths = useTenantPaths();
 
   const tabParam = searchParams.get("tab");
   const activeTab =
@@ -109,7 +111,7 @@ function InstanceDetailContent() {
       })
       .catch(() => {
         toast.error(t("instances.detail.notFound"));
-        router.push("/instances");
+        router.push(paths.workspace("/instances"));
       })
       .finally(() => setLoading(false));
   }, [params.slug]);
@@ -118,7 +120,7 @@ function InstanceDetailContent() {
     try {
       await api.instances.delete(params.slug);
       toast.success(t("instances.detail.deleted"));
-      router.push("/instances");
+      router.push(paths.workspace("/instances"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("instances.detail.deleteFailed")));
     }
@@ -163,7 +165,7 @@ function InstanceDetailContent() {
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href="/instances">{t("instances.detail.breadcrumb")}</Link>
+              <Link href={paths.workspace("/instances")}>{t("instances.detail.breadcrumb")}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

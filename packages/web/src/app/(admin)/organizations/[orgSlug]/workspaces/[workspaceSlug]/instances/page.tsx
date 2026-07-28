@@ -31,6 +31,7 @@ import { formatRelativeTime } from "@/lib/format";
 import { isSafeImageSrc } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
+import { useTenantPaths, type TenantPaths } from "@/lib/tenant/use-tenant-paths";
 
 type ViewMode = "list" | "grid";
 const STORAGE_KEY = "instances-view-mode";
@@ -69,13 +70,13 @@ function useShowInactive(): [boolean, (next: boolean) => void] {
   return [show, setAndPersist];
 }
 
-function InstanceGrid({ instances }: { instances: Instance[] }) {
+function InstanceGrid({ instances, paths }: { instances: Instance[]; paths: TenantPaths }) {
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
       {instances.map((inst) => (
         <Link
           key={inst.id}
-          href={`/instances/${inst.slug}`}
+          href={paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`)}
           className="group flex flex-col items-center gap-2 rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50"
         >
           <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border bg-muted">
@@ -109,9 +110,10 @@ function InstanceGrid({ instances }: { instances: Instance[] }) {
   );
 }
 
-function InstanceList({ instances, t }: {
+function InstanceList({ instances, t, paths }: {
   instances: Instance[];
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
+  paths: TenantPaths;
 }) {
   return (
     <Table>
@@ -133,7 +135,7 @@ function InstanceList({ instances, t }: {
           <TableRow key={inst.id} className="cursor-pointer">
             <TableCell className="font-medium">
               <Link
-                href={`/instances/${inst.slug}`}
+                href={paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`)}
                 className="flex items-center gap-2 hover:underline"
               >
                 {inst.icon && isSafeImageSrc(inst.icon) ? (
@@ -181,6 +183,7 @@ function InstanceList({ instances, t }: {
 export default function InstancesPage() {
   const { t } = useI18n();
   const router = useRouter();
+  const paths = useTenantPaths();
   const [instances, setInstances] = useState<Instance[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -208,7 +211,7 @@ export default function InstancesPage() {
       await fetchInstances();
 
       // Navigate to the new instance
-      router.push(`/instances/${result.slug}`);
+      router.push(paths.workspace(`/instances/${encodeURIComponent(result.slug)}`));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("exportImport.import.failed")));
     } finally {
@@ -350,9 +353,9 @@ export default function InstancesPage() {
             </Button>
           </div>
         ) : viewMode === "list" ? (
-          <InstanceList instances={visibleInstances} t={t} />
+          <InstanceList instances={visibleInstances} t={t} paths={paths} />
         ) : (
-          <InstanceGrid instances={visibleInstances} />
+          <InstanceGrid instances={visibleInstances} paths={paths} />
         )}
       </div>
 
