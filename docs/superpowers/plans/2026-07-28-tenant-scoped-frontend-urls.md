@@ -1674,7 +1674,18 @@ Expected: clean. If a moved page test fails to resolve an import, the move dragg
 - [ ] **Step 10: Run the web suite**
 
 Run: `npm test -w @polyant/web`
-Expected: PASS. Task 8 fixes the tests that break on `useParams`; if any moved page test fails HERE with "useParams is not a function", note the file and leave it — Task 8 owns it. Everything else must be green.
+Expected: PASS — the suite MUST be green before this task commits; no commit lands on red.
+
+The only expected new failure is a moved page test whose component now calls `useParams` (the members page). Fix it here by adding `useParams` to that file's `next/navigation` mock, or adding the mock if absent:
+
+```tsx
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useParams: () => ({ orgSlug: "default", workspaceSlug: "general" }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/organizations/default/members",
+}));
+```
 
 - [ ] **Step 11: Commit**
 
