@@ -236,7 +236,8 @@ export async function executeRoomCycle(
   if (!halt) {
     postHooks = await runHooks(
       "response_generated",
-      { ...hookPayload, response: { text: result!.text } },
+      // Room is supervise-direct with no replay loop, so regenerationCount is always 0.
+      { ...hookPayload, response: { text: result!.text, regenerationCount: 0 } },
       hookCtx,
     );
     replace = firstReplaceResponse(postHooks);

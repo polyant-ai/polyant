@@ -240,7 +240,8 @@ export async function triggerConversation(
   if (!halt) {
     postHooks = await runHooks(
       "response_generated",
-      { ...hookPayload, response: { text: result!.text } },
+      // Webhook is supervise-direct with no replay loop, so regenerationCount is always 0.
+      { ...hookPayload, response: { text: result!.text, regenerationCount: 0 } },
       hookCtx,
     );
     replace = firstReplaceResponse(postHooks);

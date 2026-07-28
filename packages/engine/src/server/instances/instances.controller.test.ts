@@ -48,7 +48,7 @@ const {
     },
     bedrock: {
       tiers: { fast: "titan", standard: "titan", heavy: "titan" },
-      models: {},
+      models: { "openai.gpt-oss-120b-1:0": { input: 0.2, output: 0.79 } },
     },
   },
 }));
@@ -71,8 +71,9 @@ vi.mock("../../ai-gateway/config.js", () => ({
   providerConfigs: mockProviderConfigs,
   isThinkingCapable: vi.fn().mockReturnValue(false),
   temperatureSupported: (provider: string, modelId: string, thinking: boolean): boolean => {
-    if (thinking) return false;
     if (provider === "openai" && /^(o[134]|gpt-5)/.test(modelId)) return false;
+    // Under thinking, only open-weight reasoners (gpt-oss) keep a custom temperature.
+    if (thinking) return /gpt-oss/i.test(modelId);
     return true;
   },
   clampTemperature: (value: number | null | undefined): number | null => {
@@ -393,6 +394,16 @@ describe("InstancesController", () => {
       const openai = res.providers.openai.models;
       expect(openai.find((m) => m.id === "o3")?.supportsTemperature).toBe(false);
       expect(openai.find((m) => m.id === "gpt-4o")?.supportsTemperature).toBe(true);
+    });
+
+    it("exposes supportsTemperatureWithThinking per model (open-weight reasoners keep temperature)", () => {
+      const res = controller.getModels();
+      const openai = res.providers.openai.models;
+      const bedrock = res.providers.bedrock.models;
+      // Strict-reasoning API: temperature rejected once thinking is on.
+      expect(openai.find((m) => m.id === "o3")?.supportsTemperatureWithThinking).toBe(false);
+      // Open-weight reasoner (gpt-oss): temperature survives alongside reasoning.
+      expect(bedrock.find((m) => m.id === "openai.gpt-oss-120b-1:0")?.supportsTemperatureWithThinking).toBe(true);
     });
 
     it("exposes absolute per-model cache costs (with input-rate fallback) and cache support", () => {

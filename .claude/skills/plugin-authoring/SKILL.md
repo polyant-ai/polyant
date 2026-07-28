@@ -1,6 +1,6 @@
 ---
 name: plugin-authoring
-description: Use when creating, converting, or loading Polyant agent tools/plugins — authoring a *.tool.ts with defineTool, the serialized (JSON Schema) contract, converting a legacy registerTool tool, or wiring an external plugin via PLUGIN_DIRS / src/plugins. Covers the module-resolution rules that decide where a plugin can live.
+description: Use when creating, converting, or loading Polyant agent tools/plugins — authoring a *.tool.ts with defineTool, the serialized (JSON Schema) contract, converting a legacy registerTool tool, or wiring an external plugin via PLUGIN_DIRS / src/plugins. Also covers authoring a *.hook.ts with defineHook (conversation lifecycle hooks + control returns halt/injectContext/replaceResponse/regenerate). Covers the module-resolution rules that decide where a plugin can live.
 ---
 
 # Authoring & loading Polyant tools/plugins
@@ -50,6 +50,22 @@ export default defineTool({
 6. Update the tool's test: side-effect `import "./x.tool.js"` → `import xTool from "./x.tool.js"`; `getToolRegistry().get("x")` → the default import; `requiredSecrets` assertions → normalized specs (`[{ key, type:"text", sensitive:true }]`); ex-`inputSchema.parse` (Zod) tests → call `execute(input, ctx)` directly.
 
 Both shapes coexist (the loader/`buildTool` dispatch on `inputSchema`), so migrate incrementally.
+
+## Authoring a hook (`defineHook`)
+
+The same SDK also exposes `defineHook` for **conversation lifecycle hooks** —
+deterministic code, NOT LLM-invoked and never in the tool catalog, that runs at
+`conversation_start` / `message_received` / `response_generated` / `response_sent`.
+A `*.hook.ts` file default-exports `defineHook({ name, description, mutatesResponse?, requiredSecrets?, handler })`; `handler(ctx)` gets a `HookContext` (`event`, server-built `payload`, read-only `conversation`, read+write `state`, scoped `secrets`, `instance`, and `ai.chat(...)`) and returns `void` (observe-only) or a control object:
+
+| Return | Event | Effect |
+|--------|-------|--------|
+| `{ halt: { message } }` | pre-LLM | skip the LLM, reply with `message` |
+| `{ injectContext: string }` | pre-LLM | append a one-shot system message to the LLM input |
+| `{ replaceResponse: { message } }` | `response_generated` | replace the LLM reply |
+| `{ regenerate: { reason? } }` | `response_generated` | discard the output and REPLAY the whole turn (system prompt + tools) |
+
+`replaceResponse`/`regenerate` require `mutatesResponse: true` (the turn is served non-streamed so the mutation lands in time). `regenerate` (SDK v1.4.0+) lets a hook re-run the supervisor turn — e.g. when the model emits corrupted output that can't be cleaned; the hook owns the stop condition via `ctx.payload.response.regenerationCount` (`0` on the first pass), the engine caps it at `MAX_REGENERATIONS`, and `regenerate` wins over `replaceResponse` in a pass. **Caveat:** replay re-executes the whole turn, **tools included** — enable a `regenerate` hook only where the turn is side-effect-free or its tools are idempotent. Design: `docs/superpowers/specs/2026-07-23-hook-regenerate-replay-design.md`.
 
 ## Loading an external plugin
 

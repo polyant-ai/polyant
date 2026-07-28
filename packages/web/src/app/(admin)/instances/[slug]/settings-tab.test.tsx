@@ -587,6 +587,57 @@ describe("SettingsTab", () => {
     expect(screen.getByLabelText(/temperature/i)).toBeDisabled();
   });
 
+  it("keeps temperature editable under thinking for reasoners that accept both (gpt-oss/Nebius)", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        bedrock: {
+          models: [
+            { id: "openai.gpt-oss-120b-1:0", tier: "standard", costInput: 0.2, costOutput: 0.79, supportsThinking: true, supportsTemperature: true, supportsTemperatureWithThinking: true },
+          ],
+        },
+      },
+    });
+
+    render(
+      <SettingsTab
+        instance={makeInstance({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinkingEnabled: true })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // Open-weight/vLLM reasoners accept temperature + reasoning together — the field
+    // stays editable with thinking on (mirrors temperatureSupported(..., thinking:true)).
+    expect(screen.getByLabelText(/temperature/i)).not.toBeDisabled();
+  });
+
+  it("disables temperature under thinking for strict-reasoning APIs (Anthropic/OpenAI 1P)", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        openai: {
+          models: [
+            { id: "gpt-5.4", tier: "heavy", costInput: 0.01, costOutput: 0.03, supportsThinking: true, supportsTemperature: true, supportsTemperatureWithThinking: false },
+          ],
+        },
+      },
+    });
+
+    render(
+      <SettingsTab instance={makeInstance({ model: "gpt-5.4", thinkingEnabled: true })} onUpdate={onUpdate} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // gpt-5.4 takes a custom temperature only with reasoning OFF; under thinking the
+    // field must lock (supportsTemperatureWithThinking:false).
+    expect(screen.getByLabelText(/temperature/i)).toBeDisabled();
+  });
+
   it("keeps temperature editable when a stale thinkingEnabled flag survives on a non-thinking model", async () => {
     mockModelsList.mockResolvedValue({
       providers: {

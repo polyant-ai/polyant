@@ -387,9 +387,13 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   // its hidden toggle is unreachable) after switching to a non-thinking model.
   const effectiveThinkingEnabled = thinkingToPersist && canEnableThinking;
 
-  // Temperature control is available only when the model supports it AND the
-  // user has not enabled extended thinking (reasoning mode ignores temperature).
-  const canSetTemperature = !!selectedModelInfo?.supportsTemperature && !effectiveThinkingEnabled;
+  // Temperature control availability. Under extended thinking most models ignore or
+  // reject a custom temperature (Anthropic forces temp=1, OpenAI 1P 400s), but
+  // open-weight/vLLM reasoners (gpt-oss, Bedrock MiniMax, Nebius) accept both — gated
+  // per-model by supportsTemperatureWithThinking. Thinking off: the plain gate.
+  const canSetTemperature = effectiveThinkingEnabled
+    ? !!selectedModelInfo?.supportsTemperatureWithThinking
+    : !!selectedModelInfo?.supportsTemperature;
 
   // Reset model when provider changes
   const handleProviderChange = (value: string) => {
@@ -778,8 +782,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
 
         {/*
           Sampling temperature control. Shown for all models but disabled for
-          reasoning/o-series models (supportsTemperature: false) and when
-          extended thinking is active (which overrides temperature).
+          reasoning/o-series models (supportsTemperature: false) and, under extended
+          thinking, for models that reject temperature+reasoning together
+          (supportsTemperatureWithThinking: false — Anthropic/OpenAI 1P).
         */}
         <div className="space-y-2 border-t pt-4">
           <Label htmlFor="temperature">{t("settings.temperature.label")}</Label>

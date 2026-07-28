@@ -58,10 +58,11 @@ beforeEach(() => {
 
 describe("WebhookController", () => {
   describe("receiveEvent", () => {
-    it("should return { ok: true } immediately regardless of processing outcome", async () => {
+    it("should return { ok: true } for an unknown token without processing", async () => {
       mockFindByWebhookToken.mockResolvedValue(null);
       const result = await controller.receiveEvent("unknown-token", { type: "test" });
       expect(result).toEqual({ ok: true });
+      expect(mockWebhookLog.warn).toHaveBeenCalledWith("Webhook", expect.stringContaining("unknown token"));
     });
 
     it("should reject payload exceeding max size", async () => {
@@ -69,18 +70,76 @@ describe("WebhookController", () => {
       const result = await controller.receiveEvent("token", bigPayload);
       expect(result).toEqual({ ok: false, error: "payload too large" });
     });
+
+    it("should process without an Authorization header when the source has no authKey", async () => {
+      mockFindByWebhookToken.mockResolvedValue({
+        source: { id: "src-1", name: "Open", enabled: true, config: {} },
+        instanceId: "inst-1",
+      });
+      mockListEnabledDefinitions.mockResolvedValue([]);
+      const result = await controller.receiveEvent("valid-token", { type: "test" });
+      expect(result).toEqual({ ok: true });
+    });
+
+    it("should accept a matching Bearer token when the source has an authKey", async () => {
+      mockFindByWebhookToken.mockResolvedValue({
+        source: { id: "src-1", name: "Secured", enabled: true, config: { authKey: "s3cret-value" } },
+        instanceId: "inst-1",
+      });
+      mockListEnabledDefinitions.mockResolvedValue([]);
+      const result = await controller.receiveEvent("valid-token", { type: "test" }, "Bearer s3cret-value");
+      expect(result).toEqual({ ok: true });
+    });
+
+    it("should reject a wrong Bearer token when the source has an authKey", async () => {
+      mockFindByWebhookToken.mockResolvedValue({
+        source: { id: "src-1", name: "Secured", enabled: true, config: { authKey: "s3cret-value" } },
+        instanceId: "inst-1",
+      });
+      await expect(
+        controller.receiveEvent("valid-token", { type: "test" }, "Bearer wrong-value"),
+      ).rejects.toThrow("Invalid webhook credentials");
+    });
+
+    it("should reject a missing Bearer token when the source has an authKey", async () => {
+      mockFindByWebhookToken.mockResolvedValue({
+        source: { id: "src-1", name: "Secured", enabled: true, config: { authKey: "s3cret-value" } },
+        instanceId: "inst-1",
+      });
+      await expect(
+        controller.receiveEvent("valid-token", { type: "test" }),
+      ).rejects.toThrow("Invalid webhook credentials");
+    });
+
+    it("should accept a case-insensitive 'bearer' scheme (RFC 7235)", async () => {
+      mockFindByWebhookToken.mockResolvedValue({
+        source: { id: "src-1", name: "Secured", enabled: true, config: { authKey: "s3cret-value" } },
+        instanceId: "inst-1",
+      });
+      mockListEnabledDefinitions.mockResolvedValue([]);
+      const result = await controller.receiveEvent("valid-token", { type: "test" }, "bearer s3cret-value");
+      expect(result).toEqual({ ok: true });
+    });
+
+    it("should fail closed (drop without processing) when the source config is unreadable", async () => {
+      mockFindByWebhookToken.mockResolvedValue({
+        source: { id: "src-1", name: "Broken", enabled: true, config: {} },
+        instanceId: "inst-1",
+        configReadable: false,
+      });
+      const result = await controller.receiveEvent("valid-token", { type: "test" }, "Bearer anything");
+      expect(result).toEqual({ ok: true });
+      expect(mockListEnabledDefinitions).not.toHaveBeenCalled();
+    });
   });
 
   describe("processEvent pipeline", () => {
-    async function processEvent(token: string, payload: Record<string, unknown>) {
-      return (controller as any).processEvent(token, payload);
+    // processEvent now receives the already-resolved source (the handler does
+    // the token lookup + auth gate), so drive it with the mocked result.
+    async function processEvent(_token: string, payload: Record<string, unknown>) {
+      const result = await mockFindByWebhookToken();
+      return (controller as any).processEvent(result, payload);
     }
-
-    it("should drop event when webhook token is unknown", async () => {
-      mockFindByWebhookToken.mockResolvedValue(null);
-      await processEvent("bad-token", { type: "test" });
-      expect(mockWebhookLog.warn).toHaveBeenCalledWith("Webhook", expect.stringContaining("unknown token"));
-    });
 
     it("should drop event when source is disabled", async () => {
       mockFindByWebhookToken.mockResolvedValue({

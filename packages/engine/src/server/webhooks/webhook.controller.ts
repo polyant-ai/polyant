@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { Controller, Post, Param, Body, HttpCode } from "@nestjs/common";
+import { Controller, Post, Param, Body, Headers, HttpCode, UnauthorizedException } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { findByWebhookToken, listEnabledDefinitions } from "../../webhooks/webhook-sources.store.js";
+import { timingSafeEqual } from "crypto";
+import { findByWebhookToken, listEnabledDefinitions, type EventSource } from "../../webhooks/webhook-sources.store.js";
 import { getRoomByInstanceId } from "../../room/room.store.js";
 import { matchEvent } from "../../webhooks/webhook-matcher.js";
 import { insertEvent } from "../../webhooks/webhook-backlog.store.js";
@@ -12,8 +13,24 @@ import { webhookLog } from "../../webhooks/webhook-logger.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import { emitWebhook } from "../../activity-stream/emitters/emit-webhook.js";
 import { resolveInstanceMeta } from "../../activity-stream/emit-helpers.js";
+import type { InstanceUuid } from "../../instances/identifiers.js";
 
 const MAX_PAYLOAD_BYTES = 65_536;
+
+/**
+ * Per-source webhook auth: the sender must present the source's `authKey`
+ * (stored in the encrypted `config`) as `Authorization: Bearer <key>`.
+ * Timing-safe to avoid leaking the secret through comparison timing.
+ */
+function bearerMatches(authHeader: string | undefined, expected: string): boolean {
+  if (!authHeader) return false;
+  // RFC 7235: the auth-scheme token is case-insensitive — accept "bearer" in
+  // any case. Only the scheme is normalized; the key bytes are compared as-is.
+  if (authHeader.slice(0, 7).toLowerCase() !== "bearer ") return false;
+  const provided = Buffer.from(authHeader.slice(7), "utf-8");
+  const exp = Buffer.from(expected, "utf-8");
+  return provided.length === exp.length && timingSafeEqual(provided, exp);
+}
 
 @Controller("webhooks")
 export class WebhookController {
@@ -24,26 +41,50 @@ export class WebhookController {
   async receiveEvent(
     @Param("webhookToken") webhookToken: string,
     @Body() payload: Record<string, unknown>,
+    @Headers("authorization") authHeader?: string,
   ): Promise<{ ok: boolean; error?: string }> {
     const safePayload = payload ?? {};
     if (JSON.stringify(safePayload).length > MAX_PAYLOAD_BYTES) {
       return { ok: false, error: "payload too large" };
     }
 
-    this.processEvent(webhookToken, safePayload).catch((err) =>
+    const result = await findByWebhookToken(webhookToken);
+    // Unknown token: stay silent and return 200 so a caller cannot probe which
+    // tokens exist (tokens are 32-byte random — not enumerable regardless).
+    if (!result) {
+      webhookLog.warn("Webhook", `unknown token ${webhookToken.slice(0, 8)}...`);
+      return { ok: true };
+    }
+
+    // Fail closed: if the config can't be decrypted we can't tell whether the
+    // source requires auth, so drop rather than process a possibly-protected
+    // source unauthenticated. Return 200 like the unknown-token case (no probe).
+    if (result.configReadable === false) {
+      webhookLog.warn("Webhook", `unreadable config for source "${result.source.name}", dropping`);
+      return { ok: true };
+    }
+
+    // Per-source auth gate. A source with an `authKey` configured requires the
+    // sender to present it; no key = open, backward-compatible. ponytail: 401 on
+    // mismatch aids legit-sender setup — the 401-vs-200 signal is moot because a
+    // caller reaching this branch already holds a valid (unguessable) token.
+    const expectedKey = typeof result.source.config.authKey === "string" ? result.source.config.authKey : "";
+    if (expectedKey && !bearerMatches(authHeader, expectedKey)) {
+      webhookLog.warn("Webhook", `invalid credentials for source "${result.source.name}"`);
+      throw new UnauthorizedException("Invalid webhook credentials");
+    }
+
+    this.processEvent(result, safePayload).catch((err) =>
       webhookLog.error("Webhook", "processing error", err),
     );
 
     return { ok: true };
   }
 
-  private async processEvent(webhookToken: string, payload: Record<string, unknown>): Promise<void> {
-    const result = await findByWebhookToken(webhookToken);
-    if (!result) {
-      webhookLog.warn("Webhook", `unknown token ${webhookToken.slice(0, 8)}...`);
-      return;
-    }
-
+  private async processEvent(
+    result: { source: EventSource; instanceId: InstanceUuid },
+    payload: Record<string, unknown>,
+  ): Promise<void> {
     const { source, instanceId } = result;
     if (!source.enabled) {
       webhookLog.info("Webhook", `source "${source.name}" disabled, dropping`);
