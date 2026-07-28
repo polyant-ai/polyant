@@ -1,7 +1,8 @@
 # Tenant-scoped frontend URLs — design
 
 **Date:** 2026-07-28
-**Status:** approved (brainstorming) — implementation pending
+**Status:** implemented on `feat/tenant-scoped-frontend-urls` (see
+`docs/superpowers/plans/2026-07-28-tenant-scoped-frontend-urls.md`)
 **Scope:** `packages/web` routing + one new engine endpoint (`GET /api/me`)
 **Successor specs (agreed, not yet written):** workspace-scoped skills;
 tenant-scoped **API** paths mirroring these frontend paths
@@ -118,11 +119,16 @@ module.
 
 ```ts
 {
-  user: { id, email, name },
   organization: { slug, name } | null,
   workspaces: [{ slug, name, isDefault }]
 }
 ```
+
+The payload carries **no user identity block**. An earlier draft included
+`{ id, email, name }`; it was dropped during the final review because no consumer
+read it (the shell takes its user from `auth()` in the server layout), it put
+avoidable PII on the wire, and it could not be honoured for a management API key
+principal, which has an `orgId` but no user.
 
 `isPlatformAdmin` is deliberately **absent**. `AuthenticatedUser` documents why:
 platform-admin status is resolved from the DB on each privileged check so it
