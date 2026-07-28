@@ -49,6 +49,5 @@ describe("workspacePath", () => {
 describe("PLATFORM_PREFIX", () => {
   it("is reserved outside the tenant tree", () => {
     expect(PLATFORM_PREFIX).toBe("/platform");
-    expect(PLATFORM_PREFIX.startsWith("/organizations")).toBe(false);
   });
 });

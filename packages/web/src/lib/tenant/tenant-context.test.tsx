@@ -39,9 +39,8 @@ function renderProbe() {
 }
 
 const PAYLOAD = {
-  user: { id: "user-1", email: "owner@example.test", name: "Owner" },
   organization: { slug: "default", name: "Default" },
-  workspaces: [{ slug: "default", name: "Default", isDefault: true }],
+  workspaces: [{ slug: "general", name: "General", isDefault: true }],
 };
 
 describe("TenantProvider", () => {

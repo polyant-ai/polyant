@@ -26,7 +26,7 @@ vi.mock("./tenant-unavailable", () => ({
 const READY: TenantContextValue = {
   status: "ready",
   organization: { slug: "default", name: "Default" },
-  workspaces: [{ slug: "default", name: "Default", isDefault: true }],
+  workspaces: [{ slug: "general", name: "General", isDefault: true }],
   retry: () => {},
 };
 
@@ -39,7 +39,7 @@ describe("TenantScopeGuard", () => {
     mockUseTenant.mockReturnValue(READY);
 
     render(
-      <TenantScopeGuard orgSlug="default" workspaceSlug="default">
+      <TenantScopeGuard orgSlug="default" workspaceSlug="general">
         <div>child</div>
       </TenantScopeGuard>,
     );
@@ -71,13 +71,14 @@ describe("TenantScopeGuard", () => {
         </TenantScopeGuard>,
       ),
     ).toThrow("NEXT_NOT_FOUND");
+    expect(mockNotFound).toHaveBeenCalled();
   });
 
   it("renders the fallback, not children, while loading", () => {
     mockUseTenant.mockReturnValue({ status: "loading", retry: () => {} });
 
     render(
-      <TenantScopeGuard orgSlug="default" workspaceSlug="default">
+      <TenantScopeGuard orgSlug="default" workspaceSlug="general">
         <div>child</div>
       </TenantScopeGuard>,
     );

@@ -50,7 +50,6 @@ describe("TenantService.getContextFor", () => {
 
     expect(context.organization).toEqual({ slug: "default", name: "Default" });
     expect(context.workspaces).toEqual([{ slug: "default", name: "Default", isDefault: true }]);
-    expect(context.user).toEqual({ id: "user-1", email: "owner@example.test", name: "Owner" });
     expect(mockFindOrganizationById).toHaveBeenCalledWith(ORG_ID);
   });
 
@@ -70,14 +69,5 @@ describe("TenantService.getContextFor", () => {
     expect(context.organization).toBeNull();
     expect(context.workspaces).toEqual([]);
     expect(mockListWorkspacesByOrganization).not.toHaveBeenCalled();
-  });
-
-  it("normalises a missing name to null", async () => {
-    mockFindOrganizationById.mockResolvedValue({ id: ORG_ID, slug: "default", name: "Default" });
-    mockListWorkspacesByOrganization.mockResolvedValue([]);
-
-    const context = await service.getContextFor(makeUser({ name: undefined }));
-
-    expect(context.user.name).toBeNull();
   });
 });

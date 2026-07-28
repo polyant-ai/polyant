@@ -38,4 +38,10 @@ describe("navHref", () => {
       "/",
     );
   });
+
+  it("falls back to the resolver for a workspace-scoped link when the org is unknown", () => {
+    expect(navHref("workspace", "/instances", { orgSlug: null, workspaceSlug: "general" })).toBe(
+      "/",
+    );
+  });
 });

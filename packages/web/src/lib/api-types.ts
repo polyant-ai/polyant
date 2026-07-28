@@ -795,7 +795,6 @@ export interface TenantWorkspace {
  * minted before RBAC carries no orgId — and means "sign in again", not "error".
  */
 export interface TenantContextPayload {
-  user: { id: string; email: string; name: string | null };
   organization: { slug: string; name: string } | null;
   workspaces: TenantWorkspace[];
 }

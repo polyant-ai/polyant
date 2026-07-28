@@ -41,7 +41,7 @@ function fetchTenant(): Promise<TenantContextPayload> {
   return inflight;
 }
 
-/** Test seam: drop the module cache between tests. */
+/** Drop the module cache. Used by tests, and by production `retry()` below. */
 export function resetTenantCache(): void {
   inflight = null;
 }
