@@ -13,6 +13,8 @@ import { createLogger } from "../utils/create-logger.js";
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
 import { REQUIRE_PERMISSION_KEY } from "./decorators/require-permission.decorator.js";
 import { REQUIRES_FEATURE_KEY } from "./decorators/requires-feature.decorator.js";
+import { AUTHENTICATED_ONLY_KEY } from "./decorators/authenticated-only.decorator.js";
+import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import { AuthorizationService } from "./authorization.service.js";
 import {
   ENTITLEMENT_SERVICE,
@@ -76,10 +78,13 @@ function isUserPrincipal(p: Principal): p is UserPrincipal {
  *   1. `@Public()` → allow (the route is intentionally unauthenticated).
  *   2. `@RequiresFeature(f)` and the feature is NOT licensed → deny. This is a
  *      hard capability gap and is enforced even in shadow mode.
- *   3. No `@RequirePermission()` (undeclared route) → log; deny ONLY when
- *      `AUTHZ_ENFORCE=true` (closes the fail-closed-undeclared-routes gap).
+ *   3. No `@RequirePermission()`: `@AuthenticatedOnly()` allows any human user;
+ *      `@RequireRole()` defers to RoleGuard, which has already run. Otherwise
+ *      the route is undeclared → log; deny ONLY when `AUTHZ_ENFORCE=true`
+ *      (closes the fail-closed-undeclared-routes gap).
  *   4. ManagementKeyPrincipal (org API key) → allow iff the permission is in
- *      the key's own permission set.
+ *      the key's own permission set AND the addressed agent belongs to the
+ *      key's organization.
  *   5. Platform admin (DB-backed) → bypass all permission checks.
  *   6. InstancePrincipal (per-instance API key) → allow only for its own agent.
  *   7. Resolve the agent/org scope; a cross-org mismatch denies before `can()`.
@@ -122,6 +127,21 @@ export class PermissionGuard implements CanActivate {
       targets,
     );
     if (!permission) {
+      if (this.reflector.getAllAndOverride<boolean>(AUTHENTICATED_ONLY_KEY, targets)) {
+        return this.handleAuthenticatedOnly(context);
+      }
+      // `@RequireRole` IS an authorization declaration — RoleGuard (APP_GUARD
+      // #2b, registered by AuthModule and therefore already run) hard-denies a
+      // role mismatch. Treating it as undeclared made every role-gated route
+      // 403 for everyone, superadmins included: the platform-admin bypass sits
+      // further down, past this branch.
+      const requiredRoles = this.reflector.getAllAndOverride<unknown[] | undefined>(
+        REQUIRED_ROLES_KEY,
+        targets,
+      );
+      if (requiredRoles && requiredRoles.length > 0) {
+        return true;
+      }
       return this.handleUndeclared(context);
     }
 
@@ -130,7 +150,7 @@ export class PermissionGuard implements CanActivate {
     const agentSlug = this.extractAgentSlug(request);
 
     if (isManagementKeyPrincipal(principal)) {
-      return this.evaluateManagementKeyPrincipal(principal, permission);
+      return this.evaluateManagementKeyPrincipal(principal, agentSlug, permission);
     }
 
     if (isInstancePrincipal(principal)) {
@@ -150,6 +170,32 @@ export class PermissionGuard implements CanActivate {
   }
 
   // -- branches ---------------------------------------------------------------
+
+  /**
+   * @AuthenticatedOnly lane: allow iff the principal is a human user. Service
+   * principals (instance API key, management API key) and unauthenticated
+   * requests are always denied — they must use @RequirePermission instead.
+   */
+  private handleAuthenticatedOnly(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest();
+    const principal = request.user as Principal;
+    if (isUserPrincipal(principal)) {
+      return true;
+    }
+    if (config.authz.enforce) {
+      logger.warn(LOG_PREFIX, `deny @AuthenticatedOnly (non-user principal, enforce)`);
+      throw new ForbiddenException("Route requires an authenticated user principal");
+    }
+    const principalType =
+      (principal as InstancePrincipal)?.kind ??
+      (principal as ManagementKeyPrincipal | UserPrincipal)?.principalType ??
+      "none";
+    logger.info(
+      LOG_PREFIX,
+      `shadow: @AuthenticatedOnly non-user principal allowed (principal type: ${principalType})`,
+    );
+    return true;
+  }
 
   private handleUndeclared(context: ExecutionContext): boolean {
     const route = `${context.getClass().name}.${context.getHandler().name}`;
@@ -172,16 +218,23 @@ export class PermissionGuard implements CanActivate {
   }
 
   /**
-   * A management-API-key principal carries an explicit permission set. The
-   * decision is membership in that set — it grants exactly what was issued,
-   * regardless of agent target, and never touches the user authz service.
+   * A management-API-key principal carries an explicit permission set, so the
+   * permission decision is membership in that set — the user authz service is
+   * never consulted. The key is nonetheless bound to the organization it was
+   * issued for: an agent-addressed route must resolve to an agent of that org,
+   * exactly like the user branch. Skipping this check let a key of org A read
+   * and overwrite the secrets, prompts and channels of every other tenant.
    */
-  private evaluateManagementKeyPrincipal(
+  private async evaluateManagementKeyPrincipal(
     principal: ManagementKeyPrincipal,
+    agentSlug: string | undefined,
     permission: PermissionKey,
-  ): boolean {
-    const granted = principal.permissions.has(permission);
-    return this.decide(granted, permission, `management key (org ${principal.orgId})`);
+  ): Promise<boolean> {
+    const reason = `management key (org ${principal.orgId})`;
+    if (!principal.permissions.has(permission)) {
+      return this.decide(false, permission, reason);
+    }
+    return this.assertSameOrg(principal.orgId, agentSlug, permission, reason);
   }
 
   private async evaluateUser(
@@ -189,7 +242,7 @@ export class PermissionGuard implements CanActivate {
     agentSlug: string | undefined,
     permission: PermissionKey,
   ): Promise<boolean> {
-    const scope = await this.resolveScope(principal, agentSlug);
+    const scope = await this.resolveScope(principal.orgId, agentSlug);
     if (!scope) {
       return this.decide(false, permission, "unresolved scope");
     }
@@ -212,16 +265,40 @@ export class PermissionGuard implements CanActivate {
    * scope can be derived (the no-slug HIGH gap → caller decides, here a deny).
    */
   private async resolveScope(
-    principal: UserPrincipal,
+    orgId: string | undefined,
     agentSlug: string | undefined,
   ): Promise<AgentScope | null> {
     if (agentSlug) {
       return this.authz.resolveAgentScope(agentSlug);
     }
-    if (principal.orgId) {
-      return { agentId: "", workspaceId: "", organizationId: principal.orgId };
+    if (orgId) {
+      return { agentId: "", workspaceId: "", organizationId: orgId };
     }
     return null;
+  }
+
+  /**
+   * Deny when an agent-addressed route targets an agent outside `orgId`. An
+   * unknown slug resolves to no scope and denies too (fail-closed): the
+   * controller's own 404 is the right answer for a caller of the owning org,
+   * never a signal handed to a caller of another one.
+   */
+  private async assertSameOrg(
+    orgId: string,
+    agentSlug: string | undefined,
+    permission: PermissionKey,
+    reason: string,
+  ): Promise<boolean> {
+    if (!agentSlug) return this.decide(true, permission, reason);
+
+    const scope = await this.resolveScope(orgId, agentSlug);
+    if (!scope) {
+      return this.decide(false, permission, `unresolved scope — ${reason}`);
+    }
+    if (scope.organizationId !== orgId) {
+      return this.decide(false, permission, `cross-org scope mismatch — ${reason}`);
+    }
+    return this.decide(true, permission, reason);
   }
 
   private extractAgentSlug(request: {
