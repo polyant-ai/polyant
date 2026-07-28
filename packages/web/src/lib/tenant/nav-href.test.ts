@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { navHref } from "./nav-href";
+import { navHref, resolveNavScope } from "./nav-href";
+import type { TenantContextValue } from "./tenant-context";
 
 const RESOLVED = { orgSlug: "default", workspaceSlug: "general" };
+
+const READY_TENANT: TenantContextValue = {
+  status: "ready",
+  organization: { slug: "default", name: "Default" },
+  workspaces: [{ slug: "general", name: "General", isDefault: true }],
+  retry: () => {},
+};
 
 describe("navHref", () => {
   it("passes a deployment-level path through untouched", () => {
@@ -43,5 +51,31 @@ describe("navHref", () => {
     expect(navHref("workspace", "/instances", { orgSlug: null, workspaceSlug: "general" })).toBe(
       "/",
     );
+  });
+});
+
+describe("resolveNavScope", () => {
+  it("ignores a foreign orgSlug in the params in favour of the tenant's own", () => {
+    expect(resolveNavScope(READY_TENANT, { orgSlug: "ghost", workspaceSlug: "general" })).toEqual(
+      { orgSlug: "default", workspaceSlug: "general" },
+    );
+  });
+
+  it("honours a workspaceSlug the caller holds", () => {
+    expect(resolveNavScope(READY_TENANT, { workspaceSlug: "general" })).toEqual(RESOLVED);
+  });
+
+  it("falls back to the default workspace when the params name one the caller does not hold", () => {
+    expect(resolveNavScope(READY_TENANT, { workspaceSlug: "ghost" })).toEqual(RESOLVED);
+  });
+
+  it("yields the tenant's org plus its default workspace when there are no params", () => {
+    expect(resolveNavScope(READY_TENANT, {})).toEqual(RESOLVED);
+  });
+
+  it("yields null slugs for a tenant that is not ready", () => {
+    expect(
+      resolveNavScope({ status: "loading", retry: () => {} }, { orgSlug: "default" }),
+    ).toEqual({ orgSlug: null, workspaceSlug: null });
   });
 });
