@@ -163,8 +163,9 @@ needs tenant data to build hrefs even on `/settings`, where no tenant params
 exist. A provider mounted below the sidebar could not serve it.
 
 Fetches `/api/me` once (module-level promise cache, so nested navigation does
-not refetch) and exposes `{ status: "loading" | "ready" | "error", user,
-organization, workspaces }`. It **must not** block the whole admin shell:
+not refetch) and exposes `{ status, organization, workspaces }` — where `status`
+is `"loading" | "ready" | "no-organization" | "error"` and the tenancy fields are
+present only in the `"ready"` branch. It **must not** block the whole admin shell:
 `/settings` and `/skills` need no tenant data and must keep working when
 `/api/me` fails.
 
