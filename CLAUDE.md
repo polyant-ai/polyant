@@ -168,9 +168,13 @@ polyant/                            # Monorepo root
 │           │       │       ├── memory/        # Workspace-level
 │           │       │       └── activity/      # Workspace-level
 │           │       └── {activity,audit-logs,conversations,instances,memory,members,playground}/
-│           │                                  # Legacy flat-URL redirect stubs (9-line
-│           │                                  # `LegacyTenantRedirect` shims), meant to
-│           │                                  # live for one release before removal
+│           │                                  # Legacy flat-URL redirect stubs — 9-line
+│           │                                  # `LegacyTenantRedirect` shims, except the two
+│           │                                  # deep-link ones (instances/[slug],
+│           │                                  # conversations/[conversationId], 11 and 13
+│           │                                  # lines) which also read useParams to forward
+│           │                                  # their param. Meant to live for one release
+│           │                                  # before removal
 │           ├── components/
 │           │   ├── ui/              # shadcn/ui (managed by CLI)
 │           │   └── layout/          # App sidebar, header, nav, theme toggle
