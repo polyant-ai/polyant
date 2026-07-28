@@ -88,7 +88,7 @@ describe("TenantProvider", () => {
     await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("error"));
   });
 
-  it("does not cache a rejection — retry refetches and can succeed", async () => {
+  it("retry refetches after a failure and can succeed", async () => {
     mockMeGet.mockRejectedValueOnce(new Error("network down"));
     mockMeGet.mockResolvedValueOnce(PAYLOAD);
 
@@ -98,6 +98,24 @@ describe("TenantProvider", () => {
     await userEvent.click(screen.getByRole("button", { name: "retry" }));
 
     await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("ready"));
+    expect(mockMeGet).toHaveBeenCalledTimes(2);
+  });
+
+  // retry() calls resetTenantCache() itself, so the test above never exercises
+  // the module-level cache invariant. The real invariant: after a REJECTED
+  // fetch, the cache holds no rejected promise, so a fresh provider mount
+  // refetches on its own — no retry() involved.
+  it("clears a rejected fetch from the cache — a fresh mount refetches without retry", async () => {
+    mockMeGet.mockRejectedValueOnce(new Error("network down"));
+    mockMeGet.mockResolvedValueOnce(PAYLOAD);
+
+    const first = renderProbe();
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("error"));
+    first.unmount();
+
+    renderProbe();
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("ready"));
+
     expect(mockMeGet).toHaveBeenCalledTimes(2);
   });
 
