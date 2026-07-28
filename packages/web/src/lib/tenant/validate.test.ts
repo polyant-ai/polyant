@@ -5,7 +5,6 @@ import type { TenantContextPayload } from "@/lib/api-types";
 
 function makePayload(overrides: Partial<TenantContextPayload> = {}): TenantContextPayload {
   return {
-    user: { id: "user-1", email: "owner@example.test", name: "Owner" },
     organization: { slug: "default", name: "Default" },
     workspaces: [
       { slug: "default", name: "Default", isDefault: true },

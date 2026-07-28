@@ -384,7 +384,7 @@ describe("api.members", () => {
     vi.restoreAllMocks();
   });
 
-  it("list() targets the default org members endpoint", async () => {
+  it("list() targets the given org's members endpoint", async () => {
     const fetchFn = mockFetch(mockResponse({ members: [] }));
     await api.members.list("default");
     const [url] = fetchFn.mock.calls[0];

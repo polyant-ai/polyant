@@ -8,6 +8,9 @@
  * Pure functions — no React, no hooks — so components, redirects and tests all
  * share one definition. Only the slugs are encoded; `sub` is passed through so
  * callers can append an already-encoded path plus a query string.
+ *
+ * In this phase the workspace segment is decorative: no API reads it, so a
+ * workspace-scoped URL isolates nothing. See the design doc's trade-offs.
  */
 
 /** Reserved for the future platform management console (deployment scope). */
