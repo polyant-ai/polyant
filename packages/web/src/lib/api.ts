@@ -116,6 +116,7 @@ import type {
   OptoutContact,
   EmbeddingWipeResult,
   OrganizationMember,
+  TenantContextPayload,
 } from "./api-types";
 
 // ── HTTP Client ─────────────────────────────────────────────────────
@@ -201,6 +202,7 @@ export const api = {
       }),
   },
   me: {
+    get: () => request<TenantContextPayload>("/api/me"),
     changePassword: (data: { currentPassword?: string; newPassword: string }) =>
       request<{ ok: boolean }>("/api/me/password", {
         method: "POST",
