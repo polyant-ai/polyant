@@ -155,9 +155,22 @@ polyant/                            # Monorepo root
 │           │   ├── (auth)/login/     # Google OAuth login page
 │           │   └── (admin)/          # Admin route group (sidebar layout, protected)
 │           │       ├── layout.tsx    # SidebarProvider + Sidebar + Header
-│           │       ├── playground/   # Playground chat page
-│           │       ├── memory/       # Memory management
-│           │       └── */page.tsx    # Feature pages
+│           │       ├── settings/     # Deployment-level, stays flat
+│           │       ├── skills/       # Deployment-level, stays flat
+│           │       ├── organizations/[orgSlug]/
+│           │       │   ├── page.tsx           # Org dashboard
+│           │       │   ├── members/           # Org-level
+│           │       │   ├── audit-logs/        # Org-level
+│           │       │   └── workspaces/[workspaceSlug]/
+│           │       │       ├── instances/     # Agents (workspace-level)
+│           │       │       ├── playground/    # Workspace-level
+│           │       │       ├── conversations/ # Workspace-level
+│           │       │       ├── memory/        # Workspace-level
+│           │       │       └── activity/      # Workspace-level
+│           │       └── {activity,audit-logs,conversations,instances,memory,members,playground}/
+│           │                                  # Legacy flat-URL redirect stubs (9-line
+│           │                                  # `LegacyTenantRedirect` shims), meant to
+│           │                                  # live for one release before removal
 │           ├── components/
 │           │   ├── ui/              # shadcn/ui (managed by CLI)
 │           │   └── layout/          # App sidebar, header, nav, theme toggle
@@ -331,9 +344,10 @@ Hierarchy: **Organization > Workspace > Agent** (the agent table is still named 
 - **Guard**: `PermissionGuard` is `APP_GUARD` #3 (after `ThrottlerGuard`, after `AuthGuard`), driven by `@RequirePermission()`. **SHADOW MODE IS THE DEFAULT** — with `AUTHZ_ENFORCE` unset every would-be denial is logged and downgraded to allow; only `AUTHZ_ENFORCE=true` fails closed (including on routes that declare no permission). Do not assume a route is enforced in a default deployment; the RBAC e2e suite (`packages/web/e2e/rbac/`) boots the engine with `AUTHZ_ENFORCE=true` for exactly this reason
 - **Principals** (`permission.guard.ts` decision order): org-scoped management API key (`X-Polyant-Key` — decided purely from its own permission set, never via the user authorization service) → **Platform Admin** → per-instance API key (its own agent only) → human user (JWT). Platform Admin is `users.is_platform_admin`, sits above every organization, bypasses all RBAC, and is read from the DB per request — deliberately NOT carried in the JWT so revocation is near-immediate. It is promoted at boot from `PLATFORM_ADMIN_EMAIL` by `organizations/bootstrap.ts`
 - **EE seams**: `AuthorizationStrategy` (OSS = `OssStrategy`) and `EntitlementService` (OSS = `OssEntitlementService`, `isAvailable()` always `false`, so `@RequiresFeature()` routes fail closed in OSS builds)
-- **Exposed surface**: only `/api/organizations/:orgSlug/members` (list / assign / remove, `org.member:manage`) + the web page `packages/web/src/app/(admin)/members/page.tsx`. The guard authorizes against the caller's *own* org and cannot see the `:orgSlug` path param, so `MembersService` re-resolves the addressed org and rejects a caller from another one — that service is the cross-org isolation choke-point
+- **Exposed surface**: only `/api/organizations/:orgSlug/members` (list / assign / remove, `org.member:manage`) + the web page `packages/web/src/app/(admin)/organizations/[orgSlug]/members/page.tsx`. The guard authorizes against the caller's *own* org and cannot see the `:orgSlug` path param, so `MembersService` re-resolves the addressed org and rejects a caller from another one — that service is the cross-org isolation choke-point
 - **Member provisioning happens in `packages/web`, NOT in the engine**: the Auth.js `jwt` callback calls `resolveSignInOrgId` (`lib/org-provisioning.ts`) at **every** sign-in, any provider — it reuses the user's existing membership or else runs `provisionUserDefaultOrg`, which places the user in the default org **as Owner** and stamps `orgId` into the JWT (DB access is impossible in the Edge runtime, hence the Node-side callback). **Consequence: anyone who passes the sign-in domain allowlist becomes an Owner.** The engine's own `ensureDefaultMembership` / `ensureOwnerBinding` stay deliberately unwired (#109) and `organizations/bootstrap.ts` still documents them as such — that comment describes the engine path only; do not read it as "nobody provisions". Users created via the engine users API or the initial-admin seed get their membership on first web sign-in
-- **Not implemented yet**: no invitation flow (#144). No tenant-scoped URLs (`/organizations/{orgSlug}/workspaces/{workspaceSlug}/...`) on the frontend
+- **Not implemented yet**: no invitation flow (unimplemented and untracked — #144 is a separate issue about consolidating the sidebar Members page with Settings → Users, not about invitations)
+- **Tenant-scoped URLs shipped on the frontend** (`docs/superpowers/specs/2026-07-28-tenant-scoped-frontend-urls-design.md`): admin panel routes are tenant-scoped in three tiers — workspace-level for agents and their data, org-level for the dashboard/members/audit-logs, deployment-level for settings and skills (which stay flat). The slugs come from `GET /api/me`. **The workspace segment is decorative — no API reads it** (making it real is the successor spec's job)
 - **Audit split**: `authz_audit_logs` is EE (authorization read/access — no OSS write path, guarded by a regression test). OSS management-plane mutations go to `management_audit_logs` (see the Management write-audit log entry above)
 
 ### Environment variables for auth

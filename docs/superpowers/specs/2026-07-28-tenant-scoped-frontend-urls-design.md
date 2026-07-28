@@ -262,7 +262,7 @@ follow-up issue at implementation time, otherwise they stay forever.
 - `/platform/*` console and Super Admin UI (prefix reserved, nothing built).
 - Organization and workspace CRUD, and the switcher — the provider already
   exposes `workspaces[]`, so a switcher is later a UI-only addition.
-- The invitation flow (#144) and any default role below Owner.
+- The invitation flow (unimplemented, untracked — no issue exists) and any default role below Owner.
 
 ## 11. Trade-offs
 
