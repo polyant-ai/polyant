@@ -17,6 +17,8 @@ authorization decision (200 vs 403) and the rendered UI.
 - **Enforcement is ON**: the engine boots with `AUTHZ_ENFORCE=true`. Without it
   the PermissionGuard runs in shadow mode and every would-be 403 silently
   passes — assertions would be meaningless.
+- **Rate limiting is OFF**: the suite runs with `THROTTLE_ENABLED=false`, so no
+  spec here can assert a 429.
 
 ## Prerequisites
 
