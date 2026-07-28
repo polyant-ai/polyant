@@ -39,6 +39,9 @@ export const ORG_SCOPED_AGENT_COLUMNS = [
   "instance_id",
   "c.instance_id",
   "al.instance_id",
+  // The agents table itself (`instances.slug`), so the agent LIST endpoints scope
+  // with the same membership definition instead of a second hand-rolled join.
+  "slug",
 ] as const;
 
 export type OrgScopedAgentColumn = (typeof ORG_SCOPED_AGENT_COLUMNS)[number];

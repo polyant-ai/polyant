@@ -1,12 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { OpenAIService } from "./openai.service.js";
 import type { ChatCompletionMessage, ChatCompletionRequest } from "./openai.types.js";
 
-// Mock the instances store (listActiveInstances) to avoid DB dependency
+// Mock the instances store to avoid DB dependency
+const { mockListActiveInstances, mockFindInstanceBySlug, mockResolvePrincipalOrgId } =
+  vi.hoisted(() => ({
+    mockListActiveInstances: vi.fn().mockResolvedValue([]),
+    mockFindInstanceBySlug: vi.fn(),
+    mockResolvePrincipalOrgId: vi.fn(),
+  }));
+
 vi.mock("../../instances/store.js", () => ({
-  listActiveInstances: vi.fn().mockResolvedValue([]),
+  listActiveInstances: mockListActiveInstances,
+  findInstanceBySlug: mockFindInstanceBySlug,
+  resolvePrincipalOrgId: mockResolvePrincipalOrgId,
 }));
 
 // Mock config to provide DEFAULT_INSTANCE_ID
@@ -26,6 +35,65 @@ function makeRequest(
 }
 
 describe("OpenAIService", () => {
+  // -------------------------------------------------------------------------
+  // GET /v1/models visibility — the route is reachable with a per-instance API
+  // key, so an unscoped list let one agent's key enumerate the whole deployment.
+  // -------------------------------------------------------------------------
+  describe("listInstances", () => {
+    const agentA = { slug: "agent-a", status: "active" };
+    const agentB = { slug: "agent-b", status: "active" };
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockResolvePrincipalOrgId.mockImplementation(async (orgId?: string) => orgId ?? null);
+    });
+
+    it("should_return_only_its_own_agent_when_the_caller_is_an_instance_api_key", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(agentA);
+
+      const result = await new OpenAIService().listInstances({
+        kind: "instance",
+        instanceSlug: "agent-a",
+      });
+
+      expect(result).toEqual([agentA]);
+      expect(mockFindInstanceBySlug).toHaveBeenCalledWith("agent-a");
+      // The whole-deployment listing must never run for an instance principal.
+      expect(mockListActiveInstances).not.toHaveBeenCalled();
+    });
+
+    it("should_return_nothing_when_the_instance_key_agent_is_not_active", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({ slug: "agent-a", status: "inactive" });
+
+      const result = await new OpenAIService().listInstances({
+        kind: "instance",
+        instanceSlug: "agent-a",
+      });
+
+      expect(result).toEqual([]);
+    });
+
+    it("should_return_only_the_caller_org_agents_when_the_caller_is_a_user", async () => {
+      mockListActiveInstances.mockImplementation(async (orgId?: string) =>
+        orgId === "org-a" ? [agentA] : [agentA, agentB],
+      );
+
+      const result = await new OpenAIService().listInstances({ orgId: "org-a" });
+
+      expect(mockListActiveInstances).toHaveBeenCalledWith("org-a");
+      expect(result).toEqual([agentA]);
+    });
+
+    it("should_return_nothing_when_the_caller_org_cannot_be_resolved", async () => {
+      mockResolvePrincipalOrgId.mockResolvedValue(null);
+
+      const result = await new OpenAIService().listInstances(undefined);
+
+      expect(result).toEqual([]);
+      expect(mockListActiveInstances).not.toHaveBeenCalled();
+    });
+  });
+
   describe("deriveChannelId", () => {
     // Access private method via casting for testing
     function callDeriveChannelId(

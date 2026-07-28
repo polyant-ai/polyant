@@ -81,7 +81,34 @@ vi.mock("../scheduled-tasks/schema.js", () => ({
   scheduledTasks: { instanceId: "instance_id" },
 }));
 
+vi.mock("../organizations/organization.schema.js", () => ({
+  organizations: { id: "id", isDefault: "is_default" },
+  workspaces: {
+    id: "id",
+    organizationId: "organization_id",
+    isDefault: "is_default",
+    createdAt: "created_at",
+  },
+}));
+
+// Sentinel instead of real SQL — the predicate itself is covered by
+// authz/scope-filter.test.ts; here we only assert it is applied.
+const { mockBuildOrgScopedAgentFilter } = vi.hoisted(() => ({
+  mockBuildOrgScopedAgentFilter: vi.fn((orgId: string, column: string) => ({
+    type: "orgFilter",
+    orgId,
+    column,
+  })),
+}));
+
+vi.mock("../authz/scope-filter.js", () => ({
+  buildOrgScopedAgentFilter: mockBuildOrgScopedAgentFilter,
+}));
+
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...args: unknown[]) => ({ type: "and", args: args.filter(Boolean) })),
+  asc: vi.fn((col: unknown) => ({ type: "asc", col })),
+  desc: vi.fn((col: unknown) => ({ type: "desc", col })),
   eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
   inArray: vi.fn((col: unknown, values: unknown[]) => ({ type: "inArray", col, values })),
   sql: Object.assign(vi.fn(), { raw: vi.fn() }),
@@ -98,6 +125,7 @@ import {
   updateInstance,
   deleteInstance,
   listAllInstances,
+  resolveWorkspaceIdForPrincipal,
 } from "./store.js";
 import { asInstanceSlug } from "./identifiers.js";
 import { DEFAULT_EMBEDDING_DIM } from "../embeddings-gateway/config.js";
@@ -283,6 +311,65 @@ describe("instances/store", () => {
         workspaceId: "ws-default",
       });
     });
+
+    it("should_insert_into_the_caller_org_workspace_when_an_orgId_is_given", async () => {
+      mockDb.select.mockReturnValue(createChainMock([{ id: "ws-org-b" }]) as any);
+      const chain = createChainMock([{ ...fakeInstance, workspaceId: "ws-org-b" }]);
+      mockDb.insert.mockReturnValue(chain as any);
+
+      await createInstance({ slug: asInstanceSlug("b-agent"), name: "B", orgId: "org-b" });
+
+      expect(chain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ workspaceId: "ws-org-b" }),
+      );
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // resolveWorkspaceIdForPrincipal — a new agent must land in the CALLER's
+  // workspace, never in the seed organization's default one.
+  // -----------------------------------------------------------------------
+  describe("resolveWorkspaceIdForPrincipal", () => {
+    it("should_pick_a_workspace_of_the_caller_org_when_the_principal_carries_an_org", async () => {
+      const chain = createChainMock([{ id: "ws-org-b" }]);
+      mockDb.select.mockReturnValue(chain as any);
+
+      const result = await resolveWorkspaceIdForPrincipal("org-b");
+
+      expect(result).toBe("ws-org-b");
+      // Constrained to org B's workspaces — not the deployment-wide is_default row.
+      expect(chain.where).toHaveBeenCalledWith({
+        type: "eq",
+        args: ["organization_id", "org-b"],
+      });
+      // The org claim is authoritative: no organizations lookup is needed.
+      expect(mockDb.select).toHaveBeenCalledTimes(1);
+    });
+
+    it("should_throw_when_the_caller_org_owns_no_workspace", async () => {
+      mockDb.select.mockReturnValue(createChainMock([]) as any);
+
+      await expect(resolveWorkspaceIdForPrincipal("org-b")).rejects.toThrow(/no workspace/i);
+    });
+
+    it("should_throw_when_the_principal_has_no_org_and_several_orgs_exist", async () => {
+      mockDb.select.mockReturnValue(
+        createChainMock([{ id: "org-1" }, { id: "org-2" }]) as any,
+      );
+
+      // Fail closed — picking the seeded default here is the cross-tenant write.
+      await expect(resolveWorkspaceIdForPrincipal(undefined)).rejects.toThrow(
+        /organization/i,
+      );
+    });
+
+    it("should_use_the_only_organization_when_the_principal_carries_none", async () => {
+      mockDb.select
+        .mockReturnValueOnce(createChainMock([{ id: "org-only" }]) as any)
+        .mockReturnValueOnce(createChainMock([{ id: "ws-only" }]) as any);
+
+      await expect(resolveWorkspaceIdForPrincipal(undefined)).resolves.toBe("ws-only");
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -377,6 +464,51 @@ describe("instances/store", () => {
       const result = await listAllInstances();
 
       expect(result).toEqual([]);
+    });
+
+    it("should_constrain_the_listing_to_the_caller_org_when_an_orgId_is_given", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.select.mockReturnValue(chain as any);
+
+      await listAllInstances("org-a");
+
+      expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-a", "slug");
+      expect(chain.where).toHaveBeenCalledWith({
+        type: "orgFilter",
+        orgId: "org-a",
+        column: "slug",
+      });
+    });
+
+    it("should_not_constrain_the_listing_when_no_orgId_is_given_by_a_system_caller", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.select.mockReturnValue(chain as any);
+
+      await listAllInstances();
+
+      expect(mockBuildOrgScopedAgentFilter).not.toHaveBeenCalled();
+      expect(chain.where).toHaveBeenCalledWith(undefined);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // listActiveInstances — org scoping (feeds GET /v1/models)
+  // -----------------------------------------------------------------------
+  describe("listActiveInstances — organization scoping", () => {
+    it("should_and_the_org_filter_with_the_active_status_when_an_orgId_is_given", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.select.mockReturnValue(chain as any);
+
+      await listActiveInstances("org-a");
+
+      expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-a", "slug");
+      expect(chain.where).toHaveBeenCalledWith({
+        type: "and",
+        args: [
+          { type: "eq", args: ["status", "active"] },
+          { type: "orgFilter", orgId: "org-a", column: "slug" },
+        ],
+      });
     });
   });
 });

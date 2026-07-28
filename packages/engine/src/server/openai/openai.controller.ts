@@ -15,8 +15,9 @@ import { Throttle } from "@nestjs/throttler";
 import type { Response } from "express";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { OpenAIService } from "./openai.service.js";
+import { OpenAIService, type ModelsPrincipal } from "./openai.service.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
+import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import { AllowInstanceApiKey } from "../../auth/decorators/allow-instance-api-key.decorator.js";
 import { validateInstanceApiKey } from "./instance-api-key-auth.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
@@ -57,8 +58,12 @@ export class OpenAIController {
   @AllowInstanceApiKey()
   @RequirePermission(Permission.AGENT_READ)
   @Get("models")
-  async listModels(): Promise<ModelsListResponse> {
-    const instances = await this.openaiService.listInstances();
+  async listModels(
+    @CurrentUser() principal?: ModelsPrincipal,
+  ): Promise<ModelsListResponse> {
+    // The service decides visibility: an instance API key sees only its own agent,
+    // anyone else only their organization's.
+    const instances = await this.openaiService.listInstances(principal);
     return {
       object: "list",
       data: instances.map((inst) => ({
