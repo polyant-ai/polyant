@@ -19,3 +19,16 @@ describe("isNavActive", () => {
     expect(isNavActive("/instances", "/")).toBe(false);
   });
 });
+
+describe("isNavActive with exact", () => {
+  it("matches only the exact path when exact is set", () => {
+    expect(isNavActive("/organizations/default", "/organizations/default", true)).toBe(true);
+    expect(
+      isNavActive("/organizations/default/members", "/organizations/default", true),
+    ).toBe(false);
+  });
+
+  it("still matches sub-routes when exact is not set", () => {
+    expect(isNavActive("/organizations/default/members", "/organizations/default")).toBe(true);
+  });
+});
