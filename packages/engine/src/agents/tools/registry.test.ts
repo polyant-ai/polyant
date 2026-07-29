@@ -554,6 +554,22 @@ describe("registry", () => {
       consoleSpy.mockRestore();
     });
 
+    it("retains tools with missing requiredEnv vars when pruning is disabled", async () => {
+      const name = uid("load-no-prune");
+      _registerToolForTests(
+        makeDef({
+          name,
+          requiredEnv: ["TOTALLY_MISSING_ENV_VAR_XYZ_123"],
+        }),
+      );
+
+      mockReaddirSync.mockReturnValue([] as any);
+
+      await loadAllTools({ pruneRequiredEnv: false });
+
+      expect(getToolRegistry().has(name)).toBe(true);
+    });
+
     it("keeps tools whose requiredEnv vars are all present", async () => {
       const name = uid("load-keep");
       // API_PORT is set in test-setup.ts
