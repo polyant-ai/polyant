@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { workspaceSlugFromPath } from "@/lib/tenant/paths";
+
 // Re-export all types for backward compatibility
 export type {
   AdminUser,
@@ -138,8 +140,20 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const { headers, signal, ...rest } = options ?? {};
+  // The workspace comes from the URL being rendered — the one thing the user can
+  // see, share and bookmark. Reading it here rather than from a cookie is what
+  // makes the URL segment authoritative: there is no second, invisible notion of
+  // "the active workspace" that a link could disagree with. A path outside a
+  // workspace (org- or deployment-level) sends no header and is resolved by the
+  // caller's stored preference server-side.
+  const workspaceSlug =
+    typeof window !== "undefined" ? workspaceSlugFromPath(window.location.pathname) : null;
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(workspaceSlug ? { "X-Workspace-Slug": workspaceSlug } : {}),
+      ...headers,
+    },
     signal: signal ?? AbortSignal.timeout(30_000),
     ...rest,
   });

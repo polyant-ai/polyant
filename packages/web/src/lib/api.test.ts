@@ -63,6 +63,81 @@ function mockFetch(response: Response) {
   return fn;
 }
 
+// ── the workspace header ───────────────────────────────────────────────
+
+/**
+ * `request()` derives the workspace from the URL being rendered and sends it as
+ * `X-Workspace-Slug`. That single line is what makes the URL segment
+ * authoritative instead of decorative, and the alternative it replaced (a
+ * cookie) failed precisely by disagreeing with the address bar — so it is worth
+ * pinning here rather than only end to end.
+ */
+describe("request() — workspace scoping", () => {
+  const realLocation = window.location;
+
+  function at(pathname: string) {
+    Object.defineProperty(window, "location", {
+      value: { ...realLocation, pathname },
+      writable: true,
+      configurable: true,
+    });
+  }
+
+  afterEach(() => {
+    Object.defineProperty(window, "location", {
+      value: realLocation,
+      writable: true,
+      configurable: true,
+    });
+    vi.restoreAllMocks();
+  });
+
+  function headerFrom(fetchFn: ReturnType<typeof mockFetch>): string | undefined {
+    const init = fetchFn.mock.calls[0][1];
+    return (init?.headers as Record<string, string> | undefined)?.["X-Workspace-Slug"];
+  }
+
+  it("sends the workspace the URL addresses", async () => {
+    at("/organizations/acme/workspaces/sales/instances");
+    const fetchFn = mockFetch(mockResponse({ instances: [] }));
+
+    await api.instances.list();
+
+    expect(headerFrom(fetchFn)).toBe("sales");
+  });
+
+  it("sends no workspace header from an org-level page", async () => {
+    // The caller's stored preference resolves it server-side; sending a stale
+    // workspace here is exactly the divergence this mechanism removes.
+    at("/organizations/acme/members");
+    const fetchFn = mockFetch(mockResponse({ members: [] }));
+
+    await api.members.list("acme");
+
+    expect(headerFrom(fetchFn)).toBeUndefined();
+  });
+
+  it("sends no workspace header from a deployment-level page", async () => {
+    at("/settings");
+    const fetchFn = mockFetch(mockResponse({ organization: null, workspaces: [] }));
+
+    await api.me.get();
+
+    expect(headerFrom(fetchFn)).toBeUndefined();
+  });
+
+  it("decodes the segment — the header carries the raw slug", async () => {
+    at("/organizations/acme/workspaces/a%20b/memory");
+    const fetchFn = mockFetch(mockResponse({ memories: [] }));
+
+    await api.instances.list();
+
+    expect(headerFrom(fetchFn)).toBe("a b");
+  });
+});
+
+// ── request() (tested via api methods) ─────────────────────────────────
+
 // ── request() (tested via api methods) ─────────────────────────────────
 
 describe("request() via api methods", () => {
