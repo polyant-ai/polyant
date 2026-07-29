@@ -126,11 +126,14 @@ polyant/                            # Monorepo root
 │   │   │   ├── channels/adapters/    # Telegram, Slack, WhatsApp
 │   │   │   ├── management-audit/      # OSS management write-audit log (destructive mutations)
 │   │   │   ├── auth/                  # Authentication module (guard, schema, decorators)
+│   │   │   ├── authz/                 # RBAC: permissions, roles, bindings, PermissionGuard
+│   │   │   ├── organizations/         # Tenancy roots (organizations, workspaces, memberships)
 │   │   │   ├── server/               # NestJS controllers + modules
 │   │   │   │   ├── openai/           # /v1/chat/completions, /v1/models, /api/instances/:slug/chat/stream (typed SSE)
 │   │   │   │   ├── instances/        # /api/instances CRUD + secrets + channels
 │   │   │   │   ├── conversations/    # /api/conversations
 │   │   │   │   ├── analytics/        # /api/analytics + /api/instances/:slug/analytics
+│   │   │   │   ├── members/          # /api/organizations/:orgSlug/members
 │   │   │   │   ├── tools/            # /api/tools (read-only catalog)
 │   │   │   │   ├── room/            # /api/instances/:slug/room + /webhooks/:token
 │   │   │   │   └── memories/         # /memories
@@ -152,9 +155,26 @@ polyant/                            # Monorepo root
 │           │   ├── (auth)/login/     # Google OAuth login page
 │           │   └── (admin)/          # Admin route group (sidebar layout, protected)
 │           │       ├── layout.tsx    # SidebarProvider + Sidebar + Header
-│           │       ├── playground/   # Playground chat page
-│           │       ├── memory/       # Memory management
-│           │       └── */page.tsx    # Feature pages
+│           │       ├── settings/     # Deployment-level, stays flat
+│           │       ├── skills/       # Deployment-level, stays flat
+│           │       ├── organizations/[orgSlug]/
+│           │       │   ├── page.tsx           # Org dashboard
+│           │       │   ├── members/           # Org-level
+│           │       │   ├── audit-logs/        # Org-level
+│           │       │   └── workspaces/[workspaceSlug]/
+│           │       │       ├── instances/     # Agents (workspace-level)
+│           │       │       ├── playground/    # Workspace-level
+│           │       │       ├── conversations/ # Workspace-level
+│           │       │       ├── memory/        # Workspace-level
+│           │       │       └── activity/      # Workspace-level
+│           │       └── {activity,audit-logs,conversations,instances,memory,members,playground}/
+│           │                                  # Legacy flat-URL redirect stubs — 9-line
+│           │                                  # `LegacyTenantRedirect` shims, except the two
+│           │                                  # deep-link ones (instances/[slug],
+│           │                                  # conversations/[conversationId], 11 and 13
+│           │                                  # lines) which also read useParams to forward
+│           │                                  # their param. Meant to live for one release
+│           │                                  # before removal
 │           ├── components/
 │           │   ├── ui/              # shadcn/ui (managed by CLI)
 │           │   └── layout/          # App sidebar, header, nav, theme toggle
@@ -317,15 +337,22 @@ packages/web/src/lib/auth.ts — Auth.js config + custom Drizzle schema for adap
 
 When the engine runs behind a cloud-managed auth gateway (ALB OIDC on AWS, GCP IAP, Cloudflare Access, Azure Easy Auth — future), set `AUTH_MODE` to the gateway name (currently only `alb-oidc` is implemented). `auth.guard.ts` dispatches on this value: in gateway mode it reads the identity header set by the gateway (`x-amzn-oidc-data` for ALB OIDC) via a per-gateway parser (`alb-oidc.service.ts`) instead of validating an Auth.js session. The header's JWT signature is NOT verified; the engine relies on network isolation (ECS security group accepts ingress only from the ALB SG) — this is documented in [ADR-0001](docs/adr/0001-gateway-authenticated-mode.md) along with the trust trade-offs and the deferred follow-up for signature verification. In this mode the `packages/web` container does NOT need `AUTH_SECRET`/`POSTGRES_*`/`GOOGLE_*` — Auth.js Edge middleware finds no `authjs.session-token` cookie (the gateway uses its own cookie), returns null without decrypting, and the engine becomes the sole source of authenticated identity. When adding a new gateway, add a new parser file under `packages/engine/src/auth/` and a new `AUTH_MODE` value; do NOT branch on cloud-specific logic inside `auth.guard.ts`.
 
-### Future (Phase 2 — Multi-Tenancy)
+### Multi-tenancy & RBAC (implemented — migration 0051)
 
-Planned hierarchy: **Organization > Project > Instance**
+Hierarchy: **Organization > Workspace > Agent** (the agent table is still named `instances`). The "Project" level of the original design was renamed **Workspace**; there is no `projects` table.
 
-- Organizations own projects, projects contain instances
-- Users belong to organizations via membership (invitation-based)
-- Configurable RBAC per organization (roles → permissions)
-- URL format: `/organizations/{orgSlug}/projects/{projectSlug}/instances/{slug}/...`
-- Schema design: `organizations`, `projects`, `organization_memberships`, `roles`, `invitations` tables
+- **Tables**: `organizations`, `workspaces`, `organization_memberships` (`organizations/organization.schema.ts`); `roles`, `role_permissions`, `role_bindings`, `authz_audit_logs` (`authz/*.schema.ts`). `instances.workspace_id` is a `NOT NULL` FK (`onDelete: restrict`)
+- **Single-tenant in practice, multi-tenant in schema**: migration 0051 seeds exactly one organization + one workspace (`is_default = true`), and `instances/store.ts` always resolves `findDefaultWorkspaceId()` on create. There is **no org/workspace CRUD** (neither API nor UI) — the workspace level is invisible to the user today, but adding organizations later needs no migration
+- **Roles**: four seeded system roles — `owner` (level 40), `admin` (30), `member` (20), `viewer` (10) — with `organization_id NULL` + `is_system = true`. The `resource:action` permission taxonomy and the exact role matrix live in `authz/permissions.ts`, the single source of truth shared by the migration seed and the tests. Never inline a permission string. Custom per-org roles are EE
+- **Bindings**: `role_bindings.scope_type` is `organization | workspace` and `scope_id` is polymorphic, so it carries no declarative FK — integrity comes from the `check_role_binding_scope` trigger. Resolution is **most-specific-wins** (`authz/authorization-strategy.ts`): a workspace-scoped binding is authoritative and both *grants* permissions the org binding lacks AND *revokes* ones it grants; no applicable binding → deny
+- **Guard**: `PermissionGuard` is `APP_GUARD` #3 (after `ThrottlerGuard`, after `AuthGuard`), driven by `@RequirePermission()`. **SHADOW MODE IS THE DEFAULT** — with `AUTHZ_ENFORCE` unset every would-be denial is logged and downgraded to allow; only `AUTHZ_ENFORCE=true` fails closed (including on routes that declare no permission). Do not assume a route is enforced in a default deployment; the RBAC e2e suite (`packages/web/e2e/rbac/`) boots the engine with `AUTHZ_ENFORCE=true` for exactly this reason
+- **Principals** (`permission.guard.ts` decision order): org-scoped management API key (`X-Polyant-Key` — decided purely from its own permission set, never via the user authorization service) → **Platform Admin** → per-instance API key (its own agent only) → human user (JWT). Platform Admin is `users.is_platform_admin`, sits above every organization, bypasses all RBAC, and is read from the DB per request — deliberately NOT carried in the JWT so revocation is near-immediate. It is promoted at boot from `PLATFORM_ADMIN_EMAIL` by `organizations/bootstrap.ts`
+- **EE seams**: `AuthorizationStrategy` (OSS = `OssStrategy`) and `EntitlementService` (OSS = `OssEntitlementService`, `isAvailable()` always `false`, so `@RequiresFeature()` routes fail closed in OSS builds)
+- **Exposed surface**: only `/api/organizations/:orgSlug/members` (list / assign / remove, `org.member:manage`) + the web page `packages/web/src/app/(admin)/organizations/[orgSlug]/members/page.tsx`. The guard authorizes against the caller's *own* org and cannot see the `:orgSlug` path param, so `MembersService` re-resolves the addressed org and rejects a caller from another one — that service is the cross-org isolation choke-point
+- **Member provisioning happens in `packages/web`, NOT in the engine**: the Auth.js `jwt` callback calls `resolveSignInOrgId` (`lib/org-provisioning.ts`) at **every** sign-in, any provider — it reuses the user's existing membership or else runs `provisionUserDefaultOrg`, which places the user in the default org **as Owner** and stamps `orgId` into the JWT (DB access is impossible in the Edge runtime, hence the Node-side callback). **Consequence: anyone who passes the sign-in domain allowlist becomes an Owner.** The engine's own `ensureDefaultMembership` / `ensureOwnerBinding` stay deliberately unwired (#109) and `organizations/bootstrap.ts` still documents them as such — that comment describes the engine path only; do not read it as "nobody provisions". Users created via the engine users API or the initial-admin seed get their membership on first web sign-in
+- **Not implemented yet**: no invitation flow (unimplemented and untracked — #144 is a separate issue about consolidating the sidebar Members page with Settings → Users, not about invitations)
+- **Tenant-scoped URLs shipped on the frontend** (`docs/superpowers/specs/2026-07-28-tenant-scoped-frontend-urls-design.md`): admin panel routes are tenant-scoped in three tiers — workspace-level for agents and their data, org-level for the dashboard/members/audit-logs, deployment-level for settings and skills (which stay flat). The slugs come from `GET /api/me`. **The workspace segment is decorative — no API reads it** (making it real is the successor spec's job)
+- **Audit split**: `authz_audit_logs` is EE (authorization read/access — no OSS write path, guarded by a regression test). OSS management-plane mutations go to `management_audit_logs` (see the Management write-audit log entry above)
 
 ### Environment variables for auth
 
@@ -336,6 +363,8 @@ Planned hierarchy: **Organization > Project > Instance**
 | `AUTH_SECRET` | Yes (web + engine) | Auth.js JWT encryption secret (32+ random chars). Must be identical in both packages — engine uses it to decrypt JWE tokens |
 | `AUTH_TRUST_HOST` | No | Set to `true` behind reverse proxy |
 | `DATABASE_URL` | Alt (web) | PostgreSQL connection string for Auth.js adapter. Web needs this in `.env.local` or root `.env` (Next.js doesn't auto-load monorepo root `.env`) |
+| `PLATFORM_ADMIN_EMAIL` | No | Email promoted to Platform Admin at every boot (idempotent, no-op until that user exists) |
+| `AUTHZ_ENFORCE` | No | `true` = RBAC fails closed. Unset/false = **shadow mode** (denials logged, downgraded to allow) |
 
 ## Instances Architecture
 

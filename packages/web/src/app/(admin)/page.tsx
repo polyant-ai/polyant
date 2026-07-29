@@ -2,26 +2,34 @@
 
 "use client";
 
-import { useI18n } from "@/lib/i18n/context";
-import { api } from "@/lib/api";
-import { AnalyticsDashboard } from "@/components/analytics/analytics-dashboard";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TenantUnavailable } from "@/components/layout/tenant-unavailable";
+import { useTenant } from "@/lib/tenant/tenant-context";
+import { orgPath } from "@/lib/tenant/paths";
 
-export default function DashboardPage() {
-  const { t } = useI18n();
+/**
+ * The single place that resolves "where does this user land" for a plain `/`
+ * visit. The Auth.js `Response.redirect(new URL("/"))` targets converge here,
+ * as does an unresolved-tenancy nav href (`navHref` falls back to `/` for a
+ * disabled entry) — but NOT `LegacyTenantRedirect`, which computes its own
+ * target and never visits `/`. This is why the Edge middleware never needs
+ * tenancy knowledge (it could not obtain it — no DB access in the Edge
+ * runtime).
+ */
+export default function AdminRootPage() {
+  const tenant = useTenant();
+  const router = useRouter();
 
-  return (
-    <div>
-      <h1 className="text-3xl font-semibold tracking-tight">
-        {t("dashboard.title")}
-      </h1>
-      <p className="mt-2 text-muted-foreground">{t("dashboard.subtitle")}</p>
+  useEffect(() => {
+    if (tenant.status === "ready") {
+      router.replace(orgPath(tenant.organization.slug));
+    }
+  }, [tenant, router]);
 
-      <div className="mt-6">
-        <AnalyticsDashboard
-          fetchData={api.analytics.global}
-          showInstanceComparison
-        />
-      </div>
-    </div>
-  );
+  if (tenant.status === "loading" || tenant.status === "ready") {
+    return <Skeleton className="h-64 w-full" />;
+  }
+  return <TenantUnavailable />;
 }

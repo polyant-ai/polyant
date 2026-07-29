@@ -116,16 +116,10 @@ import type {
   OptoutContact,
   EmbeddingWipeResult,
   OrganizationMember,
+  TenantContextPayload,
 } from "./api-types";
 
 // ── HTTP Client ─────────────────────────────────────────────────────
-
-/**
- * The single OSS organization slug. The OSS build is single-org (the migration
- * seeds one default org); the management plane addresses it by this slug. When
- * multi-org lands (Phase 2) this becomes a route param instead of a constant.
- */
-export const DEFAULT_ORG_SLUG = "default";
 
 // API calls go through Next.js rewrites (which proxy to engine and forward cookies)
 // In client components, relative paths are resolved against the browser origin (the Next.js app)
@@ -201,6 +195,7 @@ export const api = {
       }),
   },
   me: {
+    get: () => request<TenantContextPayload>("/api/me"),
     changePassword: (data: { currentPassword?: string; newPassword: string }) =>
       request<{ ok: boolean }>("/api/me/password", {
         method: "POST",
@@ -208,16 +203,16 @@ export const api = {
       }),
   },
   members: {
-    list: (orgSlug: string = DEFAULT_ORG_SLUG) =>
+    list: (orgSlug: string) =>
       request<{ members: OrganizationMember[] }>(
         `/api/organizations/${encodeURIComponent(orgSlug)}/members`,
       ),
-    assign: (userId: string, roleKey: string, orgSlug: string = DEFAULT_ORG_SLUG) =>
+    assign: (userId: string, roleKey: string, orgSlug: string) =>
       request<{ assigned: boolean }>(
         `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
         { method: "PUT", body: JSON.stringify({ roleKey }) },
       ),
-    remove: (userId: string, orgSlug: string = DEFAULT_ORG_SLUG) =>
+    remove: (userId: string, orgSlug: string) =>
       request<{ removed: boolean }>(
         `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
         { method: "DELETE" },

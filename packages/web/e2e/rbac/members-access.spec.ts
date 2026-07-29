@@ -4,7 +4,8 @@
  * First DB-integrated RBAC E2E test.
  *
  * Proves the membership-management permission boundary end to end through the
- * UI: a real credentials login per role, a real navigation to /members, and an
+ * UI: a real credentials login per role, a real navigation to the canonical
+ * org-scoped members page, and an
  * assertion on BOTH the network result (200 vs 403 from the engine
  * PermissionGuard, proxied through Next) AND the rendered UI.
  *
@@ -21,7 +22,7 @@ import { expect, test, type Response } from "@playwright/test";
 import { getTestUser } from "../setup/test-env.js";
 import { loginAs } from "../fixtures/auth.js";
 
-const MEMBERS_PATH = "/members";
+const MEMBERS_PATH = "/organizations/default/members";
 
 /** GET …/api/organizations/:slug/members — the call the page makes on load. */
 function isMembersListResponse(response: Response): boolean {

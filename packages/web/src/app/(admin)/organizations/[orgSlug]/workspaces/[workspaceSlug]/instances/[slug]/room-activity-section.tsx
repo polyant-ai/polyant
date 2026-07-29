@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, ChevronRight, Activity } from "lucide-react";
 import { useI18n } from "@/lib/i18n/context";
-import { MarkdownRenderer } from "@/app/(admin)/playground/_components/markdown-renderer";
+import { MarkdownRenderer } from "@/app/(admin)/organizations/[orgSlug]/workspaces/[workspaceSlug]/playground/_components/markdown-renderer";
 
 export interface ActivityLog {
   id: string;

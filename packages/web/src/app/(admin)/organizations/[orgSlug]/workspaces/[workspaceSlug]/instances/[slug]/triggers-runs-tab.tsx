@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { api, getUserErrorMessage, type ScheduledTask, type ConversationListItem } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { ScheduledTaskRunsSection } from "./scheduled-task-runs-section";
 
 interface Props {
@@ -33,6 +34,7 @@ type RunType = "all" | "webhook" | "scheduled";
 
 export function TriggersRunsTab({ slug }: Props) {
   const { t } = useI18n();
+  const paths = useTenantPaths();
   const [runType, setRunType] = useState<RunType>("all");
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [webhookConversations, setWebhookConversations] = useState<ConversationListItem[]>([]);
@@ -140,7 +142,7 @@ export function TriggersRunsTab({ slug }: Props) {
                         </TableCell>
                         <TableCell className="text-right">
                           <a
-                            href={`/conversations?id=${encodeURIComponent(conv.conversationId)}`}
+                            href={paths.workspace(`/conversations?id=${encodeURIComponent(conv.conversationId)}`)}
                             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                           >
                             <ExternalLink className="size-3" />
