@@ -4,33 +4,109 @@ import { render, screen } from "@testing-library/react";
 import { LegacyTenantRedirect } from "./legacy-tenant-redirect";
 import type { TenantContextValue } from "@/lib/tenant/tenant-context";
 
-const { mockUseTenant, mockNotFound, mockReplace } = vi.hoisted(() => ({
+const { mockUseTenant, mockNotFound, mockReplace, mockSearchParams } = vi.hoisted(() => ({
   mockUseTenant: vi.fn(),
   mockNotFound: vi.fn(() => {
     throw new Error("NEXT_NOT_FOUND");
   }),
   mockReplace: vi.fn(),
+  mockSearchParams: { current: new URLSearchParams() },
 }));
 
-vi.mock("@/lib/tenant/tenant-context", () => ({
-  useTenant: () => mockUseTenant(),
-  defaultWorkspaceSlug: (tenant: TenantContextValue) =>
-    tenant.status === "ready" ? (tenant.workspaces[0]?.slug ?? null) : null,
-}));
+// `defaultWorkspaceSlug` is NOT stubbed with its own logic here — a stub that
+// re-implements "take workspaces[0]" would bake in the very mutant the isDefault
+// preference is supposed to prevent. The real implementation is used.
+vi.mock("@/lib/tenant/tenant-context", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/tenant/tenant-context")>(
+    "@/lib/tenant/tenant-context",
+  );
+  return { ...actual, useTenant: () => mockUseTenant() };
+});
 
 vi.mock("next/navigation", () => ({
   notFound: () => mockNotFound(),
   useRouter: () => ({ replace: mockReplace }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => mockSearchParams.current,
 }));
 
 vi.mock("./tenant-unavailable", () => ({
   TenantUnavailable: () => <div>tenant-unavailable</div>,
 }));
 
+function ready(workspaces: { slug: string; name: string; isDefault: boolean }[]) {
+  mockUseTenant.mockReturnValue({
+    status: "ready",
+    organization: { slug: "acme", name: "Acme" },
+    workspaces,
+    retry: () => {},
+  } satisfies TenantContextValue);
+}
+
+const GENERAL = { slug: "general", name: "General", isDefault: true };
+const SANDBOX = { slug: "sandbox", name: "Sandbox", isDefault: false };
+
 describe("LegacyTenantRedirect", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSearchParams.current = new URLSearchParams();
+  });
+
+  it("forwards a legacy workspace URL to its canonical form", () => {
+    ready([GENERAL]);
+
+    render(<LegacyTenantRedirect sub="/instances" />);
+
+    expect(mockReplace).toHaveBeenCalledWith(
+      "/organizations/acme/workspaces/general/instances",
+    );
+  });
+
+  it("preserves the query string of a legacy deep link", () => {
+    ready([GENERAL]);
+    mockSearchParams.current = new URLSearchParams({ id: "abc", tab: "steps" });
+
+    render(<LegacyTenantRedirect sub="/conversations" />);
+
+    expect(mockReplace).toHaveBeenCalledWith(
+      "/organizations/acme/workspaces/general/conversations?id=abc&tab=steps",
+    );
+  });
+
+  it("forwards an org-scoped stub without a workspace segment", () => {
+    ready([GENERAL]);
+
+    render(<LegacyTenantRedirect sub="/members" scope="org" />);
+
+    expect(mockReplace).toHaveBeenCalledWith("/organizations/acme/members");
+  });
+
+  it("keeps the suffix on an org-scoped forward", () => {
+    ready([GENERAL]);
+    mockSearchParams.current = new URLSearchParams({ page: "2" });
+
+    render(<LegacyTenantRedirect sub="/audit-logs" scope="org" />);
+
+    expect(mockReplace).toHaveBeenCalledWith("/organizations/acme/audit-logs?page=2");
+  });
+
+  // Ordering must not decide this: the default workspace wins even when it is
+  // not the first one the API returned.
+  it("targets the default workspace, not merely the first", () => {
+    ready([SANDBOX, GENERAL]);
+
+    render(<LegacyTenantRedirect sub="/memory" />);
+
+    expect(mockReplace).toHaveBeenCalledWith(
+      "/organizations/acme/workspaces/general/memory",
+    );
+  });
+
+  it("does not redirect while the tenancy is still loading", () => {
+    mockUseTenant.mockReturnValue({ status: "loading", retry: () => {} });
+
+    render(<LegacyTenantRedirect sub="/instances" />);
+
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it("404s instead of hanging when the org has no workspace to redirect into", () => {
