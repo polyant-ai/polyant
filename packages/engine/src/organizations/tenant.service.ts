@@ -3,6 +3,7 @@
 import { Injectable } from "@nestjs/common";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import {
+  findDefaultOrganization,
   findOrganizationById,
   listWorkspacesByOrganization,
   type WorkspaceIdentity,
@@ -25,15 +26,25 @@ export interface TenantContext {
 export class TenantService {
   /**
    * Resolve the caller's own tenancy. `organization: null` is a VALID answer,
-   * not an error: a JWT minted before RBAC carries no `orgId`, and the frontend
-   * turns that into a "sign in again" prompt. Never throw for it.
+   * not an error — the frontend turns it into a "sign in again" prompt, so
+   * never throw for it.
+   *
+   * A principal carrying no `orgId` falls back to the default organization
+   * rather than to `null`. Two things arrive that way: a session token minted
+   * before the claim existed, which re-signing in does fix, and a
+   * gateway-forwarded identity — `AUTH_MODE=alb-oidc` never stamps the claim
+   * (see `alb-oidc.service.ts`), so there "sign in again" is advice no user can
+   * act on, and without this fallback the whole tenant-scoped panel is a dead
+   * end. The fallback grants nothing: these slugs only build admin-panel URLs,
+   * every data endpoint authorizes on its own, and migration 0051 seeds exactly
+   * one organization. It is also unreachable under `AUTHZ_ENFORCE=true` —
+   * `PermissionGuard` derives no scope from a principal without `orgId` and
+   * denies before this runs — so it changes shadow-mode behaviour only.
    */
   async getContextFor(user: AuthenticatedUser): Promise<TenantContext> {
-    if (!user.orgId) {
-      return { organization: null, workspaces: [] };
-    }
-
-    const organization = await findOrganizationById(user.orgId);
+    const organization = user.orgId
+      ? await findOrganizationById(user.orgId)
+      : await findDefaultOrganization();
     if (!organization) {
       return { organization: null, workspaces: [] };
     }
