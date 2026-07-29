@@ -10,6 +10,12 @@ export type { HookResult, HookContext, HookFunctionDefinition, HookSpec };
 /** Payload of a halt: the message delivered to the user in place of the LLM turn. */
 export interface HookHaltSignal {
   message: string;
+  /**
+   * When false, the halted turn is delivered but NOT persisted (no message rows,
+   * no latency trace, no state flush, no summary/memory work). Absent ⇒ persisted,
+   * as before. See `runPipelinePost`.
+   */
+  persist?: boolean;
 }
 
 /** Payload of a response replacement (post-LLM). */

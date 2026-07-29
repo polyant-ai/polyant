@@ -21,4 +21,11 @@ describe("firstHalt", () => {
   it("returns undefined when no summary halts", () => {
     expect(firstHalt([base])).toBeUndefined();
   });
+
+  it("carries the halt's persist flag through", () => {
+    const summaries: HookExecutionSummary[] = [
+      { ...base, halt: { message: "RESET → #12345", persist: false } },
+    ];
+    expect(firstHalt(summaries)).toEqual({ message: "RESET → #12345", persist: false });
+  });
 });

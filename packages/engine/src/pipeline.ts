@@ -554,8 +554,9 @@ export interface PipelinePreResult {
   messageText: string;
   /** Pre-LLM hook outcomes (conversation_start + message_received). */
   hookExecutions: HookExecutionSummary[];
-  /** Set when a pre-LLM hook requested a halt: the LLM call is skipped and this text is the reply. */
-  shortCircuit?: { text: string };
+  /** Set when a pre-LLM hook requested a halt: the LLM call is skipped and this text is the reply.
+   *  `persist: false` makes the halted turn ephemeral — see `runPipelinePost`. */
+  shortCircuit?: { text: string; persist: boolean };
 }
 
 export async function runPipelinePre(
@@ -598,7 +599,7 @@ export async function runPipelinePre(
     contextPrepMs,
     messageText: msg.text,
     hookExecutions,
-    shortCircuit: halt ? { text: halt.message } : undefined,
+    shortCircuit: halt ? { text: halt.message, persist: halt.persist !== false } : undefined,
   };
 }
 
@@ -642,6 +643,14 @@ export interface PipelinePostOptions {
   isStreaming: boolean;
   /** When set and already aborted, skip persistence entirely. */
   abortSignal?: AbortSignal;
+  /**
+   * When false, skip every persistence side effect for this turn: no latency trace,
+   * no conversation-state flush, no `afterResponse` (messages, summary, memory,
+   * debug payload) and no contextPrompt clear. Set by a pre-LLM hook halt carrying
+   * `persist: false` — the hook execution is still audited and its telemetry row
+   * written, only the turn is ephemeral.
+   */
+  persist?: boolean;
   /** Set by a caller when the turn's reply was authored by a hook (pre-LLM halt), so it is badged in the UI. */
   provenance?: HookProvenance;
   /** Pre-computed response_generated outcome (buffered replay path). When set,
@@ -658,6 +667,10 @@ export interface PipelinePostResult {
 
 export async function runPipelinePost(opts: PipelinePostOptions): Promise<PipelinePostResult> {
   const { ctx } = opts;
+
+  // A hook halt may declare the turn ephemeral (`persist: false`): hooks still run
+  // and are audited, but nothing about the turn is written. Absent ⇒ persist.
+  const persist = opts.persist !== false;
 
   // Aborted pipelines leave no trace: skip trace/afterResponse entirely.
   // The caller (MessageCoordinator) has already discarded the result.
@@ -692,7 +705,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   pipelineLog.response(ctx.instanceId, totalMs);
 
   // Fire-and-forget: record pipeline trace
-  if (!isAutoTask(opts.messageText)) {
+  if (persist && !isAutoTask(opts.messageText)) {
     const sttFields = extractSttFields(ctx.inboundMetadata);
     const agentCall = ctx.inboundMetadata?.agentCall as AgentCallMetadata | undefined;
     traceStore.record({
@@ -725,7 +738,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // Persist conversation state (commit-on-success): reached only when not aborted
   // (the abort gate above already returned). Awaited — a single fast upsert — so a
   // tool's derived value is durable before the next turn reads it.
-  if (ctx.stateBuffer) {
+  if (persist && ctx.stateBuffer) {
     try {
       await ctx.stateBuffer.flush();
     } catch (err) {
@@ -733,36 +746,38 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     }
   }
 
-  afterResponse({
-    conversationId: ctx.conversationId,
-    instanceId: ctx.instanceId,
-    userMessage: opts.messageText,
-    assistantResponse: finalText,
-    steps: opts.steps,
-    reasoning: opts.reasoning,
-    debugPayload: opts.debugPayload,
-    assistantMessageId: opts.assistantMessageId,
-    existingSummary: ctx.conversationSummary,
-    needsSummaryUpdate: ctx.hasOverflow,
-    droppedMessages: ctx.droppedMessages,
-    memoryEnabled: ctx.instanceConfig.memoryEnabled,
-    provider: ctx.instanceConfig.provider,
-    apiKeys: ctx.instanceConfig.apiKeys,
-    langsmith: ctx.langsmith,
-    userAttachments: ctx.userAttachments,
-    incomingSystemMessages: ctx.incomingSystemMessages,
-    inboundMetadata: ctx.inboundMetadata,
-    provenance,
-    receivedAt: new Date(ctx.pipelineStart),
-  });
+  if (persist) {
+    afterResponse({
+      conversationId: ctx.conversationId,
+      instanceId: ctx.instanceId,
+      userMessage: opts.messageText,
+      assistantResponse: finalText,
+      steps: opts.steps,
+      reasoning: opts.reasoning,
+      debugPayload: opts.debugPayload,
+      assistantMessageId: opts.assistantMessageId,
+      existingSummary: ctx.conversationSummary,
+      needsSummaryUpdate: ctx.hasOverflow,
+      droppedMessages: ctx.droppedMessages,
+      memoryEnabled: ctx.instanceConfig.memoryEnabled,
+      provider: ctx.instanceConfig.provider,
+      apiKeys: ctx.instanceConfig.apiKeys,
+      langsmith: ctx.langsmith,
+      userAttachments: ctx.userAttachments,
+      incomingSystemMessages: ctx.incomingSystemMessages,
+      inboundMetadata: ctx.inboundMetadata,
+      provenance,
+      receivedAt: new Date(ctx.pipelineStart),
+    });
 
-  // ContextPrompt is one-shot: if we loaded it for this turn, clear it so
-  // subsequent inbound turns don't see stale webhook-trigger instructions.
-  // Fire-and-forget — errors logged, not propagated.
-  if (ctx.contextPrompt) {
-    conversationStore.clearContextPrompt(ctx.conversationId).catch((err) =>
-      console.error(`Failed to clear contextPrompt for ${ctx.conversationId}:`, err),
-    );
+    // ContextPrompt is one-shot: if we loaded it for this turn, clear it so
+    // subsequent inbound turns don't see stale webhook-trigger instructions.
+    // Fire-and-forget — errors logged, not propagated.
+    if (ctx.contextPrompt) {
+      conversationStore.clearContextPrompt(ctx.conversationId).catch((err) =>
+        console.error(`Failed to clear contextPrompt for ${ctx.conversationId}:`, err),
+      );
+    }
   }
 
   // Lifecycle hooks: response_sent fires once the turn is finalized and handed
@@ -771,7 +786,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // hooks wrote with a second flush (no-op when nothing changed).
   if (hookPayload && hookCtx) {
     hookExecutions.push(...(await runHooks("response_sent", hookPayload, hookCtx)));
-    if (ctx.stateBuffer) {
+    if (persist && ctx.stateBuffer) {
       try {
         await ctx.stateBuffer.flush();
       } catch (err) {
