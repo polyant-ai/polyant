@@ -37,6 +37,21 @@ function stripNulString(s: string): string {
   return s.indexOf(NUL) === -1 ? s : s.replace(NUL_RE, "");
 }
 
+/** Max persisted length of a conversation title (display-only text). */
+export const MAX_TITLE_CHARS = 120;
+
+/** First non-empty line, collapsed whitespace, hard-capped at MAX_TITLE_CHARS. */
+export function normalizeTitle(title: string): string {
+  const firstLine = title
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0) ?? "";
+  const collapsed = firstLine.replace(/\s+/g, " ");
+  return collapsed.length <= MAX_TITLE_CHARS
+    ? collapsed
+    : collapsed.slice(0, MAX_TITLE_CHARS - 1).trimEnd() + "…";
+}
+
 function stripNulDeep<T>(value: T): T {
   if (typeof value === "string") return stripNulString(value) as unknown as T;
   if (Array.isArray(value)) return value.map((v) => stripNulDeep(v)) as unknown as T;
@@ -185,9 +200,17 @@ export class ConversationStore {
     return title;
   }
 
-  /** Update conversation title in DB and in-memory cache. */
+  /**
+   * Update conversation title in DB and in-memory cache.
+   *
+   * A title is a single short display line: the LLM asked for "6-8 words"
+   * occasionally answers with a paragraph (or a preamble + newline + title),
+   * and a rename via the API is unbounded. Normalize at the persistence
+   * boundary — the one chokepoint every writer goes through — so no consumer
+   * has to defend against a 5000-char "title".
+   */
   async updateTitle(conversationId: string, title: string): Promise<void> {
-    const safe = stripNulString(title);
+    const safe = normalizeTitle(stripNulString(title));
     await db
       .update(conversations)
       .set({ title: safe, updatedAt: new Date() })

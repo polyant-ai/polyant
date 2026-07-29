@@ -438,10 +438,11 @@ export default function ConversationDetailPage() {
       </Breadcrumb>
 
       <div className="mt-4 flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
+        <div className="min-w-0">
+          {/* Clamped: the header must never grow enough to squeeze the message list. Full text on hover. */}
+          <h1 className="line-clamp-2 text-3xl font-semibold tracking-tight" title={title}>{title}</h1>
           {conversation.title && conversation.summary && (
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground" title={conversation.summary}>
               {conversation.summary}
             </p>
           )}
