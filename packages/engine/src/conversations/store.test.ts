@@ -465,6 +465,19 @@ describe("ConversationStore", () => {
       ]);
     });
 
+    it("bumps the conversation's updated_at in the same transaction", async () => {
+      const id = uid();
+      mockDb.insert.mockReturnValue(createChainMock(undefined) as any);
+      const updChain = createChainMock(undefined);
+      mockDb.update.mockReturnValue(updChain as any);
+
+      await conversationStore.appendMessages(id, [{ role: "user", content: "Hello" }]);
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+      expect(updChain.set).toHaveBeenCalledWith({ updatedAt: expect.any(Date) });
+      expect(updChain.where).toHaveBeenCalledWith({ type: "eq", args: ["conversation_id", id] });
+    });
+
     it("stamps the row with an explicit createdAt when provided (arrival time)", async () => {
       const id = uid();
       const insChain = createChainMock(undefined);

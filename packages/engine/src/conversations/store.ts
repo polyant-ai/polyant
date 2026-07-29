@@ -337,22 +337,34 @@ export class ConversationStore {
   ): Promise<void> {
     if (messages.length === 0) return;
 
-    await db.insert(conversationMessages).values(
-      messages.map((m) => ({
-        ...(m.id ? { id: m.id } : {}),
-        ...(m.createdAt ? { createdAt: m.createdAt } : {}),
-        conversationId,
-        role: m.role,
-        // Postgres `text` rejects NUL bytes; `jsonb` rejects NUL escapes
-        // inside string values. Strip both before insert.
-        content: stripNulString(m.content),
-        steps: m.steps ? stripNulDeep(m.steps) : null,
-        reasoning: m.reasoning ? stripNulDeep(m.reasoning) : null,
-        attachments: m.attachments ? stripNulDeep(m.attachments) : null,
-        metadata: m.metadata ? stripNulDeep(m.metadata) : null,
-        debugPayload: m.debugPayload ? stripNulDeep(m.debugPayload) : null,
-      })),
-    );
+    // Insert + `updated_at` bump are one transaction: the conversation list
+    // orders by `updated_at` and the `updatedSince`/`updatedUntil` filters range
+    // over it, so a row whose last message is newer than its `updated_at` sorts
+    // stale and is missed by incremental pulls. Before this, only title/summary
+    // writes moved the column — never the messages themselves.
+    await db.transaction(async (tx) => {
+      await tx.insert(conversationMessages).values(
+        messages.map((m) => ({
+          ...(m.id ? { id: m.id } : {}),
+          ...(m.createdAt ? { createdAt: m.createdAt } : {}),
+          conversationId,
+          role: m.role,
+          // Postgres `text` rejects NUL bytes; `jsonb` rejects NUL escapes
+          // inside string values. Strip both before insert.
+          content: stripNulString(m.content),
+          steps: m.steps ? stripNulDeep(m.steps) : null,
+          reasoning: m.reasoning ? stripNulDeep(m.reasoning) : null,
+          attachments: m.attachments ? stripNulDeep(m.attachments) : null,
+          metadata: m.metadata ? stripNulDeep(m.metadata) : null,
+          debugPayload: m.debugPayload ? stripNulDeep(m.debugPayload) : null,
+        })),
+      );
+
+      await tx
+        .update(conversations)
+        .set({ updatedAt: new Date() })
+        .where(eq(conversations.conversationId, conversationId));
+    });
   }
 
   /**
