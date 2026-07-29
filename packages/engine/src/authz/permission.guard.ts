@@ -11,10 +11,10 @@ import { Reflector } from "@nestjs/core";
 import { config } from "../config.js";
 import { createLogger } from "../utils/create-logger.js";
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
+import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import { REQUIRE_PERMISSION_KEY } from "./decorators/require-permission.decorator.js";
 import { REQUIRES_FEATURE_KEY } from "./decorators/requires-feature.decorator.js";
 import { AUTHENTICATED_ONLY_KEY } from "./decorators/authenticated-only.decorator.js";
-import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import { AuthorizationService } from "./authorization.service.js";
 import {
   ENTITLEMENT_SERVICE,
@@ -197,6 +197,11 @@ export class PermissionGuard implements CanActivate {
     return true;
   }
 
+  /**
+   * A route with no `@RequirePermission` and no `@AuthenticatedOnly()` /
+   * `@RequireRole(...)` declaration (both handled in `canActivate`) is a genuine
+   * omission and fails closed under enforcement.
+   */
   private handleUndeclared(context: ExecutionContext): boolean {
     const route = `${context.getClass().name}.${context.getHandler().name}`;
     if (config.authz.enforce) {

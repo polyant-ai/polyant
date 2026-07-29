@@ -1,18 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Unit tests for TenantService — the /api/me tenancy resolver. Covers the
- * legacy-token path (no orgId → organization: null, never a throw), a resolved
- * organization with its workspaces, and an orgId that no longer exists.
+ * Unit tests for TenantService — the /api/me tenancy resolver. Covers a
+ * resolved organization with its workspaces, an orgId that no longer exists,
+ * and the no-orgId fallback to the default organization (gateway-forwarded
+ * identities and pre-RBAC tokens), which must never throw.
  */
 
-const { mockFindOrganizationById, mockListWorkspacesByOrganization } = vi.hoisted(() => ({
+const {
+  mockFindOrganizationById,
+  mockFindDefaultOrganization,
+  mockListWorkspacesByOrganization,
+} = vi.hoisted(() => ({
   mockFindOrganizationById: vi.fn(),
+  mockFindDefaultOrganization: vi.fn(),
   mockListWorkspacesByOrganization: vi.fn(),
 }));
 
 vi.mock("./organizations.store.js", () => ({
   findOrganizationById: mockFindOrganizationById,
+  findDefaultOrganization: mockFindDefaultOrganization,
   listWorkspacesByOrganization: mockListWorkspacesByOrganization,
 }));
 
@@ -53,12 +60,37 @@ describe("TenantService.getContextFor", () => {
     expect(mockFindOrganizationById).toHaveBeenCalledWith(ORG_ID);
   });
 
-  it("returns organization: null for a legacy token carrying no orgId", async () => {
+  // A gateway-forwarded identity (AUTH_MODE=alb-oidc) never carries an orgId,
+  // and no re-login can add one — so the panel must resolve a tenancy anyway
+  // instead of showing a "sign in again" prompt that cannot help.
+  it("falls back to the default organization when the caller carries no orgId", async () => {
+    mockFindDefaultOrganization.mockResolvedValue({
+      id: ORG_ID,
+      slug: "default",
+      name: "Default",
+    });
+    mockListWorkspacesByOrganization.mockResolvedValue([
+      { slug: "general", name: "General", isDefault: true },
+    ]);
+
+    const context = await service.getContextFor(makeUser({ orgId: undefined }));
+
+    expect(context.organization).toEqual({ slug: "default", name: "Default" });
+    expect(context.workspaces).toEqual([
+      { slug: "general", name: "General", isDefault: true },
+    ]);
+    expect(mockFindOrganizationById).not.toHaveBeenCalled();
+    expect(mockListWorkspacesByOrganization).toHaveBeenCalledWith(ORG_ID);
+  });
+
+  it("returns organization: null when no orgId resolves and no default org is seeded", async () => {
+    mockFindDefaultOrganization.mockResolvedValue(null);
+
     const context = await service.getContextFor(makeUser({ orgId: undefined }));
 
     expect(context.organization).toBeNull();
     expect(context.workspaces).toEqual([]);
-    expect(mockFindOrganizationById).not.toHaveBeenCalled();
+    expect(mockListWorkspacesByOrganization).not.toHaveBeenCalled();
   });
 
   it("returns organization: null when the orgId no longer resolves", async () => {
