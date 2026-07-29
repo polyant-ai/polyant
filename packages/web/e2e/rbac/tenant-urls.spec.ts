@@ -18,6 +18,13 @@ const ORG_SLUG = "default";
 const WORKSPACE_SLUG = "general";
 const CANONICAL_AGENTS = `/organizations/${ORG_SLUG}/workspaces/${WORKSPACE_SLUG}/instances`;
 
+// Locale-tolerant matchers: the panel ships Italian and English, and neither the
+// heading nor the 404 copy should pin the suite to one of them. What matters is
+// that they are DISTINGUISHABLE — asserting merely "an h1 is visible" would also
+// pass on a 404 page, which is how the canonical-render check used to be vacuous.
+const AGENTS_HEADING = /^(Agents|Agenti)$/;
+const NOT_FOUND_COPY = /does not exist|non esiste/i;
+
 test.describe("tenant-scoped URLs", () => {
   test("the root path resolves to the organization dashboard", async ({ page }) => {
     await loginAs(page, "owner");
@@ -54,7 +61,7 @@ test.describe("tenant-scoped URLs", () => {
 
     await page.goto(CANONICAL_AGENTS);
 
-    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(AGENTS_HEADING);
     expect(new URL(page.url()).pathname).toBe(CANONICAL_AGENTS);
   });
 
@@ -63,7 +70,10 @@ test.describe("tenant-scoped URLs", () => {
 
     await page.goto(`/organizations/ghost/workspaces/${WORKSPACE_SLUG}/instances`);
 
-    await expect(page.locator("body")).toContainText(/could not be found/i);
+    await expect(page.locator("body")).toContainText(NOT_FOUND_COPY);
+    // The link home proves this is the admin group's own 404 boundary and not
+    // Next's stock page, which offers no way back.
+    await expect(page.getByRole("link", { name: /dashboard/i })).toBeVisible();
   });
 
   test("an unknown workspace slug is a 404", async ({ page }) => {
@@ -71,7 +81,7 @@ test.describe("tenant-scoped URLs", () => {
 
     await page.goto(`/organizations/${ORG_SLUG}/workspaces/ghost/instances`);
 
-    await expect(page.locator("body")).toContainText(/could not be found/i);
+    await expect(page.locator("body")).toContainText(NOT_FOUND_COPY);
   });
 
   test("a Viewer can still resolve their tenancy under enforcement", async ({ page }) => {
