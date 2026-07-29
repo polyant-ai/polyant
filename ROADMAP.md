@@ -17,7 +17,7 @@ contributions and feedback.
 - First-party MCP server support for tools.
 - Complete multi-tenancy: the `Organization > Workspace > Agent` schema, RBAC,
   and tenant-scoped frontend URLs are in place, but organization/workspace CRUD,
-  a workspace switcher, an invitation flow, member auto-provisioning, and
+  a workspace switcher, an invitation flow, a default role below Owner, and
   making the workspace URL segment authoritative are still missing — and
   enforcement ships in shadow mode (`AUTHZ_ENFORCE` opt-in).
 
