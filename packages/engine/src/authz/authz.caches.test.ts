@@ -10,6 +10,7 @@ import {
   BINDING_CACHE_TTL_MS,
   SUPERADMIN_CACHE_TTL_MS,
   bindingCache,
+  invalidateSuperadminCache,
   superadminCache,
 } from "./authz.caches.js";
 import type { AgentScope } from "./authz.store.js";
@@ -65,6 +66,25 @@ describe("RBAC caches", () => {
     bindingCache.delete("a");
     expect(bindingCache.get("a")).toBeUndefined();
     expect(bindingCache.get("b")).toBeDefined();
+  });
+
+  it("should_drop_the_entry_when_invalidateSuperadminCache_is_called", () => {
+    superadminCache.set("user-1", true);
+    invalidateSuperadminCache("user-1");
+    expect(superadminCache.get("user-1")).toBeUndefined();
+  });
+
+  it("should_keep_other_users_cached_when_one_user_is_invalidated", () => {
+    superadminCache.set("user-1", true);
+    superadminCache.set("user-2", true);
+    invalidateSuperadminCache("user-1");
+    expect(superadminCache.has("user-1")).toBe(false);
+    expect(superadminCache.get("user-2")).toBe(true);
+  });
+
+  it("should_be_a_silent_noop_when_the_user_is_not_cached", () => {
+    expect(() => invalidateSuperadminCache("never-seen")).not.toThrow();
+    expect(superadminCache.has("never-seen")).toBe(false);
   });
 
   // AgentScope is structurally referenced so the import stays meaningful.

@@ -3,6 +3,7 @@
 import { eq, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { users, sessions, type UserRole } from "../auth/users.schema.js";
+import { invalidateSuperadminCache } from "../authz/authz.caches.js";
 
 export interface UserRow {
   id: string;
@@ -105,6 +106,10 @@ export async function insertUser(input: CreateUserInput): Promise<UserWithSecret
       mustChangePassword: input.mustChangePassword,
     })
     .returning();
+  // A brand-new id cannot hold a stale entry, but pairing EVERY write of the
+  // flag with an invalidation keeps the invariant grep-verifiable instead of
+  // requiring each call site to re-prove the negative.
+  invalidateSuperadminCache(row.id);
   return mapRow(row);
 }
 
@@ -131,6 +136,9 @@ export async function updateUserMeta(
     .set(patch)
     .where(eq(users.id, id))
     .returning();
+  // Flush AFTER the write commits: invalidating first would let a concurrent
+  // read repopulate the cache with the pre-update value.
+  if (input.role !== undefined) invalidateSuperadminCache(id);
   return row ? mapRow(row) : null;
 }
 
@@ -153,6 +161,10 @@ export async function updateUserPassword(
 
 export async function deleteUserById(id: string): Promise<boolean> {
   const [row] = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id });
+  // Dropping the row clears the flag too. Without this a deleted superadmin
+  // keeps the bypass for the rest of the TTL — their JWE outlives the row
+  // (documented Auth.js trade-off), so the guard would still see a principal.
+  invalidateSuperadminCache(id);
   return !!row;
 }
 

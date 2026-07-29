@@ -4,6 +4,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
   bindingCache,
   bindingCacheKey,
+  invalidateSuperadminCache,
   superadminCache,
 } from "./authz.caches.js";
 import {
@@ -28,6 +29,7 @@ import type { PermissionKey } from "./permissions.js";
  *   - `isPlatformAdmin()`  — DB-backed, cached superadmin bypass check.
  *   - `resolveAgentScope()`— the single agent-slug → tenancy choke-point.
  *   - `invalidateBindingCache()` — eager flush after a binding mutation.
+ *   - `invalidateSuperadminCache()` — eager flush after a platform-admin write.
  *
  * It never reads the DB when a fresh cache entry exists, so the guard stays off
  * the hot path for repeated checks within a TTL window.
@@ -67,6 +69,16 @@ export class AuthorizationService {
   /** Drop the cached bindings for a user+org (call after a binding mutation). */
   invalidateBindingCache(userId: string, organizationId: string): void {
     bindingCache.delete(bindingCacheKey(userId, organizationId));
+  }
+
+  /**
+   * Drop the cached platform-admin flag for a user (call after any write to
+   * `users.is_platform_admin`). Thin delegate over the module-level function so
+   * DI-side callers keep a single façade; the DI-free write path in
+   * `users.store.ts` calls `invalidateSuperadminCache` directly.
+   */
+  invalidateSuperadminCache(userId: string): void {
+    invalidateSuperadminCache(userId);
   }
 
   // -- internal ---------------------------------------------------------------

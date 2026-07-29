@@ -111,15 +111,24 @@ const configSchema = z.object({
     platformAdminEmail: z.string().email().optional(),
   }),
 
-  // RBAC authorization (Stream 3). Ships in SHADOW mode by default: the
-  // PermissionGuard resolves scope and logs decisions but never denies unless
-  // `enforce` is true. Flip `AUTHZ_ENFORCE=true` to fail-closed on undeclared
-  // routes and denied permissions. Any value other than the literal "true"
-  // (including unset and "false") keeps shadow mode — no behaviour change.
+  // RBAC authorization (Stream 3). ENFORCED by default: the PermissionGuard
+  // denies undeclared routes and failed permission checks.
+  //
+  // This shipped in shadow mode (deny → log + allow) while the decorate-all
+  // sweep was in flight, and `.env.example` propagated `AUTHZ_ENFORCE=false`
+  // into real deployments — so a production install that followed the example
+  // ran with every `@RequirePermission` reduced to a no-op, cross-org checks
+  // included. Every mounted route now declares its authorization (enforced by
+  // `server/route-authorization-guardrail.test.ts`, which derives the route
+  // list from the NestJS module graph), so the safe default is fail-closed.
+  //
+  // `AUTHZ_ENFORCE=false` still opts back into shadow mode for a staged
+  // rollout: run it to collect `[authz] shadow: would deny …` lines from real
+  // traffic, decorate whatever they surface, then remove the override.
   authz: z.object({
     enforce: z
       .enum(["true", "false"])
-      .default("false")
+      .default("true")
       .transform((v): boolean => v === "true"),
   }),
 

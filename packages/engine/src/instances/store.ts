@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, sql, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, sql, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { DEFAULT_EMBEDDING_DIM, embeddingProviderFor } from "../embeddings-gateway/config.js";
 import type { EmbeddingProvider } from "../embeddings-gateway/types.js";
@@ -10,12 +10,69 @@ import { principalSecrets } from "../conversations/principal-secrets.schema.js";
 import { memories } from "../memory/schema.js";
 import { knowledgeDocuments } from "../knowledge/schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
+import { organizations, workspaces } from "../organizations/organization.schema.js";
 import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
+import { buildOrgScopedAgentFilter } from "../authz/scope-filter.js";
 import { asInstanceSlug, asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
 
-// Every instance must belong to a workspace. Until per-workspace creation
-// lands, new instances land in the default workspace — the same place the
-// migration backfilled pre-existing rows, so behaviour is unchanged.
+// Every agent belongs to exactly one workspace, and a workspace to exactly one
+// organization. Which workspace a NEW agent lands in is decided by the caller's
+// organization (`resolveWorkspaceIdForPrincipal`), never by the deployment-wide
+// default workspace — that single `is_default` row belongs to the organization
+// seeded by migration 0051, so using it for an org-B caller is a cross-tenant
+// write. Only system paths with no principal (boot seeding) may use it.
+
+/** Anything that can run a `select` — the shared `db` or a transaction handle. */
+type Executor = Pick<typeof db, "select">;
+
+/**
+ * The organization a caller acts within: its own `orgId` claim, or — when the
+ * principal carries none (legacy JWT minted before the claim existed,
+ * gateway-forwarded identity) — the deployment's only organization, where the
+ * answer is unambiguous.
+ *
+ * Returns null when it cannot be decided (no claim AND several organizations);
+ * callers MUST fail closed on null instead of picking the seed organization.
+ */
+export async function resolvePrincipalOrgId(
+  orgId: string | undefined,
+  executor: Executor = db,
+): Promise<string | null> {
+  if (orgId) return orgId;
+  // limit(2) — we only need to know whether the deployment is single-org.
+  const rows = await executor.select({ id: organizations.id }).from(organizations).limit(2);
+  return rows.length === 1 ? rows[0].id : null;
+}
+
+/**
+ * The workspace an agent created by this caller must land in: the caller
+ * organization's default workspace, else its oldest one.
+ *
+ * Throws when the organization (or a workspace inside it) cannot be resolved —
+ * a create/import must fail rather than silently file the agent under another
+ * tenant.
+ */
+export async function resolveWorkspaceIdForPrincipal(
+  orgId: string | undefined,
+  executor: Executor = db,
+): Promise<string> {
+  const organizationId = await resolvePrincipalOrgId(orgId, executor);
+  if (!organizationId) {
+    throw new Error(
+      "Cannot resolve the caller's organization — refusing to create the agent in another tenant's workspace.",
+    );
+  }
+  const [row] = await executor
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.organizationId, organizationId))
+    .orderBy(desc(workspaces.isDefault), asc(workspaces.createdAt))
+    .limit(1);
+  if (!row) {
+    throw new Error(`Organization "${organizationId}" owns no workspace to create the agent in.`);
+  }
+  return row.id;
+}
 
 export interface Instance {
   id: InstanceUuid;
@@ -76,9 +133,23 @@ function toInstance(row: typeof instances.$inferSelect): Instance {
   return { ...row, id: asInstanceUuid(row.id), slug: asInstanceSlug(row.slug) } as Instance;
 }
 
-/** Return all active instances. */
-export async function listActiveInstances(): Promise<Instance[]> {
-  return db.select().from(instances).where(eq(instances.status, "active")).then((rows) => rows.map(toInstance));
+/**
+ * Return all active instances. Pass the caller's resolved `orgId` to restrict
+ * the list to that organization's agents (reuses the RBAC org-scoping predicate
+ * so "which agents belong to org X" stays defined in exactly one place).
+ * Omitting it returns every agent — reserved for system paths with no principal.
+ */
+export async function listActiveInstances(orgId?: string): Promise<Instance[]> {
+  return db
+    .select()
+    .from(instances)
+    .where(
+      and(
+        eq(instances.status, "active"),
+        orgId ? buildOrgScopedAgentFilter(orgId, "slug") : undefined,
+      ),
+    )
+    .then((rows) => rows.map(toInstance));
 }
 
 /** Find an instance by slug. Returns undefined if not found. */
@@ -93,7 +164,8 @@ export async function findInstanceById(id: string): Promise<Instance | undefined
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
-/** Insert an instance if the slug doesn't already exist. */
+/** Insert an instance if the slug doesn't already exist. Boot seeding only —
+ *  a system path with no principal, hence the deployment default workspace. */
 export async function ensureInstance(data: {
   slug: InstanceSlug;
   name: string;
@@ -126,9 +198,19 @@ export async function seedInstances(): Promise<void> {
   console.log("Instances seeded (default, creative)");
 }
 
-/** Return all instances (any status), ordered by name (case-insensitive). */
-export async function listAllInstances(): Promise<Instance[]> {
-  return db.select().from(instances).orderBy(sql`LOWER(${instances.name})`).then((rows) => rows.map(toInstance));
+/**
+ * Return all instances (any status), ordered by name (case-insensitive). Pass
+ * the caller's resolved `orgId` to restrict the list to that organization's
+ * agents; omitting it returns every agent — reserved for system paths with no
+ * principal (boot channel startup).
+ */
+export async function listAllInstances(orgId?: string): Promise<Instance[]> {
+  return db
+    .select()
+    .from(instances)
+    .where(orgId ? buildOrgScopedAgentFilter(orgId, "slug") : undefined)
+    .orderBy(sql`LOWER(${instances.name})`)
+    .then((rows) => rows.map(toInstance));
 }
 
 /** Create a new instance and return it. */
@@ -138,6 +220,8 @@ export async function createInstance(data: {
   description?: string;
   provider?: string;
   model?: string;
+  /** Caller's organization — decides the owning workspace. Never client-supplied. */
+  orgId?: string;
 }): Promise<Instance> {
   const rows = await db
     .insert(instances)
@@ -152,7 +236,7 @@ export async function createInstance(data: {
       // Default the embedder to match the chat provider (bedrock chat → bedrock
       // embeddings, else openai). It is independently changeable afterwards.
       embeddingProvider: embeddingProviderFor(data.provider),
-      workspaceId: await findDefaultWorkspaceId(),
+      workspaceId: await resolveWorkspaceIdForPrincipal(data.orgId),
     })
     .returning();
   return toInstance(rows[0]);
