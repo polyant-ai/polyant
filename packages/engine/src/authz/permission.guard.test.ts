@@ -31,6 +31,8 @@ import { Permission } from "./permissions.js";
 import { REQUIRE_PERMISSION_KEY } from "./decorators/require-permission.decorator.js";
 import { REQUIRES_FEATURE_KEY } from "./decorators/requires-feature.decorator.js";
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
+import { IS_SELF_SERVICE_KEY } from "../auth/decorators/self-service.decorator.js";
+import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import type { AgentScope } from "./authz.store.js";
 
 const SCOPE: AgentScope = {
@@ -43,6 +45,8 @@ interface MetaMap {
   [REQUIRE_PERMISSION_KEY]?: string;
   [REQUIRES_FEATURE_KEY]?: string;
   [IS_PUBLIC_KEY]?: boolean;
+  [REQUIRED_ROLES_KEY]?: string[];
+  [IS_SELF_SERVICE_KEY]?: boolean;
 }
 
 interface Overrides {
@@ -105,6 +109,37 @@ describe("PermissionGuard", () => {
     mockConfig.authz.enforce = true;
     const { guard, context } = setup({}, userReq({}));
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // A route can declare its authorization outside this guard. RoleGuard runs
+  // first and hard-denies a wrong role, so /api/users must not ALSO be denied
+  // here for lacking an RBAC permission it does not use.
+  it("allows a @RequireRole route without a permission under enforcement", async () => {
+    mockConfig.authz.enforce = true;
+    const { guard, context, authz } = setup(
+      { [REQUIRED_ROLES_KEY]: ["superadmin"] },
+      userReq({}),
+    );
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(authz.can).not.toHaveBeenCalled();
+  });
+
+  it("ignores an empty @RequireRole list and still fails closed", async () => {
+    mockConfig.authz.enforce = true;
+    const { guard, context } = setup({ [REQUIRED_ROLES_KEY]: [] }, userReq({}));
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // Rotating your own password has no scope to authorize against — only
+  // authentication, which AuthGuard already established.
+  it("allows a @SelfService route without a permission under enforcement", async () => {
+    mockConfig.authz.enforce = true;
+    const { guard, context, authz } = setup(
+      { [IS_SELF_SERVICE_KEY]: true },
+      userReq({}),
+    );
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(authz.can).not.toHaveBeenCalled();
   });
 
   it("denies a @RequiresFeature route when the license is missing (even shadow)", async () => {

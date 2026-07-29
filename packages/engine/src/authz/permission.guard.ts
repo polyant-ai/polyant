@@ -11,6 +11,8 @@ import { Reflector } from "@nestjs/core";
 import { config } from "../config.js";
 import { createLogger } from "../utils/create-logger.js";
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
+import { IS_SELF_SERVICE_KEY } from "../auth/decorators/self-service.decorator.js";
+import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import { REQUIRE_PERMISSION_KEY } from "./decorators/require-permission.decorator.js";
 import { REQUIRES_FEATURE_KEY } from "./decorators/requires-feature.decorator.js";
 import { AuthorizationService } from "./authorization.service.js";
@@ -151,7 +153,32 @@ export class PermissionGuard implements CanActivate {
 
   // -- branches ---------------------------------------------------------------
 
+  /**
+   * A route with no `@RequirePermission` is denied in enforce mode — unless it
+   * declares its authorization through another mechanism this guard does not
+   * own:
+   *
+   * - `@RequireRole(...)`: RoleGuard runs BEFORE this guard and hard-denies a
+   *   wrong role (it has no shadow mode), so the route is already gated. Users
+   *   administration is authorized this way, not by RBAC scope.
+   * - `@SelfService()`: the caller acts on their own identity, so there is no
+   *   scope to authorize against — only authentication, which AuthGuard did.
+   *
+   * Anything else is a genuine omission and fails closed.
+   */
   private handleUndeclared(context: ExecutionContext): boolean {
+    const targets = [context.getHandler(), context.getClass()];
+
+    const roles = this.reflector.getAllAndOverride<string[] | undefined>(
+      REQUIRED_ROLES_KEY,
+      targets,
+    );
+    if (roles && roles.length > 0) return true;
+
+    if (this.reflector.getAllAndOverride<boolean>(IS_SELF_SERVICE_KEY, targets)) {
+      return true;
+    }
+
     const route = `${context.getClass().name}.${context.getHandler().name}`;
     if (config.authz.enforce) {
       logger.warn(LOG_PREFIX, `deny undeclared route ${route} (enforce)`);

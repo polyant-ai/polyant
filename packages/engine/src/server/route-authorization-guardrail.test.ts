@@ -3,6 +3,8 @@
 import { describe, expect, it } from "vitest";
 import { PATH_METADATA, METHOD_METADATA } from "@nestjs/common/constants";
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
+import { IS_SELF_SERVICE_KEY } from "../auth/decorators/self-service.decorator.js";
+import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import { REQUIRE_PERMISSION_KEY } from "../authz/decorators/require-permission.decorator.js";
 
 import { HealthController } from "./health/health.controller.js";
@@ -34,11 +36,17 @@ import { InstanceChatStreamController } from "./openai/instance-chat-stream.cont
 import { MembersController } from "./members/members.controller.js";
 import { ActivityStreamController } from "../activity-stream/activity-stream.controller.js";
 import { OAuthCallbackController } from "./oauth/oauth-callback.controller.js";
+import { MeController } from "../users/me.controller.js";
+import { UsersController } from "../users/users.controller.js";
+import { CredentialsController } from "../users/credentials.controller.js";
+import { SkillsController } from "../skills/skills.controller.js";
 
 /**
  * The authoritative list of every controller registered in the NestJS server.
- * Kept in sync with `ServerModule`, `OptoutsModule`, and `OpenAIModule`; a
- * missing entry would let an undeclared handler slip past the guardrail.
+ * Kept in sync with `ServerModule`, `OptoutsModule`, `OpenAIModule`,
+ * `UsersModule` and `SkillsModule`; a missing entry would let an undeclared
+ * handler slip past the guardrail — which is exactly how `MeController` and
+ * `UsersController` came to 403 under enforcement unnoticed.
  */
 const ALL_CONTROLLERS = [
   HealthController,
@@ -70,6 +78,10 @@ const ALL_CONTROLLERS = [
   MembersController,
   ActivityStreamController,
   OAuthCallbackController,
+  MeController,
+  UsersController,
+  CredentialsController,
+  SkillsController,
 ] as const;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -128,6 +140,33 @@ function hasRequiredPermission(
   return readMetadata(controller, handler, REQUIRE_PERMISSION_KEY) !== undefined;
 }
 
+/**
+ * The two declarations PermissionGuard honours besides `@RequirePermission`
+ * (see its `handleUndeclared`): `@RequireRole(...)`, gated by RoleGuard before
+ * this guard runs, and `@SelfService()`, where the caller acts on their own
+ * identity and no scope applies. Kept in lockstep with the guard — a form the
+ * guard rejects must not count as declared here.
+ */
+function hasRoleRequirement(controller: ControllerClass, handler: string): boolean {
+  const roles = readMetadata(controller, handler, REQUIRED_ROLES_KEY);
+  return Array.isArray(roles) && roles.length > 0;
+}
+
+function isSelfService(controller: ControllerClass, handler: string): boolean {
+  return readMetadata(controller, handler, IS_SELF_SERVICE_KEY) === true;
+}
+
+function declaresAuthorization(
+  controller: ControllerClass,
+  handler: string,
+): boolean {
+  return (
+    hasRequiredPermission(controller, handler) ||
+    hasRoleRequirement(controller, handler) ||
+    isSelfService(controller, handler)
+  );
+}
+
 describe("route authorization guardrail", () => {
   const handlers = ALL_CONTROLLERS.flatMap((controller) =>
     collectRouteHandlers(controller),
@@ -144,7 +183,7 @@ describe("route authorization guardrail", () => {
       .filter(
         ({ controller, handler }) =>
           !isPublic(controller, handler) &&
-          !hasRequiredPermission(controller, handler),
+          !declaresAuthorization(controller, handler),
       )
       .map(describeHandler);
 
