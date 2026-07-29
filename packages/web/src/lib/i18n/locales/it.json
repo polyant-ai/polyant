@@ -1024,5 +1024,9 @@
   "tenant.noOrganization.action": "Accedi di nuovo",
   "tenant.error.title": "Impossibile caricare la tua organizzazione",
   "tenant.error.description": "Il server non ha risposto. Controlla la connessione e riprova.",
-  "tenant.error.retry": "Riprova"
+  "tenant.error.retry": "Riprova",
+
+  "notFound.title": "Questa pagina non esiste",
+  "notFound.description": "L'indirizzo potrebbe non essere più valido, oppure appartenere a un'organizzazione o a un workspace a cui non hai accesso.",
+  "notFound.action": "Torna alla tua dashboard"
 }

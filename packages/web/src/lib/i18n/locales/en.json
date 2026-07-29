@@ -1025,5 +1025,9 @@
   "tenant.noOrganization.action": "Sign in again",
   "tenant.error.title": "Could not load your organization",
   "tenant.error.description": "The server did not answer. Check your connection and try again.",
-  "tenant.error.retry": "Try again"
+  "tenant.error.retry": "Try again",
+
+  "notFound.title": "This page does not exist",
+  "notFound.description": "The address may be out of date, or it may belong to an organization or workspace you cannot access.",
+  "notFound.action": "Back to your dashboard"
 }
