@@ -35,9 +35,13 @@ export async function findDefaultWorkspaceId(executor: Executor = db): Promise<s
 }
 
 /** The single default organization seeded by migration 0051, if present. */
-export async function findDefaultOrganization(): Promise<{ id: string } | null> {
+export async function findDefaultOrganization(): Promise<OrganizationIdentity | null> {
   const [row] = await db
-    .select({ id: organizations.id })
+    .select({
+      id: organizations.id,
+      slug: organizations.slug,
+      name: organizations.name,
+    })
     .from(organizations)
     .where(eq(organizations.isDefault, true))
     .limit(1);
