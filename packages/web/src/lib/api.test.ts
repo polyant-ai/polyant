@@ -377,6 +377,31 @@ describe("api.analytics", () => {
   });
 });
 
+// ── api.me ─────────────────────────────────────────────────────────────
+
+describe("api.me", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Every tenant-scoped URL in the panel is built from this response, so the
+  // path it is fetched from is load-bearing.
+  it("get() targets the tenancy endpoint", async () => {
+    const fetchFn = mockFetch(mockResponse({ organization: null, workspaces: [] }));
+    await api.me.get();
+    const [url] = fetchFn.mock.calls[0];
+    expect(new URL(url as string, "http://localhost").pathname).toBe("/api/me");
+  });
+
+  it("changePassword() POSTs to the password endpoint", async () => {
+    const fetchFn = mockFetch(mockResponse({ ok: true }));
+    await api.me.changePassword({ newPassword: "s3cret-enough" });
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(new URL(url as string, "http://localhost").pathname).toBe("/api/me/password");
+    expect(init?.method).toBe("POST");
+  });
+});
+
 // ── api.members ────────────────────────────────────────────────────────
 
 describe("api.members", () => {
@@ -384,30 +409,34 @@ describe("api.members", () => {
     vi.restoreAllMocks();
   });
 
+  // These deliberately avoid the slug "default": it is the value the deleted
+  // DEFAULT_ORG_SLUG constant used to hardcode, so asserting it cannot tell
+  // "uses the argument" from "still hardcodes the default" — which is exactly
+  // the behaviour that changed when the URLs became tenant-scoped.
   it("list() targets the given org's members endpoint", async () => {
     const fetchFn = mockFetch(mockResponse({ members: [] }));
-    await api.members.list("default");
+    await api.members.list("acme");
     const [url] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/organizations/default/members");
+    expect(parsed.pathname).toBe("/api/organizations/acme/members");
   });
 
   it("assign() PUTs the role to the member endpoint", async () => {
     const fetchFn = mockFetch(mockResponse({ assigned: true }));
-    await api.members.assign("user-1", "admin", "default");
+    await api.members.assign("user-1", "admin", "acme");
     const [url, init] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/organizations/default/members/user-1");
+    expect(parsed.pathname).toBe("/api/organizations/acme/members/user-1");
     expect(init?.method).toBe("PUT");
     expect(JSON.parse(init?.body as string)).toEqual({ roleKey: "admin" });
   });
 
   it("remove() DELETEs the member endpoint", async () => {
     const fetchFn = mockFetch(mockResponse({ removed: true }));
-    await api.members.remove("user-1", "default");
+    await api.members.remove("user-1", "acme");
     const [url, init] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/organizations/default/members/user-1");
+    expect(parsed.pathname).toBe("/api/organizations/acme/members/user-1");
     expect(init?.method).toBe("DELETE");
   });
 
