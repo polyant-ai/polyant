@@ -205,6 +205,12 @@
   "instances.detail.tabSettings": "Impostazioni",
   "instances.detail.tabChannels": "Canali",
   "instances.detail.tabAnalytics": "Analytics",
+  "instances.detail.railLabel": "Navigazione impostazioni agente",
+  "instances.detail.groupGeneral": "Generale",
+  "instances.detail.groupBehavior": "Comportamento",
+  "instances.detail.groupChannelsTriggers": "Canali e trigger",
+  "instances.detail.groupObservability": "Osservabilità",
+  "instances.detail.groupDataPrivacy": "Dati e privacy",
   "general.name": "Nome",
   "general.slug": "Slug",
   "general.slugHelp": "Lo slug non può essere modificato dopo la creazione.",
@@ -779,9 +785,7 @@
   "login.signingIn": "Accesso in corso...",
   "login.invalidCredentials": "Credenziali non valide",
   "login.or": "oppure",
-
   "user.logout": "Esci",
-
   "users.title": "Utenti",
   "users.subtitle": "Gestisci gli utenti che possono accedere al pannello",
   "users.create": "Nuovo utente",
@@ -829,7 +833,6 @@
   "users.reset.copy": "Copia password",
   "users.reset.copied": "Copiata",
   "users.created.shownOnce": "Salva questa password: l'utente la usera' al primo accesso e dovra' cambiarla. Non sara' piu' mostrata.",
-
   "settings.password.title": "Cambia password",
   "settings.password.description": "Aggiorna la password del tuo account.",
   "settings.password.current": "Password attuale",
@@ -843,10 +846,8 @@
   "settings.password.forced.title": "Imposta una nuova password",
   "settings.password.forced.description": "Per motivi di sicurezza devi cambiare la password prima di continuare.",
   "settings.password.sameAsPrevious": "La nuova password deve essere diversa da quella precedente",
-
   "settings.tab.general": "Generale",
   "settings.tab.generalEmpty": "Nessuna impostazione generale al momento.",
-
   "room.saveFailed": "Errore nel salvataggio della configurazione Room",
   "room.deleteFailed": "Errore nell'eliminazione della configurazione Room",
   "room.source.createFailed": "Errore nella creazione della sorgente eventi",
@@ -963,7 +964,6 @@
   "activityStream.narrative.handoff.done": "{from} ha chiesto a {to}",
   "activityStream.expand": "Mostra dettagli",
   "activityStream.collapse": "Nascondi dettagli",
-
   "instances.detail.tabPrivacy": "Privacy",
   "privacy.title": "Opt-out GDPR",
   "privacy.description": "Permetti agli utenti finali di smettere di ricevere messaggi inviando una parola chiave (es. STOP). L'applicazione è deterministica — l'LLM non decide mai.",
@@ -1022,14 +1022,12 @@
   "members.removeFailed": "Rimozione del membro non riuscita",
   "members.loadFailed": "Caricamento dei membri non riuscito",
   "permissions.denied": "Non hai i permessi per eseguire questa azione.",
-
   "tenant.noOrganization.title": "La tua sessione precede le organizzazioni",
   "tenant.noOrganization.description": "Esegui di nuovo l'accesso per collegare la sessione a un'organizzazione. Non perdi nulla: viene solo rinnovata la sessione.",
   "tenant.noOrganization.action": "Accedi di nuovo",
   "tenant.error.title": "Impossibile caricare la tua organizzazione",
   "tenant.error.description": "Il server non ha risposto. Controlla la connessione e riprova.",
   "tenant.error.retry": "Riprova",
-
   "notFound.title": "Questa pagina non esiste",
   "notFound.description": "L'indirizzo potrebbe non essere più valido, oppure appartenere a un'organizzazione o a un workspace a cui non hai accesso.",
   "notFound.action": "Torna alla tua dashboard"

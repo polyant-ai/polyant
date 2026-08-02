@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,6 +43,8 @@ import { RoomTab } from "./room-tab";
 import { HooksTab } from "./hooks-tab";
 import { PrivacyTab } from "./privacy-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
+import { InstanceDetailRail } from "./instance-detail-rail";
+import { INSTANCE_TAB_VALUES } from "./instance-tab-groups";
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 
@@ -62,10 +63,6 @@ function HeaderSaveButton() {
   );
 }
 
-const TAB_VALUES = [
-  "general", "prompts", "tools", "skills", "knowledge", "settings",
-  "channels", "analytics", "triggers", "room", "hooks", "privacy",
-] as const;
 const DEFAULT_TAB = "general";
 
 function InstanceDetailContent() {
@@ -78,7 +75,7 @@ function InstanceDetailContent() {
 
   const tabParam = searchParams.get("tab");
   const activeTab =
-    tabParam && (TAB_VALUES as readonly string[]).includes(tabParam)
+    tabParam && INSTANCE_TAB_VALUES.includes(tabParam)
       ? tabParam
       : DEFAULT_TAB;
 
@@ -114,7 +111,7 @@ function InstanceDetailContent() {
         router.push(paths.workspace("/instances"));
       })
       .finally(() => setLoading(false));
-  }, [params.slug]);
+  }, [params.slug, router, t]);
 
   const handleDelete = async () => {
     try {
@@ -226,72 +223,54 @@ function InstanceDetailContent() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-8">
-        <TabsList>
-          <TabsTrigger value="general">{t("instances.detail.tabGeneral")}</TabsTrigger>
-          <TabsTrigger value="prompts">{t("instances.detail.tabPrompts")}</TabsTrigger>
-          <TabsTrigger value="tools">{t("instances.detail.tabTools")}</TabsTrigger>
-          <TabsTrigger value="skills">{t("instances.detail.tabSkills")}</TabsTrigger>
-          <TabsTrigger value="knowledge">{t("instances.detail.tabKnowledge")}</TabsTrigger>
-          <TabsTrigger value="settings">{t("instances.detail.tabSettings")}</TabsTrigger>
-          <TabsTrigger value="channels">{t("instances.detail.tabChannels")}</TabsTrigger>
-          <TabsTrigger value="analytics">{t("instances.detail.tabAnalytics")}</TabsTrigger>
-          <TabsTrigger value="triggers">{t("instances.detail.tabTriggers")}</TabsTrigger>
-          <TabsTrigger value="room">{t("instances.detail.tabRoom")}</TabsTrigger>
-          <TabsTrigger value="hooks">{t("instances.detail.tabHooks")}</TabsTrigger>
-          <TabsTrigger value="privacy">{t("instances.detail.tabPrivacy")}</TabsTrigger>
-        </TabsList>
-        <TabsContent value="general" className="mt-6">
-          <GeneralTab instance={instance} onUpdate={setInstance} />
-        </TabsContent>
-        <TabsContent value="prompts" className="mt-6">
-          <PromptsTab slug={instance.slug} prompts={prompts} onUpdate={setPrompts} />
-        </TabsContent>
-        <TabsContent value="tools" className="mt-6">
-          <ToolsTab
-            slug={instance.slug}
-            tools={tools}
-            skills={skills}
-            memoryEnabled={instance.memoryEnabled}
-            knowledgeEnabled={instance.knowledgeEnabled}
-            onToolsUpdate={setTools}
-            onSkillsUpdate={setSkills}
-          />
-        </TabsContent>
-        <TabsContent value="skills" className="mt-6">
-          <SkillsTab
-            slug={instance.slug}
-            skills={skills}
-            tools={tools}
-            onSkillsUpdate={setSkills}
-            onToolsUpdate={setTools}
-          />
-        </TabsContent>
-        <TabsContent value="knowledge" className="mt-6">
-          <KnowledgeTab slug={instance.slug} />
-        </TabsContent>
-        <TabsContent value="settings" className="mt-6">
-          <SettingsTab instance={instance} onUpdate={setInstance} />
-        </TabsContent>
-        <TabsContent value="channels" className="mt-6">
-          <ChannelsTab slug={instance.slug} />
-        </TabsContent>
-        <TabsContent value="analytics" className="mt-6">
-          <AnalyticsTab slug={instance.slug} />
-        </TabsContent>
-        <TabsContent value="triggers" className="mt-6">
-          <TriggersTab slug={instance.slug} />
-        </TabsContent>
-        <TabsContent value="room" className="mt-6">
-          <RoomTab slug={instance.slug} />
-        </TabsContent>
-        <TabsContent value="hooks" className="mt-6">
-          <HooksTab slug={instance.slug} />
-        </TabsContent>
-        <TabsContent value="privacy" className="mt-6">
-          <PrivacyTab instance={instance} onSaved={() => { api.instances.get(params.slug).then((r) => setInstance(r.instance)).catch(() => {}); }} />
-        </TabsContent>
-      </Tabs>
+      <div className="mt-8 flex flex-col gap-8 md:flex-row">
+        <InstanceDetailRail activeTab={activeTab} onSelect={handleTabChange} />
+        <div className="min-w-0 flex-1">
+          {activeTab === "general" && (
+            <GeneralTab instance={instance} onUpdate={setInstance} />
+          )}
+          {activeTab === "prompts" && (
+            <PromptsTab slug={instance.slug} prompts={prompts} onUpdate={setPrompts} />
+          )}
+          {activeTab === "tools" && (
+            <ToolsTab
+              slug={instance.slug}
+              tools={tools}
+              skills={skills}
+              memoryEnabled={instance.memoryEnabled}
+              knowledgeEnabled={instance.knowledgeEnabled}
+              onToolsUpdate={setTools}
+              onSkillsUpdate={setSkills}
+            />
+          )}
+          {activeTab === "skills" && (
+            <SkillsTab
+              slug={instance.slug}
+              skills={skills}
+              tools={tools}
+              onSkillsUpdate={setSkills}
+              onToolsUpdate={setTools}
+            />
+          )}
+          {activeTab === "knowledge" && <KnowledgeTab slug={instance.slug} />}
+          {activeTab === "settings" && (
+            <SettingsTab instance={instance} onUpdate={setInstance} />
+          )}
+          {activeTab === "channels" && <ChannelsTab slug={instance.slug} />}
+          {activeTab === "analytics" && <AnalyticsTab slug={instance.slug} />}
+          {activeTab === "triggers" && <TriggersTab slug={instance.slug} />}
+          {activeTab === "room" && <RoomTab slug={instance.slug} />}
+          {activeTab === "hooks" && <HooksTab slug={instance.slug} />}
+          {activeTab === "privacy" && (
+            <PrivacyTab
+              instance={instance}
+              onSaved={() => {
+                api.instances.get(params.slug).then((r) => setInstance(r.instance)).catch(() => {});
+              }}
+            />
+          )}
+        </div>
+      </div>
     </div>
     </PageActionsProvider>
   );
