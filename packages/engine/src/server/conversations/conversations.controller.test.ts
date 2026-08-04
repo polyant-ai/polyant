@@ -10,7 +10,7 @@ import { BadRequestException, ConflictException, NotFoundException } from "@nest
  * must look like "not found", never leak existence).
  */
 
-const { mockStore, mockLoadConversationState } = vi.hoisted(() => ({
+const { mockStore, mockLoadConversationState, mockResolvePrincipalOrgId } = vi.hoisted(() => ({
   mockStore: {
     getConversation: vi.fn(),
     getMessageDebug: vi.fn(),
@@ -19,10 +19,24 @@ const { mockStore, mockLoadConversationState } = vi.hoisted(() => ({
     renameConversation: vi.fn(),
   },
   mockLoadConversationState: vi.fn(),
+  mockResolvePrincipalOrgId: vi.fn(),
 }));
 
 vi.mock("../../conversations/store.js", () => ({ conversationStore: mockStore }));
 vi.mock("../../conversations/state.store.js", () => ({ loadConversationState: mockLoadConversationState }));
+
+/**
+ * The handlers resolve the caller's organization before reaching the store — the
+ * store's org filter fails closed on a missing orgId, so forwarding the raw claim
+ * would 404 a principal whose JWT predates it.
+ *
+ * Mocked because `instances/store.js` opens a Postgres connection at module load:
+ * without this the suite passes on a machine that happens to have a database and
+ * fails in CI with ECONNREFUSED, which is the least useful way for a test to fail.
+ */
+vi.mock("../../instances/store.js", () => ({
+  resolvePrincipalOrgId: mockResolvePrincipalOrgId,
+}));
 
 import { ConversationsController } from "./conversations.controller.js";
 
@@ -33,6 +47,8 @@ describe("ConversationsController — debug + state endpoints", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // An ordinary caller of a single-org deployment: the claim resolves.
+    mockResolvePrincipalOrgId.mockResolvedValue("org-a");
     controller = new ConversationsController();
   });
 
