@@ -72,6 +72,39 @@ describe("LegacyTenantRedirect", () => {
     );
   });
 
+  /**
+   * The fragment names the thing the reader wanted — a specific message in a
+   * conversation. Dropping it lands them at the top of a long page instead, which
+   * is the same class of loss as dropping the query string.
+   *
+   * Read from `window.location`, not from a hook: a fragment is never sent to the
+   * server, so Next has no router state for it.
+   */
+  it("preserves the fragment of a legacy deep link", () => {
+    ready([GENERAL]);
+    mockSearchParams.current = new URLSearchParams({ id: "agent:web:42" });
+    const realLocation = window.location;
+    Object.defineProperty(window, "location", {
+      value: { ...realLocation, hash: "#msg-7" },
+      writable: true,
+      configurable: true,
+    });
+
+    try {
+      render(<LegacyTenantRedirect sub="/conversations" />);
+
+      expect(mockReplace).toHaveBeenCalledWith(
+        "/organizations/acme/workspaces/general/conversations?id=agent%3Aweb%3A42#msg-7",
+      );
+    } finally {
+      Object.defineProperty(window, "location", {
+        value: realLocation,
+        writable: true,
+        configurable: true,
+      });
+    }
+  });
+
   it("forwards an org-scoped stub without a workspace segment", () => {
     ready([GENERAL]);
 

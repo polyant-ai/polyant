@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useSession } from "next-auth/react";
 import { Plus, KeyRound, Trash2, Pencil } from "lucide-react";
@@ -59,6 +59,14 @@ export function UsersTab() {
     setLoading(true);
     try {
       const res = await api.users.list({ limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+      // Clamp back when the page we are on no longer exists. Deleting the only
+      // row on the last page left `offset` past the new total, so the table came
+      // back empty AND the prev/next controls unmounted (they are hidden once
+      // `total <= PAGE_SIZE`) — a dead end escapable only by reloading.
+      if (res.users.length === 0 && page > 0) {
+        setPage((p) => Math.max(0, Math.min(p - 1, Math.ceil(res.total / PAGE_SIZE) - 1)));
+        return;
+      }
       setUsers(res.users);
       setTotal(res.total);
     } catch (err) {
@@ -72,16 +80,14 @@ export function UsersTab() {
     refresh();
   }, [refresh]);
 
-  const sorted = useMemo(
-    () =>
-      [...users].sort((a, b) => {
-        const ra = isPlatformAdminRole(a.role) ? 0 : 1;
-        const rb = isPlatformAdminRole(b.role) ? 0 : 1;
-        if (ra !== rb) return ra - rb;
-        return (a.email ?? "").localeCompare(b.email ?? "");
-      }),
-    [users],
-  );
+  // NOT re-sorted here. The order is the server's — platform admins first, then
+  // email — because sorting a single PAGE client-side can only reorder the 25 rows
+  // it was given, which is how paginating a browser-sorted list made page 1
+  // whatever the planner happened to return. Re-sorting on top of that was also
+  // actively wrong at a page boundary: `localeCompare` and the database collation
+  // do not agree, so the last row of one page could sort after the first row of
+  // the next.
+  const sorted = users;
 
   async function handleDelete() {
     if (!deleteTarget) return;

@@ -7,10 +7,16 @@ import { api, ApiError } from "@/lib/api";
 import type { TenantContextPayload, TenantWorkspace } from "@/lib/api-types";
 
 /**
- * `no-organization` is the legacy-token state: the JWT predates RBAC and
- * carries no orgId. It arrives either as `organization: null` (shadow mode) or
- * as a 403 (enforce mode — no scope to authorize against). Both have the same
- * remedy, so they are one state.
+ * `no-organization` is the no-tenancy state: the caller holds no organization
+ * binding. It arrives either as `organization: null` or as a 403. Both have the
+ * same remedy, so they are one state.
+ *
+ * `signed-out` is separate because its remedy is different and Retry cannot
+ * reach it. `/api/me` returns 401 once the session expires, and `proxy.ts`
+ * excludes `api` from its matcher — so an XHR is never bounced to `/login`, only
+ * a full document navigation is. Folding 401 into `error` left the panel showing
+ * "the server did not answer, check your connection" with a Retry button that
+ * re-fetched, 401'd, and offered itself again, forever.
  */
 export type TenantState =
   | { status: "loading" }
@@ -20,6 +26,7 @@ export type TenantState =
       workspaces: TenantWorkspace[];
     }
   | { status: "no-organization" }
+  | { status: "signed-out" }
   | { status: "error" };
 
 export type TenantContextValue = TenantState & { retry: () => void };
@@ -56,8 +63,12 @@ function toState(payload: TenantContextPayload): TenantState {
 }
 
 function toErrorState(err: unknown): TenantState {
-  const isLegacyToken = err instanceof ApiError && err.status === 403;
-  return { status: isLegacyToken ? "no-organization" : "error" };
+  if (err instanceof ApiError) {
+    // 401 is an expired session, not a transport failure — Retry cannot fix it.
+    if (err.status === 401) return { status: "signed-out" };
+    if (err.status === 403) return { status: "no-organization" };
+  }
+  return { status: "error" };
 }
 
 export function TenantProvider({ children }: { children: React.ReactNode }) {

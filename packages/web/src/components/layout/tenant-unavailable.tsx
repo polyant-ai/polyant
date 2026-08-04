@@ -9,12 +9,32 @@ import { useTenant } from "@/lib/tenant/tenant-context";
 
 /**
  * Rendered instead of tenant-scoped children when the tenancy cannot be
- * established. Two causes, two remedies: a legacy token needs a fresh sign-in,
- * anything else is retryable.
+ * established. THREE causes, and the remedy differs for each — offering the wrong
+ * one is what made an expired session an unrecoverable loop:
+ *
+ *   - `signed-out`  → the session expired. Sign in again. Retry cannot help,
+ *     because `/api/me` will keep answering 401 and the proxy does not bounce
+ *     XHRs to `/login`.
+ *   - `no-organization` → authenticated, but holding no organization binding.
+ *     A fresh sign-in re-runs provisioning, so that is the action.
+ *   - anything else → treat as transport, and let the caller retry.
  */
 export function TenantUnavailable() {
   const { t } = useI18n();
   const tenant = useTenant();
+
+  if (tenant.status === "signed-out") {
+    return (
+      <div className="mx-auto max-w-md py-16 text-center">
+        <h2 className="text-lg font-semibold">{t("tenant.signedOut.title")}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{t("tenant.signedOut.description")}</p>
+        <Button className="mt-6" onClick={() => signOut({ callbackUrl: "/login" })}>
+          {t("tenant.signedOut.action")}
+        </Button>
+      </div>
+    );
+  }
+
   const isLegacyToken = tenant.status === "no-organization";
 
   return (

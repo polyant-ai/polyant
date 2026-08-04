@@ -11,9 +11,13 @@ import { orgPath, workspacePath } from "@/lib/tenant/paths";
 
 /**
  * Forwards a pre-tenancy URL to its canonical form, preserving the query string
- * (`/conversations?id=…` is a real inbound link). Deep links are what people
+ * AND the fragment — `/conversations?id=…#msg-7` is a real bookmark, and a
+ * fragment names the thing the reader actually wanted. Deep links are what people
  * bookmark, so these stubs exist for one release before removal (no issue
  * number tracks this yet — do not let it be forgotten).
+ *
+ * The hash comes from `window.location`, not from a hook: fragments are never
+ * sent to the server, so Next has no router state for them.
  */
 export function LegacyTenantRedirect({
   sub,
@@ -30,7 +34,8 @@ export function LegacyTenantRedirect({
     if (tenant.status !== "ready") return;
 
     const query = searchParams.toString();
-    const suffix = query ? `${sub}?${query}` : sub;
+    const hash = typeof window === "undefined" ? "" : window.location.hash;
+    const suffix = `${sub}${query ? `?${query}` : ""}${hash}`;
 
     if (scope === "org") {
       router.replace(orgPath(tenant.organization.slug, suffix));
