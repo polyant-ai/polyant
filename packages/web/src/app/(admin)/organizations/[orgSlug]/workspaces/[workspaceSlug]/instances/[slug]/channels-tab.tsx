@@ -116,37 +116,21 @@ export function ChannelsTab({ slug }: Props) {
     }));
   }
 
+  /**
+   * The switch marks the section dirty; the page's Save persists it.
+   *
+   * A config-less channel (Agent-to-Agent) used to PERSIST on the flick, with no
+   * Save involved — the one channel in the tab that behaved differently, and a
+   * write nobody asked for. `handleSave` already copes with an empty config, so
+   * there is nothing the immediate path did that the ordinary one cannot.
+   */
   function toggleEnabled(channelType: string, enabled: boolean) {
-    const def = CHANNEL_DEFS.find((d) => d.type === channelType);
-    if (def && "noConfig" in def && def.noConfig) {
-      // Config-less channels (e.g. agent) auto-save immediately on toggle.
-      setChannelStates((prev) => ({
-        ...prev,
-        [channelType]: { ...prev[channelType], enabled, dirty: false },
-      }));
-      void handleSaveImmediate(channelType, enabled);
-      return;
-    }
     setChannelStates((prev) => ({
       ...prev,
       [channelType]: { ...prev[channelType], enabled, dirty: true },
     }));
   }
 
-  async function handleSaveImmediate(channelType: string, enabled: boolean) {
-    setSavingChannel(channelType);
-    try {
-      await api.channels.set(slug, channelType, {}, enabled);
-      const res = await api.channels.list(slug);
-      setChannels(res.channels);
-      initStates(res.channels);
-      toast.success(t("channels.tab.saved"));
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("channels.tab.saveFailed")));
-    } finally {
-      setSavingChannel(null);
-    }
-  }
 
   function toggleFieldVisibility(fieldId: string) {
     setVisibleFields((prev) => ({ ...prev, [fieldId]: !prev[fieldId] }));
@@ -216,8 +200,11 @@ export function ChannelsTab({ slug }: Props) {
               <div>
                 <div className="flex items-center gap-2">
                   {isNoConfig && <Bot className="h-4 w-4 text-muted-foreground" />}
-                  <Label className="text-base font-medium">{t(def.nameKey)}</Label>
-                  {isConfigured && (
+                  {/* Not for a config-less channel: there is no configuration to
+                    remove, so Delete did exactly what switching off does — two
+                    controls for one state, and the destructive-looking one was the
+                    only way to discover that. */}
+                {isConfigured && !isNoConfig && (
                     <Badge variant={existingChannel.enabled ? "default" : "secondary"} className="text-xs">
                       {existingChannel.enabled ? t("channels.tab.enabled") : t("channels.tab.disabled")}
                     </Badge>

@@ -125,13 +125,17 @@ function KnowledgeToggle({ instance, onUpdate }: { instance: Instance; onUpdate:
   return (
     <section className="mb-6 space-y-4 rounded-lg border p-4">
       <div className="flex items-start justify-between gap-4">
-        {/* No title: the TAB is already called Knowledge, so repeating it here made
-            the row read as a section inside a section — and the copy was stacked
-            three deep (title, help, then the tab description right below). One
-            sentence, on the Label so the switch keeps its accessible name. */}
-        <Label htmlFor="agent-knowledge" className="text-sm font-normal text-muted-foreground">
-          {t("knowledge.tab.enableHelp")}
-        </Label>
+        {/* Named for the CAPABILITY, not repeated from the tab: "Knowledge Base"
+            here said the same word as the tab above it, and a bare "when this is
+            on…" sentence made an important feature read like a footnote. The
+            capability has a name — retrieval over the documents — so the row says
+            it, with what it costs the agent underneath. */}
+        <div className="space-y-1">
+          <Label htmlFor="agent-knowledge" className="text-base font-medium">
+            {t("knowledge.tab.enableTitle")}
+          </Label>
+          <p className="text-sm text-muted-foreground">{t("knowledge.tab.enableHelp")}</p>
+        </div>
         <Switch id="agent-knowledge" checked={enabled} disabled={saving} onCheckedChange={toggle} />
       </div>
 
@@ -324,11 +328,15 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
         aria-disabled={!knowledgeEnabled}
       >
       <div className="mb-6 flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {knowledgeEnabled
-            ? t("knowledge.tab.description")
-            : t("knowledge.tab.disabledNotice")}
-        </p>
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground">{t("knowledge.tab.description")}</p>
+          {/* Added, not substituted: what the list IS does not change when the
+              agent stops consulting it, so replacing the description hid a
+              standing fact to state a temporary one. */}
+          {!knowledgeEnabled && (
+            <p className="text-sm font-medium">{t("knowledge.tab.disabledNotice")}</p>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={load}>
             <RefreshCw className="size-4" />
