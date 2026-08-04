@@ -107,7 +107,7 @@ const configSchema = z.object({
     /** RBAC: the user with this email is promoted to Platform Superadmin
      *  (is_platform_admin=true) by the OrganizationsModule bootstrap on boot.
      *  Idempotent; unset = no promotion (the migration already promotes
-     *  pre-existing role='superadmin' users). */
+     *  pre-existing platform-admin users). */
     platformAdminEmail: z.string().email().optional(),
   }),
 

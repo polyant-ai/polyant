@@ -789,7 +789,7 @@
   "users.table.password": "Password",
   "users.table.created": "Creato",
   "users.table.actions": "Azioni",
-  "users.role.superadmin": "Superadmin",
+  "users.role.platformAdmin": "Platform Admin",
   "users.role.user": "Utente",
   "users.password.set": "Impostata",
   "users.password.notSet": "Solo OAuth",

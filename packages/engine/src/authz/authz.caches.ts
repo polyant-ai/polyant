@@ -28,7 +28,7 @@ export const bindingCache = new TtlCache<string, EffectiveBinding[]>({
 });
 
 /** Keyed by `userId` → whether the user is a platform admin. */
-export const superadminCache = new TtlCache<string, boolean>({
+export const platformAdminCache = new TtlCache<string, boolean>({
   maxSize: 1_000,
   ttlMs: SUPERADMIN_CACHE_TTL_MS,
 });
@@ -47,7 +47,7 @@ export const superadminCache = new TtlCache<string, boolean>({
  * `invalidateBindingCache`.
  */
 export function invalidateSuperadminCache(userId: string): void {
-  superadminCache.delete(userId);
+  platformAdminCache.delete(userId);
 }
 
 /** Compose the binding-cache key from its parts (single source of the format). */

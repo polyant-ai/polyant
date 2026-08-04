@@ -5,7 +5,7 @@
  *  - @Public() short-circuit
  *  - undeclared route: shadow = allow + log, enforce = deny
  *  - @RequiresFeature missing license = deny (even in shadow)
- *  - superadmin DB bypass
+ *  - platform-admin DB bypass
  *  - ServicePrincipal (instance API key) branch
  *  - ManagementKeyPrincipal (org API key): permission set AND same-org target
  *  - scope resolution + cross-org mismatch deny
@@ -131,7 +131,7 @@ describe("PermissionGuard", () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 
-  it("bypasses permission checks for a platform admin (superadmin)", async () => {
+  it("bypasses permission checks for a platform admin", async () => {
     const { guard, context, authz } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
       userReq({ slug: "agent-1" }),

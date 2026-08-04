@@ -3,12 +3,12 @@
 /**
  * Unit tests for packages/engine/src/users/users.store.ts
  *
- * Scope: the superadmin-cache invalidation wired into every write of
+ * Scope: the platform admin-cache invalidation wired into every write of
  * `users.is_platform_admin`. A stale `true` makes `permission.guard.ts` skip
  * EVERY permission check, so each write path is asserted individually — the
  * regression this guards against is "one caller covered, the siblings not".
  *
- * The real `superadminCache` is used (a DI-free singleton) rather than a module
+ * The real `platformAdminCache` is used (a DI-free singleton) rather than a module
  * mock, so the test fails if the store stops calling the invalidation for real.
  */
 
@@ -45,11 +45,11 @@ const { mockDb, setResult } = vi.hoisted(() => {
 vi.mock("../database/client.js", () => ({ db: mockDb }));
 
 import { insertUser, updateUserMeta, deleteUserById } from "./users.store.js";
-import { superadminCache } from "../authz/authz.caches.js";
+import { platformAdminCache } from "../authz/authz.caches.js";
 
 const USER_ID = "11111111-1111-1111-1111-111111111111";
 
-function userRow(role: "superadmin" | "user") {
+function userRow(role: "platform_admin" | "user") {
   return {
     id: USER_ID,
     email: "admin@acme.com",
@@ -63,58 +63,58 @@ function userRow(role: "superadmin" | "user") {
   };
 }
 
-describe("users.store superadmin-cache invalidation", () => {
+describe("users.store platform admin-cache invalidation", () => {
   beforeEach(() => {
-    superadminCache.clear();
+    platformAdminCache.clear();
     setResult([]);
   });
 
   it("should_drop_the_cached_flag_when_updateUserMeta_changes_the_role", async () => {
-    superadminCache.set(USER_ID, true);
+    platformAdminCache.set(USER_ID, true);
     setResult([userRow("user")]);
 
     await updateUserMeta(USER_ID, { role: "user" });
 
     // No TTL advance: the demotion must land on the very next guard check.
-    expect(superadminCache.has(USER_ID)).toBe(false);
+    expect(platformAdminCache.has(USER_ID)).toBe(false);
   });
 
   it("should_keep_the_cached_flag_when_updateUserMeta_touches_only_the_name", async () => {
-    superadminCache.set(USER_ID, true);
-    setResult([userRow("superadmin")]);
+    platformAdminCache.set(USER_ID, true);
+    setResult([userRow("platform_admin")]);
 
     await updateUserMeta(USER_ID, { name: "New Name" });
 
     // The flag was not written, so there is nothing to invalidate.
-    expect(superadminCache.get(USER_ID)).toBe(true);
+    expect(platformAdminCache.get(USER_ID)).toBe(true);
   });
 
   it("should_drop_the_cached_flag_when_insertUser_writes_the_role", async () => {
-    superadminCache.set(USER_ID, false);
-    setResult([userRow("superadmin")]);
+    platformAdminCache.set(USER_ID, false);
+    setResult([userRow("platform_admin")]);
 
     await insertUser({
       email: "admin@acme.com",
       passwordHash: "hash",
-      role: "superadmin",
+      role: "platform_admin",
       mustChangePassword: true,
     });
 
-    expect(superadminCache.has(USER_ID)).toBe(false);
+    expect(platformAdminCache.has(USER_ID)).toBe(false);
   });
 
   it("should_drop_the_cached_flag_when_deleteUserById_removes_the_row", async () => {
-    superadminCache.set(USER_ID, true);
+    platformAdminCache.set(USER_ID, true);
     setResult([{ id: USER_ID }]);
 
     await deleteUserById(USER_ID);
 
-    expect(superadminCache.has(USER_ID)).toBe(false);
+    expect(platformAdminCache.has(USER_ID)).toBe(false);
   });
 
   it("should_not_throw_when_deleting_a_user_that_was_never_cached", async () => {
     setResult([]);
     await expect(deleteUserById(USER_ID)).resolves.toBe(false);
-    expect(superadminCache.has(USER_ID)).toBe(false);
+    expect(platformAdminCache.has(USER_ID)).toBe(false);
   });
 });

@@ -37,23 +37,23 @@ describe("RoleGuard", () => {
   });
 
   it("rejects when request.user is missing despite a role requirement", () => {
-    const ctx = makeContext(undefined, ["superadmin"]);
+    const ctx = makeContext(undefined, ["platform_admin"]);
     expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
   });
 
   it("allows when the user role matches the required role", () => {
-    const ctx = makeContext({ role: "superadmin" }, ["superadmin"]);
+    const ctx = makeContext({ role: "platform_admin" }, ["platform_admin"]);
     expect(guard.canActivate(ctx)).toBe(true);
   });
 
   it("rejects when the user role does not match", () => {
-    const ctx = makeContext({ role: "user" }, ["superadmin"]);
+    const ctx = makeContext({ role: "user" }, ["platform_admin"]);
     expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
   });
 
   it("supports multiple acceptable roles (OR semantics)", () => {
-    const ctx1 = makeContext({ role: "user" }, ["superadmin", "user"]);
-    const ctx2 = makeContext({ role: "superadmin" }, ["superadmin", "user"]);
+    const ctx1 = makeContext({ role: "user" }, ["platform_admin", "user"]);
+    const ctx2 = makeContext({ role: "platform_admin" }, ["platform_admin", "user"]);
     expect(guard.canActivate(ctx1)).toBe(true);
     expect(guard.canActivate(ctx2)).toBe(true);
   });

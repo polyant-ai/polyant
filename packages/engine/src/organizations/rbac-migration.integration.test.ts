@@ -92,10 +92,13 @@ describe.skipIf(!DB_AVAILABLE)("migration 0051 — RBAC tenancy schema", () => {
     expect(nulls[0].n).toBe(0);
   });
 
-  it("promotes pre-existing superadmins to is_platform_admin", async () => {
+  it("promotes pre-existing platform admins to is_platform_admin", async () => {
     const mismatched = await queryClient<{ n: number }[]>`
+      -- BOTH spellings: 0071 renames the value, so matching the legacy one alone
+      -- would make this assertion vacuous (it would find zero rows whatever the
+      -- flag says) exactly when it starts mattering.
       SELECT count(*)::int AS n FROM users
-      WHERE role = 'superadmin' AND is_platform_admin = false`;
+      WHERE role IN ('platform_admin', 'superadmin') AND is_platform_admin = false`;
     expect(mismatched[0].n).toBe(0);
   });
 

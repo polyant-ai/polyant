@@ -29,7 +29,7 @@ const LOG_PREFIX = "[organizations/bootstrap]";
  * would grant every new user Owner. Tracked in #109 (RBAC Stream 6).
  *
  * Never throws into the boot sequence: failures are logged and swallowed by the
- * caller, exactly like the existing superadmin seed.
+ * caller, exactly like the existing platform-admin seed.
  */
 export async function bootstrapOrganizations(): Promise<void> {
   const defaultOrg = await findDefaultOrganization();

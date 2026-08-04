@@ -71,7 +71,7 @@ class ProbeController {
     return { ok: "authenticated-only" };
   }
 
-  @RequireRole("superadmin")
+  @RequireRole("platform_admin")
   @Get("role")
   roleRoute() {
     return { ok: "role" };
@@ -217,7 +217,7 @@ describe("global guard chain over HTTP", () => {
   // PermissionGuard must not then 403 it as "undeclared". Every /api/users
   // endpoint was dead in production for exactly this reason.
   it("should_allow_a_role_only_route_for_a_matching_role", async () => {
-    validateSessionToken.mockResolvedValue(asUser({ role: "superadmin" }));
+    validateSessionToken.mockResolvedValue(asUser({ role: "platform_admin" }));
     const res = await get("/probe/role", { authorization: `Bearer ${SESSION}` });
     expect(res.status).toBe(200);
   });

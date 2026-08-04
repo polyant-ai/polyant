@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { useI18n } from "@/lib/i18n/context";
 import { api, getUserErrorMessage, type AdminUser, type UserRole } from "@/lib/api";
+import { PLATFORM_ADMIN_ROLE } from "@/lib/user-role";
 
 interface Props {
   user: AdminUser | null;
@@ -88,8 +89,8 @@ export function EditUserDialog({ user, onClose, onSaved }: Props) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="user">{t("users.role.user")}</SelectItem>
-                <SelectItem value="superadmin">
-                  {t("users.role.superadmin")}
+                <SelectItem value={PLATFORM_ADMIN_ROLE}>
+                  {t("users.role.platformAdmin")}
                 </SelectItem>
               </SelectContent>
             </Select>

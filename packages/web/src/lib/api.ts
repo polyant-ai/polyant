@@ -74,6 +74,7 @@ export type {
 export { MEMBER_ROLES } from "./api-types";
 
 // Internal import — only types used in the api object below (re-exports don't make types locally available)
+import type { UserRole } from "./user-role";
 import type {
   AdminUser,
   CreateUserResponse,
@@ -175,12 +176,12 @@ export function getUserErrorMessage(err: unknown, fallback: string): string {
 export const api = {
   users: {
     list: () => request<{ users: AdminUser[] }>("/api/users"),
-    create: (data: { email: string; name?: string; role?: "superadmin" | "user"; password?: string }) =>
+    create: (data: { email: string; name?: string; role?: UserRole; password?: string }) =>
       request<CreateUserResponse>("/api/users", {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    update: (id: string, data: { name?: string | null; role?: "superadmin" | "user" }) =>
+    update: (id: string, data: { name?: string | null; role?: UserRole }) =>
       request<{ user: AdminUser }>(`/api/users/${encodeURIComponent(id)}`, {
         method: "PATCH",
         body: JSON.stringify(data),

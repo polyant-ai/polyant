@@ -2,7 +2,10 @@
 
 // ── Users ───────────────────────────────────────────────────────────
 
-export type UserRole = "superadmin" | "user";
+// Re-exported from the vocabulary module so the panel has ONE spelling of the
+// role, and one place that knows it has had two.
+export type { UserRole } from "./user-role";
+import type { UserRole } from "./user-role";
 
 export interface AdminUser {
   id: string;

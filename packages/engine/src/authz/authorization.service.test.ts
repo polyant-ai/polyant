@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Unit tests for AuthorizationService: superadmin bypass + cache, can() with
+ * Unit tests for AuthorizationService: platform admin bypass + cache, can() with
  * cached bindings, scope resolution, and binding-cache invalidation.
  */
 
@@ -21,7 +21,7 @@ vi.mock("./authz.store.js", () => ({
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AuthorizationService } from "./authorization.service.js";
 import { OssStrategy } from "./authorization-strategy.js";
-import { bindingCache, superadminCache, bindingCacheKey } from "./authz.caches.js";
+import { bindingCache, platformAdminCache, bindingCacheKey } from "./authz.caches.js";
 import { Permission } from "./permissions.js";
 import type { AgentScope } from "./authz.store.js";
 
@@ -39,7 +39,7 @@ describe("AuthorizationService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     bindingCache.clear();
-    superadminCache.clear();
+    platformAdminCache.clear();
   });
 
   describe("isPlatformAdmin", () => {
@@ -135,8 +135,8 @@ describe("AuthorizationService", () => {
 
       svc.invalidateSuperadminCache("user-1");
 
-      expect(superadminCache.has("user-1")).toBe(false);
-      expect(superadminCache.get("user-2")).toBe(true);
+      expect(platformAdminCache.has("user-1")).toBe(false);
+      expect(platformAdminCache.get("user-2")).toBe(true);
     });
 
     it("should_not_throw_when_the_user_is_not_cached", () => {

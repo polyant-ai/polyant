@@ -121,7 +121,7 @@ describe("validateSessionToken", () => {
 
     it("should propagate role and mustChangePassword from the JWT", async () => {
       const token = await createJweToken(
-        { ...userPayload, role: "superadmin", mustChangePassword: true, orgId: "org-uuid-1" },
+        { ...userPayload, role: "platform_admin", mustChangePassword: true, orgId: "org-uuid-1" },
         TEST_SECRET,
         HTTP_SALT,
       );
@@ -131,11 +131,38 @@ describe("validateSessionToken", () => {
         userId: "user-uuid-123",
         email: "alice@example.com",
         name: "Paolo",
-        role: "superadmin",
+        role: "platform_admin",
         mustChangePassword: true,
         principalType: "user",
         orgId: "org-uuid-1",
       });
+    });
+
+    // The reason the fold happens HERE and not at each comparison: an Auth.js JWT
+    // lives 30 days with no revocation, so a token minted before the rename keeps
+    // arriving long after the deploy. Reading it literally would demote every
+    // signed-in platform admin to a plain user for the rest of that token's life
+    // — a failure that looks like "nobody is an admin any more".
+    it("should_fold_a_pre_rename_role_claim_onto_the_canonical_value", async () => {
+      const token = await createJweToken(
+        { ...userPayload, role: "superadmin", orgId: "org-uuid-1" },
+        TEST_SECRET,
+        HTTP_SALT,
+      );
+
+      expect((await validateSessionToken(token))?.role).toBe("platform_admin");
+    });
+
+    it("should_fold_an_unrecognised_role_claim_to_a_plain_user", async () => {
+      // Fail-closed: a malformed or tampered claim must not be admitted as
+      // anything but the least-privileged role.
+      const token = await createJweToken(
+        { ...userPayload, role: "root", orgId: "org-uuid-1" },
+        TEST_SECRET,
+        HTTP_SALT,
+      );
+
+      expect((await validateSessionToken(token))?.role).toBe("user");
     });
   });
 

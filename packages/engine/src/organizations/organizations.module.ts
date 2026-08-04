@@ -19,7 +19,7 @@ export class OrganizationsModule implements OnModuleInit {
     try {
       await bootstrapOrganizations();
     } catch (err) {
-      // Never block boot — mirror the existing superadmin seed behaviour.
+      // Never block boot — mirror the existing platform-admin seed behaviour.
       console.error("[organizations] Bootstrap failed:", err);
     }
   }

@@ -14,9 +14,10 @@ import { UsersService } from "./users.service.js";
 import { RequireRole } from "../auth/decorators/require-role.decorator.js";
 import { CurrentUser } from "../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
+import { PLATFORM_ADMIN_ROLE } from "../auth/user-role.js";
 
 @Controller("api/users")
-@RequireRole("superadmin")
+@RequireRole(PLATFORM_ADMIN_ROLE)
 export class UsersController {
   constructor(@Inject(UsersService) private readonly users: UsersService) {}
 
@@ -44,7 +45,7 @@ export class UsersController {
     @Body() body: { name?: string | null; role?: string },
     @CurrentUser() actor: AuthenticatedUser,
   ) {
-    // RoleGuard ("superadmin") on this controller guarantees actor.role is set.
+    // RoleGuard (platform admin) on this controller guarantees actor.role is set.
     return { user: await this.users.update(id, body, { userId: actor.userId, role: actor.role! }) };
   }
 

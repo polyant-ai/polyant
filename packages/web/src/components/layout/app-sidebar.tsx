@@ -31,6 +31,7 @@ import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { navHref, resolveNavScope, type NavScope } from "@/lib/tenant/nav-href";
 import { useTenant } from "@/lib/tenant/tenant-context";
+import { isPlatformAdminRole } from "@/lib/user-role";
 
 interface NavItemDef {
   titleKey: TranslationKey;
@@ -54,9 +55,9 @@ const overviewDefs: NavItemDef[] = [
   { titleKey: "nav.auditLogs", path: "/audit-logs", scope: "org", icon: ScrollText },
 ];
 
-// Settings is superadmin-only: it hosts both general system settings and the
-// users management tab. Non-superadmins don't see this section at all.
-const superadminDefs: NavItemDef[] = [
+// Settings is platform-admin-only: it hosts both general system settings and the
+// users management tab. Nobody else sees this section at all.
+const platformAdminDefs: NavItemDef[] = [
   { titleKey: "nav.members", path: "/members", scope: "org", icon: Users },
   { titleKey: "nav.settings", path: "/settings", scope: "deployment", icon: Settings },
 ];
@@ -96,8 +97,8 @@ export function AppSidebar(
     [t, orgSlug, workspaceSlug],
   );
 
-  const isSuperadmin = user?.role === "superadmin";
-  const managementItems = isSuperadmin ? superadminDefs : [];
+  const isPlatformAdmin = isPlatformAdminRole(user?.role);
+  const managementItems = isPlatformAdmin ? platformAdminDefs : [];
 
   return (
     <Sidebar collapsible="icon" {...sidebarProps}>

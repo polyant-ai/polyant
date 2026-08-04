@@ -5,7 +5,7 @@ import {
   bindingCache,
   bindingCacheKey,
   invalidateSuperadminCache,
-  superadminCache,
+  platformAdminCache,
 } from "./authz.caches.js";
 import {
   readAgentScope,
@@ -26,7 +26,7 @@ import type { PermissionKey } from "./permissions.js";
  * and the management plane need:
  *
  *   - `can()`              — most-specific-wins permission check for a scope.
- *   - `isPlatformAdmin()`  — DB-backed, cached superadmin bypass check.
+ *   - `isPlatformAdmin()`  — DB-backed, cached platform-admin bypass check.
  *   - `resolveAgentScope()`— the single agent-slug → tenancy choke-point.
  *   - `invalidateBindingCache()` — eager flush after a binding mutation.
  *   - `invalidateSuperadminCache()` — eager flush after a platform-admin write.
@@ -51,13 +51,13 @@ export class AuthorizationService {
     return this.strategy.resolve(bindings, scope, permission);
   }
 
-  /** DB-backed, 5-minute-cached platform-admin (superadmin) check. */
+  /** DB-backed, 5-minute-cached platform-admin check. */
   async isPlatformAdmin(userId: string): Promise<boolean> {
-    const cached = superadminCache.get(userId);
+    const cached = platformAdminCache.get(userId);
     if (cached !== undefined) return cached;
 
     const isAdmin = await readPlatformAdminFlag(userId);
-    superadminCache.set(userId, isAdmin);
+    platformAdminCache.set(userId, isAdmin);
     return isAdmin;
   }
 

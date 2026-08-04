@@ -133,7 +133,7 @@ export class PermissionGuard implements CanActivate {
       // `@RequireRole` IS an authorization declaration — RoleGuard (APP_GUARD
       // #2b, registered by AuthModule and therefore already run) hard-denies a
       // role mismatch. Treating it as undeclared made every role-gated route
-      // 403 for everyone, superadmins included: the platform-admin bypass sits
+      // 403 for everyone, platform admins included: the platform-admin bypass sits
       // further down, past this branch.
       const requiredRoles = this.reflector.getAllAndOverride<unknown[] | undefined>(
         REQUIRED_ROLES_KEY,

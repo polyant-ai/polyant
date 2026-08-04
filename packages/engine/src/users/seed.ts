@@ -3,9 +3,10 @@
 import { config } from "../config.js";
 import { hashPassword } from "./password.util.js";
 import { countUsers, insertUser } from "./users.store.js";
+import { PLATFORM_ADMIN_ROLE } from "../auth/user-role.js";
 
 /**
- * Idempotent: on first boot (users table empty) creates a `superadmin` account
+ * Idempotent: on first boot (users table empty) creates a platform-admin account
  * using the password supplied via INITIAL_ADMIN_PASSWORD. If the env var is
  * absent, seeding is skipped with a loud warning — we never auto-generate and
  * print credentials, because the boot logs are tee'd to engine-YYYY-MM-DD.log
@@ -36,7 +37,7 @@ export async function seedInitialAdmin(): Promise<void> {
     email,
     name: "administrator",
     passwordHash,
-    role: "superadmin",
+    role: PLATFORM_ADMIN_ROLE,
     mustChangePassword: true,
   });
 

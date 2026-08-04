@@ -790,7 +790,7 @@
   "users.table.password": "Password",
   "users.table.created": "Created",
   "users.table.actions": "Actions",
-  "users.role.superadmin": "Superadmin",
+  "users.role.platformAdmin": "Platform Admin",
   "users.role.user": "User",
   "users.password.set": "Set",
   "users.password.notSet": "OAuth only",

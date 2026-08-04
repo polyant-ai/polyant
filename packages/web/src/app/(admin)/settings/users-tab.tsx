@@ -33,6 +33,7 @@ import { api, getUserErrorMessage, type AdminUser } from "@/lib/api";
 import { CreateUserDialog } from "./create-user-dialog";
 import { EditUserDialog } from "./edit-user-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
+import { isPlatformAdminRole } from "@/lib/user-role";
 
 export function UsersTab() {
   const { t } = useI18n();
@@ -66,8 +67,8 @@ export function UsersTab() {
   const sorted = useMemo(
     () =>
       [...users].sort((a, b) => {
-        const ra = a.role === "superadmin" ? 0 : 1;
-        const rb = b.role === "superadmin" ? 0 : 1;
+        const ra = isPlatformAdminRole(a.role) ? 0 : 1;
+        const rb = isPlatformAdminRole(b.role) ? 0 : 1;
         if (ra !== rb) return ra - rb;
         return (a.email ?? "").localeCompare(b.email ?? "");
       }),
@@ -133,9 +134,9 @@ export function UsersTab() {
                   <TableCell className="font-medium">{u.email}</TableCell>
                   <TableCell>{u.name ?? "—"}</TableCell>
                   <TableCell>
-                    <Badge variant={u.role === "superadmin" ? "default" : "secondary"}>
-                      {u.role === "superadmin"
-                        ? t("users.role.superadmin")
+                    <Badge variant={isPlatformAdminRole(u.role) ? "default" : "secondary"}>
+                      {isPlatformAdminRole(u.role)
+                        ? t("users.role.platformAdmin")
                         : t("users.role.user")}
                     </Badge>
                   </TableCell>

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, sql } from "drizzle-orm";
+import { eq, sql , inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { users, sessions, type UserRole } from "../auth/users.schema.js";
 import { invalidateSuperadminCache } from "../authz/authz.caches.js";
+import { PLATFORM_ADMIN_ROLE_VALUES, isPlatformAdminRole } from "../auth/user-role.js";
 
 export interface UserRow {
   id: string;
@@ -75,11 +76,18 @@ export async function countUsers(): Promise<number> {
   return count ?? 0;
 }
 
-export async function countSuperadmins(): Promise<number> {
+/**
+ * How many accounts hold platform-admin standing. Matches BOTH spellings, and
+ * that is the load-bearing part: undercounting is what would let the LAST
+ * platform admin be demoted or deleted, locking the deployment out of its own
+ * administration. The column is typed on what we WRITE, while the stored set is
+ * wider by one legacy value, hence the cast.
+ */
+export async function countPlatformAdmins(): Promise<number> {
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(users)
-    .where(eq(users.role, "superadmin"));
+    .where(inArray(users.role, [...PLATFORM_ADMIN_ROLE_VALUES] as UserRole[]));
   return count ?? 0;
 }
 
@@ -99,10 +107,12 @@ export async function insertUser(input: CreateUserInput): Promise<UserWithSecret
       name: input.name?.trim() || null,
       passwordHash: input.passwordHash,
       role: input.role,
-      // Keep the platform-admin bypass in lockstep with the superadmin role at
-      // the write boundary, so a fresh-install superadmin gets the bypass without
+      // Keep the platform-admin bypass in lockstep with the role at the write
+      // boundary — through the PREDICATE, so an API caller still POSTing the
+      // legacy value is still granted the flag rather than silently not being an
+      // admin. A fresh install gets the bypass without
       // depending on PLATFORM_ADMIN_EMAIL (mirrors migration 0051's backfill).
-      isPlatformAdmin: input.role === "superadmin",
+      isPlatformAdmin: isPlatformAdminRole(input.role),
       mustChangePassword: input.mustChangePassword,
     })
     .returning();
@@ -126,9 +136,9 @@ export async function updateUserMeta(
   if (input.name !== undefined) patch.name = input.name?.trim() || null;
   if (input.role !== undefined) {
     patch.role = input.role;
-    // Role and platform-admin bypass move together: promoting to superadmin
+    // Role and platform-admin bypass move together: promoting to platform admin
     // grants it, demoting revokes it.
-    patch.isPlatformAdmin = input.role === "superadmin";
+    patch.isPlatformAdmin = isPlatformAdminRole(input.role);
   }
 
   const [row] = await db
@@ -161,7 +171,7 @@ export async function updateUserPassword(
 
 export async function deleteUserById(id: string): Promise<boolean> {
   const [row] = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id });
-  // Dropping the row clears the flag too. Without this a deleted superadmin
+  // Dropping the row clears the flag too. Without this a deleted platform admin
   // keeps the bypass for the rest of the TTL — their JWE outlives the row
   // (documented Auth.js trade-off), so the guard would still see a principal.
   invalidateSuperadminCache(id);

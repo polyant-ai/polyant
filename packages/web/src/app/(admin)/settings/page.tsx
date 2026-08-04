@@ -9,23 +9,24 @@ import { useSession } from "next-auth/react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/lib/i18n/context";
 import { UsersTab } from "./users-tab";
+import { isPlatformAdminRole } from "@/lib/user-role";
 
 export default function SettingsPage() {
   const { t } = useI18n();
   const router = useRouter();
   const { data: session, status } = useSession();
 
-  // Defense-in-depth: hide settings entirely from non-superadmin users.
+  // Defense-in-depth: hide settings entirely from anyone but a platform admin.
   // The sidebar already omits the entry, the engine already gates /api/users
   // with @RequireRole, and this client-side redirect catches anyone reaching
   // the URL directly.
   useEffect(() => {
-    if (status === "authenticated" && session?.user?.role !== "superadmin") {
+    if (status === "authenticated" && !isPlatformAdminRole(session?.user?.role)) {
       router.replace("/");
     }
   }, [status, session, router]);
 
-  if (status !== "authenticated" || session?.user?.role !== "superadmin") {
+  if (status !== "authenticated" || !isPlatformAdminRole(session?.user?.role)) {
     return null;
   }
 
