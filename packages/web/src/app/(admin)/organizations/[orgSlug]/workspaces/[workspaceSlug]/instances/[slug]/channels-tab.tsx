@@ -117,12 +117,19 @@ export function ChannelsTab({ slug }: Props) {
   }
 
   /**
-   * The switch marks the section dirty; the page's Save persists it.
+   * The switch marks the section dirty; the section's own Save persists it.
    *
    * A config-less channel (Agent-to-Agent) used to PERSIST on the flick, with no
    * Save involved — the one channel in the tab that behaved differently, and a
-   * write nobody asked for. `handleSave` already copes with an empty config, so
-   * there is nothing the immediate path did that the ordinary one cannot.
+   * write nobody asked for. `handleSave` copes with an empty config, so the
+   * ordinary path covers it.
+   *
+   * NOTE for anyone touching the Save button's render condition below: this is
+   * now the ONLY way an Agent-to-Agent change reaches the server. When the
+   * immediate write was removed the button was still suppressed for config-less
+   * channels, which left that switch with no path to persistence at all — it
+   * flicked, looked saved, and reverted on reload, with no way to enable or
+   * disable A2A handoffs from the panel.
    */
   function toggleEnabled(channelType: string, enabled: boolean) {
     setChannelStates((prev) => ({
@@ -200,11 +207,12 @@ export function ChannelsTab({ slug }: Props) {
               <div>
                 <div className="flex items-center gap-2">
                   {isNoConfig && <Bot className="h-4 w-4 text-muted-foreground" />}
-                  {/* Not for a config-less channel: there is no configuration to
-                    remove, so Delete did exactly what switching off does — two
-                    controls for one state, and the destructive-looking one was the
-                    only way to discover that. */}
-                {isConfigured && !isNoConfig && (
+                  {/* This tab renders ALL FOUR channels as sections on one page,
+                    so the rail's "Channels" label names the page, not the section.
+                    Without this the user gets four identical bordered boxes and
+                    has to infer Telegram from Slack by reading the field labels. */}
+                  <Label className="text-base font-medium">{t(def.nameKey)}</Label>
+                  {isConfigured && (
                     <Badge variant={existingChannel.enabled ? "default" : "secondary"} className="text-xs">
                       {existingChannel.enabled ? t("channels.tab.enabled") : t("channels.tab.disabled")}
                     </Badge>
@@ -213,7 +221,11 @@ export function ChannelsTab({ slug }: Props) {
                 <p className="text-sm text-muted-foreground">{t(def.helpKey)}</p>
               </div>
               <div className="flex items-center gap-2">
-                {isConfigured && (
+                {/* Not for a config-less channel: there is nothing to remove, so
+                  Delete did exactly what switching off does — two controls for one
+                  state, and the destructive-looking one was the only way to
+                  discover that. */}
+                {isConfigured && !isNoConfig && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button variant="ghost" size="icon" className="text-destructive">
@@ -279,7 +291,7 @@ export function ChannelsTab({ slug }: Props) {
               );
             })}
 
-            {state.dirty && !isNoConfig && (
+            {state.dirty && (
               <div className="flex justify-end">
                 <Button
                   size="sm"
