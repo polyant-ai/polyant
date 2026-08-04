@@ -60,36 +60,27 @@ describe("TenantService.getContextFor", () => {
     expect(mockFindOrganizationById).toHaveBeenCalledWith(ORG_ID);
   });
 
-  // A gateway-forwarded identity (AUTH_MODE=alb-oidc) never carries an orgId,
-  // and no re-login can add one — so the panel must resolve a tenancy anyway
-  // instead of showing a "sign in again" prompt that cannot help.
-  it("falls back to the default organization when the caller carries no orgId", async () => {
-    mockFindDefaultOrganization.mockResolvedValue({
-      id: ORG_ID,
-      slug: "default",
-      name: "Default",
-    });
+  // A caller with no orgId holds no tenancy, and the honest answer is to say so.
+  //
+  // This used to fall back to the default organization, justified as
+  // "unreachable under enforcement anyway". It was reachable: `GET /api/me`
+  // declares `@AuthenticatedOnly()`, which short-circuits before scope
+  // resolution. So the fallback handed the seed org's slug/name and all of its
+  // workspace slugs to any authenticated caller holding no binding, and made the
+  // panel build URLs into an org whose pages then 403 one by one.
+  it("returns organization: null when the caller carries no orgId", async () => {
     mockListWorkspacesByOrganization.mockResolvedValue([
       { slug: "general", name: "General", isDefault: true },
     ]);
 
     const context = await service.getContextFor(makeUser({ orgId: undefined }));
 
-    expect(context.organization).toEqual({ slug: "default", name: "Default" });
-    expect(context.workspaces).toEqual([
-      { slug: "general", name: "General", isDefault: true },
-    ]);
-    expect(mockFindOrganizationById).not.toHaveBeenCalled();
-    expect(mockListWorkspacesByOrganization).toHaveBeenCalledWith(ORG_ID);
-  });
-
-  it("returns organization: null when no orgId resolves and no default org is seeded", async () => {
-    mockFindDefaultOrganization.mockResolvedValue(null);
-
-    const context = await service.getContextFor(makeUser({ orgId: undefined }));
-
     expect(context.organization).toBeNull();
     expect(context.workspaces).toEqual([]);
+    // Neither lookup runs: there is no organization to resolve, and in
+    // particular the default org is never consulted.
+    expect(mockFindOrganizationById).not.toHaveBeenCalled();
+    expect(mockFindDefaultOrganization).not.toHaveBeenCalled();
     expect(mockListWorkspacesByOrganization).not.toHaveBeenCalled();
   });
 
