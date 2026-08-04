@@ -361,9 +361,9 @@ async function importRoot(dir: string, namespace: string | null): Promise<void> 
  * root resolved from `PLUGIN_DIRS` + the convention dir (`src|dist/plugins/*`),
  * each under its manifest namespace. Plugins outside the engine version range are
  * skipped with a warning. Finally, tools whose `requiredEnv` vars are unset are
- * pruned unless `pruneRequiredEnv` is disabled for catalog export.
+ * pruned.
  */
-export async function loadAllTools(options: { pruneRequiredEnv?: boolean } = {}): Promise<void> {
+export async function loadAllTools(): Promise<void> {
   await importRoot(__toolsDir, null);
 
   const conventionDir = join(__toolsDir, "..", "..", "plugins");
@@ -382,18 +382,16 @@ export async function loadAllTools(options: { pruneRequiredEnv?: boolean } = {})
     await importRoot(join(root, manifest.toolsDir), manifest.namespace);
   }
 
-  if (options.pruneRequiredEnv !== false) {
-    // Prune tools with missing env vars.
-    for (const [name, def] of registry) {
-      if (def.requiredEnv && def.requiredEnv.length > 0) {
-        // CONVENTION-EXCEPTION: reads process.env intentionally for tool discovery;
-        // checks presence/absence of arbitrary vars declared by tools themselves
-        // (requiredEnv), not known to the config.ts schema. See CLAUDE.md.
-        const missing = def.requiredEnv.filter((envVar) => !process.env[envVar]);
-        if (missing.length > 0) {
-          registry.delete(name);
-          console.warn(`Tool "${name}" disabled: missing env var(s) ${missing.join(", ")}`);
-        }
+  // Prune tools with missing env vars.
+  for (const [name, def] of registry) {
+    if (def.requiredEnv && def.requiredEnv.length > 0) {
+      // CONVENTION-EXCEPTION: reads process.env intentionally for tool discovery;
+      // checks presence/absence of arbitrary vars declared by tools themselves
+      // (requiredEnv), not known to the config.ts schema. See CLAUDE.md.
+      const missing = def.requiredEnv.filter((envVar) => !process.env[envVar]);
+      if (missing.length > 0) {
+        registry.delete(name);
+        console.warn(`Tool "${name}" disabled: missing env var(s) ${missing.join(", ")}`);
       }
     }
   }
