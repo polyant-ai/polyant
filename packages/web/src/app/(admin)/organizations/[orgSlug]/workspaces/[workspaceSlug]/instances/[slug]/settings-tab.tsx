@@ -285,18 +285,11 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   const isConfigured = (key: string) =>
     secrets.some((s) => s.key === key && s.configured);
 
-  // The embedder (shared by memory + knowledge) is unusable until its provider's
-  // credentials exist. Keys off embeddingProvider, not the chat provider (#150).
-  // ponytail: the client can't see the engine's AWS_REGION env fallback, so a
-  // bedrock instance relying on it may show a false-positive here — set
-  // aws_provider_region to silence it. The memory banner uses the backend
-  // status (which does see the fallback); knowledge has no such backend field.
-  const embedderMissing = (key: string) =>
-    !isConfigured(key) && secretValue(key) === "";
-  const embedderNeedsCredentials =
-    embeddingProvider === "bedrock"
-      ? embedderMissing(SECRET_KEYS.AWS_PROVIDER_REGION)
-      : embedderMissing(SECRET_KEYS.OPENAI);
+  // The client-side "is the embedder configured" rule used to live here. It is
+  // gone: the engine reports it on `instance.embedder`, which the Knowledge tab
+  // reads. Recomputing it in the browser was also subtly wrong — the client cannot
+  // see the engine's AWS_REGION fallback, so a bedrock instance relying on it
+  // showed a false positive.
 
   const providerNames = modelsData ? Object.keys(modelsData.providers) : [];
 

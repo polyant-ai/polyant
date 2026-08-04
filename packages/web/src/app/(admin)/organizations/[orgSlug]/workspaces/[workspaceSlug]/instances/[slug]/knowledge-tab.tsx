@@ -15,6 +15,7 @@ import {
   Eye,
   Download,
   Upload,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -139,13 +140,22 @@ function KnowledgeToggle({ instance, onUpdate }: { instance: Instance; onUpdate:
         <Switch id="agent-knowledge" checked={enabled} disabled={saving} onCheckedChange={toggle} />
       </div>
 
-      {/* KNOWN GAP: no "the embedder has no credentials" warning here. It was
-          computed in the model settings from the secrets list, which this tab does
-          not load, and `instance.memory.needsOpenAIKey` cannot stand in — it is
-          gated on MEMORY being on, so it stays false for an agent that uses only
-          knowledge. Duplicating the rule would make a third copy of "is the
-          embedder configured" (the model tab and `memory-status.ts` hold the other
-          two); the fix is an engine field beside `memory`, not a third reader. */}
+      {/* Retrieval embeds every document, so without embedder credentials this
+          switch produces a green toast and then a knowledge base where every
+          upload ends in `status: error` with nothing saying why.
+          `instance.embedder` is the ENGINE's answer — `instance.memory` cannot
+          stand in, being all-false whenever memory is off, and a client-side copy
+          of the rule cannot see the AWS_REGION fallback. */}
+      {enabled && instance.embedder?.needsCredentials && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <p className="text-sm text-amber-900 dark:text-amber-200">
+            {instance.embeddingProvider === "bedrock"
+              ? t("settings.tab.knowledgeAwsWarning")
+              : t("settings.tab.knowledgeOpenaiWarning")}
+          </p>
+        </div>
+      )}
     </section>
   );
 }

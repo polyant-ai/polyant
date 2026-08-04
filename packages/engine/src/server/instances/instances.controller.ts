@@ -37,7 +37,7 @@ import {
 } from "../../embeddings-gateway/embedding-reset.service.js";
 import { countMemories } from "../../memory/index.js";
 import { countDocuments } from "../../knowledge/index.js";
-import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
+import { computeMemoryStatusFromInstance, computeEmbedderStatus } from "../memories/memory-status.js";
 import { providerConfigs, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
 import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
@@ -181,6 +181,7 @@ export class InstancesController {
       instance: {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
+        embedder: await computeEmbedderStatus(instance),
       },
     };
   }
@@ -356,6 +357,7 @@ export class InstancesController {
       instance: {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
+        embedder: await computeEmbedderStatus(instance),
       },
       wiped,
     };
