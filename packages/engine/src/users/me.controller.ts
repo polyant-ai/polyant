@@ -23,12 +23,13 @@ export class MeController {
    * organization binding, so the one caller who most needs this route (a user
    * holding no binding yet) got a 403 instead of the empty tenancy that tells the
    * panel to show them nothing. A declaration is still REQUIRED, not optional:
-   * PermissionGuard denies any
-   * route that declares no permission once `AUTHZ_ENFORCE=true`. ORG_READ is
-   * held by every system role, Viewer included. A legacy token carrying no
-   * `orgId` yields no scope to authorize against, so in enforce mode it gets a
-   * 403 — the frontend treats that exactly like `organization: null`, since the
-   * remedy (sign in again) is the same.
+   * PermissionGuard denies any route that declares no permission.
+   *
+   * `@AuthenticatedOnly()` short-circuits BEFORE scope resolution, so unlike a
+   * `@RequirePermission` route this one is reachable by a principal carrying no
+   * `orgId`. That is the point — but it also means `TenantService` must decide
+   * what such a caller sees, and it answers `organization: null` rather than
+   * falling back to the default org.
    */
   @AuthenticatedOnly()
   @Get()
@@ -41,7 +42,7 @@ export class MeController {
    * `@AuthenticatedOnly()` instead of a permission: no RBAC permission fits
    * "change my own password", but the route still needs a HUMAN principal — an
    * API key must not rotate a user's credentials. Without a declaration this
-   * route 403s under `AUTHZ_ENFORCE=true`, which would brick the
+   * route would be denied as undeclared, which would brick the
    * forced-password-change flow the initial admin lands in on first boot.
    */
   @AuthenticatedOnly()

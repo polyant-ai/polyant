@@ -14,9 +14,9 @@ authorization decision (200 vs 403) and the rendered UI.
 - **Not exercised / inert**: AI providers and channel adapters. The
   members/RBAC flow never calls them, so nothing external is hit (mock by
   omission). Add explicit mocks here only when a future spec needs one.
-- **Enforcement is ON**: the engine boots with `AUTHZ_ENFORCE=true`. Without it
-  the PermissionGuard runs in shadow mode and every would-be 403 silently
-  passes — assertions would be meaningless.
+- **Enforcement is ON, always**: RBAC has no off switch and no shadow mode, so
+  the harness sets nothing to enable it and no spec can be silently defanged by
+  a missing env var.
 - **Rate limiting is OFF**: the suite runs with `THROTTLE_ENABLED=false`, so no
   spec here can assert a 429.
 

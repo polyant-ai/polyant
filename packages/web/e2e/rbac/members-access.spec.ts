@@ -14,8 +14,8 @@
  *   Viewer → not granted              → 403, no table.
  *
  * Only the database is integration-tested; no AI/channel service is touched by
- * this flow. Enforcement is real because the harness boots the engine with
- * AUTHZ_ENFORCE=true (see test-env.ts).
+ * this flow. Enforcement is real because RBAC has no off switch — there is no
+ * shadow mode a missing env var could leave these assertions passing under.
  */
 
 import { expect, test, type Response } from "@playwright/test";

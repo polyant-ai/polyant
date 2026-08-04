@@ -157,9 +157,11 @@ function definedEnv(): Record<string, string> {
 
 /**
  * Environment for the engine child process: test DB, dedicated port, shared
- * secrets, and crucially `AUTHZ_ENFORCE=true` — without it the PermissionGuard
- * runs in shadow mode and every would-be 403 silently passes, making RBAC
- * assertions meaningless.
+ * secrets.
+ *
+ * No `AUTHZ_ENFORCE` — RBAC is enforced unconditionally, so there is nothing to
+ * switch on here and no shadow mode that could make a would-be 403 pass
+ * silently. The specs' RBAC assertions are meaningful by construction.
  */
 export function buildEngineEnv(): Record<string, string> {
   return {
@@ -170,7 +172,6 @@ export function buildEngineEnv(): Record<string, string> {
     AUTH_SECRET,
     AUTH_INTERNAL_SECRET,
     ENCRYPTION_KEY,
-    AUTHZ_ENFORCE: "true",
     LOG_LEVEL: "warn",
     // /api/auth/credentials/verify is hardcoded to 5 req/60s
     // (credentials.controller.ts, independent of THROTTLE_LIMIT/THROTTLE_TTL_MS).
