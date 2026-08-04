@@ -103,9 +103,16 @@ vi.mock("../tools/agent-invoke.helpers.js", () => ({
   buildAgentInvokeTool: mockBuildAgentInvokeTool,
 }));
 
-vi.mock("../../authz/agent-tenancy.js", () => ({
-  agentsShareOrganization: mockAgentsShareOrganization,
-}));
+// Only the tenancy PREDICATE is stubbed (it needs a database). `agentToolTarget`
+// is the REAL one: it is the `agent:{slug}` naming convention, and the supervisor
+// now parses entries through it instead of two inline literals — mocking it would
+// mean the convention is no longer under test at the enforcement point.
+vi.mock("../../authz/agent-tenancy.js", async () => {
+  const actual = await vi.importActual<typeof import("../../authz/agent-tenancy.js")>(
+    "../../authz/agent-tenancy.js",
+  );
+  return { ...actual, agentsShareOrganization: mockAgentsShareOrganization };
+});
 
 vi.mock("../../channels/adapters/agent.adapter.js", () => ({}));
 

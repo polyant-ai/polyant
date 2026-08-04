@@ -23,7 +23,7 @@ import { parsePagination } from "../server/utils/parse-pagination.js";
 export class UsersController {
   constructor(@Inject(UsersService) private readonly users: UsersService) {}
 
-  /** One page of accounts, . */
+  /** One page of accounts, plus the total, so the caller can navigate. */
   @Get()
   async list(@Query("limit") limitStr?: string, @Query("offset") offsetStr?: string) {
     return this.users.list(parsePagination(limitStr, offsetStr));

@@ -147,7 +147,7 @@ export function GeneralTab({ instance, onUpdate }: Props) {
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <p className="text-sm">
               {t(
-                (instance.embeddingProvider as string | undefined) === "bedrock"
+                instance.embeddingProvider === "bedrock"
                   ? "memory.banner.bedrockNeedsAws"
                   : "memory.banner.openaiNeedsKey",
               )}

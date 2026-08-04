@@ -105,6 +105,7 @@ vi.mock("../memories/memory-status.js", () => ({
   computeMemoryStatusFromInstance: vi
     .fn()
     .mockResolvedValue({ needsOpenAIKey: false, canEnable: true }),
+  computeEmbedderStatus: vi.fn().mockResolvedValue({ needsCredentials: false }),
 }));
 
 import { InstancesController } from "./instances.controller.js";
@@ -165,7 +166,8 @@ describe("InstancesController", () => {
         orgId: "org-a",
       });
 
-      expect(mockListAllInstances).toHaveBeenCalledWith("org-a");
+      // Second argument is the addressed workspace; absent here, so undefined.
+      expect(mockListAllInstances).toHaveBeenCalledWith("org-a", undefined);
       expect(instances.map((i) => i.slug)).toEqual(["agent-a"]);
     });
 
@@ -195,7 +197,9 @@ describe("InstancesController", () => {
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
         "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "stateInPromptEnabled", "datetimeInjectionEnabled", "cacheEnabled", "cacheTtl", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint",
-        "memory",
+        // Derived status blocks, not columns: `memory` is gated on the memory
+        // flag, `embedder` is not — which is why the Knowledge tab needs it.
+        "memory", "embedder",
       ]);
 
       for (const key of Object.keys(instance)) {

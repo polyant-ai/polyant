@@ -289,9 +289,9 @@ function ChartLegendContent({
         // predict. `min-w-0` is what lets a flex item shrink below its content,
         // and the label truncates.
         //
-        // ponytail: a long series name is readable only via the tooltip. Fold the
-        // series before it reaches the chart (see `topModelsWithRest`) if the
-        // names matter more than the slices.
+        // A long series name stays readable via the item's `title` attribute (see
+        // below). Fold the series before it reaches the chart (see
+        // `topModelsWithRest`) if the names matter more than the slices.
         "flex items-center justify-center gap-4 overflow-hidden",
         verticalAlign === "top" ? "pb-3" : "pt-3",
         className
@@ -320,7 +320,15 @@ function ChartLegendContent({
                   }}
                 />
               )}
-              <span className="truncate">{itemConfig?.label}</span>
+              {/* `title` so a truncated name is still readable. A Pie's recharts
+                  tooltip fires on the SLICE, not on the legend row, and legend
+                  items are not focusable — so without this a name cut to a few
+                  characters could not be recovered by any means. Matters most
+                  where the series are not folded: `channel-distribution-chart`
+                  maps the API's channel list straight through. */}
+              <span className="truncate" title={String(itemConfig?.label ?? "")}>
+                {itemConfig?.label}
+              </span>
             </div>
           )
         })}

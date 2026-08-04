@@ -31,7 +31,7 @@ import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
 import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
-import { agentsShareOrganization } from "../../authz/agent-tenancy.js";
+import { agentsShareOrganization, agentToolTarget } from "../../authz/agent-tenancy.js";
 
 export interface SupervisorInput {
   message: string;
@@ -322,11 +322,15 @@ async function buildTools(opts: BuildToolsOptions) {
   // The catalog row is managed by agent-tool-sync when the callee enables/disables
   // its `agent` channel; here we look up the target instance + its running
   // AgentChannelAdapter and wrap a `buildAgentInvokeTool` into an aiTool.
-  const agentEntries = [...enabledNames].filter((n) => n.startsWith("agent:"));
+  // Through `agentToolTarget`, not two inline `"agent:"` literals: the write-side
+  // gate (the tools API) already uses the shared helper, so a hand-rolled copy
+  // HERE — the enforcement point — is a fail-open drift waiting to happen. Change
+  // the prefix and the backstop stops matching while the write gate keeps working.
+  const agentEntries = [...enabledNames].filter((n) => agentToolTarget(n) !== null);
   if (agentEntries.length > 0) {
     const currentDepth = agentCallDepth ?? 0;
     for (const entryName of agentEntries) {
-      const targetSlug = entryName.slice("agent:".length);
+      const targetSlug = agentToolTarget(entryName)!;
       const target = await findInstanceBySlug(asInstanceSlug(targetSlug));
       if (!target) {
         console.warn(`[supervisor] agent tool '${entryName}': target instance not found`);

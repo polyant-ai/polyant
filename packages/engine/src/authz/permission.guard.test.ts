@@ -35,6 +35,7 @@ import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
 import { AUTHENTICATED_ONLY_KEY } from "./decorators/authenticated-only.decorator.js";
 import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import type { AgentScope } from "./authz.store.js";
+import { PLATFORM_ADMIN_ROLE } from "../auth/user-role.js";
 
 const SCOPE: AgentScope = {
   agentId: "agent-1",
@@ -105,7 +106,7 @@ describe("PermissionGuard", () => {
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("denies a @RequiresFeature route when the license is missing (even shadow)", async () => {
+  it("denies a @RequiresFeature route when the license is missing", async () => {
     const { guard, context, authz } = setup(
       { [REQUIRES_FEATURE_KEY]: "custom-roles", [REQUIRE_PERMISSION_KEY]: Permission.ORG_WRITE },
       userReq({ slug: "agent-1" }),
@@ -142,7 +143,7 @@ describe("PermissionGuard", () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 
-  it("denies a ServicePrincipal addressing a DIFFERENT agent in enforce mode", async () => {
+  it("denies a ServicePrincipal addressing a DIFFERENT agent", async () => {
     const { guard, context } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_READ },
       { user: { kind: "instance", instanceSlug: "agent-1" }, params: { slug: "agent-2" } },
@@ -284,7 +285,7 @@ describe("PermissionGuard", () => {
 
   it("should_defer_to_role_guard_when_the_route_declares_only_require_role", async () => {
     const { guard, context, authz } = setup(
-      { [REQUIRED_ROLES_KEY]: ["superadmin"] },
+      { [REQUIRED_ROLES_KEY]: [PLATFORM_ADMIN_ROLE] },
       userReq({}),
     );
     await expect(guard.canActivate(context)).resolves.toBe(true);

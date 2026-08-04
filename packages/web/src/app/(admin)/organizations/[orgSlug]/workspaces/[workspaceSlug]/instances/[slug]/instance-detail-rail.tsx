@@ -12,7 +12,7 @@ interface InstanceDetailRailProps {
 }
 
 /**
- * Vertical rail replacing the agent detail page's fifteen horizontal
+ * Vertical rail replacing the agent detail page's twelve horizontal
  * `TabsTrigger`s (design spec, agent-detail phase, phase 10) — mirrors
  * `SettingsRail`'s grouped-list look (`components/layout/settings-rail.tsx`:
  * uppercase group headers, `text-accent-strong` for the active row) so the
@@ -21,7 +21,7 @@ interface InstanceDetailRailProps {
  *
  * Not a reuse of `SettingsRail` itself: that component navigates between
  * distinct routes (`next/link` + `usePathname`), one per Settings section.
- * Here all fifteen tabs live on ONE route and switch via the `?tab=` query
+ * Here all twelve tabs live on ONE route and switch via the `?tab=` query
  * param + local component state (see `page.tsx`), so items are buttons that
  * call back into the page's existing tab-change handler, not links.
  */
@@ -43,6 +43,11 @@ export function InstanceDetailRail({ activeTab, onSelect }: InstanceDetailRailPr
                   <button
                     type="button"
                     onClick={() => onSelect(tab.value)}
+                    // The selected item was conveyed by weight and colour alone.
+                    // The Radix `Tabs` this replaced set `aria-selected` for free,
+                    // so a screen reader now heard twelve identical buttons with
+                    // no indication which one is open.
+                    aria-current={active ? "page" : undefined}
                     className={cn(
                       "flex w-full items-center rounded-md px-3 py-2 text-left text-sm",
                       active
