@@ -18,20 +18,26 @@ UPDATE users
 SET role = 'platform_admin', updated_at = now()
 WHERE role = 'superadmin';
 
--- `is_platform_admin` is DERIVED from the role at write time (`users.store.ts`)
--- and was backfilled from it by 0051, so renaming the role value must not change
--- which accounts hold the flag — and it does not: the UPDATE above touches `role`
--- only.
+-- Grant the flag to anyone whose role says platform admin but whose flag does
+-- not. PROMOTE ONLY — this deliberately never clears the flag.
 --
--- That is an assumption about live data, not a guarantee the schema enforces
--- (nothing stops a direct SQL write from putting the two out of step), so rather
--- than assert it in a comment this reconciles it. Both directions, because either
--- one is wrong: a platform-admin role without the flag is an admin who has lost
--- every power the flag grants, and the flag without the role is a total bypass of
--- the permission guard held by an account the UI renders as an ordinary user.
+-- An earlier version reconciled BOTH directions
+-- (`SET is_platform_admin = (role = 'platform_admin')`), on the premise that the
+-- flag is always DERIVED from the role at write time and only "a direct SQL
+-- write" could separate them. That premise is wrong about this codebase:
+-- `promotePlatformAdminByEmail` — the documented `PLATFORM_ADMIN_EMAIL` boot
+-- path — used to set the flag WITHOUT the role, so `role='user'` plus
+-- `is_platform_admin=true` was a legitimate state the engine produced itself.
 --
--- Scoped to `role`/`is_platform_admin` disagreements, so it is a no-op on a
--- consistent database and idempotent on a second run.
+-- Reconciling downwards therefore REVOKED platform admin from exactly the
+-- accounts promoted that way, silently, with nothing to restore it: where the
+-- env var was still set the next boot re-promoted and hid the damage, and where
+-- it had been unset (which the config documents as safe) the deployment simply
+-- had no platform admin any more.
+--
+-- The write path is fixed too — it now sets role AND flag together — but this
+-- stays promote-only regardless: a migration that can remove the last
+-- administrator's access has no business guessing.
 UPDATE users
-SET is_platform_admin = (role = 'platform_admin'), updated_at = now()
-WHERE is_platform_admin <> (role = 'platform_admin');
+SET is_platform_admin = true, updated_at = now()
+WHERE role = 'platform_admin' AND is_platform_admin = false;

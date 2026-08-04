@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, sql , inArray , desc } from "drizzle-orm";
+import { eq, or, sql , inArray , desc } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { users, sessions, type UserRole } from "../auth/users.schema.js";
 import { invalidateSuperadminCache } from "../authz/authz.caches.js";
@@ -12,6 +12,13 @@ export interface UserRow {
   name: string | null;
   image: string | null;
   role: UserRole;
+  /**
+   * The column `PermissionGuard` actually enforces. Exposed because the
+   * last-platform-admin guard has to reason about the standing a caller HOLDS,
+   * not only about the role that usually implies it — a row with the flag and an
+   * ordinary role skipped that guard entirely and was demoted in silence.
+   */
+  isPlatformAdmin: boolean;
   mustChangePassword: boolean;
   hasPassword: boolean;
   createdAt: Date | null;
@@ -29,6 +36,7 @@ function mapRow(row: typeof users.$inferSelect): UserWithSecret {
     name: row.name ?? null,
     image: row.image ?? null,
     role: row.role,
+    isPlatformAdmin: row.isPlatformAdmin,
     mustChangePassword: row.mustChangePassword,
     hasPassword: row.passwordHash !== null,
     passwordHash: row.passwordHash ?? null,
@@ -44,6 +52,7 @@ function stripSecret(row: UserWithSecret): UserRow {
     name: row.name,
     image: row.image,
     role: row.role,
+    isPlatformAdmin: row.isPlatformAdmin,
     mustChangePassword: row.mustChangePassword,
     hasPassword: row.hasPassword,
     createdAt: row.createdAt,
@@ -117,17 +126,30 @@ export async function countUsers(): Promise<number> {
 }
 
 /**
- * How many accounts hold platform-admin standing. Matches BOTH spellings, and
- * that is the load-bearing part: undercounting is what would let the LAST
- * platform admin be demoted or deleted, locking the deployment out of its own
- * administration. The column is typed on what we WRITE, while the stored set is
- * wider by one legacy value, hence the cast.
+ * How many accounts hold platform-admin standing. Undercounting is the dangerous
+ * direction: it is what would let the LAST platform admin be demoted or deleted,
+ * locking the deployment out of its own administration.
+ *
+ * So this counts a row that holds the standing by EITHER route — the
+ * `is_platform_admin` flag, which is what `PermissionGuard` actually enforces, or
+ * a platform-admin role in either spelling, since 0071 renames the value and a
+ * rolling deploy sees both. Counting by role alone was blind to a flag-only
+ * admin, which is precisely the shape `promotePlatformAdminByEmail` used to
+ * create; counting by flag alone would miss a role set before the flag is
+ * derived. The union is the only version that cannot undercount.
  */
 export async function countPlatformAdmins(): Promise<number> {
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(users)
-    .where(inArray(users.role, [...PLATFORM_ADMIN_ROLE_VALUES] as UserRole[]));
+    .where(
+      or(
+        eq(users.isPlatformAdmin, true),
+        // The column is typed on what we WRITE, while the stored set is wider by
+        // one legacy value, hence the cast.
+        inArray(users.role, [...PLATFORM_ADMIN_ROLE_VALUES] as UserRole[]),
+      ),
+    );
   return count ?? 0;
 }
 

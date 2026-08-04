@@ -10,6 +10,8 @@ import {
 } from "./organization.schema.js";
 import { roles } from "../authz/role.schema.js";
 import { roleBindings } from "../authz/role-binding.schema.js";
+import { invalidateSuperadminCache } from "../authz/authz.caches.js";
+import { PLATFORM_ADMIN_ROLE } from "../auth/user-role.js";
 
 /** Anything that can run a `select` — the shared `db` or a transaction handle. */
 type Executor = Pick<typeof db, "select">;
@@ -48,14 +50,30 @@ export async function findDefaultOrganization(): Promise<OrganizationIdentity | 
   return row ?? null;
 }
 
-/** Promote a user to Platform Superadmin by email. No-op when the email is
- *  unknown. Returns the number of rows updated (0 or 1). */
+/**
+ * Promote a user to Platform Admin by email. No-op when the email is unknown.
+ * Returns the number of rows updated (0 or 1).
+ *
+ * Sets the ROLE as well as the flag. Setting only `is_platform_admin` produced an
+ * account that the permission guard grants everything to while `GET /api/users`
+ * renders it as an ordinary user — and, because `/api/users/*` is gated by
+ * `@RequireRole(platform_admin)`, one that could not open the users admin page it
+ * was supposedly an admin of. It also created the `role`/flag divergence that
+ * migration 0071 used to "reconcile" by revoking the flag.
+ *
+ * And it invalidates the platform-admin cache. `AuthorizationService` caches the
+ * flag per user with a TTL, so a `false` cached moments earlier would otherwise
+ * outlive the promotion. Boot-time promotion usually runs against a cold cache,
+ * which is exactly why this was easy to miss — it is the one write of this flag
+ * that the invalidate-on-every-write sweep did not cover.
+ */
 export async function promotePlatformAdminByEmail(email: string): Promise<number> {
   const updated = await db
     .update(users)
-    .set({ isPlatformAdmin: true })
+    .set({ isPlatformAdmin: true, role: PLATFORM_ADMIN_ROLE, updatedAt: new Date() })
     .where(eq(users.email, email))
     .returning({ id: users.id });
+  for (const row of updated) invalidateSuperadminCache(row.id);
   return updated.length;
 }
 

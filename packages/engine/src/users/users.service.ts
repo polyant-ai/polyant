@@ -128,8 +128,16 @@ export class UsersService {
     let nextRole: UserRole | undefined;
     if (body.role !== undefined) {
       nextRole = validRole(body.role);
-      // Prevent removing the last platform admin (also blocks self-demotion if you're the only one).
-      if (isPlatformAdminRole(target.role) && !isPlatformAdminRole(nextRole)) {
+      // Prevent removing the last platform admin (also blocks self-demotion if
+      // you're the only one).
+      //
+      // Keyed on the standing the target HOLDS — the enforced `is_platform_admin`
+      // flag OR a platform-admin role — not on the role alone. `updateUserMeta`
+      // derives the flag from the incoming role, so a row carrying the flag with
+      // an ordinary role had its bypass revoked by a role PATCH that changed
+      // nothing on paper, without ever consulting this guard.
+      const targetIsAdmin = target.isPlatformAdmin || isPlatformAdminRole(target.role);
+      if (targetIsAdmin && !isPlatformAdminRole(nextRole)) {
         const count = await countPlatformAdmins();
         if (count <= 1) {
           throw new ConflictException(
@@ -161,7 +169,8 @@ export class UsersService {
     const target = await getUserById(id);
     if (!target) throw new NotFoundException(`User ${id} not found`);
 
-    if (isPlatformAdminRole(target.role)) {
+    // Same standing test as `update`: the enforced flag OR a platform-admin role.
+    if (target.isPlatformAdmin || isPlatformAdminRole(target.role)) {
       const count = await countPlatformAdmins();
       if (count <= 1) {
         throw new ConflictException("Cannot delete the last platform admin");

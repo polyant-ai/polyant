@@ -82,13 +82,34 @@ import { platformAdminCache } from "../authz/authz.caches.js";
 
 const USER_ID = "11111111-1111-1111-1111-111111111111";
 
-function userRow(role: "platform_admin" | "user") {
+/**
+ * Serialize a Drizzle expression so a test can assert on the literals inside it.
+ * A plain `JSON.stringify` throws — the column objects hold back-references to
+ * their table — and a throw here reads as an assertion failure, which sent this
+ * test's first version chasing the wrong cause.
+ */
+function stringifySql(value: unknown): string {
+  const seen = new WeakSet<object>();
+  return JSON.stringify(value, (_key, entry) => {
+    if (typeof entry === "object" && entry !== null) {
+      if (seen.has(entry)) return "[circular]";
+      seen.add(entry);
+    }
+    return entry;
+  });
+}
+
+function userRow(role: "platform_admin" | "user", isPlatformAdmin = role === "platform_admin") {
   return {
     id: USER_ID,
     email: "admin@acme.com",
     name: null,
     image: null,
     role,
+    // The enforced column. Defaults to agreeing with the role, but the two are
+    // separately settable here because the interesting cases are the ones where
+    // they DISAGREE — that divergence is what the last-admin guard missed.
+    isPlatformAdmin,
     mustChangePassword: false,
     passwordHash: "hash",
     createdAt: null,
@@ -173,10 +194,19 @@ describe("listUsers is bounded", () => {
 
     await listUsers({ limit: 25, offset: 0 });
 
-    // The page used to sort superadmins-first in the browser over the whole
+    // The page used to sort platform-admins-first in the browser over the whole
     // list. Paginate on the wire without moving the order and page 1 becomes
     // whatever the planner returned.
-    expect(selectCalls.some((c) => c.method === "orderBy" && c.args.length === 2)).toBe(true);
+    //
+    // Asserted on the RENDERED SQL, not on `args.length === 2`. Arity alone
+    // passes for any two order terms — including a version that dropped the
+    // legacy-spelling tolerance, which is the part that actually decides whether
+    // a row still holding `superadmin` sorts in with ordinary users.
+    const orderBy = selectCalls.find((c) => c.method === "orderBy");
+    expect(orderBy, "listUsers must order server-side").toBeDefined();
+    const rendered = stringifySql(orderBy!.args);
+    expect(rendered).toContain("platform_admin");
+    expect(rendered).toContain("superadmin");
   });
 
   it("should_never_leak_the_password_hash_into_a_listing", async () => {

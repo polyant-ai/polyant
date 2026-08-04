@@ -68,7 +68,18 @@ describe.skipIf(!DB_AVAILABLE)("migration 0051 — RBAC tenancy schema", () => {
       FROM roles r JOIN role_permissions rp ON rp.role_id = r.id
       WHERE r.is_system = true GROUP BY r.key`;
     const byKey = Object.fromEntries(counts.map((c) => [c.key, c.n]));
-    expect(byKey).toEqual({ owner: 33, admin: 32, member: 23, viewer: 14 });
+
+    // DERIVED from `permissions.ts`, never re-typed here. The literal
+    // `{ owner: 33, admin: 32, member: 23, viewer: 14 }` broke the build the
+    // moment migration 0072 granted Member three more permissions — a number in
+    // a test that nobody updates in the same commit as the migration. That is
+    // also what `permissions.ts` means when its own docblock says the matrix "is
+    // the single source of truth shared by the migration seed and the tests, so
+    // the matrix is never duplicated as magic strings".
+    const expected = Object.fromEntries(
+      SYSTEM_ROLE_KEYS.map((key) => [key, SYSTEM_ROLE_PERMISSIONS[key].length]),
+    );
+    expect(byKey).toEqual(expected);
   });
 
   it("seeds the exact permission STRINGS that SYSTEM_ROLE_PERMISSIONS declares", async () => {
