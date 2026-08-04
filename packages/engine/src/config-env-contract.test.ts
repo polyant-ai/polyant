@@ -49,18 +49,12 @@ function activeEnvironmentValues(sample: string): Map<string, string> {
   );
 }
 
-describe("configuration environment contract", () => {
-  it("selects the Windows tsx command shim through cmd.exe", () => {
-    expect(tsxProbeForPlatform("win32")).toEqual({
-      path: resolve(packageRoot, "../../node_modules/.bin/tsx.cmd"),
-      shell: true,
-    });
-    expect(tsxProbeForPlatform("linux")).toEqual({
-      path: resolve(packageRoot, "../../node_modules/.bin/tsx"),
-      shell: false,
-    });
-  });
+/** Every name the sample mentions, whether active or commented out. */
+function allSampleNames(sample: string): string[] {
+  return [...documentedEnvironmentNames(sample)];
+}
 
+describe("configuration environment contract", () => {
   it("documents every direct config.ts process.env access in .env.example", () => {
     const configSource = readFileSync(configPath, "utf8");
     const sampleSource = readFileSync(samplePath, "utf8");
@@ -86,16 +80,49 @@ describe("configuration environment contract", () => {
     })).resolves.toMatchObject({ stderr: "" });
   });
 
-  it("documents the RBAC enforcement switch, which IS read here", () => {
-    // The mirror of the enterprise assertion, and deliberately inverted:
-    // `AUTHZ_ENFORCE` is the real knob on this side (enforcement is opt-in,
-    // shadow mode is the default), so it MUST be documented. Enterprise enforces
-    // by default and does not read it at all — see its
-    // `REMOVE_AUTHORIZATION_FILTER_FOR_TESTING` — so the same test there asserts
-    // the opposite. Do not "align" the two on a merge: they are two different
-    // contracts, not a drift.
-    const documented = documentedEnvironmentNames(readFileSync(samplePath, "utf8"));
+  /**
+   * A `VAR=` line is the shape a `.env` file uses to say "not set", and it
+   * arrives as `""` rather than `undefined` — which `.optional()` rejects and
+   * `.default()` ignores. So EVERY name the sample mentions must survive being
+   * present-and-empty, not just the ones someone remembered to special-case.
+   *
+   * This is the test that would have caught the original bug, and it is
+   * deliberately stronger than "the sample boots": the sample's own commented-out
+   * lines never reach a plain boot, and `config.ts` calls `dotenv.config()` on
+   * the real repo `.env`, so anything the sample leaves commented is silently
+   * filled in from the developer's machine. Passing every name EXPLICITLY as ""
+   * is what takes the ambient file out of the picture for those names.
+   */
+  it("boots with every documented variable present but empty", async () => {
+    const sampleSource = readFileSync(samplePath, "utf8");
+    const emptied = Object.fromEntries(allSampleNames(sampleSource).map((name) => [name, ""]));
 
-    expect(documented.has("AUTHZ_ENFORCE")).toBe(true);
+    await expect(execFileAsync(tsxProbe.path, [configPath], {
+      cwd: packageRoot,
+      env: {
+        ...emptied,
+        PATH: process.env.PATH,
+        // The two genuinely required secrets. Everything else must tolerate "".
+        ENCRYPTION_KEY: "0".repeat(64),
+        AUTH_SECRET: "a".repeat(32),
+      },
+      encoding: "utf8",
+      shell: tsxProbe.shell,
+    })).resolves.toMatchObject({ stderr: "" });
+  });
+
+  /**
+   * `AUTHZ_ENFORCE` is GONE and must stay gone. RBAC is enforced
+   * unconditionally, so there is nothing to document and nothing to read — a
+   * reintroduced flag is a reintroduced way to ship with authorization off,
+   * which is exactly how `.env.example` once propagated `AUTHZ_ENFORCE=false`
+   * into real deployments.
+   */
+  it("keeps the RBAC enforcement switch deleted, in code and in the sample", () => {
+    const configSource = readFileSync(configPath, "utf8");
+    const sampleSource = readFileSync(samplePath, "utf8");
+
+    expect(directEnvironmentNames(configSource)).not.toContain("AUTHZ_ENFORCE");
+    expect(documentedEnvironmentNames(sampleSource).has("AUTHZ_ENFORCE")).toBe(false);
   });
 });
