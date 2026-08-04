@@ -1,96 +1,53 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect, vi } from "vitest";
-import {
-  resolveSignInOrgId,
-  provisionUserDefaultOrg,
-  type OrgProvisioningPort,
-} from "./org-provisioning";
+/**
+ * Sign-in org resolution is a LOOKUP, and these tests exist mostly to keep it
+ * one.
+ *
+ * It used to provision: a user with no membership got the default-org membership
+ * plus the OWNER binding, so passing the sign-in domain allowlist made you an
+ * Owner of the organization. On a deployment whose allowlist is a company domain,
+ * that was every employee. Membership is now granted deliberately through
+ * `PUT /api/organizations/:orgSlug/members/:userId`.
+ */
 
-/** Build a port whose methods are vi.fn()s with sensible defaults overridden per test. */
+import { describe, it, expect, vi } from "vitest";
+import { resolveSignInOrgId, type OrgProvisioningPort } from "./org-provisioning";
+
 function buildPort(overrides: Partial<OrgProvisioningPort> = {}): OrgProvisioningPort {
   return {
-    findDefaultOrgId: vi.fn(async () => "org-default"),
     findUserOrgId: vi.fn(async () => "org-default"),
-    findOwnerRoleId: vi.fn(async () => "role-owner"),
-    ensureMembership: vi.fn(async () => undefined),
-    ensureOwnerBinding: vi.fn(async () => undefined),
     ...overrides,
   };
 }
 
-describe("provisionUserDefaultOrg", () => {
-  it("ensures membership then Owner binding on the default org", async () => {
-    const port = buildPort();
-
-    const orgId = await provisionUserDefaultOrg(port, "user-1");
-
-    expect(orgId).toBe("org-default");
-    expect(port.ensureMembership).toHaveBeenCalledWith("org-default", "user-1");
-    expect(port.ensureOwnerBinding).toHaveBeenCalledWith(
-      "org-default",
-      "user-1",
-      "role-owner",
-    );
-  });
-
-  it("skips the Owner binding when no system Owner role exists", async () => {
-    const port = buildPort({ findOwnerRoleId: vi.fn(async () => null) });
-
-    const orgId = await provisionUserDefaultOrg(port, "user-1");
-
-    expect(orgId).toBe("org-default");
-    expect(port.ensureMembership).toHaveBeenCalledWith("org-default", "user-1");
-    expect(port.ensureOwnerBinding).not.toHaveBeenCalled();
-  });
-
-  it("returns null and provisions nothing when there is no default org", async () => {
-    const port = buildPort({ findDefaultOrgId: vi.fn(async () => null) });
-
-    const orgId = await provisionUserDefaultOrg(port, "user-1");
-
-    expect(orgId).toBeNull();
-    expect(port.ensureMembership).not.toHaveBeenCalled();
-    expect(port.ensureOwnerBinding).not.toHaveBeenCalled();
-  });
-});
-
 describe("resolveSignInOrgId", () => {
-  it("returns the user's existing org membership when present", async () => {
+  it("returns the user's existing org membership", async () => {
     const port = buildPort({ findUserOrgId: vi.fn(async () => "org-existing") });
 
-    const orgId = await resolveSignInOrgId(port, "user-1");
-
-    expect(orgId).toBe("org-existing");
-    // No provisioning needed when membership already resolves.
-    expect(port.ensureMembership).not.toHaveBeenCalled();
+    await expect(resolveSignInOrgId(port, "user-1")).resolves.toBe("org-existing");
   });
 
-  it("provisions the default org when the user has no membership yet (race-safe)", async () => {
-    const port = buildPort({
-      findUserOrgId: vi.fn(async () => null),
-      findDefaultOrgId: vi.fn(async () => "org-default"),
-    });
+  it("returns null for a user with no membership, and provisions nothing", async () => {
+    const port = buildPort({ findUserOrgId: vi.fn(async () => null) });
 
-    const orgId = await resolveSignInOrgId(port, "user-1");
-
-    expect(orgId).toBe("org-default");
-    expect(port.ensureMembership).toHaveBeenCalledWith("org-default", "user-1");
-    expect(port.ensureOwnerBinding).toHaveBeenCalledWith(
-      "org-default",
-      "user-1",
-      "role-owner",
-    );
+    await expect(resolveSignInOrgId(port, "user-1")).resolves.toBeNull();
+    // The whole point: no membership is a valid answer, not a condition to fix by
+    // granting one. `null` reaches the engine as `organization: null` and the
+    // panel tells the user to ask an administrator.
+    expect(port.findUserOrgId).toHaveBeenCalledWith("user-1");
   });
 
-  it("returns null when neither membership nor a default org can be resolved", async () => {
-    const port = buildPort({
-      findUserOrgId: vi.fn(async () => null),
-      findDefaultOrgId: vi.fn(async () => null),
-    });
+  /**
+   * A structural guard rather than a behaviour test. The port is the ONLY way this
+   * module can touch the database, so an empty write surface is what makes
+   * "sign-in cannot grant membership" true by construction instead of by review.
+   * Re-adding a write capability here should require deleting this test on
+   * purpose.
+   */
+  it("exposes no write capability at all", () => {
+    const port = buildPort();
 
-    const orgId = await resolveSignInOrgId(port, "user-1");
-
-    expect(orgId).toBeNull();
+    expect(Object.keys(port)).toEqual(["findUserOrgId"]);
   });
 });

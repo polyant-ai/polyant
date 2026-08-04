@@ -11,7 +11,9 @@ import {
   resolveOrgIdBySlug,
   type OrganizationMember,
 } from "../../organizations/members.store.js";
+import { ensureDefaultMembership } from "../../organizations/organizations.store.js";
 import { RoleBindingService } from "../../authz/role-binding.service.js";
+import { AuthorizationService } from "../../authz/authorization.service.js";
 
 /** The acting principal, narrowed to what the members façade needs. */
 export interface MembersCaller {
@@ -34,6 +36,8 @@ export class MembersService {
   constructor(
     @Inject(RoleBindingService)
     private readonly roleBindings: RoleBindingService,
+    @Inject(AuthorizationService)
+    private readonly authz: AuthorizationService,
   ) {}
 
   async list(orgSlug: string, caller: MembersCaller): Promise<OrganizationMember[]> {
@@ -41,6 +45,26 @@ export class MembersService {
     return listOrganizationMembers(organizationId);
   }
 
+  /**
+   * Add a user to the organization, or change the role of one already in it.
+   *
+   * Since sign-in no longer provisions anybody, THIS is the only way into an
+   * organization — so it has to produce a fully usable member, which means BOTH
+   * rows:
+   *
+   *   - `role_bindings`, which `authz.can()` reads to decide permissions;
+   *   - `organization_memberships`, which is what the sign-in callback reads to
+   *     stamp `orgId` into the token.
+   *
+   * `assignRole` writes only the first. With auto-provisioning gone, an
+   * admin-added user would otherwise hold a perfectly good binding, receive no
+   * `orgId` at sign-in, resolve no scope, and be denied everywhere — an invited
+   * colleague who cannot see anything, with nothing in the UI to explain it.
+   *
+   * Membership first: it grants no permission on its own, so a failure between
+   * the two leaves a member who can sign in and see an empty panel, rather than a
+   * binding nobody can reach.
+   */
   async assign(
     orgSlug: string,
     userId: string,
@@ -48,6 +72,7 @@ export class MembersService {
     caller: MembersCaller,
   ): Promise<void> {
     const organizationId = await this.resolveAndAuthorize(orgSlug, caller);
+    await ensureDefaultMembership(organizationId, userId);
     await this.roleBindings.assignRole({
       organizationId,
       userId,
@@ -65,6 +90,15 @@ export class MembersService {
    * Resolve the addressed org and assert the caller belongs to it. Returns the
    * resolved org id so callers never re-resolve. Throws 404 for an unknown slug,
    * 403 for a cross-org (or org-less) caller.
+   *
+   * A PLATFORM ADMIN is exempt, and that exemption is load-bearing rather than a
+   * convenience. Platform admins sit above every organization and hold no
+   * membership, so they carry no `orgId` — which, now that sign-in provisions
+   * nobody, made this the deadlock: a fresh deployment's only privileged account
+   * could not add the FIRST member to its own organization, and there is no other
+   * way in. The bypass grants nothing new either: `PermissionGuard` already lets a
+   * platform admin past every permission check before this code runs, so refusing
+   * here only produced a 403 from the layer below.
    */
   private async resolveAndAuthorize(
     orgSlug: string,
@@ -74,9 +108,8 @@ export class MembersService {
     if (!organizationId) {
       throw new NotFoundException(`Organization ${orgSlug} not found`);
     }
-    if (!caller.orgId || caller.orgId !== organizationId) {
-      throw new ForbiddenException("Cross-organization access is not allowed");
-    }
-    return organizationId;
+    if (caller.orgId === organizationId) return organizationId;
+    if (await this.authz.isPlatformAdmin(caller.userId)) return organizationId;
+    throw new ForbiddenException("Cross-organization access is not allowed");
   }
 }

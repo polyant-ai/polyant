@@ -35,25 +35,30 @@ export function TenantUnavailable() {
     );
   }
 
-  const isLegacyToken = tenant.status === "no-organization";
+  /**
+   * Authenticated, but belonging to no organization. There is NO self-service
+   * remedy: sign-in used to provision a membership, so "sign in again" was real
+   * advice — now that it does not, an administrator has to add the account. So
+   * this state offers no button at all rather than one that cannot work.
+   */
+  if (tenant.status === "no-organization") {
+    return (
+      <div className="mx-auto max-w-md py-16 text-center">
+        <h2 className="text-lg font-semibold">{t("tenant.noOrganization.title")}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {t("tenant.noOrganization.description")}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-md py-16 text-center">
-      <h2 className="text-lg font-semibold">
-        {t(isLegacyToken ? "tenant.noOrganization.title" : "tenant.error.title")}
-      </h2>
-      <p className="mt-2 text-sm text-muted-foreground">
-        {t(isLegacyToken ? "tenant.noOrganization.description" : "tenant.error.description")}
-      </p>
-      {isLegacyToken ? (
-        <Button className="mt-6" onClick={() => signOut({ callbackUrl: "/login" })}>
-          {t("tenant.noOrganization.action")}
-        </Button>
-      ) : (
-        <Button className="mt-6" onClick={tenant.retry}>
-          {t("tenant.error.retry")}
-        </Button>
-      )}
+      <h2 className="text-lg font-semibold">{t("tenant.error.title")}</h2>
+      <p className="mt-2 text-sm text-muted-foreground">{t("tenant.error.description")}</p>
+      <Button className="mt-6" onClick={tenant.retry}>
+        {t("tenant.error.retry")}
+      </Button>
     </div>
   );
 }
