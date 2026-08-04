@@ -208,6 +208,19 @@ const configSchema = z.object({
 export type Config = z.infer<typeof configSchema>;
 
 /** Parse individual components from DATABASE_URL when individual POSTGRES_* vars are missing. */
+/**
+ * An env var that is PRESENT BUT EMPTY means "not set".
+ *
+ * `.env` files declare an optional input as `VAR=`, which reaches us as `""` —
+ * and `z.string().email().optional()` accepts `undefined`, not `""`. So every
+ * optional input documented in `.env.example` as "leave empty" failed
+ * validation, and a freshly copied sample did not boot: exactly what
+ * `config-env-contract.test.ts` asserts.
+ */
+function optionalEnv(value: string | undefined): string | undefined {
+  return value === undefined || value === "" ? undefined : value;
+}
+
 function parseDatabaseUrl(): { user: string; password: string; host: string; port: string; database: string } | null {
   const url = process.env.DATABASE_URL;
   if (!url) return null;
@@ -269,16 +282,16 @@ function loadConfig(): Config {
     },
     auth: {
       secret: process.env.AUTH_SECRET,
-      internalSecret: process.env.AUTH_INTERNAL_SECRET,
+      internalSecret: optionalEnv(process.env.AUTH_INTERNAL_SECRET),
       mode: process.env.AUTH_MODE,
-      platformAdminEmail: process.env.PLATFORM_ADMIN_EMAIL,
+      platformAdminEmail: optionalEnv(process.env.PLATFORM_ADMIN_EMAIL),
     },
     authz: {
       enforce: process.env.AUTHZ_ENFORCE,
     },
     initialAdmin: {
-      email: process.env.INITIAL_ADMIN_EMAIL,
-      password: process.env.INITIAL_ADMIN_PASSWORD,
+      email: optionalEnv(process.env.INITIAL_ADMIN_EMAIL),
+      password: optionalEnv(process.env.INITIAL_ADMIN_PASSWORD),
     },
     platformS3: process.env.PLATFORM_S3_BUCKET ? {
       bucket: process.env.PLATFORM_S3_BUCKET,
