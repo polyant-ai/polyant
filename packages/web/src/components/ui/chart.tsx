@@ -274,7 +274,12 @@ function ChartLegendContent({
   return (
     <div
       className={cn(
-        "flex items-center justify-center gap-4",
+        // `flex-wrap` is the local change to this shadcn primitive: the legend is
+        // one row per series and it did not wrap, so a chart with enough series
+        // overflowed its card — and nothing up the tree clips it, so the whole
+        // PAGE grew a horizontal scrollbar. Wrapping keeps the legend inside the
+        // chart, which is where a legend belongs.
+        "flex flex-wrap items-center justify-center gap-4",
         verticalAlign === "top" ? "pb-3" : "pt-3",
         className
       )}
