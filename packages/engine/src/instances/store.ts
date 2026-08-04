@@ -55,6 +55,7 @@ export async function resolvePrincipalOrgId(
 export async function resolveWorkspaceIdForPrincipal(
   orgId: string | undefined,
   executor: Executor = db,
+  workspaceSlug?: string,
 ): Promise<string> {
   const organizationId = await resolvePrincipalOrgId(orgId, executor);
   if (!organizationId) {
@@ -62,6 +63,29 @@ export async function resolveWorkspaceIdForPrincipal(
       "Cannot resolve the caller's organization — refusing to create the agent in another tenant's workspace.",
     );
   }
+
+  // An addressed workspace wins, but ONLY inside the caller's own organization —
+  // the slug arrives from the URL the browser is on, so it is caller-controlled
+  // input and a match on slug alone would let one tenant file an agent under
+  // another's workspace. Unknown-or-foreign is a hard failure rather than a
+  // silent fall back to the default, because filing the agent somewhere other
+  // than the address bar says is the bug this exists to fix.
+  if (workspaceSlug) {
+    const [addressed] = await executor
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(
+        and(eq(workspaces.organizationId, organizationId), eq(workspaces.slug, workspaceSlug)),
+      )
+      .limit(1);
+    if (!addressed) {
+      throw new Error(
+        `Workspace "${workspaceSlug}" does not belong to the caller's organization.`,
+      );
+    }
+    return addressed.id;
+  }
+
   const [row] = await executor
     .select({ id: workspaces.id })
     .from(workspaces)
@@ -203,12 +227,28 @@ export async function seedInstances(): Promise<void> {
  * the caller's resolved `orgId` to restrict the list to that organization's
  * agents; omitting it returns every agent — reserved for system paths with no
  * principal (boot channel startup).
+ *
+ * `workspaceSlug` narrows further to one workspace of that organization. It only
+ * ever narrows: the org filter is ANDed underneath, so a slug belonging to
+ * another tenant matches nothing rather than reaching across.
  */
-export async function listAllInstances(orgId?: string): Promise<Instance[]> {
+export async function listAllInstances(
+  orgId?: string,
+  workspaceSlug?: string,
+): Promise<Instance[]> {
+  const orgFilter = orgId ? buildOrgScopedAgentFilter(orgId, "slug") : undefined;
+  const workspaceFilter = workspaceSlug
+    ? sql`${instances.workspaceId} in (
+        select w.id from workspaces w where w.slug = ${workspaceSlug}
+      )`
+    : undefined;
   return db
     .select()
     .from(instances)
-    .where(orgId ? buildOrgScopedAgentFilter(orgId, "slug") : undefined)
+    // Explicit rather than leaning on `and(undefined, undefined)` collapsing to
+    // `undefined`: an unconstrained listing is the system-caller path, and it
+    // should not depend on a library edge case to stay unconstrained.
+    .where(orgFilter || workspaceFilter ? and(orgFilter, workspaceFilter) : undefined)
     .orderBy(sql`LOWER(${instances.name})`)
     .then((rows) => rows.map(toInstance));
 }
@@ -222,6 +262,12 @@ export async function createInstance(data: {
   model?: string;
   /** Caller's organization — decides the owning workspace. Never client-supplied. */
   orgId?: string;
+  /**
+   * The workspace the caller is addressing, from the URL they are on. Validated
+   * against `orgId` before use, so a foreign slug fails rather than filing the
+   * agent under another tenant. Omitted → the organization's default workspace.
+   */
+  workspaceSlug?: string;
 }): Promise<Instance> {
   const rows = await db
     .insert(instances)
@@ -236,7 +282,7 @@ export async function createInstance(data: {
       // Default the embedder to match the chat provider (bedrock chat → bedrock
       // embeddings, else openai). It is independently changeable afterwards.
       embeddingProvider: embeddingProviderFor(data.provider),
-      workspaceId: await resolveWorkspaceIdForPrincipal(data.orgId),
+      workspaceId: await resolveWorkspaceIdForPrincipal(data.orgId, db, data.workspaceSlug),
     })
     .returning();
   return toInstance(rows[0]);

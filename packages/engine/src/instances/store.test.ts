@@ -117,6 +117,9 @@ vi.mock("drizzle-orm", () => ({
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
+// The MOCKED `sql` tag — imported so a test can assert what was bound into a
+// template predicate, which the marker-object mocks cannot express.
+import { sql } from "drizzle-orm";
 import {
   listActiveInstances,
   findInstanceBySlug,
@@ -370,6 +373,37 @@ describe("instances/store", () => {
 
       await expect(resolveWorkspaceIdForPrincipal(undefined)).resolves.toBe("ws-only");
     });
+
+    // The ADDRESSED workspace — the segment in the URL the caller is on, arriving
+    // as `X-Workspace-Slug`. It used to be ignored entirely, so an agent created
+    // from `/workspaces/sandbox/instances` landed in the org's DEFAULT workspace
+    // while the browser was pushed to a `sandbox` URL that misattributed it.
+    it("should_use_the_addressed_workspace_when_it_belongs_to_the_caller_org", async () => {
+      const chain = createChainMock([{ id: "ws-sandbox" }]);
+      mockDb.select.mockReturnValue(chain as any);
+
+      const result = await resolveWorkspaceIdForPrincipal("org-b", undefined, "sandbox");
+
+      expect(result).toBe("ws-sandbox");
+      // Constrained on BOTH the organization and the slug: matching the slug alone
+      // would let one tenant file an agent under another's workspace, since the
+      // slug is caller-controlled input.
+      expect(chain.where).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "and" }),
+      );
+    });
+
+    it("should_throw_when_the_addressed_workspace_is_not_the_caller_org's", async () => {
+      // Nothing matches org + slug together — the workspace exists elsewhere, or
+      // not at all. Both are refusals, and deliberately NOT a silent fall back to
+      // the organization default: filing the agent somewhere other than the
+      // address bar says is the bug this path exists to prevent.
+      mockDb.select.mockReturnValue(createChainMock([]) as any);
+
+      await expect(
+        resolveWorkspaceIdForPrincipal("org-b", undefined, "someone-elses"),
+      ).rejects.toThrow(/does not belong to the caller/i);
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -473,11 +507,52 @@ describe("instances/store", () => {
       await listAllInstances("org-a");
 
       expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-a", "slug");
+      // Combined through `and` now that a workspace filter can join it; with no
+      // workspace addressed the org filter is the only term.
       expect(chain.where).toHaveBeenCalledWith({
-        type: "orgFilter",
-        orgId: "org-a",
-        column: "slug",
+        type: "and",
+        args: [{ type: "orgFilter", orgId: "org-a", column: "slug" }],
       });
+    });
+
+    // The workspace NARROWS, it never widens: the org filter stays ANDed
+    // underneath, so a slug belonging to another tenant matches nothing rather
+    // than reaching across. Before this the URL's workspace was decorative and
+    // `/workspaces/sandbox/instances` listed every agent in the organization.
+    it("should_narrow_the_listing_to_the_addressed_workspace", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.select.mockReturnValue(chain as any);
+      vi.mocked(sql).mockClear();
+
+      await listAllInstances("org-a", "sandbox");
+
+      // The workspace predicate is a `sql` template, and the mocked `sql` returns
+      // a marker-free value — so assert it was BUILT with the slug bound, which is
+      // the part that matters. The org filter is asserted separately above.
+      const boundSlug = vi
+        .mocked(sql)
+        .mock.calls.some((args) => args.slice(1).includes("sandbox"));
+      expect(boundSlug, "the workspace slug must be bound into the predicate").toBe(true);
+      expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-a", "slug");
+    });
+
+    it("should_not_build_a_workspace_predicate_when_none_is_addressed", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.select.mockReturnValue(chain as any);
+      vi.mocked(sql).mockClear();
+
+      await listAllInstances("org-a");
+
+      // No workspace term. Asserted on the SQL TEXT rather than on "some string
+      // was bound", because the ORDER BY template binds a column too.
+      const builtWorkspaceTerm = vi
+        .mocked(sql)
+        .mock.calls.some((args) =>
+          (args[0] as unknown as string[] | undefined)?.some?.((chunk) =>
+            chunk.includes("workspaces"),
+          ),
+        );
+      expect(builtWorkspaceTerm).toBe(false);
     });
 
     it("should_not_constrain_the_listing_when_no_orgId_is_given_by_a_system_caller", async () => {

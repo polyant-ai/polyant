@@ -69,6 +69,12 @@ export function CreateInstanceDialog({ open, onOpenChange, onCreated }: Props) {
       toast.success(t("instances.create.success"));
       resetForm();
       onCreated();
+      // Truthful now: `request()` sends the URL's workspace as `X-Workspace-Slug`
+      // and the engine files the agent there, so the workspace in this pushed URL
+      // is the workspace the agent is actually in. It used to be a lie — the
+      // engine ignored the header and used the organization's DEFAULT workspace,
+      // so creating from `/workspaces/sandbox/...` produced an agent in `general`
+      // under a `sandbox` URL, which is then what gets bookmarked and shared.
       router.push(paths.workspace(`/instances/${encodeURIComponent(instance.slug)}`));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("instances.create.error")));

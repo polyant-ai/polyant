@@ -46,6 +46,7 @@ import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import { WorkspaceSlug } from "../../auth/decorators/workspace-slug.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import {
   createManagementAuditLogger,
@@ -118,13 +119,21 @@ export class InstancesController {
   // GET /api/instances — list the caller organization's instances
   @RequirePermission(Permission.AGENT_READ)
   @Get()
-  async list(@CurrentUser() user?: AuthenticatedUser) {
+  async list(
+    @CurrentUser() user?: AuthenticatedUser,
+    @WorkspaceSlug() workspaceSlug?: string,
+  ) {
     // Agents are org-owned, and this route carries no `:slug` for the guard to
     // scope on — so the org filter is applied here. An unresolvable organization
     // yields an empty list (fail closed), never the whole deployment.
     const orgId = await resolvePrincipalOrgId(user?.orgId);
     if (!orgId) return { instances: [] };
-    const all = await listAllInstances(orgId);
+    // Narrowed to the addressed workspace when the caller is inside one. Without
+    // this, `/workspaces/sandbox/instances` listed every agent in the ORG,
+    // including other workspaces' — so the page advertised an isolation that did
+    // not exist. Still org-filtered underneath: the workspace narrows, it never
+    // widens, and a foreign slug matches nothing.
+    const all = await listAllInstances(orgId, workspaceSlug);
     return { instances: all.map(toInstanceDto) };
   }
 
@@ -212,6 +221,7 @@ export class InstancesController {
   async create(
     @Body() body: { slug: string; name: string; description?: string; provider?: string; model?: string },
     @CurrentUser() user?: AuthenticatedUser,
+    @WorkspaceSlug() workspaceSlug?: string,
   ) {
     this.validateSlug(body.slug);
     this.validateModelConfig(body.provider, body.model);
@@ -230,15 +240,25 @@ export class InstancesController {
     let instance: Instance;
     try {
       // `orgId` last: it comes from the authenticated principal and must never be
-      // overridable by a field of the request body.
+      // overridable by a field of the request body. `workspaceSlug` comes from a
+      // header, not the body, for the same reason — and it is validated against
+      // `orgId` inside the store before it decides anything.
       instance = await createInstance({
         ...body,
         slug: asInstanceSlug(body.slug),
         orgId,
+        workspaceSlug,
       });
     } catch (err: unknown) {
       if (isUniqueViolation(err)) {
         throw new ConflictException(`Slug "${body.slug}" already exists`);
+      }
+      // An addressed workspace that is not the caller's own is a caller-side
+      // condition, not a server fault: the agent is deliberately NOT filed under
+      // the organization default, because creating it somewhere other than the
+      // address bar says is the bug this path exists to prevent.
+      if (err instanceof Error && err.message.includes("does not belong to the caller")) {
+        throw new BadRequestException(err.message);
       }
       throw err;
     }
