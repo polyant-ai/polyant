@@ -125,12 +125,13 @@ function KnowledgeToggle({ instance, onUpdate }: { instance: Instance; onUpdate:
   return (
     <section className="mb-6 space-y-4 rounded-lg border p-4">
       <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <Label htmlFor="agent-knowledge" className="text-base font-medium">
-            {t("settings.tab.knowledge")}
-          </Label>
-          <p className="text-sm text-muted-foreground">{t("settings.tab.knowledgeHelp")}</p>
-        </div>
+        {/* No title: the TAB is already called Knowledge, so repeating it here made
+            the row read as a section inside a section — and the copy was stacked
+            three deep (title, help, then the tab description right below). One
+            sentence, on the Label so the switch keeps its accessible name. */}
+        <Label htmlFor="agent-knowledge" className="text-sm font-normal text-muted-foreground">
+          {t("knowledge.tab.enableHelp")}
+        </Label>
         <Switch id="agent-knowledge" checked={enabled} disabled={saving} onCheckedChange={toggle} />
       </div>
 
@@ -308,12 +309,25 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
     );
   }
 
+  // Disabled knowledge means the documents are NOT reachable by the model. The
+  // list stayed fully interactive when the switch was off, which reads as "these
+  // are in use" — so everything below is dimmed and inert, and says why.
+  const knowledgeEnabled = instance.knowledgeEnabled ?? false;
+
   return (
     <div className="max-w-3xl">
       <KnowledgeToggle instance={instance} onUpdate={onUpdate} />
+      <div
+        className={
+          knowledgeEnabled ? undefined : "pointer-events-none opacity-50"
+        }
+        aria-disabled={!knowledgeEnabled}
+      >
       <div className="mb-6 flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {t("knowledge.tab.description")}
+          {knowledgeEnabled
+            ? t("knowledge.tab.description")
+            : t("knowledge.tab.disabledNotice")}
         </p>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={load}>
@@ -469,6 +483,7 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
           ))}
         </div>
       )}
+      </div>
 
       {/* View document content dialog */}
       <Dialog open={viewDocId !== null} onOpenChange={(open) => !open && setViewDocId(null)}>

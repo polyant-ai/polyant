@@ -3,9 +3,13 @@
 /**
  * Tenant-scoped URL routing, end to end against a real engine + DB.
  *
- * The harness runs with AUTHZ_ENFORCE=true, so these tests also prove
- * GET /api/me is reachable under enforcement for every role — a Viewer holds
- * ORG_READ, and a route that declared no permission would 403 here.
+ * The harness runs with AUTHZ_ENFORCE=true — the knob is real HERE, unlike in the
+ * enterprise overlay, which enforces by default and does not read it. So these
+ * tests also prove GET /api/me is reachable under enforcement for every role. It
+ * declares `@AuthenticatedOnly()`, not a permission: reading your OWN tenancy
+ * authorizes on identity, and a permission would resolve against an organization
+ * binding, which 403s the one caller who most needs the route. A route declaring
+ * NOTHING would 403 here.
  *
  * Migration 0051 seeds the organization as "default" and the workspace as
  * "general" — the slugs are deliberately not the same word.
@@ -89,7 +93,7 @@ test.describe("tenant-scoped URLs", () => {
 
     await page.goto("/");
 
-    // Reaching the dashboard means GET /api/me returned 200 with AUTHZ_ENFORCE=true.
+    // Reaching the dashboard means GET /api/me returned 200 under enforcement.
     await page.waitForURL(`**/organizations/${ORG_SLUG}`, { timeout: 20_000 });
   });
 });
