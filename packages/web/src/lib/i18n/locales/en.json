@@ -474,7 +474,7 @@
   "channels.tab.removeFailed": "Failed to remove channel",
   "channels.tab.removeTitle": "Remove channel?",
   "channels.tab.removeDescription": "This will stop the channel and remove its configuration.",
-  "channels.tab.agent": "Agent (in-process)",
+  "channels.tab.agent": "Agent-to-Agent",
   "channels.tab.agentHelp": "Allows other agents to invoke this one via the virtual 'agent' channel. No configuration required.",
   "instances.detail.tabKnowledge": "Knowledge",
   "knowledge.tab.description": "Manage the knowledge base documents for this assistant. Documents are automatically chunked and embedded for RAG search.",

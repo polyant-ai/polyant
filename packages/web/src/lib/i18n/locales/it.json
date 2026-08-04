@@ -473,7 +473,7 @@
   "channels.tab.removeFailed": "Rimozione canale fallita",
   "channels.tab.removeTitle": "Rimuovere il canale?",
   "channels.tab.removeDescription": "Questo fermerà il canale e rimuoverà la sua configurazione.",
-  "channels.tab.agent": "Agent (in-process)",
+  "channels.tab.agent": "Agent-to-Agent",
   "channels.tab.agentHelp": "Consente ad altri agenti di invocare questo tramite il canale virtuale 'agent'. Nessuna configurazione richiesta.",
   "instances.detail.tabKnowledge": "Knowledge",
   "knowledge.tab.description": "Gestisci i documenti della knowledge base di questo assistente. I documenti vengono automaticamente suddivisi e indicizzati per la ricerca RAG.",
