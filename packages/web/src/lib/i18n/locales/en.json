@@ -203,6 +203,7 @@
   "instances.detail.tabTools": "Tools",
   "instances.detail.tabSkills": "Skills",
   "instances.detail.tabSettings": "Settings",
+  "instances.detail.tabSettings": "Model",
   "instances.detail.tabChannels": "Channels",
   "instances.detail.tabAnalytics": "Analytics",
   "instances.detail.railLabel": "Agent settings navigation",

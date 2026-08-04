@@ -177,10 +177,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   const [debugEnabled, setDebugEnabled] = useState(instance.debugEnabled ?? false);
 
   // Memory
-  const [memoryEnabled, setMemoryEnabled] = useState(instance.memoryEnabled);
 
   // Knowledge
-  const [knowledgeEnabled, setKnowledgeEnabled] = useState(instance.knowledgeEnabled ?? false);
 
   // Required-secret specs (tools + hooks, dynamic, from API). Each entry describes
   // how to render and persist the field (text input vs select dropdown).
@@ -414,8 +412,6 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     cacheTtl !== instance.cacheTtl ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
     debugEnabled !== (instance.debugEnabled ?? false) ||
-    memoryEnabled !== instance.memoryEnabled ||
-    knowledgeEnabled !== (instance.knowledgeEnabled ?? false) ||
     Object.values(secretFields).some((f) => f.value !== f.initial) ||
     authEnabled !== instance.authEnabled ||
     langsmithEnabled !== instance.langsmithEnabled ||
@@ -453,8 +449,6 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         provider: provider || null,
         model: model || null,
         embeddingProvider,
-        memoryEnabled,
-        knowledgeEnabled,
         authEnabled,
         thinkingEnabled: thinkingToPersist,
         thinkingLevel,
@@ -1051,70 +1045,6 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           </div>
         </section>
       )}
-
-      {/* Memory */}
-      <section className="space-y-4 rounded-lg border p-4">
-        <div>
-          <Label className="text-base font-medium">{t("settings.tab.memory")}</Label>
-          <p className="text-sm text-muted-foreground">
-            {t("settings.tab.memoryHelp")}
-          </p>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <Label>{t("settings.tab.memory")}</Label>
-          <Switch
-            checked={memoryEnabled}
-            onCheckedChange={setMemoryEnabled}
-          />
-        </div>
-
-        {memoryEnabled && instance.memory?.needsOpenAIKey && (
-          <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p className="text-sm">
-              {t(
-                // Text keys off the EMBEDDER (openai|bedrock), not the chat
-                // provider — they are independent (#150).
-                embeddingProvider === "bedrock"
-                  ? "memory.banner.bedrockNeedsAws"
-                  : "memory.banner.openaiNeedsKey",
-              )}
-            </p>
-          </div>
-        )}
-      </section>
-
-      {/* Knowledge Base */}
-      <section className="space-y-4 rounded-lg border p-4">
-        <div>
-          <Label className="text-base font-medium">{t("settings.tab.knowledge")}</Label>
-          <p className="text-sm text-muted-foreground">
-            {t("settings.tab.knowledgeHelp")}
-          </p>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <Label>{t("settings.tab.knowledge")}</Label>
-          <Switch
-            checked={knowledgeEnabled}
-            onCheckedChange={setKnowledgeEnabled}
-          />
-        </div>
-
-        {knowledgeEnabled && embedderNeedsCredentials && (
-          <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p className="text-sm">
-              {t(
-                embeddingProvider === "bedrock"
-                  ? "settings.tab.knowledgeAwsWarning"
-                  : "settings.tab.knowledgeOpenaiWarning",
-              )}
-            </p>
-          </div>
-        )}
-      </section>
 
       {/* Audio (STT) */}
       <section className="space-y-4 rounded-lg border p-4">

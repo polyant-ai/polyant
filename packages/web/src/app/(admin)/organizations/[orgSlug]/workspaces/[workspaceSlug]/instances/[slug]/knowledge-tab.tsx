@@ -41,12 +41,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { api, getUserErrorMessage, type KnowledgeDocument } from "@/lib/api";
+import { Switch } from "@/components/ui/switch";
+import { api, getUserErrorMessage, type Instance, type KnowledgeDocument } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
 
 interface Props {
   slug: string;
+  /** For the enable switch above the documents — see `KnowledgeToggle`. */
+  instance: Instance;
+  onUpdate: (instance: Instance) => void;
 }
 
 function StatusBadge({ status, t }: { status: KnowledgeDocument["status"]; t: (key: TranslationKey) => string }) {
@@ -90,7 +94,58 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-export function KnowledgeTab({ slug }: Props) {
+/**
+ * The switch that turns the knowledge base ON, above the documents it governs.
+ *
+ * It used to live in the model settings, three tabs away from the thing it
+ * enables — so an empty-looking knowledge base gave no hint that it was simply
+ * switched off. Writes on change rather than through the page's Save: it is one
+ * boolean, and a Save button for a single switch is a second step for no reason.
+ */
+function KnowledgeToggle({ instance, onUpdate }: { instance: Instance; onUpdate: (i: Instance) => void }) {
+  const { t } = useI18n();
+  const [saving, setSaving] = useState(false);
+  const enabled = instance.knowledgeEnabled ?? false;
+
+  const toggle = async (next: boolean) => {
+    setSaving(true);
+    try {
+      const { instance: updated } = await api.instances.update(instance.slug, {
+        knowledgeEnabled: next,
+      });
+      onUpdate(updated);
+      toast.success(t("general.saved"));
+    } catch (err) {
+      toast.error(getUserErrorMessage(err, t("general.saveFailed")));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="mb-6 space-y-4 rounded-lg border p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <Label htmlFor="agent-knowledge" className="text-base font-medium">
+            {t("settings.tab.knowledge")}
+          </Label>
+          <p className="text-sm text-muted-foreground">{t("settings.tab.knowledgeHelp")}</p>
+        </div>
+        <Switch id="agent-knowledge" checked={enabled} disabled={saving} onCheckedChange={toggle} />
+      </div>
+
+      {/* KNOWN GAP: no "the embedder has no credentials" warning here. It was
+          computed in the model settings from the secrets list, which this tab does
+          not load, and `instance.memory.needsOpenAIKey` cannot stand in — it is
+          gated on MEMORY being on, so it stays false for an agent that uses only
+          knowledge. Duplicating the rule would make a third copy of "is the
+          embedder configured" (the model tab and `memory-status.ts` hold the other
+          two); the fix is an engine field beside `memory`, not a third reader. */}
+    </section>
+  );
+}
+
+export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
   const { t } = useI18n();
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -255,6 +310,7 @@ export function KnowledgeTab({ slug }: Props) {
 
   return (
     <div className="max-w-3xl">
+      <KnowledgeToggle instance={instance} onUpdate={onUpdate} />
       <div className="mb-6 flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {t("knowledge.tab.description")}

@@ -134,13 +134,16 @@ function setupDefaultMocks() {
   mockToolsRequiredSecrets.mockResolvedValue({ requiredSecrets: [] });
 }
 
+
 /**
- * The memory Switch, scoped to the Memory section via its unique help text.
- * Robust to switch reordering — index-based lookups (switches[0]/[3]) broke when
- * the always-visible thinking toggle (#178) shifted every switch down by one.
+ * A switch that still LIVES in this tab, for tests that only need to dirty the
+ * form. It was the memory switch, which moved to Generale — so a test using it to
+ * make the form dirty was testing the move, not the save. Scoped by unique help
+ * text rather than by index: index lookups (switches[0]/[3]) have already broken
+ * once here when a new always-visible toggle shifted every switch down by one.
  */
-function getMemorySwitch(): HTMLElement {
-  const section = screen.getByText("settings.tab.memoryHelp").closest("section");
+function getDirtyingSwitch(): HTMLElement {
+  const section = screen.getByText("settings.tab.authHelp").closest("section");
   return within(section as HTMLElement).getByRole("switch");
 }
 
@@ -176,8 +179,6 @@ describe("SettingsTab", () => {
     });
 
     expect(screen.getByText("settings.tab.apiKeys")).toBeInTheDocument();
-    // "settings.tab.memory" appears twice (section title + switch label)
-    expect(screen.getAllByText("settings.tab.memory").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("settings.tab.auth")).toBeInTheDocument();
     expect(screen.getByText("settings.tab.langsmith")).toBeInTheDocument();
   });
@@ -224,136 +225,12 @@ describe("SettingsTab", () => {
     expect(lastSaveAction.current?.isDirty).toBe(false);
   });
 
-  it("shows save button when memory toggle is changed", async () => {
-    const user = userEvent.setup();
-    render(
-      <SettingsTab instance={makeInstance({ memoryEnabled: false })} onUpdate={onUpdate} />,
-    );
 
-    await waitFor(() => {
-      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
-    });
 
-    await user.click(getMemorySwitch());
 
-    expect(lastSaveAction.current?.isDirty).toBe(true);
-  });
 
-  it("shows the openai memory warning when the engine reports needsOpenAIKey", async () => {
-    render(
-      <SettingsTab
-        instance={makeInstance({
-          memoryEnabled: true,
-          provider: "openai",
-          memory: { needsOpenAIKey: true, canEnable: false },
-        })}
-        onUpdate={onUpdate}
-      />,
-    );
 
-    await waitFor(() => {
-      expect(screen.getByText("memory.banner.openaiNeedsKey")).toBeInTheDocument();
-    });
-  });
 
-  it("keys the memory warning off the embedder, not the chat provider (anthropic chat + openai embedder)", async () => {
-    render(
-      <SettingsTab
-        instance={makeInstance({
-          memoryEnabled: true,
-          provider: "anthropic",
-          model: "claude-3-opus",
-          embeddingProvider: "openai",
-          memory: { needsOpenAIKey: true, canEnable: false },
-        })}
-        onUpdate={onUpdate}
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("memory.banner.openaiNeedsKey")).toBeInTheDocument();
-    });
-  });
-
-  it("shows the bedrock memory warning for a bedrock embedder needing aws credentials", async () => {
-    mockModelsList.mockResolvedValue({
-      providers: {
-        bedrock: { models: [{ id: "titan", tier: "standard", costInput: 0.01, costOutput: 0.03 }] },
-      },
-    });
-
-    render(
-      <SettingsTab
-        instance={makeInstance({
-          memoryEnabled: true,
-          provider: "bedrock",
-          model: "titan",
-          embeddingProvider: "bedrock",
-          memory: { needsOpenAIKey: true, canEnable: false },
-        })}
-        onUpdate={onUpdate}
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("memory.banner.bedrockNeedsAws")).toBeInTheDocument();
-    });
-  });
-
-  it("shows the openai knowledge warning when knowledge is on and no openai key (openai embedder)", async () => {
-    mockSecretsList.mockResolvedValue({
-      secrets: [{ key: "openai_api_key", configured: false }],
-    });
-
-    render(
-      <SettingsTab
-        instance={makeInstance({
-          knowledgeEnabled: true,
-          embeddingProvider: "openai",
-        })}
-        onUpdate={onUpdate}
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("settings.tab.knowledgeOpenaiWarning")).toBeInTheDocument();
-    });
-  });
-
-  it("shows the aws knowledge warning (not the openai one) for a bedrock embedder without aws region", async () => {
-    render(
-      <SettingsTab
-        instance={makeInstance({
-          knowledgeEnabled: true,
-          embeddingProvider: "bedrock",
-        })}
-        onUpdate={onUpdate}
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("settings.tab.knowledgeAwsWarning")).toBeInTheDocument();
-    });
-    expect(screen.queryByText("settings.tab.knowledgeOpenaiWarning")).not.toBeInTheDocument();
-  });
-
-  it("does not show the memory warning when the engine reports no missing key", async () => {
-    render(
-      <SettingsTab
-        instance={makeInstance({
-          memoryEnabled: true,
-          memory: { needsOpenAIKey: false, canEnable: true },
-        })}
-        onUpdate={onUpdate}
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
-    });
-
-    expect(screen.queryByText("memory.banner.openaiNeedsKey")).not.toBeInTheDocument();
-  });
 
   it("shows auth key field when authEnabled is true", async () => {
     render(
@@ -420,15 +297,17 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Toggle memory on to create a dirty state.
-    await user.click(getMemorySwitch());
+    // Dirty the form with a switch that still lives here.
+    await user.click(getDirtyingSwitch());
 
     await lastSaveAction.current!.onSave();
 
     await waitFor(() => {
       expect(mockInstanceUpdate).toHaveBeenCalledWith(
         "test-instance",
-        expect.objectContaining({ memoryEnabled: true }),
+        // The flag the dirtying switch actually owns — `memoryEnabled` is not in this
+        // tab's payload any more.
+        expect.objectContaining({ authEnabled: true }),
       );
     });
 
@@ -546,7 +425,7 @@ describe("SettingsTab", () => {
     });
 
     // Toggle memory to trigger dirty state
-    await user.click(getMemorySwitch());
+    await user.click(getDirtyingSwitch());
 
     await lastSaveAction.current!.onSave();
 

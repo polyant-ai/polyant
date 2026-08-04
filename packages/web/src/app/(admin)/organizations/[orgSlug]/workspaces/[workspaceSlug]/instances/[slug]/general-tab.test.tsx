@@ -157,7 +157,10 @@ describe("GeneralTab", () => {
     const instance = makeInstance({ status: "active" });
     render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
-    const toggle = screen.getByRole("switch");
+    // Named, not positional: this tab holds TWO switches now (status and memory),
+    // and `getByRole("switch")` cannot tell them apart — which is also why both
+    // carry a label a screen reader can use.
+    const toggle = screen.getByLabelText("general.status");
     await user.click(toggle);
 
     expect(lastSaveAction.current?.isDirty).toBe(true);
@@ -178,10 +181,13 @@ describe("GeneralTab", () => {
     await lastSaveAction.current!.onSave();
 
     await waitFor(() => {
+      // `memoryEnabled` joins the payload: the memory switch moved into this tab,
+      // and the tab sends its whole form.
       expect(mockUpdate).toHaveBeenCalledWith("test-instance", {
         name: "Updated Name",
         description: "A test instance",
         status: "active",
+        memoryEnabled: true,
       });
     });
 

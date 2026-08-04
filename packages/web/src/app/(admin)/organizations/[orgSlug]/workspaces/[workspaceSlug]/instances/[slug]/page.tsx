@@ -252,7 +252,9 @@ function InstanceDetailContent() {
               onToolsUpdate={setTools}
             />
           )}
-          {activeTab === "knowledge" && <KnowledgeTab slug={instance.slug} />}
+          {activeTab === "knowledge" && (
+            <KnowledgeTab slug={instance.slug} instance={instance} onUpdate={setInstance} />
+          )}
           {activeTab === "settings" && (
             <SettingsTab instance={instance} onUpdate={setInstance} />
           )}
