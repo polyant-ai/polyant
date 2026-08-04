@@ -5,6 +5,7 @@ import { listAuditLogs, getAuditStats } from "../../audit/index.js";
 import { parseDateRange } from "../utils/parse-date-range.js";
 import { parsePagination } from "../utils/parse-pagination.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { resolvePrincipalOrgId } from "../../instances/store.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
@@ -42,7 +43,7 @@ export class AuditController {
       to: to ? range.to : undefined,
       limit,
       offset,
-      orgId: user?.orgId,
+      orgId: (await resolvePrincipalOrgId(user?.orgId)) ?? undefined,
     });
   }
 
@@ -59,7 +60,7 @@ export class AuditController {
       instanceId: instanceId ? asInstanceSlug(instanceId) : undefined,
       from: from ? range.from : undefined,
       to: to ? range.to : undefined,
-      orgId: user?.orgId,
+      orgId: (await resolvePrincipalOrgId(user?.orgId)) ?? undefined,
     });
   }
 }

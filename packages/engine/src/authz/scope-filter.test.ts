@@ -71,8 +71,22 @@ describe("buildOrgScopedAgentFilterFragment", () => {
     expect(params).toContain("org-a");
   });
 
-  it("should_be_empty_when_orgId_is_undefined", () => {
+  /**
+   * Fails CLOSED, and this assertion is the point of the test.
+   *
+   * It used to return an EMPTY fragment — no constraint at all — on the reasoning
+   * that single-org OSS could not tell the difference. What it actually meant is
+   * that a principal with no `orgId` claim (a legacy JWT, or any
+   * gateway-forwarded identity, which never carries one) read analytics,
+   * conversations, audit logs and memories across EVERY organization, with only
+   * PermissionGuard's unresolved-scope deny standing in front of it.
+   *
+   * Controllers resolve the claim through `resolvePrincipalOrgId` before calling
+   * this, so a legitimate single-org caller never lands here; arriving with
+   * nothing means ownership is unprovable, and no rows is the honest answer.
+   */
+  it("should_match_nothing_when_orgId_is_undefined", () => {
     const { sql: text } = render(buildOrgScopedAgentFilterFragment(undefined));
-    expect(text.trim()).toBe("");
+    expect(text.trim().toLowerCase()).toBe("and false");
   });
 });

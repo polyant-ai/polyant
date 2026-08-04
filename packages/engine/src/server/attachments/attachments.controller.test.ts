@@ -14,13 +14,17 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { NotFoundException } from "@nestjs/common";
 import type { Response } from "express";
 
-const { mockGetAttachmentStream, mockIsConfigured, mockResolvePrincipalOrgId } = vi.hoisted(
-  () => ({
-    mockGetAttachmentStream: vi.fn(),
-    mockIsConfigured: vi.fn(() => true),
-    mockResolvePrincipalOrgId: vi.fn(),
-  }),
-);
+const {
+  mockGetAttachmentStream,
+  mockIsConfigured,
+  mockResolvePrincipalOrgId,
+  mockReadAgentScope,
+} = vi.hoisted(() => ({
+  mockGetAttachmentStream: vi.fn(),
+  mockIsConfigured: vi.fn(() => true),
+  mockResolvePrincipalOrgId: vi.fn(),
+  mockReadAgentScope: vi.fn(),
+}));
 
 vi.mock("../../attachments/platform-storage.js", () => ({
   getAttachmentStream: mockGetAttachmentStream,
@@ -31,6 +35,14 @@ vi.mock("../../attachments/platform-storage.js", () => ({
 // tested there); stub it so this file never reaches a database.
 vi.mock("../../instances/store.js", () => ({
   resolvePrincipalOrgId: mockResolvePrincipalOrgId,
+}));
+
+// The tenancy check now lives in the shared `callerMayAccessAgent`, which reads
+// the agent scope directly. Stubbing the store (rather than the helper) keeps the
+// REAL decision logic under test here — mocking the helper would leave this file
+// asserting its own mock.
+vi.mock("../../authz/authz.store.js", () => ({
+  readAgentScope: mockReadAgentScope,
 }));
 
 import { AttachmentsController } from "./attachments.controller.js";
@@ -56,13 +68,12 @@ function makeStream() {
 }
 
 function makeController(scopeOrg: string | null) {
-  const resolveAgentScope = vi.fn().mockResolvedValue(
+  mockReadAgentScope.mockResolvedValue(
     scopeOrg === null
       ? null
       : { agentId: "id-1", workspaceId: "ws-1", organizationId: scopeOrg },
   );
-  const controller = new AttachmentsController({ resolveAgentScope } as never);
-  return { controller, resolveAgentScope };
+  return { controller: new AttachmentsController(), resolveAgentScope: mockReadAgentScope };
 }
 
 describe("AttachmentsController.getAttachment", () => {

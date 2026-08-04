@@ -19,7 +19,7 @@
 
 const { mockConfig, validateSessionToken, validateManagementApiKey, findInstanceByAuthApiKey } =
   vi.hoisted(() => ({
-    mockConfig: { authz: { enforce: true }, auth: { mode: "session" } },
+    mockConfig: { auth: { mode: "session" } },
     validateSessionToken: vi.fn(),
     validateManagementApiKey: vi.fn(),
     findInstanceByAuthApiKey: vi.fn(),
@@ -142,7 +142,6 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockConfig.authz.enforce = true;
   mockConfig.auth.mode = "session";
   authz.isPlatformAdmin.mockResolvedValue(false);
   authz.can.mockResolvedValue(true);
@@ -186,15 +185,9 @@ describe("global guard chain over HTTP", () => {
     expect(res.status).toBe(403);
   });
 
-  it("should_403_an_undeclared_route_under_enforcement", async () => {
+  it("should_403_an_undeclared_route", async () => {
     const res = await get("/probe/undeclared", { authorization: `Bearer ${SESSION}` });
     expect(res.status).toBe(403);
-  });
-
-  it("should_allow_an_undeclared_route_in_shadow_mode", async () => {
-    mockConfig.authz.enforce = false;
-    const res = await get("/probe/undeclared", { authorization: `Bearer ${SESSION}` });
-    expect(res.status).toBe(200);
   });
 
   it("should_allow_an_authenticated_only_route_for_any_signed_in_user", async () => {
