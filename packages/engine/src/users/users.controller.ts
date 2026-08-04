@@ -9,21 +9,24 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from "@nestjs/common";
 import { UsersService } from "./users.service.js";
 import { RequireRole } from "../auth/decorators/require-role.decorator.js";
 import { CurrentUser } from "../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { PLATFORM_ADMIN_ROLE } from "../auth/user-role.js";
+import { parsePagination } from "../server/utils/parse-pagination.js";
 
 @Controller("api/users")
 @RequireRole(PLATFORM_ADMIN_ROLE)
 export class UsersController {
   constructor(@Inject(UsersService) private readonly users: UsersService) {}
 
+  /** One page of accounts, . */
   @Get()
-  async list() {
-    return { users: await this.users.list() };
+  async list(@Query("limit") limitStr?: string, @Query("offset") offsetStr?: string) {
+    return this.users.list(parsePagination(limitStr, offsetStr));
   }
 
   @Get(":id")

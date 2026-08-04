@@ -175,7 +175,18 @@ export function getUserErrorMessage(err: unknown, fallback: string): string {
 
 export const api = {
   users: {
-    list: () => request<{ users: AdminUser[] }>("/api/users"),
+    /**
+     * One page of installation accounts. `total` is what makes the page
+     * navigable — the engine bounds the response, so the caller cannot infer the
+     * end of the table from a short page.
+     */
+    list: (params: { limit?: number; offset?: number } = {}) => {
+      const qs = new URLSearchParams();
+      if (params.limit !== undefined) qs.set("limit", String(params.limit));
+      if (params.offset !== undefined) qs.set("offset", String(params.offset));
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return request<{ users: AdminUser[]; total: number }>(`/api/users${suffix}`);
+    },
     create: (data: { email: string; name?: string; role?: UserRole; password?: string }) =>
       request<CreateUserResponse>("/api/users", {
         method: "POST",

@@ -18,6 +18,8 @@ import {
   updateUserMeta,
   updateUserPassword,
   type UserRow,
+  type ListUsersQuery,
+  type UserList,
 } from "./users.store.js";
 import {
   hashPassword,
@@ -63,8 +65,8 @@ export interface ResetPasswordResult {
 
 @Injectable()
 export class UsersService {
-  async list(): Promise<PublicUser[]> {
-    return listUsers();
+  async list(query: ListUsersQuery): Promise<UserList> {
+    return listUsers(query);
   }
 
   async get(id: string): Promise<PublicUser> {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, sql , inArray } from "drizzle-orm";
+import { eq, sql , inArray , desc } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { users, sessions, type UserRole } from "../auth/users.schema.js";
 import { invalidateSuperadminCache } from "../authz/authz.caches.js";
@@ -51,9 +51,49 @@ function stripSecret(row: UserWithSecret): UserRow {
   };
 }
 
-export async function listUsers(): Promise<UserRow[]> {
-  const rows = await db.select().from(users).orderBy(users.createdAt);
-  return rows.map((r) => stripSecret(mapRow(r)));
+export interface ListUsersQuery {
+  readonly limit: number;
+  readonly offset: number;
+}
+
+export interface UserList {
+  readonly users: UserRow[];
+  readonly total: number;
+}
+
+/**
+ * One page of installation accounts, plus the total.
+ *
+ * PAGINATED because it was not: the previous form selected the whole `users`
+ * table with no LIMIT, so the response grew with the installation and the panel
+ * rendered every row it was sent.
+ *
+ * Ordered platform-admins-first, then by email, rather than by creation date: the
+ * flag is the reason to open this list, and burying admins among the accounts
+ * created around them defeats its purpose. Tolerant of BOTH role values, like
+ * every other read — a row still holding the legacy spelling is just as much a
+ * platform admin, and ordering on the canonical value alone would sort it in with
+ * ordinary users.
+ */
+export async function listUsers(query: ListUsersQuery): Promise<UserList> {
+  const [rows, totalRows] = await Promise.all([
+    db
+      .select()
+      .from(users)
+      .orderBy(
+        // The column is typed on what we WRITE, while the stored set is wider by
+        // one legacy value — the same cast `countPlatformAdmins` needs.
+        desc(inArray(users.role, [...PLATFORM_ADMIN_ROLE_VALUES] as UserRole[])),
+        users.email,
+      )
+      .limit(query.limit)
+      .offset(query.offset),
+    db.select({ count: sql<number>`count(*)::int` }).from(users),
+  ]);
+  return {
+    users: rows.map((r) => stripSecret(mapRow(r))),
+    total: totalRows[0]?.count ?? 0,
+  };
 }
 
 export { stripSecret };

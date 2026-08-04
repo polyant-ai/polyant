@@ -35,12 +35,19 @@ import { EditUserDialog } from "./edit-user-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
 import { isPlatformAdminRole } from "@/lib/user-role";
 
+const PAGE_SIZE = 25;
+
 export function UsersTab() {
   const { t } = useI18n();
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
 
   const [users, setUsers] = useState<AdminUser[]>([]);
+  // The engine bounds the response, so the page has to be navigable: without
+  // these the list silently stopped at the first page and account 51 was
+  // unreachable.
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<AdminUser | null>(null);
@@ -51,14 +58,15 @@ export function UsersTab() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const { users } = await api.users.list();
-      setUsers(users);
+      const res = await api.users.list({ limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+      setUsers(res.users);
+      setTotal(res.total);
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("users.create.failed")));
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, page]);
 
   useEffect(() => {
     refresh();
@@ -190,6 +198,36 @@ export function UsersTab() {
           </TableBody>
         </Table>
       </div>
+
+      {!loading && total > PAGE_SIZE && (
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            {t("users.pagination.range", {
+              from: String(page * PAGE_SIZE + 1),
+              to: String(Math.min((page + 1) * PAGE_SIZE, total)),
+              total: String(total),
+            })}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              {t("common.previous")}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={(page + 1) * PAGE_SIZE >= total}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              {t("common.next")}
+            </Button>
+          </div>
+        </div>
+      )}
 
       <CreateUserDialog
         open={createOpen}
