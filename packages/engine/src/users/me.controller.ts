@@ -5,7 +5,7 @@ import { UsersService } from "./users.service.js";
 import { CurrentUser } from "../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { TenantService } from "../organizations/tenant.service.js";
-import { AuthenticatedOnly, Permission, RequirePermission } from "../authz/index.js";
+import { AuthenticatedOnly } from "../authz/index.js";
 
 @Controller("api/me")
 export class MeController {
@@ -18,14 +18,19 @@ export class MeController {
    * The caller's own tenancy, used by the admin panel to build and validate
    * tenant-scoped URLs.
    *
-   * `@RequirePermission` is REQUIRED, not optional: PermissionGuard denies any
+   * `@AuthenticatedOnly()`, not a permission: reading YOUR OWN tenancy authorizes
+   * on identity, and `ORG_READ` — which this declared — resolves against an
+   * organization binding, so the one caller who most needs this route (a user
+   * holding no binding yet) got a 403 instead of the empty tenancy that tells the
+   * panel to show them nothing. A declaration is still REQUIRED, not optional:
+   * PermissionGuard denies any
    * route that declares no permission once `AUTHZ_ENFORCE=true`. ORG_READ is
    * held by every system role, Viewer included. A legacy token carrying no
    * `orgId` yields no scope to authorize against, so in enforce mode it gets a
    * 403 — the frontend treats that exactly like `organization: null`, since the
    * remedy (sign in again) is the same.
    */
-  @RequirePermission(Permission.ORG_READ)
+  @AuthenticatedOnly()
   @Get()
   async context(@CurrentUser() actor: AuthenticatedUser) {
     return this.tenant.getContextFor(actor);

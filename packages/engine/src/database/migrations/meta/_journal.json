@@ -456,6 +456,13 @@
       "when": 1781481600000,
       "tag": "0071_platform_admin_role_value",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1781568000000,
+      "tag": "0072_member_configures_agents",
+      "breakpoints": true
     }
   ]
 }
