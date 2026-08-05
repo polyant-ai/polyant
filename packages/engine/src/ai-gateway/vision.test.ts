@@ -67,3 +67,49 @@ describe("sanitizeMessagesForModel — blank text (Bedrock strictness)", () => {
     expect(sanitizeMessagesForModel(msgs, QWEN)).toBe(msgs);
   });
 });
+
+describe("sanitizeMessagesForModel — tool wire identifiers", () => {
+  it("normalizes invalid tool names and call ids in pre-built tool messages", () => {
+    const messages: ModelMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Controllo." },
+          {
+            type: "tool-call",
+            toolCallId: "hook:run/42",
+            toolName: "innova:valida.richiámata",
+            input: { phone: "+39 123" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "hook:run/42",
+            toolName: "innova:valida.richiámata",
+            output: { type: "text", value: "ok" },
+          },
+        ],
+      },
+    ] as never;
+
+    const sanitized = sanitizeMessagesForModel(messages, NOVA);
+    const toolCall = (sanitized[0].content as Array<Record<string, unknown>>)[1];
+    const toolResult = (sanitized[1].content as Array<Record<string, unknown>>)[0];
+
+    expect(sanitized).not.toBe(messages);
+    expect(toolCall).toMatchObject({
+      toolCallId: "hook_run_42",
+      toolName: "innova__valida_richi_mata",
+      input: { phone: "+39 123" },
+    });
+    expect(toolResult).toMatchObject({
+      toolCallId: "hook_run_42",
+      toolName: "innova__valida_richi_mata",
+      output: { type: "text", value: "ok" },
+    });
+  });
+});

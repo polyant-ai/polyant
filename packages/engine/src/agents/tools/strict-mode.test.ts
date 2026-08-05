@@ -65,8 +65,8 @@ describe("findIllegalToolName", () => {
     expect(findIllegalToolName("agent:my-slug")).toBeNull();
   });
 
-  it("flags a name that stays illegal after sanitization", () => {
-    expect(findIllegalToolName("foo.bar")).toContain("not [a-zA-Z0-9_-]+");
-    expect(findIllegalToolName("ns:has space")).toContain("not [a-zA-Z0-9_-]+");
+  it("flags a canonical name outside the authoring grammar", () => {
+    expect(findIllegalToolName("foo.bar")).toContain("not [a-zA-Z0-9_:-]+");
+    expect(findIllegalToolName("ns:has space")).toContain("not [a-zA-Z0-9_:-]+");
   });
 });
