@@ -12,6 +12,8 @@ import {
   ScrollText,
   Settings,
   Activity,
+  Users,
+  Info,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -20,12 +22,17 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { NavMain, type NavItem } from "@/components/layout/nav-main";
 import { NavUser, type NavUserProps } from "@/components/layout/nav-user";
 import { useI18n } from "@/lib/i18n/context";
+import { releaseInfo } from "@/lib/release-info";
 import type { TranslationKey } from "@/lib/i18n/types";
+import Link from "next/link";
 
 interface NavItemDef {
   titleKey: TranslationKey;
@@ -47,6 +54,7 @@ const overviewDefs: NavItemDef[] = [
 // Settings is superadmin-only: it hosts both general system settings and the
 // users management tab. Non-superadmins don't see this section at all.
 const superadminDefs: NavItemDef[] = [
+  { titleKey: "nav.members", url: "/members", icon: Users },
   { titleKey: "nav.settings", url: "/settings", icon: Settings },
 ];
 
@@ -85,6 +93,16 @@ export function AppSidebar(
       </SidebarContent>
 
       <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild tooltip={`${releaseInfo.version} · ${t("nav.about")}`}>
+              <Link href="/about">
+                <Info />
+                <span>v{releaseInfo.version} · {t("nav.about")}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
         {user && <NavUser user={user} />}
       </SidebarFooter>
 

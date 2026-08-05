@@ -9,8 +9,8 @@ vi.mock("../../memory/index.js", () => ({
   hybridSearch: (...args: unknown[]) => mockHybridSearch(...args),
 }));
 
-import "./search-memory.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import searchMemoryTool from "./search-memory.tool.js";
+import { buildTool } from "./registry.js";
 
 const ctx = {
   instanceId: "user-1",
@@ -18,7 +18,7 @@ const ctx = {
 } as any;
 
 describe("searchMemory", () => {
-  const def = getToolRegistry().get("searchMemory")!;
+  const def = searchMemoryTool;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const searchMemory = buildTool(def, ctx) as any;
 
@@ -29,7 +29,7 @@ describe("searchMemory", () => {
 
   it("returns a tool with description and parameters", () => {
     expect(searchMemory.description).toBeDefined();
-    expect(searchMemory.parameters).toBeDefined();
+    expect(searchMemory.inputSchema).toBeDefined();
   });
 
   it("calls hybridSearch and maps results", async () => {
@@ -43,7 +43,7 @@ describe("searchMemory", () => {
       { toolCallId: "tc-1", messages: [] } as any,
     );
 
-    expect(mockHybridSearch).toHaveBeenCalledWith("coffee", "user-1", undefined, undefined);
+    expect(mockHybridSearch).toHaveBeenCalledWith("coffee", "user-1", undefined);
     expect(result.found).toBe(2);
     expect(result.results[0]).toEqual({
       content: "User likes coffee",
@@ -61,7 +61,7 @@ describe("searchMemory", () => {
       { toolCallId: "tc-1", messages: [] } as any,
     );
 
-    expect(mockHybridSearch).toHaveBeenCalledWith("test", "user-1", 5, undefined);
+    expect(mockHybridSearch).toHaveBeenCalledWith("test", "user-1", 5);
   });
 
   it("returns error object on failure without throwing", async () => {

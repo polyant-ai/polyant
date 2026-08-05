@@ -94,7 +94,7 @@ of a custom skill.
 | `authEnabled`        | `true` in production (employees only)             |
 | `langsmithEnabled`   | optional                                          |
 
-See [Quickstart](https://docs.polyant.it/getting-started/quickstart) for the
+See [Quickstart](https://docs.polyant.ai/getting-started/quickstart) for the
 end-to-end setup walkthrough and
-[Connect a Channel](https://docs.polyant.it/getting-started/connect-a-channel) for the Slack channel
+[Connect a Channel](https://docs.polyant.ai/getting-started/connect-a-channel) for the Slack channel
 configuration.

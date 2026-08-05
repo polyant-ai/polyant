@@ -15,6 +15,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import type { Response } from "express";
+import { RequirePermission, Permission } from "../../authz/index.js";
 import {
   listAllInstances,
   findInstanceBySlug,
@@ -27,10 +28,30 @@ import { seedInstancePrompts } from "../../instances/prompts.store.js";
 import { seedInstanceTools } from "../../instances/instance-tools.store.js";
 import { seedInstanceSkills } from "../../instances/instance-skills.store.js";
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
-import { providerConfigs, isThinkingCapable } from "../../ai-gateway/config.js";
+import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
+import {
+  embeddingProviderChanged,
+  resetEmbeddingsForProviderSwitch,
+  type EmbeddingResetResult,
+} from "../../embeddings-gateway/embedding-reset.service.js";
+import { countMemories } from "../../memory/index.js";
+import { countDocuments } from "../../knowledge/index.js";
+import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
+import { providerConfigs, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
+import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
+import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
+import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import {
+  createManagementAuditLogger,
+  ManagementAuditAction,
+  ManagementAuditTarget,
+  toManagementAuditActor,
+} from "../../management-audit/management-audit-logger.js";
 
 /**
  * Explicit response DTO — never return the raw Drizzle entity so schema additions
@@ -55,10 +76,24 @@ function toInstanceDto(instance: Instance) {
     langsmithProject: instance.langsmithProject,
     authEnabled: instance.authEnabled,
     thinkingEnabled: instance.thinkingEnabled,
+    thinkingLevel: instance.thinkingLevel,
+    temperature: instance.temperature,
+    stateInPromptEnabled: instance.stateInPromptEnabled,
+    datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
+    cacheEnabled: instance.cacheEnabled,
+    cacheTtl: instance.cacheTtl,
+    toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    debugEnabled: instance.debugEnabled,
+    optoutEnabled: instance.optoutEnabled,
+    optoutStopKeywords: instance.optoutStopKeywords,
+    optoutResumeKeywords: instance.optoutResumeKeywords,
+    optoutClosingMessage: instance.optoutClosingMessage,
+    optoutResumeMessage: instance.optoutResumeMessage,
+    optoutInjectPromptHint: instance.optoutInjectPromptHint,
     sttProvider: instance.sttProvider,
-    icon: instance.icon
-      ? `/api/instances/${instance.slug}/icon?v=${instance.updatedAt?.getTime() ?? 0}`
-      : null,
+    embeddingDim: instance.embeddingDim,
+    embeddingProvider: instance.embeddingProvider,
+    icon: buildInstanceIconUrl(instance.slug, instance.icon, instance.updatedAt),
     createdAt: instance.createdAt,
     updatedAt: instance.updatedAt,
   };
@@ -77,7 +112,10 @@ function parseDataUri(dataUri: string): { contentType: string; body: Buffer } | 
 
 @Controller("api/instances")
 export class InstancesController {
+  private readonly auditLogger = createManagementAuditLogger();
+
   // GET /api/instances — list all instances
+  @RequirePermission(Permission.AGENT_READ)
   @Get()
   async list() {
     const all = await listAllInstances();
@@ -85,20 +123,41 @@ export class InstancesController {
   }
 
   // GET /api/instances/models — list available providers and models
+  @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
-    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; supportsThinking: boolean }[] }> = {};
+    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; supportsCache: boolean; supportsThinking: boolean; reasoningAlwaysOn: boolean; reasoningLevels: readonly ReasoningLevel[]; supportsTemperature: boolean; supportsTemperatureWithThinking: boolean }[] }> = {};
     for (const [name, cfg] of Object.entries(providerConfigs)) {
       const tierByModel = new Map(Object.entries(cfg.tiers).map(([tier, modelId]) => [modelId, tier]));
-      const models = Object.entries(cfg.costPerMillionTokens).map(([modelId, cost]) => ({
+      const models = Object.entries(cfg.models).map(([modelId, cost]) => ({
         id: modelId,
         tier: tierByModel.get(modelId) ?? null,
         costInput: cost.input,
         costOutput: cost.output,
-        // Computed server-side from the same single source of truth used by the
-        // runtime gate (config-resolver), so the toggle visibility on the
-        // frontend cannot drift from the actual capability.
+        // Absolute per-1M cache rates straight from the catalog; fall back to the
+        // input rate when the model has no cache discount (Nebius / non-anthropic-nova
+        // Bedrock report cached tokens but bill them full). costCacheWrite === 0 =
+        // caches with no write premium (OpenAI pre-5.6).
+        costCacheRead: cost.cacheRead ?? cost.input,
+        costCacheWrite: cost.cacheWrite ?? cost.input,
+        // Whether the provider+model has real prompt caching — a UI hint; single
+        // source of truth shared with the runtime marker gate (bedrock.ts).
+        supportsCache: cacheSupported(name, modelId),
+        // Computed server-side from the same source used by the runtime gate
+        // (config-resolver), so frontend toggle visibility can't drift.
         supportsThinking: isThinkingCapable(name, modelId),
+        // gpt-oss & co. reason on every call (no off) — the UI locks the toggle
+        // ON and shows a hint rather than pretending it can be disabled.
+        reasoningAlwaysOn: isReasoningAlwaysOn(modelId),
+        // The effort levels this model accepts (live-verified). The FE renders the
+        // level picker from this exact set — empty for non-reasoning models.
+        reasoningLevels: reasoningLevelsFor(name, modelId),
+        supportsTemperature: temperatureSupported(name, modelId, false),
+        // Whether a custom temperature survives WITH thinking on. True for open-weight/
+        // vLLM reasoners (gpt-oss, Bedrock MiniMax, all Nebius reasoners); false for the
+        // strict-reasoning APIs (Anthropic extended thinking, OpenAI 1P). Lets the FE
+        // keep the temperature field editable under thinking where the model allows it.
+        supportsTemperatureWithThinking: temperatureSupported(name, modelId, true),
       }));
       providers[name] = { models };
     }
@@ -106,20 +165,27 @@ export class InstancesController {
   }
 
   // GET /api/instances/:slug — get by slug
+  @RequirePermission(Permission.AGENT_READ)
   @Get(":slug")
   async getBySlug(@Param("slug") slug: string) {
     this.validateSlug(slug);
-    const instance = await findInstanceBySlug(slug);
+    const instance = await findInstanceBySlug(asInstanceSlug(slug));
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    return { instance: toInstanceDto(instance) };
+    return {
+      instance: {
+        ...toInstanceDto(instance),
+        memory: await computeMemoryStatusFromInstance(instance),
+      },
+    };
   }
 
   // GET /api/instances/:slug/icon — serve the icon binary
   // Separated from the JSON DTO so list/detail responses stay small (#85 follow-up).
+  @RequirePermission(Permission.AGENT_READ)
   @Get(":slug/icon")
   async getIcon(@Param("slug") slug: string, @Res() res: Response): Promise<void> {
     this.validateSlug(slug);
-    const instance = await findInstanceBySlug(slug);
+    const instance = await findInstanceBySlug(asInstanceSlug(slug));
     if (!instance || !instance.icon) {
       throw new NotFoundException(`Icon not found for instance "${slug}"`);
     }
@@ -134,15 +200,19 @@ export class InstancesController {
   }
 
   // POST /api/instances — create
+  @RequirePermission(Permission.AGENT_WRITE)
   @Post()
-  async create(@Body() body: { slug: string; name: string; description?: string; provider?: string; model?: string }) {
+  async create(
+    @Body() body: { slug: string; name: string; description?: string; provider?: string; model?: string },
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
     this.validateSlug(body.slug);
     this.validateModelConfig(body.provider, body.model);
     // Rely on the DB unique constraint as the authoritative duplicate check.
     // A pre-select + insert would introduce a TOCTOU race window.
     let instance: Instance;
     try {
-      instance = await createInstance(body);
+      instance = await createInstance({ ...body, slug: asInstanceSlug(body.slug) });
     } catch (err: unknown) {
       if (isUniqueViolation(err)) {
         throw new ConflictException(`Slug "${body.slug}" already exists`);
@@ -155,10 +225,18 @@ export class InstancesController {
     await seedInstanceTools(instance.id);
     await seedInstanceSkills(instance.id);
 
+    this.auditLogger.log({
+      action: ManagementAuditAction.AgentCreate,
+      actor: toManagementAuditActor(user),
+      targetType: ManagementAuditTarget.Agent,
+      targetId: instance.slug,
+    });
+
     return { instance: toInstanceDto(instance) };
   }
 
   // PATCH /api/instances/:slug — update
+  @RequirePermission(Permission.AGENT_WRITE)
   @Patch(":slug")
   async update(
     @Param("slug") slug: string,
@@ -168,26 +246,103 @@ export class InstancesController {
       status?: string;
       provider?: string | null;
       model?: string | null;
+      /** Embedder provider (openai|bedrock), independent of the chat provider. Changing it wipes data. */
+      embeddingProvider?: "openai" | "bedrock";
       memoryEnabled?: boolean;
       knowledgeEnabled?: boolean;
       langsmithEnabled?: boolean;
       langsmithProject?: string | null;
       authEnabled?: boolean;
       thinkingEnabled?: boolean;
+      thinkingLevel?: string;
+      temperature?: number | null;
+      stateInPromptEnabled?: boolean;
+      datetimeInjectionEnabled?: boolean;
+      cacheEnabled?: boolean;
+      cacheTtl?: string;
+      toolResultsInHistoryEnabled?: boolean;
+      debugEnabled?: boolean;
       sttProvider?: "openai" | "aws" | "deepgram";
+      optoutEnabled?: boolean;
+      optoutStopKeywords?: string[];
+      optoutResumeKeywords?: string[];
+      optoutClosingMessage?: string | null;
+      optoutResumeMessage?: string | null;
+      optoutInjectPromptHint?: boolean;
+      /**
+       * Explicit acknowledgement that changing the embedding provider will
+       * permanently delete this instance's memories and knowledge base. Required
+       * when the switch would discard existing data — protects scripted callers
+       * from accidental data loss. The UI sets it after the user confirms.
+       */
+      confirmWipe?: boolean;
     },
   ) {
     this.validateSlug(slug);
     this.validateModelConfig(body.provider, body.model);
-    const instance = await updateInstance(slug, body);
+    this.validateEmbeddingProvider(body.embeddingProvider);
+    body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
+    body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
+    if (body.temperature !== undefined) {
+      body.temperature = clampTemperature(body.temperature);
+    }
+    // Accept the full effort union; the ai-gateway clamps to the chosen model's
+    // catalog reasoningLevels at call time (so xhigh/max never reach a model that
+    // rejects them), and the FE only offers the model's actual subset.
+    if (body.thinkingLevel !== undefined && !["low", "medium", "high", "xhigh", "max"].includes(body.thinkingLevel)) {
+      throw new BadRequestException('thinkingLevel must be one of "low", "medium", "high", "xhigh", "max"');
+    }
+    // Capture the pre-update state to detect an embedding-provider switch.
+    const before = await findInstanceBySlug(asInstanceSlug(slug));
+    if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
+
+    // Changing the embedding provider abandons the old embedding space (vectors
+    // become uninterpretable) — existing memories + knowledge are wiped, never
+    // converted. Changing only the chat provider/model does NOT trigger this.
+    // Require explicit confirmation when there is data to lose, so a Management-API
+    // caller can't destroy it silently.
+    const afterEmbeddingProvider =
+      body.embeddingProvider !== undefined ? body.embeddingProvider : before.embeddingProvider;
+    const willWipe = embeddingProviderChanged(
+      { embeddingProvider: before.embeddingProvider },
+      { embeddingProvider: afterEmbeddingProvider },
+    );
+    if (willWipe && !body.confirmWipe) {
+      const hasData =
+        (await countMemories(before.slug)) > 0 || (await countDocuments(before.slug)) > 0;
+      if (hasData) {
+        throw new BadRequestException(
+          "Changing the embedding provider permanently deletes all memories and the entire knowledge base for this instance (existing embeddings cannot be converted). Re-send the request with confirmWipe: true to proceed.",
+        );
+      }
+    }
+
+    let instance = await updateInstance(asInstanceSlug(slug), body);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    invalidateInstanceConfigCache(slug);
-    return { instance: toInstanceDto(instance) };
+    invalidateInstanceConfigCache(asInstanceSlug(slug));
+    invalidateEmbeddingContext(instance.id, slug);
+
+    let wiped: EmbeddingResetResult | null = null;
+    if (willWipe) {
+      wiped = await resetEmbeddingsForProviderSwitch(before.slug, instance.id, instance.embeddingProvider);
+      // embedding_dim changed — drop the now-stale cached context and refresh the DTO.
+      invalidateEmbeddingContext(instance.id, slug);
+      instance = (await findInstanceBySlug(asInstanceSlug(slug))) ?? instance;
+    }
+
+    return {
+      instance: {
+        ...toInstanceDto(instance),
+        memory: await computeMemoryStatusFromInstance(instance),
+      },
+      wiped,
+    };
   }
 
   // DELETE /api/instances/:slug — delete
+  @RequirePermission(Permission.AGENT_DELETE)
   @Delete(":slug")
-  async remove(@Param("slug") slug: string) {
+  async remove(@Param("slug") slug: string, @CurrentUser() user?: AuthenticatedUser) {
     this.validateSlug(slug);
     // Stop running channel adapters BEFORE the DB row is removed. Otherwise
     // Telegram long-pollers and Slack socket workers keep calling
@@ -201,28 +356,39 @@ export class InstancesController {
       // treated as part of the format string (CodeQL js/tainted-format-string).
       console.error("[instances] failed to stop channels for instance:", slug, err);
     }
-    const deleted = await deleteInstance(slug);
+    const deleted = await deleteInstance(asInstanceSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
-    // DB CASCADE handles cleanup of prompts, tools, skills, etc.
+    this.auditLogger.log({
+      action: ManagementAuditAction.AgentDelete,
+      actor: toManagementAuditActor(user),
+      targetType: ManagementAuditTarget.Agent,
+      targetId: slug,
+    });
+    // deleteInstance() runs in a transaction: it explicitly removes operational
+    // data keyed by slug (conversations, messages, memories, knowledge base,
+    // scheduled tasks); the DB CASCADE removes config (prompts, tools, skills,
+    // channels, secrets, room, webhooks); audit/telemetry is preserved on purpose.
     return { deleted: true };
   }
 
   // PUT /api/instances/:slug/icon — set icon
+  @RequirePermission(Permission.AGENT_WRITE)
   @Put(":slug/icon")
   async setIcon(@Param("slug") slug: string, @Body() body: { icon: string }) {
     this.validateSlug(slug);
     if (!body.icon) throw new BadRequestException("icon is required");
     validateIconDataUri(body.icon);
-    const instance = await updateInstance(slug, { icon: body.icon });
+    const instance = await updateInstance(asInstanceSlug(slug), { icon: body.icon });
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     return { instance: toInstanceDto(instance) };
   }
 
   // DELETE /api/instances/:slug/icon — remove icon
+  @RequirePermission(Permission.AGENT_WRITE)
   @Delete(":slug/icon")
   async removeIcon(@Param("slug") slug: string) {
     this.validateSlug(slug);
-    const instance = await updateInstance(slug, { icon: null });
+    const instance = await updateInstance(asInstanceSlug(slug), { icon: null });
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     return { instance: toInstanceDto(instance) };
   }
@@ -242,6 +408,34 @@ export class InstancesController {
     }
   }
 
+  /** Validate + normalize a keyword list: non-empty trimmed strings, deduped (case-insensitive). */
+  private normalizeKeywords(keywords: string[] | undefined, field: string): string[] | undefined {
+    if (keywords === undefined) return undefined;
+    if (!Array.isArray(keywords)) throw new BadRequestException(`${field} must be an array of strings`);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of keywords) {
+      if (typeof raw !== "string") throw new BadRequestException(`${field} must contain only strings`);
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      const lower = trimmed.toLowerCase();
+      if (seen.has(lower)) continue;
+      seen.add(lower);
+      out.push(trimmed);
+    }
+    if (out.length === 0) throw new BadRequestException(`${field} must contain at least one non-empty keyword`);
+    return out;
+  }
+
+  /** Validate the embedder provider. Only OpenAI and Bedrock embed (Anthropic has no embeddings API). */
+  private validateEmbeddingProvider(embeddingProvider?: string) {
+    if (embeddingProvider !== undefined && embeddingProvider !== "openai" && embeddingProvider !== "bedrock") {
+      throw new BadRequestException(
+        `Invalid embeddingProvider "${embeddingProvider}". Valid embedding providers: openai, bedrock.`,
+      );
+    }
+  }
+
   /** Validate provider/model values against the configured providerConfigs. */
   private validateModelConfig(provider?: string | null, model?: string | null) {
     const validProviders = Object.keys(providerConfigs);
@@ -253,7 +447,7 @@ export class InstancesController {
       const cfg = providerConfigs[effectiveProvider];
       const validModels = cfg ? [
         ...Object.values(cfg.tiers),
-        ...Object.keys(cfg.costPerMillionTokens),
+        ...Object.keys(cfg.models),
       ] : [];
       if (!validModels.includes(model)) {
         throw new BadRequestException(`Invalid model "${model}" for provider "${effectiveProvider}". Valid models: ${validModels.join(", ")}`);

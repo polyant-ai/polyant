@@ -8,6 +8,7 @@ import { getChannelConfig } from "../../instances/channels.store.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { WhatsAppAdapter } from "../../channels/adapters/whatsapp/index.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
 interface TwilioWebhookBody {
   MessageSid: string;
@@ -35,11 +36,11 @@ export class TwilioWebhookController {
     @Req() req: Request,
   ): Promise<string> {
     // 1. Resolve instance
-    const instanceId = await resolveInstanceId(instanceSlug);
+    const instanceId = await resolveInstanceId(asInstanceSlug(instanceSlug));
     if (!instanceId) throw new NotFoundException(`Instance "${instanceSlug}" not found`);
 
     // 2. Load channel config
-    const channelConfig = await getChannelConfig(instanceSlug, "whatsapp");
+    const channelConfig = await getChannelConfig(asInstanceSlug(instanceSlug), "whatsapp");
     if (!channelConfig || !channelConfig.enabled) {
       throw new NotFoundException(`WhatsApp channel not configured for "${instanceSlug}"`);
     }
@@ -85,7 +86,7 @@ export class TwilioWebhookController {
       body: body.Body || "",
       profileName: body.ProfileName,
       messageSid: body.MessageSid,
-      instanceId: instanceSlug,
+      instanceId: asInstanceSlug(instanceSlug),
       media: mediaItems.length > 0 ? mediaItems : undefined,
     }).catch((err) =>
       // Pass the user-controlled slug as a separate argument so it is never

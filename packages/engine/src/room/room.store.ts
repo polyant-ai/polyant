@@ -4,10 +4,11 @@ import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instanceRoom } from "./room.schema.js";
 import { resolveInstanceId } from "../instances/resolve-instance-id.js";
+import { asInstanceUuid, type InstanceSlug, type InstanceUuid } from "../instances/identifiers.js";
 
 export interface RoomConfig {
   id: string;
-  instanceId: string;
+  instanceId: InstanceUuid;
   enabled: boolean;
   prompt: string;
   outboundChannel: string | null;
@@ -16,13 +17,13 @@ export interface RoomConfig {
   conversationId: string | null;
 }
 
-export async function getRoomBySlug(slug: string): Promise<RoomConfig | null> {
+export async function getRoomBySlug(slug: InstanceSlug): Promise<RoomConfig | null> {
   const instanceId = await resolveInstanceId(slug);
   if (!instanceId) return null;
   return getRoomByInstanceId(instanceId);
 }
 
-export async function getRoomByInstanceId(instanceId: string): Promise<RoomConfig | null> {
+export async function getRoomByInstanceId(instanceId: InstanceUuid): Promise<RoomConfig | null> {
   const rows = await db
     .select()
     .from(instanceRoom)
@@ -30,11 +31,11 @@ export async function getRoomByInstanceId(instanceId: string): Promise<RoomConfi
     .limit(1);
 
   if (!rows[0]) return null;
-  return rows[0] as RoomConfig;
+  return { ...rows[0], instanceId: asInstanceUuid(rows[0].instanceId) } as RoomConfig;
 }
 
 export async function upsertRoom(
-  instanceId: string,
+  instanceId: InstanceUuid,
   data: {
     enabled?: boolean;
     prompt?: string;
@@ -62,11 +63,11 @@ export async function upsertRoom(
     });
 }
 
-export async function deleteRoom(instanceId: string): Promise<void> {
+export async function deleteRoom(instanceId: InstanceUuid): Promise<void> {
   await db.delete(instanceRoom).where(eq(instanceRoom.instanceId, instanceId));
 }
 
-export async function setRoomConversationId(instanceId: string, conversationId: string): Promise<void> {
+export async function setRoomConversationId(instanceId: InstanceUuid, conversationId: string): Promise<void> {
   await db
     .update(instanceRoom)
     .set({ conversationId, updatedAt: new Date() })
@@ -78,5 +79,5 @@ export async function listEnabledRooms(): Promise<RoomConfig[]> {
     .select()
     .from(instanceRoom)
     .where(eq(instanceRoom.enabled, true));
-  return rows as RoomConfig[];
+  return rows.map((r) => ({ ...r, instanceId: asInstanceUuid(r.instanceId) })) as RoomConfig[];
 }

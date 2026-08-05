@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { CoreMessage, Tool, UserContent } from "ai";
+import type { ModelMessage, Tool, UserContent } from "ai";
 import { tool as aiTool } from "ai";
+import type { InstanceSlug, InstanceUuid } from "../../instances/identifiers.js";
 import { chat, chatStream, type ChatCallOptions } from "../../ai-gateway/index.js";
 import {
   getToolRegistry,
   buildTool,
   normalizeRequiredSecrets,
+  scopeSecrets,
+  toModelToolName,
   type ToolContext,
 } from "../tools/registry.js";
 import type { Attachment } from "../../channels/types.js";
@@ -18,7 +21,12 @@ import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { config, DEFAULT_INSTANCE_ID } from "../../config.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { findInstanceBySlug } from "../../instances/store.js";
-import type { ChatRequest, ChatResponse, ToolCallResult } from "../../ai-gateway/types.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
+import type { ChatRequest, CostBreakdown } from "../../ai-gateway/types.js";
+import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
+import type { ConversationStateBuffer } from "../../conversations/state.buffer.js";
+import { buildConversationApi } from "../../conversations/conversation-history-api.js";
+import { makeOAuthAccess } from "../tools/oauth-access.js";
 import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
@@ -26,8 +34,8 @@ import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
 
 export interface SupervisorInput {
   message: string;
-  conversationHistory?: CoreMessage[];
-  instanceId?: string;
+  conversationHistory?: ModelMessage[];
+  instanceId?: InstanceSlug;
   conversationId?: string;
   conversationSummary?: string;
   /** Override AI provider for this instance. */
@@ -50,6 +58,20 @@ export interface SupervisorInput {
    * can forward this verbatim to the AI gateway.
    */
   thinkingEnabled?: boolean;
+  /** Reasoning intensity when thinkingEnabled (low|medium|high). Forwarded verbatim to the gateway. */
+  thinkingLevel?: string;
+  /** Sampling temperature [0, 2]. Already gated by config-resolver; forwarded verbatim. Omitted when undefined. */
+  temperature?: number | null;
+  /** When true, the current conversation state is rendered read-only into the system prompt. */
+  stateInPromptEnabled?: boolean;
+  /** When true, inject the current date/time into every turn (resolved from instance config). */
+  datetimeInjectionEnabled?: boolean;
+  /** Per-instance prompt-cache control, forwarded to the ai-gateway ChatRequest. */
+  cacheConfig?: { enabled: boolean; ttl: "5m" | "1h" };
+  /** Informational opt-out hint to render into the prompt (set when the instance enables it). */
+  optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
+  /** When true, the exact LLM request payload (system + messages + tools) is captured and returned for debug. */
+  debugEnabled?: boolean;
   /** Harness categories to include (e.g. "room"). Tools with `harness: true` are only equipped when their category is in this set. */
   includeHarness?: Set<string>;
   /** Attachments from the current user message (images, files, etc.). */
@@ -88,16 +110,33 @@ export interface SupervisorInput {
   agentCallMetadata?: ChatCallOptions["agentCallMetadata"];
   /** Cancellation signal propagated to the underlying LLM call. */
   abortSignal?: AbortSignal;
+  /** Per-run shared conversation state buffer; its `.api()` is exposed to tools as `ctx.state`. */
+  stateBuffer?: ConversationStateBuffer;
 }
 
 export interface SupervisorOutput {
   text: string;
-  toolCalls?: ToolCallResult[];
+  /** Per-step multi-step trace from the underlying LLM. Empty array → single-step. */
+  steps: StepDetail[];
+  /** Aggregated reasoning details (Anthropic signed blocks, OpenAI summaries). */
+  reasoning?: ReasoningDetail[];
   usage: {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
+    cachedInputTokens?: number;
+    cacheCreationInputTokens?: number;
   };
+  /** Model id actually used for this turn (e.g. "claude-sonnet-5"). */
+  model: string;
+  /** Provider that served the model (e.g. "anthropic", "openai"). */
+  provider: string;
+  /** USD cost split (input/cache/output/total) — persisted per-message. */
+  cost?: CostBreakdown;
+  /** Whether extended thinking was requested for this turn. */
+  thinking?: boolean;
+  /** Sampling temperature requested (undefined → provider default). */
+  temperature?: number;
   durationMs: number;
   toolBuildingMs: number;
   toolCallTraces?: ToolCallTrace[];
@@ -115,6 +154,11 @@ export interface SupervisorOutput {
    * (which would otherwise be the supervisor's meta-commentary).
    */
   replyText?: string;
+  /**
+   * Exact LLM request payload captured when the instance `debug_enabled` flag is
+   * on — threaded to the pipeline and persisted on the assistant message row.
+   */
+  debugPayload?: LlmDebugPayload;
 }
 
 /** Shared mutable signals accumulated across tool calls within a single supervise() run. */
@@ -144,18 +188,18 @@ function safeOutputPreview(output: unknown): string | undefined {
 function wrapToolWithAudit(
   name: string,
   builtTool: Tool,
-  instanceId: string,
+  instanceId: InstanceSlug,
   _conversationId?: string,
   toolCallTraces?: ToolCallTrace[],
   signals?: SupervisorSignals,
 ): Tool {
-  const original = builtTool as { description?: string; parameters: unknown; execute?: (...args: unknown[]) => Promise<unknown> };
+  const original = builtTool as { description?: string; inputSchema: unknown; execute?: (...args: unknown[]) => Promise<unknown> };
   if (!original.execute) return builtTool;
 
   const originalExecute = original.execute;
   return aiTool({
     description: original.description ?? "",
-    parameters: original.parameters as any,
+    inputSchema: original.inputSchema as never,
     execute: async (params: any) => {
       const toolStart = Date.now();
 
@@ -190,8 +234,8 @@ function wrapToolWithAudit(
 }
 
 interface BuildToolsOptions {
-  instanceId: string;
-  instanceUuid: string;
+  instanceId: InstanceSlug;
+  instanceUuid: InstanceUuid;
   secrets?: Record<string, string>;
   memoryEnabled?: boolean;
   knowledgeEnabled?: boolean;
@@ -204,11 +248,13 @@ interface BuildToolsOptions {
   signals?: SupervisorSignals;
   /** Current agent invocation depth (0 = top-level). Used when synthesising `ask_{slug}` tools. */
   agentCallDepth?: number;
+  /** Per-run shared conversation state buffer; its `.api()` becomes `ctx.state`. */
+  stateBuffer?: ConversationStateBuffer;
 }
 
 /** Build the tool set scoped to an instance, filtered by DB-stored enabled tool names. */
 async function buildTools(opts: BuildToolsOptions) {
-  const { instanceId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth } = opts;
+  const { instanceId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth, stateBuffer } = opts;
   const enabledNames = await getEnabledToolNames(instanceUuid);
   const allEnabled = enabledNames.size === 0; // empty = no rows, enable all (backward compat)
 
@@ -234,28 +280,41 @@ async function buildTools(opts: BuildToolsOptions) {
         const missing = requiredKeys.filter((k) => !secrets?.[k]);
         if (missing.length > 0) continue;
       }
+      // Scope secrets to the keys this tool declares (least-privilege, enforced):
+      // a tool — especially third-party plugin code — only ever sees the secrets
+      // it declared in requiredSecrets; anything else is simply absent.
+      const declaredSecretKeys = new Set(normalizeRequiredSecrets(def.requiredSecrets).map((s) => s.key));
       const ctx: ToolContext = {
         instanceId,
-        secrets,
+        secrets: scopeSecrets(secrets, declaredSecretKeys),
         audit: createAuditLogger(name, instanceId, conversationId),
         conversationId,
         attachments,
         apiKeys,
         provider,
+        state: stateBuffer?.api(),
+        // Read-only recent-history accessor (SDK ConversationHistoryApi). Lazy:
+        // built here so tools that read `ctx.conversation` (e.g. specialty
+        // classification in searchAppointmentSlots) work, mirroring what the hook
+        // function-action already provides. No query until a tool actually calls it.
+        conversation: conversationId ? buildConversationApi(conversationId) : undefined,
       };
+      // ctx.oauth closes over ctx, so it is assigned after the literal.
+      ctx.oauth = makeOAuthAccess(ctx);
       const built = buildTool(def, ctx);
-      tools[name] = wrapToolWithAudit(name, built, instanceId, conversationId, toolCallTraces, signals);
+      // The name sent to the MODEL must match [a-zA-Z0-9_-]+ (Bedrock rejects
+      // ':', and OpenAI/Anthropic want the same). Namespaced plugin tools
+      // (`<ns>:<name>`) are presented with a safe separator (`__`); the canonical
+      // ':' name stays the identity everywhere else (governance/audit via the
+      // closure below, DB enablement, UI). The AI SDK looks the tool up by this
+      // Record key, so no reverse mapping is needed on the tool-call round-trip.
+      const modelToolName = toModelToolName(name);
+      if (modelToolName in tools) {
+        console.warn(`Tool name collision after sanitization: "${name}" → "${modelToolName}" already equipped — skipping`);
+        continue;
+      }
+      tools[modelToolName] = wrapToolWithAudit(name, built, instanceId, conversationId, toolCallTraces, signals);
     }
-  }
-
-  // spawnTask: meta-tool built last so the sub-agent's tool set is a
-  // point-in-time snapshot of everything else (including ask_* handoffs).
-  // Passing `{ ...tools }` ensures the sub-agent cannot see spawnTask
-  // inserted on the next line — the factory itself also strips spawnTask
-  // defensively (no self-recursion).
-  if (allEnabled || enabledNames.has("spawnTask")) {
-    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId);
-    tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);
   }
 
   // --- agent-to-agent invocation: synthesise a tool per "agent:<targetSlug>" entry ---
@@ -267,7 +326,7 @@ async function buildTools(opts: BuildToolsOptions) {
     const currentDepth = agentCallDepth ?? 0;
     for (const entryName of agentEntries) {
       const targetSlug = entryName.slice("agent:".length);
-      const target = await findInstanceBySlug(targetSlug);
+      const target = await findInstanceBySlug(asInstanceSlug(targetSlug));
       if (!target) {
         console.warn(`[supervisor] agent tool '${entryName}': target instance not found`);
         continue;
@@ -293,10 +352,20 @@ async function buildTools(opts: BuildToolsOptions) {
       });
       tools[synth.name] = aiTool({
         description: synth.description,
-        parameters: synth.inputSchema,
+        inputSchema: synth.inputSchema,
         execute: synth.execute as (args: { prompt: string }) => Promise<string>,
       });
     }
+  }
+
+  // spawnTask: meta-tool built last so the sub-agent's tool set is a
+  // point-in-time snapshot of everything else (including ask_* handoffs).
+  // Passing `{ ...tools }` ensures the sub-agent cannot see spawnTask
+  // inserted on the next line — the factory itself also strips spawnTask
+  // defensively (no self-recursion).
+  if (allEnabled || enabledNames.has("spawnTask")) {
+    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId);
+    tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);
   }
 
   return tools;
@@ -307,10 +376,10 @@ async function buildTools(opts: BuildToolsOptions) {
 // ---------------------------------------------------------------------------
 
 interface SupervisorContext {
-  instanceId: string;
+  instanceId: InstanceSlug;
   tools: Record<string, Tool>;
   systemPrompt: string;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
   toolBuildingMs: number;
   toolCallTraces: ToolCallTrace[];
   signals: SupervisorSignals;
@@ -319,27 +388,56 @@ interface SupervisorContext {
 /**
  * Build user message content — multimodal (array) when attachments are present,
  * plain string otherwise (backward compatible).
+ *
+ * The per-turn volatile context (datetime, channel identity, summary, state,
+ * opt-out hint) is prepended here, wrapped in a `<context>` block, so it rides
+ * the TAIL of the messages after the cacheable system/history prefix instead of
+ * invalidating it from inside the system prompt. Empty `turnContext` → the raw
+ * message is used unchanged (backward compatible).
  */
-function buildUserContent(message: string, attachments?: Attachment[]): string | UserContent {
-  if (!attachments?.length) return message;
+export function buildUserContent(
+  message: string,
+  turnContext: string,
+  attachments?: Attachment[],
+): string | UserContent {
+  const hasCtx = turnContext.length > 0;
 
-  const parts: UserContent = [{ type: "text", text: message }];
+  // Fast path: no volatile context and no attachments → plain string (backward compatible).
+  if (!hasCtx && !attachments?.length) return message;
 
-  for (const att of attachments) {
+  // User words FIRST (stable — the block the cache breakpoint targets); attachments
+  // next; volatile context LAST (must stay after the last breakpoint so it never
+  // invalidates the cached prefix). Separate blocks also let the model tell the
+  // user's words apart from system-injected context.
+  //
+  // Skip an EMPTY user-words block: an image/document sent with no caption arrives
+  // as message === "" (see the channel adapters), and a LEADING empty text block is
+  // rejected by Anthropic/Bedrock ("text content blocks must be non-empty"). The
+  // volatile <context> tail below still rides after the attachments.
+  const parts: UserContent = [];
+  if (message) parts.push({ type: "text", text: message });
+
+  for (const att of attachments ?? []) {
     if (!att.data) continue;
     const isImage = att.type === "image" || att.mimeType?.startsWith("image/");
     if (isImage) {
-      parts.push({ type: "image" as const, image: att.data, mimeType: att.mimeType });
+      parts.push({ type: "image" as const, image: att.data, mediaType: att.mimeType });
     } else {
       parts.push({
         type: "file" as const,
         data: att.data,
-        mimeType: att.mimeType ?? "application/octet-stream",
+        mediaType: att.mimeType ?? "application/octet-stream",
       });
     }
   }
 
-  return parts;
+  if (hasCtx) {
+    parts.push({ type: "text" as const, text: `<context>\n${turnContext}\n</context>` });
+  }
+
+  // Degenerate case (all attachments lacked data, no context, empty message): fall
+  // back to the raw string rather than emit an empty content array.
+  return parts.length > 0 ? parts : message;
 }
 
 async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorContext> {
@@ -369,10 +467,11 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     attachments: input.attachments,
     signals,
     agentCallDepth: input.agentCallDepth,
+    stateBuffer: input.stateBuffer,
   });
   const toolBuildingMs = Date.now() - toolBuildStart;
 
-  const systemPrompt = await buildSupervisorSystemPrompt({
+  const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
     tools,
     instanceId: instanceUuid,
     instanceSlug,
@@ -380,14 +479,18 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     conversationSummary: input.conversationSummary,
     contextPrompt: input.contextPrompt,
     channelIdentity: input.channelIdentity,
+    conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
+    datetimeInjectionEnabled: input.datetimeInjectionEnabled,
+    optoutHint: input.optoutHint,
   });
 
   pipelineLog.systemPrompt(instanceSlug, systemPrompt);
   pipelineLog.supervisorStart(instanceSlug, Object.keys(tools).length);
 
-  // Build user message — multimodal when attachments are present
-  const userContent = buildUserContent(input.message, input.attachments);
-  const messages: CoreMessage[] = [
+  // Build user message — multimodal when attachments are present. The per-turn
+  // volatile context rides the tail of this message (see buildUserContent).
+  const userContent = buildUserContent(input.message, turnContext, input.attachments);
+  const messages: ModelMessage[] = [
     ...(input.conversationHistory ?? []),
     { role: "user", content: userContent },
   ];
@@ -408,6 +511,8 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
       provider: input.provider,
       model: input.model,
       thinking: input.thinkingEnabled ?? false,
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+      ...(input.temperature != null ? { temperature: input.temperature } : {}),
       apiKeys: input.apiKeys,
       langsmith: input.langsmith,
       system: ctx.systemPrompt,
@@ -415,10 +520,13 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
       tools: ctx.tools,
       maxSteps: 15,
       abortSignal: input.abortSignal,
+      captureDebug: input.debugEnabled ?? false,
+      cacheConfig: input.cacheConfig,
     },
     {
       conversationId: input.conversationId,
       instanceId: ctx.instanceId,
+      agentCallMetadata: input.agentCallMetadata,
     }
   );
 
@@ -439,42 +547,24 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
       pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
       return {
         text: response.text,
-        toolCalls: flattenChatResponseToolCalls(response),
+        steps: response.steps,
+        ...(response.reasoning ? { reasoning: response.reasoning } : {}),
         usage: response.usage,
+        model: response.model,
+        provider: response.provider,
+        ...(response.cost ? { cost: response.cost } : {}),
+        thinking: response.thinking,
+        temperature: response.temperature,
         durationMs: response.durationMs,
         toolBuildingMs: ctx.toolBuildingMs,
         toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
         ttfbMs,
         replyHandled: ctx.signals.replyHandled || undefined,
         replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
+        ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
       };
     }),
   };
-}
-
-/**
- * Derive the legacy flat ToolCallResult[] shape from the new ChatResponse.steps[]
- * so existing pipeline/room/webhook callers keep working without per-callsite
- * refactor. Returns `undefined` when no tool calls happened (matches the
- * previous semantics).
- */
-function flattenChatResponseToolCalls(
-  response: ChatResponse,
-): ToolCallResult[] | undefined {
-  const toolResults = new Map<string, unknown>();
-  for (const step of response.steps) {
-    for (const tr of step.toolResults ?? []) {
-      toolResults.set(tr.toolCallId, tr.result);
-    }
-  }
-  const flat: ToolCallResult[] = response.steps.flatMap((step) =>
-    step.toolCalls.map((tc) => ({
-      toolName: tc.toolName,
-      args: tc.args as Record<string, unknown>,
-      result: toolResults.get(tc.toolCallId),
-    })),
-  );
-  return flat.length > 0 ? flat : undefined;
 }
 
 export async function supervise(input: SupervisorInput): Promise<SupervisorOutput> {
@@ -486,6 +576,8 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
       provider: input.provider,
       model: input.model,
       thinking: input.thinkingEnabled ?? false,
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+      ...(input.temperature != null ? { temperature: input.temperature } : {}),
       apiKeys: input.apiKeys,
       langsmith: input.langsmith,
       system: ctx.systemPrompt,
@@ -493,10 +585,13 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
       tools: ctx.tools,
       maxSteps: 15,
       abortSignal: input.abortSignal,
+      captureDebug: input.debugEnabled ?? false,
+      cacheConfig: input.cacheConfig,
     },
     {
       conversationId: input.conversationId,
       instanceId: ctx.instanceId,
+      agentCallMetadata: input.agentCallMetadata,
     }
   );
 
@@ -504,12 +599,19 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
 
   return {
     text: response.text,
-    toolCalls: flattenChatResponseToolCalls(response),
+    steps: response.steps,
+    ...(response.reasoning ? { reasoning: response.reasoning } : {}),
     usage: response.usage,
+    model: response.model,
+    provider: response.provider,
+    ...(response.cost ? { cost: response.cost } : {}),
+    thinking: response.thinking,
+    temperature: response.temperature,
     durationMs: response.durationMs,
     toolBuildingMs: ctx.toolBuildingMs,
     toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
     replyHandled: ctx.signals.replyHandled || undefined,
     replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
+    ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
   };
 }

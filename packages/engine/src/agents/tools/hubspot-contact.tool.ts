@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
+import type { ToolContext } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
-import { hubspotFetch, getHubSpotApiKeyOrError, HUBSPOT_ASSOCIATION_TYPES, buildPhoneFilterGroups } from "./hubspot-fetch.js";
+import { hubspotFetch, getHubSpotApiKeyOrError, HUBSPOT_ASSOCIATION_TYPES, buildPhoneFilterGroups, resolveOwnerNames } from "./hubspot-fetch.js";
 import { getHubSpotPortalId, hubspotUrl } from "./hubspot-portal.js";
 
 const HUBSPOT_FILTER_OPERATORS = [
@@ -19,7 +20,7 @@ const HUBSPOT_FILTER_OPERATORS = [
   "LTE",
 ] as const;
 
-registerTool({
+export default defineTool({
   name: "hubspotContact",
   description:
     "Create, update or search contacts in the HubSpot CRM (action: create | update | search).\n" +
@@ -75,8 +76,7 @@ registerTool({
       input: { action: "search", contactId: "12345" },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
+  parameters: z.object({
       action: z.enum(["create", "update", "search"]).describe("'create' for a new contact, 'update' to modify an existing one, 'search' to query"),
       contactId: z
         .string()
@@ -107,44 +107,20 @@ registerTool({
         ),
       filters: z
         .array(
-          z.preprocess(
-            // Tolerate models that omit one of the two alias fields entirely
-            // (instead of passing it as null). Without this, GPT-4.1-mini's
-            // common shape `{ property: "...", operator, value }` would fail
-            // the inner schema because `propertyName: z.string().nullable()`
-            // rejects `undefined`. Filling missing keys with `null` keeps the
-            // strict-mode-friendly schema unchanged while making the runtime
-            // parse robust. See CLAUDE.md → "Tool parameter schemas".
-            (raw) => {
-              if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
-              return { property: null, propertyName: null, ...(raw as Record<string, unknown>) };
-            },
-            z
-              .object({
-                // Field name is `property`. We ALSO accept `propertyName` (the
-                // HubSpot REST API native name) because LLMs frequently emit
-                // the latter due to their training priors on HubSpot docs.
-                // Both forms are coerced to `property` in the transform below.
-                // NOTE: we use `.nullable()` instead of `.optional()` because
-                // OpenAI strict-mode (Responses API) rejects tool schemas with
-                // properties not included in `required`. Runtime validation
-                // below. See CLAUDE.md → "Important Caveats" and the
-                // `strict-mode.test.ts` guard-rail.
-                property: z.string().nullable(),
-                propertyName: z.string().nullable(),
-                operator: z.enum(HUBSPOT_FILTER_OPERATORS),
-                value: z.string(),
-              })
-              .transform((f) => {
-                const property = f.property ?? f.propertyName;
-                if (!property) {
-                  throw new Error(
-                    "filters[].property is required (you can also pass it as 'propertyName')",
-                  );
-                }
-                return { property, operator: f.operator, value: f.value };
-              }),
-          ),
+          // Field name is `property`. We ALSO accept `propertyName` (the
+          // HubSpot REST API native name) because LLMs frequently emit the
+          // latter due to their training priors on HubSpot docs. Both fields
+          // are `.nullable()` (not `.optional()`) for OpenAI strict-mode
+          // compatibility, and the coalescence `property ?? propertyName`
+          // (+ error if both missing) runs at runtime in `execute` — a static
+          // JSON Schema cannot carry a `.transform()`. See CLAUDE.md →
+          // "Tool parameter schemas" and the `strict-mode.test.ts` guard-rail.
+          z.object({
+            property: z.string().nullable(),
+            propertyName: z.string().nullable(),
+            operator: z.enum(HUBSPOT_FILTER_OPERATORS),
+            value: z.string(),
+          }),
         )
         .nullable()
         .describe(
@@ -196,22 +172,46 @@ registerTool({
       companyId: string | null;
       name: string | null;
       customProperties: Record<string, string> | null;
-      filters: Array<{ property: string; operator: (typeof HUBSPOT_FILTER_OPERATORS)[number]; value: string }> | null;
+      filters: Array<{
+        property: string | null;
+        propertyName: string | null;
+        operator: (typeof HUBSPOT_FILTER_OPERATORS)[number];
+        value: string;
+      }> | null;
       returnProperties: string[] | null;
       limit: number | null;
       after: string | null;
-    }) => {
+    }, ctx) => {
       const apiKeyResult = getHubSpotApiKeyOrError(ctx);
       if (typeof apiKeyResult !== "string") return apiKeyResult;
       const apiKey = apiKeyResult;
 
+      // Coalesce the `property`/`propertyName` alias at runtime (a static JSON
+      // Schema cannot carry the old `.transform()`). The field name is
+      // `property`; `propertyName` is the HubSpot REST-API native name that
+      // LLMs frequently emit. Reject a filter that provides neither.
+      let coalescedFilters:
+        | Array<{ property: string; operator: (typeof HUBSPOT_FILTER_OPERATORS)[number]; value: string }>
+        | null = null;
+      if (filters) {
+        coalescedFilters = [];
+        for (const f of filters) {
+          const property = f.property ?? f.propertyName;
+          if (!property) {
+            return {
+              error: "filters[].property is required (you can also pass it as 'propertyName')",
+            };
+          }
+          coalescedFilters.push({ property, operator: f.operator, value: f.value });
+        }
+      }
+
       if (action === "search") {
-        return searchContacts(ctx, apiKey, { contactId, phone, name, email, filters, returnProperties, limit, after });
+        return searchContacts(ctx, apiKey, { contactId, phone, name, email, filters: coalescedFilters, returnProperties, limit, after });
       }
 
       return manageContact(ctx, apiKey, { action, contactId, firstName, lastName, phone, email, companyId, customProperties });
     },
-  }),
 });
 
 async function searchContacts(
@@ -234,7 +234,7 @@ async function searchContacts(
       return { error: "Provide at least one search criterion: contactId, phone, name, email or filters." };
     }
 
-    const baseProperties = ["firstname", "lastname", "phone", "mobilephone", "email", "hs_object_id"];
+    const baseProperties = ["firstname", "lastname", "phone", "mobilephone", "email", "hs_object_id", "hubspot_owner_id"];
     const extraProperties = criteria.returnProperties ?? [];
     const allProperties = Array.from(new Set([...baseProperties, ...extraProperties]));
 
@@ -275,7 +275,17 @@ async function searchContacts(
       paging?: { next?: { after?: string } };
     };
 
-    const portalId = await getHubSpotPortalId(apiKey);
+    // Resolve owner ids → name/email so callers see "Mario Rossi" instead of a
+    // numeric id. Only hit the Owners API when at least one result carries an
+    // owner (resolveOwnerNames also short-circuits on an empty id list). The
+    // portal-id and owner lookups are independent, so run them in parallel.
+    const ownerIds = data.results
+      .map((c) => c.properties.hubspot_owner_id)
+      .filter((id): id is string => Boolean(id));
+    const [portalId, owners] = await Promise.all([
+      getHubSpotPortalId(apiKey),
+      resolveOwnerNames(apiKey, ownerIds),
+    ]);
 
     const result = {
       found: data.total,
@@ -284,6 +294,8 @@ async function searchContacts(
         for (const key of extraProperties) {
           customProperties[key] = c.properties[key] ?? null;
         }
+        const ownerId = c.properties.hubspot_owner_id ?? null;
+        const owner = ownerId ? owners.get(ownerId) : undefined;
         return {
           id: c.id,
           firstName: c.properties.firstname ?? null,
@@ -291,6 +303,10 @@ async function searchContacts(
           phone: c.properties.phone ?? c.properties.mobilephone ?? null,
           email: c.properties.email ?? null,
           url: hubspotUrl(portalId, "contact", c.id),
+          // hubspot_owner_id is retained for backward compatibility; owner_name
+          // and owner_email are added only when the owner could be resolved.
+          ...(ownerId ? { hubspot_owner_id: ownerId } : {}),
+          ...(owner ? { owner_name: owner.name, owner_email: owner.email } : {}),
           ...(extraProperties.length > 0 ? { customProperties } : {}),
         };
       }),

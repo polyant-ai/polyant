@@ -22,8 +22,8 @@ vi.mock("../../knowledge/ingestion.js", () => ({
   processDocument: (...args: unknown[]) => mockProcessDocument(...args),
 }));
 
-import "./write-knowledge.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import writeKnowledgeTool from "./write-knowledge.tool.js";
+import { buildTool } from "./registry.js";
 import { DocumentSizeExceededError } from "../../knowledge/store.js";
 
 const ctx = {
@@ -37,7 +37,7 @@ function flushMicrotasks(): Promise<void> {
 }
 
 describe("writeKnowledge tool", () => {
-  const def = getToolRegistry().get("writeKnowledge")!;
+  const def = writeKnowledgeTool;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const writeKnowledge = buildTool(def, ctx) as any;
 
@@ -53,7 +53,7 @@ describe("writeKnowledge tool", () => {
   it("registers with correct metadata", () => {
     expect(def.name).toBe("writeKnowledge");
     expect(def.category).toBe("knowledge");
-    expect(writeKnowledge.parameters).toBeDefined();
+    expect(writeKnowledge.inputSchema).toBeDefined();
   });
 
   it("calls upsertAgentDocument for action='write' and schedules reindex", async () => {
@@ -85,7 +85,7 @@ describe("writeKnowledge tool", () => {
     });
 
     await flushMicrotasks();
-    expect(mockProcessDocument).toHaveBeenCalledWith("doc-1", "inst-1", "hello", "sk-test");
+    expect(mockProcessDocument).toHaveBeenCalledWith("doc-1", "inst-1", "hello");
   });
 
   it("calls appendAgentDocument for action='append'", async () => {
@@ -112,7 +112,7 @@ describe("writeKnowledge tool", () => {
     expect(result.sizeBytes).toBe(12);
 
     await flushMicrotasks();
-    expect(mockProcessDocument).toHaveBeenCalledWith("doc-2", "inst-1", "foo\n\nbar", "sk-test");
+    expect(mockProcessDocument).toHaveBeenCalledWith("doc-2", "inst-1", "foo\n\nbar");
   });
 
   it("forwards custom mimeType on creation", async () => {

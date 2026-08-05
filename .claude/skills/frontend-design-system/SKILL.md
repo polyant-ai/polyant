@@ -16,7 +16,7 @@ Design system: minimal, flat, white-dominant (light) / dark-dominant (dark), bla
 Inspiration:
 - **Pure white backgrounds** in light mode (sidebar included, no gray tints)
 - **Primary is black** (light) / white (dark) — NOT a brand color
-- **Accent `#F16034`** (orange) reserved for highlights, CTAs, active emphasis — used sparingly
+- **Accent `#C8F23E`** (lime) reserved for highlights, CTAs, active emphasis — used sparingly. Because lime is a light color, `accent-foreground` is black (`#000000`), not white. When the accent is used as **text on a light background** (links, `hover:text-*`), use `text-accent-strong` instead of `text-accent` — it resolves to a darker lime (`#AEDB1F`) in light mode for readable contrast, and to the bright lime in dark mode
 - **Semantic colors only**: green for success/positive, red for destructive/negative
 - No gradients, no heavy shadows, no decorative borders
 - Strong visual hierarchy through font weight and size, not color
@@ -32,7 +32,9 @@ Inspiration:
 | `secondary` | `#F5F5F5` | `#1A1A1A` | Secondary surfaces, hover states |
 | `muted` | `#F5F5F5` | `#1A1A1A` | Subdued backgrounds |
 | `muted-foreground` | `#6B6B6B` | `#A0A0A0` | Secondary text, captions |
-| `accent` | `#F16034` | `#F16034` | Highlights, CTAs (use sparingly) |
+| `accent` | `#C8F23E` | `#C8F23E` | Highlights, CTAs (use sparingly) |
+| `accent-foreground` | `#000000` | `#000000` | Text on accent bg (black — lime is light) |
+| `accent-strong` | `#AEDB1F` | `#C8F23E` | Accent as TEXT on light bg (links, hover). Darker in light mode for contrast; bright lime in dark mode |
 | `destructive` | `#D32F2F` | `#D32F2F` | Errors, deletions |
 | `success` | `#00C853` | `#00C853` | Positive values, confirmations |
 | `background` | `#FFFFFF` | `#0A0A0A` | Page background |
@@ -397,7 +399,7 @@ Use shadcn `Table` components. Standard columns: name (clickable link), descript
       <TableRow key={item.name}>
         <TableCell className="font-medium">
           <Link href={`/<entity>/${item.name}`}
-            className="underline underline-offset-4 hover:text-accent">
+            className="underline underline-offset-4 hover:text-accent-strong">
             {item.name}
           </Link>
         </TableCell>
@@ -416,7 +418,7 @@ Use shadcn `Table` components. Standard columns: name (clickable link), descript
 </Table>
 ```
 
-- Name cell: `font-medium`, link with `underline underline-offset-4 hover:text-accent`
+- Name cell: `font-medium`, link with `underline underline-offset-4 hover:text-accent-strong`
 - Description cell: `text-muted-foreground`
 - Actions column: fixed `w-[100px]`, ghost icon buttons with `size-4` icons
 
@@ -627,7 +629,7 @@ Intentionally pragmatic. Replace `alert()` with toasts when a toast system is ad
 
 | Mistake | Fix |
 |---------|-----|
-| Using accent/orange as primary color | Primary is black/white. Accent is for rare highlights only |
+| Using accent/lime as primary color | Primary is black/white. Accent is for rare highlights only |
 | Giving sidebar a different background | Sidebar bg = same as page background (white/dark) |
 | Using `bg-gray-100` instead of tokens | Always use semantic tokens: `bg-secondary`, `bg-muted` |
 | Adding color for decoration | Only use color semantically (success, error, accent CTA) |

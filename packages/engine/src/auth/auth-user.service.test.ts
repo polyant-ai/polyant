@@ -63,7 +63,11 @@ describe("validateSessionToken", () => {
 
   describe("valid token decryption", () => {
     it("should return user from a valid JWE token (HTTP salt)", async () => {
-      const token = await createJweToken(userPayload, TEST_SECRET, HTTP_SALT);
+      const token = await createJweToken(
+        { ...userPayload, orgId: "org-uuid-1" },
+        TEST_SECRET,
+        HTTP_SALT,
+      );
       const result = await validateSessionToken(token);
 
       expect(result).toEqual({
@@ -72,11 +76,17 @@ describe("validateSessionToken", () => {
         name: "Paolo",
         role: "user",
         mustChangePassword: false,
+        principalType: "user",
+        orgId: "org-uuid-1",
       });
     });
 
     it("should return user from a valid JWE token (HTTPS salt)", async () => {
-      const token = await createJweToken(userPayload, TEST_SECRET, HTTPS_SALT);
+      const token = await createJweToken(
+        { ...userPayload, orgId: "org-uuid-1" },
+        TEST_SECRET,
+        HTTPS_SALT,
+      );
       const result = await validateSessionToken(token);
 
       expect(result).toEqual({
@@ -85,12 +95,14 @@ describe("validateSessionToken", () => {
         name: "Paolo",
         role: "user",
         mustChangePassword: false,
+        principalType: "user",
+        orgId: "org-uuid-1",
       });
     });
 
     it("should use sub as userId and fall back to id when sub is missing", async () => {
       const token = await createJweToken(
-        { id: "id-fallback-456", email: "test@example.com" },
+        { id: "id-fallback-456", email: "test@example.com", orgId: "org-uuid-1" },
         TEST_SECRET,
         HTTP_SALT,
       );
@@ -102,12 +114,14 @@ describe("validateSessionToken", () => {
         name: undefined,
         role: "user",
         mustChangePassword: false,
+        principalType: "user",
+        orgId: "org-uuid-1",
       });
     });
 
     it("should propagate role and mustChangePassword from the JWT", async () => {
       const token = await createJweToken(
-        { ...userPayload, role: "superadmin", mustChangePassword: true },
+        { ...userPayload, role: "superadmin", mustChangePassword: true, orgId: "org-uuid-1" },
         TEST_SECRET,
         HTTP_SALT,
       );
@@ -119,7 +133,49 @@ describe("validateSessionToken", () => {
         name: "Paolo",
         role: "superadmin",
         mustChangePassword: true,
+        principalType: "user",
+        orgId: "org-uuid-1",
       });
+    });
+  });
+
+  describe("orgId claim", () => {
+    it('should always type principalType as "user" for session tokens', async () => {
+      const token = await createJweToken(
+        { ...userPayload, orgId: "org-uuid-1" },
+        TEST_SECRET,
+        HTTP_SALT,
+      );
+      const result = await validateSessionToken(token);
+      expect(result!.principalType).toBe("user");
+    });
+
+    it("should read orgId from the token when present", async () => {
+      const token = await createJweToken(
+        { ...userPayload, orgId: "org-abc-789" },
+        TEST_SECRET,
+        HTTP_SALT,
+      );
+      const result = await validateSessionToken(token);
+      expect(result!.orgId).toBe("org-abc-789");
+    });
+
+    it("should return undefined orgId when the claim is absent", async () => {
+      const token = await createJweToken(userPayload, TEST_SECRET, HTTP_SALT);
+      const result = await validateSessionToken(token);
+      expect(result).not.toBeNull();
+      expect(result!.orgId).toBeUndefined();
+      expect(result!.principalType).toBe("user");
+    });
+
+    it("should ignore a non-string orgId claim", async () => {
+      const token = await createJweToken(
+        { ...userPayload, orgId: 12345 },
+        TEST_SECRET,
+        HTTP_SALT,
+      );
+      const result = await validateSessionToken(token);
+      expect(result!.orgId).toBeUndefined();
     });
   });
 
@@ -150,6 +206,8 @@ describe("validateSessionToken", () => {
         name: "Paolo",
         role: "user",
         mustChangePassword: false,
+        principalType: "user",
+        orgId: undefined,
       });
     });
 
@@ -173,6 +231,8 @@ describe("validateSessionToken", () => {
         name: "Paolo",
         role: "user",
         mustChangePassword: false,
+        principalType: "user",
+        orgId: undefined,
       });
     });
   });

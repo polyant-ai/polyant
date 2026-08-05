@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { pgTable, uuid, text, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const conversations = pgTable(
   "conversations",
@@ -19,6 +19,8 @@ export const conversations = pgTable(
   },
   (table) => [
     index("idx_conversations_instance_created").on(table.instanceId, table.createdAt),
+    // Conversation list filters by instance_id and orders by updated_at DESC.
+    index("idx_conversations_instance_updated").on(table.instanceId, table.updatedAt),
   ],
 );
 
@@ -65,6 +67,21 @@ export interface StepDetail {
   legacy?: boolean;
 }
 
+/**
+ * Exact LLM request payload captured for an assistant turn when the instance's
+ * `debug_enabled` flag is on. Heavy and PII-bearing at rest — persisted only
+ * opt-in (see pipeline `afterResponse`). The per-step tool I/O lives in `steps`
+ * and is NOT duplicated here.
+ */
+export interface LlmDebugPayload {
+  /** Full system prompt string sent to the model. */
+  system: string;
+  /** The messages array (ModelMessage[]) sent to the model, serialized. */
+  messages: unknown[];
+  /** Tool definitions sent to the model (best-effort name + description + JSON schema). */
+  tools: { name: string; description?: string; parameters?: unknown }[];
+}
+
 export const conversationMessages = pgTable(
   "conversation_messages",
   {
@@ -88,10 +105,47 @@ export const conversationMessages = pgTable(
     reasoning: jsonb("reasoning").$type<ReasoningDetail[]>(),
     attachments: jsonb("attachments").$type<AttachmentMeta[]>(),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    /**
+     * Exact LLM request payload (system + messages + tool defs) for this assistant
+     * turn. NULL unless the instance had `debug_enabled` on when it was generated.
+     * Heavy / PII at rest — never selected by the default `getMessages` list query;
+     * fetched on-demand via the per-message debug endpoint.
+     */
+    debugPayload: jsonb("debug_payload").$type<LlmDebugPayload>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
     index("idx_conversation_messages_conversation_id").on(table.conversationId),
     index("idx_conversation_messages_created_at").on(table.createdAt),
+  ],
+);
+
+/**
+ * Per-conversation shared key/value state ("conversation state store").
+ *
+ * A single JSONB blob per scope that every tool can read/write via `ctx.state`,
+ * plus a server-seeded `_channel` key holding the trusted channel identity
+ * (phone / chat id / userName). Writes are deterministic — tool code only, never
+ * the LLM — and committed on pipeline success (see `state.buffer.ts`).
+ *
+ * `scope` / `scopeKey` are an abstraction: today only `scope = "conversation"`
+ * is used (`scopeKey` = conversationId). A future "principal" tier can be added
+ * without a schema change. `instanceId` is the denormalized slug, kept only for
+ * the instance-delete cascade — operational/PII tier (slug-text, no UUID FK).
+ */
+export const conversationState = pgTable(
+  "conversation_state",
+  {
+    scope: text("scope").notNull().default("conversation"),
+    scopeKey: text("scope_key").notNull(),
+    instanceId: text("instance_id"),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.scope, table.scopeKey] }),
+    index("idx_conversation_state_scope_key").on(table.scopeKey),
+    index("idx_conversation_state_instance").on(table.instanceId),
   ],
 );

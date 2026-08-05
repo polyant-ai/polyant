@@ -35,7 +35,10 @@ const { mockDb } = vi.hoisted(() => {
     update: vi.fn(),
     insert: vi.fn(),
     delete: vi.fn(),
+    transaction: vi.fn(),
   };
+  // transaction passes the mock db itself as the tx argument
+  mockDb.transaction.mockImplementation(async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb));
   return { mockDb };
 });
 
@@ -60,8 +63,27 @@ vi.mock("./schema.js", () => ({
   },
 }));
 
+vi.mock("../conversations/schema.js", () => ({
+  conversations: { conversationId: "conversation_id", instanceId: "instance_id" },
+  conversationMessages: { conversationId: "conversation_id" },
+  conversationState: { instanceId: "instance_id", scope: "scope", scopeKey: "scope_key" },
+}));
+
+vi.mock("../memory/schema.js", () => ({
+  memories: { instanceId: "instance_id", sourceConversationId: "source_conversation_id" },
+}));
+
+vi.mock("../knowledge/schema.js", () => ({
+  knowledgeDocuments: { instanceId: "instance_id" },
+}));
+
+vi.mock("../scheduled-tasks/schema.js", () => ({
+  scheduledTasks: { instanceId: "instance_id" },
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
+  inArray: vi.fn((col: unknown, values: unknown[]) => ({ type: "inArray", col, values })),
   sql: Object.assign(vi.fn(), { raw: vi.fn() }),
 }));
 
@@ -77,6 +99,8 @@ import {
   deleteInstance,
   listAllInstances,
 } from "./store.js";
+import { asInstanceSlug } from "./identifiers.js";
+import { DEFAULT_EMBEDDING_DIM } from "../embeddings-gateway/config.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -94,9 +118,16 @@ const fakeInstance = {
   langsmithEnabled: false,
   langsmithProject: null,
   authEnabled: false,
+  workspaceId: "ws-default",
   createdAt: new Date("2025-01-01"),
   updatedAt: new Date("2025-01-01"),
 };
+
+/** Mock the default-workspace lookup that ensureInstance/createInstance run
+ *  before inserting (returns the seeded default workspace UUID). */
+function mockDefaultWorkspaceSelect() {
+  mockDb.select.mockReturnValue(createChainMock([{ id: "ws-default" }]) as any);
+}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -140,7 +171,7 @@ describe("instances/store", () => {
       const chain = createChainMock([fakeInstance]);
       mockDb.select.mockReturnValue(chain as any);
 
-      const result = await findInstanceBySlug("default");
+      const result = await findInstanceBySlug(asInstanceSlug("default"));
 
       expect(result).toEqual(fakeInstance);
       expect(mockDb.select).toHaveBeenCalled();
@@ -153,7 +184,7 @@ describe("instances/store", () => {
       const chain = createChainMock([]);
       mockDb.select.mockReturnValue(chain as any);
 
-      const result = await findInstanceBySlug("nonexistent");
+      const result = await findInstanceBySlug(asInstanceSlug("nonexistent"));
 
       expect(result).toBeUndefined();
     });
@@ -164,11 +195,12 @@ describe("instances/store", () => {
   // -----------------------------------------------------------------------
   describe("ensureInstance", () => {
     it("inserts with onConflictDoNothing", async () => {
+      mockDefaultWorkspaceSelect();
       const chain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(chain as any);
 
       await ensureInstance({
-        slug: "default",
+        slug: asInstanceSlug("default"),
         name: "Default Assistant",
         description: "A default assistant",
       });
@@ -178,20 +210,25 @@ describe("instances/store", () => {
         slug: "default",
         name: "Default Assistant",
         description: "A default assistant",
+        embeddingDim: DEFAULT_EMBEDDING_DIM,
+        workspaceId: "ws-default",
       });
       expect(chain.onConflictDoNothing).toHaveBeenCalled();
     });
 
     it("sets description to null when omitted", async () => {
+      mockDefaultWorkspaceSelect();
       const chain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(chain as any);
 
-      await ensureInstance({ slug: "test", name: "Test" });
+      await ensureInstance({ slug: asInstanceSlug("test"), name: "Test" });
 
       expect(chain.values).toHaveBeenCalledWith({
         slug: "test",
         name: "Test",
         description: null,
+        embeddingDim: DEFAULT_EMBEDDING_DIM,
+        workspaceId: "ws-default",
       });
     });
   });
@@ -201,11 +238,12 @@ describe("instances/store", () => {
   // -----------------------------------------------------------------------
   describe("createInstance", () => {
     it("inserts and returns the created instance", async () => {
+      mockDefaultWorkspaceSelect();
       const chain = createChainMock([fakeInstance]);
       mockDb.insert.mockReturnValue(chain as any);
 
       const result = await createInstance({
-        slug: "default",
+        slug: asInstanceSlug("default"),
         name: "Default Assistant",
         description: "A default assistant",
         provider: "openai",
@@ -220,15 +258,19 @@ describe("instances/store", () => {
         description: "A default assistant",
         provider: "openai",
         model: "gpt-4o",
+        embeddingDim: DEFAULT_EMBEDDING_DIM,
+        embeddingProvider: "openai",
+        workspaceId: "ws-default",
       });
       expect(chain.returning).toHaveBeenCalled();
     });
 
     it("defaults description, provider, and model to null", async () => {
+      mockDefaultWorkspaceSelect();
       const chain = createChainMock([{ ...fakeInstance, description: null, provider: null, model: null }]);
       mockDb.insert.mockReturnValue(chain as any);
 
-      await createInstance({ slug: "minimal", name: "Minimal" });
+      await createInstance({ slug: asInstanceSlug("minimal"), name: "Minimal" });
 
       expect(chain.values).toHaveBeenCalledWith({
         slug: "minimal",
@@ -236,6 +278,9 @@ describe("instances/store", () => {
         description: null,
         provider: null,
         model: null,
+        embeddingDim: DEFAULT_EMBEDDING_DIM,
+        embeddingProvider: "openai",
+        workspaceId: "ws-default",
       });
     });
   });
@@ -249,7 +294,7 @@ describe("instances/store", () => {
       const chain = createChainMock([updatedInstance]);
       mockDb.update.mockReturnValue(chain as any);
 
-      const result = await updateInstance("default", { name: "Updated Name" });
+      const result = await updateInstance(asInstanceSlug("default"), { name: "Updated Name" });
 
       expect(result).toEqual(updatedInstance);
       expect(mockDb.update).toHaveBeenCalled();
@@ -262,7 +307,7 @@ describe("instances/store", () => {
       const chain = createChainMock([]);
       mockDb.update.mockReturnValue(chain as any);
 
-      const result = await updateInstance("nonexistent", { name: "No Match" });
+      const result = await updateInstance(asInstanceSlug("nonexistent"), { name: "No Match" });
 
       expect(result).toBeUndefined();
     });
@@ -272,23 +317,37 @@ describe("instances/store", () => {
   // deleteInstance
   // -----------------------------------------------------------------------
   describe("deleteInstance", () => {
-    it("returns true when a row is deleted", async () => {
-      const chain = createChainMock([fakeInstance]);
-      mockDb.delete.mockReturnValue(chain as any);
+    it("runs in a transaction and returns true when the instance row is deleted", async () => {
+      // No conversations for this instance → the conversation_messages delete is skipped.
+      mockDb.select.mockReturnValue(createChainMock([]) as any);
+      mockDb.delete.mockReturnValue(createChainMock([fakeInstance]) as any);
 
-      const result = await deleteInstance("default");
+      const result = await deleteInstance(asInstanceSlug("default"));
 
       expect(result).toBe(true);
-      expect(mockDb.delete).toHaveBeenCalled();
-      expect(chain.where).toHaveBeenCalled();
-      expect(chain.returning).toHaveBeenCalled();
+      expect(mockDb.transaction).toHaveBeenCalled();
+      // conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + principal_secrets + instances
+      expect(mockDb.delete).toHaveBeenCalledTimes(7);
     });
 
-    it("returns false when no row is deleted", async () => {
-      const chain = createChainMock([]);
-      mockDb.delete.mockReturnValue(chain as any);
+    it("also deletes conversation_messages when the instance has conversations", async () => {
+      mockDb.select.mockReturnValue(
+        createChainMock([{ conversationId: "c1" }, { conversationId: "c2" }]) as any,
+      );
+      mockDb.delete.mockReturnValue(createChainMock([fakeInstance]) as any);
 
-      const result = await deleteInstance("nonexistent");
+      const result = await deleteInstance(asInstanceSlug("default"));
+
+      expect(result).toBe(true);
+      // conversation_messages + conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + principal_secrets + instances
+      expect(mockDb.delete).toHaveBeenCalledTimes(8);
+    });
+
+    it("returns false when no instance row is deleted", async () => {
+      mockDb.select.mockReturnValue(createChainMock([]) as any);
+      mockDb.delete.mockReturnValue(createChainMock([]) as any);
+
+      const result = await deleteInstance(asInstanceSlug("nonexistent"));
 
       expect(result).toBe(false);
     });

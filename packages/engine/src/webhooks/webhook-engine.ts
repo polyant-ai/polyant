@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { supervise } from "../agents/supervisor/index.js";
+import { supervise, type SupervisorOutput } from "../agents/supervisor/index.js";
+import { runHooks, firstHalt, firstReplaceResponse, hookProvenance } from "../hooks/hook-runner.js";
+import type { HookEventPayload, HookRunContext } from "../hooks/hook-types.js";
 import { traceStore } from "../analytics/trace.store.js";
 import { conversationStore } from "../conversations/index.js";
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
@@ -8,62 +10,76 @@ import { extractMemories } from "../memory/extractor.js";
 import { generateConversationTitle } from "../utils/title-generator.js";
 import { channelManager } from "../channels/channel-manager.js";
 import { renderTemplate } from "./template-renderer.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 import { registerTrigger } from "./active-triggers.js";
 import { setTriggerContext, clearTriggerContext } from "./trigger-context.js";
 import { webhookLog } from "./webhook-logger.js";
 import type { EventDefinition } from "./webhook-sources.store.js";
 import { emitConversation } from "../activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
+import { ConversationStateBuffer } from "../conversations/state.buffer.js";
 
 /**
  * Trigger an immediate conversation from a matched webhook event.
  *
- * Flow:
- * 1. Render contextPrompt and outboundTarget templates with the payload
- * 2. Create a conversation with the rendered contextPrompt persisted
- * 3. Register in the active triggers cache for reply routing
- * 4. Call the supervisor with the contextPrompt as additional system prompt
- * 5. Persist the assistant response
- * 6. Fire-and-forget post-processing (title, memories)
+ * Two modes:
+ * - Channel mode (outboundChannel + outboundTarget set): conversation keyed by
+ *   `${slug}:${channel}:${target}` — replies routed back via active triggers.
+ * - Internal mode (no outboundChannel): fresh conversation per event keyed by
+ *   `${slug}:webhook:${definitionId}:${ts}`. No outbound send, no reply routing.
+ *   Used for one-shot agent actions whose history is consulted in the admin UI.
  */
 export async function triggerConversation(
   instanceId: string,
-  instanceSlug: string,
+  instanceSlug: InstanceSlug,
   definition: EventDefinition,
   payload: Record<string, unknown>,
 ): Promise<void> {
   const cycleStart = Date.now();
 
-  if (!definition.contextPrompt || !definition.outboundChannel) {
-    webhookLog.warn("TriggerEngine", `definition "${definition.name}" missing contextPrompt or outboundChannel`);
+  if (!definition.contextPrompt) {
+    webhookLog.warn("TriggerEngine", `definition "${definition.name}" missing contextPrompt`);
     return;
   }
+
+  const hasChannel = !!definition.outboundChannel;
+  const channelLabel = definition.outboundChannel ?? "webhook";
 
   const instanceConfig = await resolveInstanceConfig(instanceSlug);
 
   // 1. Render templates
   const rawContextPrompt = renderTemplate(definition.contextPrompt, payload);
-  const renderedTarget = definition.outboundTarget
-    ? renderTemplate(definition.outboundTarget, payload)
-    : null;
-
-  if (!renderedTarget) {
-    webhookLog.warn("TriggerEngine", `definition "${definition.name}" outboundTarget resolved to empty`);
-    return;
+  let renderedTarget: string | null = null;
+  if (hasChannel) {
+    renderedTarget = definition.outboundTarget
+      ? renderTemplate(definition.outboundTarget, payload)
+      : null;
+    if (!renderedTarget) {
+      webhookLog.warn("TriggerEngine", `definition "${definition.name}" outboundTarget resolved to empty`);
+      return;
+    }
   }
 
-  // Truncate rendered context for safety (max 4000 chars)
-  const renderedContextPrompt = rawContextPrompt.length > 4000
-    ? rawContextPrompt.slice(0, 4000) + "\n[truncated]"
+  // Truncate rendered context for safety (max 50KB).
+  // The limit was originally 4KB but that's too small for structured
+  // context prompts that include schemas, checklists, or URL constants
+  // (e.g. a "Send proposal" flow renders to ~9KB). 50KB ≈ 12.5K tokens,
+  // still well below any model's context window, and guards against
+  // pathological payload expansion via `{{payload.*}}`.
+  const MAX_RENDERED_CONTEXT_CHARS = 50_000;
+  const renderedContextPrompt = rawContextPrompt.length > MAX_RENDERED_CONTEXT_CHARS
+    ? rawContextPrompt.slice(0, MAX_RENDERED_CONTEXT_CHARS) + "\n[truncated]"
     : rawContextPrompt;
 
   const safeContextPrompt = renderedContextPrompt;
 
-  // 2. Create conversation with standard channel-based ID
-  const conversationId = `${instanceSlug}:${definition.outboundChannel}:${renderedTarget}`;
+  // 2. Build conversation ID (channel-keyed or fresh per event in internal mode)
+  const conversationId = hasChannel
+    ? `${instanceSlug}:${definition.outboundChannel}:${renderedTarget}`
+    : `${instanceSlug}:webhook:${definition.id}:${cycleStart}`;
 
   const ensureResult = await conversationStore.ensureConversation(conversationId, instanceSlug, {
-    channel: definition.outboundChannel,
+    channel: channelLabel,
     source: "webhook",
     contextPrompt: safeContextPrompt,
   });
@@ -99,15 +115,33 @@ export async function triggerConversation(
     { role: "system", content: safeContextPrompt },
   ]);
 
-  // 3. Register active trigger for reply routing + per-conversation trigger context (tools)
-  registerTrigger(instanceSlug, definition.outboundChannel, renderedTarget, conversationId);
-  setTriggerContext(conversationId, {
-    instanceSlug,
-    outboundChannel: definition.outboundChannel,
-    outboundTarget: renderedTarget,
-  });
+  // 3. Register active trigger for reply routing + per-conversation trigger context (tools).
+  //    Skipped in internal mode: no channel means no inbound replies to route, and
+  //    no channel-aware tools rely on a trigger context.
+  if (hasChannel && renderedTarget) {
+    registerTrigger(instanceSlug, definition.outboundChannel!, renderedTarget, conversationId);
+    setTriggerContext(conversationId, {
+      instanceSlug,
+      outboundChannel: definition.outboundChannel!,
+      outboundTarget: renderedTarget,
+    });
+  }
 
-  webhookLog.info("TriggerEngine", `triggering conversation ${conversationId} for "${definition.name}"`);
+  // Conversation state buffer (commit-on-success), mirroring the inbound pipeline:
+  // tools invoked in the trigger turn can write trusted derived values via `ctx.state`
+  // (e.g. an instance's init tool seeding offerType/leadId), persisted only after
+  // supervise succeeds. Without this the trigger turn had no buffer and every state
+  // write silently no-opped. Seed the trusted channel identity in channel mode so
+  // tools also get `ctx.state.channel`.
+  const stateBuffer = await ConversationStateBuffer.load(conversationId, instanceSlug).catch((err) => {
+    webhookLog.error("TriggerEngine", `failed to load conversation state for ${conversationId}`, err);
+    return new ConversationStateBuffer(conversationId, instanceSlug);
+  });
+  if (hasChannel && renderedTarget) {
+    stateBuffer.seedChannel({ type: definition.outboundChannel!, id: renderedTarget });
+  }
+
+  webhookLog.info("TriggerEngine", `triggering conversation ${conversationId} for "${definition.name}"${hasChannel ? "" : " (internal mode)"}`);
 
   // 4. Synthetic user message — the actual instructions are in the contextPrompt (system prompt)
   const syntheticMessage = "A webhook event has been triggered. Follow the instructions in your conversation context.";
@@ -126,61 +160,133 @@ export async function triggerConversation(
   // messages in history. Handle at pipeline load-time (merge) when needed.
 
   // 5. Call supervisor — include harness tools gated by the outbound channel
-  //    (e.g. "whatsapp" enables send_whatsapp_template).
-  const harnessCategories = new Set<string>([definition.outboundChannel]);
-  let result;
-  try {
-    result = await supervise({
-      message: messageToSupervise,
-      instanceId: instanceSlug,
-      conversationId,
-      conversationSummary: undefined,
-      contextPrompt: safeContextPrompt,
-      channelIdentity: {
-        channel: definition.outboundChannel,
-        channelId: renderedTarget,
-      },
-      provider: instanceConfig.provider,
-      model: instanceConfig.model,
-      apiKeys: instanceConfig.apiKeys,
-      secrets: instanceConfig.secrets,
-      memoryEnabled: instanceConfig.memoryEnabled,
-      knowledgeEnabled: instanceConfig.knowledgeEnabled,
-      thinkingEnabled: instanceConfig.thinkingEnabled,
-      includeHarness: harnessCategories,
-    });
-  } catch (err) {
-    webhookLog.error("TriggerEngine", `supervise() failed for "${definition.name}"`, err);
-    clearTriggerContext(conversationId);
-    return;
+  //    (e.g. "whatsapp" enables send_whatsapp_template) plus the
+  //    `conversation-trigger` category (enables send_outbound_message, which
+  //    lets the agent reply on the trigger's outbound channel).
+  const harnessCategories = hasChannel
+    ? new Set<string>([definition.outboundChannel!, "conversation-trigger"])
+    : new Set<string>();
+  // Pre-LLM hook (halt-capable). Webhook is supervise-direct, so wire it
+  // manually. Only message_received fires here (see the halt-and-respond spec §6).
+  const hookPayload: HookEventPayload = {
+    instance: { slug: instanceSlug },
+    conversation: { id: conversationId },
+    channel: { type: definition.outboundChannel ?? "webhook", id: renderedTarget ?? "" },
+    user: { name: definition.name },
+    message: { text: messageToSupervise },
+  };
+  const hookCtx: HookRunContext = {
+    instanceId: instanceSlug,
+    conversationId,
+    secrets: instanceConfig.secrets,
+    apiKeys: instanceConfig.apiKeys,
+    provider: instanceConfig.provider,
+    model: instanceConfig.model,
+    flags: {
+      memory: instanceConfig.memoryEnabled,
+      knowledge: instanceConfig.knowledgeEnabled,
+      thinking: instanceConfig.thinkingEnabled,
+      debug: instanceConfig.debugEnabled,
+      stateInPrompt: instanceConfig.stateInPromptEnabled,
+      toolResultsInHistory: instanceConfig.toolResultsInHistoryEnabled,
+    },
+    state: stateBuffer.api(),
+  };
+  // Pre-LLM hook (halt-capable). Keep the summaries for provenance on halt.
+  const preHookSummaries = await runHooks("message_received", hookPayload, hookCtx);
+  const halt = firstHalt(preHookSummaries);
+
+  let result: SupervisorOutput | undefined;
+  if (!halt) {
+    try {
+      result = await supervise({
+        message: messageToSupervise,
+        instanceId: instanceSlug,
+        conversationId,
+        conversationSummary: undefined,
+        contextPrompt: safeContextPrompt,
+        channelIdentity: hasChannel && renderedTarget
+          ? { channel: definition.outboundChannel!, channelId: renderedTarget }
+          : undefined,
+        provider: instanceConfig.provider,
+        model: instanceConfig.model,
+        apiKeys: instanceConfig.apiKeys,
+        secrets: instanceConfig.secrets,
+        memoryEnabled: instanceConfig.memoryEnabled,
+        knowledgeEnabled: instanceConfig.knowledgeEnabled,
+        thinkingEnabled: instanceConfig.thinkingEnabled,
+        debugEnabled: instanceConfig.debugEnabled,
+        datetimeInjectionEnabled: instanceConfig.datetimeInjectionEnabled,
+        cacheConfig: instanceConfig.cacheConfig,
+        includeHarness: harnessCategories,
+        stateBuffer,
+      });
+    } catch (err) {
+      webhookLog.error("TriggerEngine", `supervise() failed for "${definition.name}"`, err);
+      if (hasChannel) clearTriggerContext(conversationId);
+      return;
+    }
   }
 
-  // When a tool has already delivered the reply (e.g. send_whatsapp_template),
-  // persist the actual content delivered to the user (`replyText`) instead of
-  // the supervisor's free-form meta-commentary (`result.text`). Keeps the
-  // conversation history aligned with what the recipient actually saw.
-  const finalText = result.replyHandled && result.replyText ? result.replyText : result.text;
+  // Post-LLM hook (response-replacement capable). Webhook is non-streaming, so a
+  // replace always applies. Only runs in the non-halt path (result is defined).
+  // response_generated hooks can also write state, so run BEFORE the flush below.
+  let replace: ReturnType<typeof firstReplaceResponse>;
+  let postHooks = preHookSummaries; // default to pre-summaries so provenance covers the halt case
+  if (!halt) {
+    postHooks = await runHooks(
+      "response_generated",
+      // Webhook is supervise-direct with no replay loop, so regenerationCount is always 0.
+      { ...hookPayload, response: { text: result!.text, regenerationCount: 0 } },
+      hookCtx,
+    );
+    replace = firstReplaceResponse(postHooks);
+  }
+
+  // Commit conversation state (commit-on-success): reached only when supervise
+  // succeeded (the catch above returns) and the response_generated hooks ran.
+  // Awaited so a tool's derived value is durable before the next inbound turn
+  // reads it. Errors logged, not propagated.
+  try {
+    await stateBuffer.flush();
+  } catch (err) {
+    webhookLog.error("TriggerEngine", `failed to flush conversation state for ${conversationId}`, err);
+  }
+
+  // Reply precedence: a pre-LLM halt, then a post-LLM replaceResponse (a hook
+  // explicitly rewrote the reply — wins even over a tool-delivered replyText),
+  // then the tool-delivered content (`replyText` when replyHandled) so history
+  // matches what the recipient saw, else the supervisor's free-form text.
+  const finalText = halt
+    ? halt.message
+    : replace
+      ? replace.message
+      : (result!.replyHandled && result!.replyText ? result!.replyText : result!.text);
+  // Provenance: the pre-LLM halt or the post-LLM replace that authored the reply.
+  const provenance = halt ? hookProvenance(preHookSummaries) : hookProvenance(postHooks);
 
   // Persist assistant response (tool-delivered content when replyHandled, else supervisor text)
   await conversationStore.appendMessages(conversationId, [
-    { role: "assistant", content: finalText, steps: result.toolCalls },
+    { role: "assistant", content: finalText, steps: result?.steps, ...(result?.reasoning ? { reasoning: result.reasoning } : {}), ...(result?.debugPayload ? { debugPayload: result.debugPayload } : {}), ...(provenance ? { metadata: provenance } : {}) },
   ]);
 
   // Send response to the configured outbound channel — unless a tool has already
   // delivered the reply (e.g. send_whatsapp_template signaled replyHandled).
-  if (finalText && !result.replyHandled) {
+  // In internal mode (no channel) the response is only persisted, never sent.
+  if (hasChannel && finalText && !result?.replyHandled) {
     try {
-      await channelManager.sendOutbound(instanceSlug, definition.outboundChannel, renderedTarget, finalText);
+      await channelManager.sendOutbound(instanceSlug, definition.outboundChannel!, renderedTarget!, finalText);
       webhookLog.info("TriggerEngine", `sent to ${definition.outboundChannel}:${renderedTarget}`);
     } catch (err) {
       webhookLog.error("TriggerEngine", `send failed for ${definition.outboundChannel}:${renderedTarget}`, err);
     }
-  } else if (result.replyHandled) {
+  } else if (hasChannel && result?.replyHandled) {
     webhookLog.info("TriggerEngine", `reply already handled by tool — skipping free-form send for ${definition.outboundChannel}:${renderedTarget}`);
   }
 
-  // Clear trigger context — conversation-lifetime state is no longer needed
-  clearTriggerContext(conversationId);
+  // Clear trigger context — conversation-lifetime state is no longer needed.
+  // Only set in channel mode, so only cleared in channel mode.
+  if (hasChannel) clearTriggerContext(conversationId);
 
   // Clear the persisted contextPrompt: it was meant only for this trigger turn,
   // so subsequent inbound turns on the same conversation don't see stale
@@ -212,14 +318,14 @@ export async function triggerConversation(
   traceStore.record({
     conversationId,
     instanceId: instanceSlug,
-    channel: definition.outboundChannel,
+    channel: channelLabel,
     contextPrepMs,
-    toolBuildingMs: result.toolBuildingMs,
-    llmCallMs: result.durationMs,
+    toolBuildingMs: result?.toolBuildingMs ?? 0,
+    llmCallMs: result?.durationMs ?? 0,
     totalMs: Date.now() - cycleStart,
-    promptTokens: result.usage.promptTokens,
-    completionTokens: result.usage.completionTokens,
-    toolCalls: result.toolCallTraces,
+    promptTokens: result?.usage?.promptTokens ?? 0,
+    completionTokens: result?.usage?.completionTokens ?? 0,
+    toolCalls: result?.toolCallTraces,
     isStreaming: false,
   });
 

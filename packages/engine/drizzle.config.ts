@@ -32,7 +32,6 @@ export default defineConfig({
     "./src/instances/channels.schema.ts",
     "./src/memory/schema.ts",
     "./src/knowledge/schema.ts",
-    "./src/governance/schema.ts",
     "./src/scheduled-tasks/schema.ts",
     "./src/instances/prompts.schema.ts",
     "./src/agents/tools/tools.schema.ts",
@@ -44,10 +43,17 @@ export default defineConfig({
     "./src/auth/users.schema.ts",
     "./src/webhooks/webhooks.schema.ts",
     "./src/analytics/traces.schema.ts",
+    "./src/optout/optout.schema.ts",
+    "./src/organizations/organization.schema.ts",
+    "./src/authz/role.schema.ts",
+    "./src/authz/role-binding.schema.ts",
+    "./src/authz/authz-audit-log.schema.ts",
+    "./src/auth/management-api-keys.schema.ts",
   ],
   dialect: "postgresql",
   dbCredentials: {
     url: process.env.DATABASE_URL ??
       `postgresql://${process.env.POSTGRES_USER ?? "polyant"}:${process.env.POSTGRES_PASSWORD ?? ""}@${process.env.POSTGRES_HOST ?? "localhost"}:${process.env.POSTGRES_PORT ?? "5432"}/${process.env.POSTGRES_DB ?? "polyant"}`,
+    ssl: process.env.POSTGRES_SSL === "true" ? { rejectUnauthorized: false } : false,
   },
 });

@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { CoreMessage, Tool } from "ai";
-import type { ReasoningDetail, StepDetail } from "../conversations/schema.js";
+import type { ModelMessage, Tool } from "ai";
+import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../conversations/schema.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 
 export type ModelTier = "fast" | "standard" | "heavy";
+
+/** Cross-turn prompt-cache TTL (Anthropic). Bedrock is 5m only; OpenAI/Nebius ignore it. */
+export type CacheTtl = "5m" | "1h";
 
 export interface ChatRequest {
   tier: ModelTier;
@@ -12,7 +16,15 @@ export interface ChatRequest {
   /** Override tier-resolved model with a specific model ID. */
   model?: string;
   thinking?: boolean;
-  messages: CoreMessage[];
+  /**
+   * Reasoning intensity when `thinking` is on (low|medium|high). Currently
+   * consumed only by the Nebius provider (→ `reasoning_effort`); other providers
+   * ignore it for now.
+   */
+  thinkingLevel?: string;
+  /** Sampling temperature in [0, 2]. Omitted from the provider call when undefined. */
+  temperature?: number;
+  messages: ModelMessage[];
   tools?: Record<string, Tool>;
   maxSteps?: number;
   system?: string;
@@ -20,6 +32,8 @@ export interface ChatRequest {
   apiKeys?: {
     openai?: string;
     anthropic?: string;
+    nebius?: string;
+    bedrock_api_key?: string;
     bedrock_access_key_id?: string;
     bedrock_secret_access_key?: string;
     bedrock_region?: string;
@@ -32,6 +46,20 @@ export interface ChatRequest {
   onToolCall?: (toolName: string, args: Record<string, unknown>) => void;
   /** Cancellation signal propagated to Vercel AI SDK (generateText/streamText). */
   abortSignal?: AbortSignal;
+  /**
+   * When true, the provider captures the exact request payload (system + messages
+   * + tool definitions) and returns it on `ChatResponse.debugPayload`. Gated by the
+   * instance `debug_enabled` flag — heavy, opt-in, persisted for analysis/debug.
+   */
+  captureDebug?: boolean;
+  /**
+   * Per-instance prompt-cache control. `enabled: false` skips ALL cache markers
+   * (Anthropic `cacheControl` / Bedrock `cachePoint`), so the provider never pays
+   * a cache write; `ttl` selects the cross-turn Anthropic breakpoint TTL. Undefined
+   * = enabled + 1h (backward compatible). No effect on OpenAI (automatic caching,
+   * no marker) or Nebius (no cache API).
+   */
+  cacheConfig?: { enabled: boolean; ttl: CacheTtl };
 }
 
 export interface ChatResponse {
@@ -53,6 +81,22 @@ export interface ChatResponse {
   durationMs: number;
   model: string;
   provider: string;
+  /**
+   * USD cost of this call, split by pricing bucket. Set by the ai-gateway after
+   * the provider returns (from `estimateCostBreakdown`). Threaded up to the
+   * pipeline and persisted per-message on `pipeline_traces`.
+   */
+  cost?: CostBreakdown;
+  /** Whether extended thinking was requested for this call (echoed from the request). */
+  thinking?: boolean;
+  /** Sampling temperature requested for this call (undefined → provider default). */
+  temperature?: number;
+  /**
+   * Exact LLM request payload (system + messages + tool defs) — populated only
+   * when `ChatRequest.captureDebug` was set. Threaded up to the pipeline and
+   * persisted on the assistant message row (`conversation_messages.debug_payload`).
+   */
+  debugPayload?: LlmDebugPayload;
 }
 
 /**
@@ -69,6 +113,39 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /**
+   * Input tokens served from the provider prompt cache (cache HIT). Subset of
+   * `promptTokens`. Populated by the ai-gateway on every real call (0 when
+   * caching is off/unsupported); optional so lightweight test/util usage
+   * literals need not spell it out. Priced at a reduced rate by `estimateCost`.
+   */
+  cachedInputTokens?: number;
+  /**
+   * Input tokens written to the provider prompt cache (cache WRITE). Subset of
+   * `promptTokens`. Anthropic-only in practice (OpenAI caching is automatic and
+   * reports no write). Priced at a premium by `estimateCost`.
+   */
+  cacheCreationInputTokens?: number;
+}
+
+/**
+ * USD cost of a single LLM call, split by pricing bucket. `total` is the sum of
+ * `input + cache + output` — the same scalar returned by `estimateCost()`.
+ *
+ * `cache` is the combined cache cost (`cacheRead + cacheWrite`), kept as the
+ * canonical bucket; the two are also exposed separately because cache reads and
+ * writes price very differently (Anthropic ≈ 0.1× read vs 1.25× write), so the
+ * split is what actually tells you whether caching is paying off.
+ */
+export interface CostBreakdown {
+  input: number;
+  cache: number;
+  /** Cost of cache-read (hit) tokens. Subset of `cache`. */
+  cacheRead: number;
+  /** Cost of cache-write (creation) tokens. Subset of `cache`. */
+  cacheWrite: number;
+  output: number;
+  total: number;
 }
 
 export interface AILogEntry {
@@ -80,6 +157,10 @@ export interface AILogEntry {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /** Input tokens read from the prompt cache (cache HIT). Subset of promptTokens. */
+  cachedInputTokens?: number;
+  /** Input tokens written to the prompt cache (cache WRITE). Subset of promptTokens. */
+  cacheCreationInputTokens?: number;
   estimatedCostUsd: number;
   durationMs: number;
   /** Total characters of reasoning/thinking content captured for this call. */
@@ -87,7 +168,7 @@ export interface AILogEntry {
   /** Number of multi-step tool iterations executed by the model loop. */
   stepCount?: number;
   conversationId?: string;
-  instanceId?: string;
+  instanceId?: InstanceSlug;
   callType?: "conversation" | "service";
   createdAt?: Date;
 }

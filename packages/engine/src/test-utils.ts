@@ -8,6 +8,8 @@ import { vi } from "vitest";
 import type { IncomingMessage, MessageChannelType } from "./channels/types.js";
 import type { ChatResponse, AILogEntry, ModelTier } from "./ai-gateway/types.js";
 import type { AuditLogger } from "./audit/audit-logger.js";
+import type { ConversationStateApi, ChannelStateIdentity } from "./conversations/state.buffer.js";
+import { asInstanceSlug } from "./instances/identifiers.js";
 
 export function createMockIncomingMessage(
   overrides: Partial<IncomingMessage> = {},
@@ -15,7 +17,7 @@ export function createMockIncomingMessage(
   return {
     channelType: "telegram" as MessageChannelType,
     channelId: "test-channel-1",
-    instanceId: "test-user-1",
+    instanceId: asInstanceSlug("test-user-1"),
     userName: "Test User",
     text: "Hello",
     metadata: {},
@@ -39,6 +41,30 @@ export function createMockChatResponse(
 
 export function createMockAudit(): AuditLogger {
   return { log: vi.fn() } as unknown as AuditLogger;
+}
+
+/**
+ * In-memory `ctx.state` for tool tests — backs the real `ConversationStateApi`
+ * surface with a plain object so tests assert against actual reads/writes
+ * (not mock call counts). Seed `_channel` via `initial` to exercise
+ * `ctx.state.channel`.
+ */
+export function createMockState(initial: Record<string, unknown> = {}): ConversationStateApi {
+  const data: Record<string, unknown> = { ...initial };
+  return {
+    get: (k) => data[k],
+    set: (k, v) => {
+      data[k] = v;
+    },
+    getAll: () => ({ ...data }),
+    delete: (k) => {
+      delete data[k];
+    },
+    get channel(): ChannelStateIdentity | undefined {
+      const c = data["_channel"];
+      return c && typeof c === "object" ? (c as ChannelStateIdentity) : undefined;
+    },
+  };
 }
 
 export function createMockAILogEntry(

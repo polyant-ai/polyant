@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { extname, basename } from "path";
+import { z } from "zod";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import {
   createDocument,
@@ -20,17 +21,46 @@ import {
   deleteDocument,
   hashContent,
   countDocuments,
+  getKnowledgeForExport,
+  listDocumentFilenames,
+  resolveUniqueFilename,
 } from "../../knowledge/index.js";
 import { processDocument } from "../../knowledge/ingestion.js";
-import { resolveInstanceConfig } from "../../instances/config-resolver.js";
+import { resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
 import { config } from "../../config.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 /** Maximum allowed document size in bytes (5 MB). */
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 
+/** Map a filename extension to a stored MIME type (defaults to text/plain). */
+function mimeForFilename(filename: string): string {
+  const ext = extname(filename).replace(/^\./, "").toLowerCase();
+  const mimeMap: Record<string, string> = {
+    md: "text/markdown",
+    txt: "text/plain",
+    html: "text/html",
+  };
+  return mimeMap[ext] ?? "text/plain";
+}
+
+/** Import bundle shape — produced by the export endpoint. */
+const importBundleSchema = z.object({
+  version: z.number().optional(),
+  documents: z
+    .array(
+      z.object({
+        filename: z.string().min(1),
+        content: z.string().min(1),
+      }),
+    )
+    .min(1),
+});
+
 @Controller("api/instances/:slug/knowledge")
 export class InstanceKnowledgeController {
   /** GET /api/instances/:slug/knowledge — list documents (no rawContent) */
+  @RequirePermission(Permission.KNOWLEDGE_READ)
   @Get()
   async list(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
@@ -52,7 +82,25 @@ export class InstanceKnowledgeController {
     };
   }
 
+  /**
+   * GET /api/instances/:slug/knowledge/export — export every document (with raw
+   * content) as a JSON bundle. Declared BEFORE the :docId route so "export" is
+   * not captured as a document id.
+   */
+  @RequirePermission(Permission.KNOWLEDGE_READ)
+  @Get("export")
+  async export(@Param("slug") slug: string) {
+    const instance = await findInstanceOrFail(slug);
+    const documents = await getKnowledgeForExport(instance.slug);
+    return {
+      version: 1,
+      instanceSlug: instance.slug,
+      documents,
+    };
+  }
+
   /** GET /api/instances/:slug/knowledge/:docId — full document with rawContent */
+  @RequirePermission(Permission.KNOWLEDGE_READ)
   @Get(":docId")
   async getById(@Param("slug") slug: string, @Param("docId") docId: string) {
     const instance = await findInstanceOrFail(slug);
@@ -80,6 +128,7 @@ export class InstanceKnowledgeController {
   }
 
   /** POST /api/instances/:slug/knowledge — upload a document (text) */
+  @RequirePermission(Permission.KNOWLEDGE_WRITE)
   @Post()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async upload(
@@ -120,30 +169,20 @@ export class InstanceKnowledgeController {
       );
     }
 
-    // Use path.extname for correct parsing of filenames with multiple dots
-    // e.g. "document.v2.pdf" → ".pdf", "notes.md" → ".md"
-    const ext = extname(sanitizedFilename).replace(/^\./, "").toLowerCase();
-    const mimeMap: Record<string, string> = {
-      md: "text/markdown",
-      txt: "text/plain",
-      html: "text/html",
-    };
-
-    // Resolve OpenAI API key (required for embedding generation)
-    const instanceConfig = await resolveInstanceConfig(instance.slug);
-    const openaiKey = instanceConfig.secrets["openai_api_key"];
-    if (!openaiKey) {
-      throw new BadRequestException(
-        "OpenAI API key is not configured for this instance. " +
-        "Knowledge ingestion requires an OpenAI key for embedding generation. " +
-        "Set it via the instance secrets API.",
-      );
-    }
+    // Verify the embedding provider is configured before accepting the upload.
+    // The gateway resolves provider-specific credentials (OpenAI key or Bedrock region).
+    await resolveEmbeddingContext(instance.slug).catch((err: unknown) => {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Embedding provider is not configured for this instance.";
+      throw new BadRequestException(message);
+    });
 
     const doc = await createDocument({
       instanceId: instance.slug,
       filename: sanitizedFilename,
-      mimeType: mimeMap[ext] ?? "text/plain",
+      mimeType: mimeForFilename(sanitizedFilename),
       sizeBytes,
       rawContent: content,
       contentHash: hashContent(content),
@@ -151,7 +190,7 @@ export class InstanceKnowledgeController {
     });
 
     // Ingest asynchronously
-    processDocument(doc.id, instance.slug, content, openaiKey).catch((err) => {
+    processDocument(doc.id, instance.slug, content).catch((err) => {
       console.error(
         `[Knowledge] Ingestion failed for doc ${doc.id}: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -166,7 +205,94 @@ export class InstanceKnowledgeController {
     };
   }
 
+  /**
+   * POST /api/instances/:slug/knowledge/import — bulk-import documents from a
+   * JSON bundle (as produced by /export). Each document is re-embedded with the
+   * instance's CURRENT embedder. Filename collisions are resolved by appending a
+   * progressive suffix ("manuale.txt" → "manuale (1).txt") — never overwritten.
+   * The whole bundle is validated up front so the import is all-or-nothing.
+   */
+  @RequirePermission(Permission.KNOWLEDGE_WRITE)
+  @Post("import")
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  async import(@Param("slug") slug: string, @Body() body: unknown) {
+    const instance = await findInstanceOrFail(slug);
+
+    if (!instance.knowledgeEnabled) {
+      throw new BadRequestException("Knowledge is not enabled for this instance");
+    }
+
+    const parsed = importBundleSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException(`Invalid import bundle: ${parsed.error.issues[0]?.message ?? "malformed"}`);
+    }
+
+    // Verify the embedding provider is configured before importing anything.
+    await resolveEmbeddingContext(instance.slug).catch((err: unknown) => {
+      const message =
+        err instanceof Error ? err.message : "Embedding provider is not configured for this instance.";
+      throw new BadRequestException(message);
+    });
+
+    // Validate + normalize every document up front (fail fast, no partial import).
+    const prepared = parsed.data.documents.map((d, i) => {
+      const sanitized = basename(d.filename.trim());
+      if (!sanitized) {
+        throw new BadRequestException(`Document ${i + 1}: filename must not be empty or a path component`);
+      }
+      const content = d.content.trim();
+      if (!content) {
+        throw new BadRequestException(`Document "${sanitized}": content must not be empty`);
+      }
+      const sizeBytes = Buffer.byteLength(content, "utf-8");
+      if (sizeBytes > MAX_FILE_SIZE_BYTES) {
+        throw new BadRequestException(
+          `Document "${sanitized}" (${(sizeBytes / 1024 / 1024).toFixed(2)} MB) exceeds the 5 MB limit`,
+        );
+      }
+      return { requestedName: sanitized, content, sizeBytes };
+    });
+
+    // Enforce the per-instance document cap across the whole batch.
+    const maxDocs = config.knowledge.maxDocsPerInstance;
+    const existing = await listDocumentFilenames(instance.slug);
+    if (existing.length + prepared.length > maxDocs) {
+      throw new BadRequestException(
+        `Import would exceed the knowledge document limit for this instance (cap: ${maxDocs}, existing: ${existing.length}, importing: ${prepared.length})`,
+      );
+    }
+
+    const taken = new Set(existing);
+    const imported: { filename: string; renamedFrom?: string }[] = [];
+    for (const doc of prepared) {
+      const filename = resolveUniqueFilename(doc.requestedName, taken);
+      taken.add(filename);
+
+      const created = await createDocument({
+        instanceId: instance.slug,
+        filename,
+        mimeType: mimeForFilename(filename),
+        sizeBytes: doc.sizeBytes,
+        rawContent: doc.content,
+        contentHash: hashContent(doc.content),
+        source: "import",
+      });
+
+      // Re-embed with the instance's current embedder (fire-and-forget, like upload).
+      processDocument(created.id, instance.slug, doc.content).catch((err) => {
+        console.error(
+          `[Knowledge] Import ingestion failed for doc ${created.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+
+      imported.push(filename === doc.requestedName ? { filename } : { filename, renamedFrom: doc.requestedName });
+    }
+
+    return { imported: imported.length, documents: imported };
+  }
+
   /** DELETE /api/instances/:slug/knowledge/:docId */
+  @RequirePermission(Permission.KNOWLEDGE_WRITE)
   @Delete(":docId")
   async remove(@Param("slug") slug: string, @Param("docId") docId: string) {
     const instance = await findInstanceOrFail(slug);

@@ -9,18 +9,17 @@ import {
   HttpCode,
   Headers,
   Inject,
-  UnauthorizedException,
   BadRequestException,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { Response } from "express";
-import { randomUUID, timingSafeEqual } from "crypto";
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { OpenAIService } from "./openai.service.js";
-import { resolveInstanceConfig } from "../../instances/config-resolver.js";
-import { findInstanceBySlug } from "../../instances/store.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import { AllowInstanceApiKey } from "../../auth/decorators/allow-instance-api-key.decorator.js";
+import { validateInstanceApiKey } from "./instance-api-key-auth.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 import type {
   ChatCompletionRequest,
   ChatCompletionChunk,
@@ -56,6 +55,7 @@ export class OpenAIController {
   ) {}
 
   @AllowInstanceApiKey()
+  @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   async listModels(): Promise<ModelsListResponse> {
     const instances = await this.openaiService.listInstances();
@@ -127,7 +127,7 @@ export class OpenAIController {
 
     let chunkCount = 0;
     try {
-      for await (const event of stream.fullStream as AsyncIterable<{ type: string; textDelta?: string; toolName?: string; error?: unknown }>) {
+      for await (const event of stream.fullStream as AsyncIterable<{ type: string; text?: string; toolName?: string; error?: unknown }>) {
         chunkCount++;
         if (event.type === "error") {
           const errDetail = event.error instanceof Error ? event.error.message : String(event.error ?? "Unknown error");
@@ -145,12 +145,12 @@ export class OpenAIController {
           if (thinkOpen) {
             res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, `✓ ${event.toolName}\n`))}\n\n`);
           }
-        } else if (event.type === "text-delta" && event.textDelta) {
+        } else if (event.type === "text-delta" && event.text) {
           if (thinkOpen) {
             res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, "</think>\n"))}\n\n`);
             thinkOpen = false;
           }
-          res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, event.textDelta))}\n\n`);
+          res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, event.text))}\n\n`);
         }
       }
     } catch (err) {
@@ -191,29 +191,6 @@ export class OpenAIController {
   }
 
   private async validateAuth(instanceSlug: string, authHeader?: string) {
-    // Verify instance exists before checking auth config
-    const instance = await findInstanceBySlug(instanceSlug);
-    if (!instance) {
-      throw new UnauthorizedException("Unknown model");
-    }
-
-    const instanceConfig = await resolveInstanceConfig(instanceSlug);
-    if (!instanceConfig.authEnabled) return; // Auth not enabled = open access
-
-    if (!instanceConfig.authApiKey) {
-      throw new UnauthorizedException("Auth enabled but no API key configured");
-    }
-
-    if (!authHeader?.startsWith("Bearer ")) {
-      throw new UnauthorizedException("Missing Bearer token");
-    }
-
-    const token = authHeader.slice(7);
-    const expected = instanceConfig.authApiKey!;
-    const tokBuf = Buffer.from(token, "utf-8");
-    const expBuf = Buffer.from(expected, "utf-8");
-    if (tokBuf.length !== expBuf.length || !timingSafeEqual(tokBuf, expBuf)) {
-      throw new UnauthorizedException("Invalid API key");
-    }
+    return validateInstanceApiKey(instanceSlug, authHeader);
   }
 }

@@ -5,6 +5,8 @@ import { z } from "zod";
 import { listBacklog, BACKLOG_STATUS } from "../../webhooks/webhook-backlog.store.js";
 import { listActivity } from "../../room/activity-log.store.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 const paginationSchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -23,6 +25,7 @@ const activityQuerySchema = paginationSchema.extend({
 
 @Controller("api/instances/:slug/room")
 export class WebhookBacklogController {
+  @RequirePermission(Permission.ROOM_READ)
   @Get("backlog")
   async getBacklog(
     @Param("slug") slug: string,
@@ -35,7 +38,7 @@ export class WebhookBacklogController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(slug);
+    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
     if (!instanceId) return { events: [], total: 0 };
 
     return listBacklog(instanceId, {
@@ -45,6 +48,7 @@ export class WebhookBacklogController {
     });
   }
 
+  @RequirePermission(Permission.ROOM_READ)
   @Get("activity")
   async getActivity(
     @Param("slug") slug: string,
@@ -57,7 +61,7 @@ export class WebhookBacklogController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(slug);
+    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
     if (!instanceId) return [];
 
     return listActivity(instanceId, {

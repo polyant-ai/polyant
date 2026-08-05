@@ -16,6 +16,7 @@ import {
   InternalServerErrorException,
 } from "@nestjs/common";
 import type { Response } from "express";
+import { RequirePermission, Permission } from "../authz/index.js";
 import { SkillsService } from "./skills.service.js";
 import { getSkill, listVersions, getSkillVersion } from "./skills.store.js";
 import { exportSkillsCatalog, exportSingleSkill, importSkillsCatalog } from "./skills-export.service.js";
@@ -27,12 +28,14 @@ export class SkillsController {
   constructor(@Inject(SkillsService) private readonly skillsService: SkillsService) {}
 
   @Get()
+  @RequirePermission(Permission.SKILL_CATALOG_READ)
   async list() {
     return { skills: await this.skillsService.listSkills() };
   }
 
   // Static routes MUST come before parameterized :name routes
   @Get("catalog/export")
+  @RequirePermission(Permission.SKILL_CATALOG_READ)
   async exportCatalog(@Res() res: Response) {
     try {
       const bundle = await exportSkillsCatalog();
@@ -47,6 +50,7 @@ export class SkillsController {
   }
 
   @Post("catalog/import")
+  @RequirePermission(Permission.SKILL_CATALOG_WRITE)
   async importCatalog(@Body() body: unknown) {
     try {
       return await importSkillsCatalog(body);
@@ -56,6 +60,7 @@ export class SkillsController {
   }
 
   @Get(":name")
+  @RequirePermission(Permission.SKILL_CATALOG_READ)
   async getOne(@Param("name") name: string) {
     const skill = await this.skillsService.getSkill(name);
     if (!skill) throw new NotFoundException(`Skill "${name}" not found`);
@@ -63,6 +68,7 @@ export class SkillsController {
   }
 
   @Post()
+  @RequirePermission(Permission.SKILL_CATALOG_WRITE)
   async create(@Body() body: { name: string; description: string; content: string; requiredEnv?: RequiredEnvEntry[]; requiredTools?: string[] }) {
     if (!body.name?.trim()) throw new BadRequestException("Name is required");
     if (!body.content?.trim()) throw new BadRequestException("Content is required");
@@ -77,6 +83,7 @@ export class SkillsController {
   }
 
   @Put(":name")
+  @RequirePermission(Permission.SKILL_CATALOG_WRITE)
   async update(@Param("name") name: string, @Body() body: { description: string; content: string; requiredEnv?: RequiredEnvEntry[]; requiredTools?: string[]; changelog?: string }) {
     const skill = await this.skillsService.updateSkill(name, body);
     if (!skill) throw new NotFoundException(`Skill "${name}" not found`);
@@ -84,6 +91,7 @@ export class SkillsController {
   }
 
   @Delete(":name")
+  @RequirePermission(Permission.SKILL_CATALOG_WRITE)
   async remove(@Param("name") name: string) {
     const deleted = await this.skillsService.deleteSkill(name);
     if (!deleted) throw new NotFoundException(`Skill "${name}" not found`);
@@ -91,6 +99,7 @@ export class SkillsController {
   }
 
   @Get(":name/export")
+  @RequirePermission(Permission.SKILL_CATALOG_READ)
   async exportSkill(@Param("name") name: string, @Res() res: Response) {
     try {
       const bundle = await exportSingleSkill(name);
@@ -107,6 +116,7 @@ export class SkillsController {
   }
 
   @Get(":name/versions")
+  @RequirePermission(Permission.SKILL_CATALOG_READ)
   async listVersions(@Param("name") name: string) {
     const skill = await getSkill(name);
     if (!skill) throw new NotFoundException(`Skill "${name}" not found`);
@@ -115,6 +125,7 @@ export class SkillsController {
   }
 
   @Get(":name/versions/:version")
+  @RequirePermission(Permission.SKILL_CATALOG_READ)
   async getVersion(
     @Param("name") name: string,
     @Param("version") version: string,

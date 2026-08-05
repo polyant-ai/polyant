@@ -12,7 +12,6 @@ import {
   Sparkles,
   Brain,
   UserCircle,
-  Clock,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +28,6 @@ const PROMPT_ICONS: Record<string, React.ElementType> = {
   "05-skills": Sparkles,
   "06-memory": Brain,
   "07-user-identity": UserCircle,
-  "08-datetime": Clock,
 };
 
 interface Props {
@@ -145,7 +143,7 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
                     {dirty && (
                       <span
                         aria-label={t("prompts.modified")}
-                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500"
+                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
                       />
                     )}
                   </button>

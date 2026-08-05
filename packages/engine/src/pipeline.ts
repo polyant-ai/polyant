@@ -7,22 +7,32 @@
 // and module-level helpers (isAutoTask, isMissingApiKeyError, MISSING_KEY_RESPONSE).
 // ---------------------------------------------------------------------------
 
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 import { config, DEFAULT_INSTANCE_ID } from "./config.js";
+import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
+import type { CostBreakdown } from "./ai-gateway/types.js";
 import { conversationStore } from "./conversations/index.js";
+import { ConversationStateBuffer } from "./conversations/state.buffer.js";
+import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
+import type { MessageRow } from "./conversations/store.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { generateConversationTitle } from "./utils/title-generator.js";
 import { resolveInstanceConfig, type InstanceConfig } from "./instances/config-resolver.js";
 import { traceStore } from "./analytics/trace.store.js";
 import { uploadAttachment, isPlatformStorageConfigured } from "./attachments/platform-storage.js";
-import type { AttachmentMeta } from "./conversations/schema.js";
+import type { AttachmentMeta, StepDetail, ReasoningDetail, LlmDebugPayload } from "./conversations/schema.js";
 import type { AgentCallMetadata, Attachment, IncomingMessage } from "./channels/types.js";
 import type { ToolCallTrace } from "./analytics/traces.schema.js";
 import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
 import { emitConversation } from "./activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "./activity-stream/emit-helpers.js";
+import { runHooks, firstHalt, firstReplaceResponse, firstRegenerate, collectInjectContext, hookProvenance, type HookProvenance } from "./hooks/hook-runner.js";
+import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./hooks/hook-types.js";
+import { getEnabledHooks } from "./hooks/hooks.store.js";
+import { getHookRegistry } from "./hooks/hook-registry.js";
+import type { ResponseGeneratedOutcome } from "./hooks/response-replay.js";
 
 /**
  * Channel types that should NOT produce `category: "inbound"` events:
@@ -80,14 +90,18 @@ export const MISSING_KEY_RESPONSE =
 
 export interface PipelineContext {
   pipelineStart: number;
-  instanceId: string;
+  instanceId: InstanceSlug;
   conversationId: string;
   conversationSummary: string | undefined;
   contextPrompt: string | undefined;
   channelIdentity: { channel: string; channelId: string; userName?: string } | undefined;
-  history: CoreMessage[] | undefined;
+  /** Per-run shared conversation state buffer (commit-on-success). Undefined on auto-task turns. */
+  stateBuffer: ConversationStateBuffer | undefined;
+  history: ModelMessage[] | undefined;
+  /** True when no message rows were persisted before this turn (first successful turn). */
+  isFirstTurn: boolean;
   hasOverflow: boolean;
-  droppedMessages: CoreMessage[] | undefined;
+  droppedMessages: ModelMessage[] | undefined;
   instanceConfig: InstanceConfig;
   langsmith: { apiKey: string; project: string } | undefined;
   /** Attachments to persist alongside the user message, once the pipeline has succeeded. */
@@ -115,14 +129,15 @@ export async function preparePipeline(
   conversationIdOverride?: string | null,
 ): Promise<PipelineContext> {
   const pipelineStart = Date.now();
-  const instanceId = msg.instanceId || DEFAULT_INSTANCE_ID;
+  const instanceId: InstanceSlug = msg.instanceId || DEFAULT_INSTANCE_ID;
   pipelineLog.request(msg.channelType, instanceId, msg.text);
 
   const conversationId = conversationIdOverride
     ?? `${instanceId}:${msg.channelType}:${msg.channelId}`;
+  const isAutoTaskTurn = isAutoTask(msg.text);
 
   // Skip conversation creation for automated tasks (e.g. Open WebUI title/tag generation)
-  if (!isAutoTask(msg.text)) {
+  if (!isAutoTaskTurn) {
     const source = (msg.metadata?.source as string) ?? "user";
     const ensureResult = await conversationStore
       .ensureConversation(conversationId, instanceId, {
@@ -177,23 +192,34 @@ export async function preparePipeline(
   }
 
   // Fetch history, instance config, and context prompt in parallel — all independent.
-  const [conversationHistory, instanceConfig, contextPrompt] = await Promise.all([
-    conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as CoreMessage[]),
+  const [conversationHistory, instanceConfig, contextPrompt, stateBuffer] = await Promise.all([
+    conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as ModelMessage[]),
     resolveInstanceConfig(instanceId),
     conversationStore.getContextPrompt(conversationId).catch(() => null).then((p) => p ?? undefined),
+    isAutoTaskTurn
+      ? Promise.resolve(undefined)
+      : ConversationStateBuffer.load(conversationId, instanceId).catch((err) => {
+          console.error(`Failed to load conversation state for ${conversationId}:`, err);
+          return new ConversationStateBuffer(conversationId, instanceId);
+        }),
   ]);
+
+  // First persisted turn — computed from PERSISTED rows, NOT the metadata
+  // fallback below: the OpenAI-compat path passes client-side history that must
+  // not suppress the conversation_start hook. Abort-safe by construction: an
+  // aborted run persists nothing, so the restarted run still sees zero rows.
+  const isFirstTurn = conversationHistory.length === 0;
 
   // NOTE: user message and incoming system messages are NOT persisted here.
   // They are persisted in `afterResponse()` only after the pipeline succeeds,
   // so that an aborted pipeline (cancel-and-restart) leaves no trace in DB.
   const incomingSystemMessages = (msg.metadata?.systemMessages as Array<{ role: string; content: string }>) ?? [];
-  const isAutoTaskTurn = isAutoTask(msg.text);
 
   // Sliding window: if >15 messages exist, use summary + last 10; otherwise pass all
   const hasOverflow = conversationHistory.length > 15;
-  let history: CoreMessage[] | undefined;
+  let history: ModelMessage[] | undefined;
   let conversationSummary: string | undefined;
-  let droppedMessages: CoreMessage[] | undefined;
+  let droppedMessages: ModelMessage[] | undefined;
 
   if (hasOverflow) {
     conversationSummary =
@@ -204,7 +230,21 @@ export async function preparePipeline(
     conversationSummary = undefined;
     history = conversationHistory.length > 0
       ? conversationHistory
-      : (msg.metadata?.conversationHistory as CoreMessage[] | undefined);
+      : (msg.metadata?.conversationHistory as ModelMessage[] | undefined);
+  }
+
+  // Tool-result replay (opt-in per instance): rebuild the in-window history from
+  // raw rows, reconstructing tool_use/tool_result blocks from the persisted
+  // `steps` so the model retains tool outputs across turns. Extra fetch only when
+  // the flag is on — the default text path above is untouched, and the dropped
+  // messages / summary stay text-only.
+  if (instanceConfig.toolResultsInHistoryEnabled && !isAutoTaskTurn) {
+    const rows = await conversationStore
+      .getRecentMessageRows(conversationId, 16)
+      .catch(() => [] as MessageRow[]);
+    if (rows.length > 0) {
+      history = buildHistoryWithToolResults(hasOverflow ? rows.slice(-10) : rows);
+    }
   }
 
   const langsmith = buildLangsmithConfig(instanceConfig);
@@ -215,6 +255,16 @@ export async function preparePipeline(
     ? undefined
     : { channel: msg.channelType, channelId: msg.channelId, userName: msg.userName };
 
+  // Seed the trusted channel identity into the shared state under `_channel` for
+  // real user channels (skip synthetic agent/scheduled/room conversations).
+  if (stateBuffer && channelIdentity && !INBOUND_SUPPRESSED_CHANNELS.has(msg.channelType)) {
+    stateBuffer.seedChannel({
+      type: channelIdentity.channel,
+      id: channelIdentity.channelId,
+      userName: channelIdentity.userName,
+    });
+  }
+
   return {
     pipelineStart,
     instanceId,
@@ -222,7 +272,9 @@ export async function preparePipeline(
     conversationSummary,
     contextPrompt,
     channelIdentity,
+    stateBuffer,
     history,
+    isFirstTurn,
     hasOverflow,
     droppedMessages,
     instanceConfig,
@@ -235,20 +287,114 @@ export async function preparePipeline(
 }
 
 // ---------------------------------------------------------------------------
+// Lifecycle hooks — payload + run-context builders
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the hook event payload, or undefined when hooks must not fire:
+ * auto-task turns and turns without a channel identity. Synthetic channels
+ * (scheduled/agent) DO run hooks — only auto-tasks are excluded. room/webhook
+ * are supervise-direct and wire hooks in their own engines.
+ */
+export function buildHookPayload(
+  ctx: PipelineContext,
+  messageText: string,
+  responseText?: string,
+  regenerationCount = 0,
+): HookEventPayload | undefined {
+  if (ctx.isAutoTaskTurn || !ctx.channelIdentity) return undefined;
+  return {
+    instance: { slug: ctx.instanceId },
+    conversation: { id: ctx.conversationId },
+    channel: { type: ctx.channelIdentity.channel, id: ctx.channelIdentity.channelId },
+    user: { name: ctx.channelIdentity.userName ?? "" },
+    message: { text: messageText },
+    ...(responseText !== undefined ? { response: { text: responseText, regenerationCount } } : {}),
+  };
+}
+
+/**
+ * True if the instance has an ENABLED `response_generated` hook whose function
+ * declares `mutatesResponse`. Used by the streaming handler to serve such turns
+ * non-streamed (declare-and-buffer) so a post-LLM `replaceResponse` can be
+ * applied before any token reaches the client. `getEnabledHooks` takes the slug
+ * (it resolves + caches the UUID internally) and swallows unknown slugs → [].
+ */
+export async function hasResponseMutatingHook(instanceSlug: InstanceSlug): Promise<boolean> {
+  const hooks = await getEnabledHooks(instanceSlug, "response_generated").catch(() => []);
+  const registry = getHookRegistry();
+  return hooks.some(
+    (h) => registry.get(h.actionConfig.functionName)?.mutatesResponse === true,
+  );
+}
+
+function buildHookRunContext(ctx: PipelineContext, abortSignal?: AbortSignal): HookRunContext {
+  return {
+    instanceId: ctx.instanceId,
+    conversationId: ctx.conversationId,
+    secrets: ctx.instanceConfig.secrets,
+    apiKeys: ctx.instanceConfig.apiKeys,
+    provider: ctx.instanceConfig.provider,
+    model: ctx.instanceConfig.model,
+    flags: {
+      memory: ctx.instanceConfig.memoryEnabled,
+      knowledge: ctx.instanceConfig.knowledgeEnabled,
+      thinking: ctx.instanceConfig.thinkingEnabled,
+      debug: ctx.instanceConfig.debugEnabled,
+      stateInPrompt: ctx.instanceConfig.stateInPromptEnabled,
+      toolResultsInHistory: ctx.instanceConfig.toolResultsInHistoryEnabled,
+    },
+    state: ctx.stateBuffer?.api(),
+    abortSignal,
+  };
+}
+
+/**
+ * Run the `response_generated` hooks for one pass and interpret their outcome.
+ * Extracted from runPipelinePost so the replay loop can run it BEFORE persistence.
+ * Returns empty summaries when hooks must not fire (auto-task / no channel identity).
+ */
+export async function runResponseGeneratedHooks(
+  ctx: PipelineContext,
+  messageText: string,
+  responseText: string,
+  regenerationCount: number,
+  abortSignal?: AbortSignal,
+): Promise<ResponseGeneratedOutcome> {
+  // Abort-safe: a cancelled run must leave zero side effects. On the buffered replay
+  // path this runs INSIDE the generate/evaluate loop, BEFORE runPipelinePost's abort
+  // gate — so it is the gate for response_generated hook side effects (state writes,
+  // ai.chat, external calls). Once aborted, skip them entirely (they'd fire again on
+  // the coordinator's restarted run).
+  if (abortSignal?.aborted) return { summaries: [] };
+  const payload = buildHookPayload(ctx, messageText, responseText, regenerationCount);
+  if (!payload) return { summaries: [] };
+  const hookCtx = buildHookRunContext(ctx, abortSignal);
+  const summaries = await runHooks("response_generated", payload, hookCtx);
+  return { summaries, replace: firstReplaceResponse(summaries), regenerate: firstRegenerate(summaries) };
+}
+
+// ---------------------------------------------------------------------------
 // afterResponse — fire-and-forget post-processing (extracted from ~lines 118-200)
 // ---------------------------------------------------------------------------
 
 export interface AfterResponseOptions {
   conversationId: string;
-  instanceId: string;
+  instanceId: InstanceSlug;
   userMessage: string;
   assistantResponse: string;
-  steps?: unknown[];
+  steps?: StepDetail[];
+  /** Aggregated message-level reasoning (Anthropic signed blocks, OpenAI summary). */
+  reasoning?: ReasoningDetail[];
+  /** Exact LLM request payload — persisted on the assistant row only when DEBUG is on. */
+  debugPayload?: LlmDebugPayload;
+  /** Pre-generated assistant message UUID (streaming path) — keeps the persisted id stable. */
+  assistantMessageId?: string;
   existingSummary?: string;
   /** When true, the sliding window overflowed — generate/update summary. */
   needsSummaryUpdate?: boolean;
   /** Messages that fell outside the retained window (to be summarized). */
-  droppedMessages?: CoreMessage[];
+  droppedMessages?: ModelMessage[];
   memoryEnabled?: boolean;
   provider?: string;
   apiKeys?: InstanceConfig["apiKeys"];
@@ -259,6 +405,11 @@ export interface AfterResponseOptions {
   incomingSystemMessages?: Array<{ role: string; content: string }>;
   /** Raw inbound metadata (e.g. audio STT block) to persist alongside the user row. */
   inboundMetadata?: Record<string, unknown>;
+  /** Set when a hook (not the LLM) authored the reply — persisted as the assistant row's metadata for UI badging. */
+  provenance?: HookProvenance;
+  /** Message arrival time (pipeline start). Used as the user row's created_at so the
+   * commit-on-success write doesn't stamp it at end-of-turn (keeps user < assistant). */
+  receivedAt?: Date;
 }
 
 export function afterResponse(opts: AfterResponseOptions): void {
@@ -268,13 +419,25 @@ export function afterResponse(opts: AfterResponseOptions): void {
   const work = async () => {
     // 0. Persist external system messages + user message (deferred from pre-pipeline
     // so that an aborted/restarted pipeline leaves no orphan rows in DB).
+    // Deduplicate against system messages already in the conversation: clients
+    // that replay history (playground, open-webui) re-send the same system block
+    // every turn, which would otherwise accumulate one duplicate row per turn
+    // (a repeated context card in the UI). Only genuinely new content is written.
     if (opts.incomingSystemMessages?.length) {
-      await conversationStore
-        .appendMessages(
-          opts.conversationId,
-          opts.incomingSystemMessages.map((sm) => ({ role: "system", content: sm.content })),
-        )
-        .catch((err) => console.error(`Failed to persist system messages for ${opts.conversationId}:`, err));
+      const seen = await conversationStore
+        .getSystemMessageContents(opts.conversationId)
+        .catch(() => new Set<string>());
+      const novel: Array<{ role: string; content: string }> = [];
+      for (const sm of opts.incomingSystemMessages) {
+        if (seen.has(sm.content)) continue;
+        seen.add(sm.content);
+        novel.push({ role: "system", content: sm.content });
+      }
+      if (novel.length > 0) {
+        await conversationStore
+          .appendMessages(opts.conversationId, novel)
+          .catch((err) => console.error(`Failed to persist system messages for ${opts.conversationId}:`, err));
+      }
     }
 
     let attachmentMetas: AttachmentMeta[] | undefined;
@@ -300,12 +463,25 @@ export function afterResponse(opts: AfterResponseOptions): void {
         content: opts.userMessage,
         attachments: attachmentMetas,
         metadata: opts.inboundMetadata,
+        // Stamp the user row at arrival time (not end-of-turn) so chronology is correct
+        // and it always precedes the assistant row persisted just below.
+        ...(opts.receivedAt ? { createdAt: opts.receivedAt } : {}),
       },
     ]);
 
-    // 1. Save assistant message to PostgreSQL
+    // 1. Save assistant message to PostgreSQL. The id is pre-generated on the
+    // streaming path so the client can correlate it with the per-message debug
+    // payload; the debug payload itself is present only when DEBUG was on.
     await conversationStore.appendMessages(opts.conversationId, [
-      { role: "assistant", content: opts.assistantResponse, steps: opts.steps },
+      {
+        ...(opts.assistantMessageId ? { id: opts.assistantMessageId } : {}),
+        role: "assistant",
+        content: opts.assistantResponse,
+        steps: opts.steps,
+        reasoning: opts.reasoning,
+        debugPayload: opts.debugPayload,
+        metadata: opts.provenance,
+      },
     ]);
 
     // 1.5 Generate title (only once, after first exchange)
@@ -376,18 +552,55 @@ export interface PipelinePreResult {
   contextPrepMs: number;
   /** The message text to use for the supervisor call. */
   messageText: string;
+  /** Pre-LLM hook outcomes (conversation_start + message_received). */
+  hookExecutions: HookExecutionSummary[];
+  /** Set when a pre-LLM hook requested a halt: the LLM call is skipped and this text is the reply.
+   *  `persist: false` makes the halted turn ephemeral — see `runPipelinePost`. */
+  shortCircuit?: { text: string; persist: boolean };
 }
 
 export async function runPipelinePre(
   msg: IncomingMessage,
   conversationIdOverride?: string | null,
+  abortSignal?: AbortSignal,
 ): Promise<PipelinePreResult> {
   // Phase 1: Context preparation
   const contextPrepStart = Date.now();
   const ctx = await preparePipeline(msg, conversationIdOverride);
   const contextPrepMs = Date.now() - contextPrepStart;
 
-  return { ctx, contextPrepMs, messageText: msg.text };
+  // Lifecycle hooks (observe-only, awaited): conversation_start on the first
+  // persisted turn, then message_received on every turn — state writes are
+  // visible to the supervisor in the same turn. Runs after contextPrepMs is
+  // measured so hook latency doesn't pollute the context-prep metric.
+  const hookExecutions: HookExecutionSummary[] = [];
+  const hookPayload = buildHookPayload(ctx, msg.text);
+  if (hookPayload) {
+    const hookCtx = buildHookRunContext(ctx, abortSignal);
+    if (ctx.isFirstTurn) {
+      hookExecutions.push(...(await runHooks("conversation_start", hookPayload, hookCtx)));
+    }
+    hookExecutions.push(...(await runHooks("message_received", hookPayload, hookCtx)));
+  }
+
+  // A pre-LLM hook may contribute one-shot context to this turn's LLM input.
+  // The engine folds mid-array `system` messages into the top-level system prompt.
+  const injected = collectInjectContext(hookExecutions);
+  if (injected.length > 0) {
+    const sys: ModelMessage[] = injected.map((text) => ({ role: "system", content: text }));
+    ctx.history = [...(ctx.history ?? []), ...sys];
+  }
+
+  // A pre-LLM hook may request a halt: skip the supervisor and reply with its text.
+  const halt = firstHalt(hookExecutions);
+
+  return {
+    ctx,
+    contextPrepMs,
+    messageText: msg.text,
+    hookExecutions,
+    shortCircuit: halt ? { text: halt.message, persist: halt.persist !== false } : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -400,41 +613,104 @@ export interface PipelinePostOptions {
   messageText: string;
   channel: string;
   resultText: string;
-  steps?: unknown[];
+  steps?: StepDetail[];
+  /** Message-level reasoning from supervisor. */
+  reasoning?: ReasoningDetail[];
+  /** Exact LLM request payload — persisted on the assistant row when DEBUG is on. */
+  debugPayload?: LlmDebugPayload;
+  /** Pre-generated assistant message UUID (streaming path), so the persisted id matches the one echoed to the client. */
+  assistantMessageId?: string;
   toolCallTraces?: ToolCallTrace[];
-  usage: { promptTokens: number; completionTokens: number };
+  usage: {
+    promptTokens: number;
+    completionTokens: number;
+    cachedInputTokens?: number;
+    cacheCreationInputTokens?: number;
+  };
+  /** Model id used for this turn — persisted per-message on the trace. */
+  model?: string;
+  /** Provider that served the model. */
+  provider?: string;
+  /** USD cost split (input/cache/output/total) for this turn. */
+  cost?: CostBreakdown;
+  /** Whether extended thinking was requested for this turn. */
+  thinking?: boolean;
+  /** Sampling temperature requested (undefined → provider default). */
+  temperature?: number;
   durationMs: number;
   toolBuildingMs: number;
   ttfbMs?: number;
   isStreaming: boolean;
   /** When set and already aborted, skip persistence entirely. */
   abortSignal?: AbortSignal;
+  /**
+   * When false, skip every persistence side effect for this turn: no latency trace,
+   * no conversation-state flush, no `afterResponse` (messages, summary, memory,
+   * debug payload) and no contextPrompt clear. Set by a pre-LLM hook halt carrying
+   * `persist: false` — the hook execution is still audited and its telemetry row
+   * written, only the turn is ephemeral.
+   */
+  persist?: boolean;
+  /** Set by a caller when the turn's reply was authored by a hook (pre-LLM halt), so it is badged in the UI. */
+  provenance?: HookProvenance;
+  /** Pre-computed response_generated outcome (buffered replay path). When set,
+   *  runPipelinePost does NOT re-run those hooks and does NOT re-apply replace —
+   *  the caller already produced the final `resultText`. */
+  responseGenerated?: ResponseGeneratedOutcome;
 }
 
 export interface PipelinePostResult {
   finalText: string;
+  /** Post-LLM hook outcomes (response_generated + response_sent). */
+  hookExecutions: HookExecutionSummary[];
 }
 
 export async function runPipelinePost(opts: PipelinePostOptions): Promise<PipelinePostResult> {
   const { ctx } = opts;
 
+  // A hook halt may declare the turn ephemeral (`persist: false`): hooks still run
+  // and are audited, but nothing about the turn is written. Absent ⇒ persist.
+  const persist = opts.persist !== false;
+
   // Aborted pipelines leave no trace: skip trace/afterResponse entirely.
   // The caller (MessageCoordinator) has already discarded the result.
   if (opts.abortSignal?.aborted) {
-    return { finalText: opts.resultText };
+    return { finalText: opts.resultText, hookExecutions: [] };
   }
 
-  const finalText = opts.resultText;
+  let finalText = opts.resultText;
+  const hookExecutions: HookExecutionSummary[] = [];
+
+  // Lifecycle hooks: response_generated precedes outbound delivery on the
+  // sync path (the adapter sends only after handleMessage returns) and the
+  // state flush below, so hook state writes ride the turn's commit.
+  // Streaming caveat: the text has already streamed to the client.
+  const hookPayload = buildHookPayload(ctx, opts.messageText, finalText);
+  const hookCtx = hookPayload ? buildHookRunContext(ctx, opts.abortSignal) : undefined;
+
+  // Buffered replay path pre-runs response_generated (with the real count) and
+  // has already folded any replace into resultText — reuse its summaries, do not
+  // re-run or re-apply. Streaming/halt paths run them here (count 0), as before.
+  if (opts.responseGenerated) {
+    hookExecutions.push(...opts.responseGenerated.summaries);
+  } else if (hookPayload && hookCtx) {
+    const summaries = await runHooks("response_generated", hookPayload, hookCtx);
+    hookExecutions.push(...summaries);
+    const replace = firstReplaceResponse(summaries);
+    if (replace) finalText = replace.message;
+  }
+  const provenance = hookProvenance(hookExecutions) ?? opts.provenance;
 
   const totalMs = Date.now() - ctx.pipelineStart;
   pipelineLog.response(ctx.instanceId, totalMs);
 
   // Fire-and-forget: record pipeline trace
-  if (!isAutoTask(opts.messageText)) {
+  if (persist && !isAutoTask(opts.messageText)) {
     const sttFields = extractSttFields(ctx.inboundMetadata);
     const agentCall = ctx.inboundMetadata?.agentCall as AgentCallMetadata | undefined;
     traceStore.record({
       conversationId: ctx.conversationId,
+      messageId: opts.assistantMessageId,
       instanceId: ctx.instanceId,
       channel: opts.channel,
       contextPrepMs: opts.contextPrepMs,
@@ -444,6 +720,13 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       ttfbMs: opts.ttfbMs,
       promptTokens: opts.usage.promptTokens,
       completionTokens: opts.usage.completionTokens,
+      cachedInputTokens: opts.usage.cachedInputTokens,
+      cacheCreationInputTokens: opts.usage.cacheCreationInputTokens,
+      model: opts.model,
+      provider: opts.provider,
+      cost: opts.cost,
+      thinking: opts.thinking,
+      temperature: opts.temperature,
       toolCalls: opts.toolCallTraces,
       isStreaming: opts.isStreaming,
       parentConversationId: agentCall?.callerConversationId,
@@ -452,32 +735,65 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     });
   }
 
-  afterResponse({
-    conversationId: ctx.conversationId,
-    instanceId: ctx.instanceId,
-    userMessage: opts.messageText,
-    assistantResponse: finalText,
-    steps: opts.steps,
-    existingSummary: ctx.conversationSummary,
-    needsSummaryUpdate: ctx.hasOverflow,
-    droppedMessages: ctx.droppedMessages,
-    memoryEnabled: ctx.instanceConfig.memoryEnabled,
-    provider: ctx.instanceConfig.provider,
-    apiKeys: ctx.instanceConfig.apiKeys,
-    langsmith: ctx.langsmith,
-    userAttachments: ctx.userAttachments,
-    incomingSystemMessages: ctx.incomingSystemMessages,
-    inboundMetadata: ctx.inboundMetadata,
-  });
-
-  // ContextPrompt is one-shot: if we loaded it for this turn, clear it so
-  // subsequent inbound turns don't see stale webhook-trigger instructions.
-  // Fire-and-forget — errors logged, not propagated.
-  if (ctx.contextPrompt) {
-    conversationStore.clearContextPrompt(ctx.conversationId).catch((err) =>
-      console.error(`Failed to clear contextPrompt for ${ctx.conversationId}:`, err),
-    );
+  // Persist conversation state (commit-on-success): reached only when not aborted
+  // (the abort gate above already returned). Awaited — a single fast upsert — so a
+  // tool's derived value is durable before the next turn reads it.
+  if (persist && ctx.stateBuffer) {
+    try {
+      await ctx.stateBuffer.flush();
+    } catch (err) {
+      console.error(`Failed to flush conversation state for ${ctx.conversationId}:`, err);
+    }
   }
 
-  return { finalText };
+  if (persist) {
+    afterResponse({
+      conversationId: ctx.conversationId,
+      instanceId: ctx.instanceId,
+      userMessage: opts.messageText,
+      assistantResponse: finalText,
+      steps: opts.steps,
+      reasoning: opts.reasoning,
+      debugPayload: opts.debugPayload,
+      assistantMessageId: opts.assistantMessageId,
+      existingSummary: ctx.conversationSummary,
+      needsSummaryUpdate: ctx.hasOverflow,
+      droppedMessages: ctx.droppedMessages,
+      memoryEnabled: ctx.instanceConfig.memoryEnabled,
+      provider: ctx.instanceConfig.provider,
+      apiKeys: ctx.instanceConfig.apiKeys,
+      langsmith: ctx.langsmith,
+      userAttachments: ctx.userAttachments,
+      incomingSystemMessages: ctx.incomingSystemMessages,
+      inboundMetadata: ctx.inboundMetadata,
+      provenance,
+      receivedAt: new Date(ctx.pipelineStart),
+    });
+
+    // ContextPrompt is one-shot: if we loaded it for this turn, clear it so
+    // subsequent inbound turns don't see stale webhook-trigger instructions.
+    // Fire-and-forget — errors logged, not propagated.
+    if (ctx.contextPrompt) {
+      conversationStore.clearContextPrompt(ctx.conversationId).catch((err) =>
+        console.error(`Failed to clear contextPrompt for ${ctx.conversationId}:`, err),
+      );
+    }
+  }
+
+  // Lifecycle hooks: response_sent fires once the turn is finalized and handed
+  // to the channel (the pipeline never observes physical delivery — see the
+  // hooks design doc). The main flush already ran, so persist any state these
+  // hooks wrote with a second flush (no-op when nothing changed).
+  if (hookPayload && hookCtx) {
+    hookExecutions.push(...(await runHooks("response_sent", hookPayload, hookCtx)));
+    if (persist && ctx.stateBuffer) {
+      try {
+        await ctx.stateBuffer.flush();
+      } catch (err) {
+        console.error(`Failed to flush hook state for ${ctx.conversationId}:`, err);
+      }
+    }
+  }
+
+  return { finalText, hookExecutions };
 }

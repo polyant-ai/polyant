@@ -20,3 +20,7 @@ process.env.ENCRYPTION_KEY ??= "0123456789abcdef0123456789abcdef0123456789abcdef
 // process.exit(1). Set here once so the activity-stream emit-helpers chain
 // (which loads instances/store → database/client → config) is safe in tests.
 process.env.AUTH_SECRET ??= "test-secret-at-least-32-chars-long-yes";
+
+// Run loggers at the most verbose level so tests can assert on every
+// pipelineLog method (incl. debug-gated ones: llmCall, toolCall, etc.).
+process.env.LOG_LEVEL ??= "debug";

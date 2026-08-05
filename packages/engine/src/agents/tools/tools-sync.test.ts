@@ -24,10 +24,13 @@ vi.mock("./registry.js", () => ({
 const mockOnConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
 const mockValues = vi.fn().mockReturnValue({ onConflictDoUpdate: mockOnConflictDoUpdate });
 const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
+// `tx.select({...}).from(instanceTools)` — enabled tool ids. Default: none enabled.
+const mockSelectFrom = vi.fn().mockResolvedValue([]);
 
 const mockTx = {
   insert: vi.fn().mockReturnValue({ values: mockValues }),
   delete: vi.fn().mockReturnValue({ where: mockDeleteWhere }),
+  select: vi.fn().mockReturnValue({ from: mockSelectFrom }),
 };
 
 vi.mock("../../database/client.js", () => ({
@@ -37,17 +40,23 @@ vi.mock("../../database/client.js", () => ({
 }));
 
 vi.mock("./tools.schema.js", () => ({
-  tools: { name: "name" },
+  tools: { name: "name", id: "id" },
+}));
+
+vi.mock("../../instances/instance-tools.schema.js", () => ({
+  instanceTools: { toolId: "tool_id" },
 }));
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
   notInArray: vi.fn((...args: unknown[]) => ({ type: "notInArray", args })),
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
+  or: vi.fn((...args: unknown[]) => ({ type: "or", args })),
   not: vi.fn((...args: unknown[]) => ({ type: "not", args })),
   like: vi.fn((...args: unknown[]) => ({ type: "like", args })),
 }));
 
+import { like } from "drizzle-orm";
 import { syncToolsToDb } from "./tools-sync.js";
 
 beforeEach(() => {
@@ -58,6 +67,8 @@ beforeEach(() => {
   mockTx.insert.mockReturnValue({ values: mockValues });
   mockDeleteWhere.mockResolvedValue(undefined);
   mockTx.delete.mockReturnValue({ where: mockDeleteWhere });
+  mockSelectFrom.mockResolvedValue([]);
+  mockTx.select.mockReturnValue({ from: mockSelectFrom });
 });
 
 // Helper: build a minimal ToolDefinition
@@ -125,7 +136,7 @@ describe("syncToolsToDb", () => {
     expect(mockDeleteWhere).toHaveBeenCalledTimes(1);
   });
 
-  it("deletes all tools when registry is empty (preserving agent:* rows)", async () => {
+  it("deletes all flat tools when registry is empty (preserving every namespaced row)", async () => {
     const registry = new Map();
     mockGetToolRegistry.mockReturnValue(registry);
 
@@ -133,9 +144,34 @@ describe("syncToolsToDb", () => {
 
     // No inserts
     expect(mockTx.insert).not.toHaveBeenCalled();
-    // Delete called once, with a where filter that excludes agent:* rows.
+    // Delete called once, with a where filter that excludes ALL namespaced rows.
     expect(mockTx.delete).toHaveBeenCalledTimes(1);
     expect(mockDeleteWhere).toHaveBeenCalledTimes(1);
+  });
+
+  it("prunes namespaced orphans but keeps flat + agent:* branches in the delete filter", async () => {
+    // Namespaced plugin rows absent from the registry AND not enabled anywhere
+    // are now pruned, but the delete must still (a) match flat rows via `%:%`
+    // negation and (b) exclude virtual `agent:*` rows from the namespaced branch.
+    const registry = new Map([["coreTool", toolDef("coreTool")]]);
+    mockGetToolRegistry.mockReturnValue(registry);
+
+    await syncToolsToDb();
+
+    const likePatterns = vi.mocked(like).mock.calls.map((c) => c[1]);
+    expect(likePatterns).toContain("%:%"); // namespaced-name discriminator
+    expect(likePatterns).toContain("agent:%"); // virtual agent rows excluded from the prune
+  });
+
+  it("reads enabled tool ids so referenced namespaced rows are never pruned", async () => {
+    const registry = new Map([["coreTool", toolDef("coreTool")]]);
+    mockGetToolRegistry.mockReturnValue(registry);
+
+    await syncToolsToDb();
+
+    // The enabled-anywhere guard (instance_tools read) must run before the delete.
+    expect(mockTx.select).toHaveBeenCalledTimes(1);
+    expect(mockSelectFrom).toHaveBeenCalledTimes(1);
   });
 
   it("sets isGlobal=false for all tools (GLOBAL_TOOLS is now empty)", async () => {

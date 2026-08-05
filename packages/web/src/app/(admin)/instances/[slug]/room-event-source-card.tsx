@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
+import { WebhookAuthSection } from "./room-event-source-auth";
 
 export interface EventSource {
   id: string;
@@ -38,6 +39,8 @@ export interface EventSource {
   enabled: boolean;
   webhookUrl: string;
   webhookToken: string;
+  /** Non-secret config; string values are masked (••••last4) by the API. */
+  config?: Record<string, unknown>;
   definitions: EventDefinition[];
 }
 
@@ -53,6 +56,7 @@ export interface EventDefinition {
   enabled: boolean;
 }
 
+const OUTBOUND_CHANNEL_NONE = "none";
 const OUTBOUND_CHANNELS = [
   { value: "telegram", label: "Telegram" },
   { value: "slack", label: "Slack" },
@@ -127,25 +131,38 @@ function DefinitionForm({
             <p className="text-xs text-muted-foreground mb-1">{t("room.definitions.contextPromptHelp")}</p>
             <Textarea className="text-sm min-h-[80px]" placeholder={t("room.definitions.contextPromptPlaceholder")} value={value.contextPrompt} onChange={(e) => onChange({ ...value, contextPrompt: e.target.value })} />
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className={value.outboundChannel && value.outboundChannel !== OUTBOUND_CHANNEL_NONE ? "grid grid-cols-2 gap-2" : ""}>
             <div className="space-y-1">
               <Label className="text-xs">{t("room.definitions.outboundChannel")}</Label>
-              <Select value={value.outboundChannel} onValueChange={(v) => onChange({ ...value, outboundChannel: v })}>
+              <Select
+                value={value.outboundChannel || OUTBOUND_CHANNEL_NONE}
+                onValueChange={(v) => onChange({
+                  ...value,
+                  outboundChannel: v === OUTBOUND_CHANNEL_NONE ? "" : v,
+                  outboundTarget: v === OUTBOUND_CHANNEL_NONE ? "" : value.outboundTarget,
+                })}
+              >
                 <SelectTrigger className="h-8 text-sm">
                   <SelectValue placeholder={t("room.definitions.outboundChannelPlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={OUTBOUND_CHANNEL_NONE}>{t("room.definitions.outboundChannelNone")}</SelectItem>
                   {OUTBOUND_CHANNELS.map((ch) => (
                     <SelectItem key={ch.value} value={ch.value}>{ch.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">{t("room.definitions.outboundTarget")}</Label>
-              <Input className="h-8 text-sm" placeholder={t("room.definitions.outboundTargetPlaceholder")} value={value.outboundTarget} onChange={(e) => onChange({ ...value, outboundTarget: e.target.value })} />
-            </div>
+            {value.outboundChannel && value.outboundChannel !== OUTBOUND_CHANNEL_NONE ? (
+              <div className="space-y-1">
+                <Label className="text-xs">{t("room.definitions.outboundTarget")}</Label>
+                <Input className="h-8 text-sm" placeholder={t("room.definitions.outboundTargetPlaceholder")} value={value.outboundTarget} onChange={(e) => onChange({ ...value, outboundTarget: e.target.value })} />
+              </div>
+            ) : null}
           </div>
+          {(!value.outboundChannel || value.outboundChannel === OUTBOUND_CHANNEL_NONE) && (
+            <p className="text-xs text-muted-foreground">{t("room.definitions.outboundChannelNoneHelp")}</p>
+          )}
         </>
       )}
       {children}
@@ -164,7 +181,7 @@ interface Props {
   onToggleEnabled: (id: string, enabled: boolean) => void;
   onCopyWebhook: (url: string) => void;
   onRotateToken: (id: string) => void;
-  onUpdateSource: (id: string, data: { name?: string }) => void;
+  onUpdateSource: (id: string, data: { name?: string; config?: Record<string, unknown> }) => void;
   onDeleteSource: (id: string) => void;
   onAddDefinition: (sourceId: string, data: {
     name: string; matchingPrompt: string; interpretationPrompt: string;
@@ -196,11 +213,13 @@ export function EventSourceCard({
   } | null>(null);
 
   function handleSubmitNewDef() {
+    const isConversation = newDef.action === "conversation";
+    const channelSet = isConversation && !!newDef.outboundChannel;
     onAddDefinition(source.id, {
       ...newDef,
-      contextPrompt: newDef.action === "conversation" ? newDef.contextPrompt : undefined,
-      outboundChannel: newDef.action === "conversation" ? newDef.outboundChannel : undefined,
-      outboundTarget: newDef.action === "conversation" ? newDef.outboundTarget : undefined,
+      contextPrompt: isConversation ? newDef.contextPrompt : undefined,
+      outboundChannel: channelSet ? newDef.outboundChannel : undefined,
+      outboundTarget: channelSet ? newDef.outboundTarget : undefined,
     });
     setNewDef({ name: "", matchingPrompt: "", interpretationPrompt: "", action: "backlog", contextPrompt: "", outboundChannel: "", outboundTarget: "" });
     setShowNewDef(false);
@@ -208,15 +227,17 @@ export function EventSourceCard({
 
   function handleSubmitEditDef() {
     if (!editingDef) return;
+    const isConversation = editingDef.action === "conversation";
+    const channelSet = isConversation && !!editingDef.outboundChannel;
     onUpdateDefinition(source.id, editingDef.defId, {
       name: editingDef.name,
       matchingPrompt: editingDef.matchingPrompt,
       interpretationPrompt: editingDef.interpretationPrompt,
       enabled: editingDef.enabled,
       action: editingDef.action,
-      contextPrompt: editingDef.action === "conversation" ? editingDef.contextPrompt : null,
-      outboundChannel: editingDef.action === "conversation" ? editingDef.outboundChannel : null,
-      outboundTarget: editingDef.action === "conversation" ? editingDef.outboundTarget : null,
+      contextPrompt: isConversation ? editingDef.contextPrompt : null,
+      outboundChannel: channelSet ? editingDef.outboundChannel : null,
+      outboundTarget: channelSet ? editingDef.outboundTarget : null,
     });
     setEditingDef(null);
   }
@@ -299,6 +320,11 @@ export function EventSourceCard({
             <Label className="text-xs text-muted-foreground">{t("room.sources.webhookUrl")}</Label>
             <code className="block text-xs bg-muted rounded px-2 py-1 break-all">{source.webhookUrl}</code>
           </div>
+
+          <WebhookAuthSection
+            currentMasked={typeof source.config?.authKey === "string" ? source.config.authKey : ""}
+            onSave={(authKey) => onUpdateSource(source.id, { config: { authKey } })}
+          />
 
           <div className="space-y-3">
             <div className="flex items-center justify-between">

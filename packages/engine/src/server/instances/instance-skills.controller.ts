@@ -22,6 +22,8 @@ import { listSkills as listAllSkills, getSkill as getSkillFromStore } from "../.
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { setSkillEnv, getSkillEnv, deleteSkillEnv, hasAllRequiredEnvBatch } from "../../instances/skill-env.store.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
+import { asInstanceSlug, type InstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 interface RequiredEnvEntry {
   name: string;
@@ -55,7 +57,7 @@ async function loadSkillMetaMap(slugs: string[]): Promise<Map<string, SkillMeta>
 }
 
 /** Build the merged skills list with env check status for an instance (used by GET and PATCH). */
-async function buildSkillsWithStatus(slug: string, instanceId: string) {
+async function buildSkillsWithStatus(slug: InstanceSlug, instanceId: InstanceUuid) {
   const allLibrarySkills = await listAllSkills();
   const instanceSkillRows = await getInstanceSkills(instanceId);
   const instanceMap = new Map(instanceSkillRows.map((is) => [is.skillSlug, is]));
@@ -102,13 +104,15 @@ async function buildSkillsWithStatus(slug: string, instanceId: string) {
 
 @Controller("api/instances")
 export class InstanceSkillsController {
+  @RequirePermission(Permission.SKILL_INSTANCE_READ)
   @Get(":slug/skills")
   async getSkills(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
-    const skills = await buildSkillsWithStatus(slug, instance.id);
+    const skills = await buildSkillsWithStatus(asInstanceSlug(slug), instance.id);
     return { skills };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Patch(":slug/skills")
   async updateSkills(
     @Param("slug") slug: string,
@@ -148,10 +152,11 @@ export class InstanceSkillsController {
       removed: [...beforeTools].filter((t) => !afterTools.has(t)),
     };
 
-    const skills = await buildSkillsWithStatus(slug, instance.id);
+    const skills = await buildSkillsWithStatus(asInstanceSlug(slug), instance.id);
     return { skills, toolsChanged };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Post(":slug/skills/:skillSlug/upgrade")
   async upgrade(
     @Param("slug") slug: string,
@@ -162,6 +167,7 @@ export class InstanceSkillsController {
     return { upgraded: true };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Post(":slug/skills/:skillSlug/auto-load")
   async toggleAutoLoad(
     @Param("slug") slug: string,
@@ -174,6 +180,7 @@ export class InstanceSkillsController {
     return { autoLoad: body.autoLoad };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Post(":slug/skills/:skillSlug/rollback")
   async rollback(
     @Param("slug") slug: string,
@@ -185,6 +192,7 @@ export class InstanceSkillsController {
     return { rolledBack: true };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_READ)
   @Get(":slug/skills/:skillSlug/env")
   async getSkillEnvVars(
     @Param("slug") slug: string,
@@ -196,7 +204,7 @@ export class InstanceSkillsController {
 
     const meta = skill.currentVersion?.metadata as { requiredEnv?: RequiredEnvEntry[] } | null;
     const requiredEnv = meta?.requiredEnv ?? [];
-    const storedEnv = await getSkillEnv(slug, skillSlug);
+    const storedEnv = await getSkillEnv(asInstanceSlug(slug), skillSlug);
 
     const env = requiredEnv.map((entry) => ({
       key: entry.name,
@@ -208,6 +216,7 @@ export class InstanceSkillsController {
     return { env };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Put(":slug/skills/:skillSlug/env")
   async setSkillEnvVars(
     @Param("slug") slug: string,
@@ -230,7 +239,7 @@ export class InstanceSkillsController {
     const skill = await getSkillFromStore(skillSlug);
     const meta = skill?.currentVersion?.metadata as { requiredEnv?: RequiredEnvEntry[] } | null;
     const requiredEnv = meta?.requiredEnv ?? [];
-    const storedEnv = await getSkillEnv(slug, skillSlug);
+    const storedEnv = await getSkillEnv(asInstanceSlug(slug), skillSlug);
 
     const env = requiredEnv.map((entry) => ({
       key: entry.name,
@@ -242,6 +251,7 @@ export class InstanceSkillsController {
     return { env };
   }
 
+  @RequirePermission(Permission.SKILL_INSTANCE_WRITE)
   @Delete(":slug/skills/:skillSlug/env/:key")
   async removeSkillEnvVar(
     @Param("slug") slug: string,

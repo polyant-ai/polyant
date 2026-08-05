@@ -23,8 +23,8 @@ vi.mock("undici", () => {
   return { Agent: MockAgent };
 });
 
-import "./curl.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import curlTool from "./curl.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 const dummyCtx = {
@@ -48,9 +48,8 @@ function createMockResponse(
 const toolCtx = { toolCallId: "tc-1", messages: [] } as any;
 
 describe("curl", () => {
-  const def = getToolRegistry().get("curl")!;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const curl = buildTool(def, dummyCtx) as any;
+  const curl = buildTool(curlTool, dummyCtx) as any;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -58,7 +57,7 @@ describe("curl", () => {
 
   it("has correct description and parameter schema", () => {
     expect(curl.description).toBeDefined();
-    expect(curl.parameters).toBeDefined();
+    expect(curl.inputSchema).toBeDefined();
   });
 
   it("performs GET request and returns structured response", async () => {

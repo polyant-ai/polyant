@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import "./hubspot-contact.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import hubspotContactTool from "./hubspot-contact.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 function createMockResponse(
@@ -33,7 +33,7 @@ const ctxWithKey = {
 const toolCtx = { toolCallId: "tc-1", messages: [] } as any;
 
 describe("hubspotContact", () => {
-  const def = getToolRegistry().get("hubspotContact")!;
+  const def = hubspotContactTool;
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -43,13 +43,13 @@ describe("hubspotContact", () => {
     expect(def).toBeDefined();
     expect(def.name).toBe("hubspotContact");
     expect(def.category).toBe("crm");
-    expect(def.requiredSecrets).toEqual(["hubspot_api_key"]);
+    expect(def.requiredSecrets).toEqual([{ key: "hubspot_api_key", type: "text", sensitive: true }]);
   });
 
   it("has parameters and description", () => {
     const tool = buildTool(def, ctxWithKey) as any;
     expect(tool.description).toBeDefined();
-    expect(tool.parameters).toBeDefined();
+    expect(tool.inputSchema).toBeDefined();
   });
 
   it("writes customProperties to HubSpot on create", async () => {
@@ -184,11 +184,11 @@ describe("hubspotContact", () => {
       );
 
     // The model emitted `propertyName` (HubSpot raw API name) instead of
-    // the tool's `property` field. The Zod schema must coerce it via the
-    // input-level transform — otherwise the model's call fails with
-    // "filters[0].property required" (the original production error).
-    // We parse through the tool's Zod schema first (as the AI SDK does
-    // at runtime) so the transform actually runs.
+    // the tool's `property` field. `execute` must coalesce it to `property`
+    // at runtime — otherwise the call would fail with "filters[0].property
+    // required" (the original production error). The coalescence used to be
+    // a Zod `.transform()`; it now lives in `execute`, so we call execute
+    // directly with the raw args.
     const rawArgs = {
       action: "search",
       contactId: null,
@@ -204,9 +204,7 @@ describe("hubspotContact", () => {
       limit: null,
       after: null,
     };
-    const parsed = (tool.parameters as { parse: (v: unknown) => unknown }).parse(rawArgs);
-
-    const result = await tool.execute(parsed as any, toolCtx);
+    const result = await tool.execute(rawArgs as any, toolCtx);
 
     expect(result.found).toBe(1);
     const [, opts] = mockFetch.mock.calls[0];
@@ -245,7 +243,8 @@ describe("hubspotContact", () => {
 
     const [, opts] = mockFetch.mock.calls[0];
     const body = JSON.parse(opts.body);
-    // Phone with "+" produces 4 filterGroups (phone/mobilephone × with+/without+),
+    // Phone with "+" produces 4 EQ filterGroups (phone/mobilephone × with+/without+),
+    // plus a fallback CONTAINS_TOKEN on hs_searchable_calculated_phone_number,
     // each with the custom evento filter AND-ed in.
     expect(body.filterGroups).toEqual([
       {
@@ -269,6 +268,12 @@ describe("hubspotContact", () => {
       {
         filters: [
           { propertyName: "mobilephone", operator: "EQ", value: "393331234567" },
+          { propertyName: "evento", operator: "EQ", value: "spring-conference-2026" },
+        ],
+      },
+      {
+        filters: [
+          { propertyName: "hs_searchable_calculated_phone_number", operator: "CONTAINS_TOKEN", value: "3331234567" },
           { propertyName: "evento", operator: "EQ", value: "spring-conference-2026" },
         ],
       },
@@ -309,6 +314,7 @@ describe("hubspotContact", () => {
       { filters: [{ propertyName: "mobilephone", operator: "EQ", value: "+390000000001" }] },
       { filters: [{ propertyName: "phone", operator: "EQ", value: "390000000001" }] },
       { filters: [{ propertyName: "mobilephone", operator: "EQ", value: "390000000001" }] },
+      { filters: [{ propertyName: "hs_searchable_calculated_phone_number", operator: "CONTAINS_TOKEN", value: "0000000001" }] },
     ]);
   });
 
@@ -344,16 +350,93 @@ describe("hubspotContact", () => {
     expect(body.filterGroups).toEqual([
       { filters: [{ propertyName: "phone", operator: "EQ", value: "390000000001" }] },
       { filters: [{ propertyName: "mobilephone", operator: "EQ", value: "390000000001" }] },
+      { filters: [{ propertyName: "hs_searchable_calculated_phone_number", operator: "CONTAINS_TOKEN", value: "0000000001" }] },
     ]);
+  });
+
+  it("phone fallback recovers contacts whose stored value diverges in country-code", async () => {
+    // Real-world case: a contact saved in HubSpot missing the IT country code
+    // (10 digits) while the caller passes the "normalized" full number. EQ
+    // filters miss; the CONTAINS_TOKEN fallback on the last 10 digits hits
+    // hs_searchable_calculated_phone_number.
+    const tool = buildTool(def, ctxWithKey) as any;
+
+    mockFetch
+      .mockResolvedValueOnce(
+        createMockResponse(JSON.stringify({ total: 0, results: [] })),
+      )
+      .mockResolvedValueOnce(
+        createMockResponse(JSON.stringify({ portalId: 11111111 })),
+      );
+
+    await tool.execute(
+      {
+        action: "search",
+        contactId: null,
+        firstName: null,
+        lastName: null,
+        phone: "+390000000002",
+        email: null,
+        companyId: null,
+        name: null,
+        customProperties: null,
+        filters: null,
+      },
+      toolCtx,
+    );
+
+    const [, opts] = mockFetch.mock.calls[0];
+    const body = JSON.parse(opts.body);
+    expect(body.filterGroups).toContainEqual({
+      filters: [
+        { propertyName: "hs_searchable_calculated_phone_number", operator: "CONTAINS_TOKEN", value: "0000000002" },
+      ],
+    });
+  });
+
+  it("short phone numbers (<10 digits) do not emit the CONTAINS_TOKEN fallback", async () => {
+    // Guard: avoid overly permissive matches when the caller passes only a few
+    // digits — CONTAINS_TOKEN on 5 digits would match too many unrelated contacts.
+    const tool = buildTool(def, ctxWithKey) as any;
+
+    mockFetch
+      .mockResolvedValueOnce(
+        createMockResponse(JSON.stringify({ total: 0, results: [] })),
+      )
+      .mockResolvedValueOnce(
+        createMockResponse(JSON.stringify({ portalId: 11111111 })),
+      );
+
+    await tool.execute(
+      {
+        action: "search",
+        contactId: null,
+        firstName: null,
+        lastName: null,
+        phone: "12345",
+        email: null,
+        companyId: null,
+        name: null,
+        customProperties: null,
+        filters: null,
+      },
+      toolCtx,
+    );
+
+    const [, opts] = mockFetch.mock.calls[0];
+    const body = JSON.parse(opts.body);
+    for (const g of body.filterGroups) {
+      for (const f of g.filters) {
+        expect(f.propertyName).not.toBe("hs_searchable_calculated_phone_number");
+      }
+    }
   });
 
   it("filters[] tolerates LLMs that omit propertyName entirely (no key at all)", async () => {
     // Real production failure on gpt-4.1-mini: the model emitted
     //   filters: [{ property: "email", operator: "EQ", value: "..." }]
-    // (no propertyName key at all) and Zod rejected the call because
-    // propertyName is `.string().nullable()` — `.nullable()` requires
-    // string|null, not undefined. The z.preprocess fills missing keys
-    // with null so the inner schema can parse.
+    // (no propertyName key at all). `execute` reads `f.property ?? f.propertyName`,
+    // so a missing `propertyName` is harmless (undefined ?? => property wins).
     const tool = buildTool(def, ctxWithKey) as any;
 
     mockFetch
@@ -387,9 +470,7 @@ describe("hubspotContact", () => {
       limit: null,
       after: null,
     };
-    const parsed = (tool.parameters as { parse: (v: unknown) => unknown }).parse(rawArgs);
-
-    const result = await tool.execute(parsed as any, toolCtx);
+    const result = await tool.execute(rawArgs as any, toolCtx);
 
     expect(result.found).toBe(1);
     const [, opts] = mockFetch.mock.calls[0];
@@ -433,9 +514,7 @@ describe("hubspotContact", () => {
       limit: null,
       after: null,
     };
-    const parsed = (tool.parameters as { parse: (v: unknown) => unknown }).parse(rawArgs);
-
-    const result = await tool.execute(parsed as any, toolCtx);
+    const result = await tool.execute(rawArgs as any, toolCtx);
 
     expect(result.found).toBe(1);
     const [, opts] = mockFetch.mock.calls[0];
@@ -613,6 +692,120 @@ describe("hubspotContact", () => {
     expect(body.limit).toBe(100);
     expect(body.after).toBe("previous-cursor");
     expect(result.nextAfter).toBe("cursor-xyz");
+  });
+
+  it("enriches search results that carry hubspot_owner_id with owner_name/owner_email", async () => {
+    const tool = buildTool(def, ctxWithKey) as any;
+
+    // Route by URL so the test is independent of whether the module-level
+    // portal-id cache is already warm from a previous test (which would
+    // otherwise skip the account-info fetch and shift the call ordering).
+    mockFetch.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.includes("/contacts/search")) {
+        return Promise.resolve(
+          createMockResponse(
+            JSON.stringify({
+              total: 1,
+              results: [
+                {
+                  id: "c-owned",
+                  properties: {
+                    firstname: "Jane",
+                    lastname: "Doe",
+                    phone: null,
+                    email: "jane@example.com",
+                    hubspot_owner_id: "owner-enrich-1",
+                  },
+                },
+              ],
+            }),
+          ),
+        );
+      }
+      if (u.includes("/crm/v3/owners")) {
+        return Promise.resolve(
+          createMockResponse(
+            JSON.stringify({
+              results: [
+                { id: "owner-enrich-1", firstName: "Mario", lastName: "Rossi", email: "mario.rossi@acme.com" },
+              ],
+            }),
+          ),
+        );
+      }
+      return Promise.resolve(createMockResponse(JSON.stringify({ portalId: 11111111 })));
+    });
+
+    const result = await tool.execute(
+      {
+        action: "search",
+        contactId: "c-owned",
+        firstName: null,
+        lastName: null,
+        phone: null,
+        email: null,
+        companyId: null,
+        name: null,
+        customProperties: null,
+        filters: null,
+        returnProperties: null,
+        limit: null,
+        after: null,
+      },
+      toolCtx,
+    );
+
+    expect(result.contacts[0].hubspot_owner_id).toBe("owner-enrich-1"); // retained — backward-compatible
+    expect(result.contacts[0].owner_name).toBe("Mario Rossi");
+    expect(result.contacts[0].owner_email).toBe("mario.rossi@acme.com");
+
+    // The Owners API was queried.
+    const ownersCall = mockFetch.mock.calls.find(([url]) => String(url).includes("/crm/v3/owners"));
+    expect(ownersCall).toBeDefined();
+  });
+
+  it("makes NO Owners API call when no result carries an owner", async () => {
+    const tool = buildTool(def, ctxWithKey) as any;
+
+    mockFetch
+      .mockResolvedValueOnce(
+        createMockResponse(
+          JSON.stringify({
+            total: 1,
+            results: [
+              { id: "c-noowner", properties: { firstname: "Luca", lastname: "Verdi", phone: null, email: null } },
+            ],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        createMockResponse(JSON.stringify({ portalId: 11111111 })),
+      );
+
+    const result = await tool.execute(
+      {
+        action: "search",
+        contactId: "c-noowner",
+        firstName: null,
+        lastName: null,
+        phone: null,
+        email: null,
+        companyId: null,
+        name: null,
+        customProperties: null,
+        filters: null,
+        returnProperties: null,
+        limit: null,
+        after: null,
+      },
+      toolCtx,
+    );
+
+    expect(result.found).toBe(1);
+    expect(result.contacts[0].owner_name).toBeUndefined();
+    const ownersCall = mockFetch.mock.calls.find(([url]) => String(url).includes("/crm/v3/owners"));
+    expect(ownersCall).toBeUndefined();
   });
 
   it("clamps limit to 100 and defaults to 10", async () => {

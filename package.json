@@ -1,6 +1,6 @@
 {
   "name": "polyant",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Polyant — open-source platform for building AI assistants with long-term memory and multi-channel support",
   "license": "AGPL-3.0-or-later",
@@ -33,13 +33,14 @@
     "test:unit": "npm run test:unit -w @polyant/engine",
     "test:integration": "npm run test:integration -w @polyant/engine",
     "test:functional": "npm run test:functional -w @polyant/engine",
+    "release:verify": "node scripts/ci/verify-release-metadata.mjs",
     "licenses": "npx --yes license-checker --excludePackages \"@polyant/engine;@polyant/web;polyant\" --excludePrivatePackages --markdown | grep -v '^\\[@polyant/'"
   },
   "overrides": {
     "path-to-regexp": "^8.4.1",
-    "next": "15.5.18",
+    "next": "^16.2.10",
     "axios": "^1.15.0",
-    "langsmith": "^0.5.19"
+    "langsmith": "^0.7.3"
   },
   "dependencies": {
     "axios": "^1.15.0",

@@ -3,8 +3,10 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
+import { config } from "../config.js";
 import { OpenAIModule } from "./openai/openai.module.js";
 import { AuthModule } from "../auth/auth.module.js";
+import { AuthzModule } from "../authz/authz.module.js";
 import { HealthController } from "./health/health.controller.js";
 import { MemoriesController } from "./memories/memories.controller.js";
 import { InstancesController } from "./instances/instances.controller.js";
@@ -21,27 +23,45 @@ import { InstanceScheduledTasksController } from "./instances/instance-scheduled
 import { WebhookController } from "./webhooks/webhook.controller.js";
 import { TwilioWebhookController } from "./channels/twilio-webhook.controller.js";
 import { RoomController } from "./room/room.controller.js";
+import { InstanceHooksController } from "./hooks/instance-hooks.controller.js";
+import { HookFunctionsController } from "./hooks/hook-functions.controller.js";
 import { EventSourcesController } from "./webhooks/webhook-sources.controller.js";
 import { WebhookBacklogController } from "./webhooks/webhook-backlog.controller.js";
 import { AuditController } from "./audit/audit.controller.js";
 import { InstanceExportController } from "./instances/instance-export.controller.js";
 import { AttachmentsController } from "./attachments/attachments.controller.js";
+import { OAuthCallbackController } from "./oauth/oauth-callback.controller.js";
 import { SkillsModule } from "../skills/skills.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { ActivityStreamModule } from "../activity-stream/activity-stream.module.js";
+import { OptoutsModule } from "./optouts/optouts.module.js";
+import { MembersModule } from "./members/members.module.js";
+import { OrganizationsModule } from "../organizations/organizations.module.js";
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([{
-      name: "default",
-      ttl: 60_000,
-      limit: 30,
-    }]),
+    ThrottlerModule.forRoot({
+      throttlers: [{
+        name: "default",
+        ttl: config.server.throttle.ttlMs,
+        limit: config.server.throttle.limit,
+      }],
+      // Bypass throttling entirely (global default + per-route @Throttle) when
+      // disabled via THROTTLE_ENABLED=false — see config.ts server.throttle.
+      skipIf: () => !config.server.throttle.enabled,
+    }),
     OpenAIModule,
     SkillsModule,
     UsersModule,
     AuthModule,
+    // MUST be imported after AuthModule: the PermissionGuard (APP_GUARD #3)
+    // reads request.user which AuthGuard (#2) populates. Registration order
+    // across the module graph is the global-guard execution order.
+    AuthzModule,
     ActivityStreamModule,
+    OptoutsModule,
+    MembersModule,
+    OrganizationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
@@ -63,11 +83,14 @@ import { ActivityStreamModule } from "../activity-stream/activity-stream.module.
     WebhookController,
     TwilioWebhookController,
     RoomController,
+    InstanceHooksController,
+    HookFunctionsController,
     EventSourcesController,
     WebhookBacklogController,
     AuditController,
     InstanceExportController,
     AttachmentsController,
+    OAuthCallbackController,
   ],
 })
 export class ServerModule {}

@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { readdir, stat } from "fs/promises";
 import { resolve, join } from "path";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../../utils/error.js";
 import {
   isRelativePath,
@@ -13,7 +13,7 @@ import {
 
 const MAX_ENTRIES = 200;
 
-registerTool({
+export default defineTool({
   name: "listDirectory",
   description:
     "List the contents of a directory from the current conversation's sandboxed workspace.\n" +
@@ -43,13 +43,12 @@ registerTool({
       },
     },
   ],
-  create: (ctx: ToolContext) => ({
-    parameters: z.object({
-      path: z.string().describe(
-        "Directory path. Relative (recommended) or absolute — must resolve inside the current conversation's sandboxed workspace.",
-      ),
-    }),
-    execute: async ({ path }: { path: string }) => {
+  parameters: z.object({
+    path: z.string().describe(
+      "Directory path. Relative (recommended) or absolute — must resolve inside the current conversation's sandboxed workspace.",
+    ),
+  }),
+  execute: async ({ path }: { path: string }, ctx) => {
       let resolvedPath: string;
       let source: "workspace-relative" | "workspace-absolute";
 
@@ -121,6 +120,5 @@ registerTool({
         });
         return { error: message };
       }
-    },
-  }),
+  },
 });

@@ -16,13 +16,16 @@ import {
 import { channelManager } from "../../channels/channel-manager.js";
 import { syncAgentTool } from "../../instances/agent-tool-sync.js";
 import { findInstanceOrFail, maskSensitiveConfig } from "./instance-helpers.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 @Controller("api/instances")
 export class InstanceChannelsController {
+  @RequirePermission(Permission.CHANNEL_READ)
   @Get(":slug/channels")
   async listChannels(@Param("slug") slug: string) {
     await findInstanceOrFail(slug);
-    const channels = await listChannelConfigs(slug);
+    const channels = await listChannelConfigs(asInstanceSlug(slug));
     const masked = channels.map((ch) => ({
       channelType: ch.channelType,
       enabled: ch.enabled,
@@ -31,6 +34,7 @@ export class InstanceChannelsController {
     return { channels: masked };
   }
 
+  @RequirePermission(Permission.CHANNEL_WRITE)
   @Put(":slug/channels/:type")
   async setChannel(
     @Param("slug") slug: string,
@@ -43,7 +47,7 @@ export class InstanceChannelsController {
     const instance = await findInstanceOrFail(slug);
 
     // Merge with existing config: drop masked values (••••), preserve unchanged secrets
-    const existing = await getChannelConfig(slug, channelType as ChannelType);
+    const existing = await getChannelConfig(asInstanceSlug(slug), channelType as ChannelType);
     const mergedConfig: Record<string, unknown> = { ...(existing?.config ?? {}) };
     for (const [k, v] of Object.entries(body.config)) {
       if (typeof v === "string" && v.startsWith("••••")) continue;
@@ -75,7 +79,7 @@ export class InstanceChannelsController {
       });
     }
 
-    const channel = await getChannelConfig(slug, channelType as ChannelType);
+    const channel = await getChannelConfig(asInstanceSlug(slug), channelType as ChannelType);
     return {
       channel: channel ? {
         channelType: channel.channelType,
@@ -85,6 +89,7 @@ export class InstanceChannelsController {
     };
   }
 
+  @RequirePermission(Permission.CHANNEL_WRITE)
   @Delete(":slug/channels/:type")
   async removeChannel(
     @Param("slug") slug: string,

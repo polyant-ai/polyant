@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 // Chain proxy helper: await returns resolvedValue, every chained method keeps the chain.
 function createChainMock(resolvedValue: unknown = []) {
@@ -38,9 +39,14 @@ vi.mock("../database/client.js", () => ({ db: mockDb }));
 import {
   appendAgentDocument,
   upsertAgentDocument,
+  insertChunks,
+  insertChunksAndFinalize,
+  searchByVector,
+  resolveUniqueFilename,
   DocumentSizeExceededError,
   MAX_DOCUMENT_BYTES,
   MAX_WRITE_BYTES,
+  type InsertChunkInput,
 } from "./store.js";
 
 beforeEach(() => {
@@ -51,13 +57,36 @@ beforeEach(() => {
   );
 });
 
+describe("resolveUniqueFilename", () => {
+  it("returns the name unchanged when there is no collision", () => {
+    expect(resolveUniqueFilename("manuale.txt", new Set())).toBe("manuale.txt");
+  });
+
+  it("appends a progressive suffix before the extension on collision", () => {
+    expect(resolveUniqueFilename("manuale.txt", new Set(["manuale.txt"]))).toBe("manuale (1).txt");
+  });
+
+  it("increments the suffix until the name is free", () => {
+    const taken = new Set(["manuale.txt", "manuale (1).txt", "manuale (2).txt"]);
+    expect(resolveUniqueFilename("manuale.txt", taken)).toBe("manuale (3).txt");
+  });
+
+  it("handles filenames without an extension", () => {
+    expect(resolveUniqueFilename("README", new Set(["README"]))).toBe("README (1)");
+  });
+
+  it("only treats the final segment as the extension (multi-dot names)", () => {
+    expect(resolveUniqueFilename("doc.v2.md", new Set(["doc.v2.md"]))).toBe("doc.v2 (1).md");
+  });
+});
+
 describe("upsertAgentDocument", () => {
   it("creates a new doc when no existing row is found", async () => {
     mockDb.select.mockReturnValue(createChainMock([])); // SELECT FOR UPDATE returns empty
     mockDb.insert.mockReturnValue(createChainMock([{ id: "doc-new" }])); // INSERT RETURNING id
 
     const result = await upsertAgentDocument({
-      instanceId: "inst-1",
+      instanceId: asInstanceSlug("inst-1"),
       filename: "a.md",
       content: "hello",
     });
@@ -76,7 +105,7 @@ describe("upsertAgentDocument", () => {
     mockDb.update.mockReturnValue(createChainMock([]));
 
     const result = await upsertAgentDocument({
-      instanceId: "inst-1",
+      instanceId: asInstanceSlug("inst-1"),
       filename: "a.md",
       content: "overwrite",
     });
@@ -94,7 +123,7 @@ describe("upsertAgentDocument", () => {
   it("rejects input larger than MAX_WRITE_BYTES", async () => {
     const big = "x".repeat(MAX_WRITE_BYTES + 1);
     await expect(
-      upsertAgentDocument({ instanceId: "inst-1", filename: "x.md", content: big }),
+      upsertAgentDocument({ instanceId: asInstanceSlug("inst-1"), filename: "x.md", content: big }),
     ).rejects.toBeInstanceOf(DocumentSizeExceededError);
   });
 });
@@ -105,7 +134,7 @@ describe("appendAgentDocument", () => {
     mockDb.insert.mockReturnValue(createChainMock([{ id: "doc-new" }]));
 
     const result = await appendAgentDocument({
-      instanceId: "inst-1",
+      instanceId: asInstanceSlug("inst-1"),
       filename: "log.md",
       content: "first",
     });
@@ -122,7 +151,7 @@ describe("appendAgentDocument", () => {
     mockDb.update.mockReturnValue(createChainMock([]));
 
     const result = await appendAgentDocument({
-      instanceId: "inst-1",
+      instanceId: asInstanceSlug("inst-1"),
       filename: "log.md",
       content: "B",
     });
@@ -143,7 +172,7 @@ describe("appendAgentDocument", () => {
 
     await expect(
       appendAgentDocument({
-        instanceId: "inst-1",
+        instanceId: asInstanceSlug("inst-1"),
         filename: "big.md",
         content: "x".repeat(100), // 100 bytes + \n\n = 102 → well over the 10-byte headroom
       }),
@@ -154,10 +183,102 @@ describe("appendAgentDocument", () => {
   it("rejects a single chunk larger than MAX_WRITE_BYTES", async () => {
     await expect(
       appendAgentDocument({
-        instanceId: "inst-1",
+        instanceId: asInstanceSlug("inst-1"),
         filename: "x.md",
         content: "x".repeat(MAX_WRITE_BYTES + 1),
       }),
     ).rejects.toBeInstanceOf(DocumentSizeExceededError);
+  });
+});
+
+describe("insertChunks", () => {
+  const chunk: InsertChunkInput = {
+    documentId: "doc-1",
+    instanceId: "inst-1",
+    content: "hello world",
+    embedding: [0.1, 0.2],
+    chunkIndex: 0,
+  };
+
+  it("inserts a 1536-dim embedding into `embedding`, NULLs `embedding_1024`", async () => {
+    const insChain = createChainMock([]);
+    mockDb.insert.mockReturnValue(insChain);
+
+    const count = await insertChunks([chunk], 1536, "openai");
+
+    expect(count).toBe(1);
+    const values = insChain.values.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(values[0].embedding).toEqual([0.1, 0.2]);
+    expect(values[0].embedding1024).toBeNull();
+    expect(values[0].embeddingProvider).toBe("openai");
+  });
+
+  it("inserts a 1024-dim embedding into `embedding_1024`, NULLs `embedding`", async () => {
+    const insChain = createChainMock([]);
+    mockDb.insert.mockReturnValue(insChain);
+
+    const count = await insertChunks([{ ...chunk, embedding: [0.3, 0.4] }], 1024, "bedrock");
+
+    expect(count).toBe(1);
+    const values = insChain.values.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(values[0].embedding).toBeNull();
+    expect(values[0].embedding1024).toEqual([0.3, 0.4]);
+    expect(values[0].embeddingProvider).toBe("bedrock");
+  });
+
+  it("returns 0 and skips the insert for an empty batch", async () => {
+    const count = await insertChunks([], 1024, "bedrock");
+    expect(count).toBe(0);
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe("insertChunksAndFinalize", () => {
+  const chunk: InsertChunkInput = {
+    documentId: "doc-1",
+    instanceId: "inst-1",
+    content: "hello world",
+    embedding: [0.5, 0.6],
+    chunkIndex: 0,
+  };
+
+  it("inserts chunks through the active column and marks the doc ready", async () => {
+    const insChain = createChainMock([]);
+    mockDb.insert.mockReturnValue(insChain);
+    mockDb.update.mockReturnValue(createChainMock([]));
+
+    const count = await insertChunksAndFinalize("doc-1", [chunk], 1024, "bedrock");
+
+    expect(count).toBe(1);
+    const values = insChain.values.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(values[0].embedding).toBeNull();
+    expect(values[0].embedding1024).toEqual([0.5, 0.6]);
+    expect(values[0].embeddingProvider).toBe("bedrock");
+    expect(mockDb.update).toHaveBeenCalled();
+  });
+
+  it("marks the doc ready with chunkCount 0 for an empty batch", async () => {
+    mockDb.update.mockReturnValue(createChainMock([]));
+
+    const count = await insertChunksAndFinalize("doc-1", [], 1536, "openai");
+
+    expect(count).toBe(0);
+    expect(mockDb.insert).not.toHaveBeenCalled();
+    expect(mockDb.update).toHaveBeenCalled();
+  });
+});
+
+describe("searchByVector", () => {
+  it("maps distance to a rounded similarity score", async () => {
+    mockDb.select.mockReturnValue(
+      createChainMock([
+        { id: "c1", content: "abc", chunkIndex: 0, filename: "a.md", distance: 0.15 },
+      ]),
+    );
+
+    const results = await searchByVector([0.1, 0.2], asInstanceSlug("inst-1"), 5, 1024);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: "c1", source: "a.md", score: 0.85, chunkIndex: 0 });
   });
 });

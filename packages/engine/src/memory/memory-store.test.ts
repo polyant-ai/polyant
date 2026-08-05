@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 // Chain mock: each chained method returns the chain itself, with the final
 // call returning a resolved promise (or the accumulated result).
@@ -47,6 +48,8 @@ vi.mock("./schema.js", () => ({
     importance: "importance",
     sourceConversationId: "source_conversation_id",
     embedding: "embedding",
+    embedding1024: "embedding_1024",
+    embeddingProvider: "embedding_provider",
     createdAt: "created_at",
     updatedAt: "updated_at",
   },
@@ -61,6 +64,9 @@ vi.mock("drizzle-orm", () => ({
   }),
   gt: vi.fn((...args: unknown[]) => ({ type: "gt", args })),
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
+  isNotNull: vi.fn((c: unknown) => ({ type: "isNotNull", c })),
+  ilike: vi.fn((...args: unknown[]) => ({ type: "ilike", args })),
+  count: vi.fn(() => ({ type: "count" })),
 }));
 
 vi.mock("drizzle-orm/sql/functions", () => ({
@@ -73,6 +79,7 @@ import {
   getAllMemories,
   deleteMemoryForInstance,
   deleteAllMemories,
+  countMemories,
 } from "./memory-store.js";
 
 describe("memory-store", () => {
@@ -88,11 +95,13 @@ describe("memory-store", () => {
       mockDb.insert.mockReturnValue(insChain as any);
 
       const result = await upsertMemory({
-        instanceId: "user-1",
+        instanceId: asInstanceSlug("user-1"),
         content: "User likes pizza",
         category: "preference",
         importance: 8,
         embedding: [0.1, 0.2],
+        dimensions: 1536,
+        provider: "openai",
       });
 
       expect(result).toEqual({
@@ -102,6 +111,46 @@ describe("memory-store", () => {
       });
       expect(mockDb.select).toHaveBeenCalled();
       expect(mockDb.insert).toHaveBeenCalled();
+    });
+
+    it("inserts 1536-dim embedding into `embedding`, nulls `embedding_1024`", async () => {
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+      const insChain = createChainMock([{ id: "new-id" }]);
+      mockDb.insert.mockReturnValue(insChain as any);
+
+      await upsertMemory({
+        instanceId: asInstanceSlug("user-1"),
+        content: "User likes pizza",
+        embedding: [0.1, 0.2],
+        dimensions: 1536,
+        provider: "openai",
+      });
+
+      const values = insChain.values.mock.calls[0][0];
+      expect(values.embedding).toEqual([0.1, 0.2]);
+      expect(values.embedding1024).toBeNull();
+      expect(values.embeddingProvider).toBe("openai");
+    });
+
+    it("inserts 1024-dim embedding into `embedding_1024`, nulls `embedding`", async () => {
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+      const insChain = createChainMock([{ id: "new-id" }]);
+      mockDb.insert.mockReturnValue(insChain as any);
+
+      await upsertMemory({
+        instanceId: asInstanceSlug("user-1"),
+        content: "User likes pizza",
+        embedding: [0.3, 0.4],
+        dimensions: 1024,
+        provider: "bedrock",
+      });
+
+      const values = insChain.values.mock.calls[0][0];
+      expect(values.embedding).toBeNull();
+      expect(values.embedding1024).toEqual([0.3, 0.4]);
+      expect(values.embeddingProvider).toBe("bedrock");
     });
 
     it("updates when near-duplicate exists", async () => {
@@ -114,9 +163,11 @@ describe("memory-store", () => {
       mockDb.update.mockReturnValue(updChain as any);
 
       const result = await upsertMemory({
-        instanceId: "user-1",
+        instanceId: asInstanceSlug("user-1"),
         content: "User likes pizza",
         embedding: [0.1, 0.2],
+        dimensions: 1536,
+        provider: "openai",
       });
 
       expect(result).toEqual({
@@ -126,6 +177,88 @@ describe("memory-store", () => {
       });
       expect(mockDb.update).toHaveBeenCalled();
       expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+
+    it("retries on serialization_failure 40001 carried on err.cause (DrizzleQueryError shape)", async () => {
+      // 4 retries fail with 40001 nested in `cause`, the 5th succeeds.
+      const wrap = (msg: string) => {
+        const inner: Error & { code?: string } = new Error("inner");
+        inner.code = "40001";
+        const outer: Error & { cause?: unknown } = new Error(msg);
+        outer.cause = inner;
+        return outer;
+      };
+
+      mockDb.transaction
+        .mockRejectedValueOnce(wrap("fail 1"))
+        .mockRejectedValueOnce(wrap("fail 2"))
+        .mockRejectedValueOnce(wrap("fail 3"))
+        .mockRejectedValueOnce(wrap("fail 4"))
+        .mockImplementationOnce(async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb));
+
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+      const insChain = createChainMock([{ id: "after-retry" }]);
+      mockDb.insert.mockReturnValue(insChain as any);
+
+      const result = await upsertMemory({
+        instanceId: asInstanceSlug("user-1"),
+        content: "Recovered after retries",
+        embedding: [0.1, 0.2],
+        dimensions: 1536,
+        provider: "openai",
+      });
+
+      expect(result.id).toBe("after-retry");
+      expect(result.event).toBe("ADD");
+      expect(mockDb.transaction).toHaveBeenCalledTimes(5);
+    });
+
+    it("rethrows non-serialization errors immediately without retry", async () => {
+      const fatal: Error & { code?: string } = new Error("permission denied");
+      fatal.code = "42501";
+      mockDb.transaction.mockRejectedValueOnce(fatal);
+
+      await expect(
+        upsertMemory({
+          instanceId: asInstanceSlug("user-1"),
+          content: "Should fail",
+          embedding: [0.1, 0.2],
+          dimensions: 1536,
+          provider: "openai",
+        }),
+      ).rejects.toThrow("permission denied");
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("gives up after MAX_UPSERT_RETRIES (5) consecutive 40001 errors", async () => {
+      const wrap = () => {
+        const inner: Error & { code?: string } = new Error("conflict");
+        inner.code = "40001";
+        const outer: Error & { cause?: unknown } = new Error("DrizzleQueryError");
+        outer.cause = inner;
+        return outer;
+      };
+
+      mockDb.transaction
+        .mockRejectedValueOnce(wrap())
+        .mockRejectedValueOnce(wrap())
+        .mockRejectedValueOnce(wrap())
+        .mockRejectedValueOnce(wrap())
+        .mockRejectedValueOnce(wrap());
+
+      await expect(
+        upsertMemory({
+          instanceId: asInstanceSlug("user-1"),
+          content: "Will give up",
+          embedding: [0.1, 0.2],
+          dimensions: 1536,
+          provider: "openai",
+        }),
+      ).rejects.toThrow("DrizzleQueryError");
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(5);
     });
   });
 
@@ -147,7 +280,7 @@ describe("memory-store", () => {
       const selChain = createChainMock(rows);
       mockDb.select.mockReturnValue(selChain as any);
 
-      const results = await searchByVector([0.1, 0.2], "user-1", 10);
+      const results = await searchByVector([0.1, 0.2], asInstanceSlug("user-1"), 10, 1024);
 
       expect(results).toHaveLength(1);
       expect(results[0].similarity).toBe(0.85); // 1 - 0.15
@@ -173,7 +306,7 @@ describe("memory-store", () => {
       const selChain = createChainMock(rows);
       mockDb.select.mockReturnValue(selChain as any);
 
-      const results = await getAllMemories("user-1");
+      const results = await getAllMemories(asInstanceSlug("user-1"));
 
       expect(results).toHaveLength(1);
       expect(results[0].content).toBe("Fact A");
@@ -186,7 +319,7 @@ describe("memory-store", () => {
       const delChain = createChainMock([{ id: "mem-123" }]);
       mockDb.delete.mockReturnValue(delChain as any);
 
-      const result = await deleteMemoryForInstance("mem-123", "inst-1");
+      const result = await deleteMemoryForInstance("mem-123", asInstanceSlug("inst-1"));
 
       expect(result).toBe(true);
       expect(mockDb.delete).toHaveBeenCalled();
@@ -196,20 +329,32 @@ describe("memory-store", () => {
       const delChain = createChainMock([]);
       mockDb.delete.mockReturnValue(delChain as any);
 
-      const result = await deleteMemoryForInstance("mem-999", "inst-1");
+      const result = await deleteMemoryForInstance("mem-999", asInstanceSlug("inst-1"));
 
       expect(result).toBe(false);
     });
   });
 
   describe("deleteAllMemories", () => {
-    it("calls delete for user", async () => {
-      const delChain = createChainMock(undefined);
+    it("calls delete for user and returns the deleted count", async () => {
+      const delChain = createChainMock([{ id: "m1" }, { id: "m2" }]);
       mockDb.delete.mockReturnValue(delChain as any);
 
-      await deleteAllMemories("user-1");
+      const count = await deleteAllMemories(asInstanceSlug("user-1"));
 
       expect(mockDb.delete).toHaveBeenCalled();
+      expect(count).toBe(2);
+    });
+  });
+
+  describe("countMemories", () => {
+    it("returns the row count for an instance", async () => {
+      const selChain = createChainMock([{ count: 5 }]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      const count = await countMemories("user-1");
+
+      expect(count).toBe(5);
     });
   });
 });

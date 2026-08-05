@@ -2,7 +2,7 @@
 
 "use client";
 
-import { DollarSign, MessageSquare, Mail, Zap, TrendingUp, TrendingDown } from "lucide-react";
+import { DollarSign, MessageSquare, Mail, Zap, Database, TrendingUp, TrendingDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { AnalyticsOverview } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
@@ -22,6 +22,10 @@ function formatNumber(value: number) {
   return value >= 1000
     ? `${(value / 1000).toFixed(1)}k`
     : String(Math.round(value));
+}
+
+function formatPercent(value: number) {
+  return `${(value * 100).toFixed(0)}%`;
 }
 
 function TrendBadge({ value }: { value: number }) {
@@ -72,10 +76,18 @@ export function KpiCards({ data }: KpiCardsProps) {
       trend: -data.trends.responseTime, // lower is better
       icon: Zap,
     },
+    {
+      label: t("analytics.kpi.cacheHitRate"),
+      value: formatPercent(
+        data.promptTokens > 0 ? data.cachedInputTokens / data.promptTokens : 0,
+      ),
+      trend: 0,
+      icon: Database,
+    },
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
       {cards.map((card) => (
         <Card key={card.label}>
           <CardContent >

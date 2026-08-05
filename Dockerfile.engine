@@ -1,0 +1,93 @@
+# ── Stage 1: Install dependencies ──────────────────────────────
+FROM node:22-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages/engine/package.json packages/engine/
+# Create a minimal package.json for web to satisfy workspace resolution
+RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.0.0","private":true}' > packages/web/package.json
+# Puppeteer bundles a glibc Chromium that can't run on Alpine (musl); the runtime
+# stage installs Alpine's chromium and points Puppeteer at it. Skip the download.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+RUN npm ci --workspace=@polyant/engine --include-workspace-root
+# Ensure workspace node_modules dir exists (even if empty) for COPY
+RUN mkdir -p packages/engine/node_modules
+
+# ── Stage: prod-deps (runtime deps only — no devDeps) ──────────
+# Separate prod-only install so the runtime image doesn't carry the dev tooling
+# (typescript, tsx, eslint, vitest, drizzle-kit, @types/*): the entrypoint runs
+# `node dist/...` (not tsx) and migrations use drizzle-orm (not drizzle-kit).
+# `npm prune --omit=dev` on the hoisted workspace tree is fragile → install prod
+# from scratch instead. BuildKit runs this stage in parallel with `build`, and
+# Docker layer caching skips it entirely when package-lock is unchanged.
+# @polyant-ai/plugin-sdk is an engine `dependency` (the core *.tool.ts author it),
+# so it survives here.
+FROM node:22-alpine AS prod-deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY packages/engine/package.json packages/engine/
+RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.0.0","private":true}' > packages/web/package.json
+# Skip Puppeteer's bundled (glibc) Chromium download — the runtime image uses the
+# Alpine chromium package; downloading here would be dead weight never copied out.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+RUN npm ci --omit=dev --workspace=@polyant/engine --include-workspace-root
+RUN mkdir -p packages/engine/node_modules
+
+# ── Stage 2: Build ─────────────────────────────────────────────
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/engine/node_modules ./packages/engine/node_modules
+COPY package.json package-lock.json ./
+COPY packages/engine/ packages/engine/
+# Use tsconfig.build.json to exclude test files from compilation
+RUN npm run build:docker -w @polyant/engine
+
+# ── Stage 3: Runtime ───────────────────────────────────────────
+FROM node:22-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+
+# System binaries the built-in tools shell out to (restored from the old
+# packages/engine/Dockerfile that PR #181 dropped):
+#   - git       → gitCloneRepo
+#   - gh        → ghIssue / ghPr (pinned download; the apk package has no version pin)
+#   - chromium  → markdownToPdf via Puppeteer (+ fonts/libs)
+ARG GH_CLI_VERSION=2.65.0
+RUN apk add --no-cache \
+      git curl bash \
+      chromium nss freetype freetype-dev harfbuzz ca-certificates ttf-freefont font-noto-emoji && \
+    ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && \
+    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_${ARCH}.tar.gz" \
+      | tar -xz -C /tmp && \
+    mv "/tmp/gh_${GH_CLI_VERSION}_linux_${ARCH}/bin/gh" /usr/local/bin/gh && \
+    chmod +x /usr/local/bin/gh && \
+    rm -rf /tmp/gh_*
+
+# Point Puppeteer at the Alpine chromium instead of its own bundled (glibc) binary.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+# Copy hoisted deps + non-hoisted workspace deps (e.g. langsmith).
+# Runtime pulls from prod-deps (npm ci --omit=dev) — NOT deps — so the image
+# ships no dev tooling. The build stage above still uses deps (it needs tsc).
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/packages/engine/node_modules ./packages/engine/node_modules
+COPY --from=build /app/packages/engine/dist ./packages/engine/dist
+COPY packages/engine/package.json packages/engine/
+COPY package.json ./
+
+# Copy migration SQL next to the COMPILED migrate.js. The entrypoint runs
+# dist/database/migrate.js (not the src .ts via tsx), so config.js and all its
+# transitive imports resolve from dist/ — src is not shipped in the runtime image.
+# migrate.js reads migrationsFolder = resolve(__dirname, "migrations"), i.e.
+# packages/engine/dist/database/migrations.
+COPY packages/engine/src/database/migrations packages/engine/dist/database/migrations
+
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+EXPOSE 4000
+
+ENTRYPOINT ["docker-entrypoint.sh"]

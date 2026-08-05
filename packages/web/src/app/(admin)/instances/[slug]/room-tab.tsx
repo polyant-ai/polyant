@@ -10,6 +10,7 @@ import { useI18n } from "@/lib/i18n/context";
 import { RoomConfigSection, type RoomFormState } from "./room-config-section";
 import { BacklogSection, type BacklogEvent } from "./room-backlog-section";
 import { ActivityLogSection, type ActivityLog } from "./room-activity-section";
+import { usePageSaveAction } from "./page-actions-context";
 
 interface Props {
   slug: string;
@@ -122,6 +123,25 @@ export function RoomTab({ slug }: Props) {
     }
   }
 
+  const baseline: RoomFormState = room
+    ? {
+        enabled: room.enabled,
+        prompt: room.prompt ?? "",
+        outboundChannel: room.outboundChannel ?? "",
+        outboundTarget: room.outboundTarget ?? "",
+        evalIntervalMinutes: room.evalIntervalMinutes ?? 5,
+      }
+    : EMPTY_ROOM_FORM;
+
+  const isDirty =
+    roomForm.enabled !== baseline.enabled ||
+    roomForm.prompt !== baseline.prompt ||
+    roomForm.outboundChannel !== baseline.outboundChannel ||
+    roomForm.outboundTarget !== baseline.outboundTarget ||
+    roomForm.evalIntervalMinutes !== baseline.evalIntervalMinutes;
+
+  usePageSaveAction({ isDirty, saving, onSave: handleSaveRoom });
+
   if (loading) {
     return (
       <div className="max-w-3xl animate-pulse space-y-4">
@@ -134,7 +154,7 @@ export function RoomTab({ slug }: Props) {
   if (!room) {
     return (
       <div className="max-w-3xl space-y-8">
-        <RoomConfigSection form={roomForm} onChange={setRoomForm} onSave={handleSaveRoom} saving={saving} isNew />
+        <RoomConfigSection form={roomForm} onChange={setRoomForm} isNew />
       </div>
     );
   }
@@ -144,9 +164,7 @@ export function RoomTab({ slug }: Props) {
       <RoomConfigSection
         form={roomForm}
         onChange={setRoomForm}
-        onSave={handleSaveRoom}
         onDelete={handleDeleteRoom}
-        saving={saving}
         isNew={false}
       />
 

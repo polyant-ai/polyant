@@ -27,6 +27,7 @@ import type { FeedEvent } from "./activity-stream.types.js";
 import { config } from "../config.js";
 import { CurrentUser } from "../auth/index.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
+import { RequirePermission, Permission } from "../authz/index.js";
 
 /**
  * Per-client backpressure cap. If a slow client accumulates more than this
@@ -44,6 +45,8 @@ const perUserConnections = new Map<string, number>();
 @SkipThrottle()
 @Controller("api/activity-stream")
 export class ActivityStreamController {
+  // Org-scoped read observability; the route has no `:slug` scope.
+  @RequirePermission(Permission.ANALYTICS_READ)
   @Get("live")
   live(
     @Req() req: Request,

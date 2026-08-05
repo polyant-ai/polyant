@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { toolAuditLogs } from "./audit.schema.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 
 export interface AuditEntry {
-  instanceId: string;
+  instanceId: InstanceSlug;
   conversationId?: string;
   toolName: string;
   action: string;
@@ -38,7 +39,7 @@ class AuditStore {
   }
 
   /** Patch durationMs on the most recent buffered entry for a given tool+instance. */
-  patchDuration(toolName: string, instanceId: string, durationMs: number) {
+  patchDuration(toolName: string, instanceId: InstanceSlug, durationMs: number) {
     for (let i = this.buffer.length - 1; i >= 0; i--) {
       const e = this.buffer[i];
       if (e.toolName === toolName && e.instanceId === instanceId && e.durationMs == null) {
@@ -49,7 +50,7 @@ class AuditStore {
   }
 
   /** Patch output preview on the most recent buffered entry for a given tool+instance. */
-  patchOutput(toolName: string, instanceId: string, output: string) {
+  patchOutput(toolName: string, instanceId: InstanceSlug, output: string) {
     for (let i = this.buffer.length - 1; i >= 0; i--) {
       const e = this.buffer[i];
       if (e.toolName === toolName && e.instanceId === instanceId && e.output == null) {

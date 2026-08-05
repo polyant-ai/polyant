@@ -21,6 +21,30 @@ vi.mock("./providers/anthropic.js", () => ({
   },
 }));
 
+const mockNebiusChat = vi.fn();
+vi.mock("./providers/nebius.js", () => ({
+  NebiusProvider: {
+    name: "nebius",
+    chat: (...args: unknown[]) => mockNebiusChat(...args),
+    chatStream: vi.fn(),
+  },
+}));
+
+// Mock only the provider transport; keep the real buildBedrockReasoningOptions so
+// the resolveCallConfig integration test exercises the actual budget/effort mapping.
+const mockBedrockChat = vi.fn();
+vi.mock("./providers/bedrock.js", async (importActual) => {
+  const actual = await importActual<typeof import("./providers/bedrock.js")>();
+  return {
+    ...actual,
+    BedrockProvider: {
+      name: "bedrock",
+      chat: (...args: unknown[]) => mockBedrockChat(...args),
+      chatStream: vi.fn(),
+    },
+  };
+});
+
 vi.mock("./logger.js", () => ({
   aiLogger: {
     log: vi.fn(),
@@ -44,10 +68,36 @@ vi.mock("../utils/pipeline-logger.js", () => ({
   },
 }));
 
+const mockEmitFromChatResponse = vi.fn();
+const mockTapAndForwardFullStream = vi.fn(async function* (
+  fullStream: AsyncIterable<unknown>,
+  _ctx: unknown,
+) {
+  for await (const c of fullStream) yield c;
+});
+vi.mock("../activity-stream/bus-emitter.js", () => ({
+  emitFromChatResponse: (...args: unknown[]) => mockEmitFromChatResponse(...args),
+  tapAndForwardFullStream: (s: AsyncIterable<unknown>, ctx: unknown) =>
+    mockTapAndForwardFullStream(s, ctx),
+}));
+
+vi.mock("../instances/store.js", () => ({
+  findInstanceBySlug: vi.fn().mockResolvedValue(null),
+}));
+
 import { chat, chatStream, initAIGateway } from "./index.js";
 import { aiLogger } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
+import { findInstanceBySlug } from "../instances/store.js";
 import type { ChatRequest } from "./types.js";
+import { asInstanceSlug } from "../instances/identifiers.js";
+
+const mockFindInstanceBySlug = vi.mocked(findInstanceBySlug);
+
+/** Flush the microtask queue so fire-and-forget bus emission settles. */
+async function flushMicrotasks(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 0));
+}
 
 function makeRequest(overrides: Partial<ChatRequest> = {}): ChatRequest {
   return {
@@ -60,10 +110,11 @@ function makeRequest(overrides: Partial<ChatRequest> = {}): ChatRequest {
 function makeChatResponse(overrides = {}) {
   return {
     text: "Response text",
-    usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+    usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150, cachedInputTokens: 0, cacheCreationInputTokens: 0 },
     durationMs: 500,
     model: "gpt-4o",
     provider: "openai",
+    steps: [],
     toolCalls: [],
     ...overrides,
   };
@@ -111,30 +162,36 @@ describe("AI Gateway", () => {
     it("passes conversationId, instanceId, and callType to logger", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
-      await chat(makeRequest(), { conversationId: "conv-1", instanceId: "user-1" });
+      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("user-1") });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
         "openai", "gpt-4o", "standard", false,
         100, 50, 150,
         expect.any(Number),
         500,
+        expect.any(Number),
+        expect.any(Number),
         "conv-1", "user-1",
         undefined, // callType defaults to undefined when not specified
+        0, 0, // cachedInputTokens, cacheCreationInputTokens
       );
     });
 
     it("passes callType 'service' to logger when specified", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
-      await chat(makeRequest(), { conversationId: "conv-1", instanceId: "inst-1", callType: "service" });
+      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
         "openai", "gpt-4o", "standard", false,
         100, 50, 150,
         expect.any(Number),
         500,
+        expect.any(Number),
+        expect.any(Number),
         "conv-1", "inst-1",
         "service",
+        0, 0, // cachedInputTokens, cacheCreationInputTokens
       );
     });
 
@@ -159,17 +216,40 @@ describe("AI Gateway", () => {
       expect(result.usage.totalTokens).toBe(150);
     });
 
+    it("emits the instance icon to the activity bus as a URL, never the raw base64 data URI", async () => {
+      // Regression: buildBusContext used to pass `instance.icon` (a
+      // `data:image/...;base64,...` URI) straight through, so the activity
+      // feed rendered the base64 string as text. It MUST be a /api URL — the
+      // same conversion the per-category emitters and the REST DTO apply.
+      mockFindInstanceBySlug.mockResolvedValueOnce({
+        id: "uuid-1",
+        slug: "acme",
+        name: "Acme",
+        icon: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAE",
+        updatedAt: new Date(1700000000000),
+      } as unknown as Awaited<ReturnType<typeof findInstanceBySlug>>);
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+
+      await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("acme") });
+      await flushMicrotasks();
+
+      expect(mockEmitFromChatResponse).toHaveBeenCalled();
+      const ctx = mockEmitFromChatResponse.mock.calls[0][1] as { instance?: { icon?: string | null } };
+      expect(ctx.instance?.icon).toBe("/api/instances/acme/icon?v=1700000000000");
+      expect(ctx.instance?.icon).not.toContain("base64");
+    });
+
     it("passes langsmith providerOptions to provider when langsmith config is present", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
       await chat(
         makeRequest({ langsmith: { apiKey: "ls-key", project: "test-project" } }),
-        { conversationId: "conv-1", instanceId: "inst-1" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1") },
       );
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: "inst-1", providerName: "openai", modelId: "gpt-4o" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-4o" },
       );
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -181,18 +261,124 @@ describe("AI Gateway", () => {
       );
     });
 
-    it("does not build providerOptions when langsmith config is absent", async () => {
+    it("does not build langsmith providerOptions when langsmith config is absent (still sets openai strictJsonSchema)", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
       await chat(makeRequest());
 
       expect(buildLangSmithProviderOptions).not.toHaveBeenCalled();
+      // v6: openai always gets strictJsonSchema:false (replaces the removed
+      // factory option structuredOutputs:false). No langsmith key is added.
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({
-          providerOptions: undefined,
+          providerOptions: { openai: { strictJsonSchema: false } },
         }),
         expect.any(String),
       );
+    });
+
+    it("disables Nebius thinking via chat_template_kwargs when thinking is off", async () => {
+      mockNebiusChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "nebius", model: "Qwen/Qwen3.5-397B-A17B", thinking: false }),
+      );
+
+      expect(mockNebiusChat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerOptions: expect.objectContaining({
+            nebius: { chat_template_kwargs: { enable_thinking: false } },
+          }),
+        }),
+        "Qwen/Qwen3.5-397B-A17B",
+      );
+    });
+
+    it("sends reasoningEffort (not the disable kwarg) for Nebius when thinking is on", async () => {
+      mockNebiusChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "nebius", model: "Qwen/Qwen3.5-397B-A17B", thinking: true, thinkingLevel: "high" }),
+      );
+
+      const opts = mockNebiusChat.mock.calls[0][0].providerOptions.nebius;
+      expect(opts).toEqual({ reasoningEffort: "high" });
+      expect(opts).not.toHaveProperty("chat_template_kwargs");
+    });
+
+    it("omits the disable kwarg for gpt-oss when thinking is off (it has no true off)", async () => {
+      mockNebiusChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "nebius", model: "openai/gpt-oss-120b", thinking: false }),
+      );
+
+      // gpt-oss ignores enable_thinking (a Qwen-only chat-template kwarg), so
+      // sending it just masks the truth. The gateway must send nothing and let
+      // the model fall back to its own reasoning default.
+      const opts = mockNebiusChat.mock.calls[0][0].providerOptions.nebius;
+      expect(opts).not.toHaveProperty("chat_template_kwargs");
+      expect(opts).toEqual({});
+    });
+
+    it("sends Bedrock effort-based reasoningConfig for gpt-oss when thinking is on", async () => {
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinking: true, thinkingLevel: "high" }),
+      );
+
+      expect(mockBedrockChat.mock.calls[0][0].providerOptions.bedrock).toEqual({
+        reasoningConfig: { type: "enabled", maxReasoningEffort: "high" },
+      });
+    });
+
+    it("sends Bedrock budget-based reasoningConfig for Claude when thinking is on", async () => {
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "bedrock", model: "eu.anthropic.claude-sonnet-4-6", thinking: true }),
+      );
+
+      const cfg = mockBedrockChat.mock.calls[0][0].providerOptions.bedrock.reasoningConfig;
+      expect(cfg.type).toBe("enabled");
+      expect(cfg.budgetTokens).toBeGreaterThan(0);
+    });
+
+    it("sends Bedrock adaptive reasoningConfig for the Claude-5 generation (rejects budget_tokens)", async () => {
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "bedrock", model: "us.anthropic.claude-sonnet-5", thinking: true, thinkingLevel: "high" }),
+      );
+
+      const cfg = mockBedrockChat.mock.calls[0][0].providerOptions.bedrock.reasoningConfig;
+      expect(cfg).toEqual({ type: "adaptive", maxReasoningEffort: "high" });
+      expect(cfg).not.toHaveProperty("budgetTokens");
+    });
+
+    it("omits Bedrock reasoningConfig when thinking is off", async () => {
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinking: false }),
+      );
+
+      const opts = mockBedrockChat.mock.calls[0][0].providerOptions;
+      expect(opts?.bedrock).toBeUndefined();
+    });
+
+    it("omits Bedrock reasoningConfig for a non-reasoning model even if thinking is on", async () => {
+      // Guard: sending reasoningConfig to e.g. nova-lite v1 is a hard Bedrock
+      // ValidationException, so the isThinkingCapable gate must suppress it.
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(
+        makeRequest({ provider: "bedrock", model: "eu.amazon.nova-lite-v1:0", thinking: true }),
+      );
+
+      const opts = mockBedrockChat.mock.calls[0][0].providerOptions;
+      expect(opts?.bedrock).toBeUndefined();
     });
   });
 
@@ -230,7 +416,7 @@ describe("AI Gateway", () => {
         response: Promise.resolve(makeChatResponse()),
       });
 
-      const stream = await chatStream(makeRequest(), { conversationId: "conv-1", instanceId: "inst-1", callType: "service" });
+      const stream = await chatStream(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
       await stream.response;
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
@@ -238,8 +424,11 @@ describe("AI Gateway", () => {
         100, 50, 150,
         expect.any(Number),
         500,
+        expect.any(Number),
+        expect.any(Number),
         "conv-1", "inst-1",
         "service",
+        0, 0, // cachedInputTokens, cacheCreationInputTokens
       );
     });
 
@@ -252,12 +441,12 @@ describe("AI Gateway", () => {
 
       await chatStream(
         makeRequest({ langsmith: { apiKey: "ls-key", project: "test-project" } }),
-        { conversationId: "conv-1", instanceId: "inst-1" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1") },
       );
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: "inst-1", providerName: "openai", modelId: "gpt-4o" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-4o" },
       );
       expect(mockProviderChatStream).toHaveBeenCalledWith(
         expect.objectContaining({

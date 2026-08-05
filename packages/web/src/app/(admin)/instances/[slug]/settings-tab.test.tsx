@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SettingsTab } from "./settings-tab";
 import type { Instance } from "@/lib/api";
@@ -64,6 +64,11 @@ vi.mock("@/lib/api", () => ({
     models: { list: (...args: unknown[]) => mockModelsList(...args) },
     tools: { requiredSecrets: (...args: unknown[]) => mockToolsRequiredSecrets(...args) },
   },
+  // The component does `reason instanceof ApiError` on load failures; without
+  // this export it was `instanceof undefined` → TypeError, breaking the error path.
+  ApiError: class ApiError extends Error {
+    status?: number;
+  },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
 
@@ -84,8 +89,21 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     langsmithProject: null,
     authEnabled: false,
     thinkingEnabled: false,
+    stateInPromptEnabled: false,
+    datetimeInjectionEnabled: true,
+    cacheEnabled: true,
+    cacheTtl: "1h",
+    toolResultsInHistoryEnabled: false,
+    debugEnabled: false,
+    optoutEnabled: false,
+    optoutStopKeywords: [],
+    optoutResumeKeywords: [],
+    optoutClosingMessage: null,
+    optoutResumeMessage: null,
+    optoutInjectPromptHint: false,
     sttProvider: "openai",
     icon: null,
+    temperature: null,
     createdAt: "2025-01-01T00:00:00Z",
     updatedAt: "2025-01-01T00:00:00Z",
     ...overrides,
@@ -97,9 +115,9 @@ function setupDefaultMocks() {
     secrets: [
       { key: "openai_api_key", configured: true },
       { key: "anthropic_api_key", configured: false },
-      { key: "aws_access_key_id", configured: false },
-      { key: "aws_secret_access_key", configured: false },
-      { key: "aws_region", configured: false },
+      { key: "aws_provider_access_key_id", configured: false },
+      { key: "aws_provider_secret_access_key", configured: false },
+      { key: "aws_provider_region", configured: false },
       { key: "langsmith_api_key", configured: false },
       { key: "auth_api_key", configured: false },
       { key: "tavily_api_key", configured: false },
@@ -107,12 +125,23 @@ function setupDefaultMocks() {
   });
   mockModelsList.mockResolvedValue({
     providers: {
-      openai: { models: [{ id: "gpt-4o", tier: "standard", costInput: 0.01, costOutput: 0.03 }] },
-      anthropic: { models: [{ id: "claude-3-opus", tier: "heavy", costInput: 0.015, costOutput: 0.075 }] },
+      openai: { models: [{ id: "gpt-4o", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true }] },
+      anthropic: { models: [{ id: "claude-3-opus", tier: "heavy", costInput: 0.015, costOutput: 0.075, supportsThinking: false, supportsTemperature: true }] },
+      bedrock: { models: [{ id: "titan", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true }] },
     },
   });
   // New shape: array of RequiredSecretSpec, not plain strings.
   mockToolsRequiredSecrets.mockResolvedValue({ requiredSecrets: [] });
+}
+
+/**
+ * The memory Switch, scoped to the Memory section via its unique help text.
+ * Robust to switch reordering — index-based lookups (switches[0]/[3]) broke when
+ * the always-visible thinking toggle (#178) shifted every switch down by one.
+ */
+function getMemorySwitch(): HTMLElement {
+  const section = screen.getByText("settings.tab.memoryHelp").closest("section");
+  return within(section as HTMLElement).getByRole("switch");
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -205,42 +234,125 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Find memory toggle: the switches are in order - memory is the first one after the selects
-    const switches = screen.getAllByRole("switch");
-    // The first switch is memory toggle
-    const memorySwitch = switches[0];
-    await user.click(memorySwitch);
+    await user.click(getMemorySwitch());
 
     expect(lastSaveAction.current?.isDirty).toBe(true);
   });
 
-  it("shows memory warning when memory is enabled but openai key is not configured", async () => {
-    // OpenAI key not configured
-    mockSecretsList.mockResolvedValue({
-      secrets: [
-        { key: "openai_api_key", configured: false },
-      ],
-    });
-
+  it("shows the openai memory warning when the engine reports needsOpenAIKey", async () => {
     render(
-      <SettingsTab instance={makeInstance({ memoryEnabled: true })} onUpdate={onUpdate} />,
+      <SettingsTab
+        instance={makeInstance({
+          memoryEnabled: true,
+          provider: "openai",
+          memory: { needsOpenAIKey: true, canEnable: false },
+        })}
+        onUpdate={onUpdate}
+      />,
     );
 
     await waitFor(() => {
-      expect(screen.getByText("settings.tab.memoryOpenaiWarning")).toBeInTheDocument();
+      expect(screen.getByText("memory.banner.openaiNeedsKey")).toBeInTheDocument();
     });
   });
 
-  it("does not show memory warning when openai key is configured", async () => {
+  it("keys the memory warning off the embedder, not the chat provider (anthropic chat + openai embedder)", async () => {
     render(
-      <SettingsTab instance={makeInstance({ memoryEnabled: true })} onUpdate={onUpdate} />,
+      <SettingsTab
+        instance={makeInstance({
+          memoryEnabled: true,
+          provider: "anthropic",
+          model: "claude-3-opus",
+          embeddingProvider: "openai",
+          memory: { needsOpenAIKey: true, canEnable: false },
+        })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("memory.banner.openaiNeedsKey")).toBeInTheDocument();
+    });
+  });
+
+  it("shows the bedrock memory warning for a bedrock embedder needing aws credentials", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        bedrock: { models: [{ id: "titan", tier: "standard", costInput: 0.01, costOutput: 0.03 }] },
+      },
+    });
+
+    render(
+      <SettingsTab
+        instance={makeInstance({
+          memoryEnabled: true,
+          provider: "bedrock",
+          model: "titan",
+          embeddingProvider: "bedrock",
+          memory: { needsOpenAIKey: true, canEnable: false },
+        })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("memory.banner.bedrockNeedsAws")).toBeInTheDocument();
+    });
+  });
+
+  it("shows the openai knowledge warning when knowledge is on and no openai key (openai embedder)", async () => {
+    mockSecretsList.mockResolvedValue({
+      secrets: [{ key: "openai_api_key", configured: false }],
+    });
+
+    render(
+      <SettingsTab
+        instance={makeInstance({
+          knowledgeEnabled: true,
+          embeddingProvider: "openai",
+        })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.knowledgeOpenaiWarning")).toBeInTheDocument();
+    });
+  });
+
+  it("shows the aws knowledge warning (not the openai one) for a bedrock embedder without aws region", async () => {
+    render(
+      <SettingsTab
+        instance={makeInstance({
+          knowledgeEnabled: true,
+          embeddingProvider: "bedrock",
+        })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.knowledgeAwsWarning")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("settings.tab.knowledgeOpenaiWarning")).not.toBeInTheDocument();
+  });
+
+  it("does not show the memory warning when the engine reports no missing key", async () => {
+    render(
+      <SettingsTab
+        instance={makeInstance({
+          memoryEnabled: true,
+          memory: { needsOpenAIKey: false, canEnable: true },
+        })}
+        onUpdate={onUpdate}
+      />,
     );
 
     await waitFor(() => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    expect(screen.queryByText("settings.tab.memoryOpenaiWarning")).not.toBeInTheDocument();
+    expect(screen.queryByText("memory.banner.openaiNeedsKey")).not.toBeInTheDocument();
   });
 
   it("shows auth key field when authEnabled is true", async () => {
@@ -308,9 +420,8 @@ describe("SettingsTab", () => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Toggle memory on to create a dirty state
-    const switches = screen.getAllByRole("switch");
-    await user.click(switches[0]); // memory switch
+    // Toggle memory on to create a dirty state.
+    await user.click(getMemorySwitch());
 
     await lastSaveAction.current!.onSave();
 
@@ -323,6 +434,72 @@ describe("SettingsTab", () => {
 
     expect(onUpdate).toHaveBeenCalledWith(updatedInstance);
     expect(mockToastSuccess).toHaveBeenCalledWith("settings.tab.saved");
+  });
+
+  it("prompts for a destructive wipe and confirms it when the embedder changes (openai→bedrock)", async () => {
+    const user = userEvent.setup();
+    const instance = makeInstance({ memoryEnabled: true });
+    mockInstanceUpdate.mockResolvedValueOnce({
+      instance: makeInstance({ embeddingProvider: "bedrock" }),
+    });
+
+    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // Switch the embedder (independent of the chat LLM) to bedrock — this is
+    // the change that invalidates existing embeddings and must trigger the wipe.
+    const embedderTrigger = screen.getByRole("combobox", { name: "settings.tab.embedder" });
+    embedderTrigger.focus();
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("option", { name: /bedrock/i }));
+
+    // Saving with an embedder change opens the destructive wipe dialog
+    // instead of saving directly.
+    await lastSaveAction.current!.onSave();
+
+    await waitFor(() => {
+      expect(screen.getByText("memory.wipe.title")).toBeInTheDocument();
+    });
+    expect(mockInstanceUpdate).not.toHaveBeenCalled();
+
+    // Confirming runs the save and passes confirmWipe so the engine wipes the data.
+    await user.click(screen.getByText("memory.wipe.primary"));
+
+    await waitFor(() => {
+      expect(mockInstanceUpdate).toHaveBeenCalledWith(
+        "test-instance",
+        expect.objectContaining({ embeddingProvider: "bedrock", confirmWipe: true }),
+      );
+    });
+  });
+
+  it("does not prompt for a wipe when the embedding provider is unchanged (openai→anthropic)", async () => {
+    const user = userEvent.setup();
+    const instance = makeInstance({ provider: "openai", model: "gpt-4o", memoryEnabled: true });
+    const updatedInstance = makeInstance({ provider: "anthropic", model: "claude-3-opus" });
+    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+
+    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // openai → anthropic keeps the same embedding provider (openai), so no wipe.
+    await user.click(screen.getByText("settings.tab.viewPricing"));
+    await user.click(await screen.findByText("claude-3-opus"));
+    await lastSaveAction.current!.onSave();
+
+    await waitFor(() => {
+      expect(mockInstanceUpdate).toHaveBeenCalledWith(
+        "test-instance",
+        expect.objectContaining({ provider: "anthropic", confirmWipe: false }),
+      );
+    });
+    expect(screen.queryByText("memory.wipe.title")).not.toBeInTheDocument();
   });
 
   it("saves secrets when api key fields are filled", async () => {
@@ -369,8 +546,7 @@ describe("SettingsTab", () => {
     });
 
     // Toggle memory to trigger dirty state
-    const switches = screen.getAllByRole("switch");
-    await user.click(switches[0]);
+    await user.click(getMemorySwitch());
 
     await lastSaveAction.current!.onSave();
 
@@ -387,5 +563,217 @@ describe("SettingsTab", () => {
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith("settings.tab.loadFailed");
     });
+  });
+
+  it("disables the temperature control for reasoning models", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        openai: {
+          models: [
+            { id: "o3", tier: "heavy", costInput: 0.01, costOutput: 0.03, supportsThinking: true, supportsTemperature: false },
+          ],
+        },
+      },
+    });
+
+    render(
+      <SettingsTab instance={makeInstance({ model: "o3" })} onUpdate={onUpdate} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    expect(screen.getByLabelText(/temperature/i)).toBeDisabled();
+  });
+
+  it("keeps temperature editable under thinking for reasoners that accept both (gpt-oss/Nebius)", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        bedrock: {
+          models: [
+            { id: "openai.gpt-oss-120b-1:0", tier: "standard", costInput: 0.2, costOutput: 0.79, supportsThinking: true, supportsTemperature: true, supportsTemperatureWithThinking: true },
+          ],
+        },
+      },
+    });
+
+    render(
+      <SettingsTab
+        instance={makeInstance({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinkingEnabled: true })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // Open-weight/vLLM reasoners accept temperature + reasoning together — the field
+    // stays editable with thinking on (mirrors temperatureSupported(..., thinking:true)).
+    expect(screen.getByLabelText(/temperature/i)).not.toBeDisabled();
+  });
+
+  it("disables temperature under thinking for strict-reasoning APIs (Anthropic/OpenAI 1P)", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        openai: {
+          models: [
+            { id: "gpt-5.4", tier: "heavy", costInput: 0.01, costOutput: 0.03, supportsThinking: true, supportsTemperature: true, supportsTemperatureWithThinking: false },
+          ],
+        },
+      },
+    });
+
+    render(
+      <SettingsTab instance={makeInstance({ model: "gpt-5.4", thinkingEnabled: true })} onUpdate={onUpdate} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // gpt-5.4 takes a custom temperature only with reasoning OFF; under thinking the
+    // field must lock (supportsTemperatureWithThinking:false).
+    expect(screen.getByLabelText(/temperature/i)).toBeDisabled();
+  });
+
+  it("keeps temperature editable when a stale thinkingEnabled flag survives on a non-thinking model", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        bedrock: {
+          models: [
+            { id: "qwen3", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true },
+          ],
+        },
+      },
+    });
+
+    render(
+      <SettingsTab
+        instance={makeInstance({ provider: "bedrock", model: "qwen3", thinkingEnabled: true })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // The thinking toggle is hidden (model non-capable) but the persisted flag
+    // must not lock the temperature field — mirrors the engine runtime gate.
+    expect(screen.getByLabelText(/temperature/i)).not.toBeDisabled();
+  });
+
+  it("includes temperature in the save payload", async () => {
+    const user = userEvent.setup();
+    mockModelsList.mockResolvedValue({
+      providers: {
+        openai: {
+          models: [
+            { id: "gpt-4o", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true },
+          ],
+        },
+      },
+    });
+
+    const instance = makeInstance({ model: "gpt-4o" });
+    mockInstanceUpdate.mockResolvedValueOnce({ instance });
+
+    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    const tempInput = screen.getByLabelText(/temperature/i);
+    await user.clear(tempInput);
+    await user.type(tempInput, "0.5");
+
+    await lastSaveAction.current!.onSave();
+
+    await waitFor(() => {
+      expect(mockInstanceUpdate).toHaveBeenCalledWith(
+        "test-instance",
+        expect.objectContaining({ temperature: 0.5 }),
+      );
+    });
+  });
+
+  it("locks the thinking toggle ON with an always-on hint for a no-off reasoning model", async () => {
+    mockModelsList.mockResolvedValue({
+      providers: {
+        bedrock: {
+          models: [
+            { id: "openai.gpt-oss-120b-1:0", tier: "standard", costInput: 0.2, costOutput: 0.79, supportsThinking: true, reasoningAlwaysOn: true, supportsTemperature: false },
+          ],
+        },
+      },
+    });
+
+    render(
+      <SettingsTab
+        instance={makeInstance({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinkingEnabled: false })}
+        onUpdate={onUpdate}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // gpt-oss reasons on every call: the UI states it (hint) instead of a working
+    // off switch, and the toggle is locked ON + disabled.
+    expect(screen.getByText("settings.tab.thinkingAlwaysOn")).toBeInTheDocument();
+
+    const thinkingBlock = screen.getByText("settings.tab.thinking").closest("div.flex");
+    const toggle = within(thinkingBlock as HTMLElement).getByRole("switch");
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeDisabled();
+  });
+});
+
+describe("SettingsTab — tool secret rendering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSecretsList.mockResolvedValue({ secrets: [] });
+    mockModelsList.mockResolvedValue({ providers: { openai: { models: [] } } });
+  });
+
+  it("renders a readable (sensitive:false) tool secret as a prefilled cleartext input", async () => {
+    mockToolsRequiredSecrets.mockResolvedValue({
+      requiredSecrets: [
+        {
+          key: "service_base_url",
+          type: "text",
+          sensitive: false,
+          label: "Service base URL",
+          currentValue: "https://api.example.com",
+        },
+        { key: "service_api_key", type: "text", sensitive: true, label: "Service API key" },
+      ],
+    });
+
+    render(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    const readable = await screen.findByDisplayValue("https://api.example.com");
+    expect(readable).toHaveAttribute("type", "text");
+  });
+
+  it("renders a sensitive tool secret as a masked (password) input with no prefill", async () => {
+    mockToolsRequiredSecrets.mockResolvedValue({
+      requiredSecrets: [
+        { key: "service_api_key", type: "text", sensitive: true, label: "Service API key" },
+      ],
+    });
+
+    const { container } = render(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    await screen.findByText("Service API key");
+    expect(screen.queryByDisplayValue("https://api.example.com")).toBeNull();
+    const masked = Array.from(container.querySelectorAll("input")).filter(
+      (i) => i.getAttribute("type") === "password",
+    );
+    expect(masked.length).toBeGreaterThan(0);
   });
 });

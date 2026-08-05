@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import "./hubspot-note.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import hubspotNoteTool from "./hubspot-note.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 function createMockResponse(
@@ -33,7 +33,7 @@ const ctxWithKey = {
 const toolCtx = { toolCallId: "tc-1", messages: [] } as any;
 
 describe("hubspotNote", () => {
-  const def = getToolRegistry().get("hubspotNote")!;
+  const def = hubspotNoteTool;
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -43,13 +43,13 @@ describe("hubspotNote", () => {
     expect(def).toBeDefined();
     expect(def.name).toBe("hubspotNote");
     expect(def.category).toBe("crm");
-    expect(def.requiredSecrets).toEqual(["hubspot_api_key"]);
+    expect(def.requiredSecrets).toEqual([{ key: "hubspot_api_key", type: "text", sensitive: true }]);
   });
 
   it("has parameters and description", () => {
     const tool = buildTool(def, ctxWithKey) as any;
     expect(tool.description).toBeDefined();
-    expect(tool.parameters).toBeDefined();
+    expect(tool.inputSchema).toBeDefined();
   });
 
   describe("create", () => {
@@ -423,8 +423,8 @@ describe("hubspotNote", () => {
       // First call MUST be the contact search (phone resolution), not the associations list
       expect(mockFetch.mock.calls[0][0]).toBe("https://api.hubapi.com/crm/v3/objects/contacts/search");
       const body0 = JSON.parse(mockFetch.mock.calls[0][1].body);
-      // Emits 4 filterGroups (with+/no-+ × phone/mobilephone)
-      expect(body0.filterGroups).toHaveLength(4);
+      // Emits 4 EQ filterGroups (with+/no-+ × phone/mobilephone) + 1 CONTAINS_TOKEN fallback
+      expect(body0.filterGroups).toHaveLength(5);
       // Second call: contact → notes associations for resolved c-42
       expect(mockFetch.mock.calls[1][0]).toContain("/crm/v4/objects/contacts/c-42/associations/notes");
     });

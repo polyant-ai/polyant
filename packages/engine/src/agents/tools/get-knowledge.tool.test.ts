@@ -9,8 +9,8 @@ vi.mock("../../knowledge/store.js", () => ({
   getDocumentByFilename: (...args: unknown[]) => mockGetDocumentByFilename(...args),
 }));
 
-import "./get-knowledge.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import getKnowledgeTool from "./get-knowledge.tool.js";
+import { buildTool } from "./registry.js";
 
 const ctx = {
   instanceId: "inst-1",
@@ -18,7 +18,7 @@ const ctx = {
 } as any;
 
 describe("getKnowledge tool", () => {
-  const def = getToolRegistry().get("getKnowledge")!;
+  const def = getKnowledgeTool;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const getKnowledge = buildTool(def, ctx) as any;
 
@@ -31,7 +31,7 @@ describe("getKnowledge tool", () => {
     expect(def.name).toBe("getKnowledge");
     expect(def.category).toBe("knowledge");
     expect(getKnowledge.description).toBeDefined();
-    expect(getKnowledge.parameters).toBeDefined();
+    expect(getKnowledge.inputSchema).toBeDefined();
   });
 
   it("returns found=false when the document does not exist", async () => {

@@ -19,6 +19,10 @@ const {
   mockSeedSkills,
   mockInvalidateCache,
   mockProviderConfigs,
+  mockEmbeddingProviderChanged,
+  mockResetEmbeddings,
+  mockCountMemories,
+  mockCountDocuments,
 } = vi.hoisted(() => ({
   mockFindInstanceBySlug: vi.fn(),
   mockCreateInstance: vi.fn(),
@@ -28,11 +32,23 @@ const {
   mockSeedPrompts: vi.fn(),
   mockSeedTools: vi.fn(),
   mockSeedSkills: vi.fn(),
+  mockEmbeddingProviderChanged: vi.fn().mockReturnValue(false),
+  mockResetEmbeddings: vi.fn(),
+  mockCountMemories: vi.fn().mockResolvedValue(0),
+  mockCountDocuments: vi.fn().mockResolvedValue(0),
   mockInvalidateCache: vi.fn(),
   mockProviderConfigs: {
     openai: {
-      tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o1" },
-      costPerMillionTokens: { "gpt-4o-mini": { input: 0.15, output: 0.6 } },
+      tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o3" },
+      models: {
+        "gpt-4o-mini": { input: 0.15, output: 0.6 },
+        "gpt-4o": { input: 2.5, output: 10, cacheRead: 1.25, cacheWrite: 0 },
+        "o3": { input: 2.0, output: 8.0 },
+      },
+    },
+    bedrock: {
+      tiers: { fast: "titan", standard: "titan", heavy: "titan" },
+      models: { "openai.gpt-oss-120b-1:0": { input: 0.2, output: 0.79 } },
     },
   },
 }));
@@ -51,8 +67,42 @@ vi.mock("../../instances/instance-skills.store.js", () => ({ seedInstanceSkills:
 vi.mock("../../instances/config-resolver.js", () => ({
   invalidateInstanceConfigCache: mockInvalidateCache,
 }));
-vi.mock("../../ai-gateway/config.js", () => ({ providerConfigs: mockProviderConfigs }));
+vi.mock("../../ai-gateway/config.js", () => ({
+  providerConfigs: mockProviderConfigs,
+  isThinkingCapable: vi.fn().mockReturnValue(false),
+  temperatureSupported: (provider: string, modelId: string, thinking: boolean): boolean => {
+    if (provider === "openai" && /^(o[134]|gpt-5)/.test(modelId)) return false;
+    // Under thinking, only open-weight reasoners (gpt-oss) keep a custom temperature.
+    if (thinking) return /gpt-oss/i.test(modelId);
+    return true;
+  },
+  clampTemperature: (value: number | null | undefined): number | null => {
+    if (value == null || !Number.isFinite(value)) return null;
+    return Math.min(2, Math.max(0, value));
+  },
+  cacheSupported: (provider: string, model: string): boolean =>
+    provider === "bedrock" ? /anthropic|nova/.test(model) : provider !== "nebius",
+  isReasoningAlwaysOn: (modelId: string): boolean => /gpt-oss/i.test(modelId),
+  reasoningLevelsFor: (_provider: string, modelId: string): string[] =>
+    /^(o[134]|gpt-5|claude|anthropic)/.test(modelId) ? ["low", "medium", "high"] : [],
+}));
 vi.mock("../../instances/icon-validator.js", () => ({ validateIconDataUri: vi.fn() }));
+vi.mock("../../embeddings-gateway/provider-resolver.js", () => ({
+  invalidateEmbeddingContext: vi.fn(),
+}));
+vi.mock("../../embeddings-gateway/embedding-reset.service.js", () => ({
+  embeddingProviderChanged: mockEmbeddingProviderChanged,
+  resetEmbeddingsForProviderSwitch: mockResetEmbeddings,
+}));
+vi.mock("../../memory/index.js", () => ({ countMemories: mockCountMemories }));
+vi.mock("../../knowledge/index.js", () => ({ countDocuments: mockCountDocuments }));
+// Stub the memory-status helper so getBySlug/update never touch the DB
+// (computeMemoryStatusFromInstance reads instance_secrets).
+vi.mock("../memories/memory-status.js", () => ({
+  computeMemoryStatusFromInstance: vi
+    .fn()
+    .mockResolvedValue({ needsOpenAIKey: false, canEnable: true }),
+}));
 
 import { InstancesController } from "./instances.controller.js";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
@@ -65,12 +115,15 @@ const fullInstance = {
   status: "active",
   provider: "openai",
   model: "gpt-4o-mini",
+  embeddingProvider: "openai",
   memoryEnabled: true,
   knowledgeEnabled: false,
   langsmithEnabled: false,
   langsmithProject: null,
   authEnabled: true,
   thinkingEnabled: false,
+  stateInPromptEnabled: false,
+  toolResultsInHistoryEnabled: false,
   icon: "data:image/png;base64,AAA=",
   // Simulated internal field — must NOT leak through the DTO.
   internalSecretFlag: "sensitive",
@@ -99,7 +152,9 @@ describe("InstancesController", () => {
       const allowed = new Set([
         "id", "slug", "name", "description", "status", "provider", "model",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
-        "authEnabled", "thinkingEnabled", "sttProvider", "icon", "createdAt", "updatedAt",
+        "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "stateInPromptEnabled", "datetimeInjectionEnabled", "cacheEnabled", "cacheTtl", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
+        "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint",
+        "memory",
       ]);
 
       for (const key of Object.keys(instance)) {
@@ -220,6 +275,147 @@ describe("InstancesController", () => {
     it("rejects a valid-format slug that does not exist with 404 (not 400)", async () => {
       mockFindInstanceBySlug.mockResolvedValue(undefined);
       await expect(controller.getBySlug("nonexistent")).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Embedding-provider switch — destructive wipe guard
+  // -------------------------------------------------------------------------
+  describe("update — embedding wipe guard", () => {
+    it("rejects an embedding-provider switch with data and no confirmWipe (400)", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockEmbeddingProviderChanged.mockReturnValue(true);
+      mockCountMemories.mockResolvedValue(3);
+
+      await expect(controller.update("test-one", { embeddingProvider: "bedrock" })).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+      expect(mockResetEmbeddings).not.toHaveBeenCalled();
+    });
+
+    it("allows the switch and wipes when confirmWipe is set", async () => {
+      mockFindInstanceBySlug
+        .mockResolvedValueOnce(fullInstance)
+        .mockResolvedValueOnce({ ...fullInstance, embeddingProvider: "bedrock", embeddingDim: 1024 });
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, embeddingProvider: "bedrock" });
+      mockEmbeddingProviderChanged.mockReturnValue(true);
+      mockResetEmbeddings.mockResolvedValue({
+        instanceId: "uuid-1",
+        memoriesDeleted: 3,
+        knowledgeDocumentsDeleted: 1,
+        knowledgeChunksDeleted: 5,
+        newEmbeddingDim: 1024,
+      });
+
+      const res = await controller.update("test-one", { embeddingProvider: "bedrock", confirmWipe: true });
+
+      // Reset is called with (slug, uuid, newEmbeddingProvider).
+      expect(mockResetEmbeddings).toHaveBeenCalledWith("test-one", "uuid-1", "bedrock");
+      expect(res.wiped?.memoriesDeleted).toBe(3);
+      // No data lookup needed when the caller already confirmed.
+      expect(mockCountMemories).not.toHaveBeenCalled();
+    });
+
+    it("proceeds without confirmWipe when the switch leaves no data to lose", async () => {
+      mockFindInstanceBySlug
+        .mockResolvedValueOnce(fullInstance)
+        .mockResolvedValueOnce({ ...fullInstance, embeddingProvider: "bedrock" });
+      mockUpdateInstance.mockResolvedValue({ ...fullInstance, embeddingProvider: "bedrock" });
+      mockEmbeddingProviderChanged.mockReturnValue(true);
+      mockCountMemories.mockResolvedValue(0);
+      mockCountDocuments.mockResolvedValue(0);
+      mockResetEmbeddings.mockResolvedValue({
+        instanceId: "uuid-1",
+        memoriesDeleted: 0,
+        knowledgeDocumentsDeleted: 0,
+        knowledgeChunksDeleted: 0,
+        newEmbeddingDim: 1024,
+      });
+
+      const res = await controller.update("test-one", { embeddingProvider: "bedrock" });
+
+      expect(mockResetEmbeddings).toHaveBeenCalled();
+      expect(res.wiped?.memoriesDeleted).toBe(0);
+    });
+
+    it("does not wipe when the embedding provider is unchanged", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+      mockEmbeddingProviderChanged.mockReturnValue(false);
+
+      const res = await controller.update("test-one", { model: "gpt-4o" });
+
+      expect(mockResetEmbeddings).not.toHaveBeenCalled();
+      expect(res.wiped).toBeNull();
+    });
+  });
+  // -------------------------------------------------------------------------
+  // Temperature — clamp on PATCH, expose on GET
+  // -------------------------------------------------------------------------
+  describe("update — temperature clamping", () => {
+    beforeEach(() => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+      mockEmbeddingProviderChanged.mockReturnValue(false);
+    });
+
+    it("clamps temperature before persisting", async () => {
+      await controller.update("test-one", { temperature: 5 });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ temperature: 2 }),
+      );
+    });
+
+    it("preserves temperature: 0 (boundary edge case)", async () => {
+      await controller.update("test-one", { temperature: 0 });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ temperature: 0 }),
+      );
+    });
+
+    it("accepts null temperature (clear)", async () => {
+      await controller.update("test-one", { temperature: null });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ temperature: null }),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Models endpoint — capability hints
+  // -------------------------------------------------------------------------
+  describe("getModels", () => {
+    it("marks reasoning models as not supporting temperature", async () => {
+      const res = controller.getModels();
+      const openai = res.providers.openai.models;
+      expect(openai.find((m) => m.id === "o3")?.supportsTemperature).toBe(false);
+      expect(openai.find((m) => m.id === "gpt-4o")?.supportsTemperature).toBe(true);
+    });
+
+    it("exposes supportsTemperatureWithThinking per model (open-weight reasoners keep temperature)", () => {
+      const res = controller.getModels();
+      const openai = res.providers.openai.models;
+      const bedrock = res.providers.bedrock.models;
+      // Strict-reasoning API: temperature rejected once thinking is on.
+      expect(openai.find((m) => m.id === "o3")?.supportsTemperatureWithThinking).toBe(false);
+      // Open-weight reasoner (gpt-oss): temperature survives alongside reasoning.
+      expect(bedrock.find((m) => m.id === "openai.gpt-oss-120b-1:0")?.supportsTemperatureWithThinking).toBe(true);
+    });
+
+    it("exposes absolute per-model cache costs (with input-rate fallback) and cache support", () => {
+      const res = controller.getModels();
+      const gpt4o = res.providers.openai.models.find((m) => m.id === "gpt-4o");
+      expect(gpt4o?.supportsCache).toBe(true);
+      expect(gpt4o?.costCacheRead).toBe(1.25); // absolute catalog rate
+      expect(gpt4o?.costCacheWrite).toBe(0); // OpenAI pre-5.6 → no write premium
+      // A model with no cache rates falls back to the full input rate.
+      const o3 = res.providers.openai.models.find((m) => m.id === "o3");
+      expect(o3?.costCacheRead).toBe(2.0);
+      expect(o3?.costCacheWrite).toBe(2.0);
     });
   });
 });

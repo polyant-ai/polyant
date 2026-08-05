@@ -11,10 +11,14 @@ export {
   listDocuments,
   getDocument,
   deleteDocument,
+  deleteAllKnowledgeForInstance,
   countChunks,
   countDocuments,
   hashContent,
+  getKnowledgeForExport,
+  listDocumentFilenames,
+  resolveUniqueFilename,
 } from "./store.js";
-export type { KnowledgeDocument } from "./store.js";
+export type { KnowledgeDocument, ExportedDocument } from "./store.js";
 
 export { chunkText } from "./chunker.js";

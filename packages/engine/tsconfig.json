@@ -19,7 +19,6 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-    "baseUrl": ".",
     "types": ["vitest/globals"]
   },
   "include": ["src/**/*"],

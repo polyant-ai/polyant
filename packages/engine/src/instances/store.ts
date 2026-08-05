@@ -1,12 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
+import { DEFAULT_EMBEDDING_DIM, embeddingProviderFor } from "../embeddings-gateway/config.js";
+import type { EmbeddingProvider } from "../embeddings-gateway/types.js";
 import { instances } from "./schema.js";
+import { conversations, conversationMessages, conversationState } from "../conversations/schema.js";
+import { principalSecrets } from "../conversations/principal-secrets.schema.js";
+import { memories } from "../memory/schema.js";
+import { knowledgeDocuments } from "../knowledge/schema.js";
+import { scheduledTasks } from "../scheduled-tasks/schema.js";
+import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
+import { asInstanceSlug, asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
+
+// Every instance must belong to a workspace. Until per-workspace creation
+// lands, new instances land in the default workspace — the same place the
+// migration backfilled pre-existing rows, so behaviour is unchanged.
 
 export interface Instance {
-  id: string;
-  slug: string;
+  id: InstanceUuid;
+  slug: InstanceSlug;
   name: string;
   description: string | null;
   status: string;
@@ -25,26 +38,64 @@ export interface Instance {
    * after switching to a non-capable model has no effect.
    */
   thinkingEnabled: boolean;
+  /** Reasoning intensity when thinkingEnabled (low|medium|high). Consumed only by Nebius so far. */
+  thinkingLevel: string;
+  /** Sampling temperature [0, 2]; null = provider default. Gated at runtime by temperatureSupported. */
+  temperature: number | null;
+  /** When true, the conversation state store is rendered read-only into the system prompt. */
+  stateInPromptEnabled: boolean;
+  /** When true, inject the current date/time into every turn (volatile tail). */
+  datetimeInjectionEnabled: boolean;
+  /** Per-instance prompt-cache switch (off = skip all cache markers, no cache write). */
+  cacheEnabled: boolean;
+  /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
+  cacheTtl: string;
+  /** When true, prior-turn tool calls + results are reconstructed into the model's cross-turn history. */
+  toolResultsInHistoryEnabled: boolean;
+  /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
+  debugEnabled: boolean;
+  /** GDPR opt-out feature toggle. */
+  optoutEnabled: boolean;
+  optoutStopKeywords: string[];
+  optoutResumeKeywords: string[];
+  optoutClosingMessage: string | null;
+  optoutResumeMessage: string | null;
+  optoutInjectPromptHint: boolean;
   icon: string | null;
   sttProvider: string;
+  embeddingDim: number;
+  /** Embedding provider, independent of the chat `provider`: "openai" | "bedrock". */
+  embeddingProvider: EmbeddingProvider;
+  /** Owning workspace UUID (RBAC tenancy). Every instance belongs to one. */
+  workspaceId: string;
   createdAt: Date | null;
   updatedAt: Date | null;
 }
 
+function toInstance(row: typeof instances.$inferSelect): Instance {
+  return { ...row, id: asInstanceUuid(row.id), slug: asInstanceSlug(row.slug) } as Instance;
+}
+
 /** Return all active instances. */
 export async function listActiveInstances(): Promise<Instance[]> {
-  return db.select().from(instances).where(eq(instances.status, "active"));
+  return db.select().from(instances).where(eq(instances.status, "active")).then((rows) => rows.map(toInstance));
 }
 
 /** Find an instance by slug. Returns undefined if not found. */
-export async function findInstanceBySlug(slug: string): Promise<Instance | undefined> {
+export async function findInstanceBySlug(slug: InstanceSlug): Promise<Instance | undefined> {
   const rows = await db.select().from(instances).where(eq(instances.slug, slug)).limit(1);
-  return rows[0];
+  return rows[0] ? toInstance(rows[0]) : undefined;
+}
+
+/** Find an instance by id (UUID). Returns undefined if not found. */
+export async function findInstanceById(id: string): Promise<Instance | undefined> {
+  const rows = await db.select().from(instances).where(eq(instances.id, id)).limit(1);
+  return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
 /** Insert an instance if the slug doesn't already exist. */
 export async function ensureInstance(data: {
-  slug: string;
+  slug: InstanceSlug;
   name: string;
   description?: string;
 }): Promise<void> {
@@ -54,6 +105,8 @@ export async function ensureInstance(data: {
       slug: data.slug,
       name: data.name,
       description: data.description ?? null,
+      embeddingDim: DEFAULT_EMBEDDING_DIM,
+      workspaceId: await findDefaultWorkspaceId(),
     })
     .onConflictDoNothing({ target: instances.slug });
 }
@@ -61,12 +114,12 @@ export async function ensureInstance(data: {
 /** Seed the default instances. Call once at startup. */
 export async function seedInstances(): Promise<void> {
   await ensureInstance({
-    slug: "default",
+    slug: asInstanceSlug("default"),
     name: "Default Assistant",
     description: "Default instance — professional and concise",
   });
   await ensureInstance({
-    slug: "creative",
+    slug: asInstanceSlug("creative"),
     name: "Creative Assistant",
     description: "Example alternative instance — informal and playful",
   });
@@ -75,12 +128,12 @@ export async function seedInstances(): Promise<void> {
 
 /** Return all instances (any status), ordered by name (case-insensitive). */
 export async function listAllInstances(): Promise<Instance[]> {
-  return db.select().from(instances).orderBy(sql`LOWER(${instances.name})`);
+  return db.select().from(instances).orderBy(sql`LOWER(${instances.name})`).then((rows) => rows.map(toInstance));
 }
 
 /** Create a new instance and return it. */
 export async function createInstance(data: {
-  slug: string;
+  slug: InstanceSlug;
   name: string;
   description?: string;
   provider?: string;
@@ -94,26 +147,141 @@ export async function createInstance(data: {
       description: data.description ?? null,
       provider: data.provider ?? null,
       model: data.model ?? null,
+      // New instances default to 1024d; the DB default (1536) stays for legacy rows.
+      embeddingDim: DEFAULT_EMBEDDING_DIM,
+      // Default the embedder to match the chat provider (bedrock chat → bedrock
+      // embeddings, else openai). It is independently changeable afterwards.
+      embeddingProvider: embeddingProviderFor(data.provider),
+      workspaceId: await findDefaultWorkspaceId(),
     })
     .returning();
-  return rows[0];
+  return toInstance(rows[0]);
 }
+
+/** Fields a caller is allowed to PATCH. `embeddingDim` is deliberately excluded:
+ * it is owned by the embedding-reset pipeline (set on a provider switch) and must
+ * never be set directly, or it desyncs from the actual populated vector column. */
+type UpdatableInstanceFields = {
+  name?: string;
+  description?: string | null;
+  status?: string;
+  provider?: string | null;
+  model?: string | null;
+  memoryEnabled?: boolean;
+  knowledgeEnabled?: boolean;
+  langsmithEnabled?: boolean;
+  langsmithProject?: string | null;
+  authEnabled?: boolean;
+  thinkingEnabled?: boolean;
+  thinkingLevel?: string;
+  temperature?: number | null;
+  stateInPromptEnabled?: boolean;
+  datetimeInjectionEnabled?: boolean;
+  cacheEnabled?: boolean;
+  cacheTtl?: string;
+  toolResultsInHistoryEnabled?: boolean;
+  debugEnabled?: boolean;
+  icon?: string | null;
+  sttProvider?: string;
+  /** Embedder choice (openai|bedrock). Changing it triggers a destructive wipe in the controller. */
+  embeddingProvider?: EmbeddingProvider;
+  optoutEnabled?: boolean;
+  optoutStopKeywords?: string[];
+  optoutResumeKeywords?: string[];
+  optoutClosingMessage?: string | null;
+  optoutResumeMessage?: string | null;
+  optoutInjectPromptHint?: boolean;
+};
+
+const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
+  "name",
+  "description",
+  "status",
+  "provider",
+  "model",
+  "memoryEnabled",
+  "knowledgeEnabled",
+  "langsmithEnabled",
+  "langsmithProject",
+  "authEnabled",
+  "thinkingEnabled",
+  "thinkingLevel",
+  "temperature",
+  "stateInPromptEnabled",
+  "datetimeInjectionEnabled",
+  "cacheEnabled",
+  "cacheTtl",
+  "toolResultsInHistoryEnabled",
+  "debugEnabled",
+  "icon",
+  "sttProvider",
+  "embeddingProvider",
+  "optoutEnabled",
+  "optoutStopKeywords",
+  "optoutResumeKeywords",
+  "optoutClosingMessage",
+  "optoutResumeMessage",
+  "optoutInjectPromptHint",
+];
 
 /** Update an instance by slug. Touches updatedAt. Returns the updated instance or undefined if not found. */
 export async function updateInstance(
-  slug: string,
-  data: { name?: string; description?: string | null; status?: string; provider?: string | null; model?: string | null; memoryEnabled?: boolean; knowledgeEnabled?: boolean; langsmithEnabled?: boolean; langsmithProject?: string | null; authEnabled?: boolean; thinkingEnabled?: boolean; icon?: string | null; sttProvider?: string },
+  slug: InstanceSlug,
+  data: UpdatableInstanceFields,
 ): Promise<Instance | undefined> {
+  // Runtime whitelist: TS types do not protect against extra keys arriving via
+  // a JSON body (NestJS does not strip them), so only known columns are written.
+  const patch: Partial<UpdatableInstanceFields> = {};
+  for (const key of UPDATABLE_INSTANCE_KEYS) {
+    if (data[key] !== undefined) {
+      (patch as Record<string, unknown>)[key] = data[key];
+    }
+  }
   const rows = await db
     .update(instances)
-    .set({ ...data, updatedAt: sql`now()` })
+    .set({ ...patch, updatedAt: sql`now()` })
     .where(eq(instances.slug, slug))
     .returning();
-  return rows[0];
+  return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
-/** Delete an instance by slug. Returns true if a row was deleted. */
-export async function deleteInstance(slug: string): Promise<boolean> {
-  const result = await db.delete(instances).where(eq(instances.slug, slug)).returning();
-  return result.length > 0;
+/**
+ * Delete an instance by slug. Returns true if a row was deleted.
+ *
+ * Runs in a transaction. Operational/PII data is keyed by the instance SLUG in
+ * `text` columns with no FK to `instances`, so the DB cascade never reaches it —
+ * it must be deleted explicitly here. Config/lifecycle tables (secrets, channels,
+ * prompts, tools, skills, room, webhooks) use a `uuid` FK with ON DELETE CASCADE
+ * and are cleaned up automatically by the final `DELETE FROM instances`.
+ *
+ * Audit/telemetry (`tool_audit_logs`, `pipeline_traces`, `ai_logs`) is
+ * INTENTIONALLY PRESERVED as a historical record and is left untouched.
+ */
+export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    // conversation_messages has no instance_id — delete via the instance's conversations.
+    const convRows = await tx
+      .select({ conversationId: conversations.conversationId })
+      .from(conversations)
+      .where(eq(conversations.instanceId, slug));
+    const convIds = convRows.map((r) => r.conversationId);
+    if (convIds.length > 0) {
+      await tx
+        .delete(conversationMessages)
+        .where(inArray(conversationMessages.conversationId, convIds));
+    }
+    await tx.delete(conversations).where(eq(conversations.instanceId, slug));
+    await tx.delete(memories).where(eq(memories.instanceId, slug));
+    // knowledge_chunks cascade via their document_id FK.
+    await tx.delete(knowledgeDocuments).where(eq(knowledgeDocuments.instanceId, slug));
+    // scheduled_task_runs cascade via their task_id FK.
+    await tx.delete(scheduledTasks).where(eq(scheduledTasks.instanceId, slug));
+    // conversation_state is slug-keyed operational/PII data — drop it too.
+    await tx.delete(conversationState).where(eq(conversationState.instanceId, slug));
+    // principal_secrets (encrypted OAuth tokens) are slug-keyed too.
+    await tx.delete(principalSecrets).where(eq(principalSecrets.instanceId, slug));
+
+    const result = await tx.delete(instances).where(eq(instances.slug, slug)).returning();
+    return result.length > 0;
+  });
 }

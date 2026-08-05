@@ -6,7 +6,7 @@ import { useEffect, useState, useCallback } from "react";
 import { usePagination } from "@/hooks/use-pagination";
 import Link from "next/link";
 import { toast } from "sonner";
-import { MessageSquare, Search } from "lucide-react";
+import { MessageSquare, Search, Database } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,7 @@ import {
   type ConversationListItem,
   type ConversationSearchResult,
 } from "@/lib/api";
+import { ChannelIcon } from "@/components/channel-icon";
 import { useI18n } from "@/lib/i18n/context";
 import { formatRelativeTime, truncate } from "@/lib/format";
 
@@ -149,9 +150,12 @@ export default function ConversationsPage() {
             <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[40%]">{t("conversations.table.conversation")}</TableHead>
-                  <TableHead className="hidden md:table-cell w-[15%]">
+                  <TableHead className="w-[35%]">{t("conversations.table.conversation")}</TableHead>
+                  <TableHead className="hidden md:table-cell w-[13%]">
                     {t("conversations.table.instance")}
+                  </TableHead>
+                  <TableHead className="w-[7%] text-center">
+                    {t("conversations.table.channel")}
                   </TableHead>
                   <TableHead className="hidden md:table-cell w-[8%]">
                     {t("conversations.table.messages")}
@@ -181,14 +185,20 @@ export default function ConversationsPage() {
                             ? truncate(conv.summary, 60)
                             : t("conversations.newChat")}
                       </Link>
-                      {isSearchResult(conv) && conv.bestSnippet && (
+                      {isSearchResult(conv) && (
                         <p className="mt-0.5 text-xs font-normal text-muted-foreground line-clamp-1">
-                          {conv.bestSnippet}
-                          <span className="ml-2">
-                            {conv.matchCount === 1
-                              ? t("conversations.match", { count: conv.matchCount })
-                              : t("conversations.matches", { count: conv.matchCount })}
-                          </span>
+                          {conv.bestSnippet ? (
+                            <>
+                              {conv.bestSnippet}
+                              <span className="ml-2">
+                                {conv.matchCount === 1
+                                  ? t("conversations.match", { count: conv.matchCount })
+                                  : t("conversations.matches", { count: conv.matchCount })}
+                              </span>
+                            </>
+                          ) : (
+                            conv.conversationId
+                          )}
                         </p>
                       )}
                       {!isSearchResult(conv) && conv.title && conv.summary && (
@@ -204,6 +214,19 @@ export default function ConversationsPage() {
                         <span className="text-muted-foreground">&mdash;</span>
                       )}
                     </TableCell>
+                    <TableCell className="text-center">
+                      {conv.channel ? (
+                        <span
+                          title={conv.channel}
+                          aria-label={conv.channel}
+                          className="inline-flex text-muted-foreground"
+                        >
+                          <ChannelIcon channel={conv.channel} />
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">&mdash;</span>
+                      )}
+                    </TableCell>
                     <TableCell className="hidden md:table-cell text-muted-foreground">
                       {conv.messageCount}
                     </TableCell>
@@ -212,6 +235,15 @@ export default function ConversationsPage() {
                       {conv.serviceTokens > 0 && (
                         <span className="text-xs text-muted-foreground/60 ml-1">
                           (+{conv.serviceTokens.toLocaleString()})
+                        </span>
+                      )}
+                      {conv.cachedInputTokens + conv.cacheCreationInputTokens > 0 && (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-xs text-muted-foreground/60 ml-1 tabular-nums"
+                          title={`${t("conversations.list.cachedTokens")} — ${t("conversations.detail.pills.cacheRead")}: ${conv.cachedInputTokens.toLocaleString()}, ${t("conversations.detail.pills.cacheWrite")}: ${conv.cacheCreationInputTokens.toLocaleString()}`}
+                        >
+                          <Database className="h-3 w-3" />
+                          {(conv.cachedInputTokens + conv.cacheCreationInputTokens).toLocaleString()}
                         </span>
                       )}
                     </TableCell>

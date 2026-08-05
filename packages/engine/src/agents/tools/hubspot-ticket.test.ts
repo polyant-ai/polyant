@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import "./hubspot-ticket.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import hubspotTicketTool from "./hubspot-ticket.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 function createMockResponse(
@@ -54,7 +54,7 @@ const baseParams = {
 };
 
 describe("hubspotTicket", () => {
-  const def = getToolRegistry().get("hubspotTicket")!;
+  const def = hubspotTicketTool;
 
   beforeEach(() => {
     // mockReset clears both call history and the queued mockResolvedValueOnce entries
@@ -65,7 +65,7 @@ describe("hubspotTicket", () => {
     expect(def).toBeDefined();
     expect(def.name).toBe("hubspotTicket");
     expect(def.category).toBe("crm");
-    expect(def.requiredSecrets).toEqual(["hubspot_api_key"]);
+    expect(def.requiredSecrets).toEqual([{ key: "hubspot_api_key", type: "text", sensitive: true }]);
     // Indirect check that the action enum accepts "update": invoking execute with
     // action="update" should reach the update branch (which fails on missing ticketId).
     const tool = buildTool(def, ctxWithKey) as any;

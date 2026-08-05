@@ -34,4 +34,6 @@ template: |
 
   $CHANGES
 
+  > Comparison draft only. The reviewed file in `docs/releases/` is the release source of truth.
+
   **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION

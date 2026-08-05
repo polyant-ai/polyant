@@ -115,7 +115,7 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-accent underline underline-offset-4 hover:text-accent/80"
+              className="text-accent-strong underline underline-offset-4 hover:text-accent-strong/80"
               {...props}
             >
               {children}

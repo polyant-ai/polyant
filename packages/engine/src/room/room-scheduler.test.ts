@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 /* ── hoisted mocks ─────────────────────────────────────────────── */
 
@@ -32,12 +33,13 @@ vi.mock("./room-logger.js", () => ({ roomLog: mockRoomLog }));
 /* ── import under test ─────────────────────────────────────────── */
 
 import { roomScheduler } from "./room-scheduler.js";
+import { asInstanceUuid } from "../instances/identifiers.js";
 
 /* ── helpers ────────────────────────────────────────────────────── */
 
 const ROOM_A = {
   id: "room-a",
-  instanceId: "inst-a",
+  instanceId: asInstanceUuid("inst-a"),
   enabled: true,
   prompt: "Agent A",
   outboundChannel: "slack" as const,
@@ -84,7 +86,7 @@ describe("RoomScheduler", () => {
 
   describe("triggerImmediate", () => {
     it("should execute room cycle with human message", async () => {
-      await roomScheduler.triggerImmediate(ROOM_A, "inst-a-slug", "Help me please");
+      await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "Help me please");
 
       expect(mockExecuteRoomCycle).toHaveBeenCalledWith(ROOM_A, "inst-a-slug", "Help me please");
     });
@@ -97,10 +99,10 @@ describe("RoomScheduler", () => {
       );
 
       // Start first cycle (will hang)
-      const firstCycle = roomScheduler.triggerImmediate(ROOM_A, "inst-a-slug", "First message");
+      const firstCycle = roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "First message");
 
       // Try to trigger again while first is still running — should be dropped
-      await roomScheduler.triggerImmediate(ROOM_A, "inst-a-slug", "Second message");
+      await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "Second message");
 
       expect(mockRoomLog.warn).toHaveBeenCalledWith("Scheduler", expect.stringContaining("already running"));
       expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(1);
@@ -118,7 +120,7 @@ describe("RoomScheduler", () => {
 
       // First call MUST NOT reject — the webhook handler must not retry on exception.
       await expect(
-        roomScheduler.triggerImmediate(ROOM_A, "inst-a-slug", "Will fail"),
+        roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "Will fail"),
       ).resolves.toBeUndefined();
 
       expect(mockRoomLog.error).toHaveBeenCalledWith(
@@ -128,7 +130,7 @@ describe("RoomScheduler", () => {
       );
 
       // Second call should proceed (lock released in finally)
-      await roomScheduler.triggerImmediate(ROOM_A, "inst-a-slug", "Should work");
+      await roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "Should work");
 
       expect(mockExecuteRoomCycle).toHaveBeenCalledTimes(2);
     });
@@ -136,11 +138,11 @@ describe("RoomScheduler", () => {
 
   describe("error resilience", () => {
     it("should not crash if triggerImmediate is called concurrently for different rooms", async () => {
-      const ROOM_B = { ...ROOM_A, id: "room-b", instanceId: "inst-b", conversationId: "room:inst-b" };
+      const ROOM_B = { ...ROOM_A, id: "room-b", instanceId: asInstanceUuid("inst-b"), conversationId: "room:inst-b" };
 
       await Promise.all([
-        roomScheduler.triggerImmediate(ROOM_A, "inst-a-slug", "Message A"),
-        roomScheduler.triggerImmediate(ROOM_B, "inst-b-slug", "Message B"),
+        roomScheduler.triggerImmediate(ROOM_A, asInstanceSlug("inst-a-slug"), "Message A"),
+        roomScheduler.triggerImmediate(ROOM_B, asInstanceSlug("inst-b-slug"), "Message B"),
       ]);
 
       // Both should have been processed (different instanceIds)
@@ -194,7 +196,7 @@ describe("RoomScheduler", () => {
     });
 
     it("should process different rooms in parallel", async () => {
-      const ROOM_B = { ...ROOM_A, id: "room-b", instanceId: "inst-b", conversationId: "room:inst-b" };
+      const ROOM_B = { ...ROOM_A, id: "room-b", instanceId: asInstanceUuid("inst-b"), conversationId: "room:inst-b" };
       mockListEnabledRooms.mockResolvedValue([ROOM_A, ROOM_B]);
       mockCountPendingEvents.mockResolvedValue(
         new Map([["inst-a", 2], ["inst-b", 1]]),
@@ -218,8 +220,12 @@ describe("RoomScheduler", () => {
 
       await (roomScheduler as any).tick();
 
-      // Wait a microtask for the fire-and-forget error handler
-      await new Promise((r) => setTimeout(r, 10));
+      // processRoom is fire-and-forget inside tick(): wait deterministically for
+      // its finally block to release the per-room lock before the second tick.
+      // Polling `running.has(...)` avoids depending on a fixed setTimeout delay.
+      await vi.waitFor(() => {
+        expect((roomScheduler as any).running.has("inst-a")).toBe(false);
+      });
 
       // Second tick: room should be available again (lock released in finally)
       mockExecuteRoomCycle.mockResolvedValueOnce(undefined);
@@ -249,8 +255,12 @@ describe("RoomScheduler", () => {
 
       await (roomScheduler as any).tick();
 
-      // Wait for fire-and-forget
-      await new Promise((r) => setTimeout(r, 10));
+      // Fire-and-forget processRoom: wait deterministically until the mocked
+      // executeRoomCycle has actually been invoked (its push to `order` is the
+      // signal that processRoom progressed past the first await).
+      await vi.waitFor(() => {
+        expect(order).toContain("executeRoomCycle:start");
+      });
 
       // The lock was acquired (has returned false, then add() was called)
       // before executeRoomCycle started

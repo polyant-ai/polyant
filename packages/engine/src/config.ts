@@ -5,6 +5,7 @@ import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
+import { asInstanceSlug } from "./instances/identifiers.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -30,6 +31,7 @@ const configSchema = z.object({
     user: z.string().default("polyant"),
     password: z.string(),
     databaseUrl: z.string(),
+    ssl: z.coerce.boolean().default(false),
   }),
 
   // Memory (pgvector)
@@ -60,6 +62,19 @@ const configSchema = z.object({
         if (typeof v === "number") return v;
         return v === "true";
       }),
+    // Per-IP rate limiting (@nestjs/throttler). Enabled by default; set
+    // THROTTLE_ENABLED=false to disable ALL throttling (global default + every
+    // per-route @Throttle override) — intended for parallel dev/eval runs that
+    // would otherwise trip the limits from a single IP. Only the literal "false"
+    // disables (z.coerce.boolean() would treat "false" as true).
+    throttle: z.object({
+      enabled: z
+        .string()
+        .optional()
+        .transform((v) => v !== "false"),
+      ttlMs: z.coerce.number().int().positive().default(60_000),
+      limit: z.coerce.number().int().positive().default(30),
+    }),
   }),
 
   // Encryption (AES-256-GCM requires a 32-byte key = 64 hex characters)
@@ -72,8 +87,11 @@ const configSchema = z.object({
 
   // Datetime (used in supervisor system prompt)
   datetime: z.object({
-    timezone: z.string().default("UTC"),
-    locale: z.string().default("en-US"),
+    // No explicit DATETIME_TIMEZONE / DATETIME_LOCALE → follow the runtime zone/locale
+    // (driven by TZ and LANG/LC_ALL respectively, else the system defaults).
+    // resolvedOptions() reflects the env vars set before Node started.
+    timezone: z.string().default(Intl.DateTimeFormat().resolvedOptions().timeZone),
+    locale: z.string().default(Intl.DateTimeFormat().resolvedOptions().locale),
   }),
 
   // Auth (Auth.js JWT decryption + credentials provider)
@@ -82,6 +100,27 @@ const configSchema = z.object({
     /** Shared secret between web and engine for the internal credentials endpoint.
      *  When unset, /api/auth/credentials/verify is disabled (only Google login works). */
     internalSecret: z.string().min(16).optional(),
+    /** Auth source: "session" (Auth.js JWT) or "alb-oidc" (trust ALB x-amzn-oidc-data header).
+     *  Use "alb-oidc" when deployed behind an AWS ALB with OIDC authentication — the ALB
+     *  has already authenticated the user, so the engine trusts the forwarded claims. */
+    mode: z.enum(["session", "alb-oidc"]).default("session"),
+    /** RBAC: the user with this email is promoted to Platform Superadmin
+     *  (is_platform_admin=true) by the OrganizationsModule bootstrap on boot.
+     *  Idempotent; unset = no promotion (the migration already promotes
+     *  pre-existing role='superadmin' users). */
+    platformAdminEmail: z.string().email().optional(),
+  }),
+
+  // RBAC authorization (Stream 3). Ships in SHADOW mode by default: the
+  // PermissionGuard resolves scope and logs decisions but never denies unless
+  // `enforce` is true. Flip `AUTHZ_ENFORCE=true` to fail-closed on undeclared
+  // routes and denied permissions. Any value other than the literal "true"
+  // (including unset and "false") keeps shadow mode — no behaviour change.
+  authz: z.object({
+    enforce: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v): boolean => v === "true"),
   }),
 
   // Initial admin user — created on first boot if the users table is empty.
@@ -109,6 +148,14 @@ const configSchema = z.object({
     softDebounceMs: z.coerce.number().int().min(0).default(2000),
     typingDelayMs: z.coerce.number().int().min(0).default(1500),
     maxRestarts: z.coerce.number().int().min(0).default(3),
+  }),
+
+  // PDF rendering (markdownToPdf tool). `concurrency` caps how many puppeteer
+  // pages render in parallel inside the singleton Chromium browser. Each page
+  // costs ~50-100MB RSS during render, so the default is conservative — bump
+  // up in environments with more RAM, down on tight container memory.
+  pdf: z.object({
+    concurrency: z.coerce.number().int().min(1).max(32).default(3),
   }),
 
   // Agent-to-agent invocation (virtual `agent` channel).
@@ -139,6 +186,13 @@ const configSchema = z.object({
   // grow unboundedly. Default 90 days.
   analytics: z.object({
     retentionDays: z.coerce.number().int().positive().default(90),
+  }),
+
+  // Plugin roots. `dirs` are absolute paths (from PLUGIN_DIRS, comma-separated)
+  // the tool loader scans for external plugins in addition to the convention
+  // dir (src/plugins/*). Primarily local dev / explicit override.
+  plugins: z.object({
+    dirs: z.array(z.string()).default([]),
   }),
 });
 
@@ -182,6 +236,7 @@ function loadConfig(): Config {
       user: process.env.POSTGRES_USER ?? dbUrlParsed?.user,
       password: process.env.POSTGRES_PASSWORD ?? dbUrlParsed?.password,
       databaseUrl: buildDatabaseUrl(),
+      ssl: process.env.POSTGRES_SSL,
     },
     memory: {
       dedupSimilarityThreshold: process.env.DEDUP_SIMILARITY_THRESHOLD,
@@ -190,6 +245,11 @@ function loadConfig(): Config {
       port: process.env.API_PORT,
       baseUrl: process.env.BASE_URL,
       trustProxy: process.env.TRUST_PROXY,
+      throttle: {
+        enabled: process.env.THROTTLE_ENABLED,
+        ttlMs: process.env.THROTTLE_TTL_MS,
+        limit: process.env.THROTTLE_LIMIT,
+      },
     },
     encryption: {
       key: process.env.ENCRYPTION_KEY,
@@ -201,6 +261,11 @@ function loadConfig(): Config {
     auth: {
       secret: process.env.AUTH_SECRET,
       internalSecret: process.env.AUTH_INTERNAL_SECRET,
+      mode: process.env.AUTH_MODE,
+      platformAdminEmail: process.env.PLATFORM_ADMIN_EMAIL,
+    },
+    authz: {
+      enforce: process.env.AUTHZ_ENFORCE,
     },
     initialAdmin: {
       email: process.env.INITIAL_ADMIN_EMAIL,
@@ -217,6 +282,9 @@ function loadConfig(): Config {
       typingDelayMs: process.env.MESSAGE_TYPING_DELAY_MS,
       maxRestarts: process.env.MESSAGE_MAX_RESTARTS,
     },
+    pdf: {
+      concurrency: process.env.PDF_CONCURRENCY,
+    },
     agent: {
       callTimeoutMs: process.env.AGENT_CALL_TIMEOUT_MS,
     },
@@ -229,6 +297,14 @@ function loadConfig(): Config {
     },
     analytics: {
       retentionDays: process.env.ANALYTICS_RETENTION_DAYS,
+    },
+    plugins: {
+      // CONVENTION-EXCEPTION: PLUGIN_DIRS is parsed here (split + trim) into the
+      // Zod schema; the raw comma-separated string never leaks past config.
+      dirs: (process.env.PLUGIN_DIRS ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
     },
   });
 
@@ -243,4 +319,5 @@ function loadConfig(): Config {
 export const config = loadConfig();
 
 /** Default instance for mono-instance system. Override via DEFAULT_INSTANCE_ID env var. */
-export const DEFAULT_INSTANCE_ID = process.env.DEFAULT_INSTANCE_ID ?? "default";
+// CONVENTION-EXCEPTION: reads process.env directly — documented exception in CLAUDE.md (DEFAULT_INSTANCE_ID).
+export const DEFAULT_INSTANCE_ID = asInstanceSlug(process.env.DEFAULT_INSTANCE_ID ?? "default");

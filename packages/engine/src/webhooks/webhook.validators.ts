@@ -28,12 +28,20 @@ export const createDefinitionSchema = z.object({
 }).refine(
   (data) => {
     if (data.action === "conversation") {
-      return !!data.contextPrompt && !!data.outboundChannel;
+      return !!data.contextPrompt;
     }
     // backlog requires interpretationPrompt
     return !!data.interpretationPrompt;
   },
-  { message: "action 'backlog' requires interpretationPrompt; action 'conversation' requires contextPrompt and outboundChannel" },
+  { message: "action 'backlog' requires interpretationPrompt; action 'conversation' requires contextPrompt" },
+).refine(
+  (data) => {
+    // outboundChannel and outboundTarget must be set together (or both absent)
+    const hasChannel = !!data.outboundChannel;
+    const hasTarget = !!data.outboundTarget;
+    return hasChannel === hasTarget;
+  },
+  { message: "outboundChannel and outboundTarget must both be provided or both omitted" },
 );
 
 export const updateDefinitionSchema = z.object({
@@ -45,4 +53,17 @@ export const updateDefinitionSchema = z.object({
   outboundChannel: z.enum(CHANNEL_TYPES).nullable().optional(),
   outboundTarget: z.string().nullable().optional(),
   enabled: z.boolean().optional(),
-});
+}).refine(
+  (data) => {
+    // When both fields are present in the patch, they must be coherent
+    // (both set or both null/empty). Partial patches that touch only one
+    // of the two are intentionally allowed — coherence is checked again
+    // at the engine layer using the merged definition.
+    if (data.outboundChannel === undefined && data.outboundTarget === undefined) return true;
+    if (data.outboundChannel === undefined || data.outboundTarget === undefined) return true;
+    const hasChannel = !!data.outboundChannel;
+    const hasTarget = !!data.outboundTarget;
+    return hasChannel === hasTarget;
+  },
+  { message: "outboundChannel and outboundTarget must both be provided or both null/omitted" },
+);

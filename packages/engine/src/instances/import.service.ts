@@ -7,20 +7,26 @@
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "./schema.js";
+import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
 import { instancePrompts } from "./prompts.schema.js";
 import { instanceSkills } from "./instance-skills.schema.js";
 import { instanceTools } from "./instance-tools.schema.js";
 import { instanceChannels } from "./channels.schema.js";
+import { channelConfigSchemas, type ChannelType } from "./channels.store.js";
 import { instanceSkillEnv } from "./skill-env.schema.js";
 import { skills, skillVersions } from "../skills/schema.js";
 import { tools } from "../agents/tools/tools.schema.js";
 import { instanceRoom } from "../room/room.schema.js";
+import { instanceHooks } from "../hooks/hooks.schema.js";
+import { invalidateHooksCache } from "../hooks/hooks.store.js";
+import type { HookActionConfig, HookActionType, HookEvent } from "../hooks/hook-types.js";
 import { eventSources, eventDefinitions } from "../webhooks/webhooks.schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { computeNextRun } from "../scheduled-tasks/schedule-utils.js";
-import { generateToken } from "../crypto/index.js";
+import { generateToken, encrypt } from "../crypto/index.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
+import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
 import { invalidateInstanceConfigCache } from "./config-resolver.js";
 import {
   instanceBundleSchema,
@@ -56,7 +62,8 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
 
   // Run everything in a transaction
   const instanceId = await db.transaction(async (tx) => {
-    // 1. Create instance
+    // 1. Create instance (in the default workspace — see store.ts rationale).
+    const workspaceId = await findDefaultWorkspaceId(tx);
     const [inst] = await tx
       .insert(instances)
       .values({
@@ -69,12 +76,33 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
         memoryEnabled: data.memoryEnabled,
         knowledgeEnabled: data.knowledgeEnabled,
         langsmithEnabled: data.langsmithEnabled,
+        langsmithProject: data.langsmithProject,
         authEnabled: data.authEnabled,
+        thinkingEnabled: data.thinkingEnabled,
+        temperature: data.temperature,
+        stateInPromptEnabled: data.stateInPromptEnabled,
+        datetimeInjectionEnabled: data.datetimeInjectionEnabled,
+        cacheEnabled: data.cacheEnabled,
+        cacheTtl: data.cacheTtl,
+        toolResultsInHistoryEnabled: data.toolResultsInHistoryEnabled,
+        debugEnabled: data.debugEnabled,
+        sttProvider: data.sttProvider,
+        // Embedding provider/dim only set here (fresh instance — no vectors to
+        // lose). Overwrite import intentionally never touches them.
+        embeddingProvider: data.embeddingProvider,
+        embeddingDim: data.embeddingDim,
+        optoutEnabled: data.optoutEnabled,
+        optoutStopKeywords: data.optoutStopKeywords,
+        optoutResumeKeywords: data.optoutResumeKeywords,
+        optoutClosingMessage: data.optoutClosingMessage,
+        optoutResumeMessage: data.optoutResumeMessage,
+        optoutInjectPromptHint: data.optoutInjectPromptHint,
         icon: data.icon ?? null,
+        workspaceId,
       })
       .returning({ id: instances.id });
 
-    const id = inst.id;
+    const id = asInstanceUuid(inst.id);
 
     // 2. Import prompts
     await importPrompts(tx, id, data.prompts);
@@ -87,36 +115,34 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
     const toolWarnings = await importManualTools(tx, id, data.manualTools);
     warnings.push(...toolWarnings);
 
-    // 5. Import channels (metadata only, no credentials)
-    if (data.channels.length > 0) {
-      await importChannels(tx, id, data.channels);
-      for (const ch of data.channels) {
-        warnings.push({
-          type: "channel_credentials",
-          message: `Channel "${ch.channelType}" imported without credentials — configure manually`,
-        });
-      }
-    }
+    // 5. Import channels (non-secret config only; credentialed channels stay disabled)
+    const channelWarnings = await importChannels(tx, id, data.channels);
+    warnings.push(...channelWarnings);
 
     // 6. Import skill env vars (non-encrypted only)
     const envWarnings = await importSkillEnv(tx, id, data.skillEnv);
     warnings.push(...envWarnings);
 
-    // 7. Import room config
+    // 7. Import hooks
+    await importHooks(tx, id, data.hooks);
+
+    // 8. Import room config
     if (data.room) {
       await importRoom(tx, id, data.room);
     }
 
-    // 8. Import event sources + definitions
+    // 9. Import event sources + definitions
     const esWarnings = await importEventSources(tx, id, data.eventSources);
     warnings.push(...esWarnings);
 
-    // 9. Import scheduled tasks
+    // 10. Import scheduled tasks
+    // NB: scheduled_tasks.instance_id is the SLUG, not the UUID — see the
+    // export service for the rationale.
     if (data.scheduledTasks && data.scheduledTasks.length > 0) {
-      await importScheduledTasks(tx, id, data.scheduledTasks);
+      await importScheduledTasks(tx, slug, data.scheduledTasks);
     }
 
-    // 10. Secrets — only generate warnings
+    // 11. Secrets — only generate warnings
     for (const secret of data.secrets) {
       warnings.push({
         type: "secret_required",
@@ -130,6 +156,7 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
   // Recompute tools outside transaction (uses its own transaction internally)
   await recomputeInstanceTools(instanceId);
   invalidatePromptsCache(instanceId);
+  invalidateHooksCache(asInstanceSlug(slug));
 
   return { slug, instanceId, warnings };
 }
@@ -154,7 +181,7 @@ export async function importOverwriteInstance(
     .limit(1);
 
   if (!existing) throw new Error(`Instance "${targetSlug}" not found`);
-  const instanceId = existing.id;
+  const instanceId = asInstanceUuid(existing.id);
 
   await db.transaction(async (tx) => {
     // 1. Update instance metadata
@@ -169,8 +196,28 @@ export async function importOverwriteInstance(
         memoryEnabled: data.memoryEnabled,
         knowledgeEnabled: data.knowledgeEnabled,
         langsmithEnabled: data.langsmithEnabled,
+        langsmithProject: data.langsmithProject,
         authEnabled: data.authEnabled,
+        thinkingEnabled: data.thinkingEnabled,
+        temperature: data.temperature,
+        stateInPromptEnabled: data.stateInPromptEnabled,
+        datetimeInjectionEnabled: data.datetimeInjectionEnabled,
+        cacheEnabled: data.cacheEnabled,
+        cacheTtl: data.cacheTtl,
+        toolResultsInHistoryEnabled: data.toolResultsInHistoryEnabled,
+        debugEnabled: data.debugEnabled,
+        sttProvider: data.sttProvider,
+        optoutEnabled: data.optoutEnabled,
+        optoutStopKeywords: data.optoutStopKeywords,
+        optoutResumeKeywords: data.optoutResumeKeywords,
+        optoutClosingMessage: data.optoutClosingMessage,
+        optoutResumeMessage: data.optoutResumeMessage,
+        optoutInjectPromptHint: data.optoutInjectPromptHint,
         icon: data.icon ?? null,
+        // NB: embeddingProvider/embeddingDim are deliberately NOT updated here —
+        // switching an existing instance's embedder wipes all vectors (memories +
+        // knowledge). That destructive switch is gated behind `confirmWipe` on
+        // PATCH /api/instances/:slug and is out of scope for an import.
         updatedAt: sql`now()`,
       })
       .where(eq(instances.id, instanceId));
@@ -195,17 +242,10 @@ export async function importOverwriteInstance(
     const toolWarnings = await importManualTools(tx, instanceId, data.manualTools);
     warnings.push(...toolWarnings);
 
-    // 5. Replace channels
+    // 5. Replace channels (non-secret config only; credentialed channels stay disabled)
     await tx.delete(instanceChannels).where(eq(instanceChannels.instanceId, instanceId));
-    if (data.channels.length > 0) {
-      await importChannels(tx, instanceId, data.channels);
-      for (const ch of data.channels) {
-        warnings.push({
-          type: "channel_credentials",
-          message: `Channel "${ch.channelType}" imported without credentials — configure manually`,
-        });
-      }
-    }
+    const channelWarnings = await importChannels(tx, instanceId, data.channels);
+    warnings.push(...channelWarnings);
 
     // 6. Replace skill env (non-encrypted only; keep existing encrypted)
     await importSkillEnvOverwrite(tx, instanceId, data.skillEnv);
@@ -217,24 +257,30 @@ export async function importOverwriteInstance(
       }));
     warnings.push(...envWarnings);
 
-    // 7. Replace room config
+    // 7. Replace hooks
+    await tx.delete(instanceHooks).where(eq(instanceHooks.instanceId, instanceId));
+    await importHooks(tx, instanceId, data.hooks);
+
+    // 8. Replace room config
     await tx.delete(instanceRoom).where(eq(instanceRoom.instanceId, instanceId));
     if (data.room) {
       await importRoom(tx, instanceId, data.room);
     }
 
-    // 8. Replace event sources + definitions
+    // 9. Replace event sources + definitions
     await tx.delete(eventSources).where(eq(eventSources.instanceId, instanceId));
     const esWarnings = await importEventSources(tx, instanceId, data.eventSources);
     warnings.push(...esWarnings);
 
-    // 9. Replace scheduled tasks
-    await tx.delete(scheduledTasks).where(eq(scheduledTasks.instanceId, instanceId));
+    // 10. Replace scheduled tasks
+    // NB: scheduled_tasks.instance_id is the SLUG, not the UUID — see the
+    // export service for the rationale.
+    await tx.delete(scheduledTasks).where(eq(scheduledTasks.instanceId, targetSlug));
     if (data.scheduledTasks && data.scheduledTasks.length > 0) {
-      await importScheduledTasks(tx, instanceId, data.scheduledTasks);
+      await importScheduledTasks(tx, targetSlug, data.scheduledTasks);
     }
 
-    // 10. Secrets warnings
+    // 11. Secrets warnings
     for (const secret of data.secrets) {
       warnings.push({
         type: "secret_required",
@@ -245,7 +291,8 @@ export async function importOverwriteInstance(
 
   await recomputeInstanceTools(instanceId);
   invalidatePromptsCache(instanceId);
-  invalidateInstanceConfigCache(targetSlug);
+  invalidateInstanceConfigCache(asInstanceSlug(targetSlug));
+  invalidateHooksCache(asInstanceSlug(targetSlug));
 
   return { slug: targetSlug, instanceId, warnings };
 }
@@ -285,6 +332,9 @@ async function importPrompts(
   prompts: ExportInstanceData["prompts"],
 ): Promise<void> {
   for (const p of prompts) {
+    // Anti-resurrection: the 08-datetime section was removed with the datetime
+    // flag; drop it from any legacy bundle so an import can't recreate it.
+    if (p.sectionKey === "08-datetime") continue;
     await tx
       .insert(instancePrompts)
       .values({
@@ -419,19 +469,60 @@ async function importChannels(
   tx: TxClient,
   instanceId: string,
   channels: ExportInstanceData["channels"],
-): Promise<void> {
+): Promise<ImportWarning[]> {
+  const warnings: ImportWarning[] = [];
+
   for (const ch of channels) {
-    // Insert channel entry with empty encrypted config — user must configure
-    // We store a minimal placeholder so the channel row exists
+    const config = ch.config ?? {};
+    const schema = channelConfigSchemas[ch.channelType as ChannelType];
+
+    // A channel can be safely (re)enabled on import ONLY if its non-secret
+    // config alone satisfies the channel's validation schema — i.e. it needs no
+    // credentials (today: the `agent` channel, whose config is empty/passthrough).
+    // Credentialed channels (telegram/slack/whatsapp) fail this check because the
+    // export stripped their secrets, so they stay disabled until reconfigured.
+    const canEnable = schema ? schema.safeParse(config).success : false;
+    const enabled = ch.enabled && canEnable;
+    const hasConfig = Object.keys(config).length > 0;
+
     await tx
       .insert(instanceChannels)
       .values({
         instanceId,
         channelType: ch.channelType,
-        enabled: false, // always disabled on import (no credentials)
-        config: "", // empty — will fail validation if enabled without config
+        enabled,
+        // Persist the non-secret config (encrypted at rest like any channel
+        // config) so the admin only has to fill in the missing credentials.
+        config: hasConfig ? encrypt(JSON.stringify(config)) : "",
       })
       .onConflictDoNothing();
+
+    if (ch.enabled && !canEnable) {
+      warnings.push({
+        type: "channel_credentials",
+        message: `Channel "${ch.channelType}" imported disabled — configure credentials to enable`,
+      });
+    }
+  }
+
+  return warnings;
+}
+
+async function importHooks(
+  tx: TxClient,
+  instanceId: string,
+  hooks: ExportInstanceData["hooks"],
+): Promise<void> {
+  for (const h of hooks) {
+    await tx.insert(instanceHooks).values({
+      instanceId,
+      event: h.event as HookEvent,
+      actionType: h.actionType as HookActionType,
+      actionConfig: h.actionConfig as unknown as HookActionConfig,
+      enabled: h.enabled,
+      position: h.position,
+      timeoutMs: h.timeoutMs,
+    });
   }
 }
 
@@ -576,6 +667,10 @@ async function importEventSources(
         name: def.name,
         matchingPrompt: def.matchingPrompt,
         interpretationPrompt: def.interpretationPrompt,
+        action: def.action,
+        contextPrompt: def.contextPrompt,
+        outboundChannel: def.outboundChannel,
+        outboundTarget: def.outboundTarget,
         enabled: def.enabled,
       });
     }

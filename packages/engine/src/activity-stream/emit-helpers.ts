@@ -12,6 +12,8 @@ import { randomUUID } from "node:crypto";
 import { activityBus } from "./activity-bus.js";
 import type { FeedEvent, InstanceMeta } from "./activity-stream.types.js";
 import { findInstanceBySlug } from "../instances/store.js";
+import { buildInstanceIconUrl } from "../instances/icon-url.js";
+import { asInstanceSlug } from "../instances/identifiers.js";
 import { TtlCache } from "../utils/ttl-cache.js";
 
 /** Wrap emit so listener errors never bubble back to the producer. */
@@ -61,7 +63,7 @@ export async function resolveInstanceMeta(slug?: string): Promise<InstanceMeta |
     return cached ?? undefined;
   }
   try {
-    const inst = await findInstanceBySlug(slug);
+    const inst = await findInstanceBySlug(asInstanceSlug(slug));
     if (!inst) {
       instanceMetaCache.set(slug, null);
       return undefined;
@@ -70,7 +72,8 @@ export async function resolveInstanceMeta(slug?: string): Promise<InstanceMeta |
       id: inst.id,
       slug: inst.slug,
       name: inst.name,
-      icon: inst.icon ?? null,
+      // Emit a URL, never the raw base64 data URI — see buildInstanceIconUrl.
+      icon: buildInstanceIconUrl(inst.slug, inst.icon, inst.updatedAt),
     };
     instanceMetaCache.set(slug, meta);
     return meta;

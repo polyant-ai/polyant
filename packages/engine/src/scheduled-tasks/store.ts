@@ -5,9 +5,10 @@ import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
 import { scheduledTasks, type ScheduledTask, type ScheduleConfig } from "./schema.js";
 import { computeNextRun, computeRetryDelay, MAX_CONSECUTIVE_ERRORS } from "./schedule-utils.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 
 export interface CreateTaskInput {
-  instanceId: string;
+  instanceId: InstanceSlug;
   name: string;
   prompt: string;
   schedule: ScheduleConfig;
@@ -33,13 +34,48 @@ export interface UpdateTaskInput {
   keepHistory?: boolean;
 }
 
-/** List all tasks for an instance */
-export async function listByInstance(instanceId: string): Promise<ScheduledTask[]> {
+/** Options for `listByInstance`. All fields optional — defaults preserve the
+ *  previous unbounded behaviour from the API's perspective except for the
+ *  built-in `limit = 100` safety cap.
+ *
+ *  The cap is a defence against unbounded payloads on instances that
+ *  accumulate many tasks (cron + one-shot). Callers that genuinely need to
+ *  paginate the full set should pass `limit` + `offset` explicitly. The
+ *  underlying ordering (`createdAt ASC`) is stable across pages. */
+export interface ListByInstanceOptions {
+  limit?: number;
+  offset?: number;
+  enabledOnly?: boolean;
+}
+
+/** Default cap applied when no `limit` is passed. Tuned to cover ~99% of
+ *  realistic per-instance task counts while protecting against runaway
+ *  payloads in tool responses and admin list pages. */
+export const LIST_BY_INSTANCE_DEFAULT_LIMIT = 100;
+
+/** List tasks for an instance, ordered by creation time ascending.
+ *  Paginates with `limit` (default 100) + `offset` (default 0). The
+ *  single-arg signature `listByInstance(slug)` is preserved for
+ *  backward-compatibility — existing callers transparently pick up the
+ *  default cap. */
+export async function listByInstance(
+  instanceId: InstanceSlug,
+  options: ListByInstanceOptions = {},
+): Promise<ScheduledTask[]> {
+  const limit = options.limit ?? LIST_BY_INSTANCE_DEFAULT_LIMIT;
+  const offset = options.offset ?? 0;
+
+  const whereClause = options.enabledOnly
+    ? and(eq(scheduledTasks.instanceId, instanceId), eq(scheduledTasks.enabled, true))
+    : eq(scheduledTasks.instanceId, instanceId);
+
   return db
     .select()
     .from(scheduledTasks)
-    .where(eq(scheduledTasks.instanceId, instanceId))
-    .orderBy(scheduledTasks.createdAt);
+    .where(whereClause)
+    .orderBy(scheduledTasks.createdAt)
+    .limit(limit)
+    .offset(offset);
 }
 
 /** Get a single task by ID */
@@ -242,7 +278,7 @@ export async function disableTask(id: string): Promise<void> {
 /** Find an active task whose outbound matches the given channel + target for an instance.
  *  Used to detect if an incoming channel message is a reply to a scheduled task's output. */
 export async function findActiveTaskByOutbound(
-  instanceId: string,
+  instanceId: InstanceSlug,
   channelType: string,
   channelId: string,
 ): Promise<ScheduledTask | undefined> {

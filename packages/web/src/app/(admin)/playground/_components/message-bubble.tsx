@@ -2,42 +2,12 @@
 
 "use client";
 
-import { Wrench, Terminal } from "lucide-react";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Terminal, SearchCode } from "lucide-react";
 import { MarkdownRenderer } from "./markdown-renderer";
-import { ToolCallIndicator } from "./tool-call-indicator";
-import type { ChatMessage, ToolCallStatus } from "../_hooks/use-chat";
-
-function hasToolCallData(toolCalls: ToolCallStatus[]): boolean {
-  return toolCalls.some((tc) => tc.args !== undefined || tc.result !== undefined);
-}
-
-function ToolCallsAccordion({ toolCalls }: { toolCalls: ToolCallStatus[] }) {
-  return (
-    <Accordion type="single" collapsible className="mt-1">
-      {toolCalls.map((tc, i) => (
-        <AccordionItem key={i} value={`tool-${i}`} className="border-none">
-          <AccordionTrigger className="py-1 text-xs text-muted-foreground hover:no-underline">
-            <span className="flex items-center gap-1">
-              <Wrench className="h-3 w-3" />
-              {tc.name}
-            </span>
-          </AccordionTrigger>
-          <AccordionContent>
-            <pre className="max-w-full overflow-x-auto rounded-sm bg-secondary p-2 text-xs">
-              {JSON.stringify({ args: tc.args, result: tc.result }, null, 2)}
-            </pre>
-          </AccordionContent>
-        </AccordionItem>
-      ))}
-    </Accordion>
-  );
-}
+import { MessageExtras } from "@/components/messages/message-extras";
+import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
+import { useI18n } from "@/lib/i18n/context";
+import type { ChatMessage } from "../_hooks/use-chat";
 
 function formatTime(dateStr: string | null): string {
   if (!dateStr) return "";
@@ -47,9 +17,12 @@ function formatTime(dateStr: string | null): string {
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  /** When provided, an "inspect turn" affordance opens the debug panel for this message. */
+  onDebugClick?: () => void;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, onDebugClick }: MessageBubbleProps) {
+  const { t } = useI18n();
   const isUser = message.role === "user";
 
   // System message → centered amber pill
@@ -82,11 +55,23 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           isUser ? "bg-primary text-primary-foreground" : "bg-muted"
         }`}
       >
-        {/* Tool calls shown above assistant text */}
-        {!isUser && message.toolCalls.length > 0 && (
-          hasToolCallData(message.toolCalls)
-            ? <ToolCallsAccordion toolCalls={message.toolCalls} />
-            : <ToolCallIndicator toolCalls={message.toolCalls} />
+        {/* Lifecycle hook outcomes for this turn (live SSE), above the LLM extras. */}
+        {!isUser && message.hookExecutions.length > 0 && (
+          <div className="mb-2 flex flex-col gap-1">
+            {message.hookExecutions.map((exec, i) => (
+              <HookExecutionPill key={`${exec.hookId}-${exec.event}-${i}`} execution={exec} />
+            ))}
+          </div>
+        )}
+
+        {/* Reasoning + steps panels above assistant text. Default closed in
+            playground (clean live UX); conversations page passes defaultOpen=true. */}
+        {!isUser && (
+          <MessageExtras
+            reasoning={message.reasoning}
+            steps={message.steps}
+            defaultOpen={false}
+          />
         )}
 
         {/* Message content */}
@@ -104,15 +89,25 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           </div>
         ) : null}
 
-        {/* Timestamp */}
+        {/* Timestamp + (assistant only) inspect-turn affordance */}
         {message.createdAt && !message.isStreaming && (
-          <p
-            className={`mt-1 text-xs ${
+          <div
+            className={`mt-1 flex items-center gap-1.5 text-xs ${
               isUser ? "text-primary-foreground/60" : "text-muted-foreground"
             }`}
           >
-            {formatTime(message.createdAt)}
-          </p>
+            <span>{formatTime(message.createdAt)}</span>
+            {!isUser && onDebugClick && (
+              <button
+                type="button"
+                onClick={onDebugClick}
+                className="inline-flex items-center gap-1 rounded px-1 transition hover:text-foreground"
+                title={t("message.debug.open")}
+              >
+                <SearchCode className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

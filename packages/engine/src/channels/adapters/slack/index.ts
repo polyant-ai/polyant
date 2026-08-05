@@ -5,6 +5,7 @@ import type { ChannelAdapter, IncomingMessage, MessageHandler, OutgoingMessage }
 import { CHANNEL_MAX_LENGTH, METADATA_CONVERSATION_ID_OVERRIDE } from "../../types.js";
 import { toSlackMrkdwn } from "./slack-mrkdwn.js";
 import { splitMessage } from "../../split-message.js";
+import type { InstanceSlug } from "../../../instances/identifiers.js";
 
 export interface SlackConfig {
   botToken: string;
@@ -22,7 +23,7 @@ export class SlackAdapter implements ChannelAdapter {
   private readonly userCache = new Map<string, { name: string; expiresAt: number }>();
 
   constructor(
-    private readonly instanceId: string,
+    private readonly instanceId: InstanceSlug,
     private readonly cfg: SlackConfig,
   ) {}
 
@@ -75,7 +76,9 @@ export class SlackAdapter implements ChannelAdapter {
 
       const response = await onMessage(incoming);
       if (response.text) {
-        await say({ text: response.text, thread_ts: threadTs });
+        for (const chunk of this.formatForSlack(response.text)) {
+          await say({ text: chunk, thread_ts: threadTs });
+        }
       }
     });
 
@@ -112,7 +115,9 @@ export class SlackAdapter implements ChannelAdapter {
 
       const response = await onMessage(incoming);
       if (response.text) {
-        await say({ text: response.text });
+        for (const chunk of this.formatForSlack(response.text)) {
+          await say({ text: chunk });
+        }
       }
     });
 
@@ -130,12 +135,10 @@ export class SlackAdapter implements ChannelAdapter {
       if (dm.channel?.id) resolvedChannel = dm.channel.id;
     }
 
-    const chunks = splitMessage(msg.text, CHANNEL_MAX_LENGTH.slack);
-    for (const chunk of chunks) {
-      const mrkdwn = toSlackMrkdwn(chunk);
+    for (const text of this.formatForSlack(msg.text)) {
       await this.app.client.chat.postMessage({
         channel: resolvedChannel,
-        text: mrkdwn,
+        text,
       });
     }
   }
@@ -144,6 +147,15 @@ export class SlackAdapter implements ChannelAdapter {
     if (this.app) {
       await this.app.stop();
     }
+  }
+
+  /**
+   * Splits a response to Slack's per-message length limit and converts each
+   * chunk to Slack mrkdwn. Shared by both inbound replies (`say`) and proactive
+   * `sendMessage` so every outbound path renders formatting consistently.
+   */
+  private formatForSlack(text: string): string[] {
+    return splitMessage(text, CHANNEL_MAX_LENGTH.slack).map(toSlackMrkdwn);
   }
 
   private isPlainTextMessage(message: unknown): message is { text: string; user?: string; channel: string; ts: string } {

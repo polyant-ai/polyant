@@ -1,0 +1,3 @@
+# Runtime plugin drop directory: dev symlinks/copies + prod build-time clones
+# land here and must never be committed. Plugins live in their own repos.
+src/plugins/

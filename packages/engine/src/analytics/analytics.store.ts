@@ -3,6 +3,8 @@
 import { sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { type DateRange, toISO, asRows, pctChange, instanceFilter } from "../utils/query-helpers.js";
+import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
+import { buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
 
 export type { DateRange };
 
@@ -11,6 +13,10 @@ export interface OverviewStats {
   totalTokens: number;
   promptTokens: number;
   completionTokens: number;
+  /** Prompt-cache reads (cache HIT). Subset of promptTokens. */
+  cachedInputTokens: number;
+  /** Prompt-cache writes (cache creation). Subset of promptTokens. */
+  cacheCreationInputTokens: number;
   totalConversations: number;
   totalMessages: number;
   uniqueUsers: number;
@@ -65,7 +71,7 @@ export interface ToolRow {
 }
 
 export interface InstanceComparisonRow {
-  instanceId: string;
+  instanceId: InstanceSlug;
   name: string;
   conversations: number;
   cost: number;
@@ -87,9 +93,12 @@ export interface AnalyticsData {
 
 async function getOverviewStats(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
+  orgId?: string,
 ): Promise<OverviewStats> {
   const instFilter = instanceFilter(instanceId);
+  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
 
   // Current period — ai_logs
   const [aiStats] = asRows<{
@@ -97,6 +106,8 @@ async function getOverviewStats(
     total_tokens: number;
     prompt_tokens: number;
     completion_tokens: number;
+    cached_input_tokens: number;
+    cache_creation_input_tokens: number;
     avg_duration_ms: number;
     total_calls: number;
   }>(
@@ -106,11 +117,13 @@ async function getOverviewStats(
         COALESCE(SUM(total_tokens), 0)::int AS total_tokens,
         COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
         COALESCE(SUM(completion_tokens), 0)::int AS completion_tokens,
+        COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens,
+        COALESCE(SUM(cache_creation_input_tokens), 0)::int AS cache_creation_input_tokens,
         COALESCE(AVG(duration_ms), 0)::float AS avg_duration_ms,
         COUNT(*)::int AS total_calls
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter}
+        ${instFilter} ${orgInst}
     `),
   );
 
@@ -133,7 +146,7 @@ async function getOverviewStats(
         WHERE cm.conversation_id = c.conversation_id
       ) mc ON true
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
-        ${convFilter}
+        ${convFilter} ${orgConv}
     `),
   );
 
@@ -152,7 +165,7 @@ async function getOverviewStats(
         COALESCE(AVG(duration_ms), 0)::float AS avg_duration_ms
       FROM ai_logs
       WHERE created_at >= ${toISO(prevFrom)} AND created_at <= ${toISO(prevTo)}
-        ${instFilter}
+        ${instFilter} ${orgInst}
     `),
   );
 
@@ -171,7 +184,7 @@ async function getOverviewStats(
         WHERE cm.conversation_id = c.conversation_id
       ) mc ON true
       WHERE c.created_at >= ${toISO(prevFrom)} AND c.created_at <= ${toISO(prevTo)}
-        ${convFilter}
+        ${convFilter} ${orgConv}
     `),
   );
 
@@ -183,6 +196,8 @@ async function getOverviewStats(
     totalTokens: aiStats?.total_tokens ?? 0,
     promptTokens: aiStats?.prompt_tokens ?? 0,
     completionTokens: aiStats?.completion_tokens ?? 0,
+    cachedInputTokens: aiStats?.cached_input_tokens ?? 0,
+    cacheCreationInputTokens: aiStats?.cache_creation_input_tokens ?? 0,
     totalConversations,
     totalMessages: convStats?.total_messages ?? 0,
     uniqueUsers: convStats?.unique_users ?? 0,
@@ -201,10 +216,13 @@ async function getOverviewStats(
 
 async function getDailyTrend(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
+  orgId?: string,
 ): Promise<DailyTrendRow[]> {
   const instFilter = instanceFilter(instanceId);
   const convFilter = instanceFilter(instanceId, "c.instance_id");
+  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
 
   const rows = asRows<{
     date: string;
@@ -218,7 +236,7 @@ async function getDailyTrend(
         COALESCE(SUM(total_tokens), 0)::int AS tokens
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter}
+        ${instFilter} ${orgInst}
       GROUP BY DATE(created_at)
       ORDER BY date
     `),
@@ -241,7 +259,7 @@ async function getDailyTrend(
         WHERE cm.conversation_id = c.conversation_id
       ) mc ON true
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
-        ${convFilter}
+        ${convFilter} ${orgConv}
       GROUP BY DATE(c.created_at)
       ORDER BY date
     `),
@@ -272,9 +290,11 @@ async function getDailyTrend(
 
 async function getHourlyDistribution(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
+  orgId?: string,
 ): Promise<HourlyRow[]> {
   const convFilter = instanceFilter(instanceId, "c.instance_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
 
   const rows = asRows<{ hour: number; count: number }>(
     await db.execute(sql`
@@ -285,7 +305,7 @@ async function getHourlyDistribution(
       JOIN conversations c ON c.conversation_id = cm.conversation_id
       WHERE cm.created_at >= ${toISO(range.from)} AND cm.created_at <= ${toISO(range.to)}
         AND cm.role = 'user'
-        ${convFilter}
+        ${convFilter} ${orgConv}
       GROUP BY EXTRACT(HOUR FROM cm.created_at)
       ORDER BY hour
     `),
@@ -303,9 +323,11 @@ async function getHourlyDistribution(
 
 async function getChannelDistribution(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
+  orgId?: string,
 ): Promise<ChannelRow[]> {
   const convFilter = instanceFilter(instanceId, "c.instance_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
 
   return asRows<ChannelRow>(
     await db.execute(sql`
@@ -320,7 +342,7 @@ async function getChannelDistribution(
         WHERE cm.conversation_id = c.conversation_id
       ) mc ON true
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
-        ${convFilter}
+        ${convFilter} ${orgConv}
       GROUP BY CASE WHEN c.channel IN ('openai-api', '') OR c.channel IS NULL THEN 'web' ELSE c.channel END
       ORDER BY conversations DESC
     `),
@@ -331,9 +353,11 @@ async function getChannelDistribution(
 
 async function getModelDistribution(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
+  orgId?: string,
 ): Promise<ModelRow[]> {
   const instFilter = instanceFilter(instanceId);
+  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
 
   return asRows<{
     provider: string;
@@ -353,7 +377,7 @@ async function getModelDistribution(
         COALESCE(AVG(duration_ms), 0)::float AS avg_duration
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter}
+        ${instFilter} ${orgInst}
       GROUP BY provider, model
       ORDER BY cost DESC
     `),
@@ -371,9 +395,11 @@ async function getModelDistribution(
 
 async function getTierDistribution(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
+  orgId?: string,
 ): Promise<TierRow[]> {
   const instFilter = instanceFilter(instanceId);
+  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
 
   return asRows<TierRow>(
     await db.execute(sql`
@@ -384,7 +410,7 @@ async function getTierDistribution(
         COALESCE(SUM(estimated_cost_usd), 0)::float AS cost
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter}
+        ${instFilter} ${orgInst}
       GROUP BY tier
       ORDER BY cost DESC
     `),
@@ -395,9 +421,11 @@ async function getTierDistribution(
 
 async function getToolUsage(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
+  orgId?: string,
 ): Promise<ToolRow[]> {
   const convFilter = instanceFilter(instanceId, "c.instance_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
 
   // NOTE: migration 0038 renamed conversation_messages.tool_calls -> steps and
   // changed the shape from `[{toolName, args, result}]` to `StepDetail[]` where
@@ -417,7 +445,7 @@ async function getToolUsage(
         AND cm.steps IS NOT NULL
         AND jsonb_array_length(cm.steps) > 0
         AND jsonb_typeof(step->'toolCalls') = 'array'
-        ${convFilter}
+        ${convFilter} ${orgConv}
       GROUP BY tool_call->>'toolName'
       ORDER BY count DESC
       LIMIT 20
@@ -429,7 +457,9 @@ async function getToolUsage(
 
 async function getInstanceComparison(
   range: DateRange,
+  orgId?: string,
 ): Promise<InstanceComparisonRow[]> {
+  const orgInst = buildOrgScopedAgentFilterFragment(orgId, "al.instance_id");
   return asRows<{
     instance_id: string;
     name: string;
@@ -448,11 +478,12 @@ async function getInstanceComparison(
       LEFT JOIN instances i ON i.slug = al.instance_id
       WHERE al.created_at >= ${toISO(range.from)} AND al.created_at <= ${toISO(range.to)}
         AND al.instance_id IS NOT NULL
+        ${orgInst}
       GROUP BY al.instance_id, i.name
       ORDER BY cost DESC
     `),
   ).map((r) => ({
-    instanceId: r.instance_id,
+    instanceId: asInstanceSlug(r.instance_id),
     name: r.name,
     conversations: r.conversations,
     cost: r.cost,
@@ -464,8 +495,9 @@ async function getInstanceComparison(
 
 export async function getAnalytics(
   range: DateRange,
-  instanceId?: string,
+  instanceId?: InstanceSlug,
   includeInstanceComparison = false,
+  orgId?: string,
 ): Promise<AnalyticsData> {
   const [
     overview,
@@ -477,14 +509,14 @@ export async function getAnalytics(
     toolUsage,
     instanceComparison,
   ] = await Promise.all([
-    getOverviewStats(range, instanceId),
-    getDailyTrend(range, instanceId),
-    getHourlyDistribution(range, instanceId),
-    getChannelDistribution(range, instanceId),
-    getModelDistribution(range, instanceId),
-    getTierDistribution(range, instanceId),
-    getToolUsage(range, instanceId),
-    includeInstanceComparison ? getInstanceComparison(range) : Promise.resolve(undefined),
+    getOverviewStats(range, instanceId, orgId),
+    getDailyTrend(range, instanceId, orgId),
+    getHourlyDistribution(range, instanceId, orgId),
+    getChannelDistribution(range, instanceId, orgId),
+    getModelDistribution(range, instanceId, orgId),
+    getTierDistribution(range, instanceId, orgId),
+    getToolUsage(range, instanceId, orgId),
+    includeInstanceComparison ? getInstanceComparison(range, orgId) : Promise.resolve(undefined),
   ]);
 
   return {

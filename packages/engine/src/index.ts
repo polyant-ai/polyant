@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import "reflect-metadata";
+import { randomUUID } from "crypto";
 import { installFileLogger, shutdownFileLogger } from "./utils/file-logger.js";
 installFileLogger();
 
@@ -14,16 +15,19 @@ import { supervise, superviseStream } from "./agents/supervisor/index.js";
 import { channelManager } from "./channels/channel-manager.js";
 import { listAllInstances } from "./instances/store.js";
 import { startServer } from "./server/main.js";
-import { type IncomingMessage, type OutgoingMessage, type StreamOutgoingMessage } from "./channels/types.js";
+import { type AgentCallMetadata, type IncomingMessage, type OutgoingMessage, type StreamOutgoingMessage } from "./channels/types.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { loadAllTools, getToolRegistry } from "./agents/tools/registry.js";
+import { loadAllHooks } from "./hooks/hook-loader.js";
 import { syncToolsToDb } from "./agents/tools/tools-sync.js";
 import { traceStore } from "./analytics/trace.store.js";
 import { auditStore } from "./audit/audit.store.js";
+import { managementAuditStore } from "./management-audit/management-audit.store.js";
 import { seedInitialAdmin } from "./users/seed.js";
 import { schedulerService } from "./scheduled-tasks/scheduler.service.js";
 import { roomScheduler } from "./room/room-scheduler.js";
 import { getRoomBySlug, type RoomConfig } from "./room/room.store.js";
+import { asInstanceSlug, type InstanceSlug } from "./instances/identifiers.js";
 import { getActiveTrigger } from "./webhooks/active-triggers.js";
 import { findActiveTaskByOutbound } from "./scheduled-tasks/store.js";
 import { isPlatformStorageConfigured } from "./attachments/platform-storage.js";
@@ -33,7 +37,13 @@ import {
   MISSING_KEY_RESPONSE,
   runPipelinePre,
   runPipelinePost,
+  hasResponseMutatingHook,
+  runResponseGeneratedHooks,
+  type PipelinePreResult,
 } from "./pipeline.js";
+import { generateWithReplay, MAX_REGENERATIONS, EMPTY_SPEND, addPassSpend } from "./hooks/response-replay.js";
+import { hookProvenance } from "./hooks/hook-runner.js";
+import { runOptoutGate } from "./optout/index.js";
 
 // ---------------------------------------------------------------------------
 // Module-level caches (kept in index.ts — they depend on DB lookups)
@@ -44,7 +54,7 @@ const roomCache = new TtlCache<string, RoomConfig | null>({ maxSize: 500, ttlMs:
 
 async function getCachedRoom(slug: string): Promise<RoomConfig | null> {
   if (roomCache.has(slug)) return roomCache.get(slug)!;
-  const room = await getRoomBySlug(slug);
+  const room = await getRoomBySlug(asInstanceSlug(slug));
   roomCache.set(slug, room);
   return room;
 }
@@ -54,7 +64,7 @@ type TaskOutboundResult = { lastConversationId: string | null } | null | undefin
 const taskOutboundCache = new TtlCache<string, TaskOutboundResult>({ maxSize: 500, ttlMs: 30_000 });
 
 async function getCachedTaskOutbound(
-  instanceId: string,
+  instanceId: InstanceSlug,
   channelType: string,
   channelId: string,
 ): Promise<TaskOutboundResult> {
@@ -103,10 +113,15 @@ async function main() {
   initAIGateway(db);
   traceStore.initialize(db);
   auditStore.initialize(db);
+  managementAuditStore.initialize(db);
 
   // 1b. Load tool registry (auto-discover *.tool.ts files)
   await loadAllTools();
   console.log("Tool registry loaded");
+
+  // 1b-0. Load hook function registry (auto-discover *.hook.ts files)
+  await loadAllHooks();
+  console.log("Hook function registry loaded");
 
   // 1b-i. Check platform S3 configuration
   if (!isPlatformStorageConfigured()) {
@@ -154,6 +169,14 @@ async function main() {
 
   // 3a. Synchronous message handler
   async function handleMessage(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<OutgoingMessage> {
+    // GDPR opt-out gate (deterministic, pre-LLM, before Room/task routing so
+    // STOP/START are always honored first). Returns a short-circuit reply
+    // (possibly empty = no outbound) or proceeds to the normal pipeline.
+    const optoutGate = await runOptoutGate(msg);
+    if (!optoutGate.proceed) {
+      return { text: optoutGate.reply };
+    }
+
     const effectiveInstanceId = msg.instanceId || DEFAULT_INSTANCE_ID;
 
     // Check if this is a reply to an active webhook-triggered conversation.
@@ -182,30 +205,98 @@ async function main() {
     const taskConversationOverride = taskMatch?.lastConversationId ?? null;
 
     // Phase 1: Context preparation
-    const pre = await runPipelinePre(msg, taskConversationOverride);
+    const pre = await runPipelinePre(msg, taskConversationOverride, abortSignal);
+    // Pre-generate the assistant message id so the pipeline trace can be linked
+    // to the persisted message by id (not fragile ordinal matching).
+    return runBufferedTurn(msg, pre, abortSignal, randomUUID());
+  }
 
+  /**
+   * Run a turn from an already-computed `runPipelinePre` result: pre-LLM halt
+   * short-circuit, else supervise + runPipelinePost (non-streamed). Shared by
+   * `handleMessage` and the streaming handler's declare-and-buffer branch, so
+   * the supervise+post logic (and `runPipelinePre`) is never duplicated.
+   */
+  async function runBufferedTurn(
+    msg: IncomingMessage,
+    pre: PipelinePreResult,
+    abortSignal?: AbortSignal,
+    assistantMessageId?: string,
+  ): Promise<OutgoingMessage> {
     const { ctx, contextPrepMs, messageText } = pre;
 
-    // Phase 3: Supervisor (LLM call + tool building)
-    let result;
+    // Pre-LLM hook halt: skip the LLM entirely and persist the canned reply as
+    // the assistant message (full turn — runPipelinePost runs post-LLM hooks +
+    // memory/summary and respects the abort/commit gate).
+    if (pre.shortCircuit) {
+      const { finalText } = await runPipelinePost({
+        ctx,
+        contextPrepMs,
+        messageText,
+        channel: msg.channelType,
+        resultText: pre.shortCircuit.text,
+        assistantMessageId,
+        usage: { promptTokens: 0, completionTokens: 0 },
+        durationMs: 0,
+        toolBuildingMs: 0,
+        isStreaming: false,
+        abortSignal,
+        persist: pre.shortCircuit.persist,
+        provenance: hookProvenance(pre.hookExecutions),
+      });
+      return { text: finalText };
+    }
+
+    // Phase 3: Supervisor (LLM call + tool building), with response_generated
+    // replay: a hook may discard the output and ask to re-run the real turn.
+    const agentMeta = msg.metadata?.agentCall as AgentCallMetadata | undefined;
+    const superviseArgs = {
+      message: messageText,
+      conversationHistory: ctx.history,
+      instanceId: ctx.instanceId,
+      conversationId: ctx.conversationId,
+      conversationSummary: ctx.conversationSummary,
+      contextPrompt: ctx.contextPrompt,
+      channelIdentity: ctx.channelIdentity,
+      provider: ctx.instanceConfig.provider,
+      model: ctx.instanceConfig.model,
+      apiKeys: ctx.instanceConfig.apiKeys,
+      secrets: ctx.instanceConfig.secrets,
+      langsmith: ctx.langsmith,
+      memoryEnabled: ctx.instanceConfig.memoryEnabled,
+      knowledgeEnabled: ctx.instanceConfig.knowledgeEnabled,
+      thinkingEnabled: ctx.instanceConfig.thinkingEnabled,
+      thinkingLevel: ctx.instanceConfig.thinkingLevel,
+      temperature: ctx.instanceConfig.temperature ?? undefined,
+      attachments: msg.attachments,
+      abortSignal,
+      agentCallDepth: agentMeta?.depth,
+      agentCallMetadata: agentMeta,
+      stateBuffer: ctx.stateBuffer,
+      stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
+      datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
+      cacheConfig: ctx.instanceConfig.cacheConfig,
+      debugEnabled: ctx.instanceConfig.debugEnabled,
+      optoutHint:
+        ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
+          ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
+          : undefined,
+    };
+
+    // Replay runs supervise up to MAX_REGENERATIONS+1×; accumulate the true spend
+    // across every pass so pipeline_traces reflects the whole turn, not just the
+    // delivered pass (each pass already logs to ai_logs on its own).
+    let spend = EMPTY_SPEND;
+    let replay;
     try {
-      result = await supervise({
-        message: messageText,
-        conversationHistory: ctx.history,
-        instanceId: ctx.instanceId,
-        conversationId: ctx.conversationId,
-        conversationSummary: ctx.conversationSummary,
-        contextPrompt: ctx.contextPrompt,
-        channelIdentity: ctx.channelIdentity,
-        provider: ctx.instanceConfig.provider,
-        model: ctx.instanceConfig.model,
-        apiKeys: ctx.instanceConfig.apiKeys,
-        secrets: ctx.instanceConfig.secrets,
-        langsmith: ctx.langsmith,
-        memoryEnabled: ctx.instanceConfig.memoryEnabled,
-        knowledgeEnabled: ctx.instanceConfig.knowledgeEnabled,
-        thinkingEnabled: ctx.instanceConfig.thinkingEnabled,
-        attachments: msg.attachments,
+      replay = await generateWithReplay({
+        generate: async () => {
+          const r = await supervise(superviseArgs);
+          spend = addPassSpend(spend, r);
+          return r;
+        },
+        evaluate: (text, regen) => runResponseGeneratedHooks(ctx, messageText, text, regen, abortSignal),
+        maxRegenerations: MAX_REGENERATIONS,
         abortSignal,
       });
     } catch (err) {
@@ -215,19 +306,46 @@ async function main() {
       }
       throw err;
     }
+    const { result, finalText: replayText, outcome } = replay;
+    // Only a genuine cap exhaustion warrants this warning: a mid-loop abort also
+    // leaves `outcome.regenerate` set, but there the run is being cancelled (and
+    // runPipelinePost's abort gate skips persistence), not hitting the cap.
+    if (outcome.regenerate && !abortSignal?.aborted) {
+      console.warn(
+        `[pipeline] ${ctx.conversationId}: regenerate still requested after MAX_REGENERATIONS=${MAX_REGENERATIONS} — delivering last output`,
+      );
+    }
 
-    // Phase 4+5: Trace + afterResponse (skipped on abort)
+    // Phase 4+5: Trace + afterResponse (skipped on abort). Pass the pre-computed
+    // response_generated outcome so runPipelinePost neither re-runs those hooks
+    // nor re-applies replace (replayText already reflects it).
     const { finalText } = await runPipelinePost({
       ctx,
       contextPrepMs,
       messageText,
       channel: msg.channelType,
-      resultText: result.text,
-      steps: result.toolCalls,
+      resultText: replayText,
+      responseGenerated: outcome,
+      steps: result.steps,
+      reasoning: result.reasoning,
+      debugPayload: result.debugPayload,
+      assistantMessageId,
       toolCallTraces: result.toolCallTraces,
-      usage: result.usage,
-      durationMs: result.durationMs,
-      toolBuildingMs: result.toolBuildingMs,
+      // Spend fields are the SUM across replay passes; content fields (steps, tools,
+      // reasoning, model…) are the delivered (last) pass.
+      usage: {
+        promptTokens: spend.promptTokens,
+        completionTokens: spend.completionTokens,
+        cachedInputTokens: spend.cachedInputTokens,
+        cacheCreationInputTokens: spend.cacheCreationInputTokens,
+      },
+      model: result.model,
+      provider: result.provider,
+      cost: spend.cost,
+      thinking: result.thinking,
+      temperature: result.temperature,
+      durationMs: spend.llmCallMs,
+      toolBuildingMs: spend.toolBuildingMs,
       isStreaming: false,
       abortSignal,
     });
@@ -241,12 +359,78 @@ async function main() {
 
   // 3b. Streaming message handler (for OpenAI-compatible SSE)
   async function handleMessageStream(msg: IncomingMessage, abortSignal?: AbortSignal): Promise<StreamOutgoingMessage> {
+    // GDPR opt-out gate — same deterministic short-circuit as the sync path,
+    // wrapped as a single-chunk stream (reusing the missing-key pattern below).
+    const optoutGate = await runOptoutGate(msg);
+    if (!optoutGate.proceed) {
+      const reply = optoutGate.reply;
+      async function* singleChunk() { if (reply) yield reply; }
+      return {
+        textStream: singleChunk(),
+        fullStream: (async function* () { if (reply) yield { type: "text-delta", text: reply }; })(),
+        completed: Promise.resolve({ text: reply }),
+      };
+    }
+
     // Phase 1: Context preparation
-    const pre = await runPipelinePre(msg);
+    const pre = await runPipelinePre(msg, undefined, abortSignal);
 
     const { ctx, contextPrepMs, messageText } = pre;
 
+    // Pre-LLM hook halt: emit the canned reply as a single-chunk stream and
+    // persist it via runPipelinePost (post-LLM hooks + memory/summary run).
+    if (pre.shortCircuit) {
+      const canned = pre.shortCircuit.text;
+      const haltMessageId = randomUUID();
+      const completed = runPipelinePost({
+        ctx,
+        contextPrepMs,
+        messageText,
+        channel: msg.channelType,
+        resultText: canned,
+          assistantMessageId: haltMessageId,
+        usage: { promptTokens: 0, completionTokens: 0 },
+        durationMs: 0,
+        toolBuildingMs: 0,
+        isStreaming: true,
+        abortSignal,
+        persist: pre.shortCircuit.persist,
+        provenance: hookProvenance(pre.hookExecutions),
+      }).then(({ finalText, hookExecutions }) => ({ text: finalText, hookExecutions }));
+
+      return {
+        textStream: (async function* () { yield canned; })(),
+        fullStream: (async function* () { yield { type: "text-delta", text: canned }; })(),
+        completed,
+        meta: { conversationId: ctx.conversationId, messageId: haltMessageId },
+        hookExecutions: pre.hookExecutions,
+      };
+    }
+
+    // Declare-and-buffer: an enabled response_generated hook whose function
+    // declares mutatesResponse can replace the reply post-LLM, which cannot
+    // coexist with streaming (tokens would already be sent). Serve the turn
+    // non-streamed — runBufferedTurn supervises + applies any replaceResponse —
+    // then emit the final text as a single chunk. Reuses the computed `pre`, so
+    // runPipelinePre (and its pre-LLM hooks) runs exactly once for the turn.
+    if (await hasResponseMutatingHook(ctx.instanceId)) {
+      // Pre-generate the persisted assistant id and thread it through so the
+      // `meta` echoed in the SSE `done` event addresses the SAME row the debug
+      // payload is stored on (parity with the halt + normal streaming paths).
+      const bufferedMessageId = randomUUID();
+      const out = await runBufferedTurn(msg, pre, abortSignal, bufferedMessageId);
+      const text = out.text;
+      return {
+        textStream: (async function* () { yield text; })(),
+        fullStream: (async function* () { yield { type: "text-delta", text }; })(),
+        completed: Promise.resolve({ text, hookExecutions: [] }),
+        meta: { conversationId: ctx.conversationId, messageId: bufferedMessageId },
+        hookExecutions: pre.hookExecutions,
+      };
+    }
+
     // Phase 3: Supervisor (LLM streaming + tool building)
+    const agentMetaStream = msg.metadata?.agentCall as AgentCallMetadata | undefined;
     let stream;
     try {
       stream = await superviseStream({
@@ -265,8 +449,21 @@ async function main() {
         memoryEnabled: ctx.instanceConfig.memoryEnabled,
         knowledgeEnabled: ctx.instanceConfig.knowledgeEnabled,
         thinkingEnabled: ctx.instanceConfig.thinkingEnabled,
+        thinkingLevel: ctx.instanceConfig.thinkingLevel,
+        temperature: ctx.instanceConfig.temperature ?? undefined,
         attachments: msg.attachments,
         abortSignal,
+        agentCallDepth: agentMetaStream?.depth,
+        agentCallMetadata: agentMetaStream,
+        stateBuffer: ctx.stateBuffer,
+        stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
+        datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
+        cacheConfig: ctx.instanceConfig.cacheConfig,
+        debugEnabled: ctx.instanceConfig.debugEnabled,
+        optoutHint:
+          ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
+            ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
+            : undefined,
       });
     } catch (err) {
       if (isMissingApiKeyError(err)) {
@@ -274,24 +471,37 @@ async function main() {
         async function* singleChunk() { yield MISSING_KEY_RESPONSE; }
         return {
           textStream: singleChunk(),
-          fullStream: (async function* () { yield { type: "text-delta", textDelta: MISSING_KEY_RESPONSE }; })(),
+          fullStream: (async function* () { yield { type: "text-delta", text: MISSING_KEY_RESPONSE }; })(),
           completed: Promise.resolve({ text: MISSING_KEY_RESPONSE }),
         };
       }
       throw err;
     }
 
+    // Pre-generate the assistant message id so first-party SSE consumers can
+    // echo it (with the conversationId) before persistence completes — used to
+    // fetch the per-message debug payload without ordinal-matching.
+    const assistantMessageId = randomUUID();
+
     // Phase 4+5: Deferred — runs after stream completes (skipped on abort)
     const completed = stream.completed.then(async (result) => {
-      const { finalText } = await runPipelinePost({
+      const { finalText, hookExecutions } = await runPipelinePost({
         ctx,
         contextPrepMs,
         messageText,
         channel: msg.channelType,
         resultText: result.text,
-        steps: result.toolCalls,
+        steps: result.steps,
+          reasoning: result.reasoning,
+        debugPayload: result.debugPayload,
+        assistantMessageId,
         toolCallTraces: result.toolCallTraces,
         usage: result.usage,
+        model: result.model,
+        provider: result.provider,
+        cost: result.cost,
+        thinking: result.thinking,
+        temperature: result.temperature,
         durationMs: result.durationMs,
         toolBuildingMs: result.toolBuildingMs,
         ttfbMs: result.ttfbMs,
@@ -299,10 +509,16 @@ async function main() {
         abortSignal,
       });
 
-      return { text: finalText };
+      return { text: finalText, hookExecutions };
     });
 
-    return { textStream: stream.textStream, fullStream: stream.fullStream, completed };
+    return {
+      textStream: stream.textStream,
+      fullStream: stream.fullStream,
+      completed,
+      meta: { conversationId: ctx.conversationId, messageId: assistantMessageId },
+      hookExecutions: pre.hookExecutions,
+    };
   }
 
   // 4. Start NestJS HTTP server (OpenAI-compatible API)
@@ -353,6 +569,7 @@ async function main() {
     await channelManager.shutdownAll();
     await traceStore.shutdown();
     await auditStore.shutdown();
+    await managementAuditStore.shutdown();
     await shutdownGateway();
     shutdownFileLogger();
     process.exit(0);

@@ -2,57 +2,46 @@
 
 import { Controller, Get, Patch, Param, Body, BadRequestException } from "@nestjs/common";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
-import { listAvailableTools, type RequiredSecretSpec } from "../../agents/tools/registry.js";
+import { listAvailableTools } from "../../agents/tools/registry.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { getAllSecretsById } from "../../instances/secrets.store.js";
 import { db } from "../../database/client.js";
 import { instanceTools } from "../../instances/instance-tools.schema.js";
 import { tools } from "../../agents/tools/tools.schema.js";
 import { eq, and, inArray } from "drizzle-orm";
-
-/** Spec returned to the admin UI: includes `currentValue` for non-sensitive `select` fields. */
-type RequiredSecretSpecWithValue = RequiredSecretSpec & { currentValue?: string };
+import {
+  collectInstanceRequiredSecrets,
+  enabledHookSecretSources,
+  attachReadableValues,
+} from "./instance-tools.secrets-view.js";
+import { listHooks } from "../../hooks/hooks.store.js";
+import { getHookRegistry } from "../../hooks/hook-registry.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 @Controller("api/instances")
 export class InstanceToolsController {
+  @RequirePermission(Permission.TOOL_READ)
   @Get(":slug/tools/required-secrets")
   async getRequiredSecrets(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
-    const enabledNames = await getEnabledToolNames(instance.id);
-    const allTools = listAvailableTools();
+    const enabledToolNames = await getEnabledToolNames(instance.id);
+    // Aggregate the secrets of BOTH enabled tools and enabled hooks, so a hook that
+    // declares a secret surfaces in the agent config exactly like a tool's.
+    const hookSources = enabledHookSecretSources(
+      await listHooks(instance.id),
+      (name) => getHookRegistry().get(name),
+    );
+    const specs = collectInstanceRequiredSecrets(listAvailableTools(), enabledToolNames, hookSources);
 
-    // De-duplicate specs by key (first-seen wins). The UI needs the rich form
-    // (type, choices, label, description) so it can render <Select> vs <Input>.
-    const specsByKey = new Map<string, RequiredSecretSpec>();
-    for (const t of allTools) {
-      const isEnabled = enabledNames.size === 0 || enabledNames.has(t.name);
-      if (isEnabled && t.requiredSecrets) {
-        for (const spec of t.requiredSecrets) {
-          if (!specsByKey.has(spec.key)) {
-            specsByKey.set(spec.key, spec);
-          }
-        }
-      }
-    }
+    // Fetch stored values only when at least one field is readable (non-sensitive);
+    // true secrets are never echoed, so there is no reason to load them.
+    const hasReadable = specs.some((s) => s.sensitive === false);
+    const currentSecrets = hasReadable ? await getAllSecretsById(instance.id) : {};
 
-    // For `select` fields, surface the current value in cleartext — it's a non-sensitive
-    // choice (e.g. "tavily"), not a secret. `text` fields (true API keys) stay hidden.
-    const hasSelect = Array.from(specsByKey.values()).some((s) => s.type === "select");
-    const currentSecrets = hasSelect ? await getAllSecretsById(instance.id) : {};
-
-    const requiredSecrets: RequiredSecretSpecWithValue[] = Array.from(specsByKey.values())
-      .sort((a, b) => a.key.localeCompare(b.key))
-      .map((spec) => {
-        if (spec.type === "select") {
-          const currentValue = currentSecrets[spec.key];
-          return currentValue ? { ...spec, currentValue } : { ...spec };
-        }
-        return { ...spec };
-      });
-
-    return { requiredSecrets };
+    return { requiredSecrets: attachReadableValues(specs, currentSecrets) };
   }
 
+  @RequirePermission(Permission.TOOL_READ)
   @Get(":slug/tools")
   async getTools(@Param("slug") slug: string) {
     const instance = await findInstanceOrFail(slug);
@@ -74,6 +63,7 @@ export class InstanceToolsController {
     return { tools: result };
   }
 
+  @RequirePermission(Permission.TOOL_WRITE)
   @Patch(":slug/tools")
   async updateTools(
     @Param("slug") slug: string,

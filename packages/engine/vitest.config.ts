@@ -13,6 +13,6 @@ export default defineConfig({
     globals: true,
     testTimeout: 10000,
     setupFiles: ["./src/test-setup.ts"],
-    include: ["**/*.test.ts", "**/*.integration.test.ts", "**/*.functional.test.ts"],
+    include: ["**/*.test.ts", "**/*.integration.test.ts", "**/*.functional.test.ts", "eslint-rules/**/*.test.js"],
   },
 });

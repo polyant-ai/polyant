@@ -30,6 +30,14 @@ vi.mock("../crypto/index.js", () => ({
   generateToken: vi.fn(() => "deadbeef0"),
 }));
 
+// Owner-last guard on the user-delete path delegates to the members store.
+const { mockIsLastOwnerOfAnyOrg } = vi.hoisted(() => ({
+  mockIsLastOwnerOfAnyOrg: vi.fn(),
+}));
+vi.mock("../organizations/members.store.js", () => ({
+  isLastOwnerOfAnyOrg: mockIsLastOwnerOfAnyOrg,
+}));
+
 import * as store from "./users.store.js";
 import { hashPassword } from "./password.util.js";
 import { UsersService } from "./users.service.js";
@@ -57,6 +65,8 @@ describe("UsersService", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: deleting a user does not orphan any organization's ownership.
+    mockIsLastOwnerOfAnyOrg.mockResolvedValue(false);
     service = new UsersService();
   });
 
@@ -219,6 +229,17 @@ describe("UsersService", () => {
       await expect(
         service.remove("sa", { userId: "other" }),
       ).rejects.toBeInstanceOf(ConflictException);
+      expect(mocked.deleteUserById).not.toHaveBeenCalled();
+    });
+
+    it("blocks deleting the last Owner of an organization", async () => {
+      mocked.getUserById.mockResolvedValueOnce(makeUser({ id: "owner" }));
+      mockIsLastOwnerOfAnyOrg.mockResolvedValueOnce(true);
+
+      await expect(
+        service.remove("owner", { userId: "other" }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(mockIsLastOwnerOfAnyOrg).toHaveBeenCalledWith("owner");
       expect(mocked.deleteUserById).not.toHaveBeenCalled();
     });
 

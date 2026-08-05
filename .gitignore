@@ -8,10 +8,12 @@ logs/
 .DS_Store
 memory.db
 
-# Instance workspaces (runtime data, not committed).
+# Instance workspaces (runtime data + local scratch, not committed).
 # Per-conversation sandboxes live here, including cloned repos:
 # packages/engine/workspaces/{instanceId}/conversations/{convId}/.repos/
-packages/engine/workspaces/*/
+# NOTE: ignore ALL loose contents (files + dirs), not just subdirs, so local
+# scratch files (tokens, one-off scripts) can never be accidentally committed.
+packages/engine/workspaces/*
 
 # Legacy cloned-repos directory (deprecated; kept for safety against leftovers)
 packages/engine/.repos/
@@ -38,3 +40,16 @@ packages/engine/scripts/eval-loop/**/*.md
 # Local Claude Code settings (may contain session tokens or machine-specific permissions)
 .claude/settings.local.json
 
+# CDK
+infra/config.yaml
+infra/cdk.out/
+infra/cdk.context.json
+infra/node_modules/
+infra/dist/
+
+# Playwright E2E (packages/web)
+packages/web/test-results/
+packages/web/playwright-report/
+packages/web/.playwright/
+packages/web/blob-report/
+packages/web/.next-e2e/

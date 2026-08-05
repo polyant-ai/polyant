@@ -2,19 +2,22 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockGenerateEmbedding = vi.fn();
+const mockEmbed = vi.fn();
+const mockResolveEmbeddingContext = vi.fn();
 const mockUpsertMemory = vi.fn();
 
-vi.mock("../../memory/embedder.js", () => ({
-  generateEmbedding: (...args: unknown[]) => mockGenerateEmbedding(...args),
+vi.mock("../../embeddings-gateway/index.js", () => ({
+  embed: (...args: unknown[]) => mockEmbed(...args),
+  embedMany: (...args: unknown[]) => mockEmbed(...args),
+  resolveEmbeddingContext: (...args: unknown[]) => mockResolveEmbeddingContext(...args),
 }));
 
 vi.mock("../../memory/memory-store.js", () => ({
   upsertMemory: (...args: unknown[]) => mockUpsertMemory(...args),
 }));
 
-import "./save-memory.tool.js";
-import { getToolRegistry, buildTool } from "./registry.js";
+import saveMemoryTool from "./save-memory.tool.js";
+import { buildTool } from "./registry.js";
 import { createMockAudit } from "../../test-utils.js";
 
 const ctx = {
@@ -23,22 +26,27 @@ const ctx = {
 } as any;
 
 describe("saveMemory", () => {
-  const def = getToolRegistry().get("saveMemory")!;
+  const def = saveMemoryTool;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const saveMemory = buildTool(def, ctx) as any;
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(console, "error").mockImplementation(() => {});
+    mockResolveEmbeddingContext.mockResolvedValue({
+      instanceId: "user-1",
+      dimensions: 1024,
+      credentials: { provider: "openai", apiKey: "k" },
+    });
   });
 
   it("returns a tool with description and parameters", () => {
     expect(saveMemory.description).toBeDefined();
-    expect(saveMemory.parameters).toBeDefined();
+    expect(saveMemory.inputSchema).toBeDefined();
   });
 
-  it("calls generateEmbedding and upsertMemory with correct args", async () => {
-    mockGenerateEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
+  it("calls embed and upsertMemory with correct args", async () => {
+    mockEmbed.mockResolvedValue([0.1, 0.2, 0.3]);
     mockUpsertMemory.mockResolvedValue({
       id: "m1",
       content: "I like coffee",
@@ -50,13 +58,15 @@ describe("saveMemory", () => {
       { toolCallId: "tc-1", messages: [] } as any,
     );
 
-    expect(mockGenerateEmbedding).toHaveBeenCalledWith("I like coffee", undefined);
+    expect(mockEmbed).toHaveBeenCalledWith("I like coffee", expect.objectContaining({ dimensions: 1024 }));
     expect(mockUpsertMemory).toHaveBeenCalledWith({
       instanceId: "user-1",
       content: "I like coffee",
       category: "general",
       importance: 7,
       embedding: [0.1, 0.2, 0.3],
+      dimensions: 1024,
+      provider: "openai",
     });
     expect(result).toEqual({
       saved: true,
@@ -65,7 +75,7 @@ describe("saveMemory", () => {
   });
 
   it("returns error object on failure without throwing", async () => {
-    mockGenerateEmbedding.mockRejectedValue(new Error("embedding failed"));
+    mockEmbed.mockRejectedValue(new Error("embedding failed"));
 
     const result = await saveMemory.execute(
       { content: "test" },

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { findInstanceBySlug } from "./store.js";
+import { asInstanceSlug, type InstanceSlug } from "./identifiers.js";
 import { getAllSecretsById } from "./secrets.store.js";
 import { SECRET_KEYS } from "./secrets.store.js";
 import { TtlCache } from "../utils/ttl-cache.js";
-import { isThinkingCapable, resolveModel } from "../ai-gateway/config.js";
-import type { ModelTier } from "../ai-gateway/types.js";
+import { isThinkingCapable, resolveModel, clampTemperature, temperatureSupported } from "../ai-gateway/config.js";
+import type { CacheTtl, ModelTier } from "../ai-gateway/types.js";
 import type { STTCredentials, STTProviderName } from "../stt-gateway/types.js";
 
 export interface InstanceConfig {
@@ -14,6 +15,8 @@ export interface InstanceConfig {
   apiKeys: {
     openai?: string;
     anthropic?: string;
+    nebius?: string;
+    bedrock_api_key?: string;
     bedrock_access_key_id?: string;
     bedrock_secret_access_key?: string;
     bedrock_region?: string;
@@ -33,6 +36,34 @@ export interface InstanceConfig {
    * model); the gate lives here to keep runtime requests coherent.
    */
   thinkingEnabled: boolean;
+  /** Reasoning intensity when thinkingEnabled (low|medium|high). Consumed only by the Nebius provider so far. */
+  thinkingLevel: string;
+  /**
+   * Effective sampling temperature: clamped to [0, 2] from the DB value, or
+   * null when the model/provider does not support a custom temperature (e.g.
+   * reasoning models, or when thinking is enabled). null means "use the
+   * provider default".
+   */
+  temperature: number | null;
+  /** When true, the conversation state store is rendered read-only into the system prompt. */
+  stateInPromptEnabled: boolean;
+  /** When true, inject the current date/time into every turn (volatile tail). */
+  datetimeInjectionEnabled: boolean;
+  /** Per-instance prompt-cache control, forwarded verbatim to the ai-gateway ChatRequest. */
+  cacheConfig: { enabled: boolean; ttl: CacheTtl };
+  /** When true, prior-turn tool calls + results are reconstructed (truncated) into the model's history. */
+  toolResultsInHistoryEnabled: boolean;
+  /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
+  debugEnabled: boolean;
+  /** GDPR opt-out feature config (per instance). */
+  optout: {
+    enabled: boolean;
+    stopKeywords: string[];
+    resumeKeywords: string[];
+    closingMessage: string | null;
+    resumeMessage: string | null;
+    injectPromptHint: boolean;
+  };
   stt: {
     provider: STTProviderName;
     credentials: STTCredentials;
@@ -59,7 +90,7 @@ function effectiveModelFor(provider: string | undefined, model: string | undefin
 const cache = new TtlCache<string, InstanceConfig>({ maxSize: 200, ttlMs: 30_000 });
 
 /** Invalidate cached config for a specific instance. */
-export function invalidateInstanceConfigCache(slug: string): void {
+export function invalidateInstanceConfigCache(slug: InstanceSlug): void {
   cache.delete(slug);
 }
 
@@ -72,13 +103,13 @@ export function invalidateAllInstanceConfigCache(): void {
  * Resolve full instance configuration including decrypted secrets.
  * Results are cached for 30 seconds.
  */
-export async function resolveInstanceConfig(instanceSlug: string): Promise<InstanceConfig> {
+export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise<InstanceConfig> {
   const cached = cache.get(instanceSlug);
   if (cached) {
     return cached;
   }
 
-  const instance = await findInstanceBySlug(instanceSlug);
+  const instance = await findInstanceBySlug(asInstanceSlug(instanceSlug));
   if (!instance) {
     // Return a minimal config for unknown instances
     return {
@@ -91,6 +122,14 @@ export async function resolveInstanceConfig(instanceSlug: string): Promise<Insta
       memoryEnabled: false,
       knowledgeEnabled: false,
       thinkingEnabled: false,
+      thinkingLevel: "medium",
+      temperature: null,
+      stateInPromptEnabled: false,
+      datetimeInjectionEnabled: true,
+      cacheConfig: { enabled: true, ttl: "1h" },
+      toolResultsInHistoryEnabled: false,
+      debugEnabled: false,
+      optout: { enabled: false, stopKeywords: ["STOP"], resumeKeywords: ["START"], closingMessage: null, resumeMessage: null, injectPromptHint: true },
       stt: { provider: "openai", credentials: {} },
     };
   }
@@ -107,19 +146,29 @@ export async function resolveInstanceConfig(instanceSlug: string): Promise<Insta
   }
   if (
     sttProvider === "aws" &&
-    secrets[SECRET_KEYS.AWS_ACCESS_KEY_ID] &&
-    secrets[SECRET_KEYS.AWS_SECRET_ACCESS_KEY] &&
-    secrets[SECRET_KEYS.AWS_REGION]
+    secrets[SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID] &&
+    secrets[SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY] &&
+    secrets[SECRET_KEYS.AWS_PROVIDER_REGION]
   ) {
     sttCredentials.aws = {
-      accessKeyId: secrets[SECRET_KEYS.AWS_ACCESS_KEY_ID],
-      secretAccessKey: secrets[SECRET_KEYS.AWS_SECRET_ACCESS_KEY],
-      region: secrets[SECRET_KEYS.AWS_REGION],
+      accessKeyId: secrets[SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID],
+      secretAccessKey: secrets[SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY],
+      region: secrets[SECRET_KEYS.AWS_PROVIDER_REGION],
     };
   }
   if (sttProvider === "deepgram" && secrets[SECRET_KEYS.DEEPGRAM_API_KEY]) {
     sttCredentials.deepgram = { apiKey: secrets[SECRET_KEYS.DEEPGRAM_API_KEY] };
   }
+
+  // Gate the persisted preference behind the actual capability of the model
+  // that will run. A stale `thinkingEnabled=true` after switching to a
+  // non-capable model has no runtime effect.
+  const resolvedThinkingEnabled =
+    instance.thinkingEnabled &&
+    isThinkingCapable(
+      instance.provider ?? "",
+      effectiveModelFor(instance.provider ?? undefined, instance.model ?? undefined) ?? "",
+    );
 
   const config: InstanceConfig = {
     provider: instance.provider ?? undefined,
@@ -127,9 +176,11 @@ export async function resolveInstanceConfig(instanceSlug: string): Promise<Insta
     apiKeys: {
       openai: secrets[SECRET_KEYS.OPENAI_API_KEY],
       anthropic: secrets[SECRET_KEYS.ANTHROPIC_API_KEY],
-      bedrock_access_key_id: secrets[SECRET_KEYS.AWS_ACCESS_KEY_ID],
-      bedrock_secret_access_key: secrets[SECRET_KEYS.AWS_SECRET_ACCESS_KEY],
-      bedrock_region: secrets[SECRET_KEYS.AWS_REGION],
+      nebius: secrets[SECRET_KEYS.NEBIUS_API_KEY],
+      bedrock_api_key: secrets[SECRET_KEYS.BEDROCK_API_KEY],
+      bedrock_access_key_id: secrets[SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID],
+      bedrock_secret_access_key: secrets[SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY],
+      bedrock_region: secrets[SECRET_KEYS.AWS_PROVIDER_REGION],
     },
     secrets,
     langsmith: {
@@ -141,15 +192,31 @@ export async function resolveInstanceConfig(instanceSlug: string): Promise<Insta
     authApiKey: secrets[SECRET_KEYS.AUTH_API_KEY],
     memoryEnabled: instance.memoryEnabled,
     knowledgeEnabled: instance.knowledgeEnabled,
-    // Gate the persisted preference behind the actual capability of the model
-    // that will run. A stale `thinkingEnabled=true` after switching to a
-    // non-capable model has no runtime effect.
-    thinkingEnabled:
-      instance.thinkingEnabled &&
-      isThinkingCapable(
-        instance.provider ?? "",
-        effectiveModelFor(instance.provider ?? undefined, instance.model ?? undefined) ?? "",
-      ),
+    thinkingEnabled: resolvedThinkingEnabled,
+    thinkingLevel: (instance as { thinkingLevel?: string }).thinkingLevel ?? "medium",
+    temperature: temperatureSupported(
+      instance.provider ?? "",
+      effectiveModelFor(instance.provider ?? undefined, instance.model ?? undefined) ?? "",
+      resolvedThinkingEnabled,
+    )
+      ? clampTemperature(instance.temperature)
+      : null,
+    stateInPromptEnabled: instance.stateInPromptEnabled,
+    datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
+    cacheConfig: {
+      enabled: instance.cacheEnabled,
+      ttl: instance.cacheTtl === "5m" ? "5m" : "1h",
+    },
+    toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    debugEnabled: instance.debugEnabled,
+    optout: {
+      enabled: instance.optoutEnabled,
+      stopKeywords: instance.optoutStopKeywords,
+      resumeKeywords: instance.optoutResumeKeywords,
+      closingMessage: instance.optoutClosingMessage,
+      resumeMessage: instance.optoutResumeMessage,
+      injectPromptHint: instance.optoutInjectPromptHint,
+    },
     stt: { provider: sttProvider, credentials: sttCredentials },
   };
 

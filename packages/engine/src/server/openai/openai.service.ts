@@ -2,7 +2,7 @@
 
 import { Injectable } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 import type { MessageHandler, StreamMessageHandler, StreamOutgoingMessage } from "../../channels/types.js";
 import type {
   ChatCompletionRequest,
@@ -11,6 +11,7 @@ import type {
 } from "./openai.types.js";
 import { DEFAULT_INSTANCE_ID } from "../../config.js";
 import { listActiveInstances, type Instance } from "../../instances/store.js";
+import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
 
 @Injectable()
 export class OpenAIService {
@@ -83,9 +84,9 @@ export class OpenAIService {
 
   private prepareRequest(request: ChatCompletionRequest): {
     text: string;
-    conversationHistory: CoreMessage[];
+    conversationHistory: ModelMessage[];
     systemMessages: Array<{ role: "system"; content: string }>;
-    instanceId: string;
+    instanceId: InstanceSlug;
     channelId: string;
   } {
     const { messages, chat_id } = request;
@@ -96,11 +97,11 @@ export class OpenAIService {
       .find((m) => m.role === "user");
     const text = lastUserMsg?.content ?? "";
 
-    // Convert previous messages to CoreMessage[] for conversation history
+    // Convert previous messages to ModelMessage[] for conversation history
     const lastUserIdx = lastUserMsg
       ? messages.lastIndexOf(lastUserMsg)
       : messages.length;
-    const conversationHistory = this.toCoreMessages(
+    const conversationHistory = this.toModelMessages(
       messages.slice(0, lastUserIdx),
     );
 
@@ -109,8 +110,9 @@ export class OpenAIService {
       .filter((m): m is ChatCompletionMessage & { role: "system" } => m.role === "system")
       .map((m) => ({ role: "system" as const, content: m.content }));
 
-    // Use the model field as instance slug (falls back to default)
-    const instanceId = request.model || DEFAULT_INSTANCE_ID;
+    // Use the model field as instance slug (falls back to default).
+    // `request.model` is the client-chosen instance slug; its existence is validated downstream by findInstanceBySlug.
+    const instanceId = request.model ? asInstanceSlug(request.model) : DEFAULT_INSTANCE_ID;
 
     const channelId = this.deriveChannelId(messages, chat_id);
 
@@ -129,7 +131,7 @@ export class OpenAIService {
     return `api-${randomUUID()}`;
   }
 
-  private toCoreMessages(messages: ChatCompletionMessage[]): CoreMessage[] {
+  private toModelMessages(messages: ChatCompletionMessage[]): ModelMessage[] {
     return messages
       .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "system")
       .map((m) => ({

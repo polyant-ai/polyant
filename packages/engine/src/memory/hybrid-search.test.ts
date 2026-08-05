@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 const mockSearchByVector = vi.fn();
-const mockGenerateEmbedding = vi.fn();
+const mockEmbed = vi.fn();
+const mockResolveEmbeddingContext = vi.fn();
 const mockSearchByKeyword = vi.fn();
 
 vi.mock("./memory-store.js", () => ({
   searchByVector: (...args: unknown[]) => mockSearchByVector(...args),
 }));
 
-vi.mock("./embedder.js", () => ({
-  generateEmbedding: (...args: unknown[]) => mockGenerateEmbedding(...args),
+vi.mock("../embeddings-gateway/index.js", () => ({
+  embed: (...args: unknown[]) => mockEmbed(...args),
+  embedMany: (...args: unknown[]) => mockEmbed(...args),
+  resolveEmbeddingContext: (...args: unknown[]) => mockResolveEmbeddingContext(...args),
 }));
 
 vi.mock("../conversations/index.js", () => ({
@@ -54,7 +58,12 @@ function makePgResult(id: string, content: string, rank: number) {
 describe("hybridSearch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGenerateEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockEmbed.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockResolveEmbeddingContext.mockResolvedValue({
+      instanceId: "user-1",
+      dimensions: 1024,
+      credentials: { provider: "openai", apiKey: "k" },
+    });
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
@@ -62,7 +71,7 @@ describe("hybridSearch", () => {
     mockSearchByVector.mockResolvedValue([]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await hybridSearch("test query", "user-1");
+    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
     expect(results).toEqual([]);
   });
 
@@ -73,7 +82,7 @@ describe("hybridSearch", () => {
     ]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await hybridSearch("test query", "user-1");
+    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
     expect(results).toHaveLength(2);
     expect(results[0].type).toBe("memory");
     expect(results[0].content).toBe("Memory one");
@@ -86,7 +95,7 @@ describe("hybridSearch", () => {
       makePgResult("pg1", "Conversation one", 0),
     ]);
 
-    const results = await hybridSearch("test query", "user-1");
+    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
     expect(results).toHaveLength(1);
     expect(results[0].type).toBe("conversation");
     expect(results[0].content).toBe("Conversation one");
@@ -102,7 +111,7 @@ describe("hybridSearch", () => {
       makePgResult("pg2", "Delta", 1),
     ]);
 
-    const results = await hybridSearch("test query", "user-1");
+    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
     expect(results).toHaveLength(4);
     // First items from each backend should have equal score (rank 0 in respective backends)
     expect(results[0].score).toBe(results[1].score);
@@ -119,7 +128,7 @@ describe("hybridSearch", () => {
       makePgResult("pg2", "E", 1),
     ]);
 
-    const results = await hybridSearch("test query", "user-1", 2);
+    const results = await hybridSearch("test query", asInstanceSlug("user-1"), 2);
     expect(results).toHaveLength(2);
   });
 
@@ -129,7 +138,7 @@ describe("hybridSearch", () => {
     ]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await hybridSearch("test query", "user-1");
+    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
     const scoreStr = results[0].score.toString();
     const decimals = scoreStr.split(".")[1] || "";
     expect(decimals.length).toBeLessThanOrEqual(4);
@@ -141,11 +150,12 @@ describe("hybridSearch", () => {
 
     await hybridSearch("test query");
 
-    expect(mockGenerateEmbedding).toHaveBeenCalledWith("test query", undefined);
+    expect(mockEmbed).toHaveBeenCalledWith("test query", expect.objectContaining({ dimensions: 1024 }));
     expect(mockSearchByVector).toHaveBeenCalledWith(
       [0.1, 0.2, 0.3],
       "test-default-user",
       expect.any(Number),
+      1024,
     );
     expect(mockSearchByKeyword).toHaveBeenCalledWith(
       "test query",
@@ -160,7 +170,7 @@ describe("hybridSearch", () => {
       makePgResult("pg1", "Still works", 0),
     ]);
 
-    const results = await hybridSearch("test query", "user-1");
+    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
     expect(results).toHaveLength(1);
     expect(results[0].content).toBe("Still works");
   });
@@ -171,7 +181,7 @@ describe("hybridSearch", () => {
     ]);
     mockSearchByKeyword.mockRejectedValue(new Error("PG down"));
 
-    const results = await hybridSearch("test query", "user-1");
+    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
     expect(results).toHaveLength(1);
     expect(results[0].content).toBe("Still works");
   });
@@ -182,7 +192,7 @@ describe("hybridSearch", () => {
     ]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    const results = await hybridSearch("test query", "user-1");
+    const results = await hybridSearch("test query", asInstanceSlug("user-1"));
     // RRF score for rank 0 with k=60: 1 / (60 + 0 + 1) = 1/61
     const expectedScore = Math.round((1 / 61) * 10000) / 10000;
     expect(results[0].score).toBe(expectedScore);
@@ -192,24 +202,31 @@ describe("hybridSearch", () => {
     mockSearchByVector.mockResolvedValue([]);
     mockSearchByKeyword.mockResolvedValue([]);
 
-    await hybridSearch("test query", "user-1", 5);
+    await hybridSearch("test query", asInstanceSlug("user-1"), 5);
     // fetchLimit = Math.max(5*2, 20) = 20
     expect(mockSearchByVector).toHaveBeenCalledWith(
       [0.1, 0.2, 0.3],
       "user-1",
       20,
+      1024,
     );
     expect(mockSearchByKeyword).toHaveBeenCalledWith("test query", "user-1", 20);
 
     vi.clearAllMocks();
-    mockGenerateEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockEmbed.mockResolvedValue([0.1, 0.2, 0.3]);
+    mockResolveEmbeddingContext.mockResolvedValue({
+      instanceId: "user-1",
+      dimensions: 1024,
+      credentials: { provider: "openai", apiKey: "k" },
+    });
 
-    await hybridSearch("test query", "user-1", 15);
+    await hybridSearch("test query", asInstanceSlug("user-1"), 15);
     // fetchLimit = Math.max(15*2, 20) = 30
     expect(mockSearchByVector).toHaveBeenCalledWith(
       [0.1, 0.2, 0.3],
       "user-1",
       30,
+      1024,
     );
     expect(mockSearchByKeyword).toHaveBeenCalledWith("test query", "user-1", 30);
   });

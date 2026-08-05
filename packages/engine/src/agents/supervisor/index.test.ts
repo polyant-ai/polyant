@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
 const {
   mockChat,
@@ -45,6 +46,11 @@ vi.mock("../tools/registry.js", () => ({
     (input ?? []).map((e) =>
       typeof e === "string" ? { key: e, type: "text" as const } : e,
     ),
+  // Pass-through: scoping is unit-tested in registry.test.ts; here it must not
+  // strip secrets so the buildTools assertions see the bag they expect.
+  scopeSecrets: (secrets: unknown) => secrets,
+  // Real behaviour: ':' → '__' (so the namespaced-tool presentation test passes).
+  toModelToolName: (name: string) => name.replace(/:/g, "__"),
 }));
 
 vi.mock("../tools/task-tool.js", () => ({
@@ -61,8 +67,14 @@ vi.mock("../../utils/pipeline-logger.js", () => ({
 
 vi.mock("../../config.js", () => ({
   DEFAULT_INSTANCE_ID: "default",
-  config: { agent: { callTimeoutMs: 60000 } },
+  config: { agent: { callTimeoutMs: 60000 }, plugins: {} },
 }));
+
+// supervisor/index.ts imports makeOAuthAccess → oauth-access → oauth-providers →
+// secrets.store → database/client, whose top-level postgres() would run against
+// the mocked (postgres-less) config. Stub the DB client so no real connection is
+// created; these tests never touch the OAuth token vault.
+vi.mock("../../database/client.js", () => ({ db: {}, queryClient: {} }));
 
 vi.mock("../../instances/instance-tools.store.js", () => ({
   getEnabledToolNames: mockGetEnabledToolNames,
@@ -88,8 +100,9 @@ vi.mock("../tools/agent-invoke.helpers.js", () => ({
 
 vi.mock("../../channels/adapters/agent.adapter.js", () => ({}));
 
-import { supervise, superviseStream } from "./index.js";
+import { buildUserContent, supervise, superviseStream } from "./index.js";
 import type { SupervisorInput } from "./index.js";
+import type { Attachment } from "../../channels/types.js";
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -118,7 +131,7 @@ beforeEach(() => {
   );
   mockBuildTool.mockReturnValue({ _type: "mock-tool" });
   mockCreateTaskTool.mockReturnValue({ _type: "task-tool" });
-  mockBuildPrompt.mockResolvedValue("System prompt content");
+  mockBuildPrompt.mockResolvedValue({ system: "System prompt content", turnContext: "" });
   mockChat.mockResolvedValue(defaultChatResponse);
 });
 
@@ -128,7 +141,7 @@ beforeEach(() => {
 
 describe("supervise", () => {
   it("resolves instance by slug", async () => {
-    await supervise({ message: "hi", instanceId: "my-instance" });
+    await supervise({ message: "hi", instanceId: asInstanceSlug("my-instance") });
 
     expect(mockFindInstanceBySlug).toHaveBeenCalledWith("my-instance");
   });
@@ -140,7 +153,7 @@ describe("supervise", () => {
   });
 
   it("calls chat with tier standard, system prompt, messages, and tools", async () => {
-    await supervise({ message: "hi", instanceId: "inst-1" });
+    await supervise({ message: "hi", instanceId: asInstanceSlug("inst-1") });
 
     expect(mockChat).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -164,9 +177,8 @@ describe("supervise", () => {
 
     expect(result).toEqual(expect.objectContaining({
       text: "Hello from supervisor",
-      // SupervisorOutput.toolCalls is derived from ChatResponse.steps:
-      // empty steps → undefined toolCalls (matches previous flat-array semantics).
-      toolCalls: undefined,
+      // Empty multi-step trace: no tools were used in this run.
+      steps: [],
       usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
       durationMs: 1234,
     }));
@@ -199,6 +211,22 @@ describe("supervise", () => {
         apiKeys: { anthropic: "sk-ant-xxx" },
         langsmith: { apiKey: "ls-key", project: "my-project" },
       }),
+      expect.anything(),
+    );
+  });
+
+  it("forwards temperature to the gateway when provided", async () => {
+    await supervise({ message: "hi", temperature: 0.2 });
+    expect(mockChat).toHaveBeenCalledWith(
+      expect.objectContaining({ temperature: 0.2 }),
+      expect.anything(),
+    );
+  });
+
+  it("omits temperature when not provided", async () => {
+    await supervise({ message: "hi" });
+    expect(mockChat).toHaveBeenCalledWith(
+      expect.not.objectContaining({ temperature: expect.anything() }),
       expect.anything(),
     );
   });
@@ -250,7 +278,9 @@ describe("supervise", () => {
         conversationSummary: "The user asked about weather",
       });
 
-      // Summary goes to buildSupervisorSystemPrompt, not into messages
+      // Summary is forwarded to the prompt builder (which places it in the
+      // per-turn context block); it is NEVER fabricated as a user/assistant pair
+      // in messages. With an empty turnContext here the current message is raw.
       expect(mockBuildPrompt).toHaveBeenCalledWith(
         expect.objectContaining({ conversationSummary: "The user asked about weather" }),
       );
@@ -285,6 +315,34 @@ describe("supervise", () => {
       expect(callArgs.messages).toEqual([
         { role: "user", content: "standalone" },
       ]);
+    });
+
+    it("injects the per-turn volatile context into the tail of the current user message", async () => {
+      mockBuildPrompt.mockResolvedValueOnce({
+        system: "System prompt content",
+        turnContext: "# Date and Time\n\nCurrent date and time: Monday",
+      });
+
+      await supervise({
+        message: "what time is it?",
+        conversationHistory: [{ role: "user" as const, content: "earlier" }],
+      });
+
+      const callArgs = mockChat.mock.calls[0][0];
+      // Prior history stays byte-identical (cacheable); only the current turn carries context.
+      expect(callArgs.messages[0]).toEqual({ role: "user", content: "earlier" });
+      const current = callArgs.messages[1];
+      expect(current.role).toBe("user");
+      // The current turn is now separate content blocks: user words FIRST (the
+      // block the cache breakpoint targets), volatile <context> LAST.
+      expect(Array.isArray(current.content)).toBe(true);
+      expect(current.content[0]).toEqual({ type: "text", text: "what time is it?" });
+      expect(current.content[current.content.length - 1]).toEqual({
+        type: "text",
+        text: "<context>\n# Date and Time\n\nCurrent date and time: Monday\n</context>",
+      });
+      // The stable system prompt no longer carries the volatile datetime.
+      expect(callArgs.system).toBe("System prompt content");
     });
   });
 
@@ -357,6 +415,26 @@ describe("supervise", () => {
       expect(toolsArg).toHaveProperty("spawnTask");
     });
 
+    it("presents a namespaced plugin tool to the model with ':' sanitized to '__'", async () => {
+      mockGetToolRegistry.mockReturnValue(
+        new Map([
+          ["acme:updateContactCrm", { name: "acme:updateContactCrm", description: "d", category: "plugin", inputSchema: { type: "object" }, execute: vi.fn() }],
+        ]),
+      );
+      mockGetEnabledToolNames.mockResolvedValue(new Set(["acme:updateContactCrm"]));
+
+      await supervise({ message: "hi" });
+
+      // Bedrock/OpenAI/Anthropic reject ':' in a tool name; the model must see '__'.
+      const toolsArg = mockChat.mock.calls[0][0].tools;
+      expect(toolsArg).toHaveProperty("acme__updateContactCrm");
+      expect(toolsArg).not.toHaveProperty("acme:updateContactCrm");
+      // The canonical ':' name stays the identity for governance/audit (buildTool
+      // is called with the original def whose name keeps the ':').
+      const builtNames = mockBuildTool.mock.calls.map((c: unknown[]) => (c[0] as { name: string }).name);
+      expect(builtNames).toContain("acme:updateContactCrm");
+    });
+
     it("does not include spawnTask when not in enabled tool names", async () => {
       mockGetEnabledToolNames.mockResolvedValue(new Set(["read"]));
 
@@ -426,7 +504,7 @@ describe("supervise", () => {
       mockGetEnabledToolNames.mockResolvedValue(new Set(["spawnTask"]));
 
       const apiKeys = { openai: "sk-test" };
-      await supervise({ message: "hi", apiKeys, instanceId: "my-instance", conversationId: "conv-1" });
+      await supervise({ message: "hi", apiKeys, instanceId: asInstanceSlug("my-instance"), conversationId: "conv-1" });
 
       expect(mockCreateTaskTool).toHaveBeenCalledWith(
         expect.any(Object),
@@ -465,7 +543,7 @@ describe("superviseStream", () => {
   });
 
   it("resolves instance by slug", async () => {
-    await superviseStream({ message: "hi", instanceId: "stream-inst" });
+    await superviseStream({ message: "hi", instanceId: asInstanceSlug("stream-inst") });
 
     expect(mockFindInstanceBySlug).toHaveBeenCalledWith("stream-inst");
   });
@@ -490,8 +568,8 @@ describe("superviseStream", () => {
 
     expect(output).toEqual(expect.objectContaining({
       text: "Hello from supervisor",
-      // Empty steps → undefined toolCalls (matches the legacy flat-array semantics).
-      toolCalls: undefined,
+      // Empty multi-step trace: no tools were used in this run.
+      steps: [],
       usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
       durationMs: 1234,
     }));
@@ -534,7 +612,7 @@ describe("superviseStream", () => {
   });
 
   it("calls chatStream with standard tier and system prompt", async () => {
-    await superviseStream({ message: "test", instanceId: "x" });
+    await superviseStream({ message: "test", instanceId: asInstanceSlug("x") });
 
     expect(mockChatStream).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -582,7 +660,8 @@ describe("superviseStream", () => {
       conversationSummary: "summary of current conversation",
     });
 
-    // Summary goes to buildSupervisorSystemPrompt
+    // Summary is forwarded to the prompt builder (per-turn context block), not
+    // fabricated as a message pair. Empty turnContext here → raw current message.
     expect(mockBuildPrompt).toHaveBeenCalledWith(
       expect.objectContaining({ conversationSummary: "summary of current conversation" }),
     );
@@ -593,5 +672,47 @@ describe("superviseStream", () => {
       { role: "user", content: "prev" },
       { role: "user", content: "next" },
     ]);
+  });
+});
+
+describe("buildUserContent", () => {
+  const image: Attachment[] = [
+    { type: "image", data: Buffer.from("BASE64"), mimeType: "image/jpeg", fileName: "photo.jpg" },
+  ];
+
+  it("returns a plain string when there is no context and no attachments", () => {
+    expect(buildUserContent("hello", "")).toBe("hello");
+  });
+
+  it("puts user words FIRST and the volatile <context> tail LAST as separate blocks", () => {
+    const parts = buildUserContent("hello", "<current_datetime>now</current_datetime>") as {
+      type: string;
+      text?: string;
+    }[];
+    expect(Array.isArray(parts)).toBe(true);
+    expect(parts[0]).toEqual({ type: "text", text: "hello" });
+    expect(parts[parts.length - 1]).toEqual({
+      type: "text",
+      text: "<context>\n<current_datetime>now</current_datetime>\n</context>",
+    });
+  });
+
+  it("does NOT emit a leading empty text block for an uncaptioned attachment (regression)", () => {
+    // Image sent with no caption → message === "" + attachments. A LEADING empty
+    // text block is rejected by Anthropic/Bedrock; the first block must be the image.
+    const parts = buildUserContent("", "<current_datetime>now</current_datetime>", image) as {
+      type: string;
+      text?: string;
+    }[];
+    expect(parts.some((p) => p.type === "text" && p.text === "")).toBe(false);
+    expect(parts[0].type).toBe("image");
+    // Volatile context still rides the tail.
+    expect(parts[parts.length - 1]).toMatchObject({ type: "text" });
+  });
+
+  it("keeps the user-words block first when both a caption and an attachment are present", () => {
+    const parts = buildUserContent("caption", "", image) as { type: string; text?: string }[];
+    expect(parts[0]).toEqual({ type: "text", text: "caption" });
+    expect(parts[1].type).toBe("image");
   });
 });

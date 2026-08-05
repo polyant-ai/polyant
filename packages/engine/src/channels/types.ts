@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { ChannelType } from "../instances/channels.store.js";
+import type { InstanceSlug } from "../instances/identifiers.js";
 
 /**
  * Provenance tag for any message flowing through the pipeline.
@@ -61,7 +62,7 @@ export interface IncomingMessage {
   channelId: string;
 
   /** Instance ID (determines which workspace/personality to use) */
-  instanceId: string;
+  instanceId: InstanceSlug;
 
   /** User display name (when available) */
   userName?: string;
@@ -83,6 +84,11 @@ export interface OutgoingMessage {
   /** Optional structured attachments */
   attachments?: Attachment[];
 
+  /** Optional public media URL(s) to deliver alongside the text (e.g. a PDF or
+   *  image). Channel adapters that support media (e.g. WhatsApp/Twilio) attach
+   *  it; others ignore it. */
+  mediaUrl?: string | string[];
+
   /** Tool calls made during the response (for observability) */
   toolCalls?: Array<{ name: string; args?: Record<string, unknown>; durationMs?: number }>;
 
@@ -103,7 +109,20 @@ export type MessageHandler = (msg: IncomingMessage, signal?: AbortSignal) => Pro
 export interface StreamOutgoingMessage {
   textStream: AsyncIterable<string>;
   fullStream: AsyncIterable<unknown>;
-  completed: Promise<{ text: string }>;
+  completed: Promise<{
+    text: string;
+    /** Post-LLM hook outcomes (response_generated + response_sent), for live SSE rendering. */
+    hookExecutions?: import("../hooks/hook-types.js").HookExecutionSummary[];
+  }>;
+  /**
+   * Stable identifiers for the persisted assistant turn, known synchronously when
+   * the stream is created (the assistant message UUID is pre-generated). Lets a
+   * first-party SSE consumer echo them (e.g. in the `done` event) so the client
+   * can later fetch the per-message debug payload without ordinal-matching.
+   */
+  meta?: { conversationId: string; messageId: string };
+  /** Pre-LLM hook outcomes (conversation_start + message_received), known when the stream is created. */
+  hookExecutions?: import("../hooks/hook-types.js").HookExecutionSummary[];
 }
 
 export type StreamMessageHandler = (msg: IncomingMessage, signal?: AbortSignal) => Promise<StreamOutgoingMessage>;

@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { registerTool, type ToolContext } from "./registry.js";
+import { defineTool } from "@polyant-ai/plugin-sdk";
+import type { ToolContext } from "./registry.js";
 import { errMsg } from "../../utils/error.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 import { hubspotFetch, getHubSpotApiKeyOrError, HUBSPOT_ASSOCIATION_TYPES, resolveContactIdFromPhone } from "./hubspot-fetch.js";
 import { getHubSpotPortalId, hubspotUrl } from "./hubspot-portal.js";
 import { ensureHtmlBody } from "./hubspot-rich-text.js";
 
-registerTool({
+export default defineTool({
   name: "hubspotNote",
   description:
     "Manage notes in the HubSpot CRM (action: create | search | update).\n" +
@@ -35,8 +36,7 @@ registerTool({
       input: { action: "update", noteId: "987654321", body: "[CONTACT_PROFILE]\nLast updated: 2026-04-20\nPreferences: vegan" },
     },
   ],
-  create: (ctx) => ({
-    parameters: z.object({
+  parameters: z.object({
       action: z.enum(["create", "search", "update"]).describe("'create' for a new note, 'search' to query, 'update' to modify an existing note"),
       // --- create + update params ---
       body: z
@@ -85,7 +85,7 @@ registerTool({
         .nullable()
         .describe("Maximum number of results (default 20, max 100, search only)"),
     }),
-    execute: async (params: {
+  execute: async (params: {
       action: "create" | "search" | "update";
       body: string | null;
       noteId: string | null;
@@ -98,7 +98,7 @@ registerTool({
       createdAfter: string | null;
       createdBefore: string | null;
       limit: number | null;
-    }) => {
+    }, ctx) => {
       const apiKeyResult = getHubSpotApiKeyOrError(ctx);
       if (typeof apiKeyResult !== "string") return apiKeyResult;
       const apiKey = apiKeyResult;
@@ -124,7 +124,6 @@ registerTool({
 
       return createNote(ctx, apiKey, paramsWithResolvedContact);
     },
-  }),
 });
 
 async function createNote(

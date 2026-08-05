@@ -6,6 +6,8 @@ export type {
   UserRole,
   CreateUserResponse,
   ResetPasswordResponse,
+  MemberRole,
+  OrganizationMember,
   Instance,
   SecretStatus,
   ChannelConfig,
@@ -28,6 +30,12 @@ export type {
   ConversationListItem,
   ConversationSearchResult,
   ConversationMessage,
+  CostBreakdown,
+  MessageLatency,
+  MessageDebug,
+  LlmDebugPayload,
+  ReasoningDetail,
+  StepDetail,
   AttachmentMeta,
   Memory,
   KnowledgeDocument,
@@ -52,9 +60,18 @@ export type {
   AuditStatsResult,
   EventSource,
   EventDefinition,
+  HookEvent,
+  InstanceHook,
+  HookFunctionInfo,
+  HookExecution,
   BacklogEvent,
   ActivityLogEntry,
+  OptoutContact,
+  EmbeddingWipeResult,
 } from "./api-types";
+
+// Re-export value-level constants (the `export type` block above only carries types).
+export { MEMBER_ROLES } from "./api-types";
 
 // Internal import — only types used in the api object below (re-exports don't make types locally available)
 import type {
@@ -80,6 +97,7 @@ import type {
   ScheduledTaskRun,
   ConversationListItem,
   ConversationMessage,
+  MessageDebug,
   Memory,
   KnowledgeDocument,
   KnowledgeDocumentDetail,
@@ -89,11 +107,25 @@ import type {
   AuditStatsResult,
   EventSource,
   EventDefinition,
+  HookEvent,
+  InstanceHook,
+  HookFunctionInfo,
+  HookExecution,
   BacklogEvent,
   ActivityLogEntry,
+  OptoutContact,
+  EmbeddingWipeResult,
+  OrganizationMember,
 } from "./api-types";
 
 // ── HTTP Client ─────────────────────────────────────────────────────
+
+/**
+ * The single OSS organization slug. The OSS build is single-org (the migration
+ * seeds one default org); the management plane addresses it by this slug. When
+ * multi-org lands (Phase 2) this becomes a route param instead of a constant.
+ */
+export const DEFAULT_ORG_SLUG = "default";
 
 // API calls go through Next.js rewrites (which proxy to engine and forward cookies)
 // In client components, relative paths are resolved against the browser origin (the Next.js app)
@@ -175,6 +207,22 @@ export const api = {
         body: JSON.stringify(data),
       }),
   },
+  members: {
+    list: (orgSlug: string = DEFAULT_ORG_SLUG) =>
+      request<{ members: OrganizationMember[] }>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/members`,
+      ),
+    assign: (userId: string, roleKey: string, orgSlug: string = DEFAULT_ORG_SLUG) =>
+      request<{ assigned: boolean }>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
+        { method: "PUT", body: JSON.stringify({ roleKey }) },
+      ),
+    remove: (userId: string, orgSlug: string = DEFAULT_ORG_SLUG) =>
+      request<{ removed: boolean }>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
+        { method: "DELETE" },
+      ),
+  },
   instances: {
     list: () => request<{ instances: Instance[] }>("/api/instances"),
     get: (slug: string) =>
@@ -192,19 +240,39 @@ export const api = {
         status?: string;
         provider?: string | null;
         model?: string | null;
+        embeddingProvider?: "openai" | "bedrock";
         memoryEnabled?: boolean;
         knowledgeEnabled?: boolean;
         langsmithEnabled?: boolean;
         langsmithProject?: string | null;
         authEnabled?: boolean;
         thinkingEnabled?: boolean;
+        thinkingLevel?: string;
+        temperature?: number | null;
+        stateInPromptEnabled?: boolean;
+        datetimeInjectionEnabled?: boolean;
+        cacheEnabled?: boolean;
+        cacheTtl?: string;
+        toolResultsInHistoryEnabled?: boolean;
+        debugEnabled?: boolean;
         sttProvider?: "openai" | "aws" | "deepgram";
+        optoutEnabled?: boolean;
+        optoutStopKeywords?: string[];
+        optoutResumeKeywords?: string[];
+        optoutClosingMessage?: string | null;
+        optoutResumeMessage?: string | null;
+        optoutInjectPromptHint?: boolean;
+        /** Acknowledge the destructive memory/knowledge wipe on an embedding-provider switch. */
+        confirmWipe?: boolean;
       },
     ) =>
-      request<{ instance: Instance }>(`/api/instances/${encodeURIComponent(slug)}`, {
-        method: "PATCH",
-        body: JSON.stringify(data),
-      }),
+      request<{ instance: Instance; wiped?: EmbeddingWipeResult | null }>(
+        `/api/instances/${encodeURIComponent(slug)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(data),
+        },
+      ),
     delete: (slug: string) =>
       request<{ deleted: boolean }>(`/api/instances/${encodeURIComponent(slug)}`, {
         method: "DELETE",
@@ -319,6 +387,17 @@ export const api = {
         `/api/instances/${encodeURIComponent(slug)}/knowledge/${encodeURIComponent(docId)}`,
         { method: "DELETE" },
       ),
+    export: (slug: string) =>
+      request<{
+        version: number;
+        instanceSlug: string;
+        documents: { filename: string; content: string; mimeType: string; source: string; contentHash: string }[];
+      }>(`/api/instances/${encodeURIComponent(slug)}/knowledge/export`),
+    import: (slug: string, data: { version?: number; documents: { filename: string; content: string }[] }) =>
+      request<{ imported: number; documents: { filename: string; renamedFrom?: string }[] }>(
+        `/api/instances/${encodeURIComponent(slug)}/knowledge/import`,
+        { method: "POST", body: JSON.stringify(data) },
+      ),
   },
   analytics: {
     global: (from: string, to: string) => {
@@ -356,6 +435,10 @@ export const api = {
       request<{ conversation: ConversationListItem }>(
         `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,
       ),
+    hookExecutions: (conversationId: string, instanceId: string) =>
+      request<{ executions: HookExecution[] }>(
+        `/api/conversations/${encodeURIComponent(conversationId)}/hooks?instanceId=${encodeURIComponent(instanceId)}`,
+      ),
     messages: (
       conversationId: string,
       instanceId: string,
@@ -375,10 +458,30 @@ export const api = {
         `/api/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
       );
     },
+    /** Heavy per-turn debug data (captured LLM request payload + step trace) for one message. */
+    messageDebug: (conversationId: string, messageId: string, instanceId: string) =>
+      request<MessageDebug>(
+        `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/debug?instanceId=${encodeURIComponent(instanceId)}`,
+      ),
+    /** The conversation state store snapshot (latest; includes the `_channel` identity). */
+    state: (conversationId: string, instanceId: string) =>
+      request<{ state: Record<string, unknown> }>(
+        `/api/conversations/${encodeURIComponent(conversationId)}/state?instanceId=${encodeURIComponent(instanceId)}`,
+      ),
     delete: (conversationId: string, instanceId: string) =>
       request<{ deleted: boolean }>(
         `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,
         { method: "DELETE" },
+      ),
+    /** Rename the conversation id (propagated across all linked tables) and/or its title. */
+    rename: (
+      conversationId: string,
+      instanceId: string,
+      body: { conversationId?: string; title?: string },
+    ) =>
+      request<{ renamed: boolean; conversationId: string }>(
+        `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,
+        { method: "PATCH", body: JSON.stringify(body) },
       ),
   },
   memories: {
@@ -557,6 +660,72 @@ export const api = {
         `/api/instances/${encodeURIComponent(slug)}/scheduled-tasks/runs${query ? `?${query}` : ""}`,
       );
     },
+  },
+
+  hooks: {
+    list: (slug: string) =>
+      request<{ hooks: InstanceHook[] }>(
+        `/api/instances/${encodeURIComponent(slug)}/hooks`,
+      ),
+    functions: () =>
+      request<{ hookFunctions: HookFunctionInfo[] }>("/api/hook-functions"),
+    create: (
+      slug: string,
+      data: {
+        event: HookEvent;
+        actionType?: "function";
+        actionConfig: { functionName: string };
+        enabled?: boolean;
+        position?: number;
+        timeoutMs?: number;
+      },
+    ) =>
+      request<{ hook: InstanceHook }>(
+        `/api/instances/${encodeURIComponent(slug)}/hooks`,
+        { method: "POST", body: JSON.stringify(data) },
+      ),
+    update: (
+      slug: string,
+      id: string,
+      data: {
+        event?: HookEvent;
+        actionConfig?: { functionName: string };
+        enabled?: boolean;
+        position?: number;
+        timeoutMs?: number;
+      },
+    ) =>
+      request<{ hook: InstanceHook }>(
+        `/api/instances/${encodeURIComponent(slug)}/hooks/${encodeURIComponent(id)}`,
+        { method: "PATCH", body: JSON.stringify(data) },
+      ),
+    delete: (slug: string, id: string) =>
+      request<{ deleted: boolean }>(
+        `/api/instances/${encodeURIComponent(slug)}/hooks/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      ),
+  },
+
+  optouts: {
+    list: (slug: string, params?: { status?: string; page?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.status) q.set("status", params.status);
+      if (params?.page) q.set("page", String(params.page));
+      const qs = q.toString();
+      return request<{ optouts: OptoutContact[]; page: number }>(
+        `/api/instances/${encodeURIComponent(slug)}/optouts${qs ? `?${qs}` : ""}`,
+      );
+    },
+    optOut: (slug: string, channelType: string, channelId: string) =>
+      request<{ ok: boolean }>(`/api/instances/${encodeURIComponent(slug)}/optouts`, {
+        method: "POST",
+        body: JSON.stringify({ channelType, channelId }),
+      }),
+    optIn: (slug: string, channelType: string, channelId: string) =>
+      request<{ ok: boolean }>(
+        `/api/instances/${encodeURIComponent(slug)}/optouts/${encodeURIComponent(channelType)}/${encodeURIComponent(channelId)}`,
+        { method: "DELETE" },
+      ),
   },
 
   room: {

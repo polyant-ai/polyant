@@ -83,12 +83,13 @@ import {
   listSecretKeys,
   deleteSecret,
 } from "./secrets.store.js";
+import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const INSTANCE_UUID = "uuid-instance-1";
-const INSTANCE_SLUG = "default";
+const INSTANCE_UUID = asInstanceUuid("uuid-instance-1");
+const INSTANCE_SLUG = asInstanceSlug("default");
 
 /** Creates a select chain that resolves the slug to the UUID.
  *  Kept as a helper for future tests; silenced to avoid an unused-warning. */
@@ -111,13 +112,15 @@ describe("instances/secrets.store", () => {
   // SECRET_KEYS constant
   // -----------------------------------------------------------------------
   describe("SECRET_KEYS", () => {
-    it("exports all 12 well-known secret keys", () => {
-      expect(Object.keys(SECRET_KEYS)).toHaveLength(12);
+    it("exports all 14 well-known secret keys", () => {
+      expect(Object.keys(SECRET_KEYS)).toHaveLength(14);
       expect(SECRET_KEYS.OPENAI_API_KEY).toBe("openai_api_key");
       expect(SECRET_KEYS.ANTHROPIC_API_KEY).toBe("anthropic_api_key");
-      expect(SECRET_KEYS.AWS_ACCESS_KEY_ID).toBe("aws_access_key_id");
-      expect(SECRET_KEYS.AWS_SECRET_ACCESS_KEY).toBe("aws_secret_access_key");
-      expect(SECRET_KEYS.AWS_REGION).toBe("aws_region");
+      expect(SECRET_KEYS.NEBIUS_API_KEY).toBe("nebius_api_key");
+      expect(SECRET_KEYS.BEDROCK_API_KEY).toBe("bedrock_api_key");
+      expect(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID).toBe("aws_provider_access_key_id");
+      expect(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY).toBe("aws_provider_secret_access_key");
+      expect(SECRET_KEYS.AWS_PROVIDER_REGION).toBe("aws_provider_region");
       expect(SECRET_KEYS.LANGSMITH_API_KEY).toBe("langsmith_api_key");
       expect(SECRET_KEYS.AUTH_API_KEY).toBe("auth_api_key");
       expect(SECRET_KEYS.TAVILY_API_KEY).toBe("tavily_api_key");
@@ -174,7 +177,7 @@ describe("instances/secrets.store", () => {
       const resolveChain = createChainMock([]);
       mockDb.select.mockReturnValue(resolveChain as any);
 
-      const result = await getSecret("nonexistent", "openai_api_key");
+      const result = await getSecret(asInstanceSlug("nonexistent"), "openai_api_key");
 
       expect(result).toBeUndefined();
       expect(mockDecrypt).not.toHaveBeenCalled();
@@ -222,7 +225,7 @@ describe("instances/secrets.store", () => {
       const resolveChain = createChainMock([]);
       mockDb.select.mockReturnValue(resolveChain as any);
 
-      const result = await getAllSecrets("nonexistent");
+      const result = await getAllSecrets(asInstanceSlug("nonexistent"));
 
       expect(result).toEqual({});
     });
@@ -277,14 +280,15 @@ describe("instances/secrets.store", () => {
 
       const result = await listSecretKeys(INSTANCE_SLUG);
 
-      expect(result).toHaveLength(12);
+      expect(result).toHaveLength(14);
       expect(result).toEqual(
         expect.arrayContaining([
           { key: "openai_api_key", configured: true },
           { key: "anthropic_api_key", configured: false },
-          { key: "aws_access_key_id", configured: false },
-          { key: "aws_secret_access_key", configured: false },
-          { key: "aws_region", configured: false },
+          { key: "bedrock_api_key", configured: false },
+          { key: "aws_provider_access_key_id", configured: false },
+          { key: "aws_provider_secret_access_key", configured: false },
+          { key: "aws_provider_region", configured: false },
           { key: "langsmith_api_key", configured: false },
           { key: "auth_api_key", configured: true },
           { key: "tavily_api_key", configured: false },
@@ -300,7 +304,7 @@ describe("instances/secrets.store", () => {
       const resolveChain = createChainMock([]);
       mockDb.select.mockReturnValue(resolveChain as any);
 
-      const result = await listSecretKeys("nonexistent");
+      const result = await listSecretKeys(asInstanceSlug("nonexistent"));
 
       expect(result).toEqual([]);
     });

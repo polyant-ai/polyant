@@ -8,6 +8,7 @@ import type {
   MessageHandler,
   OutgoingMessage,
 } from "../types.js";
+import type { InstanceSlug } from "../../instances/identifiers.js";
 
 /**
  * Inputs for an in-process agent-to-agent call. The adapter wraps these
@@ -16,7 +17,7 @@ import type {
  * channel turn.
  */
 export interface AgentDispatchInput {
-  targetInstanceId: string;
+  targetInstanceId: InstanceSlug;
   prompt: string;
   callerSlug: string;
   callerConversationId: string;

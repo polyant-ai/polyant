@@ -2,8 +2,8 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Trash2, Download } from "lucide-react";
@@ -41,6 +41,8 @@ import { ChannelsTab } from "./channels-tab";
 import { AnalyticsTab } from "./analytics-tab";
 import { TriggersTab } from "./triggers-tab";
 import { RoomTab } from "./room-tab";
+import { HooksTab } from "./hooks-tab";
+import { PrivacyTab } from "./privacy-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { useI18n } from "@/lib/i18n/context";
 
@@ -59,10 +61,31 @@ function HeaderSaveButton() {
   );
 }
 
-export default function InstanceDetailPage() {
+const TAB_VALUES = [
+  "general", "prompts", "tools", "skills", "knowledge", "settings",
+  "channels", "analytics", "triggers", "room", "hooks", "privacy",
+] as const;
+const DEFAULT_TAB = "general";
+
+function InstanceDetailContent() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { t } = useI18n();
+
+  const tabParam = searchParams.get("tab");
+  const activeTab =
+    tabParam && (TAB_VALUES as readonly string[]).includes(tabParam)
+      ? tabParam
+      : DEFAULT_TAB;
+
+  const handleTabChange = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", value);
+    // push (not replace) so browser back/forward navigates between visited tabs
+    router.push(`${pathname}?${next.toString()}`, { scroll: false });
+  };
   const [instance, setInstance] = useState<Instance | null>(null);
   const [tools, setTools] = useState<ToolState[]>([]);
   const [skills, setSkills] = useState<SkillState[]>([]);
@@ -201,7 +224,7 @@ export default function InstanceDetailPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="general" className="mt-8">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-8">
         <TabsList>
           <TabsTrigger value="general">{t("instances.detail.tabGeneral")}</TabsTrigger>
           <TabsTrigger value="prompts">{t("instances.detail.tabPrompts")}</TabsTrigger>
@@ -213,6 +236,8 @@ export default function InstanceDetailPage() {
           <TabsTrigger value="analytics">{t("instances.detail.tabAnalytics")}</TabsTrigger>
           <TabsTrigger value="triggers">{t("instances.detail.tabTriggers")}</TabsTrigger>
           <TabsTrigger value="room">{t("instances.detail.tabRoom")}</TabsTrigger>
+          <TabsTrigger value="hooks">{t("instances.detail.tabHooks")}</TabsTrigger>
+          <TabsTrigger value="privacy">{t("instances.detail.tabPrivacy")}</TabsTrigger>
         </TabsList>
         <TabsContent value="general" className="mt-6">
           <GeneralTab instance={instance} onUpdate={setInstance} />
@@ -258,8 +283,22 @@ export default function InstanceDetailPage() {
         <TabsContent value="room" className="mt-6">
           <RoomTab slug={instance.slug} />
         </TabsContent>
+        <TabsContent value="hooks" className="mt-6">
+          <HooksTab slug={instance.slug} />
+        </TabsContent>
+        <TabsContent value="privacy" className="mt-6">
+          <PrivacyTab instance={instance} onSaved={() => { api.instances.get(params.slug).then((r) => setInstance(r.instance)).catch(() => {}); }} />
+        </TabsContent>
       </Tabs>
     </div>
     </PageActionsProvider>
+  );
+}
+
+export default function InstanceDetailPage() {
+  return (
+    <Suspense fallback={null}>
+      <InstanceDetailContent />
+    </Suspense>
   );
 }

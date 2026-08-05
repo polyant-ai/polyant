@@ -55,9 +55,9 @@ describe("tapAndForwardFullStream", () => {
     const cap = captureEvents();
     teardown = cap.stop;
     const stream = fromArray([
-      { type: "step-start" },
-      { type: "text-delta", textDelta: "hi" },
-      { type: "step-finish", finishReason: "stop" },
+      { type: "start-step" },
+      { type: "text-delta", text: "hi" },
+      { type: "finish-step", finishReason: "stop" },
     ]);
 
     const seen: unknown[] = [];
@@ -72,7 +72,7 @@ describe("tapAndForwardFullStream", () => {
     const cap = captureEvents();
     teardown = cap.stop;
     const stream = fromArray([
-      { type: "step-start" },
+      { type: "start-step" },
       {
         type: "tool-call",
         toolCallId: "c1",
@@ -85,14 +85,14 @@ describe("tapAndForwardFullStream", () => {
         toolName: "webSearch",
         result: { results: [{ title: "GPT-5 launches" }] },
       },
-      { type: "step-finish", finishReason: "tool-calls" },
+      { type: "finish-step", finishReason: "tool-calls" },
     ]);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     for await (const _ of tapAndForwardFullStream(stream, ctx)) { /* drain */ }
 
-    // No `tool` field on any emitted event — tool events come from
-    // `wrapToolWithGovernance`, not from the SDK chunk tap.
+    // No `tool` field on any emitted event — the SDK chunk tap does not
+    // surface tool calls as activity events.
     expect(cap.events.every((e) => e.tool === undefined)).toBe(true);
   });
 
@@ -100,9 +100,9 @@ describe("tapAndForwardFullStream", () => {
     const cap = captureEvents();
     teardown = cap.stop;
     const stream = fromArray([
-      { type: "step-start" },
-      { type: "text-delta", textDelta: "ok" },
-      { type: "step-finish", finishReason: "stop" },
+      { type: "start-step" },
+      { type: "text-delta", text: "ok" },
+      { type: "finish-step", finishReason: "stop" },
     ]);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -117,10 +117,10 @@ describe("tapAndForwardFullStream", () => {
     const cap = captureEvents();
     teardown = cap.stop;
     const stream = fromArray([
-      { type: "step-start" },
-      { type: "reasoning", textDelta: "First " },
-      { type: "reasoning", textDelta: "thought." },
-      { type: "step-finish", finishReason: "stop" },
+      { type: "start-step" },
+      { type: "reasoning-delta", text: "First " },
+      { type: "reasoning-delta", text: "thought." },
+      { type: "finish-step", finishReason: "stop" },
     ]);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -137,14 +137,14 @@ describe("tapAndForwardFullStream", () => {
     const cap = captureEvents();
     teardown = cap.stop;
     const stream = fromArray([
-      { type: "step-start" },
+      { type: "start-step" },
       // Intermediate step text — junk like "[]" the model emits before a tool call.
-      { type: "text-delta", textDelta: "[]" },
-      { type: "step-finish", finishReason: "tool-calls" },
+      { type: "text-delta", text: "[]" },
+      { type: "finish-step", finishReason: "tool-calls" },
       // Real terminal step
-      { type: "step-start" },
-      { type: "text-delta", textDelta: "Final answer." },
-      { type: "step-finish", finishReason: "stop" },
+      { type: "start-step" },
+      { type: "text-delta", text: "Final answer." },
+      { type: "finish-step", finishReason: "stop" },
     ]);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -192,8 +192,8 @@ describe("emitFromChatResponse", () => {
     emitFromChatResponse(response, ctx);
 
     const ids = cap.events.map((e) => e.id);
-    // Tool events are NOT emitted by the batch replay anymore — they come
-    // from the supervisor's governance wrapper (real wall-clock timestamps).
+    // Tool events are NOT emitted by the batch replay — only text/usage
+    // events carry through this path.
     expect(cap.events.every((e) => e.tool === undefined)).toBe(true);
     expect(ids.some((id) => /:tool:/.test(id))).toBe(false);
     expect(ids.some((id) => /:s1:text:0$/.test(id))).toBe(true);

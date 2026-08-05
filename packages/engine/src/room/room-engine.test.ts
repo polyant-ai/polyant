@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../instances/identifiers.js";
 
 /* ── hoisted mocks ─────────────────────────────────────────────── */
 
@@ -17,6 +18,8 @@ const {
   mockExtractMemories,
   mockChat,
   mockGenerateTitle,
+  mockRunHooks,
+  mockChannelManager,
 } = vi.hoisted(() => ({
   mockSupervise: vi.fn(),
   mockResolveInstanceConfig: vi.fn(),
@@ -40,6 +43,8 @@ const {
   mockExtractMemories: vi.fn(),
   mockChat: vi.fn(),
   mockGenerateTitle: vi.fn(),
+  mockRunHooks: vi.fn(),
+  mockChannelManager: { sendOutbound: vi.fn() },
 }));
 
 vi.mock("../utils/title-generator.js", () => ({ generateConversationTitle: mockGenerateTitle }));
@@ -76,18 +81,45 @@ vi.mock("../config.js", () => ({
     datetime: { locale: "en-US", timezone: "UTC" },
   },
 }));
+vi.mock("../hooks/hook-runner.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../hooks/hook-runner.js")>()),
+  runHooks: mockRunHooks,
+}));
+vi.mock("../channels/channel-manager.js", () => ({ channelManager: mockChannelManager }));
+
+// Conversation state buffer: a shared mock instance so we can assert flush was called.
+const { mockStateBufferLoad, mockFlush, mockStateBuffer } = vi.hoisted(() => {
+  const flush = vi.fn(async () => {});
+  const buffer = {
+    seedChannel: vi.fn(),
+    flush,
+    api: () => ({ get: () => undefined, set: () => {}, delete: () => {}, getAll: () => ({}), channel: undefined }),
+  };
+  return {
+    mockStateBufferLoad: vi.fn(async () => buffer),
+    mockFlush: flush,
+    mockStateBuffer: buffer,
+  };
+});
+vi.mock("../conversations/state.buffer.js", () => ({
+  ConversationStateBuffer: Object.assign(
+    function () { return mockStateBuffer; },
+    { load: mockStateBufferLoad },
+  ),
+}));
 
 /* ── import under test ─────────────────────────────────────────── */
 
 import { executeRoomCycle } from "./room-engine.js";
 import type { RoomConfig } from "./room.store.js";
+import { asInstanceUuid } from "../instances/identifiers.js";
 
 /* ── helpers ────────────────────────────────────────────────────── */
 
 function makeRoom(overrides: Partial<RoomConfig> = {}): RoomConfig {
   return {
     id: "room-1",
-    instanceId: "inst-1",
+    instanceId: asInstanceUuid("inst-1"),
     enabled: true,
     prompt: "You are a helpful room agent.",
     outboundChannel: "slack",
@@ -127,6 +159,7 @@ function createChainMock(resolvedValue: unknown = []) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockRunHooks.mockResolvedValue([]);
   mockResolveInstanceConfig.mockResolvedValue(INSTANCE_CONFIG);
   mockConversationStore.getRecentMessages.mockResolvedValue([]);
   mockConversationStore.appendMessages.mockResolvedValue(undefined);
@@ -140,7 +173,7 @@ beforeEach(() => {
   mockChat.mockResolvedValue({ text: "Room Title", usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 }, durationMs: 100 });
   mockSupervise.mockResolvedValue({
     text: "I've processed the events.",
-    toolCalls: [],
+    steps: [],
     usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
     durationMs: 500,
     toolBuildingMs: 10,
@@ -158,7 +191,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([{ name: "Test Def", interpretationPrompt: "Handle it" }]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockConversationStore.ensureConversation).toHaveBeenCalledWith(
         expect.stringMatching(/^room:inst-1:\d+$/),
@@ -174,12 +207,71 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockSetRoomConversationId).toHaveBeenCalledWith(
         "inst-1",
         expect.stringMatching(/^room:inst-1:\d+$/),
       );
+    });
+  });
+
+  describe("halt-and-respond", () => {
+    it("halts without calling supervise and sends the canned reply outbound", async () => {
+      mockRunHooks.mockResolvedValue([
+        {
+          hookId: "h", event: "message_received", actionType: "tool", toolName: "gate",
+          success: true, durationMs: 1, halt: { message: "closed for maintenance" },
+        },
+      ]);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "are you open?");
+
+      expect(mockSupervise).not.toHaveBeenCalled();
+      expect(mockChannelManager.sendOutbound).toHaveBeenCalledWith(
+        "test-slug", "slack", "#general", "closed for maintenance",
+      );
+      expect(mockConversationStore.appendMessages).toHaveBeenCalledWith(
+        expect.any(String),
+        [expect.objectContaining({ role: "assistant", content: "closed for maintenance" })],
+      );
+    });
+  });
+
+  describe("response_generated replace", () => {
+    it("applies a post-LLM response replacement with hook provenance (not a halt)", async () => {
+      // message_received returns nothing (no halt); response_generated replaces.
+      mockRunHooks.mockImplementation(async (event: string) => {
+        if (event === "response_generated") {
+          return [
+            {
+              hookId: "h", event: "response_generated", actionType: "tool", toolName: "rewrite",
+              success: true, durationMs: 1, replaceResponse: { message: "REPLACED" },
+            },
+          ];
+        }
+        return [];
+      });
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "hello");
+
+      // Post-LLM: supervise WAS called (not short-circuited by a halt).
+      expect(mockSupervise).toHaveBeenCalledTimes(1);
+      // response_generated ran with the LLM's text on the payload.
+      expect(mockRunHooks).toHaveBeenCalledWith(
+        "response_generated",
+        expect.objectContaining({ response: { text: "I've processed the events.", regenerationCount: 0 } }),
+        expect.anything(),
+      );
+      // Persisted assistant reply is the replacement, badged with provenance.
+      const appendCalls = mockConversationStore.appendMessages.mock.calls;
+      const assistantCall = appendCalls.find(
+        ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
+      );
+      expect(assistantCall![1][0].content).toBe("REPLACED");
+      expect(assistantCall![1][0].metadata).toEqual({ source: "hook", hookName: "rewrite" });
+      // State buffer committed after the post-LLM hook ran.
+      expect(mockFlush).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -189,7 +281,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockSupervise).not.toHaveBeenCalled();
       expect(mockConversationStore.appendMessages).not.toHaveBeenCalled();
@@ -203,7 +295,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([{ name: "Test", interpretationPrompt: "Handle it" }]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockSupervise).toHaveBeenCalledTimes(1);
     });
@@ -213,7 +305,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug", "Hello, can you help?");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "Hello, can you help?");
 
       expect(mockSupervise).toHaveBeenCalledTimes(1);
     });
@@ -229,7 +321,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([{ name: "Order Def", interpretationPrompt: "Process the order" }]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       const message = mockSupervise.mock.calls[0][0].message as string;
       expect(message).toContain("## Pending Events (2)");
@@ -248,7 +340,7 @@ describe("executeRoomCycle", () => {
       ]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       const message = mockSupervise.mock.calls[0][0].message as string;
       expect(message).toContain("## Event Handling Instructions");
@@ -261,7 +353,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug", "Please check the latest tickets");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "Please check the latest tickets");
 
       const message = mockSupervise.mock.calls[0][0].message as string;
       expect(message).toContain("## Human Message");
@@ -275,7 +367,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       const message = mockSupervise.mock.calls[0][0].message as string;
       expect(message).toContain("[Room context usage:");
@@ -289,7 +381,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug", "Human says hello");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "Human says hello");
 
       // Synthetic user message should be appended BEFORE supervise call
       const appendCalls = mockConversationStore.appendMessages.mock.calls;
@@ -308,7 +400,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       // Second call to appendMessages is the assistant response
       const appendCalls = mockConversationStore.appendMessages.mock.calls;
@@ -327,7 +419,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockSupervise).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -350,11 +442,69 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockSupervise).toHaveBeenCalledWith(
         expect.objectContaining({ memoryEnabled: true }),
       );
+    });
+  });
+
+  describe("debug capture", () => {
+    it("threads debugEnabled from instance config into supervise", async () => {
+      mockResolveInstanceConfig.mockResolvedValue({ ...INSTANCE_CONFIG, debugEnabled: true });
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
+      ]);
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
+
+      expect(mockSupervise).toHaveBeenCalledWith(
+        expect.objectContaining({ debugEnabled: true }),
+      );
+    });
+
+    it("persists debugPayload on the assistant message when supervise returns one", async () => {
+      const debugPayload = { system: "sys", messages: [], tools: [] };
+      mockSupervise.mockResolvedValue({
+        text: "I've processed the events.",
+        steps: [],
+        usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
+        durationMs: 500,
+        toolBuildingMs: 10,
+        debugPayload,
+      });
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
+      ]);
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
+
+      const appendCalls = mockConversationStore.appendMessages.mock.calls;
+      const assistantCall = appendCalls.find(
+        ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
+      );
+      expect(assistantCall![1][0].debugPayload).toEqual(debugPayload);
+    });
+
+    it("omits debugPayload when supervise returns none (debug off)", async () => {
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
+      ]);
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
+
+      const appendCalls = mockConversationStore.appendMessages.mock.calls;
+      const assistantCall = appendCalls.find(
+        ([, msgs]) => Array.isArray(msgs) && msgs[0]?.role === "assistant",
+      );
+      expect(assistantCall![1][0]).not.toHaveProperty("debugPayload");
     });
   });
 
@@ -367,7 +517,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockAppendDailyLog).toHaveBeenCalledWith(
         "inst-1",
@@ -381,7 +531,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug", "Help me");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "Help me");
 
       expect(mockAppendDailyLog).toHaveBeenCalledWith(
         "inst-1",
@@ -399,7 +549,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       expect(mockTraceStore.record).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -423,7 +573,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       // Give fire-and-forget a tick to run
       await new Promise((r) => setTimeout(r, 10));
@@ -445,7 +595,7 @@ describe("executeRoomCycle", () => {
       const selChain = createChainMock([]);
       mockDb.select.mockReturnValue(selChain as any);
 
-      await executeRoomCycle(makeRoom(), "test-slug");
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
       // Give fire-and-forget a tick to run
       await new Promise((r) => setTimeout(r, 10));

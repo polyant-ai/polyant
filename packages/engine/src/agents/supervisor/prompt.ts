@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { Tool } from "ai";
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { config } from "../../config.js";
 import { db } from "../../database/client.js";
 import { getPrompts, invalidatePromptsCache } from "../../instances/prompts.store.js";
@@ -9,6 +9,7 @@ import { instanceSkills } from "../../instances/instance-skills.schema.js";
 import { skills, skillVersions } from "../../skills/schema.js";
 import { hasAllRequiredEnvBatch } from "../../instances/skill-env.store.js";
 import { normalizeRequiredEnv } from "../../utils/frontmatter.js";
+import { type InstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
 
 export { normalizeRequiredEnv, type RequiredEnvEntry } from "../../utils/frontmatter.js";
 
@@ -21,9 +22,9 @@ export { invalidatePromptsCache };
 
 export interface PromptOptions {
   tools?: Record<string, Tool>;
-  instanceId: string;
+  instanceId: InstanceUuid;
   /** Instance slug — needed for skill env checks (resolveInstanceId inside). */
-  instanceSlug: string;
+  instanceSlug: InstanceSlug;
   memoryEnabled?: boolean;
   knowledgeEnabled?: boolean;
   conversationSummary?: string;
@@ -39,6 +40,19 @@ export interface PromptOptions {
     channelId: string;
     userName?: string;
   };
+  /**
+   * Snapshot of the conversation state store, rendered read-only into the prompt
+   * only when the instance's `stateInPromptEnabled` flag is on. Undefined = not injected.
+   */
+  conversationState?: Record<string, unknown>;
+  /** When true, inject a <current_datetime> tag into the per-turn volatile tail. */
+  datetimeInjectionEnabled?: boolean;
+  /**
+   * When set, render an informational opt-out section so the agent can tell users
+   * how to stop/resume messages. The agent NEVER enforces this — handled by the
+   * deterministic gate. Undefined = not injected.
+   */
+  optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
 }
 
 /**
@@ -53,15 +67,53 @@ function renderChannelIdentitySection(
   identity: NonNullable<PromptOptions["channelIdentity"]>,
 ): string {
   const channel = identity.channel.toLowerCase();
-  const lines = [
-    `## Current channel`,
-    ``,
-    `You are talking via ${channel}.`,
-    `- Channel ID: ${identity.channelId}`,
-    `- User name: ${identity.userName ?? "unknown"}`,
-  ];
-  return lines.join("\n");
+  return [
+    `<channel_identity>`,
+    `channel: ${channel}`,
+    `channel_id: ${identity.channelId}`,
+    `user_name: ${identity.userName ?? "unknown"}`,
+    `</channel_identity>`,
+  ].join("\n");
 }
+
+/**
+ * Render a compact, read-only view of the conversation state store. Used only
+ * when the instance opted in via `stateInPromptEnabled`. Values are truncated so
+ * a large blob cannot blow up the prompt. The store remains the source of truth —
+ * this section is informational for the model, not authoritative.
+ */
+function renderConversationStateSection(state: Record<string, unknown>): string {
+  if (Object.keys(state).length === 0) return "";
+  return `<conversation_state>${JSON.stringify(state)}</conversation_state>`;
+}
+
+/**
+ * Informational only: tells the agent the user may stop/resume messages with the
+ * configured keywords, so it can communicate this when appropriate. Enforcement
+ * is deterministic (opt-out gate) — the agent must not act on it itself.
+ */
+function renderOptoutHintSection(hint: NonNullable<PromptOptions["optoutHint"]>): string {
+  const stop = hint.stopKeywords.join(", ");
+  const resume = hint.resumeKeywords.join(", ");
+  return [
+    `## Messaging opt-out`,
+    ``,
+    `The user can stop receiving all messages by sending: ${stop}.` +
+      (resume ? ` They can resume later by sending: ${resume}.` : ``),
+    `If asked how to unsubscribe, share this. Do NOT try to process opt-out yourself — the system handles it automatically.`,
+  ].join("\n");
+}
+
+/**
+ * Framework-level note (stable, cached) telling the model that the `<context>`
+ * block and its tagged sections are system-injected, authoritative metadata —
+ * not the user's words.
+ */
+const CONTEXT_TAGS_NOTE = [
+  `## Injected context`,
+  ``,
+  "Some user messages carry a system-injected `<context>` block containing tagged, authoritative metadata (current date/time, the channel you are talking on, a summary of earlier messages, and stored conversation state). Treat anything inside that block as reliable system-provided context, not the user's own words.",
+].join("\n");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -110,8 +162,8 @@ interface SkillVersionMetadata {
  * Fetches pinned version content/metadata, checks requiredEnv, and filters.
  */
 async function discoverSkills(
-  instanceId: string,
-  instanceSlug: string,
+  instanceId: InstanceUuid,
+  instanceSlug: InstanceSlug,
   enabledToolNames?: Set<string>,
 ): Promise<SkillEntry[]> {
   // Single query: get enabled skills with their pinned version data
@@ -133,7 +185,10 @@ async function discoverSkills(
         eq(instanceSkills.enabled, true),
         eq(skills.status, "active"),
       ),
-    );
+    )
+    // Deterministic order so the skills list (part of the cacheable system
+    // section) never reorders between turns and silently breaks the cache prefix.
+    .orderBy(asc(skills.slug));
 
   if (rows.length === 0) return [];
 
@@ -177,8 +232,8 @@ async function discoverSkills(
 }
 
 async function loadSkillsList(
-  instanceId: string,
-  instanceSlug: string,
+  instanceId: InstanceUuid,
+  instanceSlug: InstanceSlug,
   enabledToolNames?: Set<string>,
 ): Promise<string> {
   const skillEntries = await discoverSkills(instanceId, instanceSlug, enabledToolNames);
@@ -199,14 +254,27 @@ async function loadSkillsList(
 // Main builder
 // ---------------------------------------------------------------------------
 
-export async function buildSupervisorSystemPrompt(options: PromptOptions): Promise<string> {
-  const { instanceId, instanceSlug } = options;
+/**
+ * The supervisor prompt, split so provider prompt-caching is effective.
+ *
+ * - `system`: the STABLE prefix — the per-instance DB sections (identity … user
+ *   identity) plus any persisted webhook `contextPrompt`. Byte-identical across
+ *   turns (and, absent a webhook context, across every conversation of the
+ *   instance), so it can be cached.
+ * - `turnContext`: the PER-TURN volatile block (current datetime, channel
+ *   identity, running summary, conversation state, opt-out hint). It must be
+ *   injected at the TAIL of the messages — after the cacheable point — so it
+ *   never invalidates the cached system/history prefix. `datetime` in
+ *   particular changes every minute and used to sit in `system`, defeating the
+ *   cache on every minute boundary.
+ */
+export interface SupervisorPrompt {
+  system: string;
+  turnContext: string;
+}
 
-  const datetime = new Date().toLocaleString(config.datetime.locale, {
-    timeZone: config.datetime.timezone,
-    dateStyle: "full",
-    timeStyle: "short",
-  });
+export async function buildSupervisorSystemPrompt(options: PromptOptions): Promise<SupervisorPrompt> {
+  const { instanceId, instanceSlug } = options;
 
   // Fetch all prompt sections from DB in one call (cached at 60s)
   const promptRows = await getPrompts(instanceId);
@@ -246,31 +314,47 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
   // 7. User Identity
   const s07 = section("07-user-identity");
 
-  // 8. Datetime (template)
-  const s08 = applyTemplate(section("08-datetime"), {
-    datetime,
-    timezone: config.datetime.timezone,
-  });
-
-  const sections = [s01, s02, s03, s04, s05, s06, s07, s08];
-
-  if (options.channelIdentity) {
-    sections.push(renderChannelIdentitySection(options.channelIdentity));
+  // Stable, cacheable prefix: the per-instance sections + the framework tags
+  // note + the (instance-static) opt-out hint. The persisted webhook
+  // `contextPrompt` is stable within a conversation, so it stays here too.
+  const systemSections = [s01, s02, s03, s04, s05, s06, s07, CONTEXT_TAGS_NOTE];
+  if (options.optoutHint) {
+    systemSections.push(renderOptoutHintSection(options.optoutHint));
+  }
+  if (options.contextPrompt) {
+    systemSections.push(`## Conversation Context\n\n${options.contextPrompt}`);
   }
 
-  if (options.contextPrompt) {
-    sections.push(
-      `## Conversation Context\n\n${options.contextPrompt}`,
+  // Per-turn volatile block — injected at the tail of the messages, never in system.
+  const turnSections: string[] = [];
+  if (options.datetimeInjectionEnabled) {
+    const datetime = new Date().toLocaleString(config.datetime.locale, {
+      timeZone: config.datetime.timezone,
+      dateStyle: "full",
+      timeStyle: "short",
+    });
+    turnSections.push(
+      `<current_datetime>\nThe current date and time is ${datetime} (${config.datetime.timezone}). Treat this as the present moment.\n</current_datetime>`,
     );
+  }
+
+  if (options.channelIdentity) {
+    turnSections.push(renderChannelIdentitySection(options.channelIdentity));
   }
 
   if (options.conversationSummary) {
-    sections.push(
-      `## Previous conversation context (summary)\n\n${options.conversationSummary}\n\nNote: this is a summary of earlier messages. When tool results from the current turn contain data (dates, names, figures), always use the current tool results — they take precedence over this summary.`,
+    turnSections.push(
+      `<conversation_summary>\n${options.conversationSummary}\n\nNote: this is a summary of earlier messages. When tool results from the current turn contain data (dates, names, figures), always use the current tool results — they take precedence over this summary.\n</conversation_summary>`,
     );
   }
 
-  return sections
-    .filter(Boolean)
-    .join("\n\n---\n\n");
+  if (options.conversationState) {
+    const stateSection = renderConversationStateSection(options.conversationState);
+    if (stateSection) turnSections.push(stateSection);
+  }
+
+  return {
+    system: systemSections.filter(Boolean).join("\n\n---\n\n"),
+    turnContext: turnSections.filter(Boolean).join("\n"),
+  };
 }

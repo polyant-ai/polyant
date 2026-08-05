@@ -68,5 +68,5 @@ global library (see `examples/skills/` for the format).
 | `authEnabled`    | `false` for local trial, `true` in prod |
 | `langsmithEnabled` | optional                              |
 
-See [Quickstart](https://docs.polyant.it/getting-started/quickstart) for the
+See [Quickstart](https://docs.polyant.ai/getting-started/quickstart) for the
 end-to-end setup walkthrough.

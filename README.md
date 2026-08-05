@@ -11,11 +11,15 @@
 [![Node.js 22](https://img.shields.io/badge/node-22-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
-🌐 **Website**: [polyant.ai](https://polyant.ai) &nbsp;·&nbsp; 📚 **Docs**: [docs.polyant.it](https://docs.polyant.it) &nbsp;·&nbsp; 💬 **GitHub**: [polyant-ai/polyant](https://github.com/polyant-ai/polyant)
+🌐 **Website**: [polyant.ai](https://polyant.ai) &nbsp;·&nbsp; 📚 **Docs**: [docs.polyant.ai](https://docs.polyant.ai) &nbsp;·&nbsp; 💬 **GitHub**: [polyant-ai/polyant](https://github.com/polyant-ai/polyant)
 
 ---
 
 **Polyant** is an open-source platform for building and deploying AI assistants with long-term memory, multi-channel support, and full per-instance customization. It provides a complete runtime for multi-agent systems with an OpenAI-compatible API, a NestJS engine, and a Next.js admin panel — batteries included.
+
+## Release status
+
+Polyant v1.0.0 is the first public stable release. Review the [changelog](CHANGELOG.md), the [release notes](docs/releases/v1.0.0.md), and the [GitHub release](https://github.com/polyant-ai/polyant/releases/tag/v1.0.0). In a running admin installation, version and release details are available at [/about](/about).
 
 > The name comes from Hofstadter's *Gödel, Escher, Bach* — specifically the "Ant Fugue" dialogue and the character of Aunt Hillary, an ant colony understood as the archetype of emergent intelligence: individual agents, each one limited, that produce — by coordinating — a collective intelligent behaviour that exceeds the sum of its parts. It is, literally, the thesis we are pitching: fleets of specialised agents that, when orchestrated, generate performance impossible for any single agent. *Poly-* (classical Greek, "many") makes the key concept explicit: coordinated multiplicity.
 >
@@ -43,7 +47,7 @@ Polyant is, in short, what happens when you take the architectural lessons of Op
 - **Long-term Memory** — Automatic fact extraction via LLM; hybrid search with pgvector cosine similarity + PostgreSQL FTS fused via Reciprocal Rank Fusion
 - **Multi-channel** — Telegram, Slack, WhatsApp, and an OpenAI-compatible HTTP API (with file attachment support)
 - **Provider-agnostic** — Switch between OpenAI and Anthropic per-instance via the admin panel; tier abstraction (`fast | standard | heavy`) decouples code from model names
-- **Self-registering Tools** — Drop a `*.tool.ts` file in the tools directory; it auto-registers at boot with no wiring needed
+- **Tools & Plugins** — Author a tool as `export default defineTool(...)` from `@polyant-ai/plugin-sdk`; the engine loader collects it at boot with no wiring. Tools live in-engine or in external **plugin** repos loaded via `PLUGIN_DIRS` — see [Plugins & the SDK](#plugins--the-sdk)
 - **Skill System** — Markdown-based skill definitions stored in the database; per-instance encrypted env vars for skills that need API keys
 - **Multi-instance** — Independent configuration of prompts, skills, tool availability, and identity per instance; instances exposed as selectable "models" via the OpenAI-compatible API
 - **Per-instance Secrets** — API keys, channel config, and LangSmith settings stored AES-256-GCM encrypted per instance
@@ -56,19 +60,19 @@ Polyant is, in short, what happens when you take the architectural lessons of Op
 
 ## Documentation
 
-The full documentation lives at **[docs.polyant.it](https://docs.polyant.it)** (source: [polyant-ai/docs](https://github.com/polyant-ai/docs)).
+The full documentation lives at **[docs.polyant.ai](https://docs.polyant.ai)** (source: [polyant-ai/docs](https://github.com/polyant-ai/docs)).
 
 ### Get started
-- **[Getting Started](https://docs.polyant.it/getting-started/quickstart)** — build your first agent in 10 minutes
-- **[Channels Setup](https://docs.polyant.it/getting-started/connect-a-channel)** — Telegram, Slack, WhatsApp recipes
+- **[Getting Started](https://docs.polyant.ai/getting-started/quickstart)** — build your first agent in 10 minutes
+- **[Channels Setup](https://docs.polyant.ai/getting-started/connect-a-channel)** — Telegram, Slack, WhatsApp recipes
 - **[Examples](examples/README.md)** — minimal instance, skill, and tool templates
 
 ### Operate
-- **[Deployment](https://docs.polyant.it/operations/deployment)** — Docker Compose, Render, Fly.io, Kubernetes
+- **[Deployment](https://docs.polyant.ai/operations/deployment)** — Docker Compose, Render, Fly.io, Kubernetes
 
 ### Understand
-- **[Architecture](https://docs.polyant.it/concepts/architecture)** — full technical deep dive
-- **[Glossary](https://docs.polyant.it/concepts/glossary)** — Instance, Tier, Room, Skill, Tool explained
+- **[Architecture](https://docs.polyant.ai/concepts/architecture)** — full technical deep dive
+- **[Glossary](https://docs.polyant.ai/concepts/glossary)** — Instance, Tier, Room, Skill, Tool explained
 
 ## Quick Start
 
@@ -99,14 +103,32 @@ Starts PostgreSQL 16 with pgvector on port 5432.
 cp .env.example .env
 ```
 
-Set the required variables (see `.env.example` for descriptions):
+Generate the three required secrets and paste each into `.env`:
 
 ```bash
-# Generate encryption key
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+openssl rand -hex 32   # → ENCRYPTION_KEY
+openssl rand -hex 32   # → AUTH_SECRET
+openssl rand -hex 32   # → AUTH_INTERNAL_SECRET
+```
 
-# Generate auth secret
-openssl rand -base64 32
+Set an initial admin account (used for the first sign-in) in `.env`:
+
+```bash
+INITIAL_ADMIN_EMAIL=admin@example.com
+INITIAL_ADMIN_PASSWORD=choose-a-strong-password
+```
+
+The admin panel (Next.js) does not read the root `.env`. Mirror the values
+into `packages/web/.env.local`:
+
+```bash
+# packages/web/.env.local
+AUTH_SECRET=<same value as .env>
+AUTH_INTERNAL_SECRET=<same value as .env>
+AUTH_TRUST_HOST=true
+DATABASE_URL=postgresql://polyant:changeme@localhost:5432/polyant
+NEXT_PUBLIC_API_URL=http://localhost:4000
+INTERNAL_ENGINE_URL=http://localhost:4000
 ```
 
 ### 4. Run migrations and start
@@ -117,7 +139,7 @@ npm run dev          # engine on :4000
 npm run dev:web      # admin panel on :3001 (separate terminal)
 ```
 
-Open `http://localhost:3001`, create an instance, and configure your AI provider keys in the Settings tab.
+Open `http://localhost:3001`, sign in with the admin credentials from step 3, create an instance, and configure your AI provider keys in the Settings tab.
 
 ## Architecture
 
@@ -141,7 +163,7 @@ Open `http://localhost:3001`, create an instance, and configure your AI provider
 └──────────────────────────────────────────────┘
 ```
 
-See [Architecture](https://docs.polyant.it/concepts/architecture) for the full technical reference.
+See [Architecture](https://docs.polyant.ai/concepts/architecture) for the full technical reference.
 
 ## Project Structure
 
@@ -172,7 +194,8 @@ polyant/
 |---------|-------------|
 | **Instance** | A named assistant configuration with independent prompts, skills, tools, and secrets |
 | **Tier abstraction** | Code requests `fast \| standard \| heavy`; model mapping lives in `ai-gateway/config.ts` |
-| **Tool registry** | Tools self-register at boot via `registerTool()` — no hardcoded imports |
+| **Tool registry** | Tools are `export default defineTool(...)` files collected at boot by the engine loader — no hardcoded imports. See [Plugins & the SDK](#plugins--the-sdk) |
+| **Plugins** | External git repos of tools loaded via `PLUGIN_DIRS` / `src/plugins/*`, authored against `@polyant-ai/plugin-sdk` |
 | **Skill system** | Markdown skill definitions in DB; encrypted per-instance env vars for API keys |
 | **Room** | Event-driven workspace that runs a ReAct cycle on webhook-triggered events |
 | **Fire-and-forget** | Post-response tasks (memory extraction, summary) run async without blocking the user |
@@ -204,6 +227,72 @@ polyant/
 | **WhatsApp** | Webhook via Twilio | Text and media attachments |
 
 All channel configs are stored encrypted per-instance. Adapters start/stop dynamically without a restart.
+
+## Plugins & the SDK
+
+Polyant is **framework-first** — it ships generic tools, and domain-specific ones (a CRM's booking flow, a billing lookup) live in **plugins**: external git repos of tool files the engine loads at boot. Both the engine's own tools and plugin tools use one small, stateless contract package: **[`@polyant-ai/plugin-sdk`](https://github.com/polyant-ai/polyant-sdk)** (referenced as a public git dependency, `git+https://github.com/polyant-ai/polyant-sdk.git#v1.5.0`).
+
+### Writing a tool
+
+A tool file lives at `tools/<name>.tool.ts` and **default-exports** a `defineTool(...)`:
+
+```ts
+import { defineTool } from "@polyant-ai/plugin-sdk";
+import { z } from "zod";
+
+export default defineTool({
+  name: "bookAppointment",              // loads as "<namespace>:bookAppointment" in a plugin
+  description: "Book an appointment in the CRM.",
+  category: "plugin",
+  requiredSecrets: [{ key: "crm_api_key", type: "text" }],
+  parameters: z.object({                // STATIC schema — must NOT depend on ctx
+    patientId: z.string(),
+    date: z.string().describe("ISO 8601"),
+  }),
+  execute: async (input, ctx) => {      // ctx: instanceId, secrets, audit, state, apiKeys…
+    const key = ctx.secrets?.crm_api_key;
+    // …call your API; do runtime validation here and return { error } rather than throwing…
+    return { status: "booked", id: "..." };
+  },
+});
+```
+
+`defineTool` serializes the static Zod `parameters` to **JSON Schema at module load, in your plugin's own realm**. The engine only ever receives **data** (`inputSchema`) plus your `execute` function — never a live Zod object. That data boundary is what lets the engine and each plugin resolve their own copies of the SDK (and `zod`, `ai`, …) without breakage.
+
+Schema rules (OpenAI strict-mode compatible): use `.nullable()` not `.optional()`/`.default()`; no `.transform()`/`.refine()`/`.preprocess()` in `parameters` (move that into `execute`); avoid `.url()`/`.email()`/`.uuid()`/`.datetime()` formats. A boot-time test (`strict-mode.test.ts`) enforces this.
+
+### `plugin.json` (at the plugin repo root)
+
+```json
+{ "name": "acme-tools", "version": "1.0.0", "engine": ">=0.1.0", "toolsDir": "tools", "namespace": "acme" }
+```
+
+`namespace` prefixes every tool name (`acme:bookAppointment`); defaults to `name`. A plugin whose `engine` range excludes the running engine version is **skipped with a warning** — the deployment keeps running.
+
+### Loading a plugin
+
+The loader scans two sources (env wins de-dup):
+
+1. **`PLUGIN_DIRS`** — comma-separated absolute paths, e.g. `PLUGIN_DIRS=/abs/path/to/my-plugin npm run dev`. Point it at a plugin repo that has its **own** `node_modules` (`npm install` there, with the SDK as a git dep).
+2. **Convention dir** — every subdir of `packages/engine/src/plugins/*` that has a `plugin.json` (gitignored runtime drop dir). A **real dir here** resolves the monorepo's `node_modules` and `tsx watch` hot-reloads it.
+
+**Do not symlink a plugin** — Node/`tsx` resolve a file's imports from its real on-disk location, so a symlink points back at the external repo and can't find the monorepo deps.
+
+Full authoring reference: **[docs/plugins.md](docs/plugins.md)**, the SDK's own **[README](https://github.com/polyant-ai/polyant-sdk#readme)**, and the design record at `docs/superpowers/specs/2026-07-02-serialized-plugin-mechanism.md`.
+
+## Stability and compatibility
+
+Semantic Versioning applies to the documented OpenAI-compatible API, Plugin SDK and manifest, and documented configuration and migration behavior. Internal engine modules and the admin UI are not public SemVer surfaces.
+
+To upgrade an existing development installation, back up PostgreSQL, then run:
+
+```bash
+npm ci
+npm run db:migrate
+npm run build
+```
+
+Restart the services, then smoke-test sign-in and a representative chat.
 
 ## Roadmap
 
@@ -256,7 +345,7 @@ These are deliberate trade-offs, deferred decisions, or rough edges that ship wi
 ### Documentation gaps
 
 - The "Phase 2 — Multi-Tenancy" section of `CLAUDE.md` describes a hierarchy that does not exist in the schema yet; this is a roadmap document, not a description of current behavior.
-- Trade-offs around the `gitCloneRepo` credential lifecycle (token at rest while the workspace exists) are documented in `CLAUDE.md` but should be surfaced on [docs.polyant.it](https://docs.polyant.it) as well, since they affect deployment posture.
+- Trade-offs around the `gitCloneRepo` credential lifecycle (token at rest while the workspace exists) are documented in `CLAUDE.md` but should be surfaced on [docs.polyant.ai](https://docs.polyant.ai) as well, since they affect deployment posture.
 
 If you would like to take on any of the items above, please open an issue first so we can scope it together — most of these decisions involve trade-offs we are happy to discuss in the open.
 

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateCost } from "./config.js";
-import { OpenAIProvider } from "./providers/openai.js";
-import { AnthropicProvider } from "./providers/anthropic.js";
-import { BedrockProvider } from "./providers/bedrock.js";
+import { resolveModel, estimateCostBreakdown, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, resolveReasoningLevel } from "./config.js";
+import { sanitizeMessagesForModel } from "./vision.js";
+import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
+import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
+import { BedrockProvider, buildBedrockReasoningOptions } from "./providers/bedrock.js";
+import { NebiusProvider } from "./providers/nebius.js";
 import { aiLogger } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
 import type { ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "./types.js";
@@ -14,6 +16,8 @@ import {
   type BusContext,
 } from "../activity-stream/bus-emitter.js";
 import { findInstanceBySlug } from "../instances/store.js";
+import { buildInstanceIconUrl } from "../instances/icon-url.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 import type { InstanceMeta } from "../activity-stream/activity-stream.types.js";
 
 const DEFAULT_PROVIDER = "openai";
@@ -22,6 +26,7 @@ const providers: Record<string, ProviderAdapter> = {
   openai: OpenAIProvider,
   anthropic: AnthropicProvider,
   bedrock: BedrockProvider,
+  nebius: NebiusProvider,
 };
 
 let initialized = false;
@@ -69,8 +74,89 @@ function resolveCallConfig(
       callType: options?.callType,
       providerName,
       modelId,
+      agentCall: options?.agentCallMetadata,
     });
     providerOptions = { ...providerOptions, langsmith: lsOptions as Record<string, unknown> };
+  }
+
+  // Inject provider-specific thinking/reasoning configuration when requested.
+  // Gated on isThinkingCapable for ALL providers (defense-in-depth): config-
+  // resolver already clears a stale `thinking=true` for a non-capable model, but
+  // gating here too guarantees the ai-gateway boundary never sends thinking
+  // config to a model that would ignore it (OpenAI/Anthropic) or hard-reject it
+  // (Bedrock's ValidationException, like the cachePoint). Anthropic also needs
+  // the interleaved beta header, set unconditionally on the AnthropicProvider
+  // factory. Shape is mapped per family in the build* helpers via the catalog's
+  // reasoningControl (adaptive+effort / budget / effort).
+  // Clamp the requested level to what THIS model accepts (per the catalog's
+  // live-verified reasoningLevels) — a stale/out-of-range effort (e.g. xhigh on o3,
+  // max on gpt-oss) would otherwise 400. Falls back to "medium" (universally valid).
+  const thinkingLevel = resolveReasoningLevel(providerName, modelId, request.thinkingLevel ?? "medium");
+  if (request.thinking && isThinkingCapable(providerName, modelId)) {
+    if (providerName === "anthropic") {
+      providerOptions = {
+        ...providerOptions,
+        anthropic: {
+          ...(providerOptions?.anthropic ?? {}),
+          ...buildAnthropicThinkingOptions(thinkingLevel, reasoningControlFor(providerName, modelId) === "adaptive"),
+        } as Record<string, unknown>,
+      };
+    } else if (providerName === "openai") {
+      providerOptions = {
+        ...providerOptions,
+        openai: {
+          ...(providerOptions?.openai ?? {}),
+          ...buildOpenAIReasoningOptions(thinkingLevel),
+        } as Record<string, unknown>,
+      };
+    } else if (providerName === "bedrock") {
+      providerOptions = {
+        ...providerOptions,
+        bedrock: {
+          ...(providerOptions?.bedrock ?? {}),
+          ...buildBedrockReasoningOptions(thinkingLevel, reasoningControlFor(providerName, modelId) ?? "budget"),
+        } as Record<string, unknown>,
+      };
+    }
+  }
+
+  // Nebius (OpenAI-compatible): reasoning models (Qwen3.5 hybrid & friends) think
+  // BY DEFAULT, and `reasoning_effort` only tunes intensity — it does NOT turn
+  // thinking off. The real off-switch is the vLLM chat-template kwarg
+  // `enable_thinking:false`, which @ai-sdk/openai-compatible forwards verbatim into
+  // the request body. Drive BOTH states so the admin `thinking` toggle actually
+  // controls the model (without it, "off" left the model reasoning by default).
+  // Gated on isThinkingCapable so the Qwen-specific kwarg never reaches a
+  // non-reasoning model. EXCEPTION: gpt-oss (isReasoningAlwaysOn) reasons on
+  // every call and IGNORES enable_thinking (that kwarg is Qwen-only), so its
+  // "off" must send nothing — it falls back to its own reasoning default. There
+  // is no off; the frontend disables the toggle for these models accordingly.
+  if (providerName === "nebius" && isThinkingCapable(providerName, modelId)) {
+    providerOptions = {
+      ...providerOptions,
+      nebius: {
+        ...(providerOptions?.nebius ?? {}),
+        ...(request.thinking
+          ? { reasoningEffort: resolveReasoningLevel(providerName, modelId, request.thinkingLevel ?? "medium") }
+          : isReasoningAlwaysOn(modelId)
+            ? {}
+            : { chat_template_kwargs: { enable_thinking: false } }),
+      } as Record<string, unknown>,
+    };
+  }
+
+  // v6: OpenAI's `strictJsonSchema` defaults to true; our tools use Zod
+  // .nullish()/.optional() schemas (incompatible with strict mode). v4 disabled
+  // this via the now-removed factory option `structuredOutputs:false` — we opt
+  // out per call here so non-strict tool schemas keep validating.
+  if (providerName === "openai") {
+    providerOptions = {
+      ...providerOptions,
+      openai: {
+        ...(providerOptions?.openai ?? {}),
+        strictJsonSchema: false,
+      } as Record<string, unknown>,
+    };
   }
 
   return { provider, providerName, modelId, providerOptions };
@@ -79,7 +165,7 @@ function resolveCallConfig(
 /** Options shared by chat() and chatStream(). */
 export interface ChatCallOptions {
   conversationId?: string;
-  instanceId?: string;
+  instanceId?: InstanceSlug;
   callType?: "conversation" | "service";
   /**
    * Agent-to-agent call metadata forwarded from IncomingMessage.metadata.agentCall.
@@ -92,6 +178,17 @@ export interface ChatCallOptions {
     parentTraceId?: string;
     depth: number;
   };
+}
+
+/** Total reasoning content size, in characters, for analytics. */
+function reasoningCharCount(response: ChatResponse): number {
+  if (!response.reasoning) return 0;
+  let n = 0;
+  for (const r of response.reasoning) {
+    if (r.type === "text") n += r.text.length;
+    else if (r.type === "redacted") n += r.data.length;
+  }
+  return n;
 }
 
 function logAndRecordUsage(
@@ -108,12 +205,22 @@ function logAndRecordUsage(
     response.steps?.reduce((acc, s) => acc + s.toolCalls.length, 0) ?? 0,
   );
 
-  const cost = estimateCost(
+  const cost = estimateCostBreakdown(
     config.providerName,
     config.modelId,
     response.usage.promptTokens,
-    response.usage.completionTokens
+    response.usage.completionTokens,
+    {
+      cachedInputTokens: response.usage.cachedInputTokens,
+      cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
+    },
   );
+  // Propagate the split up to the pipeline (persisted per-message on pipeline_traces).
+  response.cost = cost;
+  // Echo the requested thinking / temperature so the pipeline can persist them
+  // per-message for debug/analysis.
+  response.thinking = request.thinking ?? false;
+  response.temperature = request.temperature;
 
   aiLogger.log(
     aiLogger.createEntry(
@@ -124,11 +231,15 @@ function logAndRecordUsage(
       response.usage.promptTokens,
       response.usage.completionTokens,
       response.usage.totalTokens,
-      cost,
+      cost.total,
       response.durationMs,
+      reasoningCharCount(response),
+      response.steps.length,
       options?.conversationId,
       options?.instanceId,
       options?.callType,
+      response.usage.cachedInputTokens,
+      response.usage.cacheCreationInputTokens,
     )
   );
 }
@@ -145,6 +256,7 @@ export async function chat(
 
   const response = await config.provider.chat({
     ...request,
+    messages: sanitizeMessagesForModel(request.messages, config.modelId),
     providerOptions: config.providerOptions,
   }, config.modelId);
 
@@ -154,7 +266,16 @@ export async function chat(
   // non-streaming callers (room-engine, webhook-engine, scheduled-tasks)
   // still feed the live activity panel. Fire-and-forget — failures are
   // swallowed by the bus emitter to keep the chat path unaffected.
-  void buildBusContext(options).then((ctx) => emitFromChatResponse(response, ctx)).catch(() => undefined);
+  //
+  // Skip the emit for:
+  //   - service-type calls (summary, title, memory extraction, webhook
+  //     matcher, internal tool sub-LLMs): they're internals, not part of
+  //     the visible turn and would surface as duplicate REPLY/tool events.
+  //   - aborted pipelines (cancel-and-restart on the message coordinator):
+  //     the cancelled run shouldn't leave events behind for the user.
+  if (options?.callType !== "service" && !request.abortSignal?.aborted) {
+    void buildBusContext(options).then((ctx) => emitFromChatResponse(response, ctx)).catch(() => undefined);
+  }
 
   return response;
 }
@@ -171,6 +292,7 @@ export async function chatStream(
 
   const stream = await config.provider.chatStream({
     ...request,
+    messages: sanitizeMessagesForModel(request.messages, config.modelId),
     providerOptions: config.providerOptions,
   }, config.modelId);
 
@@ -181,9 +303,18 @@ export async function chatStream(
 
   // Tap the fullStream so live tool-call / reasoning / step-finish events
   // flow onto the ActivityBus while the original consumer still receives
-  // every chunk unchanged. The instance metadata is fetched once per call.
-  const busCtxPromise = buildBusContext(options);
+  // every chunk unchanged. The instance metadata is fetched once per call
+  // (small, cached upstream by ttl-cache via findInstanceBySlug).
+  //
+  // Service-type calls bypass the tap entirely (same rationale as `chat()`):
+  // an internal LLM invocation must not pollute the visible turn timeline.
+  const skipBus = options?.callType === "service";
+  const busCtxPromise = skipBus ? null : buildBusContext(options);
   const tappedFullStream = (async function* tapped() {
+    if (skipBus || busCtxPromise === null) {
+      yield* stream.fullStream as AsyncIterable<unknown>;
+      return;
+    }
     const ctx = await busCtxPromise;
     yield* tapAndForwardFullStream(stream.fullStream, ctx) as AsyncIterable<unknown>;
   })();
@@ -207,7 +338,8 @@ async function buildBusContext(options?: ChatCallOptions): Promise<BusContext> {
       id: instance.id,
       slug: instance.slug,
       name: instance.name,
-      icon: instance.icon ?? null,
+      // Emit a URL, never the raw base64 data URI — see buildInstanceIconUrl.
+      icon: buildInstanceIconUrl(instance.slug, instance.icon, instance.updatedAt),
     };
     return { instance: meta, conversationId: options.conversationId };
   } catch {

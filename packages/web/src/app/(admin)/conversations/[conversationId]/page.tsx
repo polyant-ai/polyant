@@ -2,11 +2,11 @@
 
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, Wrench, Loader2, Info, Zap, Coins, Terminal, FileText, Mic } from "lucide-react";
+import { Trash2, Loader2, Zap, Coins, Terminal, FileText, Mic, SearchCode, Database, Webhook, Link2, Pencil } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -29,19 +29,29 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta } from "@/lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta, type HookExecution } from "@/lib/api";
 import { MarkdownRenderer } from "@/app/(admin)/playground/_components/markdown-renderer";
+import { MessageExtras } from "@/components/messages/message-extras";
+import { MessageMetadataPills } from "@/components/messages/message-metadata-pills";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
+import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
+import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
 import { formatRelativeTime, parseUTC } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 
@@ -98,32 +108,6 @@ function formatTime(dateStr: string | null): string {
     ...(sameYear ? {} : { year: "numeric" }),
   });
   return `${datePart} ${time}`;
-}
-
-function ToolCallsDisplay({ toolCalls }: { toolCalls: unknown[] }) {
-  return (
-    <Accordion type="single" collapsible className="mt-1">
-      {toolCalls.map((tc, i) => {
-        const tool = tc as Record<string, unknown>;
-        const name = (tool.toolName as string) ?? (tool.tool as string) ?? `Tool ${i + 1}`;
-        return (
-          <AccordionItem key={i} value={`tool-${i}`} className="border-none">
-            <AccordionTrigger className="py-1 text-xs text-muted-foreground hover:no-underline">
-              <span className="flex items-center gap-1">
-                <Wrench className="h-3 w-3" />
-                {name}
-              </span>
-            </AccordionTrigger>
-            <AccordionContent>
-              <pre className="max-w-full overflow-x-auto rounded-sm bg-muted p-2 text-xs">
-                {JSON.stringify(tc, null, 2)}
-              </pre>
-            </AccordionContent>
-          </AccordionItem>
-        );
-      })}
-    </Accordion>
-  );
 }
 
 function AttachmentDisplay({ attachments, isUser }: { attachments: AttachmentMeta[]; isUser: boolean }) {
@@ -187,9 +171,21 @@ export default function ConversationDetailPage() {
 
   const [conversation, setConversation] = useState<ConversationListItem | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [hookExecutions, setHookExecutions] = useState<HookExecution[]>([]);
+  const [debugTarget, setDebugTarget] = useState<DebugSheetTarget | null>(null);
+  const [stateOpen, setStateOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [renameId, setRenameId] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const [totalMessages, setTotalMessages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Detailed view: shows per-message metadata pills + reasoning/tool panels.
+  // Off by default; the choice persists across pages via localStorage.
+  const [detailed, setDetailed] = useState(false);
+  // Message targeted by a shared deep link (#msg-<id>) — briefly ring-highlighted.
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -197,16 +193,45 @@ export default function ConversationDetailPage() {
   const prevScrollHeightRef = useRef<number | null>(null);
   const didInitialScrollRef = useRef(false);
 
+  // Read the persisted preference on mount (client-only, avoids SSR mismatch).
+  useEffect(() => {
+    setDetailed(localStorage.getItem("conversationDetailedView") === "true");
+  }, []);
+
+  const toggleDetailed = (value: boolean) => {
+    setDetailed(value);
+    localStorage.setItem("conversationDetailedView", String(value));
+  };
+
+  // Copy a deep link to a specific message. Opening it scrolls to and
+  // highlights that message (see the deep-link effect below).
+  const handleShare = async (messageId: string) => {
+    const url = `${window.location.origin}${window.location.pathname}#msg-${messageId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      window.history.replaceState(null, "", `#msg-${messageId}`);
+      toast.success(t("conversations.detail.linkCopied"));
+      // Flash the message so the user sees which one they just linked.
+      setHighlightId(messageId);
+      setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 2600);
+    } catch {
+      toast.error(t("conversations.detail.linkCopyFailed"));
+    }
+  };
+
   useEffect(() => {
     Promise.all([
       api.conversations.get(conversationId, instanceId),
       api.conversations.messages(conversationId, instanceId, { limit: MESSAGES_PAGE_SIZE, order: "desc" }),
+      // Hook telemetry is decorative — a failed fetch never blocks the page.
+      api.conversations.hookExecutions(conversationId, instanceId).catch(() => ({ executions: [] as HookExecution[] })),
     ])
-      .then(([convRes, msgRes]) => {
+      .then(([convRes, msgRes, hooksRes]) => {
         setConversation(convRes.conversation);
         // API returned newest first; reverse to chronological for top-down rendering.
         setMessages([...msgRes.messages].reverse());
         setTotalMessages(msgRes.total);
+        setHookExecutions(hooksRes.executions);
       })
       .catch(() => {
         toast.error(t("conversations.detail.notFound"));
@@ -239,13 +264,44 @@ export default function ConversationDetailPage() {
   };
 
   // After the initial fetch resolves, jump to the bottom (latest message visible).
+  // Re-pin on each image load — lazy-loaded images grow the scrollHeight after the
+  // first synchronous measure, otherwise the user lands a few hundred px above the bottom.
   useLayoutEffect(() => {
     if (loading) return;
     if (didInitialScrollRef.current) return;
     const el = scrollContainerRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    const pin = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    pin();
+    const imgs = el.querySelectorAll("img");
+    const handlers: Array<() => void> = [];
+    imgs.forEach((img) => {
+      if (img.complete) return;
+      const onLoad = () => pin();
+      img.addEventListener("load", onLoad, { once: true });
+      handlers.push(() => img.removeEventListener("load", onLoad));
+    });
     didInitialScrollRef.current = true;
+    return () => {
+      handlers.forEach((cleanup) => cleanup());
+    };
+  }, [loading]);
+
+  // Deep link (#msg-<id>): once messages are loaded, scroll to the targeted
+  // message and briefly highlight it. Only works if the message is in the
+  // loaded window (older messages beyond the first pages aren't fetched yet).
+  useEffect(() => {
+    if (loading) return;
+    const match = window.location.hash.match(/^#msg-(.+)$/);
+    if (!match) return;
+    const el = document.getElementById(`msg-${match[1]}`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    setHighlightId(match[1]);
+    const timer = setTimeout(() => setHighlightId(null), 2600);
+    return () => clearTimeout(timer);
   }, [loading]);
 
   // After prepending older messages, restore the relative scroll position so the user
@@ -257,6 +313,30 @@ export default function ConversationDetailPage() {
     el.scrollTop = el.scrollHeight - prevScrollHeightRef.current;
     prevScrollHeightRef.current = null;
   }, [messages]);
+
+  // Merge messages and hook executions into a single chronological timeline.
+  // Executions older than the loaded message window are hidden so pagination
+  // doesn't pile them all at the top.
+  type TimelineItem =
+    | { kind: "message"; msg: ConversationMessage; ts: number }
+    | { kind: "hook"; exec: HookExecution; ts: number };
+
+  const timeline = useMemo<TimelineItem[]>(() => {
+    const items: TimelineItem[] = messages.map((msg) => ({
+      kind: "message" as const,
+      msg,
+      ts: msg.createdAt ? parseUTC(msg.createdAt).getTime() : 0,
+    }));
+    const loadedTs = items.map((i) => i.ts).filter((ts) => ts > 0);
+    const oldestLoaded = loadedTs.length > 0 ? Math.min(...loadedTs) : 0;
+    const hasOlderPages = messages.length < totalMessages;
+    for (const exec of hookExecutions) {
+      const ts = parseUTC(exec.createdAt).getTime();
+      if (hasOlderPages && ts < oldestLoaded) continue;
+      items.push({ kind: "hook" as const, exec, ts });
+    }
+    return items.sort((a, b) => a.ts - b.ts);
+  }, [messages, hookExecutions, totalMessages]);
 
   // Watch the top sentinel: when it scrolls into view, fetch the previous page.
   useEffect(() => {
@@ -275,6 +355,44 @@ export default function ConversationDetailPage() {
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, messages.length, totalMessages]);
+
+  const openRename = () => {
+    setRenameTitle(conversation?.title ?? "");
+    setRenameId(conversationId);
+    setRenameOpen(true);
+  };
+
+  const handleRename = async () => {
+    const nextId = renameId.trim();
+    const nextTitle = renameTitle.trim();
+    if (!nextTitle) {
+      toast.error(t("conversations.detail.renameTitleRequired"));
+      return;
+    }
+    if (!nextId) {
+      toast.error(t("conversations.detail.renameIdRequired"));
+      return;
+    }
+    setRenaming(true);
+    try {
+      await api.conversations.rename(conversationId, instanceId, {
+        conversationId: nextId,
+        title: nextTitle,
+      });
+      toast.success(t("conversations.detail.renamed"));
+      setRenameOpen(false);
+      if (nextId !== conversationId) {
+        // The id changed → the current route is stale; navigate to the new one.
+        router.push(`/conversations/${encodeURIComponent(nextId)}`);
+      } else {
+        setConversation((c) => (c ? { ...c, title: nextTitle } : c));
+      }
+    } catch (err) {
+      toast.error(getUserErrorMessage(err, t("conversations.detail.renameFailed")));
+    } finally {
+      setRenaming(false);
+    }
+  };
 
   const handleDelete = async () => {
     try {
@@ -304,7 +422,7 @@ export default function ConversationDetailPage() {
       : conversationId);
 
   return (
-    <div>
+    <div className="flex h-[calc(100svh-3.5rem-3rem)] flex-col">
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -320,10 +438,11 @@ export default function ConversationDetailPage() {
       </Breadcrumb>
 
       <div className="mt-4 flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
+        <div className="min-w-0">
+          {/* Clamped: the header must never grow enough to squeeze the message list. Full text on hover. */}
+          <h1 className="line-clamp-2 text-3xl font-semibold tracking-tight" title={title}>{title}</h1>
           {conversation.title && conversation.summary && (
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground" title={conversation.summary}>
               {conversation.summary}
             </p>
           )}
@@ -351,6 +470,11 @@ export default function ConversationDetailPage() {
                     <TooltipContent>
                       <p>{t("conversations.detail.conversationCost")}: {conversation.conversationTokens.toLocaleString()}</p>
                       <p className="text-muted-foreground">{t("conversations.detail.serviceCost")}: {conversation.serviceTokens.toLocaleString()}</p>
+                      {conversation.cachedInputTokens + conversation.cacheCreationInputTokens > 0 && (
+                        <p className="text-muted-foreground">
+                          {t("conversations.detail.cacheTokens")}: {conversation.cachedInputTokens.toLocaleString()} / {conversation.cacheCreationInputTokens.toLocaleString()}
+                        </p>
+                      )}
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -374,6 +498,22 @@ export default function ConversationDetailPage() {
             )}
           </div>
         </div>
+        <div className="flex items-center gap-1">
+        <Label
+          htmlFor="detailed-view"
+          className="mr-2 flex items-center gap-2 text-sm font-normal text-muted-foreground"
+        >
+          <Switch id="detailed-view" checked={detailed} onCheckedChange={toggleDetailed} />
+          {t("conversations.detail.detailedToggle")}
+        </Label>
+        <Button variant="ghost" size="sm" onClick={() => setStateOpen(true)}>
+          <Database className="h-4 w-4" />
+          {t("conversations.state.button")}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={openRename}>
+          <Pencil className="h-4 w-4" />
+          {t("conversations.detail.renameButton")}
+        </Button>
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="ghost" size="sm" className="text-destructive">
@@ -399,11 +539,12 @@ export default function ConversationDetailPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        </div>
       </div>
 
       <div
         ref={scrollContainerRef}
-        className="mt-8 h-[calc(100vh-280px)] space-y-4 overflow-y-auto pr-2"
+        className="mt-8 flex-1 min-h-0 space-y-4 overflow-y-auto pr-2"
       >
         <div ref={topSentinelRef} aria-hidden="true" />
         {loadingMore && (
@@ -413,7 +554,18 @@ export default function ConversationDetailPage() {
         )}
 
         <TooltipProvider>
-          {messages.map((msg) => {
+          {timeline.map((item) => {
+            // Hook execution → centered expandable pill in the timeline
+            if (item.kind === "hook") {
+              const exec = item.exec;
+              return (
+                <div key={`hook-${exec.id}`} className="flex justify-center">
+                  <HookExecutionPill execution={exec} timestamp={formatTime(exec.createdAt)} />
+                </div>
+              );
+            }
+
+            const msg = item.msg;
             // System message → centered amber pill
             if (msg.role === "system") {
               return (
@@ -440,22 +592,19 @@ export default function ConversationDetailPage() {
               );
             }
 
-            const tokenCount = msg.role === "user" ? msg.promptTokens : msg.completionTokens;
-            const costPerToken = conversation.conversationTokens > 0
-              ? conversation.conversationCost / conversation.conversationTokens
-              : 0;
-            const messageCost = tokenCount != null ? tokenCount * costPerToken : 0;
-
             return (
               <div
                 key={msg.id}
-                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                id={`msg-${msg.id}`}
+                className={`flex scroll-mt-4 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[75%] min-w-0 overflow-hidden rounded-2xl px-4 py-3 ${
-                    msg.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
+                  className={`max-w-[75%] min-w-0 overflow-hidden rounded-2xl px-4 py-3 transition-colors duration-500 ${
+                    highlightId === msg.id
+                      ? "bg-accent text-accent-foreground ring-2 ring-accent-strong"
+                      : msg.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
                   }`}
                 >
                   {msg.attachments && msg.attachments.length > 0 && (
@@ -483,12 +632,25 @@ export default function ConversationDetailPage() {
                       <Mic className="h-3 w-3" />
                     </span>
                   )}
+                  {msg.role !== "user" && msg.metadata?.source === "hook" && (
+                    <span className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Webhook className="h-3 w-3" />
+                      {t("message.provenance.hook", { name: String(msg.metadata.hookName ?? "") })}
+                    </span>
+                  )}
+                  {/* Reasoning + steps panels above message text — only in the
+                      detailed view (audit/exploratory UX; hidden in compact). */}
+                  {msg.role !== "user" && detailed && (
+                    <MessageExtras
+                      reasoning={msg.reasoning}
+                      steps={msg.steps}
+                      defaultOpen
+                    />
+                  )}
                   <MarkdownRenderer content={msg.content} />
-                  {msg.steps &&
-                    Array.isArray(msg.steps) &&
-                    msg.steps.length > 0 && (
-                      <ToolCallsDisplay toolCalls={msg.steps} />
-                    )}
+                  {msg.role !== "user" && detailed && (
+                    <MessageMetadataPills message={msg} />
+                  )}
                   <div
                     className={`mt-1 flex items-center gap-1.5 text-xs ${
                       msg.role === "user"
@@ -497,28 +659,39 @@ export default function ConversationDetailPage() {
                     }`}
                   >
                     <span>{formatTime(msg.createdAt)}</span>
-                    {tokenCount != null && tokenCount > 0 && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex cursor-default items-center">
-                            <Info className="h-3 w-3" />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="space-y-0.5">
-                          <p className="flex items-center gap-1 tabular-nums">
-                            <Zap className="h-3 w-3" />
-                            {msg.role === "user"
-                              ? t("conversations.detail.inputTokens", { count: tokenCount.toLocaleString() })
-                              : t("conversations.detail.outputTokens", { count: tokenCount.toLocaleString() })}
-                          </p>
-                          {messageCost > 0 && (
-                            <p className="flex items-center gap-1 tabular-nums">
-                              <Coins className="h-3 w-3" />
-                              ${messageCost.toFixed(4)}
-                            </p>
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
+                    <button
+                      type="button"
+                      onClick={() => handleShare(msg.id)}
+                      className="inline-flex items-center rounded px-1 opacity-70 transition hover:opacity-100"
+                      title={t("conversations.detail.share")}
+                    >
+                      <Link2 className="h-3 w-3" />
+                    </button>
+                    {msg.role !== "user" && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDebugTarget({
+                            conversationId,
+                            messageId: msg.id,
+                            instanceId,
+                            model: msg.model,
+                            provider: msg.provider,
+                            promptTokens: msg.promptTokens,
+                            completionTokens: msg.completionTokens,
+                            cachedInputTokens: msg.cachedInputTokens,
+                            cacheCreationInputTokens: msg.cacheCreationInputTokens,
+                            cost: msg.cost,
+                            thinking: msg.thinking,
+                            temperature: msg.temperature,
+                            latency: msg.latency,
+                          })
+                        }
+                        className="inline-flex items-center gap-1 rounded px-1 text-muted-foreground transition hover:text-foreground"
+                        title={t("message.debug.open")}
+                      >
+                        <SearchCode className="h-3 w-3" />
+                      </button>
                     )}
                   </div>
                 </div>
@@ -533,6 +706,61 @@ export default function ConversationDetailPage() {
           </p>
         )}
       </div>
+
+      <DebugSheet
+        open={debugTarget !== null}
+        onOpenChange={(o) => !o && setDebugTarget(null)}
+        target={debugTarget}
+      />
+      <ContextStoreSheet
+        open={stateOpen}
+        onOpenChange={setStateOpen}
+        conversationId={conversationId}
+        instanceId={instanceId}
+      />
+
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("conversations.detail.renameTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("conversations.detail.renameDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-title">{t("conversations.detail.renameTitleLabel")}</Label>
+              <Input
+                id="rename-title"
+                value={renameTitle}
+                onChange={(e) => setRenameTitle(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rename-id">{t("conversations.detail.renameIdLabel")}</Label>
+              <Input
+                id="rename-id"
+                value={renameId}
+                onChange={(e) => setRenameId(e.target.value)}
+                className="font-mono text-xs"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("conversations.detail.renameIdHint")}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameOpen(false)} disabled={renaming}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={handleRename} disabled={renaming}>
+              {renaming && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { pgTable, uuid, text, integer, real, timestamp, boolean, index } from "drizzle-orm/pg-core";
 import type { AILogEntry, ModelTier } from "./types.js";
+import { type InstanceSlug } from "../instances/identifiers.js";
 
 export const aiLogs = pgTable(
   "ai_logs",
@@ -14,6 +15,10 @@ export const aiLogs = pgTable(
     promptTokens: integer("prompt_tokens").notNull(),
     completionTokens: integer("completion_tokens").notNull(),
     totalTokens: integer("total_tokens").notNull(),
+    // Prompt-cache breakdown (subset of prompt_tokens). Lets Analytics show
+    // cache hit-rate and real (cache-adjusted) cost. 0 when caching is off.
+    cachedInputTokens: integer("cached_input_tokens").notNull().default(0),
+    cacheCreationInputTokens: integer("cache_creation_input_tokens").notNull().default(0),
     estimatedCostUsd: real("estimated_cost_usd").notNull(),
     durationMs: integer("duration_ms").notNull(),
     reasoningChars: integer("reasoning_chars").notNull().default(0),
@@ -27,6 +32,8 @@ export const aiLogs = pgTable(
     index("idx_ai_logs_instance_id").on(table.instanceId),
     index("idx_ai_logs_created_at").on(table.createdAt),
     index("idx_ai_logs_instance_created").on(table.instanceId, table.createdAt),
+    // Conversation-list token/cost LATERAL aggregation filters by conversation_id.
+    index("idx_ai_logs_conversation_id").on(table.conversationId),
   ],
 );
 
@@ -83,9 +90,13 @@ export class AILogger {
     totalTokens: number,
     estimatedCostUsd: number,
     durationMs: number,
+    reasoningChars: number,
+    stepCount: number,
     conversationId?: string,
-    instanceId?: string,
+    instanceId?: InstanceSlug,
     callType?: "conversation" | "service",
+    cachedInputTokens?: number,
+    cacheCreationInputTokens?: number,
   ): AILogEntry {
     // Sanitize numeric values — AI SDK may return undefined in some edge cases
     const safeInt = (v: number) => (Number.isFinite(v) ? Math.round(v) : 0);
@@ -98,8 +109,12 @@ export class AILogger {
       promptTokens: safeInt(promptTokens),
       completionTokens: safeInt(completionTokens),
       totalTokens: safeInt(totalTokens),
+      cachedInputTokens: safeInt(cachedInputTokens ?? 0),
+      cacheCreationInputTokens: safeInt(cacheCreationInputTokens ?? 0),
       estimatedCostUsd: safeFloat(estimatedCostUsd),
       durationMs: safeInt(durationMs),
+      reasoningChars: safeInt(reasoningChars),
+      stepCount: safeInt(stepCount),
       conversationId,
       instanceId,
       callType: callType ?? "conversation",

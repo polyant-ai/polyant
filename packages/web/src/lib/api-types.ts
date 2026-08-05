@@ -26,6 +26,26 @@ export interface ResetPasswordResponse {
   generatedPassword: string;
 }
 
+// ── Organization members (RBAC) ─────────────────────────────────────
+
+/** The four OSS system roles, highest-privilege first. */
+export type MemberRole = "owner" | "admin" | "member" | "viewer";
+
+export const MEMBER_ROLES: readonly MemberRole[] = [
+  "owner",
+  "admin",
+  "member",
+  "viewer",
+];
+
+export interface OrganizationMember {
+  userId: string;
+  email: string;
+  name: string | null;
+  /** Org-scope system role key, or null when the user holds no org-scope role. */
+  roleKey: MemberRole | null;
+}
+
 // ── Instances ───────────────────────────────────────────────────────
 
 export interface Instance {
@@ -47,10 +67,79 @@ export interface Instance {
    * selected model is not thinking-capable.
    */
   thinkingEnabled: boolean;
+  /**
+   * Reasoning intensity when thinking is on (low|medium|high). Currently applied
+   * only by the Nebius provider. Optional/defaulted for backward compatibility.
+   */
+  thinkingLevel?: string;
+  /**
+   * Sampling temperature (0–2). Null means "use the engine default". Ignored
+   * at runtime when the selected model does not support temperature (e.g.
+   * reasoning/o-series models). Optional for backward compatibility with
+   * instances that pre-date this field.
+   */
+  temperature?: number | null;
+  /** When true, the conversation state store is rendered read-only into the system prompt. */
+  stateInPromptEnabled: boolean;
+  /** When true, the current date/time is injected into every turn. */
+  datetimeInjectionEnabled: boolean;
+  /** Per-instance prompt-cache switch (off skips cache markers → no cache write). */
+  cacheEnabled: boolean;
+  /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
+  cacheTtl: string;
+  /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
+  toolResultsInHistoryEnabled: boolean;
+  /** When true, the exact LLM request payload is persisted per turn (debug/analysis). */
+  debugEnabled: boolean;
+  /** When true, inbound STOP/START keyword handling is active for this instance. */
+  optoutEnabled: boolean;
+  optoutStopKeywords: string[];
+  optoutResumeKeywords: string[];
+  optoutClosingMessage: string | null;
+  optoutResumeMessage: string | null;
+  /** When true, a read-only opt-out hint is injected into the supervisor prompt. */
+  optoutInjectPromptHint: boolean;
   sttProvider: string | null;
   icon: string | null;
+  /**
+   * Embedding vector dimension for this instance (1024 for Bedrock Titan v2,
+   * 1536 for OpenAI text-embedding-3-small). Decides which vector column the
+   * `memories` / `knowledge_chunks` rows are written to.
+   */
+  embeddingDim?: number;
+  /**
+   * Embedder provider, chosen independently of the chat `provider`:
+   * "openai" | "bedrock" (Anthropic has no embeddings API). Changing it wipes
+   * memories + knowledge, since vectors are not portable across providers.
+   */
+  embeddingProvider?: "openai" | "bedrock";
+  /**
+   * Provider-aware memory readiness, computed server-side. `needsOpenAIKey` is
+   * true when memory is enabled but the embeddings provider lacks the required
+   * credentials (e.g. an Anthropic-provider instance without an OpenAI key, or
+   * a Bedrock instance without AWS credentials). `canEnable` reflects whether
+   * the instance currently has everything it needs to run memory.
+   */
+  memory?: {
+    needsOpenAIKey: boolean;
+    canEnable: boolean;
+  };
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+/**
+ * Result of the destructive embedding reset that runs when an instance's
+ * embedding provider changes. Returned by `PATCH /api/instances/:slug` as
+ * `wiped` when the switch discarded existing data. Existing vectors are NOT
+ * converted — memories and the entire knowledge base are deleted.
+ */
+export interface EmbeddingWipeResult {
+  instanceId: string;
+  memoriesDeleted: number;
+  knowledgeDocumentsDeleted: number;
+  knowledgeChunksDeleted: number;
+  newEmbeddingDim: number;
 }
 
 export interface SecretStatus {
@@ -81,12 +170,49 @@ export interface ModelInfo {
   costInput: number;
   costOutput: number;
   /**
+   * Absolute per-1M-token cache read/write cost in USD. Falls back to the input
+   * rate when the model has no cache discount (Nebius / non-anthropic-nova Bedrock
+   * report cached tokens but bill them full). costCacheWrite === 0 = caches with
+   * no write premium (OpenAI pre-GPT-5.6).
+   */
+  costCacheRead: number;
+  costCacheWrite: number;
+  /** True when the provider+model has real prompt caching (a discount) — a UI hint. */
+  supportsCache: boolean;
+  /**
    * True when the model supports extended thinking / reasoning.
    * Computed server-side from `isThinkingCapable(provider, modelId)`; the
    * frontend uses this to decide whether to show the "Extended thinking"
    * toggle in the instance settings.
    */
   supportsThinking: boolean;
+  /**
+   * True when the model reasons on every call and cannot be turned off (only its
+   * effort is adjustable) — e.g. gpt-oss. Computed server-side from
+   * `isReasoningAlwaysOn(modelId)`. The frontend locks the thinking toggle ON and
+   * shows an "always reasons" hint instead of a working off switch.
+   */
+  reasoningAlwaysOn: boolean;
+  /**
+   * The reasoning-effort levels this model actually accepts (live-verified,
+   * server-side from the catalog). The Settings tab renders the level picker from
+   * this exact set — e.g. gpt-5.x add "xhigh", adaptive Claude add "xhigh"+"max",
+   * o3/gpt-oss/Nebius are low/medium/high. Empty for non-reasoning models.
+   */
+  reasoningLevels: ("low" | "medium" | "high" | "xhigh" | "max")[];
+  /**
+   * True when the model supports user-configurable sampling temperature.
+   * False for reasoning/o-series models where the API ignores or rejects
+   * the parameter.
+   */
+  supportsTemperature: boolean;
+  /**
+   * True when a custom temperature survives WITH extended thinking on. Open-weight/
+   * vLLM reasoners (gpt-oss, Bedrock MiniMax, all Nebius reasoners) accept both; the
+   * strict-reasoning APIs (Anthropic extended thinking, OpenAI 1P) reject it. Lets the
+   * Settings tab keep the temperature field editable under thinking where allowed.
+   */
+  supportsTemperatureWithThinking: boolean;
 }
 
 export interface ModelsResponse {
@@ -100,7 +226,7 @@ export interface PromptSection {
   content: string;
 }
 
-/** Per-instance config field declared by a tool. `text` is a masked input; `select` renders a dropdown over `choices`. */
+/** Per-instance config field declared by a tool. `text` is a masked input unless `sensitive: false` (readable cleartext); `select` renders a dropdown over `choices`. */
 export interface RequiredSecretSpec {
   key: string;
   type: "text" | "select";
@@ -108,7 +234,9 @@ export interface RequiredSecretSpec {
   description?: string;
   choices?: string[];
   optional?: boolean;
-  /** Cleartext value for non-sensitive `select` fields (so the UI can preselect). Never present for `text`. */
+  /** false → readable value (shown in cleartext, prefilled from `currentValue`); true/undefined → secret (masked input). */
+  sensitive?: boolean;
+  /** Cleartext value for non-sensitive fields (so the UI can preselect or prefill). Never present for sensitive fields. */
   currentValue?: string;
 }
 
@@ -247,6 +375,7 @@ export interface ConversationListItem {
   conversationId: string;
   title: string | null;
   summary: string | null;
+  channel: string | null;
   instanceId: string | null;
   instanceName: string | null;
   messageCount: number;
@@ -256,6 +385,8 @@ export interface ConversationListItem {
   conversationCost: number;
   serviceTokens: number;
   serviceCost: number;
+  cachedInputTokens: number;
+  cacheCreationInputTokens: number;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -273,17 +404,93 @@ export interface AttachmentMeta {
   sizeBytes?: number;
 }
 
+export type ReasoningDetail =
+  | { type: "text"; text: string; signature?: string }
+  | { type: "redacted"; data: string };
+
+/** One step of a multi-step assistant turn (assistant → tool → assistant → …). */
+export interface StepDetail {
+  index: number;
+  stepType: "initial" | "continue" | "tool-result";
+  text: string;
+  toolCalls: { toolCallId: string; toolName: string; args: unknown }[];
+  toolResults?: { toolCallId: string; result: unknown }[];
+  reasoning?: ReasoningDetail[];
+  finishReason: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  durationMs: number;
+  /** True for rows backfilled from the legacy `tool_calls` shape (no real timing/reasoning). */
+  legacy?: boolean;
+}
+
 export interface ConversationMessage {
   id: string;
   role: string;
   content: string;
-  steps: unknown[] | null;
-  reasoning: unknown[] | null;
+  /** Per-step trace (replaces the legacy `toolCalls` flat array). */
+  steps: StepDetail[] | null;
+  /** Aggregated message-level reasoning (Anthropic signed thinking blocks, OpenAI summary). */
+  reasoning: ReasoningDetail[] | null;
   attachments: AttachmentMeta[] | null;
   metadata: Record<string, unknown> | null;
   createdAt: string | null;
   promptTokens: number | null;
   completionTokens: number | null;
+  /** Prompt-cache read/write token counts (assistant messages only). */
+  cachedInputTokens?: number | null;
+  cacheCreationInputTokens?: number | null;
+  /** Model id used for this turn (assistant messages only). */
+  model?: string | null;
+  /** Provider that served the model (assistant messages only). */
+  provider?: string | null;
+  /** USD cost split (input/cache/output/total) for this turn. */
+  cost?: CostBreakdown | null;
+  /** Whether extended thinking was requested (assistant messages only). */
+  thinking?: boolean | null;
+  /** Sampling temperature requested (null → provider default). */
+  temperature?: number | null;
+  /** Per-phase latency (ms) for the assistant turn. */
+  latency?: MessageLatency | null;
+}
+
+/** USD cost of an assistant turn, split by pricing bucket. Mirrors the engine. */
+export interface CostBreakdown {
+  input: number;
+  cache: number;
+  /** Cost of cache-read (hit) tokens. Subset of `cache`. Absent on rows persisted before the split shipped. */
+  cacheRead?: number;
+  /** Cost of cache-write (creation) tokens. Subset of `cache`. Absent on rows persisted before the split shipped. */
+  cacheWrite?: number;
+  output: number;
+  total: number;
+}
+
+/** Per-phase latency (ms) of an assistant turn. Mirrors pipeline_traces. */
+export interface MessageLatency {
+  contextPrepMs: number | null;
+  toolBuildingMs: number | null;
+  llmCallMs: number | null;
+  totalMs: number | null;
+  ttfbMs: number | null;
+}
+
+/**
+ * Exact LLM request payload captured for an assistant turn when the instance's
+ * DEBUG flag was on. Heavy, fetched on-demand via the per-message debug endpoint.
+ */
+export interface LlmDebugPayload {
+  system: string;
+  messages: unknown[];
+  tools: { name: string; description?: string; parameters?: unknown }[];
+}
+
+/** Response of GET /api/conversations/:id/messages/:messageId/debug. */
+export interface MessageDebug {
+  /** Null when the turn was generated with DEBUG off. */
+  debugPayload: LlmDebugPayload | null;
+  /** Per-step tool trace for the turn (always present for tool-using turns). */
+  steps: StepDetail[] | null;
 }
 
 // ── Memories ──────────────────────────────────────────────────────────
@@ -306,6 +513,8 @@ export interface AnalyticsOverview {
   totalTokens: number;
   promptTokens: number;
   completionTokens: number;
+  cachedInputTokens: number;
+  cacheCreationInputTokens: number;
   totalConversations: number;
   totalMessages: number;
   uniqueUsers: number;
@@ -496,7 +705,53 @@ export interface EventSource {
   enabled: boolean;
   webhookUrl: string;
   webhookToken: string;
+  /** Non-secret config; string values are masked (••••last4) by the API. */
+  config?: Record<string, unknown>;
   definitions: EventDefinition[];
+}
+
+export type HookEvent =
+  | "conversation_start"
+  | "message_received"
+  | "response_generated"
+  | "response_sent";
+
+export interface InstanceHook {
+  id: string;
+  event: HookEvent;
+  actionType: "function";
+  actionConfig: { functionName: string };
+  enabled: boolean;
+  position: number;
+  timeoutMs: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A registered hook function from the catalog (`GET /api/hook-functions`). */
+export interface HookFunctionInfo {
+  name: string;
+  description: string;
+  requiredSecrets: RequiredSecretSpec[];
+  /** true ⇒ the hook may replace the response; affected turns run non-streamed. */
+  mutatesResponse: boolean;
+}
+
+export interface HookExecution {
+  id: string;
+  hookId: string;
+  event: HookEvent;
+  actionType: "function";
+  /** The hook function name (the telemetry column is still named tool_name). */
+  toolName: string;
+  success: boolean;
+  error: string | null;
+  durationMs: number;
+  /** Legacy tool args — always null for hook functions. */
+  args: Record<string, unknown> | null;
+  /** Hook result, JSON-stringified and truncated. */
+  result: string | null;
+  createdAt: string;
 }
 
 export interface BacklogEvent {
@@ -514,4 +769,14 @@ export interface ActivityLogEntry {
   content: string;
   eventCount: number;
   createdAt: string;
+}
+
+// ── Opt-Out (GDPR) ────────────────────────────────────────────────────
+
+export interface OptoutContact {
+  channelType: string;
+  channelId: string;
+  status: "opted_out" | "opted_in";
+  source: string;
+  updatedAt: string | null;
 }

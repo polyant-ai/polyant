@@ -1,23 +1,49 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import path from "node:path";
+
 import type { NextConfig } from "next";
+import packageJson from "./package.json";
 
 const ENGINE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? packageJson.version;
+const APP_REVISION = process.env.NEXT_PUBLIC_APP_REVISION ?? process.env.GITHUB_SHA ?? "";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  env: {
+    NEXT_PUBLIC_APP_VERSION: APP_VERSION,
+    NEXT_PUBLIC_APP_REVISION: APP_REVISION,
+  },
+  // Build output directory. Overridable via NEXT_DIST_DIR so the E2E harness can
+  // build+start into an isolated `.next-e2e` dir and coexist with a running
+  // `next dev` (which holds `.next`). Defaults to the standard `.next`.
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
+  // Pin the Turbopack workspace root to the monorepo root. In the Docker build
+  // the builder stage copies the hoisted node_modules to /app/node_modules but
+  // not the lockfile, so Next 16's automatic root inference fails to resolve
+  // `next/package.json` and aborts. This config lives at packages/web/, so the
+  // monorepo root is two levels up.
+  turbopack: {
+    root: path.join(import.meta.dirname, "..", ".."),
+  },
   async rewrites() {
     return [
       // Proxy engine API calls — forwards cookies (including Auth.js session token)
       { source: "/api/instances/:path*", destination: `${ENGINE_URL}/api/instances/:path*` },
+      { source: "/api/organizations/:path*", destination: `${ENGINE_URL}/api/organizations/:path*` },
       { source: "/api/conversations/:path*", destination: `${ENGINE_URL}/api/conversations/:path*` },
       { source: "/api/analytics/:path*", destination: `${ENGINE_URL}/api/analytics/:path*` },
-      { source: "/api/governance/:path*", destination: `${ENGINE_URL}/api/governance/:path*` },
       { source: "/api/skills/:path*", destination: `${ENGINE_URL}/api/skills/:path*` },
+      { source: "/api/tools/:path*", destination: `${ENGINE_URL}/api/tools/:path*` },
+      { source: "/api/tools", destination: `${ENGINE_URL}/api/tools` },
+      { source: "/api/hook-functions", destination: `${ENGINE_URL}/api/hook-functions` },
+      { source: "/api/attachments/:path*", destination: `${ENGINE_URL}/api/attachments/:path*` },
       { source: "/api/audit-logs/:path*", destination: `${ENGINE_URL}/api/audit-logs/:path*` },
       { source: "/api/users/:path*", destination: `${ENGINE_URL}/api/users/:path*` },
       { source: "/api/users", destination: `${ENGINE_URL}/api/users` },
       { source: "/api/me/:path*", destination: `${ENGINE_URL}/api/me/:path*` },
+      { source: "/api/activity-stream/:path*", destination: `${ENGINE_URL}/api/activity-stream/:path*` },
       { source: "/memories/:path*", destination: `${ENGINE_URL}/memories/:path*` },
       { source: "/health", destination: `${ENGINE_URL}/health` },
       { source: "/v1/:path*", destination: `${ENGINE_URL}/v1/:path*` },

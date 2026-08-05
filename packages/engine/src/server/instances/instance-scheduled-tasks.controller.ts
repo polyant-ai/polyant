@@ -19,14 +19,32 @@ import * as runLogStore from "../../scheduled-tasks/run-log.store.js";
 import { parseRelativeDuration, formatScheduleHuman } from "../../scheduled-tasks/schedule-utils.js";
 import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
 import type { ScheduleConfig, RunStatus } from "../../scheduled-tasks/schema.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 
 @Controller("api/instances")
 export class InstanceScheduledTasksController {
+  @RequirePermission(Permission.TASK_READ)
   @Get(":slug/scheduled-tasks")
-  async list(@Param("slug") slug: string) {
+  async list(
+    @Param("slug") slug: string,
+    @Query("limit") limitStr?: string,
+    @Query("offset") offsetStr?: string,
+    @Query("enabledOnly") enabledOnlyStr?: string,
+  ) {
     const instance = await findInstanceOrFail(slug);
 
-    const tasks = await scheduledTaskStore.listByInstance(instance.slug);
+    // Mirror the parse/clamp pattern used by `listRuns` below.
+    // `limit` is hard-capped at 500 to prevent unbounded admin payloads;
+    // `offset` is non-negative. Invalid values fall back to safe defaults.
+    const limit = limitStr ? Math.min(Math.max(parseInt(limitStr, 10) || 100, 1), 500) : 100;
+    const offset = offsetStr ? Math.max(parseInt(offsetStr, 10) || 0, 0) : 0;
+    const enabledOnly = enabledOnlyStr === "true";
+
+    const tasks = await scheduledTaskStore.listByInstance(instance.slug, {
+      limit,
+      offset,
+      enabledOnly,
+    });
     return {
       tasks: tasks.map((t) => ({
         id: t.id,
@@ -55,6 +73,7 @@ export class InstanceScheduledTasksController {
     };
   }
 
+  @RequirePermission(Permission.TASK_READ)
   @Get(":slug/scheduled-tasks/runs")
   async listRuns(
     @Param("slug") slug: string,
@@ -109,6 +128,7 @@ export class InstanceScheduledTasksController {
     };
   }
 
+  @RequirePermission(Permission.TASK_READ)
   @Get(":slug/scheduled-tasks/:id")
   async getOne(@Param("slug") slug: string, @Param("id") id: string) {
     const instance = await findInstanceOrFail(slug);
@@ -130,6 +150,7 @@ export class InstanceScheduledTasksController {
     };
   }
 
+  @RequirePermission(Permission.TASK_WRITE)
   @Post(":slug/scheduled-tasks")
   async create(
     @Param("slug") slug: string,
@@ -195,6 +216,7 @@ export class InstanceScheduledTasksController {
     };
   }
 
+  @RequirePermission(Permission.TASK_WRITE)
   @Patch(":slug/scheduled-tasks/:id")
   async update(
     @Param("slug") slug: string,
@@ -247,6 +269,7 @@ export class InstanceScheduledTasksController {
     };
   }
 
+  @RequirePermission(Permission.TASK_WRITE)
   @Delete(":slug/scheduled-tasks/:id")
   async remove(@Param("slug") slug: string, @Param("id") id: string) {
     const instance = await findInstanceOrFail(slug);
@@ -262,6 +285,7 @@ export class InstanceScheduledTasksController {
     return { deleted: true };
   }
 
+  @RequirePermission(Permission.TASK_WRITE)
   @Post(":slug/scheduled-tasks/:id/run")
   async runNow(@Param("slug") slug: string, @Param("id") id: string) {
     const instance = await findInstanceOrFail(slug);
