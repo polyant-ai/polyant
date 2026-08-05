@@ -185,3 +185,7 @@ After each Supervisor response, the system automatically:
 Memory extraction is conditional on the instance's `memoryEnabled` flag. The extraction prompt includes today's date and converts relative dates to absolute (e.g. "tomorrow" → concrete date). Facts are written in the same language as the conversation.
 
 This happens asynchronously and does not block the user response. See `packages/engine/src/memory/extractor.ts` for the extraction logic.
+
+## Releases
+
+Before preparing, promoting, tagging, or publishing any Polyant release, load .claude/skills/release/SKILL.md. Never create a release through ad-hoc Git/GitHub commands, force-push protected branches, or retarget a published tag.
