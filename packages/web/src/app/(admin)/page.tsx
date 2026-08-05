@@ -13,10 +13,8 @@ import { orgPath } from "@/lib/tenant/paths";
  * The single place that resolves "where does this user land" for a plain `/`
  * visit. The Auth.js `Response.redirect(new URL("/"))` targets converge here,
  * as does an unresolved-tenancy nav href (`navHref` falls back to `/` for a
- * disabled entry) — but NOT `LegacyTenantRedirect`, which computes its own
- * target and never visits `/`. This is why the Edge middleware never needs
- * tenancy knowledge (it could not obtain it — no DB access in the Edge
- * runtime).
+ * disabled entry). This is why the Edge middleware never needs tenancy
+ * knowledge (it could not obtain it — no DB access in the Edge runtime).
  */
 export default function AdminRootPage() {
   const tenant = useTenant();

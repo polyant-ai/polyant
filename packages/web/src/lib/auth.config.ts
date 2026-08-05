@@ -200,11 +200,8 @@ export const authConfig = {
 
       if (!isLoggedIn) {
         const loginUrl = new URL("/login", nextUrl);
-        // Carry the query string, not just the path: a bookmarked deep link is
-        // the case that needs preserving, and it arrives unauthenticated. The
-        // legacy tenant stubs then forward `?id=…` on to the canonical URL —
-        // dropping it here would defeat that from the one entry point that
-        // actually matters.
+        // Carry the query string, not just the path: a bookmarked tenant-scoped
+        // deep link must survive the sign-in round trip unchanged.
         loginUrl.searchParams.set("callbackUrl", nextUrl.pathname + nextUrl.search);
         return Response.redirect(loginUrl);
       }

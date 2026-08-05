@@ -3,8 +3,7 @@
 /**
  * Tests for the Edge `authorized` callback — specifically that an
  * unauthenticated deep link keeps its query string in `callbackUrl`. That is
- * the path a bookmarked `/conversations?id=…` actually takes, and the legacy
- * tenant stubs can only forward a query they were given.
+ * the path a bookmarked tenant-scoped conversation actually takes.
  */
 
 import { describe, it, expect } from "vitest";
@@ -32,19 +31,29 @@ function callbackUrlOf(response: Response): string | null {
 
 describe("authConfig.authorized", () => {
   it("preserves the query string of an anonymous deep link", () => {
-    const response = visitAnonymously("/conversations?id=abc&tab=steps");
+    const response = visitAnonymously(
+      "/organizations/default/workspaces/default/conversations?id=abc&tab=steps",
+    );
 
-    expect(callbackUrlOf(response)).toBe("/conversations?id=abc&tab=steps");
+    expect(callbackUrlOf(response)).toBe(
+      "/organizations/default/workspaces/default/conversations?id=abc&tab=steps",
+    );
   });
 
   it("sends a bare path through unchanged", () => {
-    const response = visitAnonymously("/instances");
+    const response = visitAnonymously(
+      "/organizations/default/workspaces/default/instances",
+    );
 
-    expect(callbackUrlOf(response)).toBe("/instances");
+    expect(callbackUrlOf(response)).toBe(
+      "/organizations/default/workspaces/default/instances",
+    );
   });
 
   it("redirects an anonymous visitor to the login page", () => {
-    const response = visitAnonymously("/instances");
+    const response = visitAnonymously(
+      "/organizations/default/workspaces/default/instances",
+    );
 
     expect(new URL(response.headers.get("location")!).pathname).toBe("/login");
   });
