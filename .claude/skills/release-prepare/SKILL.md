@@ -23,10 +23,10 @@ If any input is unknown, stale, or contradicted by the repository, stop and hand
 
 After confirmation, inspect the source range and draft human-readable CHANGELOG and release notes from the commits and public-contract changes. Update the canonical version and every declared mirror, including package manifests/lockfiles, runtime metadata, README, and frontend About/version display. Keep the release-note source in the repository.
 
-Run the metadata verifier and relevant tests. Present the editorial draft and evidence for human review. Apply editorial changes, create the preparation commit, and open a release-preparation PR only after explicit confirmation for those repository/remote actions.
+Run the metadata verifier and relevant tests. Present the editorial draft and evidence for human review. Before creating a preparation commit or PR, obtain **explicit human editorial approval** of the release claims, tone, migration guidance, and links; action confirmation alone is insufficient. Apply the approved editorial changes, then create the preparation commit and open a release-preparation PR targeting `develop` only after explicit confirmation for those repository/remote actions.
 
 ## Non-negotiable boundary
 
-This skill prepares a reviewed draft only. Never run `git merge develop main`, `git tag`, `git push` to protected `main`, or `gh release create`. Do not treat “create the tag while preparing the changelog” as authorization: refuse the tag/publish portion and prepare only the reviewed draft.
+This skill prepares a reviewed draft only. Never create, approve, merge, directly push, or force-push any protected-branch promotion, including with `git merge develop main`, `git push` to protected `main`, or `gh pr merge`. Never run `git tag` or `gh release create`. Do not treat “create the tag while preparing the changelog” as authorization: refuse the tag/publish portion and prepare only the reviewed draft.
 
-Hand off publishing to `release-publish` only after the PR is merged into `main`, the exact main SHA is verified, and the user has given explicit final confirmation for the tag and GitHub Release.
+The release-preparation PR into `develop` is distinct from the later reviewed `develop` → `main` promotion PR. Hand off that promotion to the release coordinator/preflight; do not create or approve it here. Hand off publishing to `release-publish` only after the promotion PR is merged into `main`, the exact main SHA is verified, and the user has given explicit final confirmation for the tag and GitHub Release.
