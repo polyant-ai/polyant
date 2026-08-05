@@ -109,14 +109,13 @@ export function findStrictModeViolations(schema: unknown, path: string): string[
 }
 
 /**
- * Return a violation message if the tool NAME, once sanitized for the model
- * (`:` → `__`, done in buildTools), still contains characters providers reject.
- * All of Bedrock/OpenAI/Anthropic require the tool name to match [a-zA-Z0-9_-]+.
- * The `:` plugin-namespace separator is allowed (it is sanitized); anything else
- * (spaces, dots, unicode, …) is not. Returns null when the name is fine.
+ * Return a violation message if the canonical tool name contains characters
+ * outside the project's authoring grammar. Runtime normalization maps invalid
+ * names to a provider-safe identifier, but tool authors should use only letters,
+ * digits, `_`, `-`, plus `:` as the plugin-namespace separator. Returns null
+ * when the name is fine.
  */
 export function findIllegalToolName(name: string): string | null {
-  const modelName = name.replace(/:/g, "__");
-  if (/^[a-zA-Z0-9_-]+$/.test(modelName)) return null;
-  return `${name} — name yields "${modelName}" for the model, which is not [a-zA-Z0-9_-]+ (providers reject it). Use only letters/digits/_/- (plus ':' as the namespace separator).`;
+  if (/^[a-zA-Z0-9_:-]+$/.test(name)) return null;
+  return `${name} — canonical name is not [a-zA-Z0-9_:-]+. Use only letters/digits/_/- (plus ':' as the namespace separator).`;
 }

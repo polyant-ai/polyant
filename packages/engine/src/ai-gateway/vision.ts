@@ -3,6 +3,7 @@
 import type { ModelMessage } from "ai";
 import { findModelCapabilities } from "./model-catalog.js";
 import { warnCatalogFallback } from "./config.js";
+import { sanitizeToolWireMessages } from "../utils/model-tool-wire.js";
 
 // Allowlist of vision-capable model families — the LOGGED fallback for model ids
 // absent from the per-model catalog. An unlisted model has its image/file content
@@ -42,9 +43,10 @@ const EMPTY_PLACEHOLDER = "[attachment]";
  */
 export function sanitizeMessagesForModel(messages: ModelMessage[], model: string): ModelMessage[] {
   const visionOk = modelSupportsVision(model);
+  const wireSafeMessages = sanitizeToolWireMessages(messages);
   let changed = false;
 
-  const out = messages.map((m): ModelMessage => {
+  const out = wireSafeMessages.map((m): ModelMessage => {
     if (typeof m.content === "string") {
       if (m.content.trim() !== "") return m;
       changed = true;
@@ -70,5 +72,5 @@ export function sanitizeMessagesForModel(messages: ModelMessage[], model: string
     return { ...m, content: parts } as unknown as ModelMessage;
   });
 
-  return changed ? out : messages;
+  return changed ? out : wireSafeMessages;
 }
