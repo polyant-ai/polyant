@@ -37,7 +37,6 @@ const {
     scopeType: "organization" | "workspace";
   }> = [];
   let bindingDeleteTargetsOrganizationScope = false;
-  let transactionExecutor: unknown;
   const calls: Array<{ method: string; args: unknown[] }> = [];
   /**
    * Drizzle represents `eq(column, value)` as one SQL object whose direct
@@ -115,10 +114,9 @@ const {
       },
       transaction: async (callback: (tx: unknown) => unknown) => {
         transactions += 1;
-        return callback(transactionExecutor);
+        return callback(database);
       },
   };
-  transactionExecutor = database;
   return {
     mockDb: database,
     setReturning: (rows: unknown[]) => {
