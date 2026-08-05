@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/web/package.json packages/web/
 # Create minimal engine package.json for workspace resolution
-RUN mkdir -p packages/engine && echo '{"name":"@polyant/engine","version":"0.1.0","private":true}' > packages/engine/package.json
+RUN mkdir -p packages/engine && echo '{"name":"@polyant/engine","version":"1.0.0","private":true}' > packages/engine/package.json
 RUN npm ci --workspace=@polyant/web --include-workspace-root
 
 # ── Stage 2: Build ─────────────────────────────────────────────

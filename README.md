@@ -17,6 +17,10 @@
 
 **Polyant** is an open-source platform for building and deploying AI assistants with long-term memory, multi-channel support, and full per-instance customization. It provides a complete runtime for multi-agent systems with an OpenAI-compatible API, a NestJS engine, and a Next.js admin panel — batteries included.
 
+## Release status
+
+Polyant v1.0.0 is the first public stable release. Review the [changelog](CHANGELOG.md), the [release notes](docs/releases/v1.0.0.md), and the [GitHub release](https://github.com/polyant-ai/polyant/releases/tag/v1.0.0). In a running admin installation, version and release details are available at [/about](/about).
+
 > The name comes from Hofstadter's *Gödel, Escher, Bach* — specifically the "Ant Fugue" dialogue and the character of Aunt Hillary, an ant colony understood as the archetype of emergent intelligence: individual agents, each one limited, that produce — by coordinating — a collective intelligent behaviour that exceeds the sum of its parts. It is, literally, the thesis we are pitching: fleets of specialised agents that, when orchestrated, generate performance impossible for any single agent. *Poly-* (classical Greek, "many") makes the key concept explicit: coordinated multiplicity.
 >
 > *Many agents. One mind.*
@@ -275,6 +279,20 @@ The loader scans two sources (env wins de-dup):
 **Do not symlink a plugin** — Node/`tsx` resolve a file's imports from its real on-disk location, so a symlink points back at the external repo and can't find the monorepo deps.
 
 Full authoring reference: **[docs/plugins.md](docs/plugins.md)**, the SDK's own **[README](https://github.com/polyant-ai/polyant-sdk#readme)**, and the design record at `docs/superpowers/specs/2026-07-02-serialized-plugin-mechanism.md`.
+
+## Stability and compatibility
+
+Semantic Versioning applies to the documented OpenAI-compatible API, Plugin SDK and manifest, and documented configuration and migration behavior. Internal engine modules and the admin UI are not public SemVer surfaces.
+
+To upgrade an existing development installation, back up PostgreSQL, then run:
+
+```bash
+npm ci
+npm run db:migrate
+npm run build
+```
+
+Restart the services, then smoke-test sign-in and a representative chat.
 
 ## Roadmap
 
