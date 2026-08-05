@@ -52,6 +52,16 @@ test("accepts synchronized release metadata", async () => {
   });
 });
 
+test("accepts a changelog without an Unreleased section", async () => {
+  await withFixture({}, async (rootDir) => {
+    await writeFile(
+      path.join(rootDir, "CHANGELOG.md"),
+      "# Changelog\n\n## [1.0.0] - 2026-08-05\n",
+    );
+    await validateReleaseMetadata(rootDir);
+  });
+});
+
 test("rejects a mismatched workspace version", async () => {
   await withFixture({ webVersion: "0.1.0" }, async (rootDir) => {
     await assert.rejects(
@@ -75,6 +85,16 @@ test("rejects a missing dated changelog heading or release note", async (t) => {
   await t.test("missing release note", async () => {
     await withFixture({}, async (rootDir) => {
       await rm(path.join(rootDir, "docs/releases/v1.0.0.md"));
+      await assert.rejects(validateReleaseMetadata(rootDir), /CHANGELOG/);
+    });
+  });
+
+  await t.test("malformed release note title", async () => {
+    await withFixture({}, async (rootDir) => {
+      await writeFile(
+        path.join(rootDir, "docs/releases/v1.0.0.md"),
+        "# Polyant v1.0.0 draft\n",
+      );
       await assert.rejects(validateReleaseMetadata(rootDir), /CHANGELOG/);
     });
   });

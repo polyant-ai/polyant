@@ -51,18 +51,17 @@ export async function validateReleaseMetadata(rootDir) {
     path.join(rootDir, "CHANGELOG.md"),
     "CHANGELOG.md",
   );
-  const headings = [...changelog.matchAll(/^## \[([^\]]+)](?: - (\d{4}-\d{2}-\d{2}))?$/gm)];
-  const unreleasedIndex = headings.findIndex(([, version]) => version === "Unreleased");
-  const firstReleaseHeading = headings[unreleasedIndex + 1];
+  const releaseHeadings = [
+    ...changelog.matchAll(/^## \[([^\]]+)] - (\d{4}-\d{2}-\d{2})$/gm),
+  ];
+  const firstReleaseHeading = releaseHeadings[0];
 
   if (
-    unreleasedIndex !== 0 ||
     !firstReleaseHeading ||
-    firstReleaseHeading[1] !== rootVersion ||
-    !firstReleaseHeading[2]
+    firstReleaseHeading[1] !== rootVersion
   ) {
     throw new Error(
-      `CHANGELOG.md must list ## [Unreleased] followed by a dated ## [${rootVersion}] heading.`,
+      `CHANGELOG.md must first list a dated ## [${rootVersion}] heading.`,
     );
   }
 
@@ -70,9 +69,9 @@ export async function validateReleaseMetadata(rootDir) {
     path.join(rootDir, "docs", "releases", `v${rootVersion}.md`),
     `docs/releases/v${rootVersion}.md release note`,
   );
-  if (!releaseNote.startsWith(`# Polyant v${rootVersion}`)) {
+  if (releaseNote.split(/\r?\n/, 1)[0] !== `# Polyant v${rootVersion}`) {
     throw new Error(
-      `CHANGELOG metadata is incomplete: docs/releases/v${rootVersion}.md must begin with # Polyant v${rootVersion}.`,
+      `CHANGELOG metadata is incomplete: docs/releases/v${rootVersion}.md must begin with the exact H1 # Polyant v${rootVersion}.`,
     );
   }
 
