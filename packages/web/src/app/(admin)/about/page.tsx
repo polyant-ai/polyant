@@ -2,6 +2,16 @@
 
 "use client";
 
+import {
+  BookOpen,
+  ExternalLink,
+  GitBranch,
+  GitCommitHorizontal,
+  Globe,
+  PackageSearch,
+  Scale,
+} from "lucide-react";
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useI18n } from "@/lib/i18n/context";
 import { releaseInfo } from "@/lib/release-info";
@@ -11,47 +21,74 @@ const externalLinkProps = {
   rel: "noreferrer",
 };
 
+function LinkTile({
+  href,
+  icon: Icon,
+  label,
+}: {
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+}) {
+  return (
+    <a
+      className="group flex items-center gap-3 rounded-md border border-border p-3 transition-colors hover:border-accent-strong hover:bg-secondary"
+      href={href}
+      {...externalLinkProps}
+    >
+      <Icon className="size-4 text-muted-foreground group-hover:text-accent-strong" />
+      <span className="flex-1 text-sm font-medium">{label}</span>
+      <ExternalLink className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+    </a>
+  );
+}
+
 export default function AboutPage() {
   const { t } = useI18n();
 
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="text-3xl font-semibold tracking-tight">
-        {t("about.title", { version: releaseInfo.version })}
-      </h1>
-      <p className="mt-1 text-muted-foreground">{t("about.description")}</p>
+      <div className="flex items-center gap-3">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {t("about.title", { version: releaseInfo.version })}
+          </h1>
+          <p className="text-muted-foreground">{t("about.description")}</p>
+        </div>
+      </div>
 
       <Card className="mt-6">
         <CardHeader>
           <CardTitle>{t("about.version")}</CardTitle>
           <CardDescription>{releaseInfo.version}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm">
+        <CardContent className="space-y-3 text-sm">
           {releaseInfo.revision && (
-            <p>
-              <span className="text-muted-foreground">{t("about.revision")}: </span>
-              <code>{releaseInfo.revision}</code>
-            </p>
+            <div className="flex items-center gap-2">
+              <GitCommitHorizontal className="size-4 text-muted-foreground" />
+              <span className="text-muted-foreground">{t("about.revision")}:</span>
+              <code className="rounded-sm bg-secondary px-1.5 py-0.5">{releaseInfo.revision}</code>
+            </div>
           )}
-          <p>
-            <span className="text-muted-foreground">{t("about.license")}: </span>
+          <div className="flex items-center gap-2">
+            <Scale className="size-4 text-muted-foreground" />
+            <span className="text-muted-foreground">{t("about.license")}:</span>
             <a
-              className="text-primary underline-offset-4 hover:underline"
+              className="text-accent-strong underline-offset-4 hover:underline"
               href="https://www.gnu.org/licenses/agpl-3.0.html"
               {...externalLinkProps}
             >
               AGPL-3.0
             </a>
-          </p>
-          <p>
-            <a
-              className="text-primary underline-offset-4 hover:underline"
-              href={releaseInfo.releaseUrl}
-              {...externalLinkProps}
-            >
-              {t("about.releaseNotes")}
-            </a>
-          </p>
+          </div>
+          <a
+            className="inline-flex items-center gap-2 text-accent-strong underline-offset-4 hover:underline"
+            href={releaseInfo.releaseUrl}
+            {...externalLinkProps}
+          >
+            {t("about.releaseNotes")}
+            <ExternalLink className="size-3.5" />
+          </a>
         </CardContent>
       </Card>
 
@@ -59,46 +96,22 @@ export default function AboutPage() {
         <CardHeader>
           <CardTitle>Polyant</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
-          <a
-            className="text-primary underline-offset-4 hover:underline"
-            href={releaseInfo.repositoryUrl}
-            {...externalLinkProps}
-          >
-            {t("about.repository")}
-          </a>
-          <a
-            className="text-primary underline-offset-4 hover:underline"
-            href={releaseInfo.sdkUrl}
-            {...externalLinkProps}
-          >
-            {t("about.sdk")}
-          </a>
-          <a
-            className="text-primary underline-offset-4 hover:underline"
-            href="https://polyant.ai"
-            {...externalLinkProps}
-          >
-            {t("about.website")}
-          </a>
-          <a
-            className="text-primary underline-offset-4 hover:underline"
-            href="https://docs.polyant.ai"
-            {...externalLinkProps}
-          >
-            {t("about.documentation")}
-          </a>
+        <CardContent className="grid gap-3 sm:grid-cols-2">
+          <LinkTile href={releaseInfo.repositoryUrl} icon={GitBranch} label={t("about.repository")} />
+          <LinkTile href={releaseInfo.sdkUrl} icon={PackageSearch} label={t("about.sdk")} />
+          <LinkTile href="https://polyant.ai" icon={Globe} label={t("about.website")} />
+          <LinkTile href="https://docs.polyant.ai" icon={BookOpen} label={t("about.documentation")} />
         </CardContent>
       </Card>
 
-      <p className="mt-6 text-sm text-muted-foreground">
-        {t("about.maintainedBy", { company: "Exelab S.r.l." })} {" "}
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        {t("about.maintainedByPrefix")}{" "}
         <a
-          className="text-primary underline-offset-4 hover:underline"
+          className="text-accent-strong underline-offset-4 hover:underline"
           href="https://www.exelab.com/"
           {...externalLinkProps}
         >
-          Exelab
+          Exelab S.r.l.
         </a>
       </p>
     </div>
