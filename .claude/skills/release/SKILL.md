@@ -9,7 +9,7 @@ Choose and load **exactly one** subskill before doing any release work, in this 
 
 1. Any audit, readiness, CI, branch-divergence, or uncertainty concern → `release-preflight`.
 2. Otherwise, a post-merge tag or GitHub Release → `release-publish`.
-3. Otherwise, an approved version, release draft, version bump, README/About change, or release-preparation PR → `release-prepare`.
+3. Otherwise, an approved version, release draft, version bump, README/About/roadmap change, or release-preparation PR → `release-prepare`.
 
 Do not inspect, edit, or run release commands until the selected subskill is loaded. Follow its gates exactly.
 
