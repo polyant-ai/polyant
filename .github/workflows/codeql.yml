@@ -2,11 +2,12 @@ name: CodeQL
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   schedule:
-    - cron: "0 6 * * 1"
+    - cron: "0 6 * * 1"   # weekly safety-net scan on the default branch
+  workflow_dispatch:
 
 jobs:
   analyze:
