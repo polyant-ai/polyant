@@ -4,6 +4,7 @@ import { Injectable } from "@nestjs/common";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import {
   findOrganizationById,
+  isOrganizationMember,
   listWorkspacesByOrganization,
   type WorkspaceIdentity,
 } from "./organizations.store.js";
@@ -47,6 +48,10 @@ export class TenantService {
    */
   async getContextFor(user: AuthenticatedUser): Promise<TenantContext> {
     if (!user.orgId) {
+      return { organization: null, workspaces: [] };
+    }
+
+    if (!(await isOrganizationMember(user.orgId, user.userId))) {
       return { organization: null, workspaces: [] };
     }
 

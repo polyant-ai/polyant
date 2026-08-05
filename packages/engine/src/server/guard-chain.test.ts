@@ -48,6 +48,7 @@ const authz = {
   isPlatformAdmin: vi.fn(),
   can: vi.fn(),
   resolveAgentScope: vi.fn(),
+  resolveWorkspaceId: vi.fn(),
 };
 
 /** One route per way a handler can declare (or fail to declare) authorization. */
@@ -146,6 +147,7 @@ beforeEach(() => {
   authz.isPlatformAdmin.mockResolvedValue(false);
   authz.can.mockResolvedValue(true);
   authz.resolveAgentScope.mockResolvedValue(AGENT_SCOPE);
+  authz.resolveWorkspaceId.mockResolvedValue(AGENT_SCOPE.workspaceId);
   validateSessionToken.mockResolvedValue(asUser());
   validateManagementApiKey.mockResolvedValue(null);
   findInstanceByAuthApiKey.mockResolvedValue(null);
@@ -211,14 +213,43 @@ describe("global guard chain over HTTP", () => {
   // endpoint was dead in production for exactly this reason.
   it("should_allow_a_role_only_route_for_a_matching_role", async () => {
     validateSessionToken.mockResolvedValue(asUser({ role: "platform_admin" }));
+    authz.isPlatformAdmin.mockResolvedValue(true);
     const res = await get("/probe/role", { authorization: `Bearer ${SESSION}` });
     expect(res.status).toBe(200);
+  });
+
+  it("should_403_a_role_only_platform_admin_route_when_the_jwt_role_is_stale", async () => {
+    // RoleGuard is deliberately a JWT prefilter, so this gets past it. The
+    // following PermissionGuard must consult the current DB-backed flag before
+    // granting a platform-admin-only route.
+    validateSessionToken.mockResolvedValue(asUser({ role: "platform_admin" }));
+    authz.isPlatformAdmin.mockResolvedValue(false);
+
+    const res = await get("/probe/role", { authorization: `Bearer ${SESSION}` });
+
+    expect(res.status).toBe(403);
+    expect(authz.isPlatformAdmin).toHaveBeenCalledWith("u1");
   });
 
   it("should_403_a_role_only_route_for_a_non_matching_role", async () => {
     validateSessionToken.mockResolvedValue(asUser({ role: "user" }));
     const res = await get("/probe/role", { authorization: `Bearer ${SESSION}` });
     expect(res.status).toBe(403);
+  });
+
+  it("should_403_a_platform_admin_when_the_workspace_address_does_not_own_the_agent", async () => {
+    validateSessionToken.mockResolvedValue(asUser({ role: "platform_admin" }));
+    authz.isPlatformAdmin.mockResolvedValue(true);
+    authz.resolveWorkspaceId.mockResolvedValue("other-workspace-id");
+
+    const res = await get("/probe/agent/mine/secrets", {
+      authorization: `Bearer ${SESSION}`,
+      "x-workspace-slug": "other-workspace",
+    });
+
+    expect(res.status).toBe(403);
+    expect(authz.resolveWorkspaceId).toHaveBeenCalledWith("org-1", "other-workspace");
+    expect(authz.can).not.toHaveBeenCalled();
   });
 
   // A management key carries its own permission set and never consults the

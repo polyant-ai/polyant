@@ -5,16 +5,23 @@
  * cached bindings, scope resolution, and binding-cache invalidation.
  */
 
-const { mockReadPlatformAdminFlag, mockReadAgentScope, mockReadUserBindings } =
+const {
+  mockReadPlatformAdminFlag,
+  mockReadAgentScope,
+  mockReadWorkspaceId,
+  mockReadUserBindings,
+} =
   vi.hoisted(() => ({
     mockReadPlatformAdminFlag: vi.fn(),
     mockReadAgentScope: vi.fn(),
+    mockReadWorkspaceId: vi.fn(),
     mockReadUserBindings: vi.fn(),
   }));
 
 vi.mock("./authz.store.js", () => ({
   readPlatformAdminFlag: mockReadPlatformAdminFlag,
   readAgentScope: mockReadAgentScope,
+  readWorkspaceId: mockReadWorkspaceId,
   readUserBindings: mockReadUserBindings,
 }));
 
@@ -98,6 +105,16 @@ describe("AuthorizationService", () => {
       mockReadAgentScope.mockResolvedValue(null);
       const svc = makeService();
       expect(await svc.resolveAgentScope("nope")).toBeNull();
+    });
+  });
+
+  describe("resolveWorkspaceId", () => {
+    it("resolves a workspace only inside the supplied organization", async () => {
+      mockReadWorkspaceId.mockResolvedValue("ws-1");
+      const svc = makeService();
+
+      expect(await svc.resolveWorkspaceId("org-1", "workspace-a")).toBe("ws-1");
+      expect(mockReadWorkspaceId).toHaveBeenCalledWith("org-1", "workspace-a");
     });
   });
 

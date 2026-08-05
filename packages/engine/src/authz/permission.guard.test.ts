@@ -35,7 +35,6 @@ import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
 import { AUTHENTICATED_ONLY_KEY } from "./decorators/authenticated-only.decorator.js";
 import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import type { AgentScope } from "./authz.store.js";
-import { PLATFORM_ADMIN_ROLE } from "../auth/user-role.js";
 
 const SCOPE: AgentScope = {
   agentId: "agent-1",
@@ -55,6 +54,7 @@ interface Overrides {
   isPlatformAdmin?: boolean;
   can?: boolean;
   scope?: AgentScope | null;
+  addressedWorkspaceId?: string | null;
   featureAvailable?: boolean;
 }
 
@@ -69,6 +69,13 @@ function setup(meta: MetaMap, request: Record<string, unknown>, overrides: Overr
     resolveAgentScope: vi
       .fn()
       .mockResolvedValue(overrides.scope === undefined ? SCOPE : overrides.scope),
+    resolveWorkspaceId: vi
+      .fn()
+      .mockResolvedValue(
+        overrides.addressedWorkspaceId === undefined
+          ? SCOPE.workspaceId
+          : overrides.addressedWorkspaceId,
+      ),
   };
   const entitlement = {
     isAvailable: vi.fn().mockReturnValue(overrides.featureAvailable ?? false),
@@ -135,12 +142,42 @@ describe("PermissionGuard", () => {
     expect(authz.can).not.toHaveBeenCalled();
   });
 
+  it("denies a platform admin that addresses an agent through a different workspace", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
+      {
+        ...userReq({ slug: "agent-1" }),
+        headers: { "x-workspace-slug": "other-workspace" },
+      },
+      { isPlatformAdmin: true, addressedWorkspaceId: "ws-2" },
+    );
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(authz.resolveWorkspaceId).toHaveBeenCalledWith("org-1", "other-workspace");
+    expect(authz.can).not.toHaveBeenCalled();
+  });
+
   it("allows a ServicePrincipal (instance API key) addressing its own agent", async () => {
     const { guard, context } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_READ },
       { user: { kind: "instance", instanceSlug: "agent-1" }, params: { slug: "agent-1" } },
     );
     await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it("denies an instance API key that addresses its own agent through a different workspace", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_READ },
+      {
+        user: { kind: "instance", instanceSlug: "agent-1" },
+        params: { slug: "agent-1" },
+        headers: { "x-workspace-slug": "other-workspace" },
+      },
+      { addressedWorkspaceId: "ws-2" },
+    );
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(authz.resolveWorkspaceId).toHaveBeenCalledWith("org-1", "other-workspace");
   });
 
   it("denies a ServicePrincipal addressing a DIFFERENT agent", async () => {
@@ -167,6 +204,25 @@ describe("PermissionGuard", () => {
     // The org-scoped service principal is decided purely from its own set —
     // it never consults the user-scoped authorization service.
     expect(authz.can).not.toHaveBeenCalled();
+  });
+
+  it("denies a management key that addresses an agent through a different workspace", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_READ },
+      {
+        user: {
+          principalType: "service",
+          orgId: "org-1",
+          permissions: new Set([Permission.AGENT_READ]),
+        },
+        params: { slug: "agent-1" },
+        headers: { "x-workspace-slug": "other-workspace" },
+      },
+      { addressedWorkspaceId: "ws-2" },
+    );
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(authz.resolveWorkspaceId).toHaveBeenCalledWith("org-1", "other-workspace");
   });
 
   it("denies a management-key ServicePrincipal lacking the required permission", async () => {
@@ -283,9 +339,9 @@ describe("PermissionGuard", () => {
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("should_defer_to_role_guard_when_the_route_declares_only_require_role", async () => {
+  it("should_defer_to_role_guard_when_the_route_declares_only_a_non_platform_require_role", async () => {
     const { guard, context, authz } = setup(
-      { [REQUIRED_ROLES_KEY]: [PLATFORM_ADMIN_ROLE] },
+      { [REQUIRED_ROLES_KEY]: ["user"] },
       userReq({}),
     );
     await expect(guard.canActivate(context)).resolves.toBe(true);
@@ -308,6 +364,36 @@ describe("PermissionGuard", () => {
     );
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(authz.can).toHaveBeenCalledWith("u1", SCOPE, Permission.AGENT_WRITE);
+  });
+
+  it("denies a user that addresses an agent through an unknown workspace", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
+      {
+        ...userReq({ slug: "agent-1" }),
+        headers: { "x-workspace-slug": "missing-workspace" },
+      },
+      { can: true, addressedWorkspaceId: null },
+    );
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(authz.resolveWorkspaceId).toHaveBeenCalledWith("org-1", "missing-workspace");
+    expect(authz.can).not.toHaveBeenCalled();
+  });
+
+  it("denies a present but malformed workspace address", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
+      {
+        ...userReq({ slug: "agent-1" }),
+        headers: { "X-Workspace-Slug": "Uppercase-Workspace" },
+      },
+      { can: true },
+    );
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(authz.resolveAgentScope).not.toHaveBeenCalled();
+    expect(authz.can).not.toHaveBeenCalled();
   });
 
   it("denies a declared permission when can() is false", async () => {

@@ -5,12 +5,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../config.js", () => ({
   config: {
     auth: {} as { platformAdminEmail?: string },
+    initialAdmin: {} as { email?: string; password?: string },
   },
 }));
 
 vi.mock("./organizations.store.js", () => ({
   findDefaultOrganization: vi.fn(),
-  promotePlatformAdminByEmail: vi.fn(),
+  ensureConfiguredPlatformAdminOwner: vi.fn(),
+  ensureExistingPlatformAdminOwner: vi.fn(),
 }));
 
 vi.mock("../users/users.store.js", () => ({
@@ -24,15 +26,20 @@ import { bootstrapOrganizations } from "./bootstrap.js";
 
 const mockedStore = store as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const mockedUsers = usersStore as unknown as Record<string, ReturnType<typeof vi.fn>>;
-const mutableConfig = config as unknown as { auth: { platformAdminEmail?: string } };
+const mutableConfig = config as unknown as {
+  auth: { platformAdminEmail?: string };
+  initialAdmin: { email?: string; password?: string };
+};
 
 describe("bootstrapOrganizations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mutableConfig.auth = {};
+    mutableConfig.initialAdmin = {};
     mockedStore.findDefaultOrganization.mockResolvedValue({ id: "org-1" });
     mockedUsers.countUsers.mockResolvedValue(0);
-    mockedStore.promotePlatformAdminByEmail.mockResolvedValue(0);
+    mockedStore.ensureConfiguredPlatformAdminOwner.mockResolvedValue(null);
+    mockedStore.ensureExistingPlatformAdminOwner.mockResolvedValue(null);
   });
 
   it("stops without touching tenancy when the default org is missing", async () => {
@@ -41,7 +48,7 @@ describe("bootstrapOrganizations", () => {
 
     await bootstrapOrganizations();
 
-    expect(mockedStore.promotePlatformAdminByEmail).not.toHaveBeenCalled();
+    expect(mockedStore.ensureConfiguredPlatformAdminOwner).not.toHaveBeenCalled();
     expect(mockedUsers.countUsers).not.toHaveBeenCalled();
     expect(warn.mock.calls[0][0]).toContain("Default organization not found");
     warn.mockRestore();
@@ -53,31 +60,46 @@ describe("bootstrapOrganizations", () => {
 
     await bootstrapOrganizations();
 
-    expect(mockedStore.promotePlatformAdminByEmail).not.toHaveBeenCalled();
+    expect(mockedStore.ensureConfiguredPlatformAdminOwner).not.toHaveBeenCalled();
     expect(log.mock.calls.some((c) => String(c[0]).includes("Fresh install"))).toBe(true);
     log.mockRestore();
   });
 
-  it("promotes the configured PLATFORM_ADMIN_EMAIL (idempotent UPDATE)", async () => {
+  it("makes the configured PLATFORM_ADMIN_EMAIL a default-org owner", async () => {
     mutableConfig.auth.platformAdminEmail = "boss@acme.com";
-    mockedStore.promotePlatformAdminByEmail.mockResolvedValueOnce(1);
+    mockedStore.ensureConfiguredPlatformAdminOwner.mockResolvedValueOnce("org-1");
     mockedUsers.countUsers.mockResolvedValueOnce(2);
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await bootstrapOrganizations();
 
-    expect(mockedStore.promotePlatformAdminByEmail).toHaveBeenCalledWith("boss@acme.com");
+    expect(mockedStore.ensureConfiguredPlatformAdminOwner).toHaveBeenCalledWith("boss@acme.com");
   });
 
-  it("logs a deferral when PLATFORM_ADMIN_EMAIL has no matching user yet", async () => {
+  it("does not log the configured email while awaiting first login", async () => {
     mutableConfig.auth.platformAdminEmail = "future@acme.com";
-    mockedStore.promotePlatformAdminByEmail.mockResolvedValueOnce(0);
+    mockedStore.ensureConfiguredPlatformAdminOwner.mockResolvedValueOnce(null);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await bootstrapOrganizations();
 
-    expect(log.mock.calls.some((c) => String(c[0]).includes("will apply once they sign in"))).toBe(true);
+    expect(log.mock.calls.some((c) => String(c[0]).includes("future@acme.com"))).toBe(false);
     log.mockRestore();
+  });
+
+  it("makes the password-seeded platform admin an owner without elevating another user", async () => {
+    mutableConfig.initialAdmin = {
+      email: "administrator@local",
+      password: "set-only-when-creating-the-initial-admin",
+    };
+    mockedStore.ensureExistingPlatformAdminOwner.mockResolvedValueOnce("org-1");
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await bootstrapOrganizations();
+
+    expect(mockedStore.ensureExistingPlatformAdminOwner).toHaveBeenCalledWith(
+      "administrator@local",
+    );
   });
 
   it("does not promote when PLATFORM_ADMIN_EMAIL is unset", async () => {
@@ -86,6 +108,6 @@ describe("bootstrapOrganizations", () => {
 
     await bootstrapOrganizations();
 
-    expect(mockedStore.promotePlatformAdminByEmail).not.toHaveBeenCalled();
+    expect(mockedStore.ensureConfiguredPlatformAdminOwner).not.toHaveBeenCalled();
   });
 });

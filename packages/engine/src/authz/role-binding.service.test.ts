@@ -3,31 +3,34 @@
 /**
  * Unit tests for RoleBindingService — the org-scope role assignment / removal
  * choke-point. Covers:
- *   - assignRole: rejects an unknown role, writes the binding, invalidates cache.
- *   - removeBinding: deletes the binding and invalidates cache.
+ *   - assignMemberRole: writes membership and an org binding atomically.
+ *   - removeMember: deletes membership and all organization bindings.
  *   - Owner-last guard: removing/replacing the only remaining Owner is blocked.
  */
 
 const {
   mockGetSystemRoleByKey,
   mockCountOwnerBindings,
-  mockUpsertOrgScopeBinding,
-  mockDeleteOrgScopeBinding,
+  mockUpsertOrganizationMemberRole,
+  mockDeleteOrganizationMember,
   mockGetOrgScopeRoleKey,
+  mockWithOrganizationMemberLock,
 } = vi.hoisted(() => ({
   mockGetSystemRoleByKey: vi.fn(),
   mockCountOwnerBindings: vi.fn(),
-  mockUpsertOrgScopeBinding: vi.fn(),
-  mockDeleteOrgScopeBinding: vi.fn(),
+  mockUpsertOrganizationMemberRole: vi.fn(),
+  mockDeleteOrganizationMember: vi.fn(),
   mockGetOrgScopeRoleKey: vi.fn(),
+  mockWithOrganizationMemberLock: vi.fn(),
 }));
 
 vi.mock("../organizations/members.store.js", () => ({
   getSystemRoleByKey: mockGetSystemRoleByKey,
   countOwnerBindings: mockCountOwnerBindings,
-  upsertOrgScopeBinding: mockUpsertOrgScopeBinding,
-  deleteOrgScopeBinding: mockDeleteOrgScopeBinding,
+  upsertOrganizationMemberRole: mockUpsertOrganizationMemberRole,
+  deleteOrganizationMember: mockDeleteOrganizationMember,
   getOrgScopeRoleKey: mockGetOrgScopeRoleKey,
+  withOrganizationMemberLock: mockWithOrganizationMemberLock,
 }));
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -52,35 +55,75 @@ describe("RoleBindingService", () => {
     mockGetSystemRoleByKey.mockResolvedValue({ id: "role-owner" });
     mockGetOrgScopeRoleKey.mockResolvedValue("member");
     mockCountOwnerBindings.mockResolvedValue(2);
+    mockWithOrganizationMemberLock.mockImplementation(async (_organizationId, mutation) =>
+      mutation({}),
+    );
   });
 
-  describe("assignRole", () => {
+  describe("assignMemberRole", () => {
     it("rejects an unknown role key", async () => {
       const { service } = makeService();
       await expect(
-        service.assignRole({ organizationId: ORG, userId: "u1", roleKey: "wizard" as never }),
+        service.assignMemberRole({ organizationId: ORG, userId: "u1", roleKey: "wizard" as never }),
       ).rejects.toBeInstanceOf(BadRequestException);
-      expect(mockUpsertOrgScopeBinding).not.toHaveBeenCalled();
+      expect(mockUpsertOrganizationMemberRole).not.toHaveBeenCalled();
     });
 
     it("rejects a role that is not seeded in the catalog", async () => {
       mockGetSystemRoleByKey.mockResolvedValue(null);
       const { service } = makeService();
       await expect(
-        service.assignRole({ organizationId: ORG, userId: "u1", roleKey: "member" }),
+        service.assignMemberRole({ organizationId: ORG, userId: "u1", roleKey: "member" }),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it("upserts the binding and invalidates the cache synchronously", async () => {
       const { service, authz } = makeService();
-      await service.assignRole({ organizationId: ORG, userId: "u1", roleKey: "member", actorId: "actor-1" });
-      expect(mockUpsertOrgScopeBinding).toHaveBeenCalledWith({
-        organizationId: ORG,
-        userId: "u1",
-        roleId: "role-owner",
-        actorId: "actor-1",
-      });
+      await service.assignMemberRole({ organizationId: ORG, userId: "u1", roleKey: "member", actorId: "actor-1" });
+      expect(mockUpsertOrganizationMemberRole).toHaveBeenCalledWith(
+        {
+          organizationId: ORG,
+          userId: "u1",
+          roleId: "role-owner",
+          actorId: "actor-1",
+        },
+        {},
+      );
       expect(authz.invalidateBindingCache).toHaveBeenCalledWith("u1", ORG);
+    });
+
+    it("holds the organization lock while hierarchy checks and the write run", async () => {
+      const order: string[] = [];
+      mockWithOrganizationMemberLock.mockImplementation(async (_organizationId, mutation) => {
+        order.push("lock");
+        return mutation({});
+      });
+      mockGetSystemRoleByKey.mockImplementation(async () => {
+        order.push("role");
+        return { id: "role-member" };
+      });
+      mockGetOrgScopeRoleKey.mockImplementation(async () => {
+        order.push("hierarchy");
+        return "owner";
+      });
+      mockUpsertOrganizationMemberRole.mockImplementation(async () => {
+        order.push("write");
+      });
+      const { service } = makeService();
+
+      await service.assignMemberRole({
+        organizationId: ORG,
+        userId: "target",
+        roleKey: "owner",
+        actorId: "actor",
+      });
+
+      expect(mockWithOrganizationMemberLock).toHaveBeenCalledWith(ORG, expect.any(Function));
+      expect(order).toEqual(["lock", "role", "hierarchy", "hierarchy", "write"]);
+      expect(mockUpsertOrganizationMemberRole).toHaveBeenCalledWith(
+        expect.objectContaining({ organizationId: ORG }),
+        {},
+      );
     });
 
     it("blocks demoting the last Owner to a non-Owner role", async () => {
@@ -88,9 +131,9 @@ describe("RoleBindingService", () => {
       mockCountOwnerBindings.mockResolvedValue(1);
       const { service, authz } = makeService();
       await expect(
-        service.assignRole({ organizationId: ORG, userId: "u1", roleKey: "member" }),
+        service.assignMemberRole({ organizationId: ORG, userId: "u1", roleKey: "member" }),
       ).rejects.toBeInstanceOf(ConflictException);
-      expect(mockUpsertOrgScopeBinding).not.toHaveBeenCalled();
+      expect(mockUpsertOrganizationMemberRole).not.toHaveBeenCalled();
       expect(authz.invalidateBindingCache).not.toHaveBeenCalled();
     });
 
@@ -98,16 +141,16 @@ describe("RoleBindingService", () => {
       mockGetOrgScopeRoleKey.mockResolvedValue("owner");
       mockCountOwnerBindings.mockResolvedValue(2);
       const { service } = makeService();
-      await service.assignRole({ organizationId: ORG, userId: "u1", roleKey: "member" });
-      expect(mockUpsertOrgScopeBinding).toHaveBeenCalled();
+      await service.assignMemberRole({ organizationId: ORG, userId: "u1", roleKey: "member" });
+      expect(mockUpsertOrganizationMemberRole).toHaveBeenCalled();
     });
 
     it("allows promoting a member to Owner regardless of Owner count", async () => {
       mockGetOrgScopeRoleKey.mockResolvedValue("member");
       mockCountOwnerBindings.mockResolvedValue(1);
       const { service } = makeService();
-      await service.assignRole({ organizationId: ORG, userId: "u1", roleKey: "owner" });
-      expect(mockUpsertOrgScopeBinding).toHaveBeenCalled();
+      await service.assignMemberRole({ organizationId: ORG, userId: "u1", roleKey: "owner" });
+      expect(mockUpsertOrganizationMemberRole).toHaveBeenCalled();
     });
   });
 
@@ -123,72 +166,100 @@ describe("RoleBindingService", () => {
       rolesByUser({ actor: "admin", actor2: "admin" });
       const { service } = makeService();
       await expect(
-        service.assignRole({
+        service.assignMemberRole({
           organizationId: ORG,
           userId: "actor", // promoting self
           roleKey: "owner",
           actorId: "actor",
         }),
       ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(mockUpsertOrgScopeBinding).not.toHaveBeenCalled();
+      expect(mockUpsertOrganizationMemberRole).not.toHaveBeenCalled();
     });
 
     it("lets an admin assign member/viewer to a lower-ranked user", async () => {
       rolesByUser({ actor: "admin", target: "viewer" });
       const { service } = makeService();
-      await service.assignRole({
+      await service.assignMemberRole({
         organizationId: ORG,
         userId: "target",
         roleKey: "member",
         actorId: "actor",
       });
-      expect(mockUpsertOrgScopeBinding).toHaveBeenCalled();
+      expect(mockUpsertOrganizationMemberRole).toHaveBeenCalled();
     });
 
     it("lets an owner assign owner (owner-to-owner)", async () => {
       rolesByUser({ actor: "owner", target: "member" });
       const { service } = makeService();
-      await service.assignRole({
+      await service.assignMemberRole({
         organizationId: ORG,
         userId: "target",
         roleKey: "owner",
         actorId: "actor",
       });
-      expect(mockUpsertOrgScopeBinding).toHaveBeenCalled();
+      expect(mockUpsertOrganizationMemberRole).toHaveBeenCalled();
     });
 
     it("blocks an admin from demoting an owner", async () => {
       rolesByUser({ actor: "admin", target: "owner" });
       const { service } = makeService();
       await expect(
-        service.assignRole({
+        service.assignMemberRole({
           organizationId: ORG,
           userId: "target",
           roleKey: "member",
           actorId: "actor",
         }),
       ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(mockUpsertOrgScopeBinding).not.toHaveBeenCalled();
+      expect(mockUpsertOrganizationMemberRole).not.toHaveBeenCalled();
     });
 
     it("blocks an admin from removing an owner", async () => {
       rolesByUser({ actor: "admin", target: "owner" });
       const { service } = makeService();
       await expect(
-        service.removeBinding({ organizationId: ORG, userId: "target", actorId: "actor" }),
+        service.removeMember({ organizationId: ORG, userId: "target", actorId: "actor" }),
       ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(mockDeleteOrgScopeBinding).not.toHaveBeenCalled();
+      expect(mockDeleteOrganizationMember).not.toHaveBeenCalled();
     });
   });
 
-  describe("removeBinding", () => {
-    it("removes a non-Owner binding and invalidates the cache", async () => {
+  describe("removeMember", () => {
+    it("removes membership and every organization binding, then invalidates the cache", async () => {
       mockGetOrgScopeRoleKey.mockResolvedValue("member");
-      mockDeleteOrgScopeBinding.mockResolvedValue(true);
+      mockDeleteOrganizationMember.mockResolvedValue(undefined);
       const { service, authz } = makeService();
-      await service.removeBinding({ organizationId: ORG, userId: "u1" });
-      expect(mockDeleteOrgScopeBinding).toHaveBeenCalledWith(ORG, "u1");
+      await service.removeMember({ organizationId: ORG, userId: "u1" });
+      expect(mockDeleteOrganizationMember).toHaveBeenCalledWith(ORG, "u1", {});
       expect(authz.invalidateBindingCache).toHaveBeenCalledWith("u1", ORG);
+    });
+
+    it("holds the organization lock while owner-last validation and deletion run", async () => {
+      const order: string[] = [];
+      mockWithOrganizationMemberLock.mockImplementation(async (_organizationId, mutation) => {
+        order.push("lock");
+        return mutation({});
+      });
+      mockGetOrgScopeRoleKey.mockImplementation(async () => {
+        order.push("owner check");
+        return "member";
+      });
+      mockDeleteOrganizationMember.mockImplementation(async () => {
+        order.push("delete");
+      });
+      const { service } = makeService();
+
+      await service.removeMember({ organizationId: ORG, userId: "u1", actorId: "actor" });
+
+      expect(mockWithOrganizationMemberLock).toHaveBeenCalledWith(ORG, expect.any(Function));
+      expect(order).toEqual([
+        "lock",
+        "owner check",
+        "owner check",
+        "owner check",
+        "delete",
+      ]);
+      expect(mockDeleteOrganizationMember).toHaveBeenCalledWith(ORG, "u1", {});
     });
 
     it("blocks removing the last Owner binding", async () => {
@@ -196,19 +267,19 @@ describe("RoleBindingService", () => {
       mockCountOwnerBindings.mockResolvedValue(1);
       const { service, authz } = makeService();
       await expect(
-        service.removeBinding({ organizationId: ORG, userId: "u1" }),
+        service.removeMember({ organizationId: ORG, userId: "u1" }),
       ).rejects.toBeInstanceOf(ConflictException);
-      expect(mockDeleteOrgScopeBinding).not.toHaveBeenCalled();
+      expect(mockDeleteOrganizationMember).not.toHaveBeenCalled();
       expect(authz.invalidateBindingCache).not.toHaveBeenCalled();
     });
 
     it("removes an Owner binding when another Owner remains", async () => {
       mockGetOrgScopeRoleKey.mockResolvedValue("owner");
       mockCountOwnerBindings.mockResolvedValue(2);
-      mockDeleteOrgScopeBinding.mockResolvedValue(true);
+      mockDeleteOrganizationMember.mockResolvedValue(undefined);
       const { service } = makeService();
-      await service.removeBinding({ organizationId: ORG, userId: "u1" });
-      expect(mockDeleteOrgScopeBinding).toHaveBeenCalled();
+      await service.removeMember({ organizationId: ORG, userId: "u1" });
+      expect(mockDeleteOrganizationMember).toHaveBeenCalled();
     });
   });
 });

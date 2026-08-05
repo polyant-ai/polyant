@@ -10,6 +10,7 @@ import {
 import {
   readAgentScope,
   readPlatformAdminFlag,
+  readWorkspaceId,
   readUserBindings,
   type AgentScope,
   type EffectiveBinding,
@@ -64,6 +65,14 @@ export class AuthorizationService {
   /** The single sanctioned agent-slug → tenancy scope translation. */
   async resolveAgentScope(agentSlug: string): Promise<AgentScope | null> {
     return readAgentScope(agentSlug);
+  }
+
+  /** Resolve an addressed workspace slug within one organization only. */
+  async resolveWorkspaceId(
+    organizationId: string,
+    workspaceSlug: string,
+  ): Promise<string | null> {
+    return readWorkspaceId(organizationId, workspaceSlug);
   }
 
   /** Drop the cached bindings for a user+org (call after a binding mutation). */

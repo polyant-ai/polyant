@@ -11,7 +11,6 @@ import {
   resolveOrgIdBySlug,
   type OrganizationMember,
 } from "../../organizations/members.store.js";
-import { ensureDefaultMembership } from "../../organizations/organizations.store.js";
 import { RoleBindingService } from "../../authz/role-binding.service.js";
 import { AuthorizationService } from "../../authz/authorization.service.js";
 
@@ -28,8 +27,8 @@ export interface MembersCaller {
  * org, but it cannot see the `:orgSlug` path parameter — so this service is the
  * defense-in-depth cross-org isolation choke-point: it resolves the addressed
  * org and rejects any request whose caller belongs to a different org. The
- * binding mutations themselves are delegated to RoleBindingService, which owns
- * the Owner-last guard and the synchronous cache invalidation.
+ * member mutations are delegated to RoleBindingService, which owns the
+ * Owner-last guard and the synchronous cache invalidation.
  */
 @Injectable()
 export class MembersService {
@@ -48,22 +47,8 @@ export class MembersService {
   /**
    * Add a user to the organization, or change the role of one already in it.
    *
-   * Since sign-in no longer provisions anybody, THIS is the only way into an
-   * organization — so it has to produce a fully usable member, which means BOTH
-   * rows:
-   *
-   *   - `role_bindings`, which `authz.can()` reads to decide permissions;
-   *   - `organization_memberships`, which is what the sign-in callback reads to
-   *     stamp `orgId` into the token.
-   *
-   * `assignRole` writes only the first. With auto-provisioning gone, an
-   * admin-added user would otherwise hold a perfectly good binding, receive no
-   * `orgId` at sign-in, resolve no scope, and be denied everywhere — an invited
-   * colleague who cannot see anything, with nothing in the UI to explain it.
-   *
-   * Membership first: it grants no permission on its own, so a failure between
-   * the two leaves a member who can sign in and see an empty panel, rather than a
-   * binding nobody can reach.
+   * RoleBindingService persists the membership and org-scope binding in one
+   * transaction, so sign-in scope and authorization cannot diverge.
    */
   async assign(
     orgSlug: string,
@@ -72,8 +57,7 @@ export class MembersService {
     caller: MembersCaller,
   ): Promise<void> {
     const organizationId = await this.resolveAndAuthorize(orgSlug, caller);
-    await ensureDefaultMembership(organizationId, userId);
-    await this.roleBindings.assignRole({
+    await this.roleBindings.assignMemberRole({
       organizationId,
       userId,
       roleKey,
@@ -83,7 +67,7 @@ export class MembersService {
 
   async remove(orgSlug: string, userId: string, caller: MembersCaller): Promise<void> {
     const organizationId = await this.resolveAndAuthorize(orgSlug, caller);
-    await this.roleBindings.removeBinding({ organizationId, userId, actorId: caller.userId });
+    await this.roleBindings.removeMember({ organizationId, userId, actorId: caller.userId });
   }
 
   /**

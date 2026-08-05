@@ -11,6 +11,11 @@ import { Reflector } from "@nestjs/core";
 import { createLogger } from "../utils/create-logger.js";
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
 import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
+import {
+  parseWorkspaceSlugHeader,
+  WORKSPACE_SLUG_HEADER,
+} from "../auth/decorators/workspace-slug.decorator.js";
+import { isPlatformAdminRole } from "../auth/user-role.js";
 import { REQUIRE_PERMISSION_KEY } from "./decorators/require-permission.decorator.js";
 import { REQUIRES_FEATURE_KEY } from "./decorators/requires-feature.decorator.js";
 import { AUTHENTICATED_ONLY_KEY } from "./decorators/authenticated-only.decorator.js";
@@ -77,8 +82,9 @@ function isUserPrincipal(p: Principal): p is UserPrincipal {
  *   1. `@Public()` → allow (the route is intentionally unauthenticated).
  *   2. `@RequiresFeature(f)` and the feature is NOT licensed → deny.
  *   3. No `@RequirePermission()`: `@AuthenticatedOnly()` allows any human user;
- *      `@RequireRole()` defers to RoleGuard, which has already run. Otherwise
- *      the route is undeclared → deny.
+ *      `@RequireRole()` defers to RoleGuard, which has already run; a
+ *      platform-admin-only role declaration also verifies the current DB flag.
+ *      Otherwise the route is undeclared → deny.
  *   4. ManagementKeyPrincipal (org API key) → allow iff the permission is in
  *      the key's own permission set AND the addressed agent belongs to the
  *      key's organization.
@@ -144,12 +150,27 @@ export class PermissionGuard implements CanActivate {
       // #2b, registered by AuthModule and therefore already run) hard-denies a
       // role mismatch. Treating it as undeclared made every role-gated route
       // 403 for everyone, platform admins included: the platform-admin bypass sits
-      // further down, past this branch.
+      // further down, past this branch. RoleGuard intentionally remains a JWT
+      // prefilter, so a platform-admin-only route must additionally verify the
+      // current DB-backed flag here to revoke stale session claims immediately.
       const requiredRoles = this.reflector.getAllAndOverride<unknown[] | undefined>(
         REQUIRED_ROLES_KEY,
         targets,
       );
       if (requiredRoles && requiredRoles.length > 0) {
+        const isPlatformAdminOnly = requiredRoles.every(
+          (role) => typeof role === "string" && isPlatformAdminRole(role),
+        );
+        if (isPlatformAdminOnly) {
+          const request = context.switchToHttp().getRequest();
+          const principal = request.user as Principal;
+          if (
+            !isUserPrincipal(principal) ||
+            !(await this.authz.isPlatformAdmin(principal.userId))
+          ) {
+            throw new ForbiddenException("Current platform administrator standing required");
+          }
+        }
         return true;
       }
       return this.handleUndeclared(context);
@@ -158,9 +179,19 @@ export class PermissionGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const principal = request.user as Principal;
     const agentSlug = this.extractAgentSlug(request);
+    const addressedAgentScope = await this.assertAddressedWorkspace(
+      request,
+      agentSlug,
+      permission,
+    );
 
     if (isManagementKeyPrincipal(principal)) {
-      return this.evaluateManagementKeyPrincipal(principal, agentSlug, permission);
+      return this.evaluateManagementKeyPrincipal(
+        principal,
+        agentSlug,
+        permission,
+        addressedAgentScope,
+      );
     }
 
     if (isInstancePrincipal(principal)) {
@@ -176,7 +207,7 @@ export class PermissionGuard implements CanActivate {
       return true;
     }
 
-    return this.evaluateUser(principal, agentSlug, permission);
+    return this.evaluateUser(principal, agentSlug, permission, addressedAgentScope);
   }
 
   // -- branches ---------------------------------------------------------------
@@ -250,20 +281,28 @@ export class PermissionGuard implements CanActivate {
     principal: ManagementKeyPrincipal,
     agentSlug: string | undefined,
     permission: PermissionKey,
+    addressedAgentScope: AgentScope | undefined,
   ): Promise<boolean> {
     const reason = `management key (org ${principal.orgId})`;
     if (!principal.permissions.has(permission)) {
       return this.decide(false, permission, reason);
     }
-    return this.assertSameOrg(principal.orgId, agentSlug, permission, reason);
+    return this.assertSameOrg(
+      principal.orgId,
+      agentSlug,
+      permission,
+      reason,
+      addressedAgentScope,
+    );
   }
 
   private async evaluateUser(
     principal: UserPrincipal,
     agentSlug: string | undefined,
     permission: PermissionKey,
+    addressedAgentScope: AgentScope | undefined,
   ): Promise<boolean> {
-    const scope = await this.resolveScope(principal.orgId, agentSlug);
+    const scope = await this.resolveScope(principal.orgId, agentSlug, addressedAgentScope);
     if (!scope) {
       return this.decide(false, permission, "unresolved scope");
     }
@@ -288,9 +327,10 @@ export class PermissionGuard implements CanActivate {
   private async resolveScope(
     orgId: string | undefined,
     agentSlug: string | undefined,
+    addressedAgentScope?: AgentScope,
   ): Promise<AgentScope | null> {
     if (agentSlug) {
-      return this.authz.resolveAgentScope(agentSlug);
+      return addressedAgentScope ?? this.authz.resolveAgentScope(agentSlug);
     }
     if (orgId) {
       return { agentId: "", workspaceId: "", organizationId: orgId };
@@ -309,10 +349,11 @@ export class PermissionGuard implements CanActivate {
     agentSlug: string | undefined,
     permission: PermissionKey,
     reason: string,
+    addressedAgentScope?: AgentScope,
   ): Promise<boolean> {
     if (!agentSlug) return this.decide(true, permission, reason);
 
-    const scope = await this.resolveScope(orgId, agentSlug);
+    const scope = await this.resolveScope(orgId, agentSlug, addressedAgentScope);
     if (!scope) {
       return this.decide(false, permission, `unresolved scope — ${reason}`);
     }
@@ -326,6 +367,52 @@ export class PermissionGuard implements CanActivate {
     params?: Record<string, string>;
   }): string | undefined {
     return request.params?.slug;
+  }
+
+  /**
+   * A workspace URL segment is an address, not an authorization hint. When the
+   * client supplies one for an agent route, resolve it inside that agent's
+   * organization and require it to identify the owning workspace. This runs
+   * before every principal-specific allow path, including platform admins.
+   *
+   * Requests without the header preserve the existing API contract: they can
+   * still address an agent by slug alone.
+   */
+  private async assertAddressedWorkspace(
+    request: {
+      headers?: Record<string, unknown>;
+    },
+    agentSlug: string | undefined,
+    permission: PermissionKey,
+  ): Promise<AgentScope | undefined> {
+    if (!agentSlug) return undefined;
+
+    const workspaceHeader = Object.entries(request.headers ?? {}).find(
+      ([name]) => name.toLowerCase() === WORKSPACE_SLUG_HEADER,
+    );
+    if (!workspaceHeader) return undefined;
+
+    const workspaceSlug = parseWorkspaceSlugHeader(workspaceHeader[1]);
+    if (!workspaceSlug) {
+      this.decide(false, permission, "malformed workspace address");
+      return undefined;
+    }
+
+    const scope = await this.authz.resolveAgentScope(agentSlug);
+    if (!scope) {
+      this.decide(false, permission, "unresolved workspace address");
+      return undefined;
+    }
+
+    const workspaceId = await this.authz.resolveWorkspaceId(
+      scope.organizationId,
+      workspaceSlug,
+    );
+    if (workspaceId !== scope.workspaceId) {
+      this.decide(false, permission, "workspace address mismatch");
+      return undefined;
+    }
+    return scope;
   }
 
   /** A `false` decision throws. There is no downgrade-to-allow path. */

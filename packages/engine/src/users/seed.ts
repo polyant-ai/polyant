@@ -41,8 +41,7 @@ export async function seedInitialAdmin(): Promise<void> {
     mustChangePassword: true,
   });
 
-  // Confirm seeding with the email only — never the password.
-  console.log(
-    `[users/seed] Seeded admin "${email}" with provided password (INITIAL_ADMIN_PASSWORD)`,
-  );
+  // Boot logs are persisted by the file logger: never include the account email
+  // (PII) or the configured password.
+  console.log("[users/seed] Seeded initial admin with configured credentials.");
 }

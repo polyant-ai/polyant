@@ -91,9 +91,10 @@ const verificationTokensTable = pgTable(
 );
 
 /**
- * RBAC tenancy tables (subset). Only the MEMBERSHIP table is mirrored here: the
- * Node-side Auth.js callback resolves a user's organization at sign-in and does
- * nothing else with tenancy.
+ * RBAC tenancy tables (subset). The Node-side Auth.js callback resolves a
+ * user's organization at sign-in. The sole write-capable exception is delegated
+ * back to the engine over its authenticated internal endpoint for the exact
+ * `PLATFORM_ADMIN_EMAIL`; the web process does not mirror role bindings.
  *
  * The `organizations`, `roles` and `role_bindings` mirrors are gone with the
  * auto-provisioning that needed them — sign-in no longer looks up the default
@@ -110,11 +111,9 @@ const organizationMembershipsTable = pgTable("organization_memberships", {
  * The pure orchestration lives in `org-provisioning.ts` (unit tested); this is
  * the thin SQL adapter.
  *
- * ONE capability, a read. It used to also carry `findDefaultOrgId`,
- * `findOwnerRoleId`, `ensureMembership` and `ensureOwnerBinding` — everything
- * needed to make a signing-in user an Owner of the default organization. Those
- * writes are gone: membership is granted deliberately through the members API,
- * not as a side effect of authenticating.
+ * Membership is granted deliberately through the members API, not as a side
+ * effect of authenticating. The configured platform-admin exception is executed
+ * in the engine transaction so this adapter retains no arbitrary write access.
  */
 const orgProvisioningPort: OrgProvisioningPort = {
   async findUserOrgId(userId) {
@@ -124,6 +123,31 @@ const orgProvisioningPort: OrgProvisioningPort = {
       .where(eq(organizationMembershipsTable.userId, userId))
       .limit(1);
     return row?.id ?? null;
+  },
+  async ensureConfiguredPlatformAdminOwner(email) {
+    const internalSecret = process.env.AUTH_INTERNAL_SECRET;
+    if (!internalSecret) return null;
+
+    try {
+      const response = await fetch(
+        `${process.env.INTERNAL_ENGINE_URL ?? "http://localhost:4000"}/api/auth/credentials/bootstrap-owner`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-internal-auth": internalSecret,
+          },
+          body: JSON.stringify({ email }),
+        },
+      );
+      if (!response.ok) return null;
+
+      const body = (await response.json()) as { organizationId?: unknown };
+      return typeof body.organizationId === "string" ? body.organizationId : null;
+    } catch (err) {
+      console.error("[auth] configured admin bootstrap failed", err);
+      return null;
+    }
   },
 };
 
@@ -149,7 +173,13 @@ async function jwtWithOrg(params: Parameters<NonNullable<typeof baseJwtCallback>
       ((user as { id?: string }).id ?? (token.id as string | undefined)) ?? undefined;
     if (userId) {
       try {
-        const orgId = await resolveSignInOrgId(orgProvisioningPort, userId);
+        const orgId = await resolveSignInOrgId(orgProvisioningPort, {
+          userId,
+          email:
+            (user as { email?: string | null }).email ??
+            (typeof token.email === "string" ? token.email : undefined),
+          platformAdminEmail: process.env.PLATFORM_ADMIN_EMAIL,
+        });
         if (orgId) token.orgId = orgId;
       } catch (err) {
         // Never block sign-in on org resolution. A missing orgId is not an error

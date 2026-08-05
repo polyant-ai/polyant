@@ -10,16 +10,19 @@
 const {
   mockFindOrganizationById,
   mockFindDefaultOrganization,
+  mockIsOrganizationMember,
   mockListWorkspacesByOrganization,
 } = vi.hoisted(() => ({
   mockFindOrganizationById: vi.fn(),
   mockFindDefaultOrganization: vi.fn(),
+  mockIsOrganizationMember: vi.fn(),
   mockListWorkspacesByOrganization: vi.fn(),
 }));
 
 vi.mock("./organizations.store.js", () => ({
   findOrganizationById: mockFindOrganizationById,
   findDefaultOrganization: mockFindDefaultOrganization,
+  isOrganizationMember: mockIsOrganizationMember,
   listWorkspacesByOrganization: mockListWorkspacesByOrganization,
 }));
 
@@ -45,6 +48,7 @@ describe("TenantService.getContextFor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     service = new TenantService();
+    mockIsOrganizationMember.mockResolvedValue(true);
   });
 
   it("resolves the organization and its workspaces", async () => {
@@ -58,6 +62,7 @@ describe("TenantService.getContextFor", () => {
     expect(context.organization).toEqual({ slug: "default", name: "Default" });
     expect(context.workspaces).toEqual([{ slug: "default", name: "Default", isDefault: true }]);
     expect(mockFindOrganizationById).toHaveBeenCalledWith(ORG_ID);
+    expect(mockIsOrganizationMember).toHaveBeenCalledWith(ORG_ID, "user-1");
   });
 
   // A caller with no orgId holds no tenancy, and the honest answer is to say so.
@@ -81,6 +86,18 @@ describe("TenantService.getContextFor", () => {
     // particular the default org is never consulted.
     expect(mockFindOrganizationById).not.toHaveBeenCalled();
     expect(mockFindDefaultOrganization).not.toHaveBeenCalled();
+    expect(mockIsOrganizationMember).not.toHaveBeenCalled();
+    expect(mockListWorkspacesByOrganization).not.toHaveBeenCalled();
+  });
+
+  it("returns no tenant topology when an old JWT names an organization the user no longer belongs to", async () => {
+    mockIsOrganizationMember.mockResolvedValue(false);
+
+    const context = await service.getContextFor(makeUser());
+
+    expect(context).toEqual({ organization: null, workspaces: [] });
+    expect(mockIsOrganizationMember).toHaveBeenCalledWith(ORG_ID, "user-1");
+    expect(mockFindOrganizationById).not.toHaveBeenCalled();
     expect(mockListWorkspacesByOrganization).not.toHaveBeenCalled();
   });
 

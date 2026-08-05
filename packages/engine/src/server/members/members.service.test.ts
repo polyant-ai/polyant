@@ -7,20 +7,15 @@
  * delegation of the binding mutations to RoleBindingService.
  */
 
-const { mockResolveOrgIdBySlug, mockListOrganizationMembers, mockEnsureDefaultMembership } =
+const { mockResolveOrgIdBySlug, mockListOrganizationMembers } =
   vi.hoisted(() => ({
     mockResolveOrgIdBySlug: vi.fn(),
     mockListOrganizationMembers: vi.fn(),
-    mockEnsureDefaultMembership: vi.fn(),
   }));
 
 vi.mock("../../organizations/members.store.js", () => ({
   resolveOrgIdBySlug: mockResolveOrgIdBySlug,
   listOrganizationMembers: mockListOrganizationMembers,
-}));
-
-vi.mock("../../organizations/organizations.store.js", () => ({
-  ensureDefaultMembership: mockEnsureDefaultMembership,
 }));
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -32,8 +27,8 @@ const ORG_ID = "org-1";
 
 function makeService({ isPlatformAdmin = false } = {}) {
   const bindings = {
-    assignRole: vi.fn().mockResolvedValue(undefined),
-    removeBinding: vi.fn().mockResolvedValue(undefined),
+    assignMemberRole: vi.fn().mockResolvedValue(undefined),
+    removeMember: vi.fn().mockResolvedValue(undefined),
   };
   const authz = {
     isPlatformAdmin: vi.fn().mockResolvedValue(isPlatformAdmin),
@@ -95,8 +90,7 @@ describe("MembersService", () => {
 
     await service.assign(ORG_SLUG, "u2", "admin", caller(undefined));
 
-    expect(mockEnsureDefaultMembership).toHaveBeenCalledWith(ORG_ID, "u2");
-    expect(bindings.assignRole).toHaveBeenCalledWith(
+    expect(bindings.assignMemberRole).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: ORG_ID, userId: "u2", roleKey: "admin" }),
     );
   });
@@ -109,8 +103,7 @@ describe("MembersService", () => {
     await expect(
       service.assign(ORG_SLUG, "u2", "member", caller(undefined)),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(mockEnsureDefaultMembership).not.toHaveBeenCalled();
-    expect(bindings.assignRole).not.toHaveBeenCalled();
+    expect(bindings.assignMemberRole).not.toHaveBeenCalled();
   });
 
   it("lists members of the caller's own org", async () => {
@@ -122,10 +115,10 @@ describe("MembersService", () => {
     expect(mockListOrganizationMembers).toHaveBeenCalledWith(ORG_ID);
   });
 
-  it("delegates assign to RoleBindingService with the resolved org id", async () => {
+  it("delegates atomic member-role assignment with the resolved org id", async () => {
     const { service, bindings } = makeService();
     await service.assign(ORG_SLUG, "u2", "member", caller(ORG_ID));
-    expect(bindings.assignRole).toHaveBeenCalledWith({
+    expect(bindings.assignMemberRole).toHaveBeenCalledWith({
       organizationId: ORG_ID,
       userId: "u2",
       roleKey: "member",
@@ -133,32 +126,10 @@ describe("MembersService", () => {
     });
   });
 
-  /**
-   * BOTH rows, not just the binding. `role_bindings` is what `can()` reads for
-   * permissions; `organization_memberships` is what the sign-in callback reads to
-   * stamp `orgId` into the token. Writing only the binding — which is all
-   * `assignRole` does — produced an added member who resolved no scope and was
-   * denied everywhere, previously masked by sign-in auto-provisioning creating the
-   * membership for everyone.
-   */
-  it("creates the membership as well as the binding, membership first", async () => {
-    const order: string[] = [];
-    const { service, bindings } = makeService();
-    mockEnsureDefaultMembership.mockImplementation(async () => void order.push("membership"));
-    bindings.assignRole.mockImplementation(async () => void order.push("binding"));
-
-    await service.assign(ORG_SLUG, "u2", "member", caller(ORG_ID));
-
-    expect(mockEnsureDefaultMembership).toHaveBeenCalledWith(ORG_ID, "u2");
-    // Membership grants nothing on its own, so a failure between the two leaves a
-    // member with an empty panel rather than a binding nobody can reach.
-    expect(order).toEqual(["membership", "binding"]);
-  });
-
-  it("delegates remove to RoleBindingService with the resolved org id", async () => {
+  it("delegates member removal with the resolved org id", async () => {
     const { service, bindings } = makeService();
     await service.remove(ORG_SLUG, "u2", caller(ORG_ID));
-    expect(bindings.removeBinding).toHaveBeenCalledWith({
+    expect(bindings.removeMember).toHaveBeenCalledWith({
       organizationId: ORG_ID,
       userId: "u2",
       actorId: "actor-1",
@@ -170,6 +141,6 @@ describe("MembersService", () => {
     await expect(
       service.assign(ORG_SLUG, "u2", "member", caller("org-other")),
     ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(bindings.assignRole).not.toHaveBeenCalled();
+    expect(bindings.assignMemberRole).not.toHaveBeenCalled();
   });
 });
