@@ -9,9 +9,6 @@ on:
 permissions:
   contents: read
 
-permissions:
-  contents: read
-
 jobs:
   lint:
     name: Lint
@@ -118,4 +115,5 @@ jobs:
       - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
       - run: npm ci
       - run: npm run release:verify
+      - run: node --test scripts/ci/verify-release-metadata.test.mjs
       - run: npm run build
