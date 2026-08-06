@@ -5,6 +5,7 @@
  * cached bindings, scope resolution, and binding-cache invalidation.
  */
 
+import { describe, it, expect, beforeEach, vi } from "vitest";
 const {
   mockReadPlatformAdminFlag,
   mockReadAgentScope,
@@ -25,7 +26,6 @@ vi.mock("./authz.store.js", () => ({
   readUserBindings: mockReadUserBindings,
 }));
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AuthorizationService } from "./authorization.service.js";
 import { OssStrategy } from "./authorization-strategy.js";
 import { bindingCache, platformAdminCache, bindingCacheKey } from "./authz.caches.js";

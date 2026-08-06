@@ -17,6 +17,7 @@
  * validation and the authorization store.
  */
 
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 const { mockConfig, validateSessionToken, validateManagementApiKey, findInstanceByAuthApiKey } =
   vi.hoisted(() => ({
     mockConfig: { auth: { mode: "session" } },
@@ -32,7 +33,6 @@ vi.mock("../instances/secrets.store.js", () => ({ findInstanceByAuthApiKey }));
 vi.mock("../database/client.js", () => ({ db: {}, queryClient: {} }));
 
 import "reflect-metadata";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Controller, Get, Module, type INestApplication } from "@nestjs/common";
 import { APP_GUARD, NestFactory, Reflector } from "@nestjs/core";
 import { AuthGuard } from "../auth/auth.guard.js";

@@ -10,6 +10,7 @@
  * runs the target's whole pipeline. These tests pin the gate.
  */
 
+import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("../../database/client.js", () => ({ db: {}, queryClient: {} }));
 
 const { agentsShareOrganization } = vi.hoisted(() => ({
@@ -22,7 +23,6 @@ vi.mock("../../authz/agent-tenancy.js", async (importOriginal) => {
   return { ...actual, agentsShareOrganization };
 });
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import { BadRequestException } from "@nestjs/common";
 import { assertAgentTargetsAreSiblings } from "./instance-tools.controller.js";
 

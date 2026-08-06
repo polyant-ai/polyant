@@ -8,6 +8,7 @@
  *   - Owner-last guard: removing/replacing the only remaining Owner is blocked.
  */
 
+import { describe, it, expect, beforeEach, vi } from "vitest";
 const {
   mockGetSystemRoleByKey,
   mockCountOwnerBindings,
@@ -33,7 +34,6 @@ vi.mock("../organizations/members.store.js", () => ({
   withOrganizationMemberLock: mockWithOrganizationMemberLock,
 }));
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   BadRequestException,
   ConflictException,

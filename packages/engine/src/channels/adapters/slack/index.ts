@@ -123,7 +123,10 @@ export class SlackAdapter implements ChannelAdapter {
     });
 
     await this.app.start();
-    console.log(`Slack bot started for instance "${sanitizeForLog(this.instanceId)}" (socket mode, botUserId=${this.botUserId})`);
+    // PILOT A (PR #256): helper + a trailing literal replace. The helper already
+    // removed newlines, so the replace is a runtime no-op — it exists only to see
+    // whether CodeQL accepts a sanitizer it can resolve at the call site.
+    console.log(`Slack bot started for instance "${sanitizeForLog(this.instanceId).replace(/\n/g, " ")}" (socket mode, botUserId=${this.botUserId})`);
   }
 
   async sendMessage(channelId: string, msg: OutgoingMessage): Promise<void> {
