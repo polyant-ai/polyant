@@ -223,4 +223,44 @@ describe("OpenAIService", () => {
       expect(result.channelId).toBe("api-explicit-id");
     });
   });
+
+  // -------------------------------------------------------------------------
+  // OpenAI-compatible clients meter cost from the `usage` block. The pipeline
+  // already reports what the turn spent, so it must be forwarded — it used to
+  // be hardcoded to zeros.
+  // -------------------------------------------------------------------------
+  describe("chatCompletion usage", () => {
+    it("should_report_the_pipeline_token_usage_when_the_provider_returned_it", async () => {
+      const service = new OpenAIService();
+      service.setMessageHandler(async () => ({
+        text: "hi",
+        usage: { promptTokens: 5220, completionTokens: 17 },
+      }));
+
+      const response = await service.chatCompletion(
+        makeRequest([{ role: "user", content: "hi" }]),
+      );
+
+      expect(response.usage).toEqual({
+        prompt_tokens: 5220,
+        completion_tokens: 17,
+        total_tokens: 5237,
+      });
+    });
+
+    it("should_report_zeros_when_the_pipeline_reported_no_usage", async () => {
+      const service = new OpenAIService();
+      service.setMessageHandler(async () => ({ text: "hi" }));
+
+      const response = await service.chatCompletion(
+        makeRequest([{ role: "user", content: "hi" }]),
+      );
+
+      expect(response.usage).toEqual({
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+      });
+    });
+  });
 });
