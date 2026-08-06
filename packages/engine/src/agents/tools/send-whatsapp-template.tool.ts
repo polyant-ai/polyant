@@ -22,7 +22,7 @@ export default defineTool({
     "Use this when you need to deliver a structured, business-initiated message (e.g. outside the 24h window) " +
     "whose Twilio contentSid and positional variables are provided in your conversation context.\n" +
     "On success the engine will NOT also send your free-form text response — the template IS the reply.\n" +
-    "Only available inside a webhook-triggered conversation on a WhatsApp outbound channel.",
+    "Available in a webhook-triggered conversation OR a live WhatsApp chat within the open 24h customer-service window.",
   category: "whatsapp",
   harness: true,
   parameters: z.object({
@@ -47,25 +47,43 @@ export default defineTool({
       variables.map((value, index) => [String(index + 1), value]),
     );
 
+    // Resolve the outbound target. Prefer an active webhook trigger context
+    // (proactive path); otherwise fall back to the live channel identity of the
+    // current conversation (inbound chat). ctx.state.channel is server-seeded and
+    // trusted — never an LLM-supplied argument.
     const triggerCtx = getTriggerContext(ctx.conversationId ?? "");
-    if (!triggerCtx) {
-      return {
-        error:
-          "No active trigger context. This tool is only available in webhook-triggered conversations.",
-      };
+    let instanceSlug: string;
+    let channelType: string;
+    let target: string;
+
+    if (triggerCtx) {
+      instanceSlug = triggerCtx.instanceSlug;
+      channelType = triggerCtx.outboundChannel;
+      target = triggerCtx.outboundTarget;
+    } else {
+      const channel = ctx.state?.channel;
+      if (!channel) {
+        return {
+          error:
+            "No outbound target: neither a webhook trigger context nor a live channel identity is available.",
+        };
+      }
+      instanceSlug = ctx.instanceId;
+      channelType = channel.type;
+      target = channel.id;
     }
 
-    if (triggerCtx.outboundChannel !== "whatsapp") {
+    if (channelType !== "whatsapp") {
       return {
-        error: `Active outbound channel is "${triggerCtx.outboundChannel}", not whatsapp. Template send not supported.`,
+        error: `Outbound channel is "${channelType}", not whatsapp. Template send not supported.`,
       };
     }
 
     try {
       const messageSid = await channelManager.sendOutboundTemplate(
-        triggerCtx.instanceSlug,
-        triggerCtx.outboundChannel,
-        triggerCtx.outboundTarget,
+        instanceSlug,
+        channelType,
+        target,
         contentSid,
         variablesMap,
       );
@@ -77,8 +95,8 @@ export default defineTool({
       let replyText: string;
       try {
         replyText = await channelManager.getOutboundTemplateBody(
-          triggerCtx.instanceSlug,
-          triggerCtx.outboundChannel,
+          instanceSlug,
+          channelType,
           contentSid,
           variablesMap,
         );
@@ -96,7 +114,7 @@ export default defineTool({
         replyHandled: true,
         replyText,
         contentSid,
-        target: triggerCtx.outboundTarget,
+        target,
         messageSid,
       };
     } catch (err) {
