@@ -11,6 +11,11 @@ const APP_REVISION = process.env.NEXT_PUBLIC_APP_REVISION ?? process.env.GITHUB_
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Next 16.3 makes `next dev` write its own AGENTS.md + CLAUDE.md into this
+  // package. This repo curates those files itself (root CLAUDE.md / AGENTS.md),
+  // so the generated pair would be untracked noise on every dev run and would
+  // inject instructions nobody reviewed. Opt out and keep ours authoritative.
+  agentRules: false,
   env: {
     NEXT_PUBLIC_APP_VERSION: APP_VERSION,
     NEXT_PUBLIC_APP_REVISION: APP_REVISION,
