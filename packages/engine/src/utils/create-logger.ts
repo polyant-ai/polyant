@@ -32,11 +32,14 @@ export function ts(): string {
  * the escape byte is replaced and the visible "[0;32m" tail stays behind.
  */
 export function sanitizeForLog(text: string): string {
-  // Deliberately shaped like the neighbouring `truncate()` in pipeline-logger — a
-  // plain `string` parameter and literal per-terminator replaces, no `unknown` and
-  // no ternary. That shape is the one CodeQL's log-injection query accepts as a
-  // sanitizer; a character class alone, or a widened parameter, is equivalent at
-  // runtime but leaves every call site still reported.
+  // NOTE: CodeQL's js/log-injection query does NOT recognise this as a sanitizer —
+  // it will not carry one through a helper call, so every call site stays reported
+  // and those alerts are dismissed as "won't fix" rather than fixed (PR #256 tried
+  // three shapes: a lone character class, literal per-terminator replaces, and this
+  // narrowed `string` signature mirroring `truncate()`). Only the call sites INSIDE
+  // the chokepoints cleared. The protection here is real regardless — see the test.
+  // Do not reshape this again chasing the query; inline the replace at the call
+  // site if an individual alert ever has to close.
   return text
     .replace(/\n/g, " ")
     .replace(/\r/g, " ")
