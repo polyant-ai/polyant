@@ -117,7 +117,10 @@ function InstanceDetailContent() {
         router.push(paths.workspace("/instances"));
       })
       .finally(() => setLoading(false));
-  }, [params.slug, router, t]);
+    // `paths` belongs here: it is read in the catch branch. It is safe as a
+    // dependency because `useTenantPaths` memoizes on the two URL slugs, so the
+    // identity is stable across renders and cannot re-trigger the fetch.
+  }, [params.slug, router, t, paths]);
 
   const handleDelete = async () => {
     try {
