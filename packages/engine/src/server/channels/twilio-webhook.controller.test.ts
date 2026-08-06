@@ -121,16 +121,27 @@ describe("TwilioWebhookController", () => {
   });
 
   it("ignores a __proto__ key in the body when building the signature params", async () => {
+    // JSON.parse is how such a body actually arrives, and it yields a real OWN
+    // enumerable "__proto__" property that Object.entries will hand back — an object
+    // literal cannot express that (it would just set the prototype).
+    const pollutedBody = Object.assign(
+      JSON.parse('{"__proto__": "polluted"}'),
+      validBody,
+    );
+
     await controller.handleWhatsAppWebhook(
       "test-instance",
       "valid-sig",
-      { ...validBody, ["__proto__"]: "polluted" } as never,
+      pollutedBody,
       mockReq(),
     );
 
     const [, , params] = mockAdapter.validateSignature.mock.calls[0];
+    // The key never reaches the hashed params, as an own property or as a prototype.
+    expect(Object.hasOwn(params, "__proto__")).toBe(false);
     expect(Object.getPrototypeOf(params)).toBe(Object.prototype);
-    expect(params.__proto__).not.toBe("polluted");
+    // Sanity: the body really did carry it, so the guard is what stopped it.
+    expect(Object.hasOwn(pollutedBody, "__proto__")).toBe(true);
   });
 
   it("uses X-Forwarded-Proto and X-Forwarded-Host when behind proxy", async () => {

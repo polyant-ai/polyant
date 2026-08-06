@@ -33,8 +33,17 @@ export function ts(): string {
  */
 export function sanitizeForLog(value: unknown): string {
   const text = typeof value === "string" ? value : String(value);
-  // eslint-disable-next-line no-control-regex -- matching control chars is the point
-  return text.replace(/[\x00-\x1f\x7f]/g, " ");
+  return (
+    text
+      // The two line terminators are replaced literally, and separately, on purpose:
+      // CodeQL only recognises a replace as a log-injection sanitizer when it can
+      // resolve WHICH string is removed. Folding them into the character class below
+      // is equivalent at runtime but leaves every call site still reported.
+      .replace(/\n/g, " ")
+      .replace(/\r/g, " ")
+      // eslint-disable-next-line no-control-regex -- matching control chars is the point
+      .replace(/[\x00-\x1f\x7f]/g, " ")
+  );
 }
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
