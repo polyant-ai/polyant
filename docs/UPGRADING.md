@@ -9,6 +9,23 @@ This release changes authorization, the persisted platform-admin role value, and
 the frontend URL scheme. Read the whole section before starting: two of the steps
 have to happen in a specific order, and one of them logs everybody out.
 
+### 0. Audit `POSTGRES_SSL` first — it decides whether the deploy connects at all
+
+`POSTGRES_SSL` used to be parsed with a coercion that treated **every** non-empty
+value as true: `POSTGRES_SSL=false` switched TLS **on**, the opposite of what it
+says. That is fixed — only the literal `"true"` enables TLS now — and the fix
+changes behaviour for anyone who was relying on the old reading, before any
+migration runs:
+
+- **`POSTGRES_SSL=false` on managed Postgres (Aurora/RDS/Cloud SQL): the deploy
+  fails to connect.** TLS was silently on and is now off; `pg_hba` rejects the
+  connection with *"no encryption"*. Set `POSTGRES_SSL=true`.
+- **`POSTGRES_SSL=1`, `TRUE`, `require`, `yes`: the engine exits at boot.** The
+  value is validated against `true`/`false` now, with no fallback. Rewrite it.
+
+Unset is still the same as `false`. Check every environment — this is the one
+change in the release that bites before the migrations even start.
+
 ### 1. This release is NOT a rolling upgrade — stop, then start
 
 The engine applies migrations at container start (`docker-entrypoint.sh` runs
@@ -70,17 +87,26 @@ Three authorization changes take effect immediately:
 - **`AUTH_MODE=alb-oidc` deployments must switch to `AUTH_MODE=session`.** A
   gateway-forwarded identity carries no organization and holds no role bindings,
   so under enforced RBAC it is denied on every management route with no runtime
-  remedy.
+  remedy. The engine now **refuses to boot** on `alb-oidc` rather than starting a
+  panel that 403s on every call — change the variable before you deploy.
 - **Member gained `agent.secret:write`** (migration `0072`). Every existing
   Member can now write provider API keys and channel bot tokens, and export an
   agent's full configuration bundle. Secrets stay write-only through the API
   (reads return key names only), but if that is wider than you want, review your
   Member assignments before upgrading — the migration applies to every
-  organization with no opt-out.
+  organization with no opt-out, and there is no down migration: narrowing it
+  again means editing the role's permissions by hand.
 
 Users created after RBAC first shipped may hold no organization membership at
 all (sign-in no longer provisions one). A platform admin grants it with
 `PUT /api/organizations/:orgSlug/members/:userId`, or from the Members page.
+
+**After granting it, that user must sign out and back in.** `orgId` is written
+into the session token at sign-in and never refreshed, so a membership added (or
+moved to a different organization) mid-session is invisible until the token is
+replaced — the user keeps getting 403s from a cross-organization scope mismatch,
+and reloading the page does not help. Tokens live 24 hours, so the condition
+clears on its own within a day, but tell the person to sign out rather than wait.
 
 ### 5. Tell users their bookmarks are gone
 
