@@ -32,14 +32,17 @@ export function ts(): string {
  * the escape byte is replaced and the visible "[0;32m" tail stays behind.
  */
 export function sanitizeForLog(text: string): string {
-  // NOTE: CodeQL's js/log-injection query does NOT recognise this as a sanitizer —
-  // it will not carry one through a helper call, so every call site stays reported
-  // and those alerts are dismissed as "won't fix" rather than fixed (PR #256 tried
-  // three shapes: a lone character class, literal per-terminator replaces, and this
-  // narrowed `string` signature mirroring `truncate()`). Only the call sites INSIDE
-  // the chokepoints cleared. The protection here is real regardless — see the test.
-  // Do not reshape this again chasing the query; inline the replace at the call
-  // site if an individual alert ever has to close.
+  // NOTE: CodeQL's js/log-injection query does NOT recognise this as a sanitizer,
+  // so every call site stays reported and those alerts are dismissed as "won't fix"
+  // rather than fixed. PR #256 measured five shapes against the analysis SARIF:
+  // three helper variants (lone character class / literal per-terminator replaces /
+  // this narrowed `string` signature mirroring `truncate()`), AND — on a two-site
+  // pilot — a helper plus a trailing literal replace, AND a bare inline
+  // `x.replace(/\n/g," ").replace(/\r/g," ")` with no helper at all. All five stayed
+  // reported; only the call sites INSIDE the chokepoints ever cleared.
+  //
+  // So do NOT reshape this, and do not "just inline the replace" either — that was
+  // tried and measured. The protection here is real regardless; see the test.
   return text
     .replace(/\n/g, " ")
     .replace(/\r/g, " ")

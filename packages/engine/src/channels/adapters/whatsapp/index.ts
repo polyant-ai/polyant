@@ -7,6 +7,7 @@ import type { ChannelAdapter, Attachment, MessageHandler, OutgoingMessage } from
 import { transcribeAudio } from "../../audio-transcription.js";
 import { fetchMediaFollowingRedirects } from "./media-fetch.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
+import { sanitizeForLog } from "../../../utils/create-logger.js";
 
 export interface WhatsAppConfig {
   accountSid: string;
@@ -31,10 +32,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
       this.cfg.whatsappNumber,
     );
     this.onMessage = onMessage;
-    // PILOT B (PR #256): no helper, replaces written inline. Covers the two line
-    // terminators only — strictly weaker than sanitizeForLog, which is the cost of
-    // this shape if it turns out to be the one CodeQL accepts.
-    console.log(`WhatsApp (Twilio) adapter initialized for instance "${this.instanceSlug.replace(/\n/g, " ").replace(/\r/g, " ")}"`);
+    console.log(`WhatsApp (Twilio) adapter initialized for instance "${sanitizeForLog(this.instanceSlug)}"`);
   }
 
   /** Called by the webhook controller when an inbound message arrives. */
