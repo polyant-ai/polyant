@@ -7,6 +7,7 @@ import type { ChannelAdapter, Attachment, MessageHandler, OutgoingMessage } from
 import { transcribeAudio } from "../../audio-transcription.js";
 import { fetchMediaFollowingRedirects } from "./media-fetch.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
+import { sanitizeForLog } from "../../../utils/create-logger.js";
 
 export interface WhatsAppConfig {
   accountSid: string;
@@ -31,7 +32,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
       this.cfg.whatsappNumber,
     );
     this.onMessage = onMessage;
-    console.log(`WhatsApp (Twilio) adapter initialized for instance "${this.instanceSlug}"`);
+    console.log(`WhatsApp (Twilio) adapter initialized for instance "${sanitizeForLog(this.instanceSlug)}"`);
   }
 
   /** Called by the webhook controller when an inbound message arrives. */

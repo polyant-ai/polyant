@@ -105,9 +105,6 @@ export default function MemoryPage() {
     }
   };
 
-  // Map instanceId to instance name
-  const instanceMap = new Map(instances.map((i) => [i.slug, i.name]));
-
   return (
     <div>
       <div className="flex items-start justify-between">

@@ -21,6 +21,22 @@ export function ts(): string {
   return new Date().toLocaleTimeString("en-GB", { hour12: false });
 }
 
+/**
+ * Collapse newlines and other control characters into spaces so untrusted text
+ * (channel slugs, filenames, message bodies, transcriptions) cannot forge extra
+ * log lines — a value containing "\n[INFO] fake entry" would otherwise land in
+ * the log as its own record (CWE-117).
+ *
+ * Apply it to the untrusted VALUE, not to an already-assembled line that carries
+ * ANSI colour codes: strip those first (see file-logger's stripAnsi), otherwise
+ * the escape byte is replaced and the visible "[0;32m" tail stays behind.
+ */
+export function sanitizeForLog(value: unknown): string {
+  const text = typeof value === "string" ? value : String(value);
+  // eslint-disable-next-line no-control-regex -- matching control chars is the point
+  return text.replace(/[\x00-\x1f\x7f]/g, " ");
+}
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const LEVEL_ORDER: Record<LogLevel | "silent", number> = {
@@ -70,7 +86,9 @@ export interface Logger {
 export function createLogger(defaultColor: string = COLORS.cyan): Logger {
   function fmt(level: "info" | "warn" | "error", prefix: string, msg: string): string {
     const color = level === "error" ? COLORS.red : level === "warn" ? COLORS.yellow : defaultColor;
-    return `${COLORS.dim}${ts()}${COLORS.reset} ${color}[${prefix}]${COLORS.reset} ${msg}`;
+    // Sanitize the caller-supplied parts only; the colour codes in the template
+    // around them are ours and must survive.
+    return `${COLORS.dim}${ts()}${COLORS.reset} ${color}[${sanitizeForLog(prefix)}]${COLORS.reset} ${sanitizeForLog(msg)}`;
   }
 
   return {
@@ -84,7 +102,7 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
     },
     error(prefix: string, msg: string, err?: unknown): void {
       if (!shouldLog("error")) return;
-      const errMsg = err instanceof Error ? err.message : String(err ?? "");
+      const errMsg = sanitizeForLog(err instanceof Error ? err.message : String(err ?? ""));
       const full = errMsg ? `${msg} — ${errMsg}` : msg;
       process.stderr.write(fmt("error", prefix, full) + "\n");
     },

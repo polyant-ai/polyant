@@ -4,7 +4,7 @@ import { tools } from "../src/agents/tools/tools.schema.js";
 import { eq } from "drizzle-orm";
 
 async function main() {
-  const result = await db
+  await db
     .update(tools)
     .set({ isGlobal: false })
     .where(eq(tools.isGlobal, true));

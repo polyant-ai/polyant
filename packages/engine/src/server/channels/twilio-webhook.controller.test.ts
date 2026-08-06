@@ -105,6 +105,34 @@ describe("TwilioWebhookController", () => {
     );
   });
 
+  it("clamps NumMedia so an absurd count cannot spin the media loop", async () => {
+    // NumMedia arrives on the request body. Without the clamp this would iterate
+    // a billion times looking up MediaUrl<i> keys that do not exist.
+    await controller.handleWhatsAppWebhook(
+      "test-instance",
+      "valid-sig",
+      { ...validBody, NumMedia: "999999999", MediaUrl0: "https://api.twilio.com/m0", MediaContentType0: "image/jpeg" },
+      mockReq(),
+    );
+
+    const [payload] = mockAdapter.handleInbound.mock.calls[0];
+    // Only the one attachment that actually exists is collected.
+    expect(payload.media).toEqual([{ url: "https://api.twilio.com/m0", contentType: "image/jpeg" }]);
+  });
+
+  it("ignores a __proto__ key in the body when building the signature params", async () => {
+    await controller.handleWhatsAppWebhook(
+      "test-instance",
+      "valid-sig",
+      { ...validBody, ["__proto__"]: "polluted" } as never,
+      mockReq(),
+    );
+
+    const [, , params] = mockAdapter.validateSignature.mock.calls[0];
+    expect(Object.getPrototypeOf(params)).toBe(Object.prototype);
+    expect(params.__proto__).not.toBe("polluted");
+  });
+
   it("uses X-Forwarded-Proto and X-Forwarded-Host when behind proxy", async () => {
     const req = mockReq({
       protocol: "http",
