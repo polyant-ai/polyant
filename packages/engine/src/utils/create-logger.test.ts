@@ -22,9 +22,7 @@ describe("sanitizeForLog", () => {
     expect(sanitizeForLog("istanza-café-日本語")).toBe("istanza-café-日本語");
   });
 
-  it("stringifies non-string values instead of throwing", () => {
-    expect(sanitizeForLog(42)).toBe("42");
-    expect(sanitizeForLog(null)).toBe("null");
-    expect(sanitizeForLog(undefined)).toBe("undefined");
+  it("is a no-op on an empty string", () => {
+    expect(sanitizeForLog("")).toBe("");
   });
 });

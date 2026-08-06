@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import type { Instance, Memory } from "@/lib/api";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
@@ -67,57 +65,6 @@ vi.mock("./create-memory-dialog", () => ({
 }));
 
 import MemoryPage from "./page";
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-function makeInstance(overrides: Partial<Instance> = {}): Instance {
-  return {
-    id: "inst-1",
-    slug: "my-instance",
-    name: "My Instance",
-    description: null,
-    status: "active",
-    provider: "openai",
-    model: "gpt-4o",
-    memoryEnabled: true,
-    knowledgeEnabled: false,
-    langsmithEnabled: false,
-    langsmithProject: null,
-    authEnabled: false,
-    thinkingEnabled: false,
-    stateInPromptEnabled: false,
-    datetimeInjectionEnabled: true,
-    cacheEnabled: true,
-    cacheTtl: "1h",
-    toolResultsInHistoryEnabled: false,
-    debugEnabled: false,
-    optoutEnabled: false,
-    optoutStopKeywords: [],
-    optoutResumeKeywords: [],
-    optoutClosingMessage: null,
-    optoutResumeMessage: null,
-    optoutInjectPromptHint: false,
-    sttProvider: "openai",
-    icon: null,
-    createdAt: null,
-    updatedAt: null,
-    ...overrides,
-  };
-}
-
-function makeMemory(overrides: Partial<Memory> = {}): Memory {
-  return {
-    id: "mem-1",
-    instanceId: "my-instance",
-    content: "User prefers dark mode",
-    category: "preference",
-    importance: 7,
-    sourceConversationId: null,
-    createdAt: "2025-01-01T00:00:00Z",
-    updatedAt: "2025-01-01T00:00:00Z",
-    ...overrides,
-  };
-}
 
 // ── Tests ────────────────────────────────────────────────────────────
 

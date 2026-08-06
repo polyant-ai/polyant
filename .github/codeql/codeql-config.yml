@@ -1,0 +1,22 @@
+# CodeQL configuration for the `security-and-quality` suite.
+#
+# `query-filters` can only match on query metadata (id, tags, precision) — it has
+# NO path scoping, so a rule is either on everywhere or off everywhere. That
+# constraint is what shapes the exclusion below.
+name: "Polyant CodeQL config"
+
+query-filters:
+  # js/use-before-declaration fires on Vitest's `vi.mock()` factories, which are
+  # hoisted above the consts they reference. That is the documented, idiomatic
+  # pattern — the factory body only runs after module evaluation — so every mocked
+  # test file produces one alert. 7 were dismissed as false positives on
+  # 2026-08-05 and 8 more arrived with the next merge a day later, all in
+  # *.test.ts, which makes per-alert dismissal a treadmill.
+  #
+  # Scope caveat: with no path filter this also drops the rule over `src/`, where
+  # it is NOT redundant (neither tseslint's recommended set nor
+  # eslint-config-next enables `no-use-before-define`). Accepted because the rule
+  # is quality-tier rather than security, and TypeScript already rejects genuine
+  # temporal-dead-zone reads of a `const`/`let` it can see.
+  - exclude:
+      id: js/use-before-declaration
