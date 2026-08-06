@@ -472,7 +472,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   // Resolve slug → UUID for DB queries
   const instance = await findInstanceBySlug(instanceSlug);
   if (!instance) {
-    throw new Error(`Instance not found: "${instanceSlug}"`);
+    throw new Error(`Agent not found: "${instanceSlug}"`);
   }
   const instanceUuid = instance.id;
 

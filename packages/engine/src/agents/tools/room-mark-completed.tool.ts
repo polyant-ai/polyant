@@ -21,7 +21,7 @@ export default defineTool({
   }),
   execute: async ({ eventIds, notes }: { eventIds: string[]; notes: string | null }, ctx) => {
     const instanceId = await resolveAgentId(ctx.instanceId);
-    if (!instanceId) return { error: "Instance not found" };
+    if (!instanceId) return { error: "Agent not found" };
     await markEventsCompleted(eventIds, notes ?? undefined, instanceId);
     return { success: true, completedCount: eventIds.length };
   },

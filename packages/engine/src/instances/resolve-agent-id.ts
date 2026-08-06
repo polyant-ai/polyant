@@ -5,7 +5,7 @@ import { db } from "../database/client.js";
 import { agents } from "./schema.js";
 import { asAgentUuid, asAgentSlug, type AgentSlug, type AgentUuid } from "./identifiers.js";
 import { findInstanceById, findInstanceBySlug } from "./store.js";
-import type { Instance } from "./store.js";
+import type { Agent } from "./store.js";
 
 /** Resolve an instance slug to its UUID. */
 export async function resolveAgentId(slug: AgentSlug): Promise<AgentUuid | undefined> {
@@ -33,7 +33,7 @@ export async function resolveAgentSlug(instanceId: AgentUuid): Promise<AgentSlug
  * caller passing either alias always succeeds. Returns undefined if not found.
  */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export async function findInstanceByIdOrSlug(idOrSlug: string): Promise<Instance | undefined> {
+export async function findInstanceByIdOrSlug(idOrSlug: string): Promise<Agent | undefined> {
   if (UUID_RE.test(idOrSlug)) {
     return (await findInstanceById(idOrSlug)) ?? (await findInstanceBySlug(asAgentSlug(idOrSlug)));
   }

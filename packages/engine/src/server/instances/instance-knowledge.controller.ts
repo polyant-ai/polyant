@@ -58,9 +58,9 @@ const importBundleSchema = z.object({
     .min(1),
 });
 
-@Controller("api/instances/:slug/knowledge")
+@Controller("api/agents/:slug/knowledge")
 export class InstanceKnowledgeController {
-  /** GET /api/instances/:slug/knowledge — list documents (no rawContent) */
+  /** GET /api/agents/:slug/knowledge — list documents (no rawContent) */
   @RequirePermission(Permission.KNOWLEDGE_READ)
   @Get()
   async list(@Param("slug") slug: string) {
@@ -84,7 +84,7 @@ export class InstanceKnowledgeController {
   }
 
   /**
-   * GET /api/instances/:slug/knowledge/export — export every document (with raw
+   * GET /api/agents/:slug/knowledge/export — export every document (with raw
    * content) as a JSON bundle. Declared BEFORE the :docId route so "export" is
    * not captured as a document id.
    */
@@ -100,7 +100,7 @@ export class InstanceKnowledgeController {
     };
   }
 
-  /** GET /api/instances/:slug/knowledge/:docId — full document with rawContent */
+  /** GET /api/agents/:slug/knowledge/:docId — full document with rawContent */
   @RequirePermission(Permission.KNOWLEDGE_READ)
   @Get(":docId")
   async getById(@Param("slug") slug: string, @Param("docId") docId: string) {
@@ -128,7 +128,7 @@ export class InstanceKnowledgeController {
     };
   }
 
-  /** POST /api/instances/:slug/knowledge — upload a document (text) */
+  /** POST /api/agents/:slug/knowledge — upload a document (text) */
   @RequirePermission(Permission.KNOWLEDGE_WRITE)
   @Post()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
@@ -207,7 +207,7 @@ export class InstanceKnowledgeController {
   }
 
   /**
-   * POST /api/instances/:slug/knowledge/import — bulk-import documents from a
+   * POST /api/agents/:slug/knowledge/import — bulk-import documents from a
    * JSON bundle (as produced by /export). Each document is re-embedded with the
    * instance's CURRENT embedder. Filename collisions are resolved by appending a
    * progressive suffix ("manuale.txt" → "manuale (1).txt") — never overwritten.
@@ -292,7 +292,7 @@ export class InstanceKnowledgeController {
     return { imported: imported.length, documents: imported };
   }
 
-  /** DELETE /api/instances/:slug/knowledge/:docId */
+  /** DELETE /api/agents/:slug/knowledge/:docId */
   @RequirePermission(Permission.KNOWLEDGE_WRITE)
   @Delete(":docId")
   async remove(@Param("slug") slug: string, @Param("docId") docId: string) {

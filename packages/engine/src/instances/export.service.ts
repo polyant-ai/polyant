@@ -6,7 +6,7 @@
 
 import { eq, and } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { findInstanceBySlug, type Instance } from "./store.js";
+import { findInstanceBySlug, type Agent } from "./store.js";
 import { asAgentSlug, type AgentUuid } from "./identifiers.js";
 import { getPrompts } from "./prompts.store.js";
 import { getInstanceSkills } from "./instance-skills.store.js";
@@ -42,7 +42,7 @@ export function stripSensitiveKeys(config: Record<string, unknown>): Record<stri
 
 export async function exportInstance(slug: string): Promise<InstanceBundle> {
   const instance = await findInstanceBySlug(asAgentSlug(slug));
-  if (!instance) throw new Error(`Instance "${slug}" not found`);
+  if (!instance) throw new Error(`Agent "${slug}" not found`);
 
   const data = await assembleInstanceData(instance);
 
@@ -58,7 +58,7 @@ export async function exportInstance(slug: string): Promise<InstanceBundle> {
 // Assembly helpers
 // ---------------------------------------------------------------------------
 
-async function assembleInstanceData(instance: Instance): Promise<ExportInstanceData> {
+async function assembleInstanceData(instance: Agent): Promise<ExportInstanceData> {
   // Parallel reads — all independent queries
   const [
     prompts,

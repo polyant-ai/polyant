@@ -267,7 +267,7 @@ export function estimateSttCost(
  * reasoning. Reads the catalog `reasoning` field; falls back to the historical
  * per-provider regex (logged) for un-catalogued ids.
  *
- * Consumed by GET /api/instances/models (frontend toggle hint) and by
+ * Consumed by GET /api/agents/models (frontend toggle hint) and by
  * config-resolver (runtime gate so a stale `thinkingEnabled=true` in DB cannot
  * leak into a non-capable model's request).
  */
@@ -287,7 +287,7 @@ export function isThinkingCapable(provider: string, modelId: string): boolean {
  * verdict — not replace it. Takes model id alone (provider-agnostic: gpt-oss is
  * gpt-oss whatever serves it), so it does a cross-provider catalog lookup.
  *
- * Consumed by GET /api/instances/models (frontend locks the toggle ON + shows an
+ * Consumed by GET /api/agents/models (frontend locks the toggle ON + shows an
  * "always reasons" hint) and by ai-gateway resolveCallConfig (Nebius: never send
  * the Qwen-only `enable_thinking:false` kwarg to a model that ignores it).
  */
@@ -407,7 +407,7 @@ export function temperatureSupported(provider: string, modelId: string, thinking
  * Whether a provider+model's prompt cache yields a COST DISCOUNT (and, for
  * Anthropic/Bedrock, whether we inject a marker). Reads the catalog `cache`
  * field; falls back to the regex heuristic (logged) for un-catalogued ids.
- * Consumed by both the cost display (GET /api/instances/models) and the Bedrock
+ * Consumed by both the cost display (GET /api/agents/models) and the Bedrock
  * runtime marker gate (providers/bedrock.ts) — ONE source of truth.
  */
 export function cacheSupported(provider: string, model: string): boolean {

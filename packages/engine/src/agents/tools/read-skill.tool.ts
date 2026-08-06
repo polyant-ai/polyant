@@ -29,7 +29,7 @@ export default defineTool({
     }
     const instanceId = await resolveAgentId(ctx.instanceId);
     if (!instanceId) {
-      return { found: false, error: "Instance not found" };
+      return { found: false, error: "Agent not found" };
     }
 
     // Query instance_skills JOIN skills JOIN skill_versions for this instance.

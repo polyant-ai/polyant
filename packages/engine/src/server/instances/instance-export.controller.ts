@@ -19,7 +19,7 @@ import { RequirePermission, Permission } from "../../authz/index.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 
-@Controller("api/instances")
+@Controller("api/agents")
 export class InstanceExportController {
   @RequirePermission(Permission.EXPORT_READ)
   @Get(":slug/export")

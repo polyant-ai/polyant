@@ -9,7 +9,7 @@ import { asAgentSlug } from "../../instances/identifiers.js";
 import { upsertRoomSchema } from "../../room/room.validators.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-@Controller("api/instances/:slug/room")
+@Controller("api/agents/:slug/room")
 export class RoomController {
   @RequirePermission(Permission.ROOM_READ)
   @Get()
@@ -33,7 +33,7 @@ export class RoomController {
     }
 
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     await upsertRoom(instanceId, parsed.data);
     return { success: true };
@@ -43,7 +43,7 @@ export class RoomController {
   @Delete()
   async deleteRoomConfig(@Param("slug") slug: string) {
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     await deleteRoom(instanceId);
     return { deleted: true };

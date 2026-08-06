@@ -13,7 +13,7 @@ import { type AgentSlug, type AgentUuid } from "./identifiers.js";
  *
  * Each entry here has a row in `instance_channels`, a config schema in
  * `channelConfigSchemas` below, and is exposed via the management API
- * (`PUT/DELETE /api/instances/:slug/channels/:type`).
+ * (`PUT/DELETE /api/agents/:slug/channels/:type`).
  *
  * NOT the same as `MessageChannelType` in `channels/types.ts`, which is the
  * WIDE set covering every possible provenance of a pipeline message

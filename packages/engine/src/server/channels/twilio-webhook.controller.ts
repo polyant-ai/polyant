@@ -41,7 +41,7 @@ export class TwilioWebhookController {
   ): Promise<string> {
     // 1. Resolve instance
     const instanceId = await resolveAgentId(asAgentSlug(instanceSlug));
-    if (!instanceId) throw new NotFoundException(`Instance "${instanceSlug}" not found`);
+    if (!instanceId) throw new NotFoundException(`Agent "${instanceSlug}" not found`);
 
     // 2. Load channel config
     const channelConfig = await getChannelConfig(asAgentSlug(instanceSlug), "whatsapp");

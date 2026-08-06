@@ -98,7 +98,7 @@ export async function resolveWorkspaceIdForPrincipal(
   return row.id;
 }
 
-export interface Instance {
+export interface Agent {
   id: AgentUuid;
   slug: AgentSlug;
   name: string;
@@ -155,8 +155,8 @@ export interface Instance {
   updatedAt: Date | null;
 }
 
-function toInstance(row: typeof agents.$inferSelect): Instance {
-  return { ...row, id: asAgentUuid(row.id), slug: asAgentSlug(row.slug) } as Instance;
+function toInstance(row: typeof agents.$inferSelect): Agent {
+  return { ...row, id: asAgentUuid(row.id), slug: asAgentSlug(row.slug) } as Agent;
 }
 
 /**
@@ -165,7 +165,7 @@ function toInstance(row: typeof agents.$inferSelect): Instance {
  * so "which agents belong to org X" stays defined in exactly one place).
  * Omitting it returns every agent — reserved for system paths with no principal.
  */
-export async function listActiveInstances(orgId?: string): Promise<Instance[]> {
+export async function listActiveInstances(orgId?: string): Promise<Agent[]> {
   return db
     .select()
     .from(agents)
@@ -179,13 +179,13 @@ export async function listActiveInstances(orgId?: string): Promise<Instance[]> {
 }
 
 /** Find an instance by slug. Returns undefined if not found. */
-export async function findInstanceBySlug(slug: AgentSlug): Promise<Instance | undefined> {
+export async function findInstanceBySlug(slug: AgentSlug): Promise<Agent | undefined> {
   const rows = await db.select().from(agents).where(eq(agents.slug, slug)).limit(1);
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
 /** Find an instance by id (UUID). Returns undefined if not found. */
-export async function findInstanceById(id: string): Promise<Instance | undefined> {
+export async function findInstanceById(id: string): Promise<Agent | undefined> {
   const rows = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
@@ -237,7 +237,7 @@ export async function seedInstances(): Promise<void> {
 export async function listAllInstances(
   orgId?: string,
   workspaceSlug?: string,
-): Promise<Instance[]> {
+): Promise<Agent[]> {
   const orgFilter = orgId ? buildOrgScopedAgentFilter(orgId, "slug") : undefined;
   const workspaceFilter = workspaceSlug
     ? sql`${agents.workspaceId} in (
@@ -270,7 +270,7 @@ export async function createInstance(data: {
    * agent under another tenant. Omitted → the organization's default workspace.
    */
   workspaceSlug?: string;
-}): Promise<Instance> {
+}): Promise<Agent> {
   const rows = await db
     .insert(agents)
     .values({
@@ -362,7 +362,7 @@ const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
 export async function updateInstance(
   slug: AgentSlug,
   data: UpdatableInstanceFields,
-): Promise<Instance | undefined> {
+): Promise<Agent | undefined> {
   // Runtime whitelist: TS types do not protect against extra keys arriving via
   // a JSON body (NestJS does not strip them), so only known columns are written.
   const patch: Partial<UpdatableInstanceFields> = {};

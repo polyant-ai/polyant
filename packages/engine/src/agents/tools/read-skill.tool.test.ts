@@ -65,7 +65,7 @@ describe("readSkill tool", () => {
     const execute = buildReadSkillTool();
     const result = await execute({ name: "booking" });
 
-    expect(result).toEqual({ found: false, error: "Instance not found" });
+    expect(result).toEqual({ found: false, error: "Agent not found" });
   });
 
   it("returns found: false when skill is not assigned or disabled", async () => {

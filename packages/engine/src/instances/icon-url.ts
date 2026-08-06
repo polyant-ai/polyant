@@ -11,7 +11,7 @@
  * use this single helper so the two paths can never drift — that drift was the
  * root cause of base64 icons leaking through as raw text.
  *
- * The binary is served by `GET /api/instances/:slug/icon`. A cache-busting
+ * The binary is served by `GET /api/agents/:slug/icon`. A cache-busting
  * `v=<updatedAt>` query param makes the browser reload after an icon change.
  *
  * Returns null when the instance has no icon, so callers can render a fallback.
@@ -22,5 +22,5 @@ export function buildInstanceIconUrl(
   updatedAt: Date | null,
 ): string | null {
   if (!icon) return null;
-  return `/api/instances/${slug}/icon?v=${updatedAt?.getTime() ?? 0}`;
+  return `/api/agents/${slug}/icon?v=${updatedAt?.getTime() ?? 0}`;
 }

@@ -20,7 +20,7 @@ function buildWebhookUrl(token: string): string {
   return `${base}/webhooks/${token}`;
 }
 
-@Controller("api/instances/:slug/event-sources")
+@Controller("api/agents/:slug/event-sources")
 export class EventSourcesController {
   @RequirePermission(Permission.ROOM_READ)
   @Get()
@@ -45,7 +45,7 @@ export class EventSourcesController {
     }
 
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     const result = await createEventSource(instanceId, parsed.data);
     return {
@@ -67,7 +67,7 @@ export class EventSourcesController {
     }
 
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     // Strip masked values to prevent overwriting real secrets with mask placeholders
     const data = { ...parsed.data };
@@ -89,7 +89,7 @@ export class EventSourcesController {
     @Param("id") id: string,
   ) {
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     await deleteEventSource(id, instanceId);
     return { deleted: true };
@@ -102,7 +102,7 @@ export class EventSourcesController {
     @Param("id") id: string,
   ) {
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     const newToken = await rotateWebhookToken(id, instanceId);
     return {
@@ -118,7 +118,7 @@ export class EventSourcesController {
     @Param("id") id: string,
   ) {
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     return listDefinitions(id, instanceId);
   }
@@ -136,7 +136,7 @@ export class EventSourcesController {
     }
 
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     return createDefinition(id, instanceId, parsed.data);
   }
@@ -155,7 +155,7 @@ export class EventSourcesController {
     }
 
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     await updateDefinition(defId, id, instanceId, parsed.data);
     return { success: true };
@@ -169,7 +169,7 @@ export class EventSourcesController {
     @Param("defId") defId: string,
   ) {
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     await deleteDefinition(defId, id, instanceId);
     return { deleted: true };

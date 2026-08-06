@@ -20,7 +20,7 @@ import { RequirePermission, Permission } from "../../authz/index.js";
  * Admin management of opt-out contacts. All operations are instance-scoped:
  * the slug is resolved to a uuid and every query is constrained by it (IDOR-safe).
  */
-@Controller("api/instances/:slug/optouts")
+@Controller("api/agents/:slug/optouts")
 export class OptoutsController {
   // GET — paginated list (default: currently opted-out contacts)
   @RequirePermission(Permission.GOVERNANCE_READ)
@@ -85,7 +85,7 @@ export class OptoutsController {
 
   private async resolve(slug: string) {
     const instance = await findInstanceBySlug(asAgentSlug(slug));
-    if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
+    if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
     return instance;
   }
 

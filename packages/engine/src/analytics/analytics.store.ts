@@ -453,7 +453,7 @@ async function getToolUsage(
   );
 }
 
-// ── Instance Comparison (global only) ───────────────────────────────
+// ── Agent Comparison (global only) ───────────────────────────────
 
 async function getInstanceComparison(
   range: DateRange,

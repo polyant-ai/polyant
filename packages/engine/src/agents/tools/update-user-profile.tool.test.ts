@@ -109,7 +109,7 @@ describe("updateUserProfile tool", () => {
     const execute = buildUpdateUserProfileTool();
     const result = await execute({ instruction: "update the profile" });
 
-    expect(result).toEqual({ updated: false, error: "Instance not found" });
+    expect(result).toEqual({ updated: false, error: "Agent not found" });
     expect(mockChat).not.toHaveBeenCalled();
   });
 

@@ -75,7 +75,7 @@ export interface OAuthAccessApi {
 }
 
 export interface ToolContext {
-  /** Instance identifier (slug, not UUID). */
+  /** Agent identifier (slug, not UUID). */
   instanceId: AgentSlug;
   /** Per-instance decrypted secrets. */
   secrets?: Record<string, string>;

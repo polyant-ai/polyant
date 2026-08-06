@@ -23,7 +23,7 @@ export { invalidatePromptsCache };
 export interface PromptOptions {
   tools?: Record<string, Tool>;
   instanceId: AgentUuid;
-  /** Instance slug — needed for skill env checks (resolveAgentId inside). */
+  /** Agent slug — needed for skill env checks (resolveAgentId inside). */
   instanceSlug: AgentSlug;
   memoryEnabled?: boolean;
   knowledgeEnabled?: boolean;

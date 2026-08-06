@@ -198,7 +198,7 @@ export async function importOverwriteInstance(
     .where(eq(agents.slug, targetSlug))
     .limit(1);
 
-  if (!existing) throw new Error(`Instance "${targetSlug}" not found`);
+  if (!existing) throw new Error(`Agent "${targetSlug}" not found`);
   const instanceId = asAgentUuid(existing.id);
 
   await db.transaction(async (tx) => {
@@ -236,7 +236,7 @@ export async function importOverwriteInstance(
         // NB: embeddingProvider/embeddingDim are deliberately NOT updated here —
         // switching an existing instance's embedder wipes all vectors (memories +
         // knowledge). That destructive switch is gated behind `confirmWipe` on
-        // PATCH /api/instances/:slug and is out of scope for an import.
+        // PATCH /api/agents/:slug and is out of scope for an import.
         updatedAt: sql`now()`,
       })
       .where(eq(agents.id, instanceId));

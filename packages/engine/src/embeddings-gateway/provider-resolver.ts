@@ -38,7 +38,7 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
 
   const instance = await findInstanceByIdOrSlug(instanceIdOrSlug);
   if (!instance) {
-    throw new Error(`Instance "${instanceIdOrSlug}" not found.`);
+    throw new Error(`Agent "${instanceIdOrSlug}" not found.`);
   }
 
   const dimensions = assertDim(instance.embeddingDim);

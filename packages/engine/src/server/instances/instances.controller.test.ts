@@ -159,7 +159,7 @@ describe("InstancesController", () => {
     });
 
     it("should_not_expose_org_b_agents_when_an_org_a_caller_lists", async () => {
-      const { instances } = await controller.list({
+      const { agents } = await controller.list({
         userId: "u1",
         email: "a@example.com",
         principalType: "user",
@@ -168,15 +168,15 @@ describe("InstancesController", () => {
 
       // Second argument is the addressed workspace; absent here, so undefined.
       expect(mockListAllInstances).toHaveBeenCalledWith("org-a", undefined);
-      expect(instances.map((i) => i.slug)).toEqual(["agent-a"]);
+      expect(agents.map((i) => i.slug)).toEqual(["agent-a"]);
     });
 
     it("should_return_no_agents_when_the_caller_organization_cannot_be_resolved", async () => {
       mockResolvePrincipalOrgId.mockResolvedValue(null);
 
-      const { instances } = await controller.list(undefined);
+      const { agents } = await controller.list(undefined);
 
-      expect(instances).toEqual([]);
+      expect(agents).toEqual([]);
       // Fail closed: never fall through to the unscoped listing.
       expect(mockListAllInstances).not.toHaveBeenCalled();
     });
@@ -189,7 +189,7 @@ describe("InstancesController", () => {
     it("returns only whitelisted fields — future internal columns must not leak", async () => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
 
-      const { instance } = await controller.getBySlug("test-one");
+      const { agent: instance } = await controller.getBySlug("test-one");
 
       // Allowed fields
       const allowed = new Set([
@@ -212,10 +212,10 @@ describe("InstancesController", () => {
     it("emits icon as a URL + cache-busting query, never as the raw data URI", async () => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
 
-      const { instance } = await controller.getBySlug("test-one");
+      const { agent: instance } = await controller.getBySlug("test-one");
 
       expect(instance.icon).toBe(
-        `/api/instances/test-one/icon?v=${fullInstance.updatedAt.getTime()}`,
+        `/api/agents/test-one/icon?v=${fullInstance.updatedAt.getTime()}`,
       );
       expect(instance.icon).not.toMatch(/^data:/);
     });
@@ -223,7 +223,7 @@ describe("InstancesController", () => {
     it("icon is null when the instance has no icon stored", async () => {
       mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, icon: null });
 
-      const { instance } = await controller.getBySlug("test-one");
+      const { agent: instance } = await controller.getBySlug("test-one");
 
       expect(instance.icon).toBeNull();
     });

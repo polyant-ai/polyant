@@ -14,7 +14,7 @@ import {
   findInstanceBySlug,
   listActiveInstances,
   resolvePrincipalOrgId,
-  type Instance,
+  type Agent,
 } from "../../instances/store.js";
 import { asAgentSlug, type AgentSlug } from "../../instances/identifiers.js";
 
@@ -49,7 +49,7 @@ export class OpenAIService {
    * organization; when the organization cannot be resolved the list is empty
    * (fail closed) rather than every agent.
    */
-  async listInstances(principal?: ModelsPrincipal): Promise<Instance[]> {
+  async listInstances(principal?: ModelsPrincipal): Promise<Agent[]> {
     if (principal?.kind === "instance") {
       const own = await findInstanceBySlug(asAgentSlug(principal.instanceSlug));
       return own && own.status === "active" ? [own] : [];

@@ -29,13 +29,13 @@ import { RequirePermission, Permission } from "../../authz/index.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-@Controller("api/instances/:slug/hooks")
+@Controller("api/agents/:slug/hooks")
 export class InstanceHooksController {
   @RequirePermission(Permission.GOVERNANCE_READ)
   @Get()
   async list(@Param("slug") slug: string) {
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
     return { hooks: await listHooks(instanceId) };
   }
 
@@ -50,7 +50,7 @@ export class InstanceHooksController {
     if (fnError) throw new BadRequestException(fnError);
 
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     const hook = await createHook(instanceId, parsed.data);
     invalidateHooksCache(asAgentSlug(slug));
@@ -71,7 +71,7 @@ export class InstanceHooksController {
     }
 
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     const hook = await updateHook(instanceId, id, parsed.data);
     if (!hook) throw new NotFoundException("Hook not found");
@@ -84,7 +84,7 @@ export class InstanceHooksController {
   async remove(@Param("slug") slug: string, @Param("id") id: string) {
     if (!UUID_RE.test(id)) throw new BadRequestException("Invalid hook id");
     const instanceId = await resolveAgentId(asAgentSlug(slug));
-    if (!instanceId) throw new NotFoundException("Instance not found");
+    if (!instanceId) throw new NotFoundException("Agent not found");
 
     const deleted = await deleteHook(instanceId, id);
     if (!deleted) throw new NotFoundException("Hook not found");

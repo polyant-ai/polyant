@@ -81,7 +81,7 @@ export function isMissingApiKeyError(err: unknown): boolean {
 /** Friendly message returned when the AI provider key is not set for the instance. */
 export const MISSING_KEY_RESPONSE =
   "⚠️ This AI assistant instance does not have an API key configured for its AI provider. " +
-  "Please go to the admin panel → Instance → Settings tab and set the appropriate API key " +
+  "Please go to the admin panel → Agent → Settings tab and set the appropriate API key " +
   "(OpenAI or Anthropic) to enable this assistant.";
 
 // ---------------------------------------------------------------------------

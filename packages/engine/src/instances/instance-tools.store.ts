@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // ---------------------------------------------------------------------------
-// Instance tools data store — enabled tools per instance
+// Agent tools data store — enabled tools per instance
 // ---------------------------------------------------------------------------
 
 import { eq, and, inArray } from "drizzle-orm";

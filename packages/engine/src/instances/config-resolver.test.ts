@@ -106,7 +106,7 @@ describe("instances/config-resolver", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Instance not found
+  // Agent not found
   // -----------------------------------------------------------------------
   describe("when instance is not found", () => {
     it("returns a minimal config with safe defaults", async () => {
@@ -148,7 +148,7 @@ describe("instances/config-resolver", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Instance found — full config assembly
+  // Agent found — full config assembly
   // -----------------------------------------------------------------------
   describe("when instance is found", () => {
     it("assembles the full config from instance + secrets", async () => {

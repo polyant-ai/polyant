@@ -63,7 +63,7 @@ describe("getConversationWorkspaceDir", () => {
   });
 
   it("rejects invalid instanceId", () => {
-    expect(() => getConversationWorkspaceDir("Bad Instance!", "conv-1")).toThrow(/Invalid instanceId/);
+    expect(() => getConversationWorkspaceDir("Bad Agent!", "conv-1")).toThrow(/Invalid instanceId/);
   });
 
   it("rejects uppercase instanceId", () => {

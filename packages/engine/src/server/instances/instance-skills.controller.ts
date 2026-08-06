@@ -102,7 +102,7 @@ async function buildSkillsWithStatus(slug: AgentSlug, instanceId: AgentUuid) {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-@Controller("api/instances")
+@Controller("api/agents")
 export class InstanceSkillsController {
   @RequirePermission(Permission.SKILL_INSTANCE_READ)
   @Get(":slug/skills")

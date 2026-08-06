@@ -21,7 +21,7 @@ export default defineTool({
   }),
   execute: async ({ message }, ctx) => {
     const instanceId = await resolveAgentId(ctx.instanceId);
-    if (!instanceId) return { error: "Instance not found" };
+    if (!instanceId) return { error: "Agent not found" };
 
     const room = await getRoomByInstanceId(instanceId);
     if (!room) return { error: "Room not configured for this instance" };

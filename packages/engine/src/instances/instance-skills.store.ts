@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // ---------------------------------------------------------------------------
-// Instance skills data store — instance <-> skill assignments
+// Agent skills data store — instance <-> skill assignments
 // ---------------------------------------------------------------------------
 
 import { eq, and, sql, inArray } from "drizzle-orm";

@@ -32,7 +32,7 @@ export function createPromptUpdaterTool(config: PromptUpdaterConfig): ToolDefini
       try {
         const instanceId = await resolveAgentId(ctx.instanceId);
         if (!instanceId) {
-          return { updated: false, error: "Instance not found" };
+          return { updated: false, error: "Agent not found" };
         }
 
         const section = await getPromptSection(instanceId, config.sectionId);

@@ -35,7 +35,7 @@ export class AnalyticsController {
     return { ...analytics, latency };
   }
 
-  // GET /api/instances/:slug/analytics — per-instance
+  // GET /api/agents/:slug/analytics — per-instance
   @RequirePermission(Permission.ANALYTICS_READ)
   @Get("instances/:slug/analytics")
   async perInstance(
@@ -45,7 +45,7 @@ export class AnalyticsController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const instance = await findInstanceBySlug(asAgentSlug(slug));
-    if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
+    if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
 
     const range = parseDateRange(from, to);
     const orgId = (await resolvePrincipalOrgId(user?.orgId)) ?? undefined;

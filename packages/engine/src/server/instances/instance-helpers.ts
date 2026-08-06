@@ -9,7 +9,7 @@ export { errMsg } from "../../utils/error.js";
 /** Find instance or throw 404. Returns the instance record with id + slug. */
 export async function findInstanceOrFail(slug: string) {
   const instance = await findInstanceBySlug(asAgentSlug(slug));
-  if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
+  if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
   return instance;
 }
 

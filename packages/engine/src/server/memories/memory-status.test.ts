@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { Instance } from "../../instances/store.js";
+import type { Agent } from "../../instances/store.js";
 
 const { mockGetAllSecretsById, mockFindInstanceByIdOrSlug } = vi.hoisted(() => ({
   mockGetAllSecretsById: vi.fn(),
@@ -24,7 +24,7 @@ import {
   computeMemoryStatus,
 } from "./memory-status.js";
 
-function makeInstance(overrides: Partial<Instance>): Instance {
+function makeInstance(overrides: Partial<Agent>): Agent {
   return {
     id: "uuid-1",
     provider: "openai",
@@ -32,7 +32,7 @@ function makeInstance(overrides: Partial<Instance>): Instance {
     memoryEnabled: true,
     embeddingDim: 1024, // compatible with both openai and bedrock by default
     ...overrides,
-  } as Instance;
+  } as Agent;
 }
 
 describe("computeMemoryStatusFromInstance", () => {

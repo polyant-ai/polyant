@@ -24,7 +24,7 @@ export default defineTool({
   execute: async ({ keepRecent }: { keepRecent: number | null }, ctx) => {
     const recentToKeep = keepRecent ?? 10;
     const instanceId = await resolveAgentId(ctx.instanceId);
-    if (!instanceId) return { error: "Instance not found" };
+    if (!instanceId) return { error: "Agent not found" };
 
     const room = await getRoomByInstanceId(instanceId);
     if (!room?.conversationId) return { error: "No room conversation to compact" };
