@@ -169,7 +169,6 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   const [cacheTtl, setCacheTtl] = useState(instance.cacheTtl);
 
   // Inbound A2A (Agent2Agent) protocol exposure (default off).
-  const [a2aEnabled, setA2aEnabled] = useState(instance.a2aEnabled);
 
   // Replay prior-turn tool results into the model's cross-turn history (default off).
   const [toolResultsInHistoryEnabled, setToolResultsInHistoryEnabled] = useState(
@@ -406,7 +405,6 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     datetimeInjectionEnabled !== instance.datetimeInjectionEnabled ||
     cacheEnabled !== instance.cacheEnabled ||
     cacheTtl !== instance.cacheTtl ||
-    a2aEnabled !== instance.a2aEnabled ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
     debugEnabled !== (instance.debugEnabled ?? false) ||
     Object.values(secretFields).some((f) => f.value !== f.initial) ||
@@ -454,7 +452,6 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         datetimeInjectionEnabled,
         cacheEnabled,
         cacheTtl,
-        a2aEnabled,
         toolResultsInHistoryEnabled,
         debugEnabled,
         langsmithEnabled,
@@ -884,25 +881,6 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               )}
             </div>
           )}
-        </div>
-
-        {/*
-          Inbound A2A (Agent2Agent) protocol exposure. When on, the instance's
-          A2A discovery/task endpoints are reachable; off returns 404. Default off.
-        */}
-        <div className="flex items-start justify-between gap-4 border-t pt-4">
-          <div className="space-y-1">
-            <Label className="text-sm font-medium">
-              {t("settings.tab.a2a")}
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              {t("settings.tab.a2aHelp")}
-            </p>
-          </div>
-          <Switch
-            checked={a2aEnabled}
-            onCheckedChange={setA2aEnabled}
-          />
         </div>
 
         {/*

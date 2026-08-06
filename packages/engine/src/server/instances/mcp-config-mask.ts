@@ -13,6 +13,9 @@ const MASK = "••••";
 // from this SAME list instead of hand-duplicating the secret paths (a
 // future secret field added here and missed there would leak into a bundle).
 export const MCP_SECRET_PATHS: Record<McpAuthMode, string[][]> = {
+  // Nothing to mask, and nothing to strip from an export bundle: a `none` server
+  // holds no credential by construction (its schema is `.strict()`).
+  none: [],
   static: [["auth", "token"]],
   oauth: [
     ["staticClient", "clientSecret"],

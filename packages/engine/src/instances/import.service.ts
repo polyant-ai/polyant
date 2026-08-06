@@ -558,10 +558,10 @@ export async function importMcpServers(
     // exportMcpServerSchema.authMode is z.string() (export must round-trip
     // whatever a future/foreign version writes), so an unknown value (e.g.
     // "oidc", or garbage) is NOT rejected by the bundle schema. Guard it here:
-    // mcpServerConfigSchema falls back to the all-optional oauth schema for
-    // any authMode !== "static", so a bogus mode would otherwise validate and
-    // insert an ENABLED row the runtime doesn't recognize (no DB CHECK on
-    // auth_mode). Skip the server entirely rather than persist garbage —
+    // mcpServerConfigSchema's last branch is the all-optional oauth schema, so a
+    // bogus mode would otherwise validate there and insert an ENABLED row the
+    // runtime does not recognize (there is no DB CHECK on auth_mode). Skip the
+    // server entirely rather than persist garbage —
     // mirrors the per-item degradation used for channels/skills/tools above.
     if (!MCP_AUTH_MODES.includes(authMode)) {
       warnings.push({

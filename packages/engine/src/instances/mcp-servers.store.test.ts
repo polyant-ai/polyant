@@ -23,6 +23,18 @@ describe("mcp-servers.store", () => {
     expect(() => mcpServerConfigSchema("static", { allowList: [] })).toThrow();
   });
 
+  it("should_accept_a_none_config_carrying_only_an_allow_list", () => {
+    expect(mcpServerConfigSchema("none", { allowList: ["search"] })).toEqual({ allowList: ["search"] });
+    expect(mcpServerConfigSchema("none", {})).toEqual({});
+  });
+
+  // The whole point of the mode: nothing to store. A leftover token from a mode
+  // switch must be a 400, not a secret quietly persisted for a server that will
+  // never send it.
+  it("should_reject_a_credential_sent_with_authMode_none", () => {
+    expect(() => mcpServerConfigSchema("none", { auth: { type: "bearer", token: "sh-x" } })).toThrow();
+  });
+
   it("should_accept_oauth_config_with_only_scopes", () => {
     expect(mcpServerConfigSchema("oauth", { scopes: ["repo"] })).toMatchObject({ scopes: ["repo"] });
   });

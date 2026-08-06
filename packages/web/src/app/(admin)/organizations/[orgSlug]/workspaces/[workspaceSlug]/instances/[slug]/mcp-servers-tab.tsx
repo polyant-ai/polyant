@@ -105,6 +105,13 @@ function joinList(value: unknown): string {
  * server restores the existing masked value (`mergeMaskedMcpSecrets`) instead of clearing it. */
 function buildConfig(form: FormState): Record<string, unknown> {
   const allowList = splitList(form.allowList);
+  // No credential at all. The engine's schema for this mode is `.strict()`, so
+  // sending a leftover token here would be a 400 rather than a secret stored for
+  // nothing — hence only the allowList, which is about which tools may be called
+  // and has nothing to do with how the server authenticates.
+  if (form.authMode === "none") {
+    return allowList.length ? { allowList } : {};
+  }
   if (form.authMode === "static") {
     const auth: Record<string, unknown> =
       form.staticAuthType === "header"
@@ -336,7 +343,7 @@ export function McpServersTab({ slug }: Props) {
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-xs">
-                      {t(server.authMode === "static" ? "mcp.authMode.static" : "mcp.authMode.oauth")}
+                      {t(`mcp.authMode.${server.authMode}` as const)}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -415,13 +422,19 @@ export function McpServersTab({ slug }: Props) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">{t("mcp.authMode.none")}</SelectItem>
                   <SelectItem value="static">{t("mcp.authMode.static")}</SelectItem>
                   <SelectItem value="oauth">{t("mcp.authMode.oauth")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {form.authMode === "static" ? (
+            {form.authMode === "none" ? (
+              // Deliberately empty: the point of this mode is that there is
+              // nothing to ask for. A note, not a disabled field, so the form does
+              // not look like it is withholding something.
+              <p className="text-sm text-muted-foreground">{t("mcp.form.noAuthHelp")}</p>
+            ) : form.authMode === "static" ? (
               <>
                 <div className="space-y-2">
                   <Label>{t("mcp.form.staticAuthType")}</Label>

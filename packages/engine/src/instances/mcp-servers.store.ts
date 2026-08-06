@@ -7,8 +7,22 @@ import { instanceMcpServers } from "./mcp-servers.schema.js";
 import { encrypt, decrypt } from "../crypto/index.js";
 import { type InstanceUuid } from "./identifiers.js";
 
-export const MCP_AUTH_MODES = ["static", "oauth"] as const;
+/**
+ * `none` is a real mode, not the absence of one: plenty of MCP servers are public
+ * or sit behind network isolation and want no credential at all. Making it
+ * explicit means the panel never asks for a token it will not use, and the
+ * config schema can REFUSE one — an unused secret stored at rest is a liability,
+ * not a convenience.
+ */
+export const MCP_AUTH_MODES = ["none", "static", "oauth"] as const;
 export type McpAuthMode = (typeof MCP_AUTH_MODES)[number];
+
+// No credential to carry. `allowList` still applies — which tools an agent may
+// call is a separate question from how it authenticates. `.strict()` so a token
+// sent by mistake is a 400 rather than a secret silently persisted.
+const noneConfigSchema = z.object({
+  allowList: z.array(z.string()).optional(),
+}).strict();
 
 const staticConfigSchema = z.object({
   auth: z.union([
@@ -26,11 +40,16 @@ const oauthConfigSchema = z.object({
   allowList: z.array(z.string()).optional(),
 });
 
-export type McpServerConfig = z.infer<typeof staticConfigSchema> | z.infer<typeof oauthConfigSchema>;
+export type McpServerConfig =
+  | z.infer<typeof noneConfigSchema>
+  | z.infer<typeof staticConfigSchema>
+  | z.infer<typeof oauthConfigSchema>;
 
 /** Validate a config blob against its auth mode; throws ZodError on mismatch. */
 export function mcpServerConfigSchema(authMode: McpAuthMode, config: unknown): McpServerConfig {
-  return authMode === "static" ? staticConfigSchema.parse(config) : oauthConfigSchema.parse(config);
+  if (authMode === "none") return noneConfigSchema.parse(config);
+  if (authMode === "static") return staticConfigSchema.parse(config);
+  return oauthConfigSchema.parse(config);
 }
 
 export interface McpServerRecord {

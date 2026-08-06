@@ -277,7 +277,9 @@ function InstanceDetailContent() {
           {activeTab === "settings" && (
             <SettingsTab instance={instance} onUpdate={setInstance} />
           )}
-          {activeTab === "channels" && <ChannelsTab slug={instance.slug} />}
+          {activeTab === "channels" && (
+            <ChannelsTab slug={instance.slug} instance={instance} onInstanceUpdate={setInstance} />
+          )}
           {activeTab === "analytics" && <AnalyticsTab slug={instance.slug} />}
           {activeTab === "webhooks" && <TriggersWebhooksTab slug={instance.slug} />}
           {activeTab === "scheduled" && <TriggersScheduledTab slug={instance.slug} />}

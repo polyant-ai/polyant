@@ -21,11 +21,19 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { api, getUserErrorMessage, type ChannelConfig } from "@/lib/api";
+import { api, getUserErrorMessage, type ChannelConfig, type Instance } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 
 interface Props {
   slug: string;
+  /**
+   * Needed for the A2A switch inside the Agent-to-Agent section. A2A is NOT a
+   * channel — it is a column on `instances` — but it answers the same question
+   * the `agent` channel does ("who else may drive this agent"), and the two were
+   * three clicks apart with nothing saying they were related.
+   */
+  instance: Instance;
+  onInstanceUpdate: (instance: Instance) => void;
 }
 
 interface ChannelState {
@@ -74,7 +82,7 @@ const CHANNEL_DEFS = [
   },
 ];
 
-export function ChannelsTab({ slug }: Props) {
+export function ChannelsTab({ slug, instance, onInstanceUpdate }: Props) {
   const { t } = useI18n();
   const [channels, setChannels] = useState<ChannelConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -138,6 +146,29 @@ export function ChannelsTab({ slug }: Props) {
     }));
   }
 
+
+  /**
+   * A2A rides the Agent-to-Agent section but persists through the INSTANCE
+   * endpoint, not the channel one — so it has its own dirty flag and its own
+   * save. Folding it into `handleSave("agent")` would have made one button write
+   * to two resources, where a failure of the second leaves the first applied.
+   */
+  const [a2aEnabled, setA2aEnabled] = useState(instance.a2aEnabled);
+  const [savingA2a, setSavingA2a] = useState(false);
+  const a2aDirty = a2aEnabled !== instance.a2aEnabled;
+
+  async function handleSaveA2a() {
+    setSavingA2a(true);
+    try {
+      const { instance: updated } = await api.instances.update(slug, { a2aEnabled });
+      onInstanceUpdate(updated);
+      toast.success(t("channels.tab.saved"));
+    } catch (err) {
+      toast.error(getUserErrorMessage(err, t("channels.tab.saveFailed")));
+    } finally {
+      setSavingA2a(false);
+    }
+  }
 
   function toggleFieldVisibility(fieldId: string) {
     setVisibleFields((prev) => ({ ...prev, [fieldId]: !prev[fieldId] }));
@@ -300,6 +331,42 @@ export function ChannelsTab({ slug }: Props) {
                 >
                   {savingChannel === def.type ? t("common.saving") : t("common.saveSingle")}
                 </Button>
+              </div>
+            )}
+
+            {/*
+              A2A lives HERE, under Agent-to-Agent, because both answer "who else
+              may drive this agent" — and they are not the same answer, which is
+              why the copy names the difference rather than leaving it to be
+              inferred from two switches sitting together:
+
+                the switch above  — agents INSIDE this deployment, in-process,
+                                    no network, nothing to configure;
+                the switch below  — agents OUTSIDE it, over HTTP, through the
+                                    Agent2Agent protocol, authenticated by this
+                                    agent's own API key.
+
+              The second one is a public surface, so the copy says what turning it
+              on exposes and what authenticates it. Note the coupling worth
+              knowing: with API authentication off, the A2A endpoint accepts an
+              unauthenticated caller who can then drive full turns.
+            */}
+            {def.type === "agent" && (
+              <div className="space-y-4 border-t pt-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium">{t("channels.tab.a2a")}</Label>
+                    <p className="text-sm text-muted-foreground">{t("channels.tab.a2aHelp")}</p>
+                  </div>
+                  <Switch checked={a2aEnabled} onCheckedChange={setA2aEnabled} />
+                </div>
+                {a2aDirty && (
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={handleSaveA2a} disabled={savingA2a}>
+                      {savingA2a ? t("common.saving") : t("common.saveSingle")}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </section>

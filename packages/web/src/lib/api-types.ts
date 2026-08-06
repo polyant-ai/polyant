@@ -808,7 +808,7 @@ export interface OptoutContact {
 
 // ── MCP Servers ───────────────────────────────────────────────────────
 
-export type McpAuthMode = "static" | "oauth";
+export type McpAuthMode = "none" | "static" | "oauth";
 
 export interface McpServer {
   id: string;
