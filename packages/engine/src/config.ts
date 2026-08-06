@@ -150,7 +150,15 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
     internalSecret: z.string().min(16).optional(),
     /** Auth source: "session" (Auth.js JWT) or "alb-oidc" (trust ALB x-amzn-oidc-data header).
      *  Use "alb-oidc" when deployed behind an AWS ALB with OIDC authentication — the ALB
-     *  has already authenticated the user, so the engine trusts the forwarded claims. */
+     *  has already authenticated the user, so the engine trusts the forwarded claims.
+     *
+     *  "alb-oidc" is currently REFUSED at boot rather than accepted: since RBAC
+     *  became unconditional, a gateway-forwarded principal carries no `orgId` and
+     *  holds no role bindings, so it is denied on every `@RequirePermission`
+     *  route (see `authz/permission.guard.ts`). Accepting the value would boot a
+     *  panel that looks healthy and 403s on every management call; refusing it
+     *  names the problem while the operator can still act on it. Restore the
+     *  value here once the gateway identity is mapped onto a local user. */
     mode: z.enum(["session", "alb-oidc"]).default("session"),
     /** RBAC: the user with this email is promoted to Platform Admin on boot by
      *  the OrganizationsModule bootstrap — `is_platform_admin = true` AND
@@ -363,6 +371,20 @@ function loadConfig(): Config {
 
   if (!result.success) {
     console.error("Configuration error:", result.error.format());
+    process.exit(1);
+  }
+
+  // Checked here rather than as a schema refinement so `auth.mode` keeps its full
+  // union type: the gateway branch in `auth/auth.guard.ts` is dormant, not deleted,
+  // and narrowing the type to "session" would make it unreachable code the compiler
+  // rejects — leaving the eventual fix with nothing to switch back on.
+  if (result.data.auth.mode === "alb-oidc") {
+    console.error(
+      "Configuration error: AUTH_MODE=alb-oidc is not supported in this release. " +
+        "Since RBAC became unconditional, a gateway-forwarded principal resolves no organization " +
+        "and is denied on every management route — the panel would load and 403 on every call. " +
+        "Use AUTH_MODE=session (see docs/UPGRADING.md).",
+    );
     process.exit(1);
   }
 
