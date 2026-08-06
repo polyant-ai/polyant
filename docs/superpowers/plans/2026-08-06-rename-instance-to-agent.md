@@ -262,6 +262,57 @@ grep -rn 'workspaces/\[workspaceSlug\]/instances' packages/web/src  # expect 0
 - [ ] `GLOSSARY.md`: `instance` → `agent` as the canonical term; `workspace` reserved for the RBAC entity, `sandbox` for the filesystem scratch dir.
 - [ ] `.env.example`: `SANDBOX_ROOT`.
 
+## Execution record (2026-08-06)
+
+Landed on `feat/rename-agent-domain` as five commits. Three deviations from the plan
+above, all discovered during execution:
+
+1. **`instanceId` is blocked on the plugin SDK, and is NOT in this branch.**
+   `@polyant-ai/plugin-sdk@1.5.0` declares `ToolContext.instanceId: InstanceSlug`, and
+   the engine's `ToolContext` satisfies it **structurally**, not by extension — so the
+   property name is public plugin contract and renaming it breaks every third-party
+   tool and hook at typecheck (~1200 engine occurrences, plus the JSON field). The
+   plan never saw this: PR #125 predates the serialized plugin SDK landing on
+   `develop`. Resolution: polyant-ai/polyant-sdk#10 ships the **additive** rename as
+   **v1.6.0** (`AgentSlug`/`agentId`/`agent` with the old names kept as deprecated
+   aliases, brand payload pinned so both names stay the same type). The engine follows
+   once that is merged and tagged. The brand payload pin is documented in
+   `instances/identifiers.ts` and in CLAUDE.md.
+
+2. **No dual controller prefix, and no deprecated web rewrite.** PR-2's
+   `@Controller(["api/agents", "api/instances"])` exists only so the web can migrate
+   against a still-working old prefix across two separately-merged PRs. Everything
+   lands in one PR here, so the alias would have been added and deleted a few commits
+   apart — churn with no reviewer or deployment value. Controllers went straight to
+   `api/agents`. External Management-API callers hitting `/api/instances` directly are
+   the one breaking change, called out in the PR body.
+
+3. **The migration and the raw-SQL list were both wider than the plan's inventory.**
+   Live-DB discovery added `principal_secrets` and `oauth_states` (on top of
+   `conversation_state`, which the 2026-06-21 plan had already caught), and raw-SQL
+   joins on `instances` turned up in `conversations/store.ts` (3) and
+   `analytics/analytics.store.ts` (1), neither of which the plan's file list named.
+   `instance_mcp_servers` exists in the local dev DB but not on `develop` — excluded,
+   with the hand-off documented in the migration header.
+
+**Verification actually run** (baseline recorded on `develop` first: engine 2524 tests,
+web 498, typecheck clean):
+
+- Migration 0073 applied onto a **fresh** database through the whole 0001→0073 chain;
+  the round-trip integration test fails at 0072 and passes at 0073.
+- Engine: `typecheck` ✓, **207 files / 2552 tests** ✓, `lint` 0 errors (513 warnings,
+  same as baseline).
+- Web: `typecheck` ✓, **50 files / 498 tests** ✓, `build:web` ✓ (routes render as
+  `/organizations/[orgSlug]/workspaces/[workspaceSlug]/agents[/[slug]]`), `lint` 0 errors.
+- Zero-residual greps green for: `pgTable("instance`, `"instance_id"` in schemas, raw
+  SQL naming `instances`, `WORKSPACES_ROOT` (outside the deprecated fallback),
+  `src/workspace`, `/api/instances` (outside historical migration comments), and the
+  old web route path.
+
+Test failures encountered were all **TEST OUTDATED**, never regressions: `vi.mock`
+factories keying the mocked Drizzle schema module by its old export name (untyped, so
+`tsc` could not see them) and mocks/assertions carrying the old response envelope.
+
 ## Self-Review
 
 **Coverage:** sandbox rename ✓ PR-0; DB ✓ PR-1; engine ✓ PR-2; web ✓ PR-3; alias removal ✓ PR-4; docs ✓.
