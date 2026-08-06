@@ -585,12 +585,19 @@ async function main() {
   process.on("SIGTERM", shutdown);
 }
 
+// Log an error's message + stack but NOT its custom fields: driver-level errors
+// (pg, AWS SDK, fetch) routinely carry the connection string, config or headers on
+// the error object, and these two handlers log whatever reaches the top of the process.
+function fatalDetail(err: unknown): string {
+  return err instanceof Error ? (err.stack ?? err.message) : String(err);
+}
+
 // Prevent unhandled rejections from crashing the process (e.g. async adapter failures)
 process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled rejection (non-fatal):", reason);
+  console.error("Unhandled rejection (non-fatal):", fatalDetail(reason));
 });
 
 main().catch((err) => {
-  console.error("Fatal error:", err);
+  console.error("Fatal error:", fatalDetail(err));
   process.exit(1);
 });

@@ -23,7 +23,7 @@
     "db:generate": "tsx ../../node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "tsx src/database/migrate.ts",
     "db:studio": "drizzle-kit studio",
-    "lint": "eslint src/",
+    "lint": "eslint src/ scripts/",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -67,7 +67,7 @@
     "semver": "^7.6.0",
     "shell-quote": "^1.8.3",
     "twilio": "^6.0.2",
-    "undici": "^7.24.7",
+    "undici": "^7.29.0",
     "zod": "^3.23.0",
     "zod-to-json-schema": "^3.25.2"
   },

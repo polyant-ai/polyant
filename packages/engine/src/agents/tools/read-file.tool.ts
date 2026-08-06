@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { readFile, stat } from "fs/promises";
+import { open } from "fs/promises";
 import { resolve } from "path";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../../utils/error.js";
@@ -76,16 +76,24 @@ export default defineTool({
         source = "workspace-absolute";
       }
 
-      // Check file exists and size
-      const fileStat = await stat(resolvedPath);
-      if (!fileStat.isFile()) {
-        return { error: `Path is not a file: ${path}. Use listDirectory to explore directories.` };
+      // Stat and read through ONE file handle so the checks below apply to the very
+      // bytes we return. Re-resolving the path for the read would let it point at a
+      // different file than the one that passed the type/size gates (TOCTOU).
+      const handle = await open(resolvedPath, "r");
+      let fileStat: Awaited<ReturnType<typeof handle.stat>>;
+      let content: string;
+      try {
+        fileStat = await handle.stat();
+        if (!fileStat.isFile()) {
+          return { error: `Path is not a file: ${path}. Use listDirectory to explore directories.` };
+        }
+        if (fileStat.size > MAX_FILE_SIZE) {
+          return { error: `File too large: ${(fileStat.size / 1024).toFixed(0)} KB (max 512 KB). Try tail to read only the end of the file.` };
+        }
+        content = await handle.readFile("utf-8");
+      } finally {
+        await handle.close();
       }
-      if (fileStat.size > MAX_FILE_SIZE) {
-        return { error: `File too large: ${(fileStat.size / 1024).toFixed(0)} KB (max 512 KB). Try tail to read only the end of the file.` };
-      }
-
-      const content = await readFile(resolvedPath, "utf-8");
 
       let result: string;
       if (tail != null) {

@@ -50,6 +50,9 @@ export class InstanceChannelsController {
     const existing = await getChannelConfig(asInstanceSlug(slug), channelType as ChannelType);
     const mergedConfig: Record<string, unknown> = { ...(existing?.config ?? {}) };
     for (const [k, v] of Object.entries(body.config)) {
+      // Skip keys that would retarget the prototype chain instead of adding an own
+      // property: the config keys come straight from the request body.
+      if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
       if (typeof v === "string" && v.startsWith("••••")) continue;
       mergedConfig[k] = v;
     }

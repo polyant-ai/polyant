@@ -53,7 +53,6 @@ export function SkillsTab({ slug, skills, tools, onSkillsUpdate, onToolsUpdate }
   const toolEnabledMap = useMemo(() => new Map(tools.map((t) => [t.name, t.enabled])), [tools]);
 
   const getSkillEnabled = (name: string) => skillToggles[name] ?? skillEnabledMap.get(name) ?? false;
-  const getToolEnabled = (name: string) => toolToggles[name] ?? toolEnabledMap.get(name) ?? false;
 
   const isDirty = useMemo(() => {
     const skillDirty = Object.keys(skillToggles).some((name) =>

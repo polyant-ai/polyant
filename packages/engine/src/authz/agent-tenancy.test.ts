@@ -6,12 +6,12 @@
  * this predicate is the boundary that keeps that capability inside one tenant.
  */
 
+import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("../database/client.js", () => ({ db: {}, queryClient: {} }));
 
 const { readAgentScope } = vi.hoisted(() => ({ readAgentScope: vi.fn() }));
 vi.mock("./authz.store.js", () => ({ readAgentScope }));
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   agentsShareOrganization,
   agentToolTarget,

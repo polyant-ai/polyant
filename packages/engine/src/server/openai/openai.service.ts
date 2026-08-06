@@ -75,6 +75,13 @@ export class OpenAIService {
 
     const completionId = `chatcmpl-${randomUUID().replace(/-/g, "").slice(0, 24)}`;
 
+    // The pipeline reports what the turn actually spent; OpenAI-compatible
+    // clients meter cost from this block, so report it rather than zeros.
+    // Multi-step turns are already summed upstream. Falls back to 0 only when
+    // the provider returned no usage at all.
+    const promptTokens = result.usage?.promptTokens ?? 0;
+    const completionTokens = result.usage?.completionTokens ?? 0;
+
     return {
       id: completionId,
       object: "chat.completion",
@@ -88,9 +95,9 @@ export class OpenAIService {
         },
       ],
       usage: {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_tokens: promptTokens + completionTokens,
       },
     };
   }
