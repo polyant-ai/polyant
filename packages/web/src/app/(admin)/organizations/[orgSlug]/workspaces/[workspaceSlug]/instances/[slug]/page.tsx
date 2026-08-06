@@ -79,8 +79,8 @@ function InstanceDetailContent() {
   const { t } = useI18n();
   const paths = useTenantPaths();
 
-  // ONE resolver, shared with the sidebar: aliases applied, unknown values landing
-  // on the default. Two copies is how the lit entry and the open page diverge.
+  // ONE resolver, shared with the sidebar: unknown or stale values land on the
+  // default. Two copies is how the lit entry and the open page diverge.
   const activeTab = resolveAgentTab(searchParams.get("tab"));
 
   const siblings = agentSectionsByMacro(macroOfTab(activeTab));

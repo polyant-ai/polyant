@@ -168,8 +168,6 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   const [cacheEnabled, setCacheEnabled] = useState(instance.cacheEnabled);
   const [cacheTtl, setCacheTtl] = useState(instance.cacheTtl);
 
-  // Inbound A2A (Agent2Agent) protocol exposure (default off).
-
   // Replay prior-turn tool results into the model's cross-turn history (default off).
   const [toolResultsInHistoryEnabled, setToolResultsInHistoryEnabled] = useState(
     instance.toolResultsInHistoryEnabled,

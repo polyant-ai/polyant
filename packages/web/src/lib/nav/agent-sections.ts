@@ -13,10 +13,10 @@
  * is gone.
  *
  * **The address is still `?tab=<leaf>`.** The macro entry is DERIVED from the leaf
- * (`macroOfTab`), so no second parameter was invented, every link already in the
- * wild keeps working, and the sidebar lights the entry containing the active leaf.
- * Leaves that were renamed or folded are handled by `LEGACY_TAB_ALIASES` rather
- * than by breaking their addresses.
+ * (`macroOfTab`), so no second parameter was invented and the sidebar lights the
+ * entry containing the active leaf. There is no alias table: the tenant-scoped
+ * URLs are canonical everywhere in the panel, and a `?tab=` value that no longer
+ * names a section degrades to the default section like any other unknown value.
  */
 
 import { Gauge, Brain, Settings2, Radio, Webhook, Shield } from "lucide-react";
@@ -94,18 +94,6 @@ export const AGENT_SECTIONS: readonly AgentSectionDef[] = [
   { tab: "privacy", titleKey: "instances.detail.tabPrivacy", macro: "governance" },
 ];
 
-/**
- * Addresses that used to name a section and no longer do — one release of
- * tolerance, the same shape as the route redirect stubs elsewhere in the panel.
- *
- * A bookmark or a pasted link is a contract; a reorganisation that silently dumps
- * its holder on the default page is the kind of breakage nobody reports.
- */
-export const LEGACY_TAB_ALIASES: Readonly<Record<string, string>> = {
-  // Trigger stopped being one section holding three; its first is the landing.
-  triggers: "webhooks",
-};
-
 /** Where the page lands with no (or an unusable) `?tab=`. */
 export const DEFAULT_AGENT_TAB = "general";
 
@@ -117,14 +105,13 @@ export function agentSectionsByMacro(macro: AgentMacro): AgentSectionDef[] {
 }
 
 /**
- * Resolve a raw `?tab=` into a section that exists: aliases applied, unknown values
- * falling back to the landing page. One place, so the page and the sidebar can
+ * Resolve a raw `?tab=` into a section that exists: absent, unknown or stale values
+ * all fall back to the landing page. One place, so the page and the sidebar can
  * never disagree about which section is open.
  */
 export function resolveAgentTab(raw: string | null | undefined): string {
   if (!raw) return DEFAULT_AGENT_TAB;
-  const aliased = LEGACY_TAB_ALIASES[raw] ?? raw;
-  return AGENT_TAB_VALUES.includes(aliased) ? aliased : DEFAULT_AGENT_TAB;
+  return AGENT_TAB_VALUES.includes(raw) ? raw : DEFAULT_AGENT_TAB;
 }
 
 /** The sidebar entry containing a leaf — what makes `?tab=` sufficient on its own. */

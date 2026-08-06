@@ -12,6 +12,7 @@ import {
   AGENT_MACROS,
   AGENT_SECTIONS,
   agentSectionsByMacro,
+  DEFAULT_AGENT_TAB,
   macroOfTab,
   resolveAgentTab,
 } from "./agent-sections";
@@ -79,12 +80,14 @@ describe("isDestinationItemActive", () => {
 });
 
 describe("resolveAgentTab", () => {
-  it("keeps a real section, aliases a folded one, and falls back otherwise", () => {
+  it("keeps a real section and falls back otherwise", () => {
     expect(resolveAgentTab("prompts")).toBe("prompts");
-    // `triggers` stopped being one section holding three; its first leaf is the
-    // landing. A bookmark is a contract.
-    expect(resolveAgentTab("triggers")).toBe("webhooks");
-    expect(resolveAgentTab("not-a-section")).toBe(resolveAgentTab(null));
+    // No alias table: legacy URLs are dropped deliberately across the panel, so a
+    // `?tab=` value that no longer names a section is just an unknown value.
+    expect(resolveAgentTab("triggers")).toBe(DEFAULT_AGENT_TAB);
+    expect(resolveAgentTab("not-a-section")).toBe(DEFAULT_AGENT_TAB);
+    expect(resolveAgentTab(null)).toBe(DEFAULT_AGENT_TAB);
+    expect(resolveAgentTab("")).toBe(DEFAULT_AGENT_TAB);
   });
 
   it("resolves every registered tab to itself", () => {

@@ -141,21 +141,18 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
   } as Instance;
 }
 
-// The exact twelve tab values the page addressed before the regrouping
-// (the old hard-coded `TAB_VALUES` in `page.tsx`) — hard-coded here, not
-// imported from `instance-tab-groups.ts`, so a regrouping that silently
-// drops one from the production list cannot also make it disappear from
-// this ground truth.
-/** Every address that was reachable before the regrouping — the contract a bookmark holds. */
-const PREVIOUSLY_REACHABLE = [
+// Every `?tab=` address the page must resolve — hard-coded here, not imported
+// from the section registry, so a regrouping that silently drops one from the
+// production list cannot also make it disappear from this ground truth.
+//
+// Legacy addresses are NOT in this list: back-compatibility is dropped
+// deliberately and consistently across the panel, so a stale `?tab=` (e.g. the
+// folded `triggers`) is treated as any other unknown value.
+const REACHABLE = [
   "general", "prompts", "tools", "skills", "knowledge", "settings",
-  "channels", "analytics", "triggers",
+  "channels", "analytics", "webhooks", "scheduled", "runs",
   "room", "hooks", "privacy",
 ] as const;
-
-/** What each of those addresses now renders. Only `triggers` moved: it stopped being one
- *  section holding three and its first leaf became the landing. */
-const LANDS_ON: Record<string, string> = { triggers: "webhooks" };
 
 describe("InstanceDetailPage — tab regrouping", () => {
   beforeEach(() => {
@@ -191,9 +188,9 @@ describe("InstanceDetailPage — tab regrouping", () => {
     render(<InstanceDetailPage />);
     await screen.findByText("tab-body:general");
 
-    for (const value of PREVIOUSLY_REACHABLE) {
+    for (const value of REACHABLE) {
       if (value === "general") continue;
-      expect(screen.queryByText(`tab-body:${LANDS_ON[value] ?? value}`)).not.toBeInTheDocument();
+      expect(screen.queryByText(`tab-body:${value}`)).not.toBeInTheDocument();
     }
   });
 
@@ -221,22 +218,24 @@ describe("InstanceDetailPage — tab regrouping", () => {
     expect(screen.queryByText("tab-body:general")).not.toBeInTheDocument();
   });
 
-  // A bookmark is a contract. Every address that worked before still resolves — the one
-  // that was folded lands on its first leaf rather than on the default page.
-  it("keeps every previously-reachable address resolving", async () => {
-    for (const value of PREVIOUSLY_REACHABLE) {
+  it("resolves every section address to its own body", async () => {
+    for (const value of REACHABLE) {
       resetSearch(`tab=${value}`);
       const { unmount } = render(<InstanceDetailPage />);
-      const expected = LANDS_ON[value] ?? value;
-      await waitFor(() => expect(screen.getByText(`tab-body:${expected}`)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(`tab-body:${value}`)).toBeInTheDocument());
       unmount();
     }
   });
 
-  it("falls back to the General tab for an unknown `?tab=` value", async () => {
-    resetSearch("tab=not-a-real-tab");
-    render(<InstanceDetailPage />);
+  // Unknown AND stale values both degrade to the landing section — no alias table,
+  // no empty page, no throw.
+  it.each(["not-a-real-tab", "triggers", ""])(
+    "falls back to the General tab for `?tab=%s`",
+    async (value) => {
+      resetSearch(`tab=${value}`);
+      render(<InstanceDetailPage />);
 
-    await waitFor(() => expect(screen.getByText("tab-body:general")).toBeInTheDocument());
-  });
+      await waitFor(() => expect(screen.getByText("tab-body:general")).toBeInTheDocument());
+    },
+  );
 });

@@ -36,28 +36,6 @@ test.describe("tenant-scoped URLs", () => {
     await page.waitForURL(`**/organizations/${ORG_SLUG}`, { timeout: 20_000 });
   });
 
-  test("a legacy flat URL forwards to its canonical form", async ({ page }) => {
-    await loginAs(page, "owner");
-
-    await page.goto("/instances");
-
-    await page.waitForURL(`**${CANONICAL_AGENTS}`, { timeout: 20_000 });
-  });
-
-  test("a legacy deep link keeps its query string", async ({ page }) => {
-    await loginAs(page, "owner");
-
-    await page.goto("/conversations?id=does-not-exist");
-
-    await page.waitForURL(
-      (url) =>
-        url.pathname ===
-          `/organizations/${ORG_SLUG}/workspaces/${WORKSPACE_SLUG}/conversations` &&
-        url.searchParams.get("id") === "does-not-exist",
-      { timeout: 20_000 },
-    );
-  });
-
   test("the canonical workspace URL renders the agents page", async ({ page }) => {
     await loginAs(page, "owner");
 
