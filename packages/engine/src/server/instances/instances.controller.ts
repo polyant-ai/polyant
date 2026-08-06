@@ -84,6 +84,7 @@ function toInstanceDto(instance: Instance) {
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl,
+    a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     optoutEnabled: instance.optoutEnabled,
@@ -303,6 +304,7 @@ export class InstancesController {
       datetimeInjectionEnabled?: boolean;
       cacheEnabled?: boolean;
       cacheTtl?: string;
+      a2aEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
       sttProvider?: "openai" | "aws" | "deepgram";

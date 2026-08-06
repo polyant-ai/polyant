@@ -31,6 +31,7 @@ import { AuditController } from "./audit/audit.controller.js";
 import { InstanceExportController } from "./instances/instance-export.controller.js";
 import { AttachmentsController } from "./attachments/attachments.controller.js";
 import { OAuthCallbackController } from "./oauth/oauth-callback.controller.js";
+import { A2aModule } from "./a2a/a2a.module.js";
 import { SkillsModule } from "../skills/skills.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { ActivityStreamModule } from "../activity-stream/activity-stream.module.js";
@@ -51,6 +52,7 @@ import { OrganizationsModule } from "../organizations/organizations.module.js";
       skipIf: () => !config.server.throttle.enabled,
     }),
     OpenAIModule,
+    A2aModule,
     SkillsModule,
     UsersModule,
     AuthModule,

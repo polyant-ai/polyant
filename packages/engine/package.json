@@ -32,6 +32,7 @@
     "test:functional": "vitest run --fileParallelism=false 'functional'"
   },
   "dependencies": {
+    "@a2a-js/sdk": "^1.0.1",
     "@ai-sdk/amazon-bedrock": "^4.0.111",
     "@ai-sdk/anthropic": "^3.0.81",
     "@ai-sdk/openai": "^3.0.67",

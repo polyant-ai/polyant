@@ -119,6 +119,7 @@ export const exportInstanceDataSchema = z.object({
   datetimeInjectionEnabled: z.boolean().default(true),
   cacheEnabled: z.boolean().default(true),
   cacheTtl: z.enum(["5m", "1h"]).default("1h"),
+  a2aEnabled: z.boolean().default(false),
   toolResultsInHistoryEnabled: z.boolean().default(false),
   debugEnabled: z.boolean().default(false),
   sttProvider: z.string().default("openai"),

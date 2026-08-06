@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { ServerModule } from "./server.module.js";
 import { OpenAIService } from "./openai/openai.service.js";
+import { A2aHandlerRegistry } from "./a2a/a2a-handler.registry.js";
 import { GlobalExceptionFilter } from "./filters/http-exception.filter.js";
 import { config } from "../config.js";
 import type { MessageHandler, StreamMessageHandler } from "../channels/types.js";
@@ -89,6 +90,10 @@ export async function startServer(
   const openaiService = app.get(OpenAIService);
   openaiService.setMessageHandler(messageHandler);
   openaiService.setStreamMessageHandler(streamMessageHandler);
+
+  // Inject the stream message handler into the A2A registry (same pattern as OpenAIService)
+  const a2aRegistry = app.get(A2aHandlerRegistry);
+  a2aRegistry.setStreamMessageHandler(streamMessageHandler);
 
   // CORS: in production we fail closed unless an explicit allowlist is configured.
   app.enableCors(getCorsOptions());
