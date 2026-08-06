@@ -27,9 +27,19 @@ interface Entry {
  * sweep + oldest-first eviction over `maxSize`), but keeps its own Map because
  * `list()` needs to iterate entries, which `TtlCache` does not expose.
  *
- * Scoping matches the SDK: `tenant` from the call context, owner from an
- * {@link resolveUserScope}-shaped resolver, so a caller only ever loads or
- * lists its own tasks.
+ * Scoping matches the SDK — `tenant` from the call context, owner from an
+ * {@link resolveUserScope}-shaped resolver — PLUS an agent slug supplied by the
+ * caller through {@link BoundedTaskStore.viewFor}.
+ *
+ * The slug is not optional in practice: the JSON-RPC endpoint is mounted with
+ * `UserBuilder.noAuthentication`, so `context.user` is always absent and
+ * `resolveUserScope` collapses to the constant `"unknown"` for EVERY caller,
+ * while `context.tenant` is never populated by our controller. Without the slug
+ * the scope key is one global constant and `ListTasks` on agent A returns the
+ * tasks — message history included — of every other A2A agent in the process,
+ * across organizations. The SDK-shaped scoping is retained (it starts working
+ * the moment an authenticated `UserBuilder` is wired) but the slug is what
+ * actually isolates agents today.
  */
 export class BoundedTaskStore implements TaskStore {
   private readonly entries = new Map<string, Entry>();
@@ -46,8 +56,22 @@ export class BoundedTaskStore implements TaskStore {
     }
   }
 
-  async save(task: Task, context: ServerCallContext): Promise<void> {
-    this.entries.set(this.keyOf(task.id, context), { task, expiresAt: Date.now() + this.ttlMs });
+  /**
+   * A {@link TaskStore} view whose entries are additionally scoped to one agent
+   * slug. Handlers are per-slug ({@link A2aHandlerRegistry}) but the underlying
+   * store is shared, so the global {@link MAX_TASKS} cap keeps bounding the heap
+   * while no agent can read another's tasks.
+   */
+  viewFor(slug: string): TaskStore {
+    return {
+      save: (task, context) => this.save(task, context, slug),
+      load: (taskId, context) => this.load(taskId, context, slug),
+      list: (params, context) => this.list(params, context, slug),
+    };
+  }
+
+  async save(task: Task, context: ServerCallContext, slug = ""): Promise<void> {
+    this.entries.set(this.keyOf(task.id, context, slug), { task, expiresAt: Date.now() + this.ttlMs });
     if (this.entries.size > this.maxSize) {
       this.evictExpired();
       // Fall back to oldest-first eviction: Map insertion order guarantees
@@ -60,8 +84,8 @@ export class BoundedTaskStore implements TaskStore {
     }
   }
 
-  async load(taskId: string, context: ServerCallContext): Promise<Task | undefined> {
-    const key = this.keyOf(taskId, context);
+  async load(taskId: string, context: ServerCallContext, slug = ""): Promise<Task | undefined> {
+    const key = this.keyOf(taskId, context, slug);
     const entry = this.entries.get(key);
     if (!entry) return undefined;
     if (entry.expiresAt <= Date.now()) {
@@ -71,9 +95,9 @@ export class BoundedTaskStore implements TaskStore {
     return entry.task;
   }
 
-  async list(params: ListTasksRequest, context: ServerCallContext): Promise<ListTasksResponse> {
+  async list(params: ListTasksRequest, context: ServerCallContext, slug = ""): Promise<ListTasksResponse> {
     this.evictExpired();
-    const prefix = this.scopePrefix(context);
+    const prefix = this.scopePrefix(context, slug);
     const matched: Task[] = [];
     for (const [key, entry] of this.entries) {
       if (!key.startsWith(prefix)) continue;
@@ -108,13 +132,13 @@ export class BoundedTaskStore implements TaskStore {
 
   // -- internal ---------------------------------------------------------------
 
-  /** NUL cannot appear in a tenant/owner/task id, so the key is unambiguous. */
-  private scopePrefix(context: ServerCallContext): string {
-    return `${context.tenant ?? ""}\u0000${this.ownerResolver(context)}\u0000`;
+  /** NUL cannot appear in a slug/tenant/owner/task id, so the key is unambiguous. */
+  private scopePrefix(context: ServerCallContext, slug: string): string {
+    return `${slug}\u0000${context.tenant ?? ""}\u0000${this.ownerResolver(context)}\u0000`;
   }
 
-  private keyOf(taskId: string, context: ServerCallContext): string {
-    return `${this.scopePrefix(context)}${taskId}`;
+  private keyOf(taskId: string, context: ServerCallContext, slug: string): string {
+    return `${this.scopePrefix(context, slug)}${taskId}`;
   }
 
   private evictExpired(): void {

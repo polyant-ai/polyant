@@ -21,6 +21,12 @@ import { createPolyantExecutor } from "./polyant-agent.executor.js";
  * the SDK's never-evicting `InMemoryTaskStore`): the handler cache bounds
  * HANDLERS, not tasks, and each saved task carries its message history, so an
  * unbounded store is a heap-exhaustion vector for a `@Public()` endpoint.
+ *
+ * The store is shared for that cap alone — each handler gets a `viewFor(slug)`
+ * so tasks stay isolated per agent. Handing the raw store to every handler
+ * would make `ListTasks` on one agent return every other agent's tasks: the
+ * SDK's own tenant/owner scoping degenerates to a constant under the
+ * `noAuthentication` user builder the controller mounts.
  */
 @Injectable()
 export class A2aHandlerRegistry {
@@ -43,7 +49,7 @@ export class A2aHandlerRegistry {
     const baseUrl = config.server.baseUrl ?? `http://localhost:${config.server.port}`;
     const card = buildAgentCard(instance, baseUrl);
     const executor = createPolyantExecutor(slug, this.streamHandler);
-    const handler = new DefaultRequestHandler(card, this.taskStore, executor);
+    const handler = new DefaultRequestHandler(card, this.taskStore.viewFor(slug), executor);
 
     this.cache.set(slug, handler);
     return handler;

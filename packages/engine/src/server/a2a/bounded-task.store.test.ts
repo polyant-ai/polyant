@@ -89,4 +89,47 @@ describe("BoundedTaskStore", () => {
     expect(res.totalSize).toBe(2);
     expect((await store.list(listParams({ pageSize: 9999 }), ctx())).pageSize).toBe(100);
   });
+
+  describe("viewFor (per-agent isolation)", () => {
+    /**
+     * The JSON-RPC endpoint is mounted with `UserBuilder.noAuthentication`, so
+     * the SDK-shaped tenant/owner scoping collapses to one constant for every
+     * caller. These tests pin the slug as the thing that actually isolates
+     * agents — without it, `ListTasks` on one agent leaks every other agent's
+     * tasks (message history included), across organizations.
+     */
+    const anon = (): ServerCallContext => ({ tenant: undefined, user: undefined }) as unknown as ServerCallContext;
+    const anonStore = () => {
+      const s = new BoundedTaskStore(undefined, undefined, () => "unknown");
+      stores.push(s);
+      return s;
+    };
+
+    it("should_not_list_another_agents_tasks_when_the_caller_is_unauthenticated", async () => {
+      const store = anonStore();
+      await store.viewFor("agent-a").save(task("a"), anon());
+      await store.viewFor("agent-b").save(task("b"), anon());
+
+      const res = await store.viewFor("agent-a").list(listParams({ contextId: "" }), anon());
+      expect(res.tasks.map((t: Task) => t.id)).toEqual(["a"]);
+      expect(res.totalSize).toBe(1);
+    });
+
+    it("should_not_load_another_agents_task_by_id", async () => {
+      const store = anonStore();
+      await store.viewFor("agent-a").save(task("shared-id"), anon());
+
+      expect(await store.viewFor("agent-b").load("shared-id", anon())).toBeUndefined();
+      expect(await store.viewFor("agent-a").load("shared-id", anon())).toBeDefined();
+    });
+
+    it("should_keep_the_global_cap_across_views", async () => {
+      const store = new BoundedTaskStore(2, undefined, () => "unknown");
+      stores.push(store);
+      await store.viewFor("agent-a").save(task("a"), anon());
+      await store.viewFor("agent-b").save(task("b"), anon());
+      await store.viewFor("agent-c").save(task("c"), anon());
+      expect(store.size).toBe(2);
+    });
+  });
 });
