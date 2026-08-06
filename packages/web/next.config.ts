@@ -3,11 +3,18 @@
 import path from "node:path";
 
 import type { NextConfig } from "next";
+import packageJson from "./package.json";
 
 const ENGINE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? packageJson.version;
+const APP_REVISION = process.env.NEXT_PUBLIC_APP_REVISION ?? process.env.GITHUB_SHA ?? "";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  env: {
+    NEXT_PUBLIC_APP_VERSION: APP_VERSION,
+    NEXT_PUBLIC_APP_REVISION: APP_REVISION,
+  },
   // Build output directory. Overridable via NEXT_DIST_DIR so the E2E harness can
   // build+start into an isolated `.next-e2e` dir and coexist with a running
   // `next dev` (which holds `.next`). Defaults to the standard `.next`.

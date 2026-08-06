@@ -1,8 +1,6 @@
-name: Release
+name: Release comparison draft
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
     types: [opened, reopened, synchronize]
@@ -12,8 +10,8 @@ permissions:
   pull-requests: write
 
 jobs:
-  draft-release:
-    name: Draft release notes
+  release-comparison-draft:
+    name: Release comparison draft
     runs-on: ubuntu-latest
     steps:
       - uses: release-drafter/release-drafter@v7

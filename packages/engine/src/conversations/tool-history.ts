@@ -24,27 +24,13 @@
 import type { ModelMessage } from "ai";
 import type { MessageRow } from "./store.js";
 import type { StepDetail } from "./schema.js";
-import { toModelToolName } from "../agents/tools/registry.js";
+import { sanitizeToolCallId, toModelToolName } from "../utils/model-tool-wire.js";
+
+export { sanitizeToolCallId } from "../utils/model-tool-wire.js";
 
 /** Max characters of a single tool result kept in replayed history. Larger
  *  results are truncated — the model gets the gist without blowing the context. */
 export const MAX_REPLAYED_RESULT_CHARS = 2000;
-
-/**
- * Anthropic requires tool_use/tool_result ids to match `^[a-zA-Z0-9_-]+$`.
- * Anthropic-direct tolerates other chars; Bedrock's Converse API rejects the
- * whole request (500: "tool_use.id: String should match pattern …"). We mint
- * synthetic ids for hook tool calls (`hook:<uuid>`) whose ':' violates this, and
- * older turns persisted such ids into `steps`. Map any out-of-grammar char to
- * '_' before an id reaches a provider. Idempotent, and applied identically to a
- * call and its result so the pairing the providers require is preserved.
- *
- * ponytail: plain char-map; collisions only if two raw ids differ solely in
- * out-of-grammar chars — not possible for our `hook:`+uuid or provider ids.
- */
-export function sanitizeToolCallId(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_-]/g, "_");
-}
 
 /** Serialize + truncate a persisted tool result for replay. */
 function truncateResult(result: unknown): string {

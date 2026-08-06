@@ -5,6 +5,7 @@ import {
   buildHookPayload,
   hasResponseMutatingHook,
   runResponseGeneratedHooks,
+  runPipelinePost,
   type PipelineContext,
 } from "./pipeline.js";
 import { asInstanceSlug } from "./instances/identifiers.js";
@@ -12,9 +13,24 @@ import { getEnabledHooks } from "./hooks/hooks.store.js";
 import { getHookRegistry } from "./hooks/hook-registry.js";
 import { runHooks, firstReplaceResponse, firstRegenerate } from "./hooks/hook-runner.js";
 import type { HookExecutionSummary, HookFunctionDefinition } from "./hooks/hook-types.js";
+import { conversationStore } from "./conversations/index.js";
+import { traceStore } from "./analytics/trace.store.js";
 
 vi.mock("./hooks/hooks.store.js", () => ({ getEnabledHooks: vi.fn() }));
 vi.mock("./hooks/hook-registry.js", () => ({ getHookRegistry: vi.fn() }));
+vi.mock("./analytics/trace.store.js", () => ({ traceStore: { record: vi.fn() } }));
+vi.mock("./conversations/index.js", () => ({
+  conversationStore: {
+    appendMessages: vi.fn(async () => undefined),
+    getSystemMessageContents: vi.fn(async () => new Set<string>()),
+    updateSummary: vi.fn(async () => undefined),
+    updateTitle: vi.fn(async () => undefined),
+    getConversation: vi.fn(async () => null),
+    getTitle: vi.fn(async () => "t"),
+    clearContextPrompt: vi.fn(async () => undefined),
+  },
+}));
+vi.mock("./memory/index.js", () => ({ extractMemories: vi.fn(async () => undefined) }));
 vi.mock("./hooks/hook-runner.js", () => ({
   runHooks: vi.fn(),
   firstHalt: vi.fn(),
@@ -195,5 +211,56 @@ describe("runResponseGeneratedHooks", () => {
     const outcome = await runResponseGeneratedHooks(ctxWith({}), "hi", "out", 0, ac.signal);
     expect(outcome).toEqual({ summaries: [] });
     expect(runHooks).not.toHaveBeenCalled();
+  });
+});
+
+describe("runPipelinePost persistence gate", () => {
+  const flush = vi.fn(async () => undefined);
+
+  const postOptions = (ctx: PipelineContext) => ({
+    ctx,
+    contextPrepMs: 1,
+    messageText: "RESET",
+    channel: "whatsapp",
+    resultText: "RESET → #12345",
+    usage: { promptTokens: 0, completionTokens: 0 },
+    durationMs: 0,
+    toolBuildingMs: 0,
+    isStreaming: false,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(runHooks).mockResolvedValue([]);
+    vi.mocked(firstReplaceResponse).mockReturnValue(undefined);
+  });
+
+  it("skips trace, state flush and message persistence when persist is false", async () => {
+    const ctx = ctxWith({ stateBuffer: { flush, api: () => ({}) } as never, contextPrompt: "one-shot" });
+
+    const { finalText } = await runPipelinePost({ ...postOptions(ctx), persist: false });
+
+    expect(finalText).toBe("RESET → #12345");
+    expect(traceStore.record).not.toHaveBeenCalled();
+    expect(flush).not.toHaveBeenCalled();
+    expect(conversationStore.appendMessages).not.toHaveBeenCalled();
+    expect(conversationStore.clearContextPrompt).not.toHaveBeenCalled();
+  });
+
+  it("still runs the post-LLM hooks on a non-persisted turn (the execution happened)", async () => {
+    await runPipelinePost({ ...postOptions(ctxWith({})), persist: false });
+
+    expect(runHooks).toHaveBeenCalledWith("response_generated", expect.anything(), expect.anything());
+    expect(runHooks).toHaveBeenCalledWith("response_sent", expect.anything(), expect.anything());
+  });
+
+  it("persists by default when persist is absent", async () => {
+    const ctx = ctxWith({ stateBuffer: { flush, api: () => ({}) } as never });
+
+    await runPipelinePost(postOptions(ctx));
+
+    expect(traceStore.record).toHaveBeenCalledOnce();
+    expect(flush).toHaveBeenCalled();
+    await vi.waitFor(() => expect(conversationStore.appendMessages).toHaveBeenCalled());
   });
 });

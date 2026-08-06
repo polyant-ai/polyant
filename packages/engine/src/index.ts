@@ -241,6 +241,7 @@ async function main() {
         toolBuildingMs: 0,
         isStreaming: false,
         abortSignal,
+        persist: pre.shortCircuit.persist,
         provenance: hookProvenance(pre.hookExecutions),
       });
       return { text: finalText };
@@ -396,6 +397,7 @@ async function main() {
         toolBuildingMs: 0,
         isStreaming: true,
         abortSignal,
+        persist: pre.shortCircuit.persist,
         provenance: hookProvenance(pre.hookExecutions),
       }).then(({ finalText, hookExecutions }) => ({ text: finalText, hookExecutions }));
 

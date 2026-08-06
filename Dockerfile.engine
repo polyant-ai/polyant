@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
 # Create a minimal package.json for web to satisfy workspace resolution
-RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"0.1.0","private":true}' > packages/web/package.json
+RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.0.0","private":true}' > packages/web/package.json
 # Puppeteer bundles a glibc Chromium that can't run on Alpine (musl); the runtime
 # stage installs Alpine's chromium and points Puppeteer at it. Skip the download.
 ENV PUPPETEER_SKIP_DOWNLOAD=true
@@ -26,7 +26,7 @@ FROM node:22-alpine AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
-RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"0.1.0","private":true}' > packages/web/package.json
+RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.0.0","private":true}' > packages/web/package.json
 # Skip Puppeteer's bundled (glibc) Chromium download — the runtime image uses the
 # Alpine chromium package; downloading here would be dead weight never copied out.
 ENV PUPPETEER_SKIP_DOWNLOAD=true

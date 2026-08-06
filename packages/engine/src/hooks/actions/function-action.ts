@@ -60,7 +60,10 @@ export const functionActionExecutor: HookActionExecutor = {
     const result = await def.handler(hookCtx);
     if (!result) return;
 
-    if (result.halt?.message?.trim()) capture({ halt: { message: result.halt.message } });
+    if (result.halt?.message?.trim()) {
+      // `persist` rides along untouched: the pipeline resolves the default (true).
+      capture({ halt: { message: result.halt.message, persist: result.halt.persist } });
+    }
     if (result.replaceResponse?.message?.trim()) {
       // Runtime enforcement of replaceResponse ⇒ mutatesResponse (can't be static —
       // it's a handler return). Never a silent no-op: warn when the flag is missing.

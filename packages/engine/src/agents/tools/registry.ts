@@ -7,6 +7,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { errMsg } from "../../utils/error.js";
+import { toModelToolName } from "../../utils/model-tool-wire.js";
 import type { InstanceSlug } from "../../instances/identifiers.js";
 import {
   normalizeRequiredSecrets,
@@ -26,6 +27,7 @@ import { findStrictModeViolations, findIllegalToolName } from "./strict-mode-lin
 // Re-export the authoring contract from the SDK so core tools keep importing
 // `normalizeRequiredSecrets` / the types from "./registry.js" unchanged.
 export { normalizeRequiredSecrets, requiredSecretKeys };
+export { toModelToolName };
 export type { RequiredSecretSpec, RequiredSecretsInput, ToolInfo, ToolInputExample };
 export type { SerializedToolDefinition };
 
@@ -275,18 +277,6 @@ export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
     }),
     execute: wrappedExecute,
   });
-}
-
-/**
- * The name a tool is presented under to the MODEL. Providers (Bedrock, OpenAI,
- * Anthropic) require tool names to match [a-zA-Z0-9_-]+, so the plugin-namespace
- * separator ':' becomes '__'. Used both when equipping tools (buildTools) AND
- * when replaying persisted tool calls into history (tool-history), so the name
- * the model sees in the tool list and in the message history always agree — and
- * neither ever carries a ':'.
- */
-export function toModelToolName(name: string): string {
-  return name.replace(/:/g, "__");
 }
 
 /** Map the registry to a serializable array of tool info objects. */
