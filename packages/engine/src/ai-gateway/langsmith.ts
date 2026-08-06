@@ -122,7 +122,7 @@ export function buildLangSmithProviderOptions(
       : context.conversationId;
   }
   if (context?.instanceId) {
-    metadata.instance_id = context.instanceId;
+    metadata.agent_id = context.instanceId;
   }
   if (context?.agentCall) {
     metadata.caller_slug = context.agentCall.callerSlug;

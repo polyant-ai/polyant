@@ -20,13 +20,13 @@ import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { db } from "../../database/client.js";
-import { instances } from "../../instances/schema.js";
+import { agents } from "../../instances/schema.js";
 import { workspaces } from "../../organizations/organization.schema.js";
 import { instanceTools } from "../../instances/instance-tools.schema.js";
 import { tools } from "./tools.schema.js";
 import { syncToolsToDb } from "./tools-sync.js";
 import { _resetRegistryForTests, _registerToolForTests } from "./registry.js";
-import { asInstanceUuid, type InstanceUuid } from "../../instances/identifiers.js";
+import { asAgentUuid, type AgentUuid } from "../../instances/identifiers.js";
 
 const SLUG = "itest-tools-sync";
 const CORE = "itestSyncCore"; // in registry → kept
@@ -39,7 +39,7 @@ const ALL_NAMES = [CORE, ORPHAN, KEPT, AGENT, FLAT_GONE];
 /** Seed instance + catalog rows at module load (top-level await) so `it.skipIf`
  *  sees the resolved value — a beforeAll assignment would be too late.
  *  Returns the instance uuid, or undefined when no migrated DB is reachable. */
-async function setup(): Promise<InstanceUuid | undefined> {
+async function setup(): Promise<AgentUuid | undefined> {
   try {
     const [ws] = await Promise.race([
       db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.isDefault, true)).limit(1),
@@ -48,17 +48,17 @@ async function setup(): Promise<InstanceUuid | undefined> {
     if (!ws) return undefined;
 
     const rows = await db
-      .insert(instances)
+      .insert(agents)
       .values({ slug: SLUG, name: "itest tools-sync", workspaceId: ws.id })
       .onConflictDoNothing()
-      .returning({ id: instances.id });
+      .returning({ id: agents.id });
     const uuid = rows[0]
       ? rows[0].id
       : (
-          await db.select({ id: instances.id }).from(instances).where(eq(instances.slug, SLUG)).limit(1)
+          await db.select({ id: agents.id }).from(agents).where(eq(agents.slug, SLUG)).limit(1)
         )[0]?.id;
     if (!uuid) return undefined;
-    const instanceUuid = asInstanceUuid(uuid);
+    const instanceUuid = asAgentUuid(uuid);
 
     // Deterministic registry: only CORE is loaded, so ORPHAN/KEPT/FLAT_GONE count
     // as "absent from the registry" and the main (non-empty) delete branch runs.
@@ -91,7 +91,7 @@ const instanceUuid = await setup();
 
 afterAll(async () => {
   if (!instanceUuid) return;
-  await db.delete(instances).where(eq(instances.id, instanceUuid)); // cascades instance_tools
+  await db.delete(agents).where(eq(agents.id, instanceUuid)); // cascades instance_tools
   await db.delete(tools).where(inArray(tools.name, ALL_NAMES));
   _resetRegistryForTests();
 });

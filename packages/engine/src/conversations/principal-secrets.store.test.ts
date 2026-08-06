@@ -51,7 +51,7 @@ vi.mock("./principal-secrets.schema.js", () => ({
   principalSecrets: {
     scope: "scope",
     scopeKey: "scope_key",
-    instanceId: "instance_id",
+    instanceId: "agent_id",
     key: "key",
     value: "value",
     expiresAt: "expires_at",

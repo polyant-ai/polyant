@@ -8,7 +8,7 @@
  * that symlinks created on a real disk are actually blocked by the realpath
  * check inside resolveWorkspacePath / assertInsideConversationWorkspace.
  *
- * Pattern: override WORKSPACES_ROOT via env var so getConversationWorkspaceDir
+ * Pattern: override SANDBOX_ROOT via env var so getConversationWorkspaceDir
  * resolves inside our tmpdir. Must set the env var BEFORE the workspace-utils
  * module is first imported (the constant is computed at module load).
  */
@@ -17,16 +17,16 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from "node
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-// Set WORKSPACES_ROOT before importing workspace-utils
-const TEST_WORKSPACES_ROOT = mkdtempSync(join(tmpdir(), "oa-symlink-test-"));
-process.env.WORKSPACES_ROOT = TEST_WORKSPACES_ROOT;
+// Set SANDBOX_ROOT before importing workspace-utils
+const TEST_SANDBOX_ROOT = mkdtempSync(join(tmpdir(), "oa-symlink-test-"));
+process.env.SANDBOX_ROOT = TEST_SANDBOX_ROOT;
 
-// Now import — OA_WORKSPACES_ROOT will pick up our env var
+// Now import — OA_SANDBOX_ROOT will pick up our env var
 const {
   resolveWorkspacePath,
   assertInsideConversationWorkspace,
   ensureWorkspaceDir,
-  OA_WORKSPACES_ROOT,
+  OA_SANDBOX_ROOT,
 } = await import("./workspace-utils.js");
 
 const INSTANCE = "sl-inst";
@@ -34,7 +34,7 @@ const CONV = "sl-conv";
 
 // realpath the tmpdir because macOS /tmp → /private/tmp. The functions return
 // normalized (non-realpath) paths; here we just need a valid workspace dir.
-const workspaceDir = resolve(OA_WORKSPACES_ROOT, INSTANCE, "conversations", CONV);
+const workspaceDir = resolve(OA_SANDBOX_ROOT, INSTANCE, "conversations", CONV);
 
 beforeAll(async () => {
   await ensureWorkspaceDir(INSTANCE, CONV);
@@ -48,11 +48,11 @@ beforeEach(() => {
 afterAll(() => {
   // Clean up the whole tmp workspaces root
   try {
-    rmSync(TEST_WORKSPACES_ROOT, { recursive: true, force: true });
+    rmSync(TEST_SANDBOX_ROOT, { recursive: true, force: true });
   } catch {
     // best-effort
   }
-  delete process.env.WORKSPACES_ROOT;
+  delete process.env.SANDBOX_ROOT;
 });
 
 describe("symlink safety — real filesystem", () => {

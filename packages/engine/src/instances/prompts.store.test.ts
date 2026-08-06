@@ -30,7 +30,7 @@ vi.mock("../utils/ttl-cache.js", () => ({
 
 import { seedInstancePrompts } from "./prompts.store.js";
 import { DEFAULT_PROMPTS } from "./defaults.js";
-import { asInstanceUuid } from "./identifiers.js";
+import { asAgentUuid } from "./identifiers.js";
 
 describe("seedInstancePrompts (#95)", () => {
   beforeEach(() => {
@@ -42,7 +42,7 @@ describe("seedInstancePrompts (#95)", () => {
     const valuesSpy = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictSpy });
     mockInsert.mockReturnValue({ values: valuesSpy });
 
-    await seedInstancePrompts(asInstanceUuid("inst-1"));
+    await seedInstancePrompts(asAgentUuid("inst-1"));
 
     expect(mockInsert).toHaveBeenCalledTimes(1);
     expect(valuesSpy).toHaveBeenCalledTimes(1);
@@ -60,8 +60,8 @@ describe("seedInstancePrompts (#95)", () => {
     const valuesSpy = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictSpy });
     mockInsert.mockReturnValue({ values: valuesSpy });
 
-    await seedInstancePrompts(asInstanceUuid("inst-2"));
-    await seedInstancePrompts(asInstanceUuid("inst-2"));
+    await seedInstancePrompts(asAgentUuid("inst-2"));
+    await seedInstancePrompts(asAgentUuid("inst-2"));
 
     expect(mockInsert).toHaveBeenCalledTimes(2);
     expect(onConflictSpy).toHaveBeenCalledTimes(2);
@@ -74,8 +74,8 @@ describe("seedInstancePrompts (#95)", () => {
       values: () => ({ onConflictDoNothing: () => Promise.resolve(undefined) }),
     });
 
-    await seedInstancePrompts(asInstanceUuid("inst-3"));
+    await seedInstancePrompts(asAgentUuid("inst-3"));
 
-    expect(mockInvalidateCache).toHaveBeenCalledWith(asInstanceUuid("inst-3"));
+    expect(mockInvalidateCache).toHaveBeenCalledWith(asAgentUuid("inst-3"));
   });
 });

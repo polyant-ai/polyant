@@ -83,7 +83,7 @@ const BRAND_NAMES: Record<string, string> = {
 };
 
 // Display labels for reasoning-effort levels (values come from the model's
-// live-verified reasoningLevels set exposed by /api/instances/models).
+// live-verified reasoningLevels set exposed by /api/agents/models).
 const REASONING_LEVEL_LABELS: Record<string, string> = {
   low: "Low",
   medium: "Medium",
@@ -442,7 +442,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
       // 2. Save instance-level settings. `confirmWipe` acknowledges that an
       // embedding-provider change permanently deletes memories + knowledge; the
       // engine rejects the switch without it when there is data to lose.
-      const { instance: updated } = await api.instances.update(instance.slug, {
+      const { agent: updated } = await api.instances.update(instance.slug, {
         provider: provider || null,
         model: model || null,
         embeddingProvider,

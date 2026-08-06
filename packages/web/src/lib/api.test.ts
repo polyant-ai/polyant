@@ -98,7 +98,7 @@ describe("request() — workspace scoping", () => {
   }
 
   it("sends the workspace the URL addresses", async () => {
-    at("/organizations/acme/workspaces/sales/instances");
+    at("/organizations/acme/workspaces/sales/agents");
     const fetchFn = mockFetch(mockResponse({ instances: [] }));
 
     await api.instances.list();
@@ -219,48 +219,48 @@ describe("api.instances", () => {
     vi.restoreAllMocks();
   });
 
-  it("list() calls GET /api/instances", async () => {
+  it("list() calls GET /api/agents", async () => {
     const fetchFn = mockFetch(mockResponse({ instances: [] }));
 
     await api.instances.list();
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
     const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances`);
+    expect(url).toBe(`${API_BASE}/api/agents`);
     expect(init?.method).toBeUndefined(); // GET is default
   });
 
-  it("create() calls POST /api/instances with JSON body", async () => {
+  it("create() calls POST /api/agents with JSON body", async () => {
     const fetchFn = mockFetch(mockResponse({ instance: { id: "1" } }));
     const payload = { slug: "my-bot", name: "My Bot", description: "A helpful bot" };
 
     await api.instances.create(payload);
 
     const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances`);
+    expect(url).toBe(`${API_BASE}/api/agents`);
     expect(init?.method).toBe("POST");
     expect(JSON.parse(init?.body as string)).toEqual(payload);
   });
 
-  it("update() calls PATCH /api/instances/:slug with JSON body", async () => {
+  it("update() calls PATCH /api/agents/:slug with JSON body", async () => {
     const fetchFn = mockFetch(mockResponse({ instance: { id: "1" } }));
     const payload = { name: "Updated Name", status: "active" };
 
     await api.instances.update("my-bot", payload);
 
     const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances/my-bot`);
+    expect(url).toBe(`${API_BASE}/api/agents/my-bot`);
     expect(init?.method).toBe("PATCH");
     expect(JSON.parse(init?.body as string)).toEqual(payload);
   });
 
-  it("delete() calls DELETE /api/instances/:slug", async () => {
+  it("delete() calls DELETE /api/agents/:slug", async () => {
     const fetchFn = mockFetch(mockResponse({ deleted: true }));
 
     await api.instances.delete("my-bot");
 
     const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances/my-bot`);
+    expect(url).toBe(`${API_BASE}/api/agents/my-bot`);
     expect(init?.method).toBe("DELETE");
   });
 });
@@ -446,7 +446,7 @@ describe("api.analytics", () => {
 
     const [url] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/instances/my-bot/analytics");
+    expect(parsed.pathname).toBe("/api/agents/my-bot/analytics");
     expect(parsed.searchParams.get("from")).toBe("2026-02-01");
     expect(parsed.searchParams.get("to")).toBe("2026-02-28");
   });

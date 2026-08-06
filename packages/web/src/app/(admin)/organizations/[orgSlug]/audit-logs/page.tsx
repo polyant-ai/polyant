@@ -61,7 +61,7 @@ export default function AuditLogsPage() {
   useEffect(() => {
     api.instances
       .list()
-      .then(({ instances }) => setInstances(instances))
+      .then(({ agents: instances }) => setInstances(instances))
       .catch((err) => toast.error(getUserErrorMessage(err, t("common.loadFailed"))));
   }, [t]);
 

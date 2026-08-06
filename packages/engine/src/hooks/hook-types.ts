@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { InstanceSlug } from "../instances/identifiers.js";
+import type { AgentSlug } from "../instances/identifiers.js";
 import type { ConversationStateApi } from "../conversations/state.buffer.js";
 import type { ChatRequest } from "../ai-gateway/types.js";
 import type { HookResult, HookContext, HookFunctionDefinition, HookSpec } from "@polyant-ai/plugin-sdk";
@@ -62,7 +62,7 @@ export interface HookEventPayload {
 
 /** Runtime context threaded from the pipeline into hook execution. */
 export interface HookRunContext {
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   conversationId: string;
   secrets: Record<string, string>;
   apiKeys?: ChatRequest["apiKeys"];

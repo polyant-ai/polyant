@@ -15,8 +15,8 @@ vi.mock("../../instances/prompts.store.js", () => ({
   upsertPrompt: mockUpsertPrompt,
   invalidatePromptsCache: mockInvalidatePromptsCache,
 }));
-vi.mock("../../instances/resolve-instance-id.js", () => ({
-  resolveInstanceId: mockResolveInstanceId,
+vi.mock("../../instances/resolve-agent-id.js", () => ({
+  resolveAgentId: mockResolveInstanceId,
 }));
 
 import { createMockAudit } from "../../test-utils.js";
@@ -109,7 +109,7 @@ describe("updateUserProfile tool", () => {
     const execute = buildUpdateUserProfileTool();
     const result = await execute({ instruction: "update the profile" });
 
-    expect(result).toEqual({ updated: false, error: "Instance not found" });
+    expect(result).toEqual({ updated: false, error: "Agent not found" });
     expect(mockChat).not.toHaveBeenCalled();
   });
 

@@ -4,7 +4,7 @@ import { Controller, Get, Post, Param, Req, Res, Inject, NotFoundException } fro
 import type { Request, Response } from "express";
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from "@a2a-js/sdk/server/express";
 import { Public } from "../../auth/decorators/public.decorator.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { validateInstanceApiKey } from "../openai/instance-api-key-auth.js";
 import { A2aHandlerRegistry } from "./a2a-handler.registry.js";
@@ -27,7 +27,7 @@ export class A2aController {
   @Get(":slug/.well-known/agent-card.json")
   async agentCard(@Param("slug") slug: string, @Req() req: Request, @Res() res: Response): Promise<void> {
     await this.assertEnabled(slug);
-    const handler = await this.registry.getHandler(asInstanceSlug(slug));
+    const handler = await this.registry.getHandler(asAgentSlug(slug));
     // ponytail: the SDK's agentCardHandler returns a Router whose real handler is
     // bound to the EXACT path "/", but the live req.url is /a2a/:slug/... — it
     // never matches and the response hangs. Rewrite to "/"; the SDK reads
@@ -41,7 +41,7 @@ export class A2aController {
   async jsonrpc(@Param("slug") slug: string, @Req() req: Request, @Res() res: Response): Promise<void> {
     await this.assertEnabled(slug);
     await validateInstanceApiKey(slug, req.headers["authorization"] as string | undefined);
-    const handler = await this.registry.getHandler(asInstanceSlug(slug));
+    const handler = await this.registry.getHandler(asAgentSlug(slug));
     // ponytail: same as agentCard — jsonRpcHandler's Router matches only "/".
     // Rewrite the path before delegating (auth/gate ordering above is preserved).
     req.url = "/";
@@ -50,7 +50,7 @@ export class A2aController {
 
   /** 404 (not 403) when disabled — does not confirm/deny instance existence. */
   private async assertEnabled(slug: string): Promise<void> {
-    const cfg = await resolveInstanceConfig(asInstanceSlug(slug));
+    const cfg = await resolveInstanceConfig(asAgentSlug(slug));
     if (!cfg.a2aEnabled) throw new NotFoundException();
   }
 }

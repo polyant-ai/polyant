@@ -2,7 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { OAuthClientProvider } from "@ai-sdk/mcp";
-import { asInstanceUuid, asInstanceSlug } from "../../../instances/identifiers.js";
+import { asAgentUuid, asAgentSlug } from "../../../instances/identifiers.js";
 
 const vault = new Map<string, string>();
 // Captures the raw args every setPrincipalSecret call was made with, so tests can
@@ -36,7 +36,7 @@ vi.mock("../../../config.js", () => ({ config: { server: { baseUrl: "https://pol
 const { makeMcpOAuthProvider, mcpRedirectUrl } = await import("./mcp-oauth-provider.js");
 // instanceUuid and instanceSlug are deliberately different strings so a test
 // asserting "the slug was used" cannot pass by accident if the uuid were used instead.
-const deps = { instanceUuid: asInstanceUuid("iid"), instanceSlug: asInstanceSlug("my-slug"), conversationId: "conv-1", serverSlug: "gh", config: {} as any };
+const deps = { instanceUuid: asAgentUuid("iid"), instanceSlug: asAgentSlug("my-slug"), conversationId: "conv-1", serverSlug: "gh", config: {} as any };
 
 describe("McpVaultOAuthProvider", () => {
   beforeEach(() => {

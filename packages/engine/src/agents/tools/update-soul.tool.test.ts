@@ -14,8 +14,8 @@ vi.mock("../../instances/prompts.store.js", () => ({
   upsertPrompt: mockUpsertPrompt,
   invalidatePromptsCache: vi.fn(),
 }));
-vi.mock("../../instances/resolve-instance-id.js", () => ({
-  resolveInstanceId: mockResolveInstanceId,
+vi.mock("../../instances/resolve-agent-id.js", () => ({
+  resolveAgentId: mockResolveInstanceId,
 }));
 
 import { createMockAudit } from "../../test-utils.js";
@@ -108,7 +108,7 @@ describe("updateSoul tool", () => {
     const execute = buildUpdateSoulTool();
     const result = await execute({ instruction: "change tone" });
 
-    expect(result).toEqual({ updated: false, error: "Instance not found" });
+    expect(result).toEqual({ updated: false, error: "Agent not found" });
     expect(mockChat).not.toHaveBeenCalled();
   });
 

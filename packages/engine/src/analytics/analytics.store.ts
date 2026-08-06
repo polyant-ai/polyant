@@ -3,7 +3,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { type DateRange, toISO, asRows, pctChange, instanceFilter } from "../utils/query-helpers.js";
-import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
 
 export type { DateRange };
@@ -71,7 +71,7 @@ export interface ToolRow {
 }
 
 export interface InstanceComparisonRow {
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   name: string;
   conversations: number;
   cost: number;
@@ -93,12 +93,12 @@ export interface AnalyticsData {
 
 async function getOverviewStats(
   range: DateRange,
-  instanceId?: InstanceSlug,
+  instanceId?: AgentSlug,
   orgId?: string,
 ): Promise<OverviewStats> {
   const instFilter = instanceFilter(instanceId);
   const orgInst = buildOrgScopedAgentFilterFragment(orgId);
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.agent_id");
 
   // Current period — ai_logs
   const [aiStats] = asRows<{
@@ -128,7 +128,7 @@ async function getOverviewStats(
   );
 
   // Current period — conversations
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
+  const convFilter = instanceFilter(instanceId, "c.agent_id");
   const [convStats] = asRows<{
     total_conversations: number;
     total_messages: number;
@@ -216,13 +216,13 @@ async function getOverviewStats(
 
 async function getDailyTrend(
   range: DateRange,
-  instanceId?: InstanceSlug,
+  instanceId?: AgentSlug,
   orgId?: string,
 ): Promise<DailyTrendRow[]> {
   const instFilter = instanceFilter(instanceId);
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
+  const convFilter = instanceFilter(instanceId, "c.agent_id");
   const orgInst = buildOrgScopedAgentFilterFragment(orgId);
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.agent_id");
 
   const rows = asRows<{
     date: string;
@@ -290,11 +290,11 @@ async function getDailyTrend(
 
 async function getHourlyDistribution(
   range: DateRange,
-  instanceId?: InstanceSlug,
+  instanceId?: AgentSlug,
   orgId?: string,
 ): Promise<HourlyRow[]> {
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const convFilter = instanceFilter(instanceId, "c.agent_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.agent_id");
 
   const rows = asRows<{ hour: number; count: number }>(
     await db.execute(sql`
@@ -323,11 +323,11 @@ async function getHourlyDistribution(
 
 async function getChannelDistribution(
   range: DateRange,
-  instanceId?: InstanceSlug,
+  instanceId?: AgentSlug,
   orgId?: string,
 ): Promise<ChannelRow[]> {
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const convFilter = instanceFilter(instanceId, "c.agent_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.agent_id");
 
   return asRows<ChannelRow>(
     await db.execute(sql`
@@ -353,7 +353,7 @@ async function getChannelDistribution(
 
 async function getModelDistribution(
   range: DateRange,
-  instanceId?: InstanceSlug,
+  instanceId?: AgentSlug,
   orgId?: string,
 ): Promise<ModelRow[]> {
   const instFilter = instanceFilter(instanceId);
@@ -395,7 +395,7 @@ async function getModelDistribution(
 
 async function getTierDistribution(
   range: DateRange,
-  instanceId?: InstanceSlug,
+  instanceId?: AgentSlug,
   orgId?: string,
 ): Promise<TierRow[]> {
   const instFilter = instanceFilter(instanceId);
@@ -421,11 +421,11 @@ async function getTierDistribution(
 
 async function getToolUsage(
   range: DateRange,
-  instanceId?: InstanceSlug,
+  instanceId?: AgentSlug,
   orgId?: string,
 ): Promise<ToolRow[]> {
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const convFilter = instanceFilter(instanceId, "c.agent_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.agent_id");
 
   // NOTE: migration 0038 renamed conversation_messages.tool_calls -> steps and
   // changed the shape from `[{toolName, args, result}]` to `StepDetail[]` where
@@ -453,15 +453,15 @@ async function getToolUsage(
   );
 }
 
-// ── Instance Comparison (global only) ───────────────────────────────
+// ── Agent Comparison (global only) ───────────────────────────────
 
 async function getInstanceComparison(
   range: DateRange,
   orgId?: string,
 ): Promise<InstanceComparisonRow[]> {
-  const orgInst = buildOrgScopedAgentFilterFragment(orgId, "al.instance_id");
+  const orgInst = buildOrgScopedAgentFilterFragment(orgId, "al.agent_id");
   return asRows<{
-    instance_id: string;
+    agent_id: string;
     name: string;
     conversations: number;
     cost: number;
@@ -469,21 +469,21 @@ async function getInstanceComparison(
   }>(
     await db.execute(sql`
       SELECT
-        al.instance_id,
-        COALESCE(i.name, al.instance_id) AS name,
+        al.agent_id,
+        COALESCE(i.name, al.agent_id) AS name,
         COUNT(DISTINCT al.conversation_id)::int AS conversations,
         COALESCE(SUM(al.estimated_cost_usd), 0)::float AS cost,
         COALESCE(SUM(al.total_tokens), 0)::int AS tokens
       FROM ai_logs al
-      LEFT JOIN instances i ON i.slug = al.instance_id
+      LEFT JOIN agents i ON i.slug = al.agent_id
       WHERE al.created_at >= ${toISO(range.from)} AND al.created_at <= ${toISO(range.to)}
-        AND al.instance_id IS NOT NULL
+        AND al.agent_id IS NOT NULL
         ${orgInst}
-      GROUP BY al.instance_id, i.name
+      GROUP BY al.agent_id, i.name
       ORDER BY cost DESC
     `),
   ).map((r) => ({
-    instanceId: asInstanceSlug(r.instance_id),
+    instanceId: asAgentSlug(r.agent_id),
     name: r.name,
     conversations: r.conversations,
     cost: r.cost,
@@ -495,7 +495,7 @@ async function getInstanceComparison(
 
 export async function getAnalytics(
   range: DateRange,
-  instanceId?: InstanceSlug,
+  instanceId?: AgentSlug,
   includeInstanceComparison = false,
   orgId?: string,
 ): Promise<AnalyticsData> {

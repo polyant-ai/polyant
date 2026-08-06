@@ -17,7 +17,7 @@ import {
 } from "../activity-stream/bus-emitter.js";
 import { findInstanceBySlug } from "../instances/store.js";
 import { buildInstanceIconUrl } from "../instances/icon-url.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 import type { InstanceMeta } from "../activity-stream/activity-stream.types.js";
 
 const DEFAULT_PROVIDER = "openai";
@@ -165,7 +165,7 @@ function resolveCallConfig(
 /** Options shared by chat() and chatStream(). */
 export interface ChatCallOptions {
   conversationId?: string;
-  instanceId?: InstanceSlug;
+  instanceId?: AgentSlug;
   callType?: "conversation" | "service";
   /**
    * Agent-to-agent call metadata forwarded from IncomingMessage.metadata.agentCall.

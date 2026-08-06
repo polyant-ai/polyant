@@ -6,7 +6,7 @@ import { AgentEvent, type AgentExecutor, type RequestContext, type ExecutionEven
 import { TaskState, Role, type Task, type TaskStatus, type Message, type Part } from "@a2a-js/sdk";
 
 import type { IncomingMessage, StreamMessageHandler, StreamOutgoingMessage } from "../../channels/types.js";
-import type { InstanceSlug } from "../../instances/identifiers.js";
+import type { AgentSlug } from "../../instances/identifiers.js";
 import { extractText } from "./a2a-context.js";
 
 function textPart(value: string): Part {
@@ -28,7 +28,7 @@ function freshTask(ctx: RequestContext): Task {
   };
 }
 
-function buildIncomingMessage(slug: InstanceSlug, ctx: RequestContext): IncomingMessage {
+function buildIncomingMessage(slug: AgentSlug, ctx: RequestContext): IncomingMessage {
   return {
     channelType: "agent",
     // ponytail: encode the A2A contextId into channelId so the pipeline's own
@@ -112,7 +112,7 @@ async function publishArtifactChunks(
  * A module-closure `Map<taskId, AbortController>` lets `cancelTask` interrupt
  * an in-flight `execute` call for the same task.
  */
-export function createPolyantExecutor(slug: InstanceSlug, streamHandler: StreamMessageHandler): AgentExecutor {
+export function createPolyantExecutor(slug: AgentSlug, streamHandler: StreamMessageHandler): AgentExecutor {
   const aborts = new Map<string, AbortController>();
 
   return {

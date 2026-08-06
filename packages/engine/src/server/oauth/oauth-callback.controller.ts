@@ -12,7 +12,7 @@ import {
   oauthRefreshStateKey,
 } from "./oauth-providers.js";
 import { consumeOAuthState } from "./oauth-states.store.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { errMsg } from "../../utils/error.js";
 
 /** Escape the 5 HTML-significant characters. `title`/`body` below can carry an
@@ -64,7 +64,7 @@ export class OAuthCallbackController {
     const { conversationId, instanceId: slug, codeVerifier } = pending;
 
     try {
-      const creds = await resolveOAuthCredentials(providerName, asInstanceSlug(slug));
+      const creds = await resolveOAuthCredentials(providerName, asAgentSlug(slug));
       if (!creds.clientId || !creds.clientSecret) {
         res
           .status(400)

@@ -3,7 +3,7 @@
 /**
  * Tenancy tests for importNewInstance.
  *
- * POST /api/instances/import used to create the agent in whatever workspace
+ * POST /api/agents/import used to create the agent in whatever workspace
  * carried `is_default = true` — a single row, owned by the organization seeded
  * by migration 0051. Any organization importing an agent therefore wrote into
  * the seed tenant. The workspace must come from the CALLER's organization, and

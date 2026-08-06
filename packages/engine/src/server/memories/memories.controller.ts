@@ -3,17 +3,17 @@
 import { Controller, Get, Post, Delete, Param, Query, Body, BadRequestException, NotFoundException } from "@nestjs/common";
 import { searchMemories, deleteAllMemories, upsertMemory, deleteMemoryForInstance } from "../../memory/memory-store.js";
 import { embedMany, resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
-import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "../../instances/identifiers.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { callerMayAccessAgent } from "../../authz/agent-tenancy.js";
 import { resolvePrincipalOrgId } from "../../instances/store.js";
 
-function requireInstanceId(instanceId: string | undefined): InstanceSlug {
+function requireInstanceId(instanceId: string | undefined): AgentSlug {
   const trimmed = instanceId?.trim();
   if (!trimmed) throw new BadRequestException("instanceId is required");
-  return asInstanceSlug(trimmed);
+  return asAgentSlug(trimmed);
 }
 
 @Controller("memories")

@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
  * Unit tests for InstanceChatStreamController — the native typed-SSE endpoint
- * used by the admin playground (POST /api/instances/:slug/chat/stream).
+ * used by the admin playground (POST /api/agents/:slug/chat/stream).
  *
  * Covers:
  * - AI SDK v6 `fullStream` parts → typed SSE event mapping

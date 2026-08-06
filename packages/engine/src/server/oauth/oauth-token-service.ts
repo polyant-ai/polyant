@@ -6,7 +6,7 @@
 // the client_secret (via resolveOAuthCredentials → getSecret) + a vault write —
 // neither of which may enter tool/LLM context.
 
-import type { InstanceSlug } from "../../instances/identifiers.js";
+import type { AgentSlug } from "../../instances/identifiers.js";
 import { getPrincipalSecret, setPrincipalSecret } from "../../conversations/principal-secrets.store.js";
 import {
   getOAuthProvider,
@@ -32,7 +32,7 @@ export function needsRefresh(expiresAt: Date | null, now: number, skewMs = EXPIR
  * possible/failed — the caller then surfaces a fresh connect link.
  */
 export async function getValidAccessToken(
-  slug: InstanceSlug,
+  slug: AgentSlug,
   conversationId: string,
   providerName: string,
 ): Promise<string | null> {

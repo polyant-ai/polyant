@@ -50,7 +50,7 @@ interface NavItemDef {
 
 const overviewDefs: NavItemDef[] = [
   { titleKey: "nav.dashboard", path: "", scope: "org", exact: true, icon: LayoutDashboard },
-  { titleKey: "nav.instances", path: "/instances", scope: "workspace", icon: Bot },
+  { titleKey: "nav.instances", path: "/agents", scope: "workspace", icon: Bot },
   { titleKey: "nav.conversations", path: "/conversations", scope: "workspace", icon: MessageSquare },
   { titleKey: "nav.playground", path: "/playground", scope: "workspace", icon: MessageSquareCode },
   { titleKey: "nav.activity", path: "/activity", scope: "workspace", icon: Activity },

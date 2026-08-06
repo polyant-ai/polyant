@@ -5,15 +5,15 @@ import { z } from "zod";
 import { db } from "../database/client.js";
 import { instanceChannels } from "./channels.schema.js";
 import { encrypt, decrypt } from "../crypto/index.js";
-import { resolveInstanceId } from "./resolve-instance-id.js";
-import { type InstanceSlug, type InstanceUuid } from "./identifiers.js";
+import { resolveAgentId } from "./resolve-agent-id.js";
+import { type AgentSlug, type AgentUuid } from "./identifiers.js";
 
 /**
  * API-configurable channel types — narrow/closed set.
  *
  * Each entry here has a row in `instance_channels`, a config schema in
  * `channelConfigSchemas` below, and is exposed via the management API
- * (`PUT/DELETE /api/instances/:slug/channels/:type`).
+ * (`PUT/DELETE /api/agents/:slug/channels/:type`).
  *
  * NOT the same as `MessageChannelType` in `channels/types.ts`, which is the
  * WIDE set covering every possible provenance of a pipeline message
@@ -76,7 +76,7 @@ export interface ChannelConfig {
 
 /** Set or update a channel config for an instance (by UUID). */
 export async function setChannelConfig(
-  instanceId: InstanceUuid,
+  instanceId: AgentUuid,
   channelType: ChannelType,
   config: Record<string, unknown>,
   enabled: boolean,
@@ -98,10 +98,10 @@ export async function setChannelConfig(
 
 /** Get a single channel config for an instance (by slug). */
 export async function getChannelConfig(
-  instanceSlug: InstanceSlug,
+  instanceSlug: AgentSlug,
   channelType: ChannelType,
 ): Promise<ChannelConfig | null> {
-  const instanceId = await resolveInstanceId(instanceSlug);
+  const instanceId = await resolveAgentId(instanceSlug);
   if (!instanceId) return null;
 
   const rows = await db
@@ -124,8 +124,8 @@ export async function getChannelConfig(
 }
 
 /** List all channel configs for an instance (by slug). */
-export async function listChannelConfigs(instanceSlug: InstanceSlug): Promise<ChannelConfig[]> {
-  const instanceId = await resolveInstanceId(instanceSlug);
+export async function listChannelConfigs(instanceSlug: AgentSlug): Promise<ChannelConfig[]> {
+  const instanceId = await resolveAgentId(instanceSlug);
   if (!instanceId) return [];
 
   const rows = await db
@@ -145,8 +145,8 @@ export async function listChannelConfigs(instanceSlug: InstanceSlug): Promise<Ch
 }
 
 /** List all enabled channel configs for an instance (by slug). */
-export async function listEnabledChannelConfigs(instanceSlug: InstanceSlug): Promise<ChannelConfig[]> {
-  const instanceId = await resolveInstanceId(instanceSlug);
+export async function listEnabledChannelConfigs(instanceSlug: AgentSlug): Promise<ChannelConfig[]> {
+  const instanceId = await resolveAgentId(instanceSlug);
   if (!instanceId) return [];
 
   const rows = await db
@@ -166,8 +166,8 @@ export async function listEnabledChannelConfigs(instanceSlug: InstanceSlug): Pro
 }
 
 /** Disable a channel by slug + type (used by auto-disable on adapter failure). */
-export async function disableChannel(instanceSlug: InstanceSlug, channelType: string): Promise<void> {
-  const instanceId = await resolveInstanceId(instanceSlug);
+export async function disableChannel(instanceSlug: AgentSlug, channelType: string): Promise<void> {
+  const instanceId = await resolveAgentId(instanceSlug);
   if (!instanceId) return;
   await db
     .update(instanceChannels)
@@ -176,7 +176,7 @@ export async function disableChannel(instanceSlug: InstanceSlug, channelType: st
 }
 
 /** Delete a channel config by instance UUID + channel type. */
-export async function deleteChannelConfig(instanceId: InstanceUuid, channelType: ChannelType): Promise<void> {
+export async function deleteChannelConfig(instanceId: AgentUuid, channelType: ChannelType): Promise<void> {
   await db
     .delete(instanceChannels)
     .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, channelType)));

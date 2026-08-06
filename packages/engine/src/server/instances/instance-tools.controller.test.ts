@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The write-side tenancy gate of `PATCH /api/instances/:slug/tools`.
+ * The write-side tenancy gate of `PATCH /api/agents/:slug/tools`.
  *
  * The `tools` catalog is deployment-global: it holds one `agent:{slug}` row per
  * agent that enabled its `agent` channel, across every organization. Resolving

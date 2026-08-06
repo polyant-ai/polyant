@@ -96,7 +96,7 @@ const VIEWER_PERMISSIONS: readonly PermissionKey[] = [
  * who ships an agent, which is not a role boundary at all.
  *
  * The exposure is narrower than the key names suggest: `GET
- * /api/instances/:slug/secrets` returns key NAMES only (`listSecretKeys`), so a
+ * /api/agents/:slug/secrets` returns key NAMES only (`listSecretKeys`), so a
  * secret is write-only through the API. `EXPORT_READ` rides along for the same
  * reason — it was raised to admin solely because the bundle enumerates secret key
  * names, a premise `SECRET_READ` at member dissolves; the bundle carries no values

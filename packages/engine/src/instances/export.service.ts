@@ -6,8 +6,8 @@
 
 import { eq, and } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { findInstanceBySlug, type Instance } from "./store.js";
-import { asInstanceSlug, type InstanceUuid } from "./identifiers.js";
+import { findInstanceBySlug, type Agent } from "./store.js";
+import { asAgentSlug, type AgentUuid } from "./identifiers.js";
 import { getPrompts } from "./prompts.store.js";
 import { getInstanceSkills } from "./instance-skills.store.js";
 import { instanceTools } from "./instance-tools.schema.js";
@@ -41,8 +41,8 @@ export function stripSensitiveKeys(config: Record<string, unknown>): Record<stri
 // ---------------------------------------------------------------------------
 
 export async function exportInstance(slug: string): Promise<InstanceBundle> {
-  const instance = await findInstanceBySlug(asInstanceSlug(slug));
-  if (!instance) throw new Error(`Instance "${slug}" not found`);
+  const instance = await findInstanceBySlug(asAgentSlug(slug));
+  if (!instance) throw new Error(`Agent "${slug}" not found`);
 
   const data = await assembleInstanceData(instance);
 
@@ -58,7 +58,7 @@ export async function exportInstance(slug: string): Promise<InstanceBundle> {
 // Assembly helpers
 // ---------------------------------------------------------------------------
 
-async function assembleInstanceData(instance: Instance): Promise<ExportInstanceData> {
+async function assembleInstanceData(instance: Agent): Promise<ExportInstanceData> {
   // Parallel reads — all independent queries
   const [
     prompts,
@@ -82,7 +82,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     exportHooks(instance.id),
     getRoomByInstanceId(instance.id),
     listEventSourcesWithDefinitions(instance.slug),
-    // scheduled_tasks.instance_id is stored as the SLUG (text column, not
+    // scheduled_tasks.agent_id is stored as the SLUG (text column, not
     // a UUID FK) — every other caller in the system (controller, scheduler,
     // schedule-task tool) reads/writes it as the slug. The export must
     // match or it would always return an empty array.
@@ -169,7 +169,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
   };
 }
 
-async function exportPrompts(instanceId: InstanceUuid) {
+async function exportPrompts(instanceId: AgentUuid) {
   const rows = await getPrompts(instanceId);
   return rows.map((r) => ({
     sectionKey: r.sectionKey,
@@ -178,7 +178,7 @@ async function exportPrompts(instanceId: InstanceUuid) {
   }));
 }
 
-async function exportSkillAssignments(instanceId: InstanceUuid) {
+async function exportSkillAssignments(instanceId: AgentUuid) {
   const rows = await getInstanceSkills(instanceId);
   return rows.map((r) => ({
     skillSlug: r.skillSlug,
@@ -260,7 +260,7 @@ async function exportSkillEnv(instanceId: string) {
   }));
 }
 
-async function exportHooks(instanceId: InstanceUuid) {
+async function exportHooks(instanceId: AgentUuid) {
   const rows = await listHooks(instanceId);
   return rows.map((h) => ({
     event: h.event,
@@ -311,7 +311,7 @@ export function stripMcpSecrets(authMode: McpAuthMode, config: Record<string, un
   return copy;
 }
 
-export async function exportMcpServers(instanceId: InstanceUuid) {
+export async function exportMcpServers(instanceId: AgentUuid) {
   const rows = await listMcpServers(instanceId);
   return rows.map((r) => ({
     slug: r.slug,

@@ -35,7 +35,7 @@ import {
   searchMemories,
   deleteMemoryForInstance,
 } from "../../memory/memory-store.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 
 const ORG_A = "org-a";
@@ -83,13 +83,13 @@ describe("MemoriesController.create", () => {
       callerOfOrgA,
     );
 
-    expect(mockResolveEmbeddingContext).toHaveBeenCalledWith(asInstanceSlug("my-assistant"));
+    expect(mockResolveEmbeddingContext).toHaveBeenCalledWith(asAgentSlug("my-assistant"));
     expect(mockEmbedMany).toHaveBeenCalledWith(
       ["hello"],
       expect.objectContaining({ dimensions: 1024 }),
     );
     expect(upsertMemory).toHaveBeenCalledWith(
-      expect.objectContaining({ instanceId: asInstanceSlug("my-assistant"), content: "hello" }),
+      expect.objectContaining({ instanceId: asAgentSlug("my-assistant"), content: "hello" }),
     );
     expect(result).toEqual({ memory: { id: "mem-1", content: "hello", event: "ADD" } });
   });
@@ -222,7 +222,7 @@ describe("MemoriesController — read/delete resolve the caller's organization",
 
     expect(mockResolvePrincipalOrgId).toHaveBeenCalledWith(undefined);
     expect(searchMemories).toHaveBeenCalledWith(
-      asInstanceSlug("agent-a"),
+      asAgentSlug("agent-a"),
       expect.objectContaining({ orgId: ORG_A }),
     );
   });
@@ -238,7 +238,7 @@ describe("MemoriesController — read/delete resolve the caller's organization",
     // `undefined` is what the store's fail-closed branch keys on; a `null`
     // leaking through would take a different, untested path.
     expect(searchMemories).toHaveBeenCalledWith(
-      asInstanceSlug("agent-a"),
+      asAgentSlug("agent-a"),
       expect.objectContaining({ orgId: undefined }),
     );
   });
@@ -248,6 +248,6 @@ describe("MemoriesController — read/delete resolve the caller's organization",
 
     await controller.remove("m1", "agent-a", callerOfOrgA);
 
-    expect(deleteMemoryForInstance).toHaveBeenCalledWith("m1", asInstanceSlug("agent-a"), ORG_A);
+    expect(deleteMemoryForInstance).toHaveBeenCalledWith("m1", asAgentSlug("agent-a"), ORG_A);
   });
 });

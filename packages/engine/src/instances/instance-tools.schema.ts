@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { pgTable, uuid, varchar, timestamp, unique, index } from "drizzle-orm/pg-core";
-import { instances } from "./schema.js";
+import { agents } from "./schema.js";
 import { tools } from "../agents/tools/tools.schema.js";
 
 export const instanceTools = pgTable(
-  "instance_tools",
+  "agent_tools",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id")
+    instanceId: uuid("agent_id")
       .notNull()
-      .references(() => instances.id, { onDelete: "cascade" }),
+      .references(() => agents.id, { onDelete: "cascade" }),
     toolId: uuid("tool_id")
       .notNull()
       .references(() => tools.id, { onDelete: "cascade" }),

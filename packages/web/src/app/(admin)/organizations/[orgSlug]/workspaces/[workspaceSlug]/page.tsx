@@ -8,7 +8,7 @@ import { workspacePath } from "@/lib/tenant/paths";
  * Redirects server-side, unvalidated: `TenantScopeGuard` is a client component
  * that validates slugs against the fetched tenancy, but this `redirect()`
  * throws during the server render, before that client-side check can run. A
- * bad slug still ends up 404ing — just one level deeper, at `.../instances`,
+ * bad slug still ends up 404ing — just one level deeper, at `.../agents`,
  * where the guard runs.
  */
 export default async function WorkspaceIndexPage({
@@ -17,5 +17,5 @@ export default async function WorkspaceIndexPage({
   params: Promise<{ orgSlug: string; workspaceSlug: string }>;
 }) {
   const { orgSlug, workspaceSlug } = await params;
-  redirect(workspacePath(orgSlug, workspaceSlug, "/instances"));
+  redirect(workspacePath(orgSlug, workspaceSlug, "/agents"));
 }

@@ -71,7 +71,7 @@ import MemoryPage from "./page";
 describe("MemoryPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockInstancesList.mockResolvedValue({ instances: [] });
+    mockInstancesList.mockResolvedValue({ agents: [] });
     mockMemoriesList.mockResolvedValue({
       memories: [],
       total: 0,

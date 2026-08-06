@@ -6,7 +6,7 @@ import { conversationStore } from "../../conversations/index.js";
 import { chat } from "../../ai-gateway/index.js";
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { getRoomByInstanceId } from "../../room/room.store.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
 
 export default defineTool({
   name: "compact_room_history",
@@ -23,8 +23,8 @@ export default defineTool({
   }),
   execute: async ({ keepRecent }: { keepRecent: number | null }, ctx) => {
     const recentToKeep = keepRecent ?? 10;
-    const instanceId = await resolveInstanceId(ctx.instanceId);
-    if (!instanceId) return { error: "Instance not found" };
+    const instanceId = await resolveAgentId(ctx.instanceId);
+    if (!instanceId) return { error: "Agent not found" };
 
     const room = await getRoomByInstanceId(instanceId);
     if (!room?.conversationId) return { error: "No room conversation to compact" };

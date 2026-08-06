@@ -38,7 +38,7 @@ export async function assertAgentTargetsAreSiblings(
   }
 }
 
-@Controller("api/instances")
+@Controller("api/agents")
 export class InstanceToolsController {
   @RequirePermission(Permission.TOOL_READ)
   @Get(":slug/tools/required-secrets")

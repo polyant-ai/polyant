@@ -44,7 +44,7 @@ const HEARTBEAT_MS = 25_000;
  * endpoint (model = instance slug, messages, optional `chat_id`) so that the
  * playground can reuse its existing request shape.
  */
-@Controller("api/instances")
+@Controller("api/agents")
 export class InstanceChatStreamController {
   constructor(@Inject(OpenAIService) private readonly openaiService: OpenAIService) {}
 

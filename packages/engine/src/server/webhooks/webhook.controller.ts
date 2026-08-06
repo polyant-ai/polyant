@@ -8,12 +8,12 @@ import { getRoomByInstanceId } from "../../room/room.store.js";
 import { matchEvent } from "../../webhooks/webhook-matcher.js";
 import { insertEvent } from "../../webhooks/webhook-backlog.store.js";
 import { triggerConversation } from "../../webhooks/webhook-engine.js";
-import { resolveInstanceSlug } from "../../instances/resolve-instance-id.js";
+import { resolveAgentSlug } from "../../instances/resolve-agent-id.js";
 import { webhookLog } from "../../webhooks/webhook-logger.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import { emitWebhook } from "../../activity-stream/emitters/emit-webhook.js";
 import { resolveInstanceMeta } from "../../activity-stream/emit-helpers.js";
-import type { InstanceUuid } from "../../instances/identifiers.js";
+import type { AgentUuid } from "../../instances/identifiers.js";
 
 const MAX_PAYLOAD_BYTES = 65_536;
 
@@ -82,7 +82,7 @@ export class WebhookController {
   }
 
   private async processEvent(
-    result: { source: EventSource; instanceId: InstanceUuid },
+    result: { source: EventSource; instanceId: AgentUuid },
     payload: Record<string, unknown>,
   ): Promise<void> {
     const { source, instanceId } = result;
@@ -97,7 +97,7 @@ export class WebhookController {
       return;
     }
 
-    const slug = await resolveInstanceSlug(instanceId);
+    const slug = await resolveAgentSlug(instanceId);
     if (!slug) {
       webhookLog.warn("Webhook", `instance not found for ID ${instanceId}`);
       return;

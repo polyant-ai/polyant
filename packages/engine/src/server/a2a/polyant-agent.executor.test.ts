@@ -4,7 +4,7 @@ import { describe, it, expect } from "vitest";
 import { TaskState, Role, type Message, type Part, type TaskStatusUpdateEvent, type TaskArtifactUpdateEvent } from "@a2a-js/sdk";
 import type { RequestContext, ExecutionEventBus, AgentExecutionEvent } from "@a2a-js/sdk/server";
 import { createPolyantExecutor } from "./polyant-agent.executor.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import type { StreamMessageHandler, StreamOutgoingMessage } from "../../channels/types.js";
 
 // NOTE: the installed @a2a-js/sdk@1.0.0 event/part shapes are the v1
@@ -76,7 +76,7 @@ describe("createPolyantExecutor.execute", () => {
   it("should_publish_task_working_artifacts_then_completed_with_full_text", async () => {
     const handler: StreamMessageHandler = async () =>
       fakeStream([{ type: "text-delta", text: "Hel" }, { type: "text-delta", text: "lo" }], "Hello");
-    const exec = createPolyantExecutor(asInstanceSlug("acme"), handler);
+    const exec = createPolyantExecutor(asAgentSlug("acme"), handler);
     const { bus, published, isFinished } = fakeBus();
 
     await exec.execute(fakeContext(), bus);
@@ -105,7 +105,7 @@ describe("createPolyantExecutor.execute", () => {
       seen = msg;
       return fakeStream([], "ok");
     };
-    const exec = createPolyantExecutor(asInstanceSlug("acme"), handler);
+    const exec = createPolyantExecutor(asAgentSlug("acme"), handler);
     await exec.execute(fakeContext(), fakeBus().bus);
     expect(seen?.text).toBe("hi");
     // contextId "c1" → channelId "a2a:c1" → pipeline conversationId "acme:agent:a2a:c1"
@@ -117,7 +117,7 @@ describe("createPolyantExecutor.execute", () => {
     const handler: StreamMessageHandler = async () => {
       throw new Error("boom");
     };
-    const exec = createPolyantExecutor(asInstanceSlug("acme"), handler);
+    const exec = createPolyantExecutor(asAgentSlug("acme"), handler);
     const { bus, published, isFinished } = fakeBus();
 
     await exec.execute(fakeContext(), bus);
@@ -141,7 +141,7 @@ describe("createPolyantExecutor.execute", () => {
         completed: new Promise(() => {}),
       };
     };
-    const exec = createPolyantExecutor(asInstanceSlug("acme"), handler);
+    const exec = createPolyantExecutor(asAgentSlug("acme"), handler);
     const { bus } = fakeBus();
     const running = exec.execute(fakeContext(), bus);
     // let execute reach the pipeline call
@@ -171,7 +171,7 @@ describe("createPolyantExecutor.execute", () => {
       })(),
       completed: new Promise(() => {}),
     });
-    const execRef = createPolyantExecutor(asInstanceSlug("acme"), handler);
+    const execRef = createPolyantExecutor(asAgentSlug("acme"), handler);
 
     await execRef.execute(fakeContext(), bus);
 

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { db } from "../database/client.js";
 import { instanceMcpServers } from "./mcp-servers.schema.js";
 import { encrypt, decrypt } from "../crypto/index.js";
-import { type InstanceUuid } from "./identifiers.js";
+import { type AgentUuid } from "./identifiers.js";
 
 export const MCP_AUTH_MODES = ["static", "oauth"] as const;
 export type McpAuthMode = (typeof MCP_AUTH_MODES)[number];
@@ -74,7 +74,7 @@ export interface SetMcpServerInput {
   config: Record<string, unknown>;
 }
 
-export async function setMcpServer(instanceId: InstanceUuid, input: SetMcpServerInput): Promise<void> {
+export async function setMcpServer(instanceId: AgentUuid, input: SetMcpServerInput): Promise<void> {
   const validated = mcpServerConfigSchema(input.authMode, input.config); // strips unknown keys before persisting
   const encryptedConfig = encrypt(JSON.stringify(validated));
   await db
@@ -86,27 +86,27 @@ export async function setMcpServer(instanceId: InstanceUuid, input: SetMcpServer
     });
 }
 
-export async function getMcpServer(instanceId: InstanceUuid, slug: string): Promise<McpServerRecord | null> {
+export async function getMcpServer(instanceId: AgentUuid, slug: string): Promise<McpServerRecord | null> {
   const rows = await db.select().from(instanceMcpServers).where(and(eq(instanceMcpServers.instanceId, instanceId), eq(instanceMcpServers.slug, slug)));
   return rows[0] ? toRecord(rows[0]) : null;
 }
 
-export async function listMcpServers(instanceId: InstanceUuid): Promise<McpServerRecord[]> {
+export async function listMcpServers(instanceId: AgentUuid): Promise<McpServerRecord[]> {
   const rows = await db.select().from(instanceMcpServers).where(eq(instanceMcpServers.instanceId, instanceId));
   return rows.map(toRecord);
 }
 
-export async function listEnabledMcpServers(instanceId: InstanceUuid): Promise<McpServerRecord[]> {
+export async function listEnabledMcpServers(instanceId: AgentUuid): Promise<McpServerRecord[]> {
   const rows = await db.select().from(instanceMcpServers).where(and(eq(instanceMcpServers.instanceId, instanceId), eq(instanceMcpServers.enabled, true)));
   return rows.map(toRecord);
 }
 
-export async function deleteMcpServer(instanceId: InstanceUuid, slug: string): Promise<void> {
+export async function deleteMcpServer(instanceId: AgentUuid, slug: string): Promise<void> {
   await db.delete(instanceMcpServers).where(and(eq(instanceMcpServers.instanceId, instanceId), eq(instanceMcpServers.slug, slug)));
 }
 
 /** Read-modify-write of the encrypted config (used to persist DCR client info). */
-export async function mergeMcpServerConfig(instanceId: InstanceUuid, slug: string, patch: Record<string, unknown>): Promise<void> {
+export async function mergeMcpServerConfig(instanceId: AgentUuid, slug: string, patch: Record<string, unknown>): Promise<void> {
   const current = await getMcpServer(instanceId, slug);
   if (!current) return;
   const merged = mcpServerConfigSchema(current.authMode, { ...(current.config as Record<string, unknown>), ...patch });

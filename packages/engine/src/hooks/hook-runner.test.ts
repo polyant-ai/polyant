@@ -27,7 +27,7 @@ vi.mock("../audit/audit-logger.js", () => ({
 
 import { runHooks, collectInjectContext, hookProvenance, firstRegenerate } from "./hook-runner.js";
 import type { HookEventPayload, HookExecutionSummary, HookRunContext, InstanceHookRow } from "./hook-types.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 
 const payload: HookEventPayload = {
   instance: { slug: "demo" },
@@ -38,7 +38,7 @@ const payload: HookEventPayload = {
 };
 
 const baseCtx: HookRunContext = {
-  instanceId: asInstanceSlug("demo"),
+  instanceId: asAgentSlug("demo"),
   conversationId: "c1",
   secrets: {},
 };

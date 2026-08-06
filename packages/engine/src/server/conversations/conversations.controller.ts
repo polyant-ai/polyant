@@ -16,7 +16,7 @@ import { conversationStore } from "../../conversations/store.js";
 import { loadConversationState } from "../../conversations/state.store.js";
 import { listHookExecutions } from "../../hooks/hook-executions.store.js";
 import { parsePagination } from "../utils/parse-pagination.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { resolvePrincipalOrgId } from "../../instances/store.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
@@ -24,13 +24,13 @@ import type { AuthenticatedUser } from "../../auth/auth.types.js";
 /** RFC-4122 UUID shape — guards the message-id path param before it hits the uuid column. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-import { type InstanceSlug } from "../../instances/identifiers.js";
+import { type AgentSlug } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
-function requireInstanceId(instanceId: string | undefined): InstanceSlug {
+function requireInstanceId(instanceId: string | undefined): AgentSlug {
   const trimmed = instanceId?.trim();
   if (!trimmed) throw new BadRequestException("instanceId is required");
-  return asInstanceSlug(trimmed);
+  return asAgentSlug(trimmed);
 }
 
 /** Parse an optional ISO-8601 datetime query param; 400 on a malformed value. */
@@ -49,7 +49,7 @@ function parseIsoDateParam(name: string, value: string | undefined): Date | unde
  */
 async function loadConversationScoped(
   conversationId: string,
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   claimedOrgId?: string,
 ) {
   // Resolve the claim before it reaches the store. The store's org filter now
@@ -83,7 +83,7 @@ export class ConversationsController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const { limit, offset } = parsePagination(limitStr, offsetStr, { defaultLimit: 20, maxLimit: 100 });
-    const instanceSlug = instanceId ? asInstanceSlug(instanceId) : undefined;
+    const instanceSlug = instanceId ? asAgentSlug(instanceId) : undefined;
     // Resolved, not the raw claim: the store's org filter fails closed on a
     // missing orgId, so a principal whose JWT predates the claim would otherwise
     // see an empty list on a perfectly ordinary single-org deployment.
@@ -252,7 +252,7 @@ export class ConversationsController {
     const targetId = rawNewId && rawNewId.length > 0 ? rawNewId : id;
     if (targetId !== id) {
       // The web derives the instance scope from the id prefix and the row's
-      // instance_id column is NOT changed by a rename — a different prefix would
+      // agent_id column is NOT changed by a rename — a different prefix would
       // make the conversation unopenable and break IDOR scoping. Pin the prefix.
       if (targetId.split(":")[0] !== uid) {
         throw new BadRequestException(`conversationId must start with "${uid}:"`);

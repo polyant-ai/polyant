@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { Instance } from "../../instances/store.js";
-import { findInstanceByIdOrSlug } from "../../instances/resolve-instance-id.js";
+import type { Agent } from "../../instances/store.js";
+import { findInstanceByIdOrSlug } from "../../instances/resolve-agent-id.js";
 import { getAllSecretsById, SECRET_KEYS } from "../../instances/secrets.store.js";
 import { SUPPORTED_DIMS } from "../../embeddings-gateway/config.js";
 import type { EmbeddingDim, EmbeddingProvider } from "../../embeddings-gateway/types.js";
@@ -37,7 +37,7 @@ export interface EmbedderReadiness {
   readonly dimCompatible: boolean;
 }
 
-export async function computeEmbedderReadiness(instance: Instance): Promise<EmbedderReadiness> {
+export async function computeEmbedderReadiness(instance: Agent): Promise<EmbedderReadiness> {
   const secrets = await getAllSecretsById(instance.id);
   // Embedding provider is an independent field (decoupled from the chat provider).
   const embeddingProvider: EmbeddingProvider = instance.embeddingProvider;
@@ -73,13 +73,13 @@ export interface EmbedderStatus {
   readonly needsCredentials: boolean;
 }
 
-export async function computeEmbedderStatus(instance: Instance): Promise<EmbedderStatus> {
+export async function computeEmbedderStatus(instance: Agent): Promise<EmbedderStatus> {
   const { hasCredentials } = await computeEmbedderReadiness(instance);
   return { needsCredentials: !hasCredentials };
 }
 
-/** Core logic given a loaded Instance (avoids a second DB round trip). */
-export async function computeMemoryStatusFromInstance(instance: Instance): Promise<MemoryStatus> {
+/** Core logic given a loaded Agent (avoids a second DB round trip). */
+export async function computeMemoryStatusFromInstance(instance: Agent): Promise<MemoryStatus> {
   if (!instance.memoryEnabled) return OFF;
   const { hasCredentials, dimCompatible } = await computeEmbedderReadiness(instance);
   return { needsOpenAIKey: !hasCredentials, canEnable: hasCredentials && dimCompatible };

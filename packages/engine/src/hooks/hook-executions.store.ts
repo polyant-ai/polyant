@@ -3,7 +3,7 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { hookExecutions } from "./hooks.schema.js";
-import type { InstanceSlug } from "../instances/identifiers.js";
+import type { AgentSlug } from "../instances/identifiers.js";
 import type { HookActionType, HookEvent } from "./hook-types.js";
 
 /** One hook execution outcome, as persisted for the conversation UI. */
@@ -26,7 +26,7 @@ export interface HookExecutionRow {
 }
 
 export interface RecordHookExecutionInput {
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   conversationId: string;
   hookId: string;
   event: HookEvent;

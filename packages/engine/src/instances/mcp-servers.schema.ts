@@ -1,11 +1,11 @@
 import { pgTable, uuid, varchar, text, boolean, timestamp, unique, index } from "drizzle-orm/pg-core";
-import { instances } from "./schema.js";
+import { agents } from "./schema.js";
 
 export const instanceMcpServers = pgTable(
-  "instance_mcp_servers",
+  "agent_mcp_servers",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    instanceId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
     slug: varchar("slug", { length: 50 }).notNull(),
     name: varchar("name", { length: 100 }).notNull(),
     url: text("url").notNull(),

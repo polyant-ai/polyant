@@ -2,7 +2,7 @@
 
 import type { ModelMessage, Tool, UserContent } from "ai";
 import { tool as aiTool } from "ai";
-import type { InstanceSlug, InstanceUuid } from "../../instances/identifiers.js";
+import type { AgentSlug, AgentUuid } from "../../instances/identifiers.js";
 import { chat, chatStream, type ChatCallOptions } from "../../ai-gateway/index.js";
 import {
   getToolRegistry,
@@ -21,7 +21,7 @@ import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { config, DEFAULT_INSTANCE_ID } from "../../config.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { findInstanceBySlug } from "../../instances/store.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import type { ChatRequest, CostBreakdown } from "../../ai-gateway/types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 import type { ConversationStateBuffer } from "../../conversations/state.buffer.js";
@@ -37,7 +37,7 @@ import { agentsShareOrganization, agentToolTarget } from "../../authz/agent-tena
 export interface SupervisorInput {
   message: string;
   conversationHistory?: ModelMessage[];
-  instanceId?: InstanceSlug;
+  instanceId?: AgentSlug;
   conversationId?: string;
   conversationSummary?: string;
   /** Override AI provider for this instance. */
@@ -200,7 +200,7 @@ function safeOutputPreview(output: unknown): string | undefined {
 function wrapToolWithAudit(
   name: string,
   builtTool: Tool,
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   _conversationId?: string,
   toolCallTraces?: ToolCallTrace[],
   signals?: SupervisorSignals,
@@ -246,8 +246,8 @@ function wrapToolWithAudit(
 }
 
 interface BuildToolsOptions {
-  instanceId: InstanceSlug;
-  instanceUuid: InstanceUuid;
+  instanceId: AgentSlug;
+  instanceUuid: AgentUuid;
   secrets?: Record<string, string>;
   memoryEnabled?: boolean;
   knowledgeEnabled?: boolean;
@@ -342,7 +342,7 @@ async function buildTools(opts: BuildToolsOptions) {
     const currentDepth = agentCallDepth ?? 0;
     for (const entryName of agentEntries) {
       const targetSlug = agentToolTarget(entryName)!;
-      const target = await findInstanceBySlug(asInstanceSlug(targetSlug));
+      const target = await findInstanceBySlug(asAgentSlug(targetSlug));
       if (!target) {
         console.warn(`[supervisor] agent tool '${entryName}': target instance not found`);
         continue;
@@ -400,7 +400,7 @@ async function buildTools(opts: BuildToolsOptions) {
 // ---------------------------------------------------------------------------
 
 interface SupervisorContext {
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   tools: Record<string, Tool>;
   systemPrompt: string;
   messages: ModelMessage[];
@@ -472,7 +472,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   // Resolve slug → UUID for DB queries
   const instance = await findInstanceBySlug(instanceSlug);
   if (!instance) {
-    throw new Error(`Instance not found: "${instanceSlug}"`);
+    throw new Error(`Agent not found: "${instanceSlug}"`);
   }
   const instanceUuid = instance.id;
 

@@ -10,7 +10,7 @@ import type { ExtractedFact } from "./types.js";
 import { memoryLog } from "./memory-logger.js";
 import { emitMemory } from "../activity-stream/emitters/emit-memory.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 function buildExtractionPrompt(): string {
   const now = new Date();
@@ -45,7 +45,7 @@ OUTPUT FORMAT (strict JSON array):
  */
 export async function extractMemories(
   conversationId: string,
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   apiKeys?: ChatRequest["apiKeys"],
   provider?: string,
   langsmith?: { apiKey: string; project: string },
@@ -107,7 +107,7 @@ export async function extractMemories(
   // 6. Upsert each memory sequentially (with deduplication via cosine similarity).
   //    Sequential — not Promise.all — to avoid SERIALIZABLE serialization_failure
   //    (40001) on the predicate scan inside `upsertMemory`. Two concurrent
-  //    transactions reading the same `WHERE instance_id=$1` predicate range get
+  //    transactions reading the same `WHERE agent_id=$1` predicate range get
   //    flagged as a r/w pivot by Postgres and aborted; even with retries+jitter
   //    they re-collide. Sequential upsert costs ~10-30 ms more in a fire-and-forget
   //    path that doesn't block the user-facing response, in exchange for zero

@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { pgTable, uuid, varchar, text, boolean, timestamp, unique } from "drizzle-orm/pg-core";
-import { instances } from "./schema.js";
+import { agents } from "./schema.js";
 
 // NOTE: FK skill_slug → skills.slug deferred to Fase 2 migration script.
 // Must populate `skills` table before adding FK constraint, otherwise
 // existing rows in instance_skill_env will violate the FK.
 export const instanceSkillEnv = pgTable(
-  "instance_skill_env",
+  "agent_skill_env",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    instanceId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
     skillSlug: varchar("skill_slug", { length: 100 }).notNull(),
     key: varchar("key", { length: 255 }).notNull(),
     value: text("value").notNull(),

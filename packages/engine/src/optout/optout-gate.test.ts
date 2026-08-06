@@ -6,7 +6,7 @@ const {
   getOptoutStatus,
   setOptoutStatus,
   resolveInstanceConfig,
-  resolveInstanceId,
+  resolveAgentId,
   ensureConversation,
   appendMessages,
   auditLog,
@@ -14,7 +14,7 @@ const {
   getOptoutStatus: vi.fn(),
   setOptoutStatus: vi.fn(),
   resolveInstanceConfig: vi.fn(),
-  resolveInstanceId: vi.fn(),
+  resolveAgentId: vi.fn(),
   ensureConversation: vi.fn(),
   appendMessages: vi.fn(),
   auditLog: vi.fn(),
@@ -22,7 +22,7 @@ const {
 
 vi.mock("./contact-optouts.store.js", () => ({ getOptoutStatus, setOptoutStatus }));
 vi.mock("../instances/config-resolver.js", () => ({ resolveInstanceConfig }));
-vi.mock("../instances/resolve-instance-id.js", () => ({ resolveInstanceId }));
+vi.mock("../instances/resolve-agent-id.js", () => ({ resolveAgentId }));
 vi.mock("../conversations/index.js", () => ({ conversationStore: { ensureConversation, appendMessages } }));
 vi.mock("../audit/audit-logger.js", () => ({ createAuditLogger: () => ({ log: auditLog }) }));
 
@@ -45,7 +45,7 @@ const enabledConfig = {
 beforeEach(() => {
   vi.clearAllMocks();
   resolveInstanceConfig.mockResolvedValue(enabledConfig);
-  resolveInstanceId.mockResolvedValue("uuid-1");
+  resolveAgentId.mockResolvedValue("uuid-1");
   ensureConversation.mockResolvedValue({ created: true });
   appendMessages.mockResolvedValue(undefined);
 });

@@ -2,7 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 vi.mock("../../instances/store.js", () => ({
   findInstanceBySlug: vi.fn(async () => ({
@@ -25,8 +25,8 @@ describe("A2aHandlerRegistry", () => {
   it("should_build_a_handler_and_cache_it_per_slug", async () => {
     const reg = new A2aHandlerRegistry();
     reg.setStreamMessageHandler(fakeStreamHandler);
-    const h1 = await reg.getHandler(asInstanceSlug("acme"));
-    const h2 = await reg.getHandler(asInstanceSlug("acme"));
+    const h1 = await reg.getHandler(asAgentSlug("acme"));
+    const h2 = await reg.getHandler(asAgentSlug("acme"));
     expect(h1).toBe(h2); // cached — same instance
     expect(findInstanceBySlug).toHaveBeenCalledTimes(1); // built once
   });
@@ -35,11 +35,11 @@ describe("A2aHandlerRegistry", () => {
     (findInstanceBySlug as any).mockResolvedValueOnce(undefined);
     const reg = new A2aHandlerRegistry();
     reg.setStreamMessageHandler(fakeStreamHandler);
-    await expect(reg.getHandler(asInstanceSlug("ghost"))).rejects.toThrow();
+    await expect(reg.getHandler(asAgentSlug("ghost"))).rejects.toThrow();
   });
 
   it("should_throw_when_the_stream_handler_is_not_set", async () => {
     const reg = new A2aHandlerRegistry();
-    await expect(reg.getHandler(asInstanceSlug("acme"))).rejects.toThrow();
+    await expect(reg.getHandler(asAgentSlug("acme"))).rejects.toThrow();
   });
 });

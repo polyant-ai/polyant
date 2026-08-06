@@ -3,10 +3,12 @@
 Quick reference for the core Polyant vocabulary. For long-form definitions
 with examples, see [Glossary](https://docs.polyant.ai/concepts/glossary).
 
-- **Instance** — A shared assistant configuration (prompts, tools, skills,
-  secrets, channels). Multiple users interact with the same instance.
+- **Agent** — A shared assistant configuration (prompts, tools, skills,
+  secrets, channels). Multiple users interact with the same agent. Called an
+  *instance* before the rename; the term survives only in engine-internal
+  identifiers still being migrated.
 - **Skill** — A reusable prompt-and-tool bundle (Markdown frontmatter + body).
-  Stored in the global skill library, attached to instances on demand.
+  Stored in the global skill library, attached to agents on demand.
 - **Tool** — A self-registering function callable by the LLM (`*.tool.ts`).
   Auto-discovered at boot.
 - **Channel** — Inbound/outbound message transport (Telegram, Slack,
@@ -27,5 +29,10 @@ with examples, see [Glossary](https://docs.polyant.ai/concepts/glossary).
   cosine-similarity dedup.
 - **Tier** — A tag (`fast` / `standard` / `heavy`) that maps to a concrete
   model. Lets components stay model-agnostic.
-- **Workspace** — Per-instance, per-conversation scratch directory used by
-  filesystem-backed tools. Ephemeral (cleaned after 2 hours).
+- **Workspace** — A tenancy level between an organization and its agents
+  (RBAC). Agents belong to exactly one workspace.
+- **Sandbox** — Per-agent, per-conversation scratch directory used by
+  filesystem-backed tools. Ephemeral (cleaned after 2 hours). Called a
+  *workspace* before the rename, which freed that name for the RBAC entity
+  above; the on-disk directory and the `SANDBOX_ROOT` default path are
+  unchanged.

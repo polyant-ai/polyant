@@ -6,7 +6,7 @@ import { eq, and, desc, sql, isNotNull, count as drizzleCount } from "drizzle-or
 import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db, type DbExecutor, type DbTransaction } from "../database/client.js";
 import { knowledgeDocuments, knowledgeChunks } from "./schema.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
 import { vectorColumnValues } from "../embeddings-gateway/dim-columns.js";
 
@@ -30,7 +30,7 @@ export function hashContent(content: string): string {
 
 export interface KnowledgeDocument {
   id: string;
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -55,7 +55,7 @@ export interface KnowledgeSearchResult {
 // ── Document CRUD ──────────────────────────────────────────────────
 
 export async function createDocument(input: {
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -96,7 +96,7 @@ export async function updateDocumentStatus(
 }
 
 /** List documents (without rawContent for performance). */
-export async function listDocuments(instanceId: InstanceSlug): Promise<Omit<KnowledgeDocument, "rawContent">[]> {
+export async function listDocuments(instanceId: AgentSlug): Promise<Omit<KnowledgeDocument, "rawContent">[]> {
   const rows = await db
     .select({
       id: knowledgeDocuments.id,
@@ -149,7 +149,7 @@ export async function deleteDocument(docId: string): Promise<boolean> {
  * the chunk/document deletes never partially apply.
  */
 export async function deleteAllKnowledgeForInstance(
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   tx?: DbTransaction,
 ): Promise<{ documents: number; chunks: number }> {
   const run = async (ex: DbExecutor) => {
@@ -179,7 +179,7 @@ export interface ExportedDocument {
  * Return every document for an instance with its raw content, for export.
  * Ordered oldest-first so a re-import preserves the original upload order.
  */
-export async function getKnowledgeForExport(instanceId: InstanceSlug): Promise<ExportedDocument[]> {
+export async function getKnowledgeForExport(instanceId: AgentSlug): Promise<ExportedDocument[]> {
   const rows = await db
     .select({
       filename: knowledgeDocuments.filename,
@@ -195,7 +195,7 @@ export async function getKnowledgeForExport(instanceId: InstanceSlug): Promise<E
 }
 
 /** All existing filenames for an instance — used to resolve import collisions. */
-export async function listDocumentFilenames(instanceId: InstanceSlug): Promise<string[]> {
+export async function listDocumentFilenames(instanceId: AgentSlug): Promise<string[]> {
   const rows = await db
     .select({ filename: knowledgeDocuments.filename })
     .from(knowledgeDocuments)
@@ -223,7 +223,7 @@ export function resolveUniqueFilename(filename: string, taken: Set<string>): str
 
 /** Get a document by (instanceId, filename). Relies on the UNIQUE constraint. */
 export async function getDocumentByFilename(
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   filename: string,
 ): Promise<KnowledgeDocument | undefined> {
   const [doc] = await db
@@ -251,7 +251,7 @@ export interface AgentWriteResult {
  * Marks the document as "processing" so the caller can kick off a reindex.
  */
 export async function upsertAgentDocument(input: {
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   filename: string;
   content: string;
   mimeType?: string;
@@ -325,7 +325,7 @@ export async function upsertAgentDocument(input: {
  * Uses SELECT ... FOR UPDATE to serialize concurrent appends on the same row.
  */
 export async function appendAgentDocument(input: {
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   filename: string;
   content: string;
   mimeType?: string;
@@ -521,7 +521,7 @@ export async function insertChunksAndFinalize(
  */
 export async function searchByVector(
   queryEmbedding: number[],
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   limit = 5,
   dimensions: EmbeddingDim,
 ): Promise<KnowledgeSearchResult[]> {
@@ -562,7 +562,7 @@ export async function searchByVector(
  */
 export async function searchByKeyword(
   query: string,
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   limit = 5,
 ): Promise<KnowledgeSearchResult[]> {
   const rows = await db.execute(sql`
@@ -574,7 +574,7 @@ export async function searchByKeyword(
       ts_rank(kc.content_tsv, websearch_to_tsquery('simple', ${query})) AS rank
     FROM knowledge_chunks kc
     INNER JOIN knowledge_documents kd ON kd.id = kc.document_id
-    WHERE kc.instance_id = ${instanceId}
+    WHERE kc.agent_id = ${instanceId}
       AND kc.content_tsv @@ websearch_to_tsquery('simple', ${query})
     ORDER BY rank DESC
     LIMIT ${limit}
@@ -589,7 +589,7 @@ export async function searchByKeyword(
   }));
 }
 
-export async function countChunks(instanceId: InstanceSlug): Promise<number> {
+export async function countChunks(instanceId: AgentSlug): Promise<number> {
   const [row] = await db
     .select({ count: drizzleCount() })
     .from(knowledgeChunks)
@@ -598,7 +598,7 @@ export async function countChunks(instanceId: InstanceSlug): Promise<number> {
 }
 
 /** Count knowledge documents owned by an instance (used to enforce the per-instance cap). */
-export async function countDocuments(instanceId: InstanceSlug): Promise<number> {
+export async function countDocuments(instanceId: AgentSlug): Promise<number> {
   const [row] = await db
     .select({ count: drizzleCount() })
     .from(knowledgeDocuments)

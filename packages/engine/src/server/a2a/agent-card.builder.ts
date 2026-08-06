@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { AgentCard } from "@a2a-js/sdk";
-import type { Instance } from "../../instances/store.js";
+import type { Agent } from "../../instances/store.js";
 
 const JSONRPC_PROTOCOL_VERSION = "1.0";
 
@@ -17,7 +17,7 @@ const JSONRPC_PROTOCOL_VERSION = "1.0";
  * are required (non-optional) fields there, so "no auth" is represented as
  * an empty map/array rather than `undefined`.
  */
-export function buildAgentCard(instance: Instance, baseUrl: string, tags: string[] = []): AgentCard {
+export function buildAgentCard(instance: Agent, baseUrl: string, tags: string[] = []): AgentCard {
   const jsonRpcUrl = `${baseUrl}/a2a/${instance.slug}/jsonrpc`;
   const description = instance.description ?? "";
 

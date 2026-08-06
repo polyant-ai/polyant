@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from "vitest";
 import { buildAgentCard } from "./agent-card.builder.js";
-import { asInstanceSlug, asInstanceUuid } from "../../instances/identifiers.js";
+import { asAgentSlug, asAgentUuid } from "../../instances/identifiers.js";
 
 // NOTE: the installed @a2a-js/sdk@1.0.0 root `AgentCard` is the v1.0
 // protobuf-generated shape, not the earlier JSON-REST shape the task brief
@@ -13,8 +13,8 @@ import { asInstanceSlug, asInstanceUuid } from "../../instances/identifiers.js";
 //    "no auth" is represented as empty `{}`/`[]`, not `undefined`.
 
 const baseInstance = {
-  id: asInstanceUuid("00000000-0000-0000-0000-000000000001"),
-  slug: asInstanceSlug("acme-bot"),
+  id: asAgentUuid("00000000-0000-0000-0000-000000000001"),
+  slug: asAgentSlug("acme-bot"),
   name: "Acme Bot",
   description: "Helps with Acme things",
   authEnabled: false,

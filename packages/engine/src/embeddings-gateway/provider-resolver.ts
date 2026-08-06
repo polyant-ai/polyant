@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { EmbeddingContext, EmbeddingDim } from "./types.js";
-import { findInstanceByIdOrSlug } from "../instances/resolve-instance-id.js";
+import { findInstanceByIdOrSlug } from "../instances/resolve-agent-id.js";
 import { getAllSecretsById, SECRET_KEYS } from "../instances/secrets.store.js";
 import { TtlCache } from "../utils/ttl-cache.js";
 
@@ -38,7 +38,7 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
 
   const instance = await findInstanceByIdOrSlug(instanceIdOrSlug);
   if (!instance) {
-    throw new Error(`Instance "${instanceIdOrSlug}" not found.`);
+    throw new Error(`Agent "${instanceIdOrSlug}" not found.`);
   }
 
   const dimensions = assertDim(instance.embeddingDim);

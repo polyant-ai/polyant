@@ -31,16 +31,16 @@ export function pctChange(current: number, previous: number): number {
  * any other value throws to prevent SQL injection via sql.raw().
  */
 const ALLOWED_INSTANCE_COLUMNS = new Set([
-  "instance_id",
-  "c.instance_id",
+  "agent_id",
+  "c.agent_id",
 ]);
 
 /**
  * Build an optional `AND <column> = <value>` SQL fragment.
  * @param instanceId - when undefined the fragment is empty (no filter)
- * @param columnName - defaults to `"instance_id"`
+ * @param columnName - defaults to `"agent_id"`
  */
-export function instanceFilter(instanceId?: string, columnName = "instance_id") {
+export function instanceFilter(instanceId?: string, columnName = "agent_id") {
   if (!ALLOWED_INSTANCE_COLUMNS.has(columnName)) {
     throw new Error(`instanceFilter: column "${columnName}" is not in the allowlist`);
   }

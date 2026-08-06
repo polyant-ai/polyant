@@ -5,7 +5,7 @@ import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db, type DbExecutor } from "../database/client.js";
 import { memories } from "./schema.js";
 import { config } from "../config.js";
-import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "../instances/identifiers.js";
 import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
 import { vectorColumnValues } from "../embeddings-gateway/dim-columns.js";
 import { buildOrgScopedAgentFilter } from "../authz/scope-filter.js";
@@ -14,7 +14,7 @@ import { buildOrgScopedAgentFilter } from "../authz/scope-filter.js";
 
 export interface MemoryRecord {
   id: string;
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   content: string;
   category: string;
   importance: number;
@@ -24,7 +24,7 @@ export interface MemoryRecord {
 }
 
 export interface InsertMemoryInput {
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   content: string;
   category?: string;
   importance?: number;
@@ -176,7 +176,7 @@ export async function upsertMemory(input: InsertMemoryInput): Promise<UpsertResu
  */
 export async function searchByVector(
   queryEmbedding: number[],
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   limit = 10,
   dimensions: EmbeddingDim,
 ): Promise<Array<MemoryRecord & { similarity: number }>> {
@@ -205,7 +205,7 @@ export async function searchByVector(
 
   return rows.map((r) => ({
     id: r.id,
-    instanceId: asInstanceSlug(r.instanceId),
+    instanceId: asAgentSlug(r.instanceId),
     content: r.content,
     category: r.category,
     importance: r.importance,
@@ -219,7 +219,7 @@ export async function searchByVector(
 /**
  * Get all memories for a user, ordered by most recent first.
  */
-export async function getAllMemories(instanceId: InstanceSlug): Promise<MemoryRecord[]> {
+export async function getAllMemories(instanceId: AgentSlug): Promise<MemoryRecord[]> {
   const rows = await db
     .select({
       id: memories.id,
@@ -235,14 +235,14 @@ export async function getAllMemories(instanceId: InstanceSlug): Promise<MemoryRe
     .where(eq(memories.instanceId, instanceId))
     .orderBy(desc(memories.updatedAt));
 
-  return rows.map((r) => ({ ...r, instanceId: asInstanceSlug(r.instanceId) }));
+  return rows.map((r) => ({ ...r, instanceId: asAgentSlug(r.instanceId) }));
 }
 
 /**
  * Search memories with pagination, text filtering (ILIKE), and category filtering.
  */
 export async function searchMemories(
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   opts: { search?: string; category?: string; limit?: number; offset?: number; orgId?: string } = {},
 ): Promise<{ memories: MemoryRecord[]; total: number }> {
   const limit = opts.limit ?? 20;
@@ -278,7 +278,7 @@ export async function searchMemories(
   ]);
 
   return {
-    memories: rows.map((r) => ({ ...r, instanceId: asInstanceSlug(r.instanceId) })),
+    memories: rows.map((r) => ({ ...r, instanceId: asAgentSlug(r.instanceId) })),
     total: Number(totalRow.count),
   };
 }
@@ -289,7 +289,7 @@ export async function searchMemories(
  */
 export async function deleteMemoryForInstance(
   memoryId: string,
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   orgId?: string,
 ): Promise<boolean> {
   const conditions = [eq(memories.id, memoryId), eq(memories.instanceId, instanceId)];
@@ -311,7 +311,7 @@ export async function deleteMemoryForInstance(
  * via a foreign-org instanceId (param-IDOR closed at the store layer).
  */
 export async function deleteAllMemories(
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   orgId?: string,
   executor: DbExecutor = db,
 ): Promise<number> {

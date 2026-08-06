@@ -111,7 +111,7 @@ function KnowledgeToggle({ instance, onUpdate }: { instance: Instance; onUpdate:
   const toggle = async (next: boolean) => {
     setSaving(true);
     try {
-      const { instance: updated } = await api.instances.update(instance.slug, {
+      const { agent: updated } = await api.instances.update(instance.slug, {
         knowledgeEnabled: next,
       });
       onUpdate(updated);

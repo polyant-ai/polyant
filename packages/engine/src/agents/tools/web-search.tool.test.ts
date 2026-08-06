@@ -22,7 +22,7 @@ vi.mock("@tavily/core", () => ({
 }));
 
 import { type ToolContext } from "./registry.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 import webSearchTool from "./web-search.tool.js";
 
@@ -33,7 +33,7 @@ const noopAudit = { log: auditLog };
 
 function makeCtx(secrets: Record<string, string>): ToolContext {
   return {
-    instanceId: asInstanceSlug("test-instance"),
+    instanceId: asAgentSlug("test-instance"),
     secrets,
     audit: noopAudit as any,
   };

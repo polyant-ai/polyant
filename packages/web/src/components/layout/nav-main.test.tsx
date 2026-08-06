@@ -44,7 +44,7 @@ describe("isNavActive", () => {
 
   it("matches the dashboard only on the exact root path", () => {
     expect(isNavActive("/", "/")).toBe(true);
-    expect(isNavActive("/instances", "/")).toBe(false);
+    expect(isNavActive("/agents", "/")).toBe(false);
   });
 });
 

@@ -477,6 +477,13 @@
       "when": 1781740800000,
       "tag": "0074_add_a2a_enabled",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1781827200000,
+      "tag": "0075_rename_instance_to_agent",
+      "breakpoints": true
     }
   ]
 }

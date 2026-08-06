@@ -6,8 +6,8 @@ const { mockResolveInstanceId, mockGetSkillEnv, mockDbSelect } = vi.hoisted(() =
   mockDbSelect: vi.fn(),
 }));
 
-vi.mock("../../instances/resolve-instance-id.js", () => ({
-  resolveInstanceId: mockResolveInstanceId,
+vi.mock("../../instances/resolve-agent-id.js", () => ({
+  resolveAgentId: mockResolveInstanceId,
 }));
 vi.mock("../../instances/skill-env.store.js", () => ({
   getSkillEnv: mockGetSkillEnv,
@@ -30,7 +30,7 @@ vi.mock("../../database/client.js", () => ({
   },
 }));
 vi.mock("../../instances/instance-skills.schema.js", () => ({
-  instanceSkills: { id: "id", instanceId: "instance_id", skillId: "skill_id", skillVersionId: "skill_version_id", enabled: "enabled" },
+  instanceSkills: { id: "id", instanceId: "agent_id", skillId: "skill_id", skillVersionId: "skill_version_id", enabled: "enabled" },
 }));
 vi.mock("../../skills/schema.js", () => ({
   skills: { id: "id", slug: "slug", name: "name" },
@@ -65,7 +65,7 @@ describe("readSkill tool", () => {
     const execute = buildReadSkillTool();
     const result = await execute({ name: "booking" });
 
-    expect(result).toEqual({ found: false, error: "Instance not found" });
+    expect(result).toEqual({ found: false, error: "Agent not found" });
   });
 
   it("returns found: false when skill is not assigned or disabled", async () => {

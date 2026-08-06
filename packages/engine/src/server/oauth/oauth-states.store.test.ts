@@ -48,7 +48,7 @@ vi.mock("./oauth-states.schema.js", () => ({
   oauthStates: {
     state: "state",
     conversationId: "conversation_id",
-    instanceId: "instance_id",
+    instanceId: "agent_id",
     provider: "provider",
     codeVerifier: "code_verifier",
     expiresAt: "expires_at",

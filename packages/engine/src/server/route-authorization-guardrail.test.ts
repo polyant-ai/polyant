@@ -174,7 +174,7 @@ describe("route authorization guardrail", () => {
   it("should_not_mount_two_controllers_on_the_same_route", () => {
     // A duplicate registration silently shadows one of the two, and the loser
     // may be the decorated one. That is how an undecorated copy of
-    // `api/instances/:slug/skills` shipped alongside the RBAC-gated original.
+    // `api/agents/:slug/skills` shipped alongside the RBAC-gated original.
     const owners = new Map<string, string[]>();
     for (const { controller, handler } of handlers) {
       const key = routeKey(controller, handler);

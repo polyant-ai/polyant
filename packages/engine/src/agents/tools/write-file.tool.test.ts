@@ -24,7 +24,7 @@ vi.mock("../../utils/error.js", () => ({
 }));
 
 import { createMockAudit } from "../../test-utils.js";
-import { OA_WORKSPACES_ROOT } from "./shared/workspace-utils.js";
+import { OA_SANDBOX_ROOT } from "./shared/workspace-utils.js";
 import def from "./write-file.tool.js";
 
 function buildTool(opts: { conversationId?: string | undefined } = { conversationId: "conv-1" }) {
@@ -37,7 +37,7 @@ function buildTool(opts: { conversationId?: string | undefined } = { conversatio
   return { execute: (input: any) => def.execute(input, ctx), audit: ctx.audit };
 }
 
-const WORKSPACE = `${OA_WORKSPACES_ROOT}/test-instance/conversations/conv-1`;
+const WORKSPACE = `${OA_SANDBOX_ROOT}/test-instance/conversations/conv-1`;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -241,7 +241,7 @@ describe("writeFile tool", () => {
     await execute({ path: "notes.md", content: "x", overwrite: true });
 
     expect(mockWriteFile).toHaveBeenCalledWith(
-      `${OA_WORKSPACES_ROOT}/test-instance/conversations/inst_web_chat-1/notes.md`,
+      `${OA_SANDBOX_ROOT}/test-instance/conversations/inst_web_chat-1/notes.md`,
       "x",
       "utf-8",
     );

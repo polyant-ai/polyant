@@ -3,8 +3,8 @@
 import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { contactOptouts } from "./optout.schema.js";
-import { resolveInstanceId } from "../instances/resolve-instance-id.js";
-import { asInstanceSlug, type InstanceSlug, type InstanceUuid } from "../instances/identifiers.js";
+import { resolveAgentId } from "../instances/resolve-agent-id.js";
+import { asAgentSlug, type AgentSlug, type AgentUuid } from "../instances/identifiers.js";
 import { TtlCache } from "../utils/ttl-cache.js";
 import type { OptoutStatus } from "./optout.types.js";
 
@@ -47,7 +47,7 @@ async function loadStatusFromDb(
   channelType: string,
   channelId: string,
 ): Promise<OptoutStatus> {
-  const instanceId = await resolveInstanceId(asInstanceSlug(instanceSlug));
+  const instanceId = await resolveAgentId(asAgentSlug(instanceSlug));
   if (!instanceId) return "opted_in";
   const rows = await db
     .select({ status: contactOptouts.status })
@@ -67,7 +67,7 @@ const statusCache = new OptoutStatusCache(loadStatusFromDb);
 
 /** Resolve the current opt-out status for a contact (cached). */
 export async function getOptoutStatus(
-  instanceSlug: InstanceSlug,
+  instanceSlug: AgentSlug,
   channelType: string,
   channelId: string,
 ): Promise<OptoutStatus> {
@@ -76,8 +76,8 @@ export async function getOptoutStatus(
 
 /** Upsert the status for a contact and invalidate the cache. */
 export async function setOptoutStatus(args: {
-  instanceId: InstanceUuid;
-  instanceSlug: InstanceSlug;
+  instanceId: AgentUuid;
+  instanceSlug: AgentSlug;
   channelType: string;
   channelId: string;
   status: OptoutStatus;
@@ -109,7 +109,7 @@ export interface OptoutContactRow {
 
 /** Paginated list of opt-out rows for an instance (admin UI), default opted_out only. */
 export async function listOptouts(
-  instanceId: InstanceUuid,
+  instanceId: AgentUuid,
   opts: { status?: OptoutStatus; limit?: number; offset?: number } = {},
 ): Promise<OptoutContactRow[]> {
   const limit = Math.min(opts.limit ?? 50, 200);
