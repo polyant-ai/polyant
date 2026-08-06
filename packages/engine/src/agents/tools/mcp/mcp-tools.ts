@@ -34,14 +34,14 @@ type McpTransport = Parameters<typeof createMCPClient>[0]["transport"];
 const MAX_MCP_TOOL_NAME_LENGTH = 128;
 
 /**
- * Providers (Bedrock/OpenAI/Anthropic) reject tool names outside `[a-zA-Z0-9_-]+`.
- * Core/plugin tool names are dev-controlled and linted at boot (strict-mode-lint.ts);
- * remote MCP tool names are NOT — a server can expose `create.issue` or
- * `search files`, and `toModelToolName` only swaps `:` for `__`. A name that still
- * fails the charset gets the WHOLE turn rejected with a 400 (every core tool goes
- * down with it), which defeats the whole point of per-server resilience. So the
- * runtime posture here is sanitize-and-keep, not lint-and-reject: replace every
- * disallowed char with `_` and cap the length, instead of dropping the tool.
+ * `toModelToolName` (utils/model-tool-wire.ts) already maps every character
+ * outside `[a-zA-Z0-9_-]` to `_`, which is what keeps a remote name like
+ * `create.issue` or `search files` from getting the WHOLE turn rejected with a
+ * provider 400 (every core tool going down with it). The one thing it does NOT
+ * do is bound the length — fine for core/plugin names, which are dev-authored
+ * and linted at boot, but MCP tool names arrive from a remote server, so a
+ * pathologically long one is a real input. Cap it here and let the shared
+ * helper own the charset rule, so there is only ONE spelling of it.
  *
  * Renaming the map KEY is safe: verified against `toolsFromDefinitions()` in
  * node_modules/@ai-sdk/mcp/dist/index.mjs — each tool's `execute` closes over the
@@ -51,9 +51,8 @@ const MAX_MCP_TOOL_NAME_LENGTH = 128;
  * whatever key WE equip it under here has no bearing on which remote tool actually
  * gets invoked.
  */
-function sanitizeModelToolName(name: string): string {
-  const sanitized = name.replace(/[^a-zA-Z0-9_-]/g, "_");
-  return sanitized.length > MAX_MCP_TOOL_NAME_LENGTH ? sanitized.slice(0, MAX_MCP_TOOL_NAME_LENGTH) : sanitized;
+function capModelToolName(name: string): string {
+  return name.length > MAX_MCP_TOOL_NAME_LENGTH ? name.slice(0, MAX_MCP_TOOL_NAME_LENGTH) : name;
 }
 
 /**
@@ -153,7 +152,7 @@ export async function buildMcpTools(opts: {
       const { client, toolSet } = await connectWithTimeout(transport, config.mcp.connectTimeoutMs, opts.abortSignal);
       for (const [toolName, t] of Object.entries(toolSet)) {
         if (allowList && !allowList.includes(toolName)) continue;
-        const modelName = sanitizeModelToolName(toModelToolName(`mcp:${server.slug}:${toolName}`));
+        const modelName = capModelToolName(toModelToolName(`mcp:${server.slug}:${toolName}`));
         if (modelName in tools) {
           console.warn(`[mcp] server '${server.slug}': tool '${toolName}' sanitizes to '${modelName}', which is already equipped — skipping`);
           continue;
