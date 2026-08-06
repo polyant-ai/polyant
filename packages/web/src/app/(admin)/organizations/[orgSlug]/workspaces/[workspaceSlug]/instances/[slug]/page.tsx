@@ -39,13 +39,19 @@ import { KnowledgeTab } from "./knowledge-tab";
 import { ChannelsTab } from "./channels-tab";
 import { McpServersTab } from "./mcp-servers-tab";
 import { AnalyticsTab } from "./analytics-tab";
-import { TriggersTab } from "./triggers-tab";
+import { TriggersWebhooksTab } from "./triggers-webhooks-tab";
+import { TriggersScheduledTab } from "./triggers-scheduled-tab";
+import { TriggersRunsTab } from "./triggers-runs-tab";
 import { RoomTab } from "./room-tab";
 import { HooksTab } from "./hooks-tab";
 import { PrivacyTab } from "./privacy-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
-import { InstanceDetailRail } from "./instance-detail-rail";
-import { INSTANCE_TAB_VALUES } from "./instance-tab-groups";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  agentSectionsByMacro,
+  macroOfTab,
+  resolveAgentTab,
+} from "@/lib/nav/agent-sections";
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 
@@ -64,7 +70,6 @@ function HeaderSaveButton() {
   );
 }
 
-const DEFAULT_TAB = "general";
 
 function InstanceDetailContent() {
   const params = useParams<{ slug: string }>();
@@ -74,11 +79,11 @@ function InstanceDetailContent() {
   const { t } = useI18n();
   const paths = useTenantPaths();
 
-  const tabParam = searchParams.get("tab");
-  const activeTab =
-    tabParam && INSTANCE_TAB_VALUES.includes(tabParam)
-      ? tabParam
-      : DEFAULT_TAB;
+  // ONE resolver, shared with the sidebar: aliases applied, unknown values landing
+  // on the default. Two copies is how the lit entry and the open page diverge.
+  const activeTab = resolveAgentTab(searchParams.get("tab"));
+
+  const siblings = agentSectionsByMacro(macroOfTab(activeTab));
 
   const handleTabChange = (value: string) => {
     const next = new URLSearchParams(searchParams);
@@ -224,9 +229,21 @@ function InstanceDetailContent() {
         </div>
       </div>
 
-      <div className="mt-8 flex flex-col gap-8 md:flex-row">
-        <InstanceDetailRail activeTab={activeTab} onSelect={handleTabChange} />
-        <div className="min-w-0 flex-1">
+      {/* The tab row holds the sections of the ONE sidebar entry that is lit — never
+          all of them. A macro with a single section renders no row at all: a tab bar
+          with one tab is chrome that says nothing. */}
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-8">
+        {siblings.length > 1 && (
+          <TabsList>
+            {siblings.map((section) => (
+              <TabsTrigger key={section.tab} value={section.tab}>
+                {t(section.titleKey)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        )}
+        <div className="mt-6">
+
           {activeTab === "general" && (
             <GeneralTab instance={instance} onUpdate={setInstance} />
           )}
@@ -262,7 +279,9 @@ function InstanceDetailContent() {
           )}
           {activeTab === "channels" && <ChannelsTab slug={instance.slug} />}
           {activeTab === "analytics" && <AnalyticsTab slug={instance.slug} />}
-          {activeTab === "triggers" && <TriggersTab slug={instance.slug} />}
+          {activeTab === "webhooks" && <TriggersWebhooksTab slug={instance.slug} />}
+          {activeTab === "scheduled" && <TriggersScheduledTab slug={instance.slug} />}
+          {activeTab === "runs" && <TriggersRunsTab slug={instance.slug} />}
           {activeTab === "room" && <RoomTab slug={instance.slug} />}
           {activeTab === "hooks" && <HooksTab slug={instance.slug} />}
           {activeTab === "privacy" && (
@@ -274,7 +293,7 @@ function InstanceDetailContent() {
             />
           )}
         </div>
-      </div>
+      </Tabs>
     </div>
     </PageActionsProvider>
   );

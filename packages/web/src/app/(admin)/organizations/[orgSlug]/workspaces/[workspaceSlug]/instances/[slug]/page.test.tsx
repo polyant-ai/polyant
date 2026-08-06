@@ -97,7 +97,9 @@ vi.mock("./knowledge-tab", () => ({ KnowledgeTab: () => <div>tab-body:knowledge<
 vi.mock("./settings-tab", () => ({ SettingsTab: () => <div>tab-body:settings</div> }));
 vi.mock("./channels-tab", () => ({ ChannelsTab: () => <div>tab-body:channels</div> }));
 vi.mock("./analytics-tab", () => ({ AnalyticsTab: () => <div>tab-body:analytics</div> }));
-vi.mock("./triggers-tab", () => ({ TriggersTab: () => <div>tab-body:triggers</div> }));
+vi.mock("./triggers-webhooks-tab", () => ({ TriggersWebhooksTab: () => <div>tab-body:webhooks</div> }));
+vi.mock("./triggers-scheduled-tab", () => ({ TriggersScheduledTab: () => <div>tab-body:scheduled</div> }));
+vi.mock("./triggers-runs-tab", () => ({ TriggersRunsTab: () => <div>tab-body:runs</div> }));
 vi.mock("./room-tab", () => ({ RoomTab: () => <div>tab-body:room</div> }));
 vi.mock("./hooks-tab", () => ({ HooksTab: () => <div>tab-body:hooks</div> }));
 vi.mock("./privacy-tab", () => ({ PrivacyTab: () => <div>tab-body:privacy</div> }));
@@ -144,11 +146,16 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 // imported from `instance-tab-groups.ts`, so a regrouping that silently
 // drops one from the production list cannot also make it disappear from
 // this ground truth.
-const ALL_TWELVE_TABS = [
+/** Every address that was reachable before the regrouping — the contract a bookmark holds. */
+const PREVIOUSLY_REACHABLE = [
   "general", "prompts", "tools", "skills", "knowledge", "settings",
   "channels", "analytics", "triggers",
   "room", "hooks", "privacy",
 ] as const;
+
+/** What each of those addresses now renders. Only `triggers` moved: it stopped being one
+ *  section holding three and its first leaf became the landing. */
+const LANDS_ON: Record<string, string> = { triggers: "webhooks" };
 
 describe("InstanceDetailPage — tab regrouping", () => {
   beforeEach(() => {
@@ -157,43 +164,51 @@ describe("InstanceDetailPage — tab regrouping", () => {
     resetSearch("");
   });
 
-  it("renders the five groups, each with its tabs' labels", async () => {
+  // The rail is gone: the sidebar shows the agent's macro entries, and the page shows
+  // the sections of the ONE that is lit — never all of them at once. That is the whole
+  // point of the regrouping, so it is what this asserts.
+  it("shows only the active macro's sections in the tab row", async () => {
     render(<InstanceDetailPage />);
     await screen.findByText("tab-body:general");
 
-    expect(screen.getByText("instances.detail.groupGeneral")).toBeInTheDocument();
-    expect(screen.getByText("instances.detail.groupBehavior")).toBeInTheDocument();
-    expect(screen.getByText("instances.detail.groupChannelsTriggers")).toBeInTheDocument();
-    expect(screen.getByText("instances.detail.groupObservability")).toBeInTheDocument();
-    expect(screen.getByText("instances.detail.groupDataPrivacy")).toBeInTheDocument();
+    // Configurazione holds General and Settings — and nothing from another macro.
+    expect(screen.getByRole("tab", { name: "instances.detail.tabSettings" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "instances.detail.tabPrompts" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "instances.detail.tabPrivacy" })).not.toBeInTheDocument();
+  });
 
-    // Behavior group holds exactly the tabs the spec assigns it.
-    expect(screen.getByText("instances.detail.tabPrompts")).toBeInTheDocument();
-    expect(screen.getByText("instances.detail.tabHooks")).toBeInTheDocument();
+  // A macro with one section renders no row: a tab bar with a single tab is chrome
+  // that says nothing.
+  it("renders no tab row for a macro holding one section", async () => {
+    resetSearch("tab=privacy");
+    render(<InstanceDetailPage />);
+
+    await waitFor(() => expect(screen.getByText("tab-body:privacy")).toBeInTheDocument());
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
   });
 
   it("shows only the default General tab's body on first render", async () => {
     render(<InstanceDetailPage />);
     await screen.findByText("tab-body:general");
 
-    for (const value of ALL_TWELVE_TABS) {
+    for (const value of PREVIOUSLY_REACHABLE) {
       if (value === "general") continue;
-      expect(screen.queryByText(`tab-body:${value}`)).not.toBeInTheDocument();
+      expect(screen.queryByText(`tab-body:${LANDS_ON[value] ?? value}`)).not.toBeInTheDocument();
     }
   });
 
-  it("selecting a tab in the rail shows its body and hides the previous one", async () => {
+  it("selecting a section in the tab row shows its body and hides the previous one", async () => {
     const user = userEvent.setup();
     render(<InstanceDetailPage />);
     await screen.findByText("tab-body:general");
 
-    await user.click(screen.getByText("instances.detail.tabPrivacy"));
+    await user.click(screen.getByRole("tab", { name: "instances.detail.tabSettings" }));
 
-    await waitFor(() => expect(screen.getByText("tab-body:privacy")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("tab-body:settings")).toBeInTheDocument());
     expect(screen.queryByText("tab-body:general")).not.toBeInTheDocument();
     // The address moved with it.
     expect(mockRouterPush).toHaveBeenCalledWith(
-      expect.stringContaining("tab=privacy"),
+      expect.stringContaining("tab=settings"),
       expect.anything(),
     );
   });
@@ -206,11 +221,14 @@ describe("InstanceDetailPage — tab regrouping", () => {
     expect(screen.queryByText("tab-body:general")).not.toBeInTheDocument();
   });
 
-  it("keeps every one of the twelve previously-reachable tabs reachable by address", async () => {
-    for (const value of ALL_TWELVE_TABS) {
+  // A bookmark is a contract. Every address that worked before still resolves — the one
+  // that was folded lands on its first leaf rather than on the default page.
+  it("keeps every previously-reachable address resolving", async () => {
+    for (const value of PREVIOUSLY_REACHABLE) {
       resetSearch(`tab=${value}`);
       const { unmount } = render(<InstanceDetailPage />);
-      await waitFor(() => expect(screen.getByText(`tab-body:${value}`)).toBeInTheDocument());
+      const expected = LANDS_ON[value] ?? value;
+      await waitFor(() => expect(screen.getByText(`tab-body:${expected}`)).toBeInTheDocument());
       unmount();
     }
   });

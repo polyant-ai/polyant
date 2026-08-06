@@ -299,3 +299,41 @@
     animation: none;
   }
 }
+
+/* ── Sidebar destination transitions ──
+   The drill-down convention: nesting INTO a destination brings its menu in from
+   the right, coming back OUT brings the parent's in from the left. Only the
+   arriving pane animates — the one you left unmounts with the route — and the
+   direction reads correctly from the incoming half alone. */
+@keyframes nav-in {
+  from {
+    transform: translateX(1.25rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes nav-out {
+  from {
+    transform: translateX(-1.25rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.animate-nav-in {
+  animation: nav-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.animate-nav-out {
+  animation: nav-out 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-nav-in,
+  .animate-nav-out {
+    animation: none;
+  }
+}
