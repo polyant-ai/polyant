@@ -2,6 +2,10 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: "/"
+    # develop is the integration branch; main only ever receives releases, so
+    # without this dependabot would open PRs against a branch that trails
+    # develop and its version ranges would be stale on arrival.
+    target-branch: develop
     schedule:
       interval: weekly
       day: monday
@@ -40,6 +44,7 @@ updates:
 
   - package-ecosystem: github-actions
     directory: "/"
+    target-branch: develop
     schedule:
       interval: monthly
     labels:
