@@ -12,6 +12,19 @@ CREATE TABLE IF NOT EXISTS "instance_mcp_servers" (
 	CONSTRAINT "uq_instance_mcp_server_slug" UNIQUE("instance_id","slug")
 );
 --> statement-breakpoint
-ALTER TABLE "instance_mcp_servers" ADD CONSTRAINT "instance_mcp_servers_instance_id_instances_id_fk" FOREIGN KEY ("instance_id") REFERENCES "instances"("id") ON DELETE cascade ON UPDATE no action;
+-- Re-run safe: every other statement in this file is IF NOT EXISTS, but
+-- ADD CONSTRAINT has no such form, so a partially-applied re-run would abort
+-- here (42710) instead of being a no-op. Guard it on the catalog.
+DO $$ BEGIN
+	IF NOT EXISTS (
+		SELECT 1 FROM pg_constraint
+		WHERE conname = 'instance_mcp_servers_instance_id_instances_id_fk'
+	) THEN
+		ALTER TABLE "instance_mcp_servers"
+			ADD CONSTRAINT "instance_mcp_servers_instance_id_instances_id_fk"
+			FOREIGN KEY ("instance_id") REFERENCES "instances"("id")
+			ON DELETE cascade ON UPDATE no action;
+	END IF;
+END $$;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_instance_mcp_servers_instance" ON "instance_mcp_servers" ("instance_id");

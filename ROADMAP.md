@@ -14,7 +14,12 @@ contributions and feedback.
 
 - Web search tool (Tavily / Brave Search wrappers).
 - More channel adapters (Discord, Microsoft Teams).
-- First-party MCP server support for tools.
+- Expose Polyant's own tools as an MCP **server**, so an external client can
+  consume them. The client side has shipped — an agent can already equip tools
+  from external MCP servers (`none` / `static` / OAuth 2.1 auth, per agent).
+- A2A **client** (outbound): an agent calling another agent over the Agent2Agent
+  protocol. The server side has shipped — an agent can already be exposed as an
+  A2A agent (opt-in per agent, off by default).
 - Complete multi-tenancy: the `Organization > Workspace > Agent` schema, RBAC
   (enforced unconditionally — there is no shadow mode), tenant-scoped frontend
   URLs and an authoritative workspace URL segment are in place. Still missing:

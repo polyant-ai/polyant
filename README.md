@@ -48,11 +48,13 @@ Polyant is, in short, what happens when you take the architectural lessons of Op
 - **Multi-channel** — Telegram, Slack, WhatsApp, and an OpenAI-compatible HTTP API (with file attachment support)
 - **Provider-agnostic** — Switch between OpenAI and Anthropic per-instance via the admin panel; tier abstraction (`fast | standard | heavy`) decouples code from model names
 - **Tools & Plugins** — Author a tool as `export default defineTool(...)` from `@polyant-ai/plugin-sdk`; the engine loader collects it at boot with no wiring. Tools live in-engine or in external **plugin** repos loaded via `PLUGIN_DIRS` — see [Plugins & the SDK](#plugins--the-sdk)
+- **MCP Client** — Equip an agent with tools from external **Model Context Protocol** servers, configured per agent. Three auth modes (`none` for public or network-isolated servers, `static` for a bearer token or custom header, `oauth` for OAuth 2.1 including Dynamic Client Registration); credentials are stored AES-256-GCM encrypted and never returned by the API. A slow or dead server is skipped for the turn rather than stalling it (`MCP_CONNECT_TIMEOUT_MS`)
+- **A2A Server** — Expose an agent to other agents over the **Agent2Agent** protocol: an Agent Card at `GET /a2a/:slug/.well-known/agent-card.json` and JSON-RPC at `POST /a2a/:slug/jsonrpc`. Opt-in per agent (`a2a_enabled`, default off) and authenticated with the agent's own API key
 - **Skill System** — Markdown-based skill definitions stored in the database; per-instance encrypted env vars for skills that need API keys
 - **Multi-instance** — Independent configuration of prompts, skills, tool availability, and identity per instance; instances exposed as selectable "models" via the OpenAI-compatible API
 - **Per-instance Secrets** — API keys, channel config, and LangSmith settings stored AES-256-GCM encrypted per instance
 - **RBAC** — `Organization → Workspace → Agent` tenancy with four system roles (Owner / Admin / Member / Viewer) and a `resource:action` permission matrix, enforced unconditionally (no shadow mode, no opt-out); membership is granted deliberately by an administrator, never by signing in
-- **Admin Panel** — Next.js 15 frontend for managing instances, conversations, memories, skills, tools, channels, and analytics
+- **Admin Panel** — Next.js 16 frontend for managing instances, conversations, memories, skills, tools, channels, and analytics
 - **Event-driven Room** — Proactive agent workspace that processes webhook events on a 30-second tick and can push outbound messages
 - **Conversation Tracking** — Full message history with summaries and full-text search in PostgreSQL
 - **Analytics** — Token usage, cost tracking, and pipeline latency per instance
@@ -70,6 +72,7 @@ The full documentation lives at **[docs.polyant.ai](https://docs.polyant.ai)** (
 
 ### Operate
 - **[Deployment](https://docs.polyant.ai/operations/deployment)** — Docker Compose, Render, Fly.io, Kubernetes
+- **[Upgrading](docs/UPGRADING.md)** — version-to-version upgrade steps that need an operator decision
 
 ### Understand
 - **[Architecture](https://docs.polyant.ai/concepts/architecture)** — full technical deep dive
@@ -146,7 +149,7 @@ Open `http://localhost:3001`, sign in with the admin credentials from step 3, cr
 
 ```
 ┌──────────────────────────────────────────────┐
-│         packages/web  (Next.js 15)           │
+│         packages/web  (Next.js 16)           │
 │     Admin Panel — instance management        │
 └─────────────────┬────────────────────────────┘
                   │ REST API + cookie auth
@@ -366,7 +369,7 @@ For vulnerability reports, see [SECURITY.md](SECURITY.md) — please do not file
 | Language | TypeScript / Node.js (ESM) |
 | Agent Framework | Vercel AI SDK v4 |
 | Engine Server | NestJS 11 |
-| Admin Panel | Next.js 15, React 19, Tailwind CSS 4, shadcn/ui |
+| Admin Panel | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui |
 | Database | PostgreSQL 16 + pgvector (Drizzle ORM) |
 | Memory | pgvector cosine similarity + PostgreSQL FTS (RRF fusion) |
 | Encryption | AES-256-GCM (Node.js crypto) |

@@ -21,5 +21,8 @@ INSERT INTO "role_permissions" ("role_id", "permission")
   CROSS JOIN (VALUES
     ('agent.secret:read'),('agent.secret:write'),('agent.export:read')
   ) AS p(permission)
-  WHERE r."is_system" = true AND r."key" = 'member'
+  -- `organization_id IS NULL` is what makes a system role GLOBAL (see the
+  -- docblock in authz/role.schema.ts); `is_system = true` alone would also match
+  -- a future per-org system role and silently over-grant it.
+  WHERE r."is_system" = true AND r."organization_id" IS NULL AND r."key" = 'member'
 ON CONFLICT DO NOTHING;
