@@ -339,13 +339,15 @@ describe("PermissionGuard", () => {
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("should_defer_to_role_guard_when_the_route_declares_only_a_non_platform_require_role", async () => {
+  it("should_deny_a_non_platform_admin_require_role_without_a_permission", async () => {
+    // `@RequireRole("user")` names the role every authenticated principal
+    // already has, so accepting it alone was an unscoped allow-all. It must be
+    // paired with @RequirePermission to authorize anything.
     const { guard, context, authz } = setup(
       { [REQUIRED_ROLES_KEY]: ["user"] },
       userReq({}),
     );
-    await expect(guard.canActivate(context)).resolves.toBe(true);
-    // RoleGuard owns the decision; this guard must not also demand a permission.
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
     expect(authz.can).not.toHaveBeenCalled();
   });
 

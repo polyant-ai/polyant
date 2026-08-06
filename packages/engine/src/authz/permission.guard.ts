@@ -82,8 +82,9 @@ function isUserPrincipal(p: Principal): p is UserPrincipal {
  *   1. `@Public()` → allow (the route is intentionally unauthenticated).
  *   2. `@RequiresFeature(f)` and the feature is NOT licensed → deny.
  *   3. No `@RequirePermission()`: `@AuthenticatedOnly()` allows any human user;
- *      `@RequireRole()` defers to RoleGuard, which has already run; a
- *      platform-admin-only role declaration also verifies the current DB flag.
+ *      a PLATFORM-ADMIN-ONLY `@RequireRole()` defers to RoleGuard (already run)
+ *      and additionally verifies the current DB flag. Any other `@RequireRole()`
+ *      is not authorization on its own and denies without `@RequirePermission`.
  *      Otherwise the route is undeclared → deny.
  *   4. ManagementKeyPrincipal (org API key) → allow iff the permission is in
  *      the key's own permission set AND the addressed agent belongs to the
@@ -161,15 +162,30 @@ export class PermissionGuard implements CanActivate {
         const isPlatformAdminOnly = requiredRoles.every(
           (role) => typeof role === "string" && isPlatformAdminRole(role),
         );
-        if (isPlatformAdminOnly) {
-          const request = context.switchToHttp().getRequest();
-          const principal = request.user as Principal;
-          if (
-            !isUserPrincipal(principal) ||
-            !(await this.authz.isPlatformAdmin(principal.userId))
-          ) {
-            throw new ForbiddenException("Current platform administrator standing required");
-          }
+        if (!isPlatformAdminOnly) {
+          // `@RequireRole("user")` names the ONLY role every authenticated
+          // principal already has, so honouring it alone made the route an
+          // unscoped authenticated-allow-all with no permission, no org check
+          // and no tenancy scope. A non-platform-admin role declaration is a
+          // filter, never the authorization decision: pair it with
+          // `@RequirePermission` (or use `@AuthenticatedOnly()` when any signed-in
+          // user really is the intended audience).
+          const route = `${context.getClass().name}.${context.getHandler().name}`;
+          logger.warn(
+            LOG_PREFIX,
+            `deny ${route}: @RequireRole(${requiredRoles.join(", ")}) without @RequirePermission`,
+          );
+          throw new ForbiddenException(
+            "Route declares @RequireRole without @RequirePermission",
+          );
+        }
+        const request = context.switchToHttp().getRequest();
+        const principal = request.user as Principal;
+        if (
+          !isUserPrincipal(principal) ||
+          !(await this.authz.isPlatformAdmin(principal.userId))
+        ) {
+          throw new ForbiddenException("Current platform administrator standing required");
         }
         return true;
       }

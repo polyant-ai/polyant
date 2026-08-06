@@ -110,9 +110,16 @@ export class RoleBindingService {
    * target whose current role is at or below its own `level`. Blocks the
    * admin → owner self-escalation and protects an owner from an admin.
    *
-   * ponytail: gated on `actorId` — the only production caller (MembersService)
-   * always supplies it, so every HTTP path is enforced; an actor-less call
+   * Gated on `actorId` — the only production caller (MembersService) always
+   * supplies it, so every HTTP path is enforced; an actor-less call
    * (system/bootstrap) intentionally skips the check.
+   *
+   * A platform admin RANKS ABOVE EVERY ROLE (rank infinity). It holds no
+   * org-scope binding by design — `MembersService.resolveAndAuthorize` exempts
+   * it from org membership one layer above — so `levelOf` reads 0 for it, below
+   * even `viewer` (10), and every assignment it attempted was rejected here.
+   * That defeated the exemption granted above and left the deployment with no
+   * actor able to bootstrap an Owner.
    */
   private async assertActorOutranks(
     organizationId: string,
@@ -122,6 +129,7 @@ export class RoleBindingService {
     executor?: DbExecutor,
   ): Promise<void> {
     if (!actorId) return;
+    if (await this.authz.isPlatformAdmin(actorId)) return;
 
     const actorLevel = await this.levelOf(organizationId, actorId, executor);
 

@@ -233,11 +233,25 @@ export async function seedInstances(): Promise<void> {
  * `workspaceSlug` narrows further to one workspace of that organization. It only
  * ever narrows: the org filter is ANDed underneath, so a slug belonging to
  * another tenant matches nothing rather than reaching across.
+ *
+ * A workspace slug is NOT globally unique, so it is meaningless — and, without
+ * the org filter beside it, cross-tenant — on its own. The overloads make that
+ * unrepresentable: the unconstrained system listing takes no arguments, and a
+ * `workspaceSlug` can only be supplied alongside an `orgId`. The runtime guard
+ * below fails closed for a JS caller that evades the overloads.
  */
+export async function listAllInstances(): Promise<Instance[]>;
+export async function listAllInstances(
+  orgId: string,
+  workspaceSlug?: string,
+): Promise<Instance[]>;
 export async function listAllInstances(
   orgId?: string,
   workspaceSlug?: string,
 ): Promise<Instance[]> {
+  if (workspaceSlug && !orgId) {
+    throw new Error("listAllInstances: workspaceSlug requires an orgId");
+  }
   const orgFilter = orgId ? buildOrgScopedAgentFilter(orgId, "slug") : undefined;
   const workspaceFilter = workspaceSlug
     ? sql`${instances.workspaceId} in (

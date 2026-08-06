@@ -44,7 +44,10 @@ import { RoleBindingService } from "./role-binding.service.js";
 const ORG = "org-1";
 
 function makeService() {
-  const authz = { invalidateBindingCache: vi.fn() };
+  const authz = {
+    invalidateBindingCache: vi.fn(),
+    isPlatformAdmin: vi.fn().mockResolvedValue(false),
+  };
   const service = new RoleBindingService(authz as never);
   return { service, authz };
 }
@@ -208,6 +211,56 @@ describe("RoleBindingService", () => {
           organizationId: ORG,
           userId: "target",
           roleKey: "member",
+          actorId: "actor",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(mockUpsertOrganizationMemberRole).not.toHaveBeenCalled();
+    });
+
+    it("lets a platform admin assign owner despite holding no org binding", async () => {
+      // A platform admin is exempt from org membership, so it has no org-scope
+      // role and would rank below `viewer` if ranked by binding alone.
+      rolesByUser({ target: "member" });
+      const { service, authz } = makeService();
+      authz.isPlatformAdmin.mockResolvedValue(true);
+
+      await service.assignMemberRole({
+        organizationId: ORG,
+        userId: "target",
+        roleKey: "owner",
+        actorId: "platform-admin",
+      });
+
+      expect(authz.isPlatformAdmin).toHaveBeenCalledWith("platform-admin");
+      expect(mockUpsertOrganizationMemberRole).toHaveBeenCalled();
+    });
+
+    it("lets a platform admin modify an existing owner", async () => {
+      rolesByUser({ target: "owner" });
+      mockCountOwnerBindings.mockResolvedValue(2);
+      const { service, authz } = makeService();
+      authz.isPlatformAdmin.mockResolvedValue(true);
+
+      await service.assignMemberRole({
+        organizationId: ORG,
+        userId: "target",
+        roleKey: "member",
+        actorId: "platform-admin",
+      });
+
+      expect(mockUpsertOrganizationMemberRole).toHaveBeenCalled();
+    });
+
+    it("still blocks a plain admin from assigning owner (hierarchy intact)", async () => {
+      rolesByUser({ actor: "admin", target: "member" });
+      const { service, authz } = makeService();
+      authz.isPlatformAdmin.mockResolvedValue(false);
+
+      await expect(
+        service.assignMemberRole({
+          organizationId: ORG,
+          userId: "target",
+          roleKey: "owner",
           actorId: "actor",
         }),
       ).rejects.toBeInstanceOf(ForbiddenException);
