@@ -20,7 +20,7 @@ import {
   PATH_METADATA,
   METHOD_METADATA,
   MODULE_METADATA,
-} from "@nestjs/common/constants";
+} from "@nestjs/common/constants.js";
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
 import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import { ALLOW_INSTANCE_API_KEY } from "../auth/decorators/allow-instance-api-key.decorator.js";
