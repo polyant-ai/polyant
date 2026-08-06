@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Integration test for migration 0073 (instance -> agent DB-name rename).
+ * Integration test for migration 0075 (instance -> agent DB-name rename).
  * Asserts the renamed tables and columns against a migrated Postgres, so a
  * partially-applied rename (a table missed from the migration list) fails loudly
  * instead of surfacing as "zero rows" at runtime.
@@ -77,7 +77,7 @@ async function columnsNamed(column: string): Promise<Set<string>> {
   return new Set(rows.map((r) => r.table_name));
 }
 
-describe.skipIf(!DB_AVAILABLE)("0073 instance -> agent rename", () => {
+describe.skipIf(!DB_AVAILABLE)("0075 instance -> agent rename", () => {
   it("renames every instance_* table to agent_* and leaves no instance_* table behind", async () => {
     const tables = await publicTables();
 

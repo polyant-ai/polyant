@@ -17,7 +17,7 @@ Everything below was re-verified against `develop` on 2026-08-06. Do not trust t
 | | 2026-06-21 plan | This plan |
 |---|---|---|
 | Base branch | `feat/rbac-epic` | `develop` |
-| Migration slot | 0053 | **0073** (head is 0072) |
+| Migration slot | 0053 | **0075** (head is 0072; 0073 and 0074 are claimed by the open MCP #237 and A2A #257 PRs) |
 | CI | not gated | `develop` **is** CI-gated |
 | Tables with `instance_id` | 14 + 9 renamed | **17 + 9 renamed** — adds `conversation_state` (0043), `principal_secrets` (0069), `oauth_states` (0070) |
 | Branded-id files | 122 | **126** |
@@ -26,7 +26,7 @@ Everything below was re-verified against `develop` on 2026-08-06. Do not trust t
 | Web `/api/instances` refs | 74 across 4 files | **78 across 6 files** |
 | `WORKSPACES_ROOT` refs | 46 | **47** |
 
-**Incoming collision — `instance_mcp_servers`:** the MCP-client branch (PR #237) adds this table and it is already present in the local dev database, but it is **not** in `develop`. It is deliberately **excluded** from migration 0073. Whichever of the two lands second must rename the other's surface: if MCP merges first, add `instance_mcp_servers → agent_mcp_servers` to 0073; if this lands first, MCP must be authored as `agent_mcp_servers` and renumbered.
+**Incoming collision — `instance_mcp_servers`:** the MCP-client branch (PR #237) adds this table and it is already present in the local dev database, but it is **not** in `develop`. It is deliberately **excluded** from migration 0075. Whichever of the two lands second must rename the other's surface: if MCP merges first, add `instance_mcp_servers → agent_mcp_servers` to 0075; if this lands first, MCP must be authored as `agent_mcp_servers` and renumbered.
 
 ## Global Constraints
 
@@ -74,7 +74,7 @@ These apply to **every** track below.
 | Track | Deliverable | Depends on |
 |---|---|---|
 | **PR-0** | `workspace`→`sandbox` for the filesystem sandbox term | none |
-| **PR-1** | Migration 0073 + Drizzle string literals + raw-SQL identifiers | none |
+| **PR-1** | Migration 0075 + Drizzle string literals + raw-SQL identifiers | none |
 | **PR-2** | Engine TS symbols, branded types, `resolve*`, dual-prefix controllers | PR-1 |
 | **PR-3** | Web `/api/agents` call sites, route group, rewrite alias | PR-2 |
 | **PR-4** | Drop the dual prefix + deprecated rewrite | PR-3 |
@@ -121,11 +121,11 @@ grep -rn 'src/workspace' packages/engine/src     # expect 0
 
 ---
 
-## PR-1 — DB layer (migration 0073 + Drizzle strings + raw SQL)
+## PR-1 — DB layer (migration 0075 + Drizzle strings + raw SQL)
 
 **Why this split:** the migration renames DB tables/columns, so everything that names a DB string directly — Drizzle `pgTable("instances", …)` / `uuid("instance_id")` literals AND raw SQL — must change in the *same* commit or the app breaks. TS *symbols* stay put; they move in PR-2.
 
-**Files:** create `packages/engine/src/database/migrations/0073_rename_instance_to_agent.sql`; modify the Drizzle literals in `instances/{schema,prompts.schema,instance-skills.schema,instance-tools.schema,secrets.schema,channels.schema,skill-env.schema}.ts`, `room/room.schema.ts`, `hooks/hooks.schema.ts`, `conversations/{schema,principal-secrets.schema}.ts`, `memory/schema.ts`, `analytics/traces.schema.ts`, `audit/audit.schema.ts`, `ai-gateway/logger.ts`, `knowledge/schema.ts`, `scheduled-tasks/schema.ts`, `optout/optout.schema.ts`, `webhooks/webhooks.schema.ts`, `server/oauth/oauth-states.schema.ts`; raw SQL in `authz/scope-filter.ts`, `utils/query-helpers.ts`.
+**Files:** create `packages/engine/src/database/migrations/0075_rename_instance_to_agent.sql`; modify the Drizzle literals in `instances/{schema,prompts.schema,instance-skills.schema,instance-tools.schema,secrets.schema,channels.schema,skill-env.schema}.ts`, `room/room.schema.ts`, `hooks/hooks.schema.ts`, `conversations/{schema,principal-secrets.schema}.ts`, `memory/schema.ts`, `analytics/traces.schema.ts`, `audit/audit.schema.ts`, `ai-gateway/logger.ts`, `knowledge/schema.ts`, `scheduled-tasks/schema.ts`, `optout/optout.schema.ts`, `webhooks/webhooks.schema.ts`, `server/oauth/oauth-states.schema.ts`; raw SQL in `authz/scope-filter.ts`, `utils/query-helpers.ts`.
 
 - [ ] **Step 1: Discovery — verify the exact table/column set against the live DB**
 
@@ -138,11 +138,11 @@ docker exec polyant-postgres psql -U polyant -d polyant -tAc \
 
 Reconcile against the Ground-Truth Inventory. Exclude tables that belong to unmerged branches (`instance_mcp_servers`) and any governance/`assistant_id` table (EE-only).
 
-- [ ] **Step 2: Write the migration round-trip test (failing first)** — `packages/engine/src/database/0073-rename.integration.test.ts`: assert `agents` exists and `instances` does not; assert `conversations.agent_id` exists and `conversations.instance_id` does not.
+- [ ] **Step 2: Write the migration round-trip test (failing first)** — `packages/engine/src/database/0075-rename.integration.test.ts`: assert `agents` exists and `instances` does not; assert `conversations.agent_id` exists and `conversations.instance_id` does not.
 
 - [ ] **Step 3: Run it to confirm FAIL.**
 
-- [ ] **Step 4: Write `0073_rename_instance_to_agent.sql`** — one `BEGIN`/`COMMIT` transaction: 9 `ALTER TABLE … RENAME TO agent_*` + their `RENAME COLUMN instance_id TO agent_id`, then a `RENAME COLUMN` for each of the 17 name-keeping tables. Postgres auto-renames PK/FK constraints and indexes that reference the table, but **named** indexes keep their old string — add optional `ALTER INDEX … RENAME TO …` lines for cosmetic consistency.
+- [ ] **Step 4: Write `0075_rename_instance_to_agent.sql`** — one `BEGIN`/`COMMIT` transaction: 9 `ALTER TABLE … RENAME TO agent_*` + their `RENAME COLUMN instance_id TO agent_id`, then a `RENAME COLUMN` for each of the 17 name-keeping tables. Postgres auto-renames PK/FK constraints and indexes that reference the table, but **named** indexes keep their old string — add optional `ALTER INDEX … RENAME TO …` lines for cosmetic consistency.
 
 - [ ] **Step 5: `npm run db:migrate -w @polyant/engine`** then re-run the round-trip test — expect PASS.
 
@@ -168,7 +168,7 @@ grep -rniE 'from instances\b|into instances\b|table instances\b' packages/engine
 
 (Historical migration files keep their old identifiers — they are an applied ledger and MUST NOT be edited.)
 
-- [ ] **Step 10: Commit** — `feat(db): migration 0073 rename instances→agents (table+column layer)`
+- [ ] **Step 10: Commit** — `feat(db): migration 0075 rename instances→agents (table+column layer)`
 
 ---
 
@@ -298,8 +298,8 @@ above, all discovered during execution:
 **Verification actually run** (baseline recorded on `develop` first: engine 2524 tests,
 web 498, typecheck clean):
 
-- Migration 0073 applied onto a **fresh** database through the whole 0001→0073 chain;
-  the round-trip integration test fails at 0072 and passes at 0073.
+- Migration 0075 applied onto a **fresh** database through the whole 0001→0075 chain;
+  the round-trip integration test fails at 0074 and passes at 0075.
 - Engine: `typecheck` ✓, **207 files / 2552 tests** ✓, `lint` 0 errors (513 warnings,
   same as baseline).
 - Web: `typecheck` ✓, **50 files / 498 tests** ✓, `build:web` ✓ (routes render as
@@ -317,6 +317,6 @@ factories keying the mocked Drizzle schema module by its old export name (untype
 
 **Coverage:** sandbox rename ✓ PR-0; DB ✓ PR-1; engine ✓ PR-2; web ✓ PR-3; alias removal ✓ PR-4; docs ✓.
 
-**Deviations from the 2026-06-21 plan (deliberate):** base is `develop`, not `feat/rbac-epic`; migration is **0073**; inventory adds `conversation_state`, `principal_secrets`, `oauth_states`; `instance_mcp_servers` excluded with a documented hand-off; the engine `instances/` directory move is explicitly out of scope; `develop` is CI-gated so the local gates are corroborated rather than sole.
+**Deviations from the 2026-06-21 plan (deliberate):** base is `develop`, not `feat/rbac-epic`; migration is **0075** (0073 and 0074 are claimed by the open MCP #237 and A2A #257 PRs, so this takes the next free slot rather than colliding); inventory adds `conversation_state`, `principal_secrets`, `oauth_states`; `instance_mcp_servers` excluded with a documented hand-off; the engine `instances/` directory move is explicitly out of scope; `develop` is CI-gated so the local gates are corroborated rather than sole.
 
 **Type consistency:** `resolveAgentId`/`resolveAgentSlug`, `AgentSlug`/`AgentUuid`, `asAgentSlug`/`asAgentUuid`, `agents`/`Agent`, `agent_id` — used consistently across PR-1…PR-3.

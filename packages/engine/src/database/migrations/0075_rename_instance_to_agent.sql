@@ -1,4 +1,4 @@
--- 0073_rename_instance_to_agent.sql
+-- 0075_rename_instance_to_agent.sql
 -- Renames the core domain entity instance -> agent at the DB-name layer.
 --
 -- Two groups:
@@ -17,6 +17,11 @@
 -- NOT covered here: instance_mcp_servers. That table belongs to the unmerged
 -- MCP-client branch (PR #237) and does not exist on develop. Whichever of the
 -- two lands second owns renaming the other's surface.
+--
+-- Slot 0075, not 0073: PR #237 (MCP) already claims 0073 and PR #257 (A2A)
+-- claims 0074, so this takes the next free number instead of colliding with
+-- either. If one of them is abandoned the gap is cosmetic — the Drizzle journal
+-- orders by idx, not by filename.
 --
 -- Single transaction: any failure rolls the whole rename back.
 
