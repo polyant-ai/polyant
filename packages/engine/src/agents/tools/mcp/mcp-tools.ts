@@ -10,6 +10,7 @@ import { toModelToolName } from "../registry.js";
 import { listEnabledMcpServers, type McpServerRecord } from "../../../instances/mcp-servers.store.js";
 import { makeMcpOAuthProvider, type McpVaultOAuthProvider } from "./mcp-oauth-provider.js";
 import { mcpLog } from "./mcp-logger.js";
+import { assertSafeMcpUrlResolved } from "./mcp-url-guard.js";
 import { errMsg } from "../../../utils/error.js";
 
 export interface McpBuildResult {
@@ -100,6 +101,18 @@ export async function buildMcpTools(opts: {
         config: server.config,
       });
     }
+    // Re-check the URL on every connect, resolved addresses included. The
+    // write-time check in the controller approved this URL once; the name behind
+    // it can have been repointed at an internal host since (see
+    // `assertSafeMcpUrlResolved`). A rejection skips the server for this turn —
+    // same degradation as an unreachable one.
+    try {
+      await assertSafeMcpUrlResolved(server.url);
+    } catch (e) {
+      mcpLog.warn("mcp", `server '${server.slug}' skipped: URL rejected by the SSRF guard at connect time: ${errMsg(e)}`);
+      continue;
+    }
+
     const allowList = (server.config as { allowList?: string[] }).allowList;
     const transport = provider
       ? { type: "http" as const, url: server.url, authProvider: provider }

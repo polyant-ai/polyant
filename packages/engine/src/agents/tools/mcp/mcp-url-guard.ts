@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { BadRequestException } from "@nestjs/common";
+import { lookup } from "dns/promises";
+import { isIP } from "net";
 
 const IPV4_PRIVATE =
   /^(10\.|127\.|192\.168\.|169\.254\.)|^172\.(1[6-9]|2\d|3[01])\./;
@@ -81,4 +83,66 @@ export function assertSafeMcpUrl(raw: string, env: NodeJS.ProcessEnv = process.e
       throw new BadRequestException("Private/loopback hosts are not allowed");
     }
   }
+}
+
+/** The bracket/trailing-dot normalization `assertSafeMcpUrl` applies before the denylist. */
+function normalizeHost(hostname: string): string {
+  return hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+}
+
+/**
+ * The literal-URL checks of {@link assertSafeMcpUrl} PLUS a denylist check on
+ * every address the hostname currently resolves to.
+ *
+ * Call this on the connection path, not just when the config is written.
+ * `assertSafeMcpUrl` alone is a write-time check, and the URL it approved is
+ * reused on every turn: an admin can save a hostname that resolves to a public
+ * address and the operator of that name can later repoint it at
+ * `169.254.169.254` (or any internal host), at which point every turn issues an
+ * authenticated request into the private network. Resolving here closes that
+ * window.
+ *
+ * Residual risk, accepted: this is a check-then-connect, so a name that answers
+ * differently between our lookup and the HTTP client's own (classic DNS
+ * rebinding with a near-zero TTL) can still slip through. Closing it fully means
+ * pinning the resolved address into the socket — a custom agent/dispatcher that
+ * `@ai-sdk/mcp`'s transport does not expose today.
+ */
+export async function assertSafeMcpUrlResolved(
+  raw: string,
+  env: NodeJS.ProcessEnv = process.env,
+  resolveHost: (host: string) => Promise<string[]> = defaultResolveHost,
+): Promise<void> {
+  assertSafeMcpUrl(raw, env);
+  if (env.NODE_ENV !== "production") return;
+
+  const host = normalizeHost(new URL(raw).hostname);
+  // An IP literal was already checked by assertSafeMcpUrl; resolving it is a
+  // pointless round-trip.
+  if (isIpLiteral(host)) return;
+
+  let addresses: string[];
+  try {
+    addresses = await resolveHost(host);
+  } catch {
+    // Fail closed: a name we cannot resolve is a name we cannot vouch for.
+    throw new BadRequestException("Could not resolve MCP server host");
+  }
+  if (addresses.some((addr) => isBlockedHost(normalizeHost(addr)))) {
+    throw new BadRequestException("MCP server host resolves to a private/loopback address");
+  }
+}
+
+/**
+ * `new URL()` already canonicalizes every `inet_aton` IPv4 spelling (decimal,
+ * hex, octal, short form) to a dotted quad, so `isIP` sees the normalized host
+ * and there is no alternative-notation gap to close here.
+ */
+function isIpLiteral(host: string): boolean {
+  return isIP(host) !== 0;
+}
+
+async function defaultResolveHost(host: string): Promise<string[]> {
+  const results = await lookup(host, { all: true, verbatim: true });
+  return results.map((r) => r.address);
 }

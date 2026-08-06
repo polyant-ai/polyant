@@ -2,6 +2,7 @@
 
 import { UnauthorizedError } from "@ai-sdk/mcp";
 import { connectWithTimeout } from "./mcp-connect.js";
+import { assertSafeMcpUrlResolved } from "./mcp-url-guard.js";
 import { config } from "../../../config.js";
 import type { McpAuthMode } from "../../../instances/mcp-servers.store.js";
 
@@ -25,6 +26,10 @@ export async function testMcpConnection(opts: McpTestOptions): Promise<McpTestRe
       // reachable MCP OAuth server before the user goes through the real authorize flow.
       return { ok: true, requiresOAuth: true };
     }
+    // Resolve-and-check before dialling. The controller's write-time
+    // `assertSafeMcpUrl` only inspects the literal URL, which leaves this
+    // endpoint usable as an SSRF probe against names that resolve internally.
+    await assertSafeMcpUrlResolved(opts.url);
     const auth = (opts.config as { auth?: { type: string; token: string; headerName?: string } }).auth;
     const headers = auth ? (auth.type === "bearer" ? { Authorization: `Bearer ${auth.token}` } : { [auth.headerName!]: auth.token }) : {};
     // Bounded by the same connect timeout the pipeline uses: a URL that accepts
