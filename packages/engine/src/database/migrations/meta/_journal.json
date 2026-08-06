@@ -470,6 +470,13 @@
       "when": 1781654400000,
       "tag": "0073_instance_mcp_servers",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1781740800000,
+      "tag": "0074_add_a2a_enabled",
+      "breakpoints": true
     }
   ]
 }

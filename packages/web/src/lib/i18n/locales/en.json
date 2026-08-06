@@ -428,6 +428,8 @@
   "settings.tab.cacheTtl5m": "5 minutes",
   "settings.tab.cacheTtl1h": "1 hour",
   "settings.tab.cacheTtlBedrock": "5 minutes (fixed on Bedrock)",
+  "settings.tab.a2a": "A2A",
+  "settings.tab.a2aHelp": "When on, this instance is reachable over the inbound Agent2Agent (A2A) protocol — discovery and task endpoints respond normally. Off returns 404 for those endpoints.",
   "settings.tab.toolResultsInHistory": "Tool results in history",
   "settings.tab.toolResultsInHistoryHelp": "When on, prior-turn tool results are replayed (truncated) into the model's context so it remembers what tools returned across turns. Off replays only the assistant's text. Uses more tokens per turn.",
   "settings.tab.debug": "Debug mode",

@@ -280,6 +280,7 @@ export const api = {
         datetimeInjectionEnabled?: boolean;
         cacheEnabled?: boolean;
         cacheTtl?: string;
+        a2aEnabled?: boolean;
         toolResultsInHistoryEnabled?: boolean;
         debugEnabled?: boolean;
         sttProvider?: "openai" | "aws" | "deepgram";

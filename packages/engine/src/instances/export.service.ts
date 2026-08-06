@@ -109,6 +109,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl === "5m" ? "5m" : "1h",
+    a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     sttProvider: instance.sttProvider,

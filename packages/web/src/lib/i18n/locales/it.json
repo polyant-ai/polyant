@@ -428,6 +428,8 @@
   "settings.tab.cacheTtl5m": "5 minuti",
   "settings.tab.cacheTtl1h": "1 ora",
   "settings.tab.cacheTtlBedrock": "5 minuti (fisso su Bedrock)",
+  "settings.tab.a2a": "A2A",
+  "settings.tab.a2aHelp": "Se attivo, questa istanza è raggiungibile tramite il protocollo inbound Agent2Agent (A2A) — gli endpoint di discovery e task rispondono normalmente. Se disattivo, quegli endpoint restituiscono 404.",
   "settings.tab.toolResultsInHistory": "Risultati dei tool nella history",
   "settings.tab.toolResultsInHistoryHelp": "Se attivo, i risultati dei tool dei turni precedenti vengono ri-iniettati (troncati) nel contesto del modello, così ricorda cosa hanno restituito i tool. Se disattivo, viene ripetuto solo il testo dell'assistant. Aumenta i token per turno.",
   "settings.tab.debug": "Modalità debug",

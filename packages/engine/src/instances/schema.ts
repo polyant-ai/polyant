@@ -43,6 +43,8 @@ export const instances = pgTable("instances", {
   cacheEnabled: boolean("cache_enabled").notNull().default(true),
   /** Cross-turn Anthropic cache TTL: "5m" or "1h" (default "1h"). Bedrock is 5m regardless. */
   cacheTtl: text("cache_ttl").notNull().default("1h"),
+  /** Gates A2A (Agent2Agent) server exposure for this instance. Default false — opt-in. */
+  a2aEnabled: boolean("a2a_enabled").notNull().default(false),
   /**
    * When true, prior-turn tool calls + results are reconstructed (truncated) into
    * the model's cross-turn history so it "remembers" what tools returned. Default

@@ -131,6 +131,8 @@ export interface Instance {
   cacheEnabled: boolean;
   /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
   cacheTtl: string;
+  /** Gates A2A (Agent2Agent) server exposure for this instance. Default false — opt-in. */
+  a2aEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed into the model's cross-turn history. */
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
@@ -309,6 +311,7 @@ type UpdatableInstanceFields = {
   datetimeInjectionEnabled?: boolean;
   cacheEnabled?: boolean;
   cacheTtl?: string;
+  a2aEnabled?: boolean;
   toolResultsInHistoryEnabled?: boolean;
   debugEnabled?: boolean;
   icon?: string | null;
@@ -341,6 +344,7 @@ const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
   "datetimeInjectionEnabled",
   "cacheEnabled",
   "cacheTtl",
+  "a2aEnabled",
   "toolResultsInHistoryEnabled",
   "debugEnabled",
   "icon",
