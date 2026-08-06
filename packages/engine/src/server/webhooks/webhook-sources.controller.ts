@@ -5,8 +5,8 @@ import {
   listEventSourcesWithDefinitions, createEventSource, updateEventSource, deleteEventSource,
   rotateWebhookToken, listDefinitions, createDefinition, updateDefinition, deleteDefinition,
 } from "../../webhooks/webhook-sources.store.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { maskSensitiveConfig } from "../instances/instance-helpers.js";
 import { config } from "../../config.js";
 import {
@@ -25,7 +25,7 @@ export class EventSourcesController {
   @RequirePermission(Permission.ROOM_READ)
   @Get()
   async list(@Param("slug") slug: string) {
-    const sources = await listEventSourcesWithDefinitions(asInstanceSlug(slug));
+    const sources = await listEventSourcesWithDefinitions(asAgentSlug(slug));
     return sources.map((s) => ({
       ...s,
       config: maskSensitiveConfig(s.config),
@@ -44,7 +44,7 @@ export class EventSourcesController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     const result = await createEventSource(instanceId, parsed.data);
@@ -66,7 +66,7 @@ export class EventSourcesController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     // Strip masked values to prevent overwriting real secrets with mask placeholders
@@ -88,7 +88,7 @@ export class EventSourcesController {
     @Param("slug") slug: string,
     @Param("id") id: string,
   ) {
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     await deleteEventSource(id, instanceId);
@@ -101,7 +101,7 @@ export class EventSourcesController {
     @Param("slug") slug: string,
     @Param("id") id: string,
   ) {
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     const newToken = await rotateWebhookToken(id, instanceId);
@@ -117,7 +117,7 @@ export class EventSourcesController {
     @Param("slug") slug: string,
     @Param("id") id: string,
   ) {
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     return listDefinitions(id, instanceId);
@@ -135,7 +135,7 @@ export class EventSourcesController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     return createDefinition(id, instanceId, parsed.data);
@@ -154,7 +154,7 @@ export class EventSourcesController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     await updateDefinition(defId, id, instanceId, parsed.data);
@@ -168,7 +168,7 @@ export class EventSourcesController {
     @Param("id") id: string,
     @Param("defId") defId: string,
   ) {
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     await deleteDefinition(defId, id, instanceId);

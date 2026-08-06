@@ -16,7 +16,7 @@ import {
   resolvePrincipalOrgId,
   type Instance,
 } from "../../instances/store.js";
-import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "../../instances/identifiers.js";
 
 /**
  * The two principal shapes that can reach GET /v1/models (see AuthGuard): a
@@ -51,7 +51,7 @@ export class OpenAIService {
    */
   async listInstances(principal?: ModelsPrincipal): Promise<Instance[]> {
     if (principal?.kind === "instance") {
-      const own = await findInstanceBySlug(asInstanceSlug(principal.instanceSlug));
+      const own = await findInstanceBySlug(asAgentSlug(principal.instanceSlug));
       return own && own.status === "active" ? [own] : [];
     }
     const orgId = await resolvePrincipalOrgId(principal?.orgId);
@@ -121,7 +121,7 @@ export class OpenAIService {
     text: string;
     conversationHistory: ModelMessage[];
     systemMessages: Array<{ role: "system"; content: string }>;
-    instanceId: InstanceSlug;
+    instanceId: AgentSlug;
     channelId: string;
   } {
     const { messages, chat_id } = request;
@@ -147,7 +147,7 @@ export class OpenAIService {
 
     // Use the model field as instance slug (falls back to default).
     // `request.model` is the client-chosen instance slug; its existence is validated downstream by findInstanceBySlug.
-    const instanceId = request.model ? asInstanceSlug(request.model) : DEFAULT_INSTANCE_ID;
+    const instanceId = request.model ? asAgentSlug(request.model) : DEFAULT_INSTANCE_ID;
 
     const channelId = this.deriveChannelId(messages, chat_id);
 

@@ -2,7 +2,7 @@
 
 import { pgTable, uuid, text, integer, real, timestamp, boolean, index } from "drizzle-orm/pg-core";
 import type { AILogEntry, ModelTier } from "./types.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 export const aiLogs = pgTable(
   "ai_logs",
@@ -93,7 +93,7 @@ export class AILogger {
     reasoningChars: number,
     stepCount: number,
     conversationId?: string,
-    instanceId?: InstanceSlug,
+    instanceId?: AgentSlug,
     callType?: "conversation" | "service",
     cachedInputTokens?: number,
     cacheCreationInputTokens?: number,

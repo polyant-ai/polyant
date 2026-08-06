@@ -4,11 +4,11 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instanceSkillEnv } from "./skill-env.schema.js";
 import { encrypt, decrypt } from "../crypto/index.js";
-import { resolveInstanceId } from "./resolve-instance-id.js";
-import { type InstanceSlug, type InstanceUuid } from "./identifiers.js";
+import { resolveAgentId } from "./resolve-agent-id.js";
+import { type AgentSlug, type AgentUuid } from "./identifiers.js";
 
 export async function setSkillEnv(params: {
-  instanceId: InstanceUuid;
+  instanceId: AgentUuid;
   skillSlug: string;
   key: string;
   value: string;
@@ -35,10 +35,10 @@ export async function setSkillEnv(params: {
  * Accepts instance slug (e.g. "default"), resolves to UUID internally.
  */
 export async function getSkillEnv(
-  instanceSlug: InstanceSlug,
+  instanceSlug: AgentSlug,
   skillSlug: string,
 ): Promise<Record<string, string>> {
-  const instanceId = await resolveInstanceId(instanceSlug);
+  const instanceId = await resolveAgentId(instanceSlug);
   if (!instanceId) return {};
 
   const rows = await db
@@ -58,12 +58,12 @@ export async function getSkillEnv(
  * Accepts instance slug (e.g. "default"), resolves to UUID internally.
  */
 export async function hasAllRequiredEnv(
-  instanceSlug: InstanceSlug,
+  instanceSlug: AgentSlug,
   skillSlug: string,
   keys: string[],
 ): Promise<boolean> {
   if (keys.length === 0) return true;
-  const instanceId = await resolveInstanceId(instanceSlug);
+  const instanceId = await resolveAgentId(instanceSlug);
   if (!instanceId) return false;
 
   const rows = await db
@@ -80,7 +80,7 @@ export async function hasAllRequiredEnv(
  * Returns a Map<skillSlug, boolean>.
  */
 export async function hasAllRequiredEnvBatch(
-  instanceSlug: InstanceSlug,
+  instanceSlug: AgentSlug,
   checks: Array<{ skillSlug: string; keys: string[] }>,
 ): Promise<Map<string, boolean>> {
   const result = new Map<string, boolean>();
@@ -93,7 +93,7 @@ export async function hasAllRequiredEnvBatch(
 
   if (needsCheck.length === 0) return result;
 
-  const instanceId = await resolveInstanceId(instanceSlug);
+  const instanceId = await resolveAgentId(instanceSlug);
   if (!instanceId) {
     for (const c of needsCheck) result.set(c.skillSlug, false);
     return result;
@@ -122,7 +122,7 @@ export async function hasAllRequiredEnvBatch(
 }
 
 export async function deleteSkillEnv(
-  instanceId: InstanceUuid,
+  instanceId: AgentUuid,
   skillSlug: string,
   key: string,
 ): Promise<void> {

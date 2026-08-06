@@ -2,15 +2,15 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { db } from "../database/client.js";
-import { instances } from "../instances/schema.js";
+import { agents } from "../instances/schema.js";
 import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
 import { contactOptouts } from "./optout.schema.js";
 import { eq, sql } from "drizzle-orm";
-import { asInstanceSlug, asInstanceUuid } from "../instances/identifiers.js";
+import { asAgentSlug, asAgentUuid } from "../instances/identifiers.js";
 import { getOptoutStatus, setOptoutStatus, listOptouts } from "./index.js";
 
-const SLUG = asInstanceSlug("optout-itest");
-let instanceId: ReturnType<typeof asInstanceUuid>;
+const SLUG = asAgentSlug("optout-itest");
+let instanceId: ReturnType<typeof asAgentUuid>;
 let workspaceId: string;
 
 /**
@@ -42,14 +42,14 @@ describe.skipIf(!DB_AVAILABLE)("contact opt-out lifecycle (integration)", () => 
   beforeAll(async () => {
     workspaceId = await findDefaultWorkspaceId();
     const [row] = await db
-      .insert(instances)
+      .insert(agents)
       .values({ slug: SLUG, name: "Optout ITest", workspaceId })
       .returning();
-    instanceId = asInstanceUuid(row.id);
+    instanceId = asAgentUuid(row.id);
   });
 
   afterAll(async () => {
-    await db.delete(instances).where(eq(instances.slug, SLUG)); // cascade drops contact_optouts
+    await db.delete(agents).where(eq(agents.slug, SLUG)); // cascade drops contact_optouts
   });
 
   it("defaults to opted_in when no row exists", async () => {
@@ -68,14 +68,14 @@ describe.skipIf(!DB_AVAILABLE)("contact opt-out lifecycle (integration)", () => 
 
   it("cascade: deleting the instance removes its opt-out rows", async () => {
     await setOptoutStatus({ instanceId, instanceSlug: SLUG, channelType: "telegram", channelId: "123", status: "opted_out", source: "user" });
-    await db.delete(instances).where(eq(instances.slug, SLUG));
+    await db.delete(agents).where(eq(agents.slug, SLUG));
     const remaining = await db.select().from(contactOptouts).where(eq(contactOptouts.instanceId, instanceId));
     expect(remaining).toHaveLength(0);
     // Re-create for afterAll idempotency
     const [row] = await db
-      .insert(instances)
+      .insert(agents)
       .values({ slug: SLUG, name: "Optout ITest", workspaceId })
       .returning();
-    instanceId = asInstanceUuid(row.id);
+    instanceId = asAgentUuid(row.id);
   });
 });

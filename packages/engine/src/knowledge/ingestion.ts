@@ -8,7 +8,7 @@ import {
   updateDocumentStatus,
 } from "./store.js";
 import { embedMany, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 import { sanitizeForLog } from "../utils/create-logger.js";
 
 /**
@@ -25,7 +25,7 @@ import { sanitizeForLog } from "../utils/create-logger.js";
  */
 export async function processDocument(
   docId: string,
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   textContent: string,
 ): Promise<{ chunkCount: number }> {
   try {

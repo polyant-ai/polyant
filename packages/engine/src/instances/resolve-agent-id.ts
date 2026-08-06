@@ -2,29 +2,29 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instances } from "./schema.js";
-import { asInstanceUuid, asInstanceSlug, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
+import { agents } from "./schema.js";
+import { asAgentUuid, asAgentSlug, type AgentSlug, type AgentUuid } from "./identifiers.js";
 import { findInstanceById, findInstanceBySlug } from "./store.js";
 import type { Instance } from "./store.js";
 
 /** Resolve an instance slug to its UUID. */
-export async function resolveInstanceId(slug: InstanceSlug): Promise<InstanceUuid | undefined> {
+export async function resolveAgentId(slug: AgentSlug): Promise<AgentUuid | undefined> {
   const rows = await db
-    .select({ id: instances.id })
-    .from(instances)
-    .where(eq(instances.slug, slug))
+    .select({ id: agents.id })
+    .from(agents)
+    .where(eq(agents.slug, slug))
     .limit(1);
-  return rows[0] ? asInstanceUuid(rows[0].id) : undefined;
+  return rows[0] ? asAgentUuid(rows[0].id) : undefined;
 }
 
 /** Resolve an instance UUID to its slug. */
-export async function resolveInstanceSlug(instanceId: InstanceUuid): Promise<InstanceSlug | undefined> {
+export async function resolveAgentSlug(instanceId: AgentUuid): Promise<AgentSlug | undefined> {
   const rows = await db
-    .select({ slug: instances.slug })
-    .from(instances)
-    .where(eq(instances.id, instanceId))
+    .select({ slug: agents.slug })
+    .from(agents)
+    .where(eq(agents.id, instanceId))
     .limit(1);
-  return rows[0] ? asInstanceSlug(rows[0].slug) : undefined;
+  return rows[0] ? asAgentSlug(rows[0].slug) : undefined;
 }
 
 /**
@@ -35,7 +35,7 @@ export async function resolveInstanceSlug(instanceId: InstanceUuid): Promise<Ins
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function findInstanceByIdOrSlug(idOrSlug: string): Promise<Instance | undefined> {
   if (UUID_RE.test(idOrSlug)) {
-    return (await findInstanceById(idOrSlug)) ?? (await findInstanceBySlug(asInstanceSlug(idOrSlug)));
+    return (await findInstanceById(idOrSlug)) ?? (await findInstanceBySlug(asAgentSlug(idOrSlug)));
   }
-  return (await findInstanceBySlug(asInstanceSlug(idOrSlug))) ?? (await findInstanceById(idOrSlug));
+  return (await findInstanceBySlug(asAgentSlug(idOrSlug))) ?? (await findInstanceById(idOrSlug));
 }

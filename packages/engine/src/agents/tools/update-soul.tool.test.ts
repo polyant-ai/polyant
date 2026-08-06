@@ -14,8 +14,8 @@ vi.mock("../../instances/prompts.store.js", () => ({
   upsertPrompt: mockUpsertPrompt,
   invalidatePromptsCache: vi.fn(),
 }));
-vi.mock("../../instances/resolve-instance-id.js", () => ({
-  resolveInstanceId: mockResolveInstanceId,
+vi.mock("../../instances/resolve-agent-id.js", () => ({
+  resolveAgentId: mockResolveInstanceId,
 }));
 
 import { createMockAudit } from "../../test-utils.js";

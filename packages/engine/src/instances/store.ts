@@ -4,7 +4,7 @@ import { and, asc, desc, eq, sql, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { DEFAULT_EMBEDDING_DIM, embeddingProviderFor } from "../embeddings-gateway/config.js";
 import type { EmbeddingProvider } from "../embeddings-gateway/types.js";
-import { instances } from "./schema.js";
+import { agents } from "./schema.js";
 import { conversations, conversationMessages, conversationState } from "../conversations/schema.js";
 import { principalSecrets } from "../conversations/principal-secrets.schema.js";
 import { memories } from "../memory/schema.js";
@@ -13,7 +13,7 @@ import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { organizations, workspaces } from "../organizations/organization.schema.js";
 import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
 import { buildOrgScopedAgentFilter } from "../authz/scope-filter.js";
-import { asInstanceSlug, asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
+import { asAgentSlug, asAgentUuid, type AgentSlug, type AgentUuid } from "./identifiers.js";
 
 // Every agent belongs to exactly one workspace, and a workspace to exactly one
 // organization. Which workspace a NEW agent lands in is decided by the caller's
@@ -99,8 +99,8 @@ export async function resolveWorkspaceIdForPrincipal(
 }
 
 export interface Instance {
-  id: InstanceUuid;
-  slug: InstanceSlug;
+  id: AgentUuid;
+  slug: AgentSlug;
   name: string;
   description: string | null;
   status: string;
@@ -155,12 +155,12 @@ export interface Instance {
   updatedAt: Date | null;
 }
 
-function toInstance(row: typeof instances.$inferSelect): Instance {
-  return { ...row, id: asInstanceUuid(row.id), slug: asInstanceSlug(row.slug) } as Instance;
+function toInstance(row: typeof agents.$inferSelect): Instance {
+  return { ...row, id: asAgentUuid(row.id), slug: asAgentSlug(row.slug) } as Instance;
 }
 
 /**
- * Return all active instances. Pass the caller's resolved `orgId` to restrict
+ * Return all active agents. Pass the caller's resolved `orgId` to restrict
  * the list to that organization's agents (reuses the RBAC org-scoping predicate
  * so "which agents belong to org X" stays defined in exactly one place).
  * Omitting it returns every agent — reserved for system paths with no principal.
@@ -168,10 +168,10 @@ function toInstance(row: typeof instances.$inferSelect): Instance {
 export async function listActiveInstances(orgId?: string): Promise<Instance[]> {
   return db
     .select()
-    .from(instances)
+    .from(agents)
     .where(
       and(
-        eq(instances.status, "active"),
+        eq(agents.status, "active"),
         orgId ? buildOrgScopedAgentFilter(orgId, "slug") : undefined,
       ),
     )
@@ -179,26 +179,26 @@ export async function listActiveInstances(orgId?: string): Promise<Instance[]> {
 }
 
 /** Find an instance by slug. Returns undefined if not found. */
-export async function findInstanceBySlug(slug: InstanceSlug): Promise<Instance | undefined> {
-  const rows = await db.select().from(instances).where(eq(instances.slug, slug)).limit(1);
+export async function findInstanceBySlug(slug: AgentSlug): Promise<Instance | undefined> {
+  const rows = await db.select().from(agents).where(eq(agents.slug, slug)).limit(1);
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
 /** Find an instance by id (UUID). Returns undefined if not found. */
 export async function findInstanceById(id: string): Promise<Instance | undefined> {
-  const rows = await db.select().from(instances).where(eq(instances.id, id)).limit(1);
+  const rows = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
 /** Insert an instance if the slug doesn't already exist. Boot seeding only —
  *  a system path with no principal, hence the deployment default workspace. */
 export async function ensureInstance(data: {
-  slug: InstanceSlug;
+  slug: AgentSlug;
   name: string;
   description?: string;
 }): Promise<void> {
   await db
-    .insert(instances)
+    .insert(agents)
     .values({
       slug: data.slug,
       name: data.name,
@@ -206,18 +206,18 @@ export async function ensureInstance(data: {
       embeddingDim: DEFAULT_EMBEDDING_DIM,
       workspaceId: await findDefaultWorkspaceId(),
     })
-    .onConflictDoNothing({ target: instances.slug });
+    .onConflictDoNothing({ target: agents.slug });
 }
 
-/** Seed the default instances. Call once at startup. */
+/** Seed the default agents. Call once at startup. */
 export async function seedInstances(): Promise<void> {
   await ensureInstance({
-    slug: asInstanceSlug("default"),
+    slug: asAgentSlug("default"),
     name: "Default Assistant",
     description: "Default instance — professional and concise",
   });
   await ensureInstance({
-    slug: asInstanceSlug("creative"),
+    slug: asAgentSlug("creative"),
     name: "Creative Assistant",
     description: "Example alternative instance — informal and playful",
   });
@@ -225,7 +225,7 @@ export async function seedInstances(): Promise<void> {
 }
 
 /**
- * Return all instances (any status), ordered by name (case-insensitive). Pass
+ * Return all agents (any status), ordered by name (case-insensitive). Pass
  * the caller's resolved `orgId` to restrict the list to that organization's
  * agents; omitting it returns every agent — reserved for system paths with no
  * principal (boot channel startup).
@@ -240,24 +240,24 @@ export async function listAllInstances(
 ): Promise<Instance[]> {
   const orgFilter = orgId ? buildOrgScopedAgentFilter(orgId, "slug") : undefined;
   const workspaceFilter = workspaceSlug
-    ? sql`${instances.workspaceId} in (
+    ? sql`${agents.workspaceId} in (
         select w.id from workspaces w where w.slug = ${workspaceSlug}
       )`
     : undefined;
   return db
     .select()
-    .from(instances)
+    .from(agents)
     // Explicit rather than leaning on `and(undefined, undefined)` collapsing to
     // `undefined`: an unconstrained listing is the system-caller path, and it
     // should not depend on a library edge case to stay unconstrained.
     .where(orgFilter || workspaceFilter ? and(orgFilter, workspaceFilter) : undefined)
-    .orderBy(sql`LOWER(${instances.name})`)
+    .orderBy(sql`LOWER(${agents.name})`)
     .then((rows) => rows.map(toInstance));
 }
 
 /** Create a new instance and return it. */
 export async function createInstance(data: {
-  slug: InstanceSlug;
+  slug: AgentSlug;
   name: string;
   description?: string;
   provider?: string;
@@ -272,14 +272,14 @@ export async function createInstance(data: {
   workspaceSlug?: string;
 }): Promise<Instance> {
   const rows = await db
-    .insert(instances)
+    .insert(agents)
     .values({
       slug: data.slug,
       name: data.name,
       description: data.description ?? null,
       provider: data.provider ?? null,
       model: data.model ?? null,
-      // New instances default to 1024d; the DB default (1536) stays for legacy rows.
+      // New agents default to 1024d; the DB default (1536) stays for legacy rows.
       embeddingDim: DEFAULT_EMBEDDING_DIM,
       // Default the embedder to match the chat provider (bedrock chat → bedrock
       // embeddings, else openai). It is independently changeable afterwards.
@@ -360,7 +360,7 @@ const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
 
 /** Update an instance by slug. Touches updatedAt. Returns the updated instance or undefined if not found. */
 export async function updateInstance(
-  slug: InstanceSlug,
+  slug: AgentSlug,
   data: UpdatableInstanceFields,
 ): Promise<Instance | undefined> {
   // Runtime whitelist: TS types do not protect against extra keys arriving via
@@ -372,9 +372,9 @@ export async function updateInstance(
     }
   }
   const rows = await db
-    .update(instances)
+    .update(agents)
     .set({ ...patch, updatedAt: sql`now()` })
-    .where(eq(instances.slug, slug))
+    .where(eq(agents.slug, slug))
     .returning();
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
@@ -383,7 +383,7 @@ export async function updateInstance(
  * Delete an instance by slug. Returns true if a row was deleted.
  *
  * Runs in a transaction. Operational/PII data is keyed by the instance SLUG in
- * `text` columns with no FK to `instances`, so the DB cascade never reaches it —
+ * `text` columns with no FK to `agents`, so the DB cascade never reaches it —
  * it must be deleted explicitly here. Config/lifecycle tables (secrets, channels,
  * prompts, tools, skills, room, webhooks) use a `uuid` FK with ON DELETE CASCADE
  * and are cleaned up automatically by the final `DELETE FROM agents`.
@@ -391,7 +391,7 @@ export async function updateInstance(
  * Audit/telemetry (`tool_audit_logs`, `pipeline_traces`, `ai_logs`) is
  * INTENTIONALLY PRESERVED as a historical record and is left untouched.
  */
-export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
+export async function deleteInstance(slug: AgentSlug): Promise<boolean> {
   return db.transaction(async (tx) => {
     // conversation_messages has no agent_id — delete via the instance's conversations.
     const convRows = await tx
@@ -415,7 +415,7 @@ export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
     // principal_secrets (encrypted OAuth tokens) are slug-keyed too.
     await tx.delete(principalSecrets).where(eq(principalSecrets.instanceId, slug));
 
-    const result = await tx.delete(instances).where(eq(instances.slug, slug)).returning();
+    const result = await tx.delete(agents).where(eq(agents.slug, slug)).returning();
     return result.length > 0;
   });
 }

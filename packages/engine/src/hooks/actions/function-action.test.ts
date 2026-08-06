@@ -3,7 +3,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { HookFunctionDefinition, HookResult, RequiredSecretSpec } from "@polyant-ai/plugin-sdk";
 import type { InstanceHookRow, HookRunContext, HookEventPayload, HookExecutionCapture } from "../hook-types.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 // --- mocks --------------------------------------------------------------------
 const { mockGetHookRegistry } = vi.hoisted(() => ({ mockGetHookRegistry: vi.fn() }));
@@ -45,7 +45,7 @@ const payload: HookEventPayload = {
 };
 
 const ctx: HookRunContext = {
-  instanceId: asInstanceSlug("acme"),
+  instanceId: asAgentSlug("acme"),
   conversationId: "conv-1",
   secrets: {},
 };

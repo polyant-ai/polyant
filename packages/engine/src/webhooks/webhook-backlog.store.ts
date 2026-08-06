@@ -3,7 +3,7 @@
 import { and, eq, sql, desc, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { eventBacklog } from "./webhooks.schema.js";
-import { asInstanceUuid, type InstanceUuid } from "../instances/identifiers.js";
+import { asAgentUuid, type AgentUuid } from "../instances/identifiers.js";
 
 export const BACKLOG_STATUS = {
   PENDING: "pending",
@@ -13,7 +13,7 @@ export const BACKLOG_STATUS = {
 
 export interface BacklogEvent {
   id: string;
-  instanceId: InstanceUuid;
+  instanceId: AgentUuid;
   eventDefinitionId: string;
   rawPayload: Record<string, unknown>;
   matchedAt: Date | null;
@@ -30,7 +30,7 @@ const BACKLOG_CAP = 100;
  * Returns the event ID if inserted, or null if the cap was reached.
  */
 export async function insertEvent(
-  instanceId: InstanceUuid,
+  instanceId: AgentUuid,
   eventDefinitionId: string,
   rawPayload: Record<string, unknown>,
 ): Promise<string | null> {
@@ -52,7 +52,7 @@ export async function insertEvent(
  * separate listPendingEvents() + markEventsProcessing() pair which had a TOCTOU
  * window between SELECT and UPDATE.
  */
-export async function listAndMarkPendingEventsProcessing(instanceId: InstanceUuid): Promise<BacklogEvent[]> {
+export async function listAndMarkPendingEventsProcessing(instanceId: AgentUuid): Promise<BacklogEvent[]> {
   return db.transaction(async (tx) => {
     const rows = await tx
       .select()
@@ -60,7 +60,7 @@ export async function listAndMarkPendingEventsProcessing(instanceId: InstanceUui
       .where(and(eq(eventBacklog.instanceId, instanceId), eq(eventBacklog.status, BACKLOG_STATUS.PENDING)))
       .orderBy(eventBacklog.createdAt)
       .for("update");
-    const events = rows.map((r) => ({ ...r, instanceId: asInstanceUuid(r.instanceId) })) as BacklogEvent[];
+    const events = rows.map((r) => ({ ...r, instanceId: asAgentUuid(r.instanceId) })) as BacklogEvent[];
 
     if (events.length > 0) {
       const ids = events.map((e) => e.id);
@@ -74,7 +74,7 @@ export async function listAndMarkPendingEventsProcessing(instanceId: InstanceUui
   });
 }
 
-export async function countPendingEvents(instanceId: InstanceUuid): Promise<number> {
+export async function countPendingEvents(instanceId: AgentUuid): Promise<number> {
   const rows = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(eventBacklog)
@@ -82,7 +82,7 @@ export async function countPendingEvents(instanceId: InstanceUuid): Promise<numb
   return rows[0].count;
 }
 
-export async function markEventsCompleted(eventIds: string[], notes?: string, instanceId?: InstanceUuid): Promise<void> {
+export async function markEventsCompleted(eventIds: string[], notes?: string, instanceId?: AgentUuid): Promise<void> {
   // Only update events that are still in PROCESSING status.
   // Events already marked COMPLETED by the mark_events_completed harness tool during the LLM
   // call must not be overwritten — that would clobber the tool's resolution notes.
@@ -123,17 +123,17 @@ export async function resetStuckProcessingEvents(): Promise<number> {
   return rows.length;
 }
 
-export async function countPendingByInstance(): Promise<Map<InstanceUuid, number>> {
+export async function countPendingByInstance(): Promise<Map<AgentUuid, number>> {
   const rows = await db
     .select({ instanceId: eventBacklog.instanceId, count: sql<number>`count(*)::int` })
     .from(eventBacklog)
     .where(eq(eventBacklog.status, BACKLOG_STATUS.PENDING))
     .groupBy(eventBacklog.instanceId);
-  return new Map(rows.map((r) => [asInstanceUuid(r.instanceId), r.count]));
+  return new Map(rows.map((r) => [asAgentUuid(r.instanceId), r.count]));
 }
 
 export async function listBacklog(
-  instanceId: InstanceUuid,
+  instanceId: AgentUuid,
   opts: { status?: string; limit?: number; offset?: number },
 ): Promise<{ events: BacklogEvent[]; total: number }> {
   const conditions = [eq(eventBacklog.instanceId, instanceId)];
@@ -153,5 +153,5 @@ export async function listBacklog(
       .where(and(...conditions)),
   ]);
 
-  return { events: (events as Array<typeof events[number]>).map((r) => ({ ...r, instanceId: asInstanceUuid(r.instanceId) })) as BacklogEvent[], total: countResult[0].count };
+  return { events: (events as Array<typeof events[number]>).map((r) => ({ ...r, instanceId: asAgentUuid(r.instanceId) })) as BacklogEvent[], total: countResult[0].count };
 }

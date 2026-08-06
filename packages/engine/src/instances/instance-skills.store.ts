@@ -10,7 +10,7 @@ import { instanceSkills } from "./instance-skills.schema.js";
 import { skills, skillVersions } from "../skills/schema.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { DEFAULT_SKILL_SLUGS } from "./defaults.js";
-import { asInstanceUuid, type InstanceUuid } from "./identifiers.js";
+import { asAgentUuid, type AgentUuid } from "./identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -18,7 +18,7 @@ import { asInstanceUuid, type InstanceUuid } from "./identifiers.js";
 
 export interface InstanceSkillRow {
   id: string;
-  instanceId: InstanceUuid;
+  instanceId: AgentUuid;
   skillId: string;
   skillSlug: string;
   skillName: string;
@@ -37,7 +37,7 @@ export interface InstanceSkillRow {
 // ---------------------------------------------------------------------------
 
 /** Get all skills for an instance with version info and upgrade availability. */
-export async function getInstanceSkills(instanceId: InstanceUuid): Promise<InstanceSkillRow[]> {
+export async function getInstanceSkills(instanceId: AgentUuid): Promise<InstanceSkillRow[]> {
   // Alias for pinned version
   const pinnedVer = skillVersions;
 
@@ -79,7 +79,7 @@ export async function getInstanceSkills(instanceId: InstanceUuid): Promise<Insta
 
   return rows.map((row) => ({
     id: row.id,
-    instanceId: asInstanceUuid(row.instanceId),
+    instanceId: asAgentUuid(row.instanceId),
     skillId: row.skillId,
     skillSlug: row.skillSlug,
     skillName: row.skillName,
@@ -102,7 +102,7 @@ export async function getInstanceSkills(instanceId: InstanceUuid): Promise<Insta
  * Enable a skill for an instance.
  * Pins to the skill's current_version_id, then recomputes instance tools.
  */
-export async function enableSkill(instanceId: InstanceUuid, skillSlug: string): Promise<void> {
+export async function enableSkill(instanceId: AgentUuid, skillSlug: string): Promise<void> {
   const [skill] = await db
     .select({ id: skills.id, currentVersionId: skills.currentVersionId })
     .from(skills)
@@ -132,7 +132,7 @@ export async function enableSkill(instanceId: InstanceUuid, skillSlug: string): 
  * Disable a skill for an instance.
  * Marks as disabled (keeps the row for history), then recomputes instance tools.
  */
-export async function disableSkill(instanceId: InstanceUuid, skillSlug: string): Promise<void> {
+export async function disableSkill(instanceId: AgentUuid, skillSlug: string): Promise<void> {
   const [skill] = await db
     .select({ id: skills.id })
     .from(skills)
@@ -159,7 +159,7 @@ export async function disableSkill(instanceId: InstanceUuid, skillSlug: string):
  * `resolveTargetVersionId` receives the skill row and returns the target version ID (or null to abort).
  */
 async function pinSkillVersion(
-  instanceId: InstanceUuid,
+  instanceId: AgentUuid,
   skillSlug: string,
   resolveTargetVersionId: (skill: { id: string; currentVersionId: string | null }) => Promise<string | null>,
 ): Promise<void> {
@@ -208,7 +208,7 @@ async function pinSkillVersion(
  * Upgrade a skill to the latest version.
  * Updates skill_version_id to current_version_id, recomputes tools if deps changed.
  */
-export async function upgradeSkill(instanceId: InstanceUuid, skillSlug: string): Promise<void> {
+export async function upgradeSkill(instanceId: AgentUuid, skillSlug: string): Promise<void> {
   await pinSkillVersion(instanceId, skillSlug, async (skill) => skill.currentVersionId);
 }
 
@@ -217,7 +217,7 @@ export async function upgradeSkill(instanceId: InstanceUuid, skillSlug: string):
  * Sets skill_version_id to the specified version, recomputes if deps changed.
  */
 export async function rollbackSkill(
-  instanceId: InstanceUuid,
+  instanceId: AgentUuid,
   skillSlug: string,
   versionId: string,
 ): Promise<void> {
@@ -244,7 +244,7 @@ export async function rollbackSkill(
  * When autoLoad is true, the full skill content is injected into the system prompt.
  */
 export async function setAutoLoad(
-  instanceId: InstanceUuid,
+  instanceId: AgentUuid,
   skillSlug: string,
   autoLoad: boolean,
 ): Promise<void> {
@@ -272,7 +272,7 @@ export async function setAutoLoad(
  * Enables DEFAULT_SKILL_SLUGS, pinning each to the current version.
  * Silently skips skills that don't exist in DB yet.
  */
-export async function seedInstanceSkills(instanceId: InstanceUuid): Promise<void> {
+export async function seedInstanceSkills(instanceId: AgentUuid): Promise<void> {
   if (DEFAULT_SKILL_SLUGS.length === 0) return;
 
   const defaultSkills = await db

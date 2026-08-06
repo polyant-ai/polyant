@@ -4,7 +4,7 @@ import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { channelManager } from "../../channels/channel-manager.js";
 import { getRoomByInstanceId } from "../../room/room.store.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
 
 export default defineTool({
   name: "send_message_to_human",
@@ -20,7 +20,7 @@ export default defineTool({
     message: z.string().describe("The message to send to the human"),
   }),
   execute: async ({ message }, ctx) => {
-    const instanceId = await resolveInstanceId(ctx.instanceId);
+    const instanceId = await resolveAgentId(ctx.instanceId);
     if (!instanceId) return { error: "Instance not found" };
 
     const room = await getRoomByInstanceId(instanceId);

@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 const {
   mockChat,
@@ -201,7 +201,7 @@ describe("supervise — agent handoff tenancy", () => {
     enableAgentEntry();
     mockAgentsShareOrganization.mockResolvedValue(true);
 
-    await supervise({ message: "hi", instanceId: asInstanceSlug("caller-agent") });
+    await supervise({ message: "hi", instanceId: asAgentSlug("caller-agent") });
 
     expect(toolsFromLastChat()).toHaveProperty("ask_helper_bot");
   });
@@ -210,7 +210,7 @@ describe("supervise — agent handoff tenancy", () => {
     enableAgentEntry();
     mockAgentsShareOrganization.mockResolvedValue(false);
 
-    await supervise({ message: "hi", instanceId: asInstanceSlug("caller-agent") });
+    await supervise({ message: "hi", instanceId: asAgentSlug("caller-agent") });
 
     expect(toolsFromLastChat()).not.toHaveProperty("ask_helper_bot");
     expect(mockBuildAgentInvokeTool).not.toHaveBeenCalled();
@@ -224,7 +224,7 @@ describe("supervise — agent handoff tenancy", () => {
 
 describe("supervise", () => {
   it("resolves instance by slug", async () => {
-    await supervise({ message: "hi", instanceId: asInstanceSlug("my-instance") });
+    await supervise({ message: "hi", instanceId: asAgentSlug("my-instance") });
 
     expect(mockFindInstanceBySlug).toHaveBeenCalledWith("my-instance");
   });
@@ -236,7 +236,7 @@ describe("supervise", () => {
   });
 
   it("calls chat with tier standard, system prompt, messages, and tools", async () => {
-    await supervise({ message: "hi", instanceId: asInstanceSlug("inst-1") });
+    await supervise({ message: "hi", instanceId: asAgentSlug("inst-1") });
 
     expect(mockChat).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -587,7 +587,7 @@ describe("supervise", () => {
       mockGetEnabledToolNames.mockResolvedValue(new Set(["spawnTask"]));
 
       const apiKeys = { openai: "sk-test" };
-      await supervise({ message: "hi", apiKeys, instanceId: asInstanceSlug("my-instance"), conversationId: "conv-1" });
+      await supervise({ message: "hi", apiKeys, instanceId: asAgentSlug("my-instance"), conversationId: "conv-1" });
 
       expect(mockCreateTaskTool).toHaveBeenCalledWith(
         expect.any(Object),
@@ -626,7 +626,7 @@ describe("superviseStream", () => {
   });
 
   it("resolves instance by slug", async () => {
-    await superviseStream({ message: "hi", instanceId: asInstanceSlug("stream-inst") });
+    await superviseStream({ message: "hi", instanceId: asAgentSlug("stream-inst") });
 
     expect(mockFindInstanceBySlug).toHaveBeenCalledWith("stream-inst");
   });
@@ -695,7 +695,7 @@ describe("superviseStream", () => {
   });
 
   it("calls chatStream with standard tier and system prompt", async () => {
-    await superviseStream({ message: "test", instanceId: asInstanceSlug("x") });
+    await superviseStream({ message: "test", instanceId: asAgentSlug("x") });
 
     expect(mockChatStream).toHaveBeenCalledWith(
       expect.objectContaining({

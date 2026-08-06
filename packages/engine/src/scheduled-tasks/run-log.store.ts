@@ -11,7 +11,7 @@ import {
   type TokenUsageEntry,
   type ScheduledTaskRun,
 } from "./schema.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 export interface RunWithTaskName extends ScheduledTaskRun {
   taskName: string;
@@ -29,7 +29,7 @@ function completionSet(status: RunStatus) {
 /** Create a new run entry in "running" state. Returns the run ID. */
 export async function createRun(
   taskId: string,
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   triggerType: TriggerType,
 ): Promise<string> {
   const rows = await db
@@ -82,7 +82,7 @@ export async function failRun(runId: string, error: string): Promise<void> {
 
 /** List runs for an instance, with optional filters. Returns paginated results + total count. */
 export async function listRuns(
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   opts: {
     taskId?: string;
     status?: RunStatus;

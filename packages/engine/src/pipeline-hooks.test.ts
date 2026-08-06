@@ -8,7 +8,7 @@ import {
   runPipelinePost,
   type PipelineContext,
 } from "./pipeline.js";
-import { asInstanceSlug } from "./instances/identifiers.js";
+import { asAgentSlug } from "./instances/identifiers.js";
 import { getEnabledHooks } from "./hooks/hooks.store.js";
 import { getHookRegistry } from "./hooks/hook-registry.js";
 import { runHooks, firstReplaceResponse, firstRegenerate } from "./hooks/hook-runner.js";
@@ -43,7 +43,7 @@ vi.mock("./hooks/hook-runner.js", () => ({
 function ctxWith(overrides: Partial<PipelineContext>): PipelineContext {
   return {
     pipelineStart: 0,
-    instanceId: asInstanceSlug("demo"),
+    instanceId: asAgentSlug("demo"),
     conversationId: "demo:whatsapp:+39",
     conversationSummary: undefined,
     contextPrompt: undefined,
@@ -109,7 +109,7 @@ describe("buildHookPayload", () => {
 });
 
 describe("hasResponseMutatingHook", () => {
-  const slug = asInstanceSlug("demo");
+  const slug = asAgentSlug("demo");
 
   // Minimal hook row — only `actionConfig.functionName` is read by the helper.
   const hookRow = (functionName: string) =>

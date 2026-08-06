@@ -19,7 +19,7 @@
 import { randomBytes, createHash } from "crypto";
 import { config } from "../../config.js";
 import { getSecret } from "../../instances/secrets.store.js";
-import type { InstanceSlug } from "../../instances/identifiers.js";
+import type { AgentSlug } from "../../instances/identifiers.js";
 
 export interface OAuthProvider {
   name: string;
@@ -142,7 +142,7 @@ export function resolveClientId(
  *  instance from instance_secrets. */
 export async function resolveOAuthCredentials(
   providerName: string,
-  slug: InstanceSlug,
+  slug: AgentSlug,
 ): Promise<OAuthCredentials> {
   const { clientIdKey, clientSecretKey } = oauthSecretKeys(providerName);
   const [clientId, clientSecret] = await Promise.all([

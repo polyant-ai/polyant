@@ -11,7 +11,7 @@ import { toolAuditLogs } from "../audit/audit.schema.js";
 import { hookExecutions } from "../hooks/hooks.schema.js";
 import { memories } from "../memory/schema.js";
 import { principalSecrets } from "./principal-secrets.schema.js";
-import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilter, buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
 
 export interface MessageRow {
@@ -88,7 +88,7 @@ export interface ConversationListItem {
   title: string | null;
   summary: string | null;
   channel: string | null;
-  instanceId: InstanceSlug | null;
+  instanceId: AgentSlug | null;
   instanceName: string | null;
   messageCount: number;
   totalTokens: number;
@@ -288,7 +288,7 @@ export class ConversationStore {
    */
   async ensureConversation(
     conversationId: string,
-    instanceId?: InstanceSlug,
+    instanceId?: AgentSlug,
     options?: { channel?: string; userIdentifier?: string; source?: string; contextPrompt?: string },
   ): Promise<{ created: boolean }> {
     const channel = options?.channel ?? "web";
@@ -448,7 +448,7 @@ export class ConversationStore {
   /** Full-text search across all conversation messages for an instance. */
   async searchByKeyword(
     query: string,
-    instanceId: InstanceSlug | undefined,
+    instanceId: AgentSlug | undefined,
     limit = 20,
   ): Promise<KeywordSearchResult[]> {
     // Build the tsquery from the user query (websearch syntax handles natural language)
@@ -496,7 +496,7 @@ export class ConversationStore {
    * not every message insert, so incremental pullers should overlap windows.
    */
   async listConversations(options: {
-    instanceId?: InstanceSlug;
+    instanceId?: AgentSlug;
     source?: string;
     updatedSince?: Date;
     updatedUntil?: Date;
@@ -577,7 +577,7 @@ export class ConversationStore {
         title: (r.title as string) ?? null,
         summary: (r.summary as string) ?? null,
         channel: (r.channel as string) ?? null,
-        instanceId: r.agent_id ? asInstanceSlug(r.agent_id as string) : null,
+        instanceId: r.agent_id ? asAgentSlug(r.agent_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         messageCount: (r.message_count as number) ?? 0,
         totalTokens: (r.total_tokens as number) ?? 0,
@@ -648,7 +648,7 @@ export class ConversationStore {
       title: (r.title as string) ?? null,
       summary: (r.summary as string) ?? null,
       channel: (r.channel as string) ?? null,
-      instanceId: r.agent_id ? asInstanceSlug(r.agent_id as string) : null,
+      instanceId: r.agent_id ? asAgentSlug(r.agent_id as string) : null,
       instanceName: (r.instance_name as string) ?? null,
       messageCount: (r.message_count as number) ?? 0,
       totalTokens: (r.total_tokens as number) ?? 0,
@@ -744,7 +744,7 @@ export class ConversationStore {
    */
   async searchConversations(
     query: string,
-    options: { instanceId?: InstanceSlug; limit?: number; offset?: number; orgId?: string } = {},
+    options: { instanceId?: AgentSlug; limit?: number; offset?: number; orgId?: string } = {},
   ): Promise<{ conversations: ConversationSearchResult[]; total: number }> {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
@@ -834,7 +834,7 @@ export class ConversationStore {
         title: (r.title as string) ?? null,
         summary: (r.summary as string) ?? null,
         channel: (r.channel as string) ?? null,
-        instanceId: r.agent_id ? asInstanceSlug(r.agent_id as string) : null,
+        instanceId: r.agent_id ? asAgentSlug(r.agent_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         matchCount: (r.match_count as number) ?? 0,
         bestSnippet: (r.best_snippet as string) ?? "",

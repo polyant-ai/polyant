@@ -10,7 +10,7 @@ import { extractMemories } from "../memory/extractor.js";
 import { generateConversationTitle } from "../utils/title-generator.js";
 import { channelManager } from "../channels/channel-manager.js";
 import { renderTemplate } from "./template-renderer.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 import { registerTrigger } from "./active-triggers.js";
 import { setTriggerContext, clearTriggerContext } from "./trigger-context.js";
 import { webhookLog } from "./webhook-logger.js";
@@ -31,7 +31,7 @@ import { ConversationStateBuffer } from "../conversations/state.buffer.js";
  */
 export async function triggerConversation(
   instanceId: string,
-  instanceSlug: InstanceSlug,
+  instanceSlug: AgentSlug,
   definition: EventDefinition,
   payload: Record<string, unknown>,
 ): Promise<void> {

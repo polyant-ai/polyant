@@ -4,7 +4,7 @@ import { UnauthorizedException } from "@nestjs/common";
 import { timingSafeEqual } from "crypto";
 import { findInstanceBySlug } from "../../instances/store.js";
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 /**
  * Per-instance API key authentication for chat endpoints.
@@ -27,7 +27,7 @@ export async function validateInstanceApiKey(
   instanceSlug: string,
   authHeader?: string,
 ): Promise<void> {
-  const slug = asInstanceSlug(instanceSlug);
+  const slug = asAgentSlug(instanceSlug);
   const instance = await findInstanceBySlug(slug);
   if (!instance) {
     throw new UnauthorizedException("Unknown model");

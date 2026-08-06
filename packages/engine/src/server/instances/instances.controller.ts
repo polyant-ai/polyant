@@ -44,7 +44,7 @@ import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { sanitizeForLog } from "../../utils/create-logger.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import { WorkspaceSlug } from "../../auth/decorators/workspace-slug.decorator.js";
@@ -186,7 +186,7 @@ export class InstancesController {
   @Get(":slug")
   async getBySlug(@Param("slug") slug: string) {
     this.validateSlug(slug);
-    const instance = await findInstanceBySlug(asInstanceSlug(slug));
+    const instance = await findInstanceBySlug(asAgentSlug(slug));
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     return {
       instance: {
@@ -203,7 +203,7 @@ export class InstancesController {
   @Get(":slug/icon")
   async getIcon(@Param("slug") slug: string, @Res() res: Response): Promise<void> {
     this.validateSlug(slug);
-    const instance = await findInstanceBySlug(asInstanceSlug(slug));
+    const instance = await findInstanceBySlug(asAgentSlug(slug));
     if (!instance || !instance.icon) {
       throw new NotFoundException(`Icon not found for instance "${slug}"`);
     }
@@ -247,7 +247,7 @@ export class InstancesController {
       // `orgId` inside the store before it decides anything.
       instance = await createInstance({
         ...body,
-        slug: asInstanceSlug(body.slug),
+        slug: asAgentSlug(body.slug),
         orgId,
         workspaceSlug,
       });
@@ -339,7 +339,7 @@ export class InstancesController {
       throw new BadRequestException('thinkingLevel must be one of "low", "medium", "high", "xhigh", "max"');
     }
     // Capture the pre-update state to detect an embedding-provider switch.
-    const before = await findInstanceBySlug(asInstanceSlug(slug));
+    const before = await findInstanceBySlug(asAgentSlug(slug));
     if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
 
     // Changing the embedding provider abandons the old embedding space (vectors
@@ -363,9 +363,9 @@ export class InstancesController {
       }
     }
 
-    let instance = await updateInstance(asInstanceSlug(slug), body);
+    let instance = await updateInstance(asAgentSlug(slug), body);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
-    invalidateInstanceConfigCache(asInstanceSlug(slug));
+    invalidateInstanceConfigCache(asAgentSlug(slug));
     invalidateEmbeddingContext(instance.id, slug);
 
     let wiped: EmbeddingResetResult | null = null;
@@ -373,7 +373,7 @@ export class InstancesController {
       wiped = await resetEmbeddingsForProviderSwitch(before.slug, instance.id, instance.embeddingProvider);
       // embedding_dim changed — drop the now-stale cached context and refresh the DTO.
       invalidateEmbeddingContext(instance.id, slug);
-      instance = (await findInstanceBySlug(asInstanceSlug(slug))) ?? instance;
+      instance = (await findInstanceBySlug(asAgentSlug(slug))) ?? instance;
     }
 
     return {
@@ -403,7 +403,7 @@ export class InstancesController {
       // treated as part of the format string (CodeQL js/tainted-format-string).
       console.error("[instances] failed to stop channels for instance:", sanitizeForLog(slug), err);
     }
-    const deleted = await deleteInstance(asInstanceSlug(slug));
+    const deleted = await deleteInstance(asAgentSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
     this.auditLogger.log({
       action: ManagementAuditAction.AgentDelete,
@@ -425,7 +425,7 @@ export class InstancesController {
     this.validateSlug(slug);
     if (!body.icon) throw new BadRequestException("icon is required");
     validateIconDataUri(body.icon);
-    const instance = await updateInstance(asInstanceSlug(slug), { icon: body.icon });
+    const instance = await updateInstance(asAgentSlug(slug), { icon: body.icon });
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     return { instance: toInstanceDto(instance) };
   }
@@ -435,7 +435,7 @@ export class InstancesController {
   @Delete(":slug/icon")
   async removeIcon(@Param("slug") slug: string) {
     this.validateSlug(slug);
-    const instance = await updateInstance(asInstanceSlug(slug), { icon: null });
+    const instance = await updateInstance(asAgentSlug(slug), { icon: null });
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     return { instance: toInstanceDto(instance) };
   }

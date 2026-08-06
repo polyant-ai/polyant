@@ -11,7 +11,7 @@ const {
   mockMatchEvent,
   mockInsertEvent,
   mockTriggerConversation,
-  mockResolveInstanceSlug,
+  mockResolveAgentSlug,
   mockWebhookLog,
 } = vi.hoisted(() => ({
   mockFindByWebhookToken: vi.fn(),
@@ -20,7 +20,7 @@ const {
   mockMatchEvent: vi.fn(),
   mockInsertEvent: vi.fn(),
   mockTriggerConversation: vi.fn(),
-  mockResolveInstanceSlug: vi.fn(),
+  mockResolveAgentSlug: vi.fn(),
   mockWebhookLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
@@ -36,8 +36,8 @@ vi.mock("../../webhooks/webhook-backlog.store.js", () => ({
 vi.mock("../../webhooks/webhook-engine.js", () => ({
   triggerConversation: mockTriggerConversation,
 }));
-vi.mock("../../instances/resolve-instance-id.js", () => ({
-  resolveInstanceSlug: mockResolveInstanceSlug,
+vi.mock("../../instances/resolve-agent-id.js", () => ({
+  resolveAgentSlug: mockResolveAgentSlug,
 }));
 vi.mock("../../webhooks/webhook-logger.js", () => ({ webhookLog: mockWebhookLog }));
 
@@ -166,7 +166,7 @@ describe("WebhookController", () => {
         instanceId: "inst-1",
       });
       mockListEnabledDefinitions.mockResolvedValue([{ id: "def-1" }]);
-      mockResolveInstanceSlug.mockResolvedValue("test-slug");
+      mockResolveAgentSlug.mockResolvedValue("test-slug");
       mockMatchEvent.mockResolvedValue(null);
 
       await processEvent("valid-token", { type: "test" });
@@ -183,7 +183,7 @@ describe("WebhookController", () => {
           instanceId: "inst-1",
         });
         mockListEnabledDefinitions.mockResolvedValue([matchedDef]);
-        mockResolveInstanceSlug.mockResolvedValue("test-slug");
+        mockResolveAgentSlug.mockResolvedValue("test-slug");
         mockMatchEvent.mockResolvedValue(matchedDef);
         mockGetRoomByInstanceId.mockResolvedValue({ enabled: true });
         mockInsertEvent.mockResolvedValue("evt-new");
@@ -201,7 +201,7 @@ describe("WebhookController", () => {
           instanceId: "inst-1",
         });
         mockListEnabledDefinitions.mockResolvedValue([matchedDef]);
-        mockResolveInstanceSlug.mockResolvedValue("test-slug");
+        mockResolveAgentSlug.mockResolvedValue("test-slug");
         mockMatchEvent.mockResolvedValue(matchedDef);
         mockGetRoomByInstanceId.mockResolvedValue(null);
 
@@ -229,7 +229,7 @@ describe("WebhookController", () => {
           instanceId: "inst-1",
         });
         mockListEnabledDefinitions.mockResolvedValue([matchedDef]);
-        mockResolveInstanceSlug.mockResolvedValue("test-slug");
+        mockResolveAgentSlug.mockResolvedValue("test-slug");
         mockMatchEvent.mockResolvedValue(matchedDef);
         mockTriggerConversation.mockResolvedValue(undefined);
 
@@ -256,7 +256,7 @@ describe("WebhookController", () => {
           instanceId: "inst-1",
         });
         mockListEnabledDefinitions.mockResolvedValue([matchedDef]);
-        mockResolveInstanceSlug.mockResolvedValue("test-slug");
+        mockResolveAgentSlug.mockResolvedValue("test-slug");
         mockMatchEvent.mockResolvedValue(matchedDef);
         mockTriggerConversation.mockResolvedValue(undefined);
 
@@ -282,7 +282,7 @@ describe("WebhookController", () => {
           instanceId: "inst-1",
         });
         mockListEnabledDefinitions.mockResolvedValue([matchedDef]);
-        mockResolveInstanceSlug.mockResolvedValue("test-slug");
+        mockResolveAgentSlug.mockResolvedValue("test-slug");
         mockMatchEvent.mockResolvedValue(matchedDef);
         mockTriggerConversation.mockResolvedValue(undefined);
 

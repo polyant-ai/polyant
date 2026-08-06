@@ -4,7 +4,7 @@ import { z } from "zod";
 import { defineTool, type ToolDefinition } from "@polyant-ai/plugin-sdk";
 import { chat } from "../../../ai-gateway/index.js";
 import { getPromptSection, upsertPrompt } from "../../../instances/prompts.store.js";
-import { resolveInstanceId } from "../../../instances/resolve-instance-id.js";
+import { resolveAgentId } from "../../../instances/resolve-agent-id.js";
 import { errMsg } from "../../../utils/error.js";
 import { auditPreview } from "../../../audit/audit-logger.js";
 
@@ -30,7 +30,7 @@ export function createPromptUpdaterTool(config: PromptUpdaterConfig): ToolDefini
     }),
     execute: async ({ instruction }: { instruction: string }, ctx) => {
       try {
-        const instanceId = await resolveInstanceId(ctx.instanceId);
+        const instanceId = await resolveAgentId(ctx.instanceId);
         if (!instanceId) {
           return { updated: false, error: "Instance not found" };
         }

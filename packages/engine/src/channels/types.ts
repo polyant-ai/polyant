@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { ChannelType } from "../instances/channels.store.js";
-import type { InstanceSlug } from "../instances/identifiers.js";
+import type { AgentSlug } from "../instances/identifiers.js";
 
 /**
  * Provenance tag for any message flowing through the pipeline.
@@ -62,7 +62,7 @@ export interface IncomingMessage {
   channelId: string;
 
   /** Instance ID (determines which workspace/personality to use) */
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
 
   /** User display name (when available) */
   userName?: string;

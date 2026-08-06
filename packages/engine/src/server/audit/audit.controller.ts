@@ -4,7 +4,7 @@ import { Controller, Get, Query } from "@nestjs/common";
 import { listAuditLogs, getAuditStats } from "../../audit/index.js";
 import { parseDateRange } from "../utils/parse-date-range.js";
 import { parsePagination } from "../utils/parse-pagination.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { resolvePrincipalOrgId } from "../../instances/store.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
@@ -35,7 +35,7 @@ export class AuditController {
     const { limit, offset } = parsePagination(limitStr, offsetStr);
 
     return listAuditLogs({
-      instanceId: instanceId ? asInstanceSlug(instanceId) : undefined,
+      instanceId: instanceId ? asAgentSlug(instanceId) : undefined,
       toolName,
       action,
       search,
@@ -57,7 +57,7 @@ export class AuditController {
   ) {
     const range = parseDateRange(from, to);
     return getAuditStats({
-      instanceId: instanceId ? asInstanceSlug(instanceId) : undefined,
+      instanceId: instanceId ? asAgentSlug(instanceId) : undefined,
       from: from ? range.from : undefined,
       to: to ? range.to : undefined,
       orgId: (await resolvePrincipalOrgId(user?.orgId)) ?? undefined,

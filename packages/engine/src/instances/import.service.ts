@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // ---------------------------------------------------------------------------
-// Import service — creates/overwrites instances from exported bundles
+// Import service — creates/overwrites agents from exported bundles
 // ---------------------------------------------------------------------------
 
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { instances } from "./schema.js";
+import { agents } from "./schema.js";
 import { resolveWorkspaceIdForPrincipal } from "./store.js";
 import { instancePrompts } from "./prompts.schema.js";
 import { instanceSkills } from "./instance-skills.schema.js";
@@ -28,7 +28,7 @@ import { mcpServerConfigSchema, MCP_AUTH_MODES, type McpAuthMode } from "./mcp-s
 import { generateToken, encrypt } from "../crypto/index.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
-import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
+import { asAgentSlug, asAgentUuid } from "./identifiers.js";
 import { invalidateInstanceConfigCache } from "./config-resolver.js";
 import {
   instanceBundleSchema,
@@ -78,7 +78,7 @@ export async function importNewInstance(
     // 1. Create instance in the CALLER's workspace (see store.ts rationale).
     const workspaceId = await resolveWorkspaceIdForPrincipal(orgId, tx);
     const [inst] = await tx
-      .insert(instances)
+      .insert(agents)
       .values({
         slug,
         name: data.name,
@@ -114,9 +114,9 @@ export async function importNewInstance(
         icon: data.icon ?? null,
         workspaceId,
       })
-      .returning({ id: instances.id });
+      .returning({ id: agents.id });
 
-    const id = asInstanceUuid(inst.id);
+    const id = asAgentUuid(inst.id);
 
     // 2. Import prompts
     await importPrompts(tx, id, data.prompts);
@@ -174,7 +174,7 @@ export async function importNewInstance(
   // Recompute tools outside transaction (uses its own transaction internally)
   await recomputeInstanceTools(instanceId);
   invalidatePromptsCache(instanceId);
-  invalidateHooksCache(asInstanceSlug(slug));
+  invalidateHooksCache(asAgentSlug(slug));
 
   return { slug, instanceId, warnings };
 }
@@ -193,18 +193,18 @@ export async function importOverwriteInstance(
 
   // Verify target exists
   const [existing] = await db
-    .select({ id: instances.id })
-    .from(instances)
-    .where(eq(instances.slug, targetSlug))
+    .select({ id: agents.id })
+    .from(agents)
+    .where(eq(agents.slug, targetSlug))
     .limit(1);
 
   if (!existing) throw new Error(`Instance "${targetSlug}" not found`);
-  const instanceId = asInstanceUuid(existing.id);
+  const instanceId = asAgentUuid(existing.id);
 
   await db.transaction(async (tx) => {
     // 1. Update instance metadata
     await tx
-      .update(instances)
+      .update(agents)
       .set({
         name: data.name,
         description: data.description,
@@ -239,7 +239,7 @@ export async function importOverwriteInstance(
         // PATCH /api/instances/:slug and is out of scope for an import.
         updatedAt: sql`now()`,
       })
-      .where(eq(instances.id, instanceId));
+      .where(eq(agents.id, instanceId));
 
     // 2. Replace prompts (upsert by sectionKey)
     await importPrompts(tx, instanceId, data.prompts);
@@ -315,8 +315,8 @@ export async function importOverwriteInstance(
 
   await recomputeInstanceTools(instanceId);
   invalidatePromptsCache(instanceId);
-  invalidateInstanceConfigCache(asInstanceSlug(targetSlug));
-  invalidateHooksCache(asInstanceSlug(targetSlug));
+  invalidateInstanceConfigCache(asAgentSlug(targetSlug));
+  invalidateHooksCache(asAgentSlug(targetSlug));
 
   return { slug: targetSlug, instanceId, warnings };
 }
@@ -329,9 +329,9 @@ type TxClient = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 async function resolveUniqueSlug(desired: string): Promise<string> {
   const [existing] = await db
-    .select({ slug: instances.slug })
-    .from(instances)
-    .where(eq(instances.slug, desired))
+    .select({ slug: agents.slug })
+    .from(agents)
+    .where(eq(agents.slug, desired))
     .limit(1);
 
   if (!existing) return desired;
@@ -340,9 +340,9 @@ async function resolveUniqueSlug(desired: string): Promise<string> {
   for (let i = 1; i <= 100; i++) {
     const candidate = i === 1 ? `${desired}-imported` : `${desired}-imported-${i}`;
     const [conflict] = await db
-      .select({ slug: instances.slug })
-      .from(instances)
-      .where(eq(instances.slug, candidate))
+      .select({ slug: agents.slug })
+      .from(agents)
+      .where(eq(agents.slug, candidate))
       .limit(1);
     if (!conflict) return candidate;
   }

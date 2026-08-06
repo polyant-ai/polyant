@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { pgTable, uuid, varchar, text, timestamp, unique, index } from "drizzle-orm/pg-core";
-import { instances } from "./schema.js";
+import { agents } from "./schema.js";
 
 export const instancePrompts = pgTable(
   "agent_prompts",
@@ -9,7 +9,7 @@ export const instancePrompts = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     instanceId: uuid("agent_id")
       .notNull()
-      .references(() => instances.id, { onDelete: "cascade" }),
+      .references(() => agents.id, { onDelete: "cascade" }),
     sectionKey: varchar("section_key", { length: 50 }).notNull(),
     title: varchar("title", { length: 100 }).notNull(),
     content: text("content").notNull(),

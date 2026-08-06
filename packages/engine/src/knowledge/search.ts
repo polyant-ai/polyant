@@ -6,7 +6,7 @@ import {
   type KnowledgeSearchResult as StoreResult,
 } from "./store.js";
 import { embed, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 export interface KnowledgeSearchResult {
   content: string;
@@ -35,7 +35,7 @@ export interface KnowledgeSearchResult {
  */
 export async function searchKnowledge(
   query: string,
-  instanceId: InstanceSlug,
+  instanceId: AgentSlug,
   limit = 5,
 ): Promise<KnowledgeSearchResult[]> {
   const fetchLimit = Math.max(limit * 2, 20);

@@ -6,8 +6,8 @@ const { mockResolveInstanceId, mockGetSkillEnv, mockDbSelect } = vi.hoisted(() =
   mockDbSelect: vi.fn(),
 }));
 
-vi.mock("../../instances/resolve-instance-id.js", () => ({
-  resolveInstanceId: mockResolveInstanceId,
+vi.mock("../../instances/resolve-agent-id.js", () => ({
+  resolveAgentId: mockResolveInstanceId,
 }));
 vi.mock("../../instances/skill-env.store.js", () => ({
   getSkillEnv: mockGetSkillEnv,

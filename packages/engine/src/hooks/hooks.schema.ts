@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { pgTable, uuid, varchar, boolean, integer, timestamp, jsonb, text, index } from "drizzle-orm/pg-core";
-import { instances } from "../instances/schema.js";
+import { agents } from "../instances/schema.js";
 import type { HookActionConfig } from "./hook-types.js";
 
 /**
@@ -13,7 +13,7 @@ export const instanceHooks = pgTable(
   "agent_hooks",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("agent_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    instanceId: uuid("agent_id").notNull().references(() => agents.id, { onDelete: "cascade" }),
     event: varchar("event", { length: 32 }).notNull(),
     actionType: varchar("action_type", { length: 32 }).notNull().default("function"),
     actionConfig: jsonb("action_config").$type<HookActionConfig>().notNull(),

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { EmbeddingContext, EmbeddingDim } from "./types.js";
-import { findInstanceByIdOrSlug } from "../instances/resolve-instance-id.js";
+import { findInstanceByIdOrSlug } from "../instances/resolve-agent-id.js";
 import { getAllSecretsById, SECRET_KEYS } from "../instances/secrets.store.js";
 import { TtlCache } from "../utils/ttl-cache.js";
 

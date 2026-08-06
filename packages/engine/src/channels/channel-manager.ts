@@ -11,7 +11,7 @@ import { MessageCoordinator } from "./message-coordinator.js";
 import { config } from "../config.js";
 import { emitOutbound } from "../activity-stream/emitters/emit-outbound.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
-import { asInstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug } from "../instances/identifiers.js";
 import { getOptoutStatus } from "../optout/index.js";
 import { sanitizeForLog } from "../utils/create-logger.js";
 
@@ -159,7 +159,7 @@ export class ChannelManager {
 
   /** Start all enabled channels for an instance (reads from DB). */
   async startAllForInstance(instanceSlug: string): Promise<void> {
-    const channels = await listEnabledChannelConfigs(asInstanceSlug(instanceSlug));
+    const channels = await listEnabledChannelConfigs(asAgentSlug(instanceSlug));
 
     await Promise.allSettled(
       channels.map((ch) => this.startChannel(instanceSlug, ch.channelType, ch.config)),
@@ -200,7 +200,7 @@ export class ChannelManager {
    */
   private async isOptoutSuppressed(instanceSlug: string, channelType: string, channelId: string): Promise<boolean> {
     try {
-      const status = await getOptoutStatus(asInstanceSlug(instanceSlug), channelType, channelId);
+      const status = await getOptoutStatus(asAgentSlug(instanceSlug), channelType, channelId);
       return status === "opted_out";
     } catch (err) {
       console.error("[channel-manager] opt-out check failed (allowing send):", err);
@@ -327,13 +327,13 @@ export class ChannelManager {
 
   /** Auto-disable a channel in DB after adapter initialization failure. */
   private async autoDisableChannel(instanceSlug: string, channelType: string): Promise<void> {
-    await disableChannel(asInstanceSlug(instanceSlug), channelType);
+    await disableChannel(asAgentSlug(instanceSlug), channelType);
     console.warn(`Channel auto-disabled: ${sanitizeForLog(channelType)} for instance "${sanitizeForLog(instanceSlug)}" — re-enable from admin panel after fixing credentials`);
   }
 
   /** Create the appropriate adapter based on channel type. */
   private createAdapter(instanceSlug: string, channelType: ChannelType, config: Record<string, unknown>): ChannelAdapter | null {
-    const slug = asInstanceSlug(instanceSlug);
+    const slug = asAgentSlug(instanceSlug);
     switch (channelType) {
       case "telegram":
         return new TelegramAdapter(slug, config as unknown as TelegramConfig);

@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const findInstance = vi.fn();
 const getSecrets = vi.fn();
-vi.mock("../instances/resolve-instance-id.js", () => ({ findInstanceByIdOrSlug: (...a: unknown[]) => findInstance(...a) }));
+vi.mock("../instances/resolve-agent-id.js", () => ({ findInstanceByIdOrSlug: (...a: unknown[]) => findInstance(...a) }));
 vi.mock("../instances/secrets.store.js", () => ({
   getAllSecretsById: (...a: unknown[]) => getSecrets(...a),
   SECRET_KEYS: { OPENAI_API_KEY: "openai_api_key", AWS_PROVIDER_REGION: "aws_provider_region", AWS_PROVIDER_ACCESS_KEY_ID: "aws_provider_access_key_id", AWS_PROVIDER_SECRET_ACCESS_KEY: "aws_provider_secret_access_key" },

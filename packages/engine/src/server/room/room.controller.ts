@@ -3,8 +3,8 @@
 import { Controller, Get, Put, Delete, Param, Body, BadRequestException, NotFoundException } from "@nestjs/common";
 import { getRoomBySlug, upsertRoom, deleteRoom } from "../../room/room.store.js";
 import { countPendingEvents } from "../../webhooks/webhook-backlog.store.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 
 import { upsertRoomSchema } from "../../room/room.validators.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
@@ -14,7 +14,7 @@ export class RoomController {
   @RequirePermission(Permission.ROOM_READ)
   @Get()
   async getRoom(@Param("slug") slug: string) {
-    const room = await getRoomBySlug(asInstanceSlug(slug));
+    const room = await getRoomBySlug(asAgentSlug(slug));
     if (!room) return { configured: false };
 
     const pendingCount = await countPendingEvents(room.instanceId);
@@ -32,7 +32,7 @@ export class RoomController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     await upsertRoom(instanceId, parsed.data);
@@ -42,7 +42,7 @@ export class RoomController {
   @RequirePermission(Permission.ROOM_WRITE)
   @Delete()
   async deleteRoomConfig(@Param("slug") slug: string) {
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
     await deleteRoom(instanceId);

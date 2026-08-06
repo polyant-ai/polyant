@@ -12,7 +12,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { findInstanceBySlug } from "../../instances/store.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { listOptouts, setOptoutStatus, type OptoutStatus } from "../../optout/index.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
@@ -84,7 +84,7 @@ export class OptoutsController {
   }
 
   private async resolve(slug: string) {
-    const instance = await findInstanceBySlug(asInstanceSlug(slug));
+    const instance = await findInstanceBySlug(asAgentSlug(slug));
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
     return instance;
   }

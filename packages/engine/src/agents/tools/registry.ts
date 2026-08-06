@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { errMsg } from "../../utils/error.js";
 import { toModelToolName } from "../../utils/model-tool-wire.js";
-import type { InstanceSlug } from "../../instances/identifiers.js";
+import type { AgentSlug } from "../../instances/identifiers.js";
 import {
   normalizeRequiredSecrets,
   requiredSecretKeys,
@@ -76,7 +76,7 @@ export interface OAuthAccessApi {
 
 export interface ToolContext {
   /** Instance identifier (slug, not UUID). */
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   /** Per-instance decrypted secrets. */
   secrets?: Record<string, string>;
   /** Audit logger scoped to this tool + instance + conversation. */

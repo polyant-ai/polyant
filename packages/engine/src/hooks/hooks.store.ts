@@ -3,8 +3,8 @@
 import { and, asc, eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instanceHooks } from "./hooks.schema.js";
-import { resolveInstanceId } from "../instances/resolve-instance-id.js";
-import type { InstanceSlug, InstanceUuid } from "../instances/identifiers.js";
+import { resolveAgentId } from "../instances/resolve-agent-id.js";
+import type { AgentSlug, AgentUuid } from "../instances/identifiers.js";
 import { TtlCache } from "../utils/ttl-cache.js";
 import type {
   HookActionConfig,
@@ -19,7 +19,7 @@ const cache = new TtlCache<string, Map<HookEvent, InstanceHookRow[]>>({
   ttlMs: 30_000,
 });
 
-export function invalidateHooksCache(slug: InstanceSlug): void {
+export function invalidateHooksCache(slug: AgentSlug): void {
   cache.delete(slug);
 }
 
@@ -47,7 +47,7 @@ export interface CreateHookInput {
   timeoutMs?: number;
 }
 
-export async function listHooks(instanceId: InstanceUuid): Promise<InstanceHookRow[]> {
+export async function listHooks(instanceId: AgentUuid): Promise<InstanceHookRow[]> {
   const rows = await db
     .select()
     .from(instanceHooks)
@@ -57,7 +57,7 @@ export async function listHooks(instanceId: InstanceUuid): Promise<InstanceHookR
 }
 
 export async function createHook(
-  instanceId: InstanceUuid,
+  instanceId: AgentUuid,
   input: CreateHookInput,
 ): Promise<InstanceHookRow> {
   const rows = await db
@@ -76,7 +76,7 @@ export async function createHook(
 }
 
 export async function updateHook(
-  instanceId: InstanceUuid,
+  instanceId: AgentUuid,
   hookId: string,
   patch: Partial<CreateHookInput>,
 ): Promise<InstanceHookRow | undefined> {
@@ -88,7 +88,7 @@ export async function updateHook(
   return rows[0] ? toRow(rows[0]) : undefined;
 }
 
-export async function deleteHook(instanceId: InstanceUuid, hookId: string): Promise<boolean> {
+export async function deleteHook(instanceId: AgentUuid, hookId: string): Promise<boolean> {
   const rows = await db
     .delete(instanceHooks)
     .where(and(eq(instanceHooks.id, hookId), eq(instanceHooks.instanceId, instanceId)))
@@ -102,13 +102,13 @@ export async function deleteHook(instanceId: InstanceUuid, hookId: string): Prom
  * Unknown slugs resolve to an empty list (cached, so they cost one lookup).
  */
 export async function getEnabledHooks(
-  slug: InstanceSlug,
+  slug: AgentSlug,
   event: HookEvent,
 ): Promise<InstanceHookRow[]> {
   let byEvent = cache.get(slug);
   if (!byEvent) {
     byEvent = new Map();
-    const instanceId = await resolveInstanceId(slug);
+    const instanceId = await resolveAgentId(slug);
     if (instanceId) {
       const rows = await db
         .select()

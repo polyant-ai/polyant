@@ -4,11 +4,11 @@ import { listEnabledRooms, type RoomConfig } from "./room.store.js";
 import { countPendingByInstance } from "../webhooks/webhook-backlog.store.js";
 import { compactActivityLog } from "./activity-log.store.js";
 import { executeRoomCycle } from "./room-engine.js";
-import { resolveInstanceSlug } from "../instances/resolve-instance-id.js";
+import { resolveAgentSlug } from "../instances/resolve-agent-id.js";
 import { roomLog } from "./room-logger.js";
 import { runAnalyticsCleanup } from "../analytics/cleanup.js";
 import { config } from "../config.js";
-import { type InstanceSlug } from "../instances/identifiers.js";
+import { type AgentSlug } from "../instances/identifiers.js";
 
 const TICK_INTERVAL_MS = 30_000;
 const HOUSEKEEPING_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -71,7 +71,7 @@ class RoomScheduler {
 
   private async processRoom(room: RoomConfig): Promise<void> {
     try {
-      const slug = await resolveInstanceSlug(room.instanceId);
+      const slug = await resolveAgentSlug(room.instanceId);
       if (!slug) return;
 
       await executeRoomCycle(room, slug);
@@ -80,7 +80,7 @@ class RoomScheduler {
     }
   }
 
-  async triggerImmediate(room: RoomConfig, instanceSlug: InstanceSlug, humanMessage: string): Promise<void> {
+  async triggerImmediate(room: RoomConfig, instanceSlug: AgentSlug, humanMessage: string): Promise<void> {
     if (this.running.has(room.instanceId)) {
       roomLog.warn("Scheduler", `room for ${instanceSlug} already running, dropping human message`);
       return;

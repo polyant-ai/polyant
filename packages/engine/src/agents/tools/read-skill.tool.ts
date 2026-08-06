@@ -7,7 +7,7 @@ import { getSkillEnv } from "../../instances/skill-env.store.js";
 import { db } from "../../database/client.js";
 import { instanceSkills } from "../../instances/instance-skills.schema.js";
 import { skills, skillVersions } from "../../skills/schema.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
 
 export default defineTool({
   name: "readSkill",
@@ -27,7 +27,7 @@ export default defineTool({
     if (!identifier) {
       return { found: false, error: "Missing required parameter 'name'." };
     }
-    const instanceId = await resolveInstanceId(ctx.instanceId);
+    const instanceId = await resolveAgentId(ctx.instanceId);
     if (!instanceId) {
       return { found: false, error: "Instance not found" };
     }

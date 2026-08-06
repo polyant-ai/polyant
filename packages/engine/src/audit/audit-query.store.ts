@@ -3,7 +3,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { type DateRange, toISO, asRows, instanceFilter } from "../utils/query-helpers.js";
-import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
+import { asAgentSlug, type AgentSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
 
 export type { DateRange };
@@ -12,7 +12,7 @@ export type { DateRange };
 
 export interface AuditLogRow {
   id: string;
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   conversationId: string | null;
   toolName: string;
   action: string;
@@ -42,7 +42,7 @@ export interface AuditStatsResult {
 // ── List (paginated + filtered) ───────────────────────────────────
 
 export async function listAuditLogs(opts: {
-  instanceId?: InstanceSlug;
+  instanceId?: AgentSlug;
   toolName?: string;
   action?: string;
   search?: string;
@@ -95,7 +95,7 @@ export async function listAuditLogs(opts: {
     created_at: string;
   }>(itemsResult).map((r) => ({
     id: r.id,
-    instanceId: asInstanceSlug(r.agent_id),
+    instanceId: asAgentSlug(r.agent_id),
     conversationId: r.conversation_id,
     toolName: r.tool_name,
     action: r.action,
@@ -113,7 +113,7 @@ export async function listAuditLogs(opts: {
 // ── Stats ─────────────────────────────────────────────────────────
 
 export async function getAuditStats(opts: {
-  instanceId?: InstanceSlug;
+  instanceId?: AgentSlug;
   from?: Date;
   to?: Date;
   orgId?: string;

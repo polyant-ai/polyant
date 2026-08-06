@@ -9,7 +9,7 @@
 
 import type { ModelMessage } from "ai";
 import { config, DEFAULT_INSTANCE_ID } from "./config.js";
-import type { InstanceSlug } from "./instances/identifiers.js";
+import type { AgentSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
 import type { CostBreakdown } from "./ai-gateway/types.js";
 import { conversationStore } from "./conversations/index.js";
@@ -90,7 +90,7 @@ export const MISSING_KEY_RESPONSE =
 
 export interface PipelineContext {
   pipelineStart: number;
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   conversationId: string;
   conversationSummary: string | undefined;
   contextPrompt: string | undefined;
@@ -129,7 +129,7 @@ export async function preparePipeline(
   conversationIdOverride?: string | null,
 ): Promise<PipelineContext> {
   const pipelineStart = Date.now();
-  const instanceId: InstanceSlug = msg.instanceId || DEFAULT_INSTANCE_ID;
+  const instanceId: AgentSlug = msg.instanceId || DEFAULT_INSTANCE_ID;
   pipelineLog.request(msg.channelType, instanceId, msg.text);
 
   const conversationId = conversationIdOverride
@@ -320,7 +320,7 @@ export function buildHookPayload(
  * applied before any token reaches the client. `getEnabledHooks` takes the slug
  * (it resolves + caches the UUID internally) and swallows unknown slugs → [].
  */
-export async function hasResponseMutatingHook(instanceSlug: InstanceSlug): Promise<boolean> {
+export async function hasResponseMutatingHook(instanceSlug: AgentSlug): Promise<boolean> {
   const hooks = await getEnabledHooks(instanceSlug, "response_generated").catch(() => []);
   const registry = getHookRegistry();
   return hooks.some(
@@ -380,7 +380,7 @@ export async function runResponseGeneratedHooks(
 
 export interface AfterResponseOptions {
   conversationId: string;
-  instanceId: InstanceSlug;
+  instanceId: AgentSlug;
   userMessage: string;
   assistantResponse: string;
   steps?: StepDetail[];

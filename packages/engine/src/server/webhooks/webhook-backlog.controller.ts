@@ -4,8 +4,8 @@ import { Controller, Get, Param, Query, BadRequestException } from "@nestjs/comm
 import { z } from "zod";
 import { listBacklog, BACKLOG_STATUS } from "../../webhooks/webhook-backlog.store.js";
 import { listActivity } from "../../room/activity-log.store.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { resolveAgentId } from "../../instances/resolve-agent-id.js";
+import { asAgentSlug } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
 const paginationSchema = z.object({
@@ -38,7 +38,7 @@ export class WebhookBacklogController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) return { events: [], total: 0 };
 
     return listBacklog(instanceId, {
@@ -61,7 +61,7 @@ export class WebhookBacklogController {
       throw new BadRequestException(parsed.error.issues.map((i) => i.message).join(", "));
     }
 
-    const instanceId = await resolveInstanceId(asInstanceSlug(slug));
+    const instanceId = await resolveAgentId(asAgentSlug(slug));
     if (!instanceId) return [];
 
     return listActivity(instanceId, {
