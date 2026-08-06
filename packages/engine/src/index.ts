@@ -100,7 +100,7 @@ function formatDbTarget(databaseUrl: string): string {
 async function main() {
   console.log("Polyant starting...");
 
-  // 0. Seed initial superadmin if the users table is empty (idempotent).
+  // 0. Seed the initial platform admin if the users table is empty (idempotent).
   // Runs before the rest of the boot so the system is "ready for first
   // access" the moment the server is up.
   try {

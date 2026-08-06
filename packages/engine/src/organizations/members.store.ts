@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { db, type DbExecutor, type DbTransaction } from "../database/client.js";
 import { users } from "../auth/users.schema.js";
 import { organizations, organizationMemberships } from "./organization.schema.js";
 import { roles } from "../authz/role.schema.js";
@@ -36,8 +36,9 @@ export async function resolveOrgIdBySlug(slug: string): Promise<string | null> {
 /** A seeded system role by key (e.g. "owner"), or null when the catalog lacks it. */
 export async function getSystemRoleByKey(
   roleKey: string,
+  executor: DbExecutor = db,
 ): Promise<{ id: string } | null> {
-  const [row] = await db
+  const [row] = await executor
     .select({ id: roles.id })
     .from(roles)
     .where(and(eq(roles.key, roleKey), eq(roles.isSystem, true)))
@@ -53,8 +54,9 @@ export async function getSystemRoleByKey(
 export async function getOrgScopeRoleKey(
   organizationId: string,
   userId: string,
+  executor: DbExecutor = db,
 ): Promise<string | null> {
-  const [row] = await db
+  const [row] = await executor
     .select({ roleKey: roles.key })
     .from(roleBindings)
     .innerJoin(roles, eq(roleBindings.roleId, roles.id))
@@ -70,8 +72,11 @@ export async function getOrgScopeRoleKey(
 }
 
 /** Count the distinct users holding an org-scope Owner binding in an org. */
-export async function countOwnerBindings(organizationId: string): Promise<number> {
-  const [row] = await db
+export async function countOwnerBindings(
+  organizationId: string,
+  executor: DbExecutor = db,
+): Promise<number> {
+  const [row] = await executor
     .select({ count: sql<number>`count(distinct ${roleBindings.userId})::int` })
     .from(roleBindings)
     .innerJoin(roles, eq(roleBindings.roleId, roles.id))
@@ -87,47 +92,50 @@ export async function countOwnerBindings(organizationId: string): Promise<number
 }
 
 /**
- * Set a user's org-scope role to exactly `roleId`: drop any existing org-scope
- * bindings for the user in the org, then insert the new one. A single
- * transaction so a member never ends up with two org-scope roles.
+ * Serialize every membership mutation for one organization until its checks and
+ * writes commit. The 64-bit hash is deterministic; a collision only serializes
+ * unrelated organizations and cannot weaken the owner-last invariant.
  */
-export async function upsertOrgScopeBinding(params: {
-  organizationId: string;
-  userId: string;
-  roleId: string;
-  actorId?: string;
-}): Promise<void> {
-  const { organizationId, userId, roleId, actorId } = params;
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(roleBindings)
-      .where(
-        and(
-          eq(roleBindings.userId, userId),
-          eq(roleBindings.organizationId, organizationId),
-          eq(roleBindings.scopeType, ORG_SCOPE),
-        ),
-      );
-    await tx.insert(roleBindings).values({
-      userId,
-      roleId,
-      scopeType: ORG_SCOPE,
-      scopeId: organizationId,
-      organizationId,
-      createdBy: actorId,
-    });
+export async function withOrganizationMemberLock<T>(
+  organizationId: string,
+  mutation: (transaction: DbTransaction) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (transaction) => {
+    await transaction.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${organizationId}, 0::bigint))`,
+    );
+    return mutation(transaction);
   });
 }
 
 /**
- * Remove every org-scope binding a user holds in an organization. Returns
- * whether any row was deleted (false = the user had no org-scope binding).
+ * Persist a usable organization member: create its membership and set exactly
+ * one org-scope role in the same transaction.
  */
-export async function deleteOrgScopeBinding(
-  organizationId: string,
-  userId: string,
-): Promise<boolean> {
-  const deleted = await db
+export async function upsertOrganizationMemberRole(
+  params: {
+    organizationId: string;
+    userId: string;
+    roleId: string;
+    actorId?: string;
+  },
+  executor?: DbExecutor,
+): Promise<void> {
+  const { organizationId, userId, roleId, actorId } = params;
+  if (!executor) {
+    return withOrganizationMemberLock(organizationId, (transaction) =>
+      upsertOrganizationMemberRole(params, transaction),
+    );
+  }
+
+  await executor
+    .insert(organizationMemberships)
+    .values({ organizationId, userId })
+    .onConflictDoNothing({
+      target: [organizationMemberships.organizationId, organizationMemberships.userId],
+    });
+
+  await executor
     .delete(roleBindings)
     .where(
       and(
@@ -135,9 +143,43 @@ export async function deleteOrgScopeBinding(
         eq(roleBindings.organizationId, organizationId),
         eq(roleBindings.scopeType, ORG_SCOPE),
       ),
-    )
-    .returning({ id: roleBindings.id });
-  return deleted.length > 0;
+    );
+  await executor.insert(roleBindings).values({
+    userId,
+    roleId,
+    scopeType: ORG_SCOPE,
+    scopeId: organizationId,
+    organizationId,
+    createdBy: actorId,
+  });
+}
+
+/**
+ * Remove membership and every role binding the user holds in an organization,
+ * including workspace-scoped bindings.
+ */
+export async function deleteOrganizationMember(
+  organizationId: string,
+  userId: string,
+  executor?: DbExecutor,
+): Promise<void> {
+  if (!executor) {
+    return withOrganizationMemberLock(organizationId, (transaction) =>
+      deleteOrganizationMember(organizationId, userId, transaction),
+    );
+  }
+
+  await executor
+    .delete(roleBindings)
+    .where(and(eq(roleBindings.userId, userId), eq(roleBindings.organizationId, organizationId)));
+  await executor
+    .delete(organizationMemberships)
+    .where(
+      and(
+        eq(organizationMemberships.organizationId, organizationId),
+        eq(organizationMemberships.userId, userId),
+      ),
+    );
 }
 
 /**

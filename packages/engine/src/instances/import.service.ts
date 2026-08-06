@@ -7,7 +7,7 @@
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "./schema.js";
-import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
+import { resolveWorkspaceIdForPrincipal } from "./store.js";
 import { instancePrompts } from "./prompts.schema.js";
 import { instanceSkills } from "./instance-skills.schema.js";
 import { instanceTools } from "./instance-tools.schema.js";
@@ -54,7 +54,18 @@ export interface ImportResult {
 // Import as new instance
 // ---------------------------------------------------------------------------
 
-export async function importNewInstance(rawBundle: unknown): Promise<ImportResult> {
+/**
+ * Create a brand-new agent from an exported bundle.
+ *
+ * @param orgId the CALLER's organization (from the request principal), which
+ *   decides the owning workspace. It is resolved fail-closed: an unresolvable
+ *   organization throws instead of falling back to the deployment default
+ *   workspace, which belongs to the seed organization (cross-tenant write).
+ */
+export async function importNewInstance(
+  rawBundle: unknown,
+  orgId?: string,
+): Promise<ImportResult> {
   const bundle = instanceBundleSchema.parse(rawBundle);
   const data = bundle.instance;
   const warnings: ImportWarning[] = [];
@@ -64,8 +75,8 @@ export async function importNewInstance(rawBundle: unknown): Promise<ImportResul
 
   // Run everything in a transaction
   const instanceId = await db.transaction(async (tx) => {
-    // 1. Create instance (in the default workspace — see store.ts rationale).
-    const workspaceId = await findDefaultWorkspaceId(tx);
+    // 1. Create instance in the CALLER's workspace (see store.ts rationale).
+    const workspaceId = await resolveWorkspaceIdForPrincipal(orgId, tx);
     const [inst] = await tx
       .insert(instances)
       .values({

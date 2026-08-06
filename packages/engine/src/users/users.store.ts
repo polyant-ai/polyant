@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, sql } from "drizzle-orm";
+import { eq, or, sql , inArray , desc } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { users, sessions, type UserRole } from "../auth/users.schema.js";
+import { invalidateSuperadminCache } from "../authz/authz.caches.js";
+import { PLATFORM_ADMIN_ROLE_VALUES, isPlatformAdminRole } from "../auth/user-role.js";
 
 export interface UserRow {
   id: string;
@@ -10,6 +12,13 @@ export interface UserRow {
   name: string | null;
   image: string | null;
   role: UserRole;
+  /**
+   * The column `PermissionGuard` actually enforces. Exposed because the
+   * last-platform-admin guard has to reason about the standing a caller HOLDS,
+   * not only about the role that usually implies it — a row with the flag and an
+   * ordinary role skipped that guard entirely and was demoted in silence.
+   */
+  isPlatformAdmin: boolean;
   mustChangePassword: boolean;
   hasPassword: boolean;
   createdAt: Date | null;
@@ -27,6 +36,7 @@ function mapRow(row: typeof users.$inferSelect): UserWithSecret {
     name: row.name ?? null,
     image: row.image ?? null,
     role: row.role,
+    isPlatformAdmin: row.isPlatformAdmin,
     mustChangePassword: row.mustChangePassword,
     hasPassword: row.passwordHash !== null,
     passwordHash: row.passwordHash ?? null,
@@ -42,6 +52,7 @@ function stripSecret(row: UserWithSecret): UserRow {
     name: row.name,
     image: row.image,
     role: row.role,
+    isPlatformAdmin: row.isPlatformAdmin,
     mustChangePassword: row.mustChangePassword,
     hasPassword: row.hasPassword,
     createdAt: row.createdAt,
@@ -49,9 +60,49 @@ function stripSecret(row: UserWithSecret): UserRow {
   };
 }
 
-export async function listUsers(): Promise<UserRow[]> {
-  const rows = await db.select().from(users).orderBy(users.createdAt);
-  return rows.map((r) => stripSecret(mapRow(r)));
+export interface ListUsersQuery {
+  readonly limit: number;
+  readonly offset: number;
+}
+
+export interface UserList {
+  readonly users: UserRow[];
+  readonly total: number;
+}
+
+/**
+ * One page of installation accounts, plus the total.
+ *
+ * PAGINATED because it was not: the previous form selected the whole `users`
+ * table with no LIMIT, so the response grew with the installation and the panel
+ * rendered every row it was sent.
+ *
+ * Ordered platform-admins-first, then by email, rather than by creation date: the
+ * flag is the reason to open this list, and burying admins among the accounts
+ * created around them defeats its purpose. Tolerant of BOTH role values, like
+ * every other read — a row still holding the legacy spelling is just as much a
+ * platform admin, and ordering on the canonical value alone would sort it in with
+ * ordinary users.
+ */
+export async function listUsers(query: ListUsersQuery): Promise<UserList> {
+  const [rows, totalRows] = await Promise.all([
+    db
+      .select()
+      .from(users)
+      .orderBy(
+        // The column is typed on what we WRITE, while the stored set is wider by
+        // one legacy value — the same cast `countPlatformAdmins` needs.
+        desc(inArray(users.role, [...PLATFORM_ADMIN_ROLE_VALUES] as UserRole[])),
+        users.email,
+      )
+      .limit(query.limit)
+      .offset(query.offset),
+    db.select({ count: sql<number>`count(*)::int` }).from(users),
+  ]);
+  return {
+    users: rows.map((r) => stripSecret(mapRow(r))),
+    total: totalRows[0]?.count ?? 0,
+  };
 }
 
 export { stripSecret };
@@ -74,11 +125,31 @@ export async function countUsers(): Promise<number> {
   return count ?? 0;
 }
 
-export async function countSuperadmins(): Promise<number> {
+/**
+ * How many accounts hold platform-admin standing. Undercounting is the dangerous
+ * direction: it is what would let the LAST platform admin be demoted or deleted,
+ * locking the deployment out of its own administration.
+ *
+ * So this counts a row that holds the standing by EITHER route — the
+ * `is_platform_admin` flag, which is what `PermissionGuard` actually enforces, or
+ * a platform-admin role in either spelling, since 0071 renames the value and a
+ * rolling deploy sees both. Counting by role alone was blind to a flag-only
+ * admin, which is precisely the shape `promotePlatformAdminByEmail` used to
+ * create; counting by flag alone would miss a role set before the flag is
+ * derived. The union is the only version that cannot undercount.
+ */
+export async function countPlatformAdmins(): Promise<number> {
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(users)
-    .where(eq(users.role, "superadmin"));
+    .where(
+      or(
+        eq(users.isPlatformAdmin, true),
+        // The column is typed on what we WRITE, while the stored set is wider by
+        // one legacy value, hence the cast.
+        inArray(users.role, [...PLATFORM_ADMIN_ROLE_VALUES] as UserRole[]),
+      ),
+    );
   return count ?? 0;
 }
 
@@ -98,13 +169,19 @@ export async function insertUser(input: CreateUserInput): Promise<UserWithSecret
       name: input.name?.trim() || null,
       passwordHash: input.passwordHash,
       role: input.role,
-      // Keep the platform-admin bypass in lockstep with the superadmin role at
-      // the write boundary, so a fresh-install superadmin gets the bypass without
+      // Keep the platform-admin bypass in lockstep with the role at the write
+      // boundary — through the PREDICATE, so an API caller still POSTing the
+      // legacy value is still granted the flag rather than silently not being an
+      // admin. A fresh install gets the bypass without
       // depending on PLATFORM_ADMIN_EMAIL (mirrors migration 0051's backfill).
-      isPlatformAdmin: input.role === "superadmin",
+      isPlatformAdmin: isPlatformAdminRole(input.role),
       mustChangePassword: input.mustChangePassword,
     })
     .returning();
+  // A brand-new id cannot hold a stale entry, but pairing EVERY write of the
+  // flag with an invalidation keeps the invariant grep-verifiable instead of
+  // requiring each call site to re-prove the negative.
+  invalidateSuperadminCache(row.id);
   return mapRow(row);
 }
 
@@ -121,9 +198,9 @@ export async function updateUserMeta(
   if (input.name !== undefined) patch.name = input.name?.trim() || null;
   if (input.role !== undefined) {
     patch.role = input.role;
-    // Role and platform-admin bypass move together: promoting to superadmin
+    // Role and platform-admin bypass move together: promoting to platform admin
     // grants it, demoting revokes it.
-    patch.isPlatformAdmin = input.role === "superadmin";
+    patch.isPlatformAdmin = isPlatformAdminRole(input.role);
   }
 
   const [row] = await db
@@ -131,6 +208,9 @@ export async function updateUserMeta(
     .set(patch)
     .where(eq(users.id, id))
     .returning();
+  // Flush AFTER the write commits: invalidating first would let a concurrent
+  // read repopulate the cache with the pre-update value.
+  if (input.role !== undefined) invalidateSuperadminCache(id);
   return row ? mapRow(row) : null;
 }
 
@@ -153,6 +233,10 @@ export async function updateUserPassword(
 
 export async function deleteUserById(id: string): Promise<boolean> {
   const [row] = await db.delete(users).where(eq(users.id, id)).returning({ id: users.id });
+  // Dropping the row clears the flag too. Without this a deleted platform admin
+  // keeps the bypass for the rest of the TTL — their JWE outlives the row
+  // (documented Auth.js trade-off), so the guard would still see a principal.
+  invalidateSuperadminCache(id);
   return !!row;
 }
 

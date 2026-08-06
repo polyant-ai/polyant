@@ -17,6 +17,26 @@ import {
 import { listHooks } from "../../hooks/hooks.store.js";
 import { getHookRegistry } from "../../hooks/hook-registry.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { agentsShareOrganization, agentToolTarget } from "../../authz/agent-tenancy.js";
+
+/**
+ * Reject any `agent:{slug}` entry whose target lives in another organization.
+ * The message is deliberately identical for "does not exist" and "belongs to
+ * someone else" so the endpoint is not an existence oracle for other tenants'
+ * agent slugs.
+ */
+export async function assertAgentTargetsAreSiblings(
+  instanceSlug: string,
+  requestedToolNames: readonly string[],
+): Promise<void> {
+  for (const name of requestedToolNames) {
+    const targetSlug = agentToolTarget(name);
+    if (!targetSlug) continue;
+    if (!(await agentsShareOrganization(instanceSlug, targetSlug))) {
+      throw new BadRequestException(`Unknown or inaccessible tool "${name}".`);
+    }
+  }
+}
 
 @Controller("api/instances")
 export class InstanceToolsController {
@@ -88,6 +108,13 @@ export class InstanceToolsController {
         toAdd.push(name);
       }
     }
+
+    // An `agent:{slug}` entry hands this agent a live channel into the target's
+    // pipeline, so the target must be a tenant sibling. The `tools` catalog is
+    // deployment-global and holds one such row per agent that enabled its
+    // `agent` channel — resolving a requested name against it unscoped would
+    // let any org wire itself an `ask_` handoff into any other org's agent.
+    await assertAgentTargetsAreSiblings(instance.slug, toAdd);
 
     // Tools to remove (currently manual but not in requested set)
     const toRemove: string[] = [];

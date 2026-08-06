@@ -2,14 +2,25 @@
 
 // ── Users ───────────────────────────────────────────────────────────
 
-export type UserRole = "superadmin" | "user";
+// Re-exported from the vocabulary module so the panel has ONE spelling of the
+// role, and one place that knows it has had two.
+export type { UserRole } from "./user-role";
+import type { PersistedUserRole } from "./user-role";
 
 export interface AdminUser {
   id: string;
   email: string;
   name: string | null;
   image: string | null;
-  role: UserRole;
+  /**
+   * `PersistedUserRole`, not `UserRole`: this is what the API RETURNS, and the
+   * column can still hold the legacy spelling during the rename's shim window.
+   * Typing it as the narrower write-side union was a lie the compiler believed,
+   * which is why `setRole(user.role)` in the edit dialog type-checked while
+   * rendering a blank role control. Fold it with `normalizeUserRole` before
+   * putting it in a form.
+   */
+  role: PersistedUserRole;
   mustChangePassword: boolean;
   hasPassword: boolean;
   createdAt: string | null;
@@ -123,6 +134,18 @@ export interface Instance {
   memory?: {
     needsOpenAIKey: boolean;
     canEnable: boolean;
+  };
+  /**
+   * Embedder readiness, NOT gated on any feature flag — unlike `memory`, which
+   * reports all-false whenever memory is off and therefore cannot speak for an
+   * agent that uses only knowledge.
+   *
+   * Computed by the engine because the browser cannot see the `AWS_REGION` env
+   * fallback: a client-side copy of this rule reports a false "AWS credentials
+   * needed" for a bedrock agent whose embeddings actually work.
+   */
+  embedder?: {
+    needsCredentials: boolean;
   };
   createdAt: string | null;
   updatedAt: string | null;
@@ -801,4 +824,22 @@ export interface McpTestResult {
   tools?: string[];
   requiresOAuth?: boolean;
   error?: string;
+}
+
+// ── Tenancy (GET /api/me) ───────────────────────────────────────────
+
+/** A workspace as the frontend addresses it in a tenant-scoped URL. */
+export interface TenantWorkspace {
+  slug: string;
+  name: string;
+  isDefault: boolean;
+}
+
+/**
+ * The caller's own tenancy. `organization: null` is a valid response — a JWT
+ * minted before RBAC carries no orgId — and means "sign in again", not "error".
+ */
+export interface TenantContextPayload {
+  organization: { slug: string; name: string } | null;
+  workspaces: TenantWorkspace[];
 }

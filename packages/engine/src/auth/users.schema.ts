@@ -20,7 +20,11 @@ import {
  * users management UI.
  */
 
-export type UserRole = "superadmin" | "user";
+// The role vocabulary moved to `user-role.ts`, which is also the only place that
+// knows the platform-admin value has had two spellings. Re-exported so existing
+// importers of this schema keep working.
+export type { UserRole } from "./user-role.js";
+import type { UserRole } from "./user-role.js";
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -32,10 +36,11 @@ export const users = pgTable("users", {
   role: text("role").$type<UserRole>().notNull().default("user"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   /**
-   * Platform Superadmin flag (RBAC). Acts at the Deployment level, above every
+   * Platform Admin flag (RBAC). Acts at the Deployment level, above every
    * organization, and bypasses all RBAC checks. Deliberately NOT carried in the
    * JWT (revocation must be near-immediate) — it is read from the DB per request.
-   * Backfilled to `true` for `role='superadmin'` users by migration 0051.
+   * Backfilled from the role by migration 0051, and reconciled with the renamed
+   * value by 0071. DERIVED from the role at write time (`users.store.ts`).
    */
   isPlatformAdmin: boolean("is_platform_admin").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

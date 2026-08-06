@@ -32,6 +32,7 @@ import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
 import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
 import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
+import { agentsShareOrganization, agentToolTarget } from "../../authz/agent-tenancy.js";
 
 export interface SupervisorInput {
   message: string;
@@ -332,14 +333,26 @@ async function buildTools(opts: BuildToolsOptions) {
   // The catalog row is managed by agent-tool-sync when the callee enables/disables
   // its `agent` channel; here we look up the target instance + its running
   // AgentChannelAdapter and wrap a `buildAgentInvokeTool` into an aiTool.
-  const agentEntries = [...enabledNames].filter((n) => n.startsWith("agent:"));
+  // Through `agentToolTarget`, not two inline `"agent:"` literals: the write-side
+  // gate (the tools API) already uses the shared helper, so a hand-rolled copy
+  // HERE — the enforcement point — is a fail-open drift waiting to happen. Change
+  // the prefix and the backstop stops matching while the write gate keeps working.
+  const agentEntries = [...enabledNames].filter((n) => agentToolTarget(n) !== null);
   if (agentEntries.length > 0) {
     const currentDepth = agentCallDepth ?? 0;
     for (const entryName of agentEntries) {
-      const targetSlug = entryName.slice("agent:".length);
+      const targetSlug = agentToolTarget(entryName)!;
       const target = await findInstanceBySlug(asInstanceSlug(targetSlug));
       if (!target) {
         console.warn(`[supervisor] agent tool '${entryName}': target instance not found`);
+        continue;
+      }
+      // Tenancy backstop, independent of how the row got into instance_tools:
+      // an `ask_` handoff runs the target's whole pipeline, so it must never
+      // cross an organization boundary. The tools API rejects such an entry at
+      // write time; this also neutralises rows written before that gate existed.
+      if (!(await agentsShareOrganization(instanceId, targetSlug))) {
+        console.warn(`[supervisor] agent tool '${entryName}': target is in another organization — skipped`);
         continue;
       }
       const adapter = channelManager.getAdapter(target.slug, "agent") as AgentChannelAdapter | undefined;

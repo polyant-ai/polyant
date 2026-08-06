@@ -1,27 +1,34 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Unit tests for AuthorizationService: superadmin bypass + cache, can() with
+ * Unit tests for AuthorizationService: platform admin bypass + cache, can() with
  * cached bindings, scope resolution, and binding-cache invalidation.
  */
 
-const { mockReadPlatformAdminFlag, mockReadAgentScope, mockReadUserBindings } =
+const {
+  mockReadPlatformAdminFlag,
+  mockReadAgentScope,
+  mockReadWorkspaceId,
+  mockReadUserBindings,
+} =
   vi.hoisted(() => ({
     mockReadPlatformAdminFlag: vi.fn(),
     mockReadAgentScope: vi.fn(),
+    mockReadWorkspaceId: vi.fn(),
     mockReadUserBindings: vi.fn(),
   }));
 
 vi.mock("./authz.store.js", () => ({
   readPlatformAdminFlag: mockReadPlatformAdminFlag,
   readAgentScope: mockReadAgentScope,
+  readWorkspaceId: mockReadWorkspaceId,
   readUserBindings: mockReadUserBindings,
 }));
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AuthorizationService } from "./authorization.service.js";
 import { OssStrategy } from "./authorization-strategy.js";
-import { bindingCache, superadminCache, bindingCacheKey } from "./authz.caches.js";
+import { bindingCache, platformAdminCache, bindingCacheKey } from "./authz.caches.js";
 import { Permission } from "./permissions.js";
 import type { AgentScope } from "./authz.store.js";
 
@@ -39,7 +46,7 @@ describe("AuthorizationService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     bindingCache.clear();
-    superadminCache.clear();
+    platformAdminCache.clear();
   });
 
   describe("isPlatformAdmin", () => {
@@ -101,6 +108,16 @@ describe("AuthorizationService", () => {
     });
   });
 
+  describe("resolveWorkspaceId", () => {
+    it("resolves a workspace only inside the supplied organization", async () => {
+      mockReadWorkspaceId.mockResolvedValue("ws-1");
+      const svc = makeService();
+
+      expect(await svc.resolveWorkspaceId("org-1", "workspace-a")).toBe("ws-1");
+      expect(mockReadWorkspaceId).toHaveBeenCalledWith("org-1", "workspace-a");
+    });
+  });
+
   describe("invalidateBindingCache", () => {
     it("clears the cached bindings for the user+org", async () => {
       mockReadUserBindings.mockResolvedValue([]);
@@ -109,6 +126,39 @@ describe("AuthorizationService", () => {
       expect(bindingCache.has(bindingCacheKey("user-1", "org-1"))).toBe(true);
       svc.invalidateBindingCache("user-1", "org-1");
       expect(bindingCache.has(bindingCacheKey("user-1", "org-1"))).toBe(false);
+    });
+  });
+
+  describe("invalidateSuperadminCache", () => {
+    it("should_report_false_immediately_when_the_flag_is_revoked", async () => {
+      mockReadPlatformAdminFlag.mockResolvedValue(true);
+      const svc = makeService();
+      expect(await svc.isPlatformAdmin("user-1")).toBe(true);
+
+      // Revocation: the DB flag flips and the write path flushes the cache.
+      mockReadPlatformAdminFlag.mockResolvedValue(false);
+      svc.invalidateSuperadminCache("user-1");
+
+      // No timer advance — the 5-min TTL must NOT be the thing that saves us.
+      expect(await svc.isPlatformAdmin("user-1")).toBe(false);
+      expect(mockReadPlatformAdminFlag).toHaveBeenCalledTimes(2);
+    });
+
+    it("should_leave_other_users_cached_when_one_user_is_invalidated", async () => {
+      mockReadPlatformAdminFlag.mockResolvedValue(true);
+      const svc = makeService();
+      await svc.isPlatformAdmin("user-1");
+      await svc.isPlatformAdmin("user-2");
+
+      svc.invalidateSuperadminCache("user-1");
+
+      expect(platformAdminCache.has("user-1")).toBe(false);
+      expect(platformAdminCache.get("user-2")).toBe(true);
+    });
+
+    it("should_not_throw_when_the_user_is_not_cached", () => {
+      const svc = makeService();
+      expect(() => svc.invalidateSuperadminCache("never-seen")).not.toThrow();
     });
   });
 });

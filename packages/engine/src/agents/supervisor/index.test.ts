@@ -13,6 +13,8 @@ const {
   mockGetEnabledToolNames,
   mockFindInstanceBySlug,
   mockGetToolRegistry,
+  mockAgentsShareOrganization,
+  mockBuildAgentInvokeTool,
   mockBuildTool,
   mockCreateTaskTool,
   mockBuildPrompt,
@@ -24,6 +26,8 @@ const {
   mockGetEnabledToolNames: vi.fn(),
   mockFindInstanceBySlug: vi.fn(),
   mockGetToolRegistry: vi.fn(),
+  mockAgentsShareOrganization: vi.fn(),
+  mockBuildAgentInvokeTool: vi.fn(),
   mockBuildTool: vi.fn(),
   mockCreateTaskTool: vi.fn(),
   mockBuildPrompt: vi.fn(),
@@ -91,8 +95,9 @@ vi.mock("../../instances/store.js", () => ({
 
 // Mocks for the new agent-to-agent imports. The supervisor reaches into
 // channelManager.getAdapter() to synthesise `ask_{slug}` tools — return
-// undefined here so the loop short-circuits and no agent tools are added
-// during supervisor tests.
+// undefined by default so the loop short-circuits and no agent tools are added
+// during the other supervisor tests. The handoff-tenancy block below re-points
+// it for the cases that do exercise the branch.
 vi.mock("../../channels/channel-manager.js", () => ({
   channelManager: {
     getAdapter: vi.fn().mockReturnValue(undefined),
@@ -100,8 +105,19 @@ vi.mock("../../channels/channel-manager.js", () => ({
 }));
 
 vi.mock("../tools/agent-invoke.helpers.js", () => ({
-  buildAgentInvokeTool: vi.fn(),
+  buildAgentInvokeTool: mockBuildAgentInvokeTool,
 }));
+
+// Only the tenancy PREDICATE is stubbed (it needs a database). `agentToolTarget`
+// is the REAL one: it is the `agent:{slug}` naming convention, and the supervisor
+// now parses entries through it instead of two inline literals — mocking it would
+// mean the convention is no longer under test at the enforcement point.
+vi.mock("../../authz/agent-tenancy.js", async () => {
+  const actual = await vi.importActual<typeof import("../../authz/agent-tenancy.js")>(
+    "../../authz/agent-tenancy.js",
+  );
+  return { ...actual, agentsShareOrganization: mockAgentsShareOrganization };
+});
 
 vi.mock("../../channels/adapters/agent.adapter.js", () => ({}));
 
@@ -112,6 +128,7 @@ vi.mock("../tools/mcp/mcp-tools.js", () => ({
 import { buildUserContent, supervise, superviseStream } from "./index.js";
 import type { SupervisorInput } from "./index.js";
 import type { Attachment } from "../../channels/types.js";
+import { channelManager } from "../../channels/channel-manager.js";
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -143,6 +160,62 @@ beforeEach(() => {
   mockBuildPrompt.mockResolvedValue({ system: "System prompt content", turnContext: "" });
   mockChat.mockResolvedValue(defaultChatResponse);
   mockBuildMcpTools.mockResolvedValue({ tools: {}, close: vi.fn().mockResolvedValue(undefined) });
+  // Same-tenant by default; the handoff-tenancy block flips it per test.
+  mockAgentsShareOrganization.mockResolvedValue(true);
+  mockBuildAgentInvokeTool.mockReturnValue({
+    name: "ask_helper_bot",
+    description: "Ask the helper",
+    inputSchema: {},
+    execute: vi.fn(),
+  });
+});
+
+// =========================================================================
+// agent-to-agent handoff: tenancy backstop
+// =========================================================================
+
+/**
+ * An `agent:{slug}` entry makes the supervisor synthesise an `ask_` tool that
+ * runs the TARGET's whole pipeline. These tests pin the boundary that keeps
+ * that capability inside one organization, independently of how the row got
+ * into `instance_tools` — the tools API gates writes, this gates execution.
+ */
+describe("supervise — agent handoff tenancy", () => {
+  const enableAgentEntry = () => {
+    mockGetEnabledToolNames.mockResolvedValue(new Set(["agent:helper-bot"]));
+    mockFindInstanceBySlug.mockResolvedValue({
+      id: "uuid-target",
+      slug: "helper-bot",
+      name: "Helper",
+      description: "A helper agent",
+    });
+    vi.mocked(channelManager.getAdapter).mockReturnValue({
+      dispatch: vi.fn(),
+    } as never);
+  };
+
+  const toolsFromLastChat = () =>
+    (mockChat.mock.calls[0][0] as { tools?: Record<string, unknown> }).tools ?? {};
+
+  it("should_synthesise_the_ask_tool_when_the_target_is_a_tenant_sibling", async () => {
+    enableAgentEntry();
+    mockAgentsShareOrganization.mockResolvedValue(true);
+
+    await supervise({ message: "hi", instanceId: asInstanceSlug("caller-agent") });
+
+    expect(toolsFromLastChat()).toHaveProperty("ask_helper_bot");
+  });
+
+  it("should_skip_the_ask_tool_when_the_target_belongs_to_another_organization", async () => {
+    enableAgentEntry();
+    mockAgentsShareOrganization.mockResolvedValue(false);
+
+    await supervise({ message: "hi", instanceId: asInstanceSlug("caller-agent") });
+
+    expect(toolsFromLastChat()).not.toHaveProperty("ask_helper_bot");
+    expect(mockBuildAgentInvokeTool).not.toHaveBeenCalled();
+    expect(mockAgentsShareOrganization).toHaveBeenCalledWith("caller-agent", "helper-bot");
+  });
 });
 
 // =========================================================================

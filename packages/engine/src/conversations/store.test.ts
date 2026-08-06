@@ -85,7 +85,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 // Import AFTER mocks are in place so the module-level singleton picks them up.
-import { ConversationStore, conversationStore, escapeLikePattern } from "./store.js";
+import { ConversationStore, conversationStore, escapeLikePattern, normalizeTitle, MAX_TITLE_CHARS } from "./store.js";
 import { sql as sqlMock } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
@@ -463,6 +463,19 @@ describe("ConversationStore", () => {
           debugPayload: null,
         },
       ]);
+    });
+
+    it("bumps the conversation's updated_at in the same transaction", async () => {
+      const id = uid();
+      mockDb.insert.mockReturnValue(createChainMock(undefined) as any);
+      const updChain = createChainMock(undefined);
+      mockDb.update.mockReturnValue(updChain as any);
+
+      await conversationStore.appendMessages(id, [{ role: "user", content: "Hello" }]);
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+      expect(updChain.set).toHaveBeenCalledWith({ updatedAt: expect.any(Date) });
+      expect(updChain.where).toHaveBeenCalledWith({ type: "eq", args: ["conversation_id", id] });
     });
 
     it("stamps the row with an explicit createdAt when provided (arrival time)", async () => {
@@ -1352,6 +1365,33 @@ describe("ConversationStore", () => {
 
       // Insert must not have happened after the delete rejection.
       expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+  });
+
+  // =========================================================================
+  // Title normalization
+  // =========================================================================
+  describe("normalizeTitle", () => {
+    it("keeps a short single-line title untouched", () => {
+      expect(normalizeTitle("🐍 Tutorial gioco snake in Python")).toBe("🐍 Tutorial gioco snake in Python");
+    });
+
+    it("keeps only the first non-empty line", () => {
+      expect(normalizeTitle("\n\nHere is the title:\nSecond line")).toBe("Here is the title:");
+    });
+
+    it("collapses whitespace and trims", () => {
+      expect(normalizeTitle("  Titolo   con    spazi  ")).toBe("Titolo con spazi");
+    });
+
+    it("caps an overlong title with an ellipsis", () => {
+      const result = normalizeTitle("a".repeat(500));
+      expect(result).toHaveLength(MAX_TITLE_CHARS);
+      expect(result.endsWith("…")).toBe(true);
+    });
+
+    it("returns an empty string for whitespace-only input", () => {
+      expect(normalizeTitle("   \n  ")).toBe("");
     });
   });
 

@@ -36,6 +36,9 @@ vi.mock("../../instances/store.js", () => ({
   createInstance: mockCreateInstance,
   updateInstance: vi.fn(),
   deleteInstance: mockDeleteInstance,
+  // The create path resolves the owning organization before inserting; the
+  // resolution rule itself is covered in instances/store.test.ts.
+  resolvePrincipalOrgId: vi.fn(async (orgId?: string) => orgId ?? "org-default"),
 }));
 vi.mock("../../instances/prompts.store.js", () => ({ seedInstancePrompts: mockSeedPrompts }));
 vi.mock("../../instances/instance-tools.store.js", () => ({ seedInstanceTools: mockSeedTools }));

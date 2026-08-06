@@ -4,6 +4,7 @@ import { hkdf } from "@panva/hkdf";
 import { jwtDecrypt } from "jose";
 import type { AuthenticatedUser } from "./auth.types.js";
 import { config } from "../config.js";
+import { normalizeUserRole } from "./user-role.js";
 
 const AUTH_SECRET = config.auth.secret;
 
@@ -58,7 +59,11 @@ export async function validateSessionToken(
 
       if (!payload.sub && !payload.email) return null;
 
-      const role = payload.role === "superadmin" ? "superadmin" : "user";
+      // Folded at the TRUST BOUNDARY so nothing downstream ever sees the legacy
+      // spelling: a 30-day Auth.js JWT has no revocation, so a token minted
+      // before the rename would otherwise demote its holder to a plain user for
+      // the rest of its life.
+      const role = normalizeUserRole(payload.role);
       const mustChangePassword = payload.mustChangePassword === true;
       // Only trust a string `orgId` claim; anything else is treated as absent so
       // a malformed token never leaks a non-string value downstream.

@@ -3,20 +3,21 @@
 /**
  * Unit tests for PermissionGuard covering the §6.3 decision table:
  *  - @Public() short-circuit
- *  - undeclared route: shadow = allow + log, enforce = deny
- *  - @RequiresFeature missing license = deny (even in shadow)
- *  - superadmin DB bypass
+ *  - undeclared route = deny
+ *  - @RequiresFeature missing license = deny
+ *  - platform-admin DB bypass
  *  - ServicePrincipal (instance API key) branch
+ *  - ManagementKeyPrincipal (org API key): permission set AND same-org target
  *  - scope resolution + cross-org mismatch deny
- *  - granted / denied permission in enforce mode
- *  - shadow mode never throws on a denied permission
+ *  - granted / denied permission
+ *
+ * There is no shadow mode and no `AUTHZ_ENFORCE`, so no test here toggles one.
+ * `config` is mocked as an EMPTY object deliberately: if the guard ever grows a
+ * config read again — an enforcement switch by another name — these tests fail
+ * on a property access rather than quietly honouring it.
  */
 
-const { mockConfig } = vi.hoisted(() => ({
-  mockConfig: { authz: { enforce: false } },
-}));
-
-vi.mock("../config.js", () => ({ config: mockConfig }));
+vi.mock("../config.js", () => ({ config: {} }));
 
 // The guard imports AuthorizationService → authz.store → database/client, which
 // connects to Postgres at module load. Stub the client so the import is inert
@@ -31,6 +32,8 @@ import { Permission } from "./permissions.js";
 import { REQUIRE_PERMISSION_KEY } from "./decorators/require-permission.decorator.js";
 import { REQUIRES_FEATURE_KEY } from "./decorators/requires-feature.decorator.js";
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
+import { AUTHENTICATED_ONLY_KEY } from "./decorators/authenticated-only.decorator.js";
+import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import type { AgentScope } from "./authz.store.js";
 
 const SCOPE: AgentScope = {
@@ -43,12 +46,15 @@ interface MetaMap {
   [REQUIRE_PERMISSION_KEY]?: string;
   [REQUIRES_FEATURE_KEY]?: string;
   [IS_PUBLIC_KEY]?: boolean;
+  [AUTHENTICATED_ONLY_KEY]?: boolean;
+  [REQUIRED_ROLES_KEY]?: string[];
 }
 
 interface Overrides {
   isPlatformAdmin?: boolean;
   can?: boolean;
   scope?: AgentScope | null;
+  addressedWorkspaceId?: string | null;
   featureAvailable?: boolean;
 }
 
@@ -63,6 +69,13 @@ function setup(meta: MetaMap, request: Record<string, unknown>, overrides: Overr
     resolveAgentScope: vi
       .fn()
       .mockResolvedValue(overrides.scope === undefined ? SCOPE : overrides.scope),
+    resolveWorkspaceId: vi
+      .fn()
+      .mockResolvedValue(
+        overrides.addressedWorkspaceId === undefined
+          ? SCOPE.workspaceId
+          : overrides.addressedWorkspaceId,
+      ),
   };
   const entitlement = {
     isAvailable: vi.fn().mockReturnValue(overrides.featureAvailable ?? false),
@@ -86,7 +99,6 @@ const userReq = (params: Record<string, string>) => ({
 
 describe("PermissionGuard", () => {
   beforeEach(() => {
-    mockConfig.authz.enforce = false;
     vi.clearAllMocks();
   });
 
@@ -96,18 +108,12 @@ describe("PermissionGuard", () => {
     expect(authz.can).not.toHaveBeenCalled();
   });
 
-  it("allows an undeclared route in shadow mode (logs, no deny)", async () => {
-    const { guard, context } = setup({}, userReq({}));
-    await expect(guard.canActivate(context)).resolves.toBe(true);
-  });
-
-  it("denies an undeclared route once enforcement is on (fail-closed)", async () => {
-    mockConfig.authz.enforce = true;
+  it("denies an undeclared route (fail-closed, unconditionally)", async () => {
     const { guard, context } = setup({}, userReq({}));
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("denies a @RequiresFeature route when the license is missing (even shadow)", async () => {
+  it("denies a @RequiresFeature route when the license is missing", async () => {
     const { guard, context, authz } = setup(
       { [REQUIRES_FEATURE_KEY]: "custom-roles", [REQUIRE_PERMISSION_KEY]: Permission.ORG_WRITE },
       userReq({ slug: "agent-1" }),
@@ -126,13 +132,28 @@ describe("PermissionGuard", () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 
-  it("bypasses permission checks for a platform admin (superadmin)", async () => {
+  it("bypasses permission checks for a platform admin", async () => {
     const { guard, context, authz } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
       userReq({ slug: "agent-1" }),
       { isPlatformAdmin: true },
     );
     await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(authz.can).not.toHaveBeenCalled();
+  });
+
+  it("denies a platform admin that addresses an agent through a different workspace", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
+      {
+        ...userReq({ slug: "agent-1" }),
+        headers: { "x-workspace-slug": "other-workspace" },
+      },
+      { isPlatformAdmin: true, addressedWorkspaceId: "ws-2" },
+    );
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(authz.resolveWorkspaceId).toHaveBeenCalledWith("org-1", "other-workspace");
     expect(authz.can).not.toHaveBeenCalled();
   });
 
@@ -144,8 +165,22 @@ describe("PermissionGuard", () => {
     await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 
-  it("denies a ServicePrincipal addressing a DIFFERENT agent in enforce mode", async () => {
-    mockConfig.authz.enforce = true;
+  it("denies an instance API key that addresses its own agent through a different workspace", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_READ },
+      {
+        user: { kind: "instance", instanceSlug: "agent-1" },
+        params: { slug: "agent-1" },
+        headers: { "x-workspace-slug": "other-workspace" },
+      },
+      { addressedWorkspaceId: "ws-2" },
+    );
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(authz.resolveWorkspaceId).toHaveBeenCalledWith("org-1", "other-workspace");
+  });
+
+  it("denies a ServicePrincipal addressing a DIFFERENT agent", async () => {
     const { guard, context } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_READ },
       { user: { kind: "instance", instanceSlug: "agent-1" }, params: { slug: "agent-2" } },
@@ -154,7 +189,6 @@ describe("PermissionGuard", () => {
   });
 
   it("allows a management-key ServicePrincipal whose permission set contains the required permission", async () => {
-    mockConfig.authz.enforce = true;
     const { guard, context, authz } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_READ },
       {
@@ -172,8 +206,26 @@ describe("PermissionGuard", () => {
     expect(authz.can).not.toHaveBeenCalled();
   });
 
-  it("denies a management-key ServicePrincipal lacking the required permission (enforce)", async () => {
-    mockConfig.authz.enforce = true;
+  it("denies a management key that addresses an agent through a different workspace", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_READ },
+      {
+        user: {
+          principalType: "service",
+          orgId: "org-1",
+          permissions: new Set([Permission.AGENT_READ]),
+        },
+        params: { slug: "agent-1" },
+        headers: { "x-workspace-slug": "other-workspace" },
+      },
+      { addressedWorkspaceId: "ws-2" },
+    );
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(authz.resolveWorkspaceId).toHaveBeenCalledWith("org-1", "other-workspace");
+  });
+
+  it("denies a management-key ServicePrincipal lacking the required permission", async () => {
     const { guard, context } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_DELETE },
       {
@@ -188,24 +240,123 @@ describe("PermissionGuard", () => {
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("never throws on a management-key ServicePrincipal denial in shadow mode", async () => {
-    mockConfig.authz.enforce = false;
+  // A management key grants what was issued, but only inside its OWN org. The
+  // four tests below are the regression net for the cross-tenant hole where the
+  // key branch decided on the permission set alone and never looked at the
+  // addressed agent — a key of org A could read and overwrite the secrets,
+  // prompts and channels of every other tenant.
+  it("should_deny_management_key_when_the_addressed_agent_belongs_to_another_org", async () => {
     const { guard, context } = setup(
-      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_DELETE },
+      { [REQUIRE_PERMISSION_KEY]: Permission.SECRET_WRITE },
+      {
+        user: {
+          principalType: "service",
+          orgId: "org-1",
+          permissions: new Set([Permission.SECRET_WRITE]),
+        },
+        params: { slug: "agent-of-org-2" },
+      },
+      { scope: { agentId: "agent-2", workspaceId: "ws-2", organizationId: "org-2" } },
+    );
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("should_deny_management_key_when_the_addressed_agent_does_not_exist", async () => {
+    const { guard, context } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_READ },
       {
         user: {
           principalType: "service",
           orgId: "org-1",
           permissions: new Set([Permission.AGENT_READ]),
         },
-        params: { slug: "agent-1" },
+        params: { slug: "ghost" },
       },
+      { scope: null },
+    );
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("should_allow_management_key_on_an_org_level_route_without_resolving_an_agent", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_READ },
+      {
+        user: {
+          principalType: "service",
+          orgId: "org-1",
+          permissions: new Set([Permission.AGENT_READ]),
+        },
+        params: {},
+      },
+    );
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(authz.resolveAgentScope).not.toHaveBeenCalled();
+  });
+
+  it("should_deny_a_management_key_addressing_an_agent_of_another_org", async () => {
+    const { guard, context } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.SECRET_WRITE },
+      {
+        user: {
+          principalType: "service",
+          orgId: "org-1",
+          permissions: new Set([Permission.SECRET_WRITE]),
+        },
+        params: { slug: "agent-of-org-2" },
+      },
+      { scope: { agentId: "agent-2", workspaceId: "ws-2", organizationId: "org-2" } },
+    );
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // Two decorators declare authorization WITHOUT naming a permission. Treating
+  // either as "undeclared" made the route 403 for everyone under enforcement —
+  // including platform platform admins, whose bypass sits past this branch. That is
+  // how the entire /api/users surface became unreachable in production.
+  it("should_allow_an_authenticated_only_route_for_a_user_principal", async () => {
+    const { guard, context } = setup(
+      { [AUTHENTICATED_ONLY_KEY]: true },
+      userReq({}),
     );
     await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 
-  it("grants a declared permission when can() is true (enforce)", async () => {
-    mockConfig.authz.enforce = true;
+  it("should_deny_an_authenticated_only_route_for_a_service_principal", async () => {
+    const { guard, context } = setup({ [AUTHENTICATED_ONLY_KEY]: true }, {
+      user: {
+        principalType: "service",
+        orgId: "org-1",
+        permissions: new Set([Permission.AGENT_READ]),
+      },
+    });
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("should_deny_an_authenticated_only_route_for_an_instance_principal", async () => {
+    const { guard, context } = setup({ [AUTHENTICATED_ONLY_KEY]: true }, {
+      user: { kind: "instance", instanceSlug: "agent-1" },
+    });
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("should_defer_to_role_guard_when_the_route_declares_only_a_non_platform_require_role", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRED_ROLES_KEY]: ["user"] },
+      userReq({}),
+    );
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    // RoleGuard owns the decision; this guard must not also demand a permission.
+    expect(authz.can).not.toHaveBeenCalled();
+  });
+
+  it("should_still_deny_a_route_with_an_empty_require_role_list", async () => {
+    // An empty list is not a declaration — RoleGuard short-circuits to allow on
+    // it, so treating it as declared here would leave the route wide open.
+    const { guard, context } = setup({ [REQUIRED_ROLES_KEY]: [] }, userReq({}));
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("grants a declared permission when can() is true", async () => {
     const { guard, context, authz } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
       userReq({ slug: "agent-1" }),
@@ -215,8 +366,37 @@ describe("PermissionGuard", () => {
     expect(authz.can).toHaveBeenCalledWith("u1", SCOPE, Permission.AGENT_WRITE);
   });
 
-  it("denies a declared permission when can() is false (enforce)", async () => {
-    mockConfig.authz.enforce = true;
+  it("denies a user that addresses an agent through an unknown workspace", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
+      {
+        ...userReq({ slug: "agent-1" }),
+        headers: { "x-workspace-slug": "missing-workspace" },
+      },
+      { can: true, addressedWorkspaceId: null },
+    );
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(authz.resolveWorkspaceId).toHaveBeenCalledWith("org-1", "missing-workspace");
+    expect(authz.can).not.toHaveBeenCalled();
+  });
+
+  it("denies a present but malformed workspace address", async () => {
+    const { guard, context, authz } = setup(
+      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
+      {
+        ...userReq({ slug: "agent-1" }),
+        headers: { "X-Workspace-Slug": "Uppercase-Workspace" },
+      },
+      { can: true },
+    );
+
+    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(authz.resolveAgentScope).not.toHaveBeenCalled();
+    expect(authz.can).not.toHaveBeenCalled();
+  });
+
+  it("denies a declared permission when can() is false", async () => {
     const { guard, context } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
       userReq({ slug: "agent-1" }),
@@ -225,18 +405,7 @@ describe("PermissionGuard", () => {
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("never throws on a denied permission in shadow mode", async () => {
-    mockConfig.authz.enforce = false;
-    const { guard, context } = setup(
-      { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
-      userReq({ slug: "agent-1" }),
-      { can: false },
-    );
-    await expect(guard.canActivate(context)).resolves.toBe(true);
-  });
-
-  it("denies on a cross-org scope mismatch in enforce mode", async () => {
-    mockConfig.authz.enforce = true;
+  it("denies on a cross-org scope mismatch", async () => {
     // Agent resolves to org-2 but the caller's token says org-1.
     const { guard, context, authz } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
@@ -247,8 +416,7 @@ describe("PermissionGuard", () => {
     expect(authz.can).not.toHaveBeenCalled();
   });
 
-  it("denies when the route declares a permission but no agent slug is present (enforce)", async () => {
-    mockConfig.authz.enforce = true;
+  it("denies when the route declares a permission but no agent slug is present", async () => {
     const { guard, context } = setup(
       { [REQUIRE_PERMISSION_KEY]: Permission.AGENT_WRITE },
       userReq({}),

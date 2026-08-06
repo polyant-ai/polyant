@@ -5,7 +5,7 @@ import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
 import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
 import { contactOptouts } from "./optout.schema.js";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { asInstanceSlug, asInstanceUuid } from "../instances/identifiers.js";
 import { getOptoutStatus, setOptoutStatus, listOptouts } from "./index.js";
 
@@ -13,20 +13,45 @@ const SLUG = asInstanceSlug("optout-itest");
 let instanceId: ReturnType<typeof asInstanceUuid>;
 let workspaceId: string;
 
-beforeAll(async () => {
-  workspaceId = await findDefaultWorkspaceId();
-  const [row] = await db
-    .insert(instances)
-    .values({ slug: SLUG, name: "Optout ITest", workspaceId })
-    .returning();
-  instanceId = asInstanceUuid(row.id);
-});
+/**
+ * Self-skip without a database, like every other integration suite here.
+ *
+ * This one did not, so a checkout with no reachable Postgres reported a FAILING
+ * suite rather than a skipped one — and a red test that means "no database" is a
+ * red test nobody reads, which is how the ones that mean something get missed.
+ *
+ * The probe has to gate the seed too: `beforeAll` sat at module level and ran
+ * whatever the describe decided, so `skipIf` alone would still have thrown on the
+ * insert. It moved inside.
+ */
+async function dbReachable(): Promise<boolean> {
+  try {
+    await Promise.race([
+      db.execute(sql`select 1`),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("db probe timeout")), 3000)),
+    ]);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-afterAll(async () => {
-  await db.delete(instances).where(eq(instances.slug, SLUG)); // cascade drops contact_optouts
-});
+const DB_AVAILABLE = await dbReachable();
 
-describe("contact opt-out lifecycle (integration)", () => {
+describe.skipIf(!DB_AVAILABLE)("contact opt-out lifecycle (integration)", () => {
+  beforeAll(async () => {
+    workspaceId = await findDefaultWorkspaceId();
+    const [row] = await db
+      .insert(instances)
+      .values({ slug: SLUG, name: "Optout ITest", workspaceId })
+      .returning();
+    instanceId = asInstanceUuid(row.id);
+  });
+
+  afterAll(async () => {
+    await db.delete(instances).where(eq(instances.slug, SLUG)); // cascade drops contact_optouts
+  });
+
   it("defaults to opted_in when no row exists", async () => {
     expect(await getOptoutStatus(SLUG, "whatsapp", "+39999")).toBe("opted_in");
   });

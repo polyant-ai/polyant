@@ -10,8 +10,22 @@ import type {
   ChatCompletionMessage,
 } from "./openai.types.js";
 import { DEFAULT_INSTANCE_ID } from "../../config.js";
-import { listActiveInstances, type Instance } from "../../instances/store.js";
+import {
+  findInstanceBySlug,
+  listActiveInstances,
+  resolvePrincipalOrgId,
+  type Instance,
+} from "../../instances/store.js";
 import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
+
+/**
+ * The two principal shapes that can reach GET /v1/models (see AuthGuard): a
+ * per-instance API key, bound to a single agent, or a human/service principal
+ * carrying an organization.
+ */
+export type ModelsPrincipal =
+  | { readonly kind: "instance"; readonly instanceSlug: string }
+  | { readonly kind?: undefined; readonly orgId?: string };
 
 @Injectable()
 export class OpenAIService {
@@ -26,8 +40,22 @@ export class OpenAIService {
     this.streamMessageHandler = handler;
   }
 
-  async listInstances(): Promise<Instance[]> {
-    return listActiveInstances();
+  /**
+   * The agents the caller is allowed to see.
+   *
+   * A per-instance API key is bound to ONE agent, so it only ever sees that one —
+   * listing the whole deployment from a single agent's key was a cross-tenant
+   * enumeration. Any other principal sees the active agents of its own
+   * organization; when the organization cannot be resolved the list is empty
+   * (fail closed) rather than every agent.
+   */
+  async listInstances(principal?: ModelsPrincipal): Promise<Instance[]> {
+    if (principal?.kind === "instance") {
+      const own = await findInstanceBySlug(asInstanceSlug(principal.instanceSlug));
+      return own && own.status === "active" ? [own] : [];
+    }
+    const orgId = await resolvePrincipalOrgId(principal?.orgId);
+    return orgId ? listActiveInstances(orgId) : [];
   }
 
   async chatCompletion(

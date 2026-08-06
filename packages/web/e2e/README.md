@@ -14,9 +14,11 @@ authorization decision (200 vs 403) and the rendered UI.
 - **Not exercised / inert**: AI providers and channel adapters. The
   members/RBAC flow never calls them, so nothing external is hit (mock by
   omission). Add explicit mocks here only when a future spec needs one.
-- **Enforcement is ON**: the engine boots with `AUTHZ_ENFORCE=true`. Without it
-  the PermissionGuard runs in shadow mode and every would-be 403 silently
-  passes — assertions would be meaningless.
+- **Enforcement is ON, always**: RBAC has no off switch and no shadow mode, so
+  the harness sets nothing to enable it and no spec can be silently defanged by
+  a missing env var.
+- **Rate limiting is OFF**: the suite runs with `THROTTLE_ENABLED=false`, so no
+  spec here can assert a 429.
 
 ## Prerequisites
 
@@ -50,6 +52,7 @@ specs. Dedicated ports mean it won't collide with a running dev stack.
 | `setup/seed-rbac.ts` | Seed the 3 privilege-ladder users (Owner/Member/Viewer). |
 | `fixtures/auth.ts` | `loginAs(page, role)` — drives the real /login form. |
 | `rbac/members-access.spec.ts` | First DB-integrated test: members-management access per role. |
+| `rbac/tenant-urls.spec.ts` | Tenant-scoped URL routing: root resolution, legacy redirects, 404 on foreign slugs. |
 
 ## Seeded users (default org)
 

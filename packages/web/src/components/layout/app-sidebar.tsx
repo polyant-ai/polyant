@@ -2,6 +2,8 @@
 
 "use client";
 
+import { useCallback } from "react";
+import { useParams } from "next/navigation";
 import {
   LayoutDashboard,
   Bot,
@@ -27,29 +29,37 @@ import { NavMain, type NavItem } from "@/components/layout/nav-main";
 import { NavUser, type NavUserProps } from "@/components/layout/nav-user";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
+import { navHref, resolveNavScope, type NavScope } from "@/lib/tenant/nav-href";
+import { useTenant } from "@/lib/tenant/tenant-context";
+import { isPlatformAdminRole } from "@/lib/user-role";
 
 interface NavItemDef {
   titleKey: TranslationKey;
-  url: string;
+  /** Path suffix within its scope — "" is the scope root. */
+  path: string;
+  scope: NavScope;
   icon: LucideIcon;
+  exact?: boolean;
 }
 
 const overviewDefs: NavItemDef[] = [
-  { titleKey: "nav.dashboard", url: "/", icon: LayoutDashboard },
-  { titleKey: "nav.instances", url: "/instances", icon: Bot },
-  { titleKey: "nav.conversations", url: "/conversations", icon: MessageSquare },
-  { titleKey: "nav.playground", url: "/playground", icon: MessageSquareCode },
-  { titleKey: "nav.activity", url: "/activity", icon: Activity },
-  { titleKey: "nav.memory", url: "/memory", icon: Brain },
-  { titleKey: "nav.skills", url: "/skills", icon: Zap },
-  { titleKey: "nav.auditLogs", url: "/audit-logs", icon: ScrollText },
+  { titleKey: "nav.dashboard", path: "", scope: "org", exact: true, icon: LayoutDashboard },
+  { titleKey: "nav.instances", path: "/instances", scope: "workspace", icon: Bot },
+  { titleKey: "nav.conversations", path: "/conversations", scope: "workspace", icon: MessageSquare },
+  { titleKey: "nav.playground", path: "/playground", scope: "workspace", icon: MessageSquareCode },
+  { titleKey: "nav.activity", path: "/activity", scope: "workspace", icon: Activity },
+  { titleKey: "nav.memory", path: "/memory", scope: "workspace", icon: Brain },
+  // The skill catalog is global — it is NOT workspace-scoped yet, so its URL
+  // must not pretend otherwise. See the workspace-scoped-skills spec.
+  { titleKey: "nav.skills", path: "/skills", scope: "deployment", icon: Zap },
+  { titleKey: "nav.auditLogs", path: "/audit-logs", scope: "org", icon: ScrollText },
 ];
 
-// Settings is superadmin-only: it hosts both general system settings and the
-// users management tab. Non-superadmins don't see this section at all.
-const superadminDefs: NavItemDef[] = [
-  { titleKey: "nav.members", url: "/members", icon: Users },
-  { titleKey: "nav.settings", url: "/settings", icon: Settings },
+// Settings is platform-admin-only: it hosts both general system settings and the
+// users management tab. Nobody else sees this section at all.
+const platformAdminDefs: NavItemDef[] = [
+  { titleKey: "nav.members", path: "/members", scope: "org", icon: Users },
+  { titleKey: "nav.settings", path: "/settings", scope: "deployment", icon: Settings },
 ];
 
 export function AppSidebar(
@@ -60,11 +70,35 @@ export function AppSidebar(
   const { user, ...sidebarProps } = props;
   const { t } = useI18n();
 
-  const toNavItems = (defs: NavItemDef[]): NavItem[] =>
-    defs.map((d) => ({ title: t(d.titleKey), url: d.url, icon: d.icon }));
+  const tenant = useTenant();
+  const params = useParams<{ orgSlug?: string; workspaceSlug?: string }>();
 
-  const isSuperadmin = user?.role === "superadmin";
-  const managementItems = isSuperadmin ? superadminDefs : [];
+  // The organization always comes from the verified tenancy (never the URL —
+  // see resolveNavScope's doc comment); the workspace is honoured from the URL
+  // only when it names a workspace the caller actually holds. Both slugs are
+  // plain strings, NOT a wrapper object: an object literal is a new reference
+  // every render, so exhaustive-deps would reject it as a dependency (and
+  // memoising it would only move the problem).
+  const { orgSlug, workspaceSlug } = resolveNavScope(tenant, params);
+
+  const toNavItems = useCallback(
+    (defs: NavItemDef[]): NavItem[] =>
+      defs.map((d) => ({
+        title: t(d.titleKey),
+        url: navHref(d.scope, d.path, { orgSlug, workspaceSlug }),
+        icon: d.icon,
+        exact: d.exact,
+        // Deployment items need no tenancy; org/workspace items are disabled
+        // until the slug their own scope requires has resolved, so a click
+        // during the loading window cannot misnavigate to the dashboard.
+        disabled:
+          d.scope !== "deployment" && (d.scope === "org" ? !orgSlug : !workspaceSlug),
+      })),
+    [t, orgSlug, workspaceSlug],
+  );
+
+  const isPlatformAdmin = isPlatformAdminRole(user?.role);
+  const managementItems = isPlatformAdmin ? platformAdminDefs : [];
 
   return (
     <Sidebar collapsible="icon" {...sidebarProps}>
