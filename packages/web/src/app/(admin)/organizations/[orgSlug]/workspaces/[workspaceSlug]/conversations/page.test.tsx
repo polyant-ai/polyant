@@ -113,6 +113,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     datetimeInjectionEnabled: true,
     cacheEnabled: true,
     cacheTtl: "1h",
+    a2aEnabled: false,
     toolResultsInHistoryEnabled: false,
     debugEnabled: false,
     optoutEnabled: false,

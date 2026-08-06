@@ -51,6 +51,8 @@ export interface InstanceConfig {
   datetimeInjectionEnabled: boolean;
   /** Per-instance prompt-cache control, forwarded verbatim to the ai-gateway ChatRequest. */
   cacheConfig: { enabled: boolean; ttl: CacheTtl };
+  /** Gates A2A (Agent2Agent) server exposure for this instance. Default false — opt-in. */
+  a2aEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
@@ -127,6 +129,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       stateInPromptEnabled: false,
       datetimeInjectionEnabled: true,
       cacheConfig: { enabled: true, ttl: "1h" },
+      a2aEnabled: false,
       toolResultsInHistoryEnabled: false,
       debugEnabled: false,
       optout: { enabled: false, stopKeywords: ["STOP"], resumeKeywords: ["START"], closingMessage: null, resumeMessage: null, injectPromptHint: true },
@@ -207,6 +210,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       enabled: instance.cacheEnabled,
       ttl: instance.cacheTtl === "5m" ? "5m" : "1h",
     },
+    a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     optout: {

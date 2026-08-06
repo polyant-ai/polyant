@@ -67,6 +67,7 @@ const fakeInstance = {
   stateInPromptEnabled: false,
   cacheEnabled: true,
   cacheTtl: "1h",
+  a2aEnabled: true,
   toolResultsInHistoryEnabled: false,
   debugEnabled: false,
   icon: null,
@@ -128,6 +129,7 @@ describe("instances/config-resolver", () => {
         stateInPromptEnabled: false,
         datetimeInjectionEnabled: true,
         cacheConfig: { enabled: true, ttl: "1h" },
+        a2aEnabled: false,
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
         optout: {
@@ -186,6 +188,7 @@ describe("instances/config-resolver", () => {
         temperature: null,
         stateInPromptEnabled: false,
         cacheConfig: { enabled: true, ttl: "1h" },
+        a2aEnabled: true,
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
         optout: {
@@ -221,6 +224,20 @@ describe("instances/config-resolver", () => {
         openai: undefined,
         anthropic: undefined,
       });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // a2aEnabled passthrough
+  // -----------------------------------------------------------------------
+  describe("a2aEnabled", () => {
+    it("should_surface_a2aEnabled_from_the_instance_row", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fakeInstance);
+      mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
+
+      const cfg = await resolveInstanceConfig(asInstanceSlug("default"));
+
+      expect(cfg.a2aEnabled).toBe(true);
     });
   });
 
