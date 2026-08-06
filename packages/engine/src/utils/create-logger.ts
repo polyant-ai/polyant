@@ -21,6 +21,35 @@ export function ts(): string {
   return new Date().toLocaleTimeString("en-GB", { hour12: false });
 }
 
+/**
+ * Collapse newlines and other control characters into spaces so untrusted text
+ * (channel slugs, filenames, message bodies, transcriptions) cannot forge extra
+ * log lines — a value containing "\n[INFO] fake entry" would otherwise land in
+ * the log as its own record (CWE-117).
+ *
+ * Apply it to the untrusted VALUE, not to an already-assembled line that carries
+ * ANSI colour codes: strip those first (see file-logger's stripAnsi), otherwise
+ * the escape byte is replaced and the visible "[0;32m" tail stays behind.
+ */
+export function sanitizeForLog(text: string): string {
+  // NOTE: CodeQL's js/log-injection query does NOT recognise this as a sanitizer,
+  // so every call site stays reported and those alerts are dismissed as "won't fix"
+  // rather than fixed. PR #256 measured five shapes against the analysis SARIF:
+  // three helper variants (lone character class / literal per-terminator replaces /
+  // this narrowed `string` signature mirroring `truncate()`), AND — on a two-site
+  // pilot — a helper plus a trailing literal replace, AND a bare inline
+  // `x.replace(/\n/g," ").replace(/\r/g," ")` with no helper at all. All five stayed
+  // reported; only the call sites INSIDE the chokepoints ever cleared.
+  //
+  // So do NOT reshape this, and do not "just inline the replace" either — that was
+  // tried and measured. The protection here is real regardless; see the test.
+  return text
+    .replace(/\n/g, " ")
+    .replace(/\r/g, " ")
+    // eslint-disable-next-line no-control-regex -- matching control chars is the point
+    .replace(/[\x00-\x1f\x7f]/g, " ");
+}
+
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const LEVEL_ORDER: Record<LogLevel | "silent", number> = {
@@ -70,7 +99,9 @@ export interface Logger {
 export function createLogger(defaultColor: string = COLORS.cyan): Logger {
   function fmt(level: "info" | "warn" | "error", prefix: string, msg: string): string {
     const color = level === "error" ? COLORS.red : level === "warn" ? COLORS.yellow : defaultColor;
-    return `${COLORS.dim}${ts()}${COLORS.reset} ${color}[${prefix}]${COLORS.reset} ${msg}`;
+    // Sanitize the caller-supplied parts only; the colour codes in the template
+    // around them are ours and must survive.
+    return `${COLORS.dim}${ts()}${COLORS.reset} ${color}[${sanitizeForLog(prefix)}]${COLORS.reset} ${sanitizeForLog(msg)}`;
   }
 
   return {
@@ -84,7 +115,7 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
     },
     error(prefix: string, msg: string, err?: unknown): void {
       if (!shouldLog("error")) return;
-      const errMsg = err instanceof Error ? err.message : String(err ?? "");
+      const errMsg = sanitizeForLog(err instanceof Error ? err.message : String(err ?? ""));
       const full = errMsg ? `${msg} — ${errMsg}` : msg;
       process.stderr.write(fmt("error", prefix, full) + "\n");
     },

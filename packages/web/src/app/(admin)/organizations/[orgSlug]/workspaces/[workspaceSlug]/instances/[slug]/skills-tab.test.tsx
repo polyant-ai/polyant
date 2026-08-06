@@ -334,7 +334,7 @@ describe("SkillsTab", () => {
       },
     ];
 
-    const { container } = render(
+    render(
       <SkillsTab slug="test-instance" skills={skills} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
     );
 

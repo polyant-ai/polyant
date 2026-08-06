@@ -10,7 +10,7 @@ import type { JWT } from "next-auth/jwt";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   pgTable,
   uuid,

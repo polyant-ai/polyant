@@ -17,6 +17,7 @@
  * on a property access rather than quietly honouring it.
  */
 
+import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("../config.js", () => ({ config: {} }));
 
 // The guard imports AuthorizationService → authz.store → database/client, which
@@ -24,7 +25,6 @@ vi.mock("../config.js", () => ({ config: {} }));
 // (the AuthorizationService is fully mocked at the constructor boundary anyway).
 vi.mock("../database/client.js", () => ({ db: {}, queryClient: {} }));
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Reflector } from "@nestjs/core";
 import { ForbiddenException } from "@nestjs/common";
 import { PermissionGuard } from "./permission.guard.js";

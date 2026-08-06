@@ -45,6 +45,7 @@ import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { sanitizeForLog } from "../../utils/create-logger.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import { WorkspaceSlug } from "../../auth/decorators/workspace-slug.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
@@ -398,7 +399,7 @@ export class InstancesController {
       // Best-effort: a stuck adapter must not block the delete.
       // Pass the user-controlled slug as a separate argument so it is never
       // treated as part of the format string (CodeQL js/tainted-format-string).
-      console.error("[instances] failed to stop channels for instance:", slug, err);
+      console.error("[instances] failed to stop channels for instance:", sanitizeForLog(slug), err);
     }
     const deleted = await deleteInstance(asInstanceSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);

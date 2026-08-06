@@ -13,6 +13,7 @@ import { aiLogger } from "../ai-gateway/logger.js";
 import { estimateSttCost } from "../ai-gateway/config.js";
 import type { AudioReplyReason } from "./audio-replies.js";
 import { audioReply } from "./audio-replies.js";
+import { sanitizeForLog } from "../utils/create-logger.js";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_DURATION_SEC = 60;
@@ -66,7 +67,7 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
 
   if (!hasCredentialsFor(provider, config.stt.credentials)) {
     console.error(
-      `[stt] instance="${input.instanceSlug}" provider="${provider}" missing credentials`,
+      `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" missing credentials`,
     );
     return fail("provider_error");
   }
@@ -83,13 +84,13 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
     const cleaned = response.text.trim();
     if (cleaned.length === 0) {
       console.warn(
-        `[stt] instance="${input.instanceSlug}" provider="${provider}" empty transcript`,
+        `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" empty transcript`,
       );
       return fail("empty_transcript");
     }
 
     console.log(
-      `[stt] instance="${input.instanceSlug}" provider="${provider}" mime="${input.mimeType}" durationSec=${response.durationSec ?? input.durationSec ?? "?"} latencyMs=${response.latencyMs} ok=true`,
+      `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" mime="${sanitizeForLog(input.mimeType)}" durationSec=${response.durationSec ?? input.durationSec ?? "?"} latencyMs=${response.latencyMs} ok=true`,
     );
 
     const billedDurationSec = response.durationSec ?? input.durationSec ?? 0;
@@ -128,13 +129,13 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
     if (err instanceof STTMissingCredentialsError) return fail("provider_error");
     if (err instanceof STTProviderError) {
       console.error(
-        `[stt] instance="${input.instanceSlug}" provider="${provider}" failed: ${err.message}`,
+        `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" failed: ${err.message}`,
       );
       return fail(err.message.includes("aborted") ? "timeout" : "provider_error");
     }
     console.error(
       '[stt] instance="%s" provider="%s" unknown error:',
-      input.instanceSlug,
+      sanitizeForLog(input.instanceSlug),
       provider,
       err,
     );

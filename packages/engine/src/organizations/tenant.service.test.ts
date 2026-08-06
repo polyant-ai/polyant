@@ -7,6 +7,7 @@
  * identities and pre-RBAC tokens), which must never throw.
  */
 
+import { describe, it, expect, beforeEach, vi } from "vitest";
 const {
   mockFindOrganizationById,
   mockFindDefaultOrganization,
@@ -26,7 +27,6 @@ vi.mock("./organizations.store.js", () => ({
   listWorkspacesByOrganization: mockListWorkspacesByOrganization,
 }));
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import { TenantService } from "./tenant.service.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 

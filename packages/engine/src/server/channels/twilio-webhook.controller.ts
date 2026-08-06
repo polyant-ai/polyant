@@ -9,6 +9,10 @@ import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { WhatsAppAdapter } from "../../channels/adapters/whatsapp/index.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { sanitizeForLog } from "../../utils/create-logger.js";
+
+/** Twilio caps a single inbound MMS at 10 media attachments. */
+const MAX_TWILIO_MEDIA = 10;
 
 interface TwilioWebhookBody {
   MessageSid: string;
@@ -58,12 +62,16 @@ export class TwilioWebhookController {
     const webhookUrl = this.getFullUrl(req);
     const params: Record<string, string> = {};
     for (const [key, value] of Object.entries(body)) {
+      // Skip keys that would retarget the prototype chain instead of adding an own
+      // property — `params` is built from an untrusted body and then hashed, so a
+      // `__proto__` entry could silently skew signature validation.
+      if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
       if (typeof value === "string") params[key] = value;
     }
 
     const isValid = adapter.validateSignature(signature || "", webhookUrl, params);
     if (!isValid) {
-      console.warn(`[whatsapp] Invalid Twilio signature for instance "${instanceSlug}" (url: ${webhookUrl})`);
+      console.warn(`[whatsapp] Invalid Twilio signature for instance "${sanitizeForLog(instanceSlug)}" (url: ${sanitizeForLog(webhookUrl)})`);
       throw new ForbiddenException("Invalid Twilio signature");
     }
 
@@ -74,7 +82,10 @@ export class TwilioWebhookController {
     // Note: the pipeline uses instanceId as slug (not UUID) — pass the slug
     // Collect media URLs (Twilio sends MediaUrl0, MediaUrl1, ...)
     const mediaItems: Array<{ url: string; contentType: string }> = [];
-    const numMedia = parseInt(body.NumMedia ?? "0", 10);
+    // Clamp the attacker-supplied count: NumMedia rides in on the request body, so an
+    // absurd value ("999999999") would otherwise spin the loop below for that many
+    // iterations. Twilio sends at most MAX_TWILIO_MEDIA attachments per message.
+    const numMedia = Math.min(parseInt(body.NumMedia ?? "0", 10) || 0, MAX_TWILIO_MEDIA);
     for (let i = 0; i < numMedia; i++) {
       const url = (body as unknown as Record<string, string>)[`MediaUrl${i}`];
       const contentType = (body as unknown as Record<string, string>)[`MediaContentType${i}`] ?? "application/octet-stream";
@@ -91,7 +102,7 @@ export class TwilioWebhookController {
     }).catch((err) =>
       // Pass the user-controlled slug as a separate argument so it is never
       // treated as part of the format string (CodeQL js/tainted-format-string).
-      console.error("[whatsapp] Error processing inbound for instance:", instanceSlug, err),
+      console.error("[whatsapp] Error processing inbound for instance:", sanitizeForLog(instanceSlug), err),
     );
 
     // 7. Return empty TwiML response immediately

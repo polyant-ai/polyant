@@ -22,7 +22,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [javascript-typescript]
+        # `actions` scans the workflow files themselves. GitHub's default setup used
+        # to analyse it; moving to this advanced workflow silently dropped it, which
+        # left the actions/* alerts open forever with nothing to re-evaluate them.
+        language: [javascript-typescript, actions]
 
     steps:
       - uses: actions/checkout@v7

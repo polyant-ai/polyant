@@ -7,6 +7,7 @@
  * delegation of the binding mutations to RoleBindingService.
  */
 
+import { describe, it, expect, beforeEach, vi } from "vitest";
 const { mockResolveOrgIdBySlug, mockListOrganizationMembers } =
   vi.hoisted(() => ({
     mockResolveOrgIdBySlug: vi.fn(),
@@ -18,7 +19,6 @@ vi.mock("../../organizations/members.store.js", () => ({
   listOrganizationMembers: mockListOrganizationMembers,
 }));
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { MembersService } from "./members.service.js";
 

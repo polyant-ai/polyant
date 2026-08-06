@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { Search, Lock, ChevronDown, Link as LinkIcon } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
