@@ -2,6 +2,10 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { asInstanceUuid, asInstanceSlug } from "../../../instances/identifiers.js";
+// Skips are announced through the module's own logger, not `console.warn`: the
+// lines interpolate remote-controlled text, so they go through createLogger's
+// sanitizing formatter (see mcp-logger.ts). Spy there.
+import { mcpLog } from "./mcp-logger.js";
 
 class FakeUnauthorized extends Error {}
 const createMCPClient = vi.fn();
@@ -89,7 +93,7 @@ describe("buildMcpTools", () => {
       tools: () => new Promise((resolve) => { resolveTools = resolve; }),
       close,
     });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(mcpLog, "warn").mockImplementation(() => undefined);
 
     const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
 
@@ -176,7 +180,7 @@ describe("buildMcpTools", () => {
       }),
       close: vi.fn(),
     });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(mcpLog, "warn").mockImplementation(() => undefined);
 
     const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
 
@@ -184,7 +188,7 @@ describe("buildMcpTools", () => {
     await (tools["mcp__gh__create_issue"] as any).execute({});
     expect(firstExecute).toHaveBeenCalledOnce();
     expect(secondExecute).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("create/issue"));
+    expect(warnSpy).toHaveBeenCalledWith("mcp", expect.stringContaining("create/issue"));
 
     warnSpy.mockRestore();
   });
@@ -197,13 +201,13 @@ describe("buildMcpTools", () => {
 
   it("should_skip_oauth_server_for_a_room_conversation_when_allowOAuth_is_not_set", async () => {
     servers.push({ slug: "gh", url: "https://x", authMode: "oauth", config: {} });
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(mcpLog, "warn").mockImplementation(() => undefined);
 
     const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "room:inst:123" });
 
     expect(Object.keys(tools)).toHaveLength(0);
     expect(createMCPClient).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("gh"));
+    expect(warnSpy).toHaveBeenCalledWith("mcp", expect.stringContaining("gh"));
 
     warnSpy.mockRestore();
   });

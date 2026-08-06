@@ -8,6 +8,8 @@ import { type InstanceSlug, type InstanceUuid } from "../../../instances/identif
 import { toModelToolName } from "../registry.js";
 import { listEnabledMcpServers, type McpServerRecord } from "../../../instances/mcp-servers.store.js";
 import { makeMcpOAuthProvider, type McpVaultOAuthProvider } from "./mcp-oauth-provider.js";
+import { mcpLog } from "./mcp-logger.js";
+import { errMsg } from "../../../utils/error.js";
 
 export interface McpBuildResult {
   tools: Record<string, Tool>;
@@ -132,7 +134,7 @@ export async function buildMcpTools(opts: {
     let provider: McpVaultOAuthProvider | undefined;
     if (server.authMode === "oauth") {
       if (!opts.allowOAuth) {
-        console.warn(`[mcp] server '${server.slug}' skipped: oauth not permitted on this call path (ephemeral/non-interactive conversation)`);
+        mcpLog.warn("mcp", `server '${server.slug}' skipped: oauth not permitted on this call path (ephemeral/non-interactive conversation)`);
         continue;
       }
       // No stable conversation to persist tokens against (defensive — allowOAuth
@@ -157,7 +159,7 @@ export async function buildMcpTools(opts: {
         if (allowList && !allowList.includes(toolName)) continue;
         const modelName = capModelToolName(toModelToolName(`mcp:${server.slug}:${toolName}`));
         if (modelName in tools) {
-          console.warn(`[mcp] server '${server.slug}': tool '${toolName}' sanitizes to '${modelName}', which is already equipped — skipping`);
+          mcpLog.warn("mcp", `server '${server.slug}': tool '${toolName}' sanitizes to '${modelName}', which is already equipped — skipping`);
           continue;
         }
         tools[modelName] = t as Tool;
@@ -167,7 +169,7 @@ export async function buildMcpTools(opts: {
       if (e instanceof UnauthorizedError && provider?.pendingAuthorizeUrl) {
         tools[toModelToolName(`mcp:${server.slug}:connect`)] = connectTool(server, provider.pendingAuthorizeUrl);
       } else {
-        console.warn(`[mcp] server '${server.slug}' unavailable this turn:`, e instanceof Error ? e.message : e);
+        mcpLog.warn("mcp", `server '${server.slug}' unavailable this turn: ${errMsg(e)}`);
       }
     }
   }
