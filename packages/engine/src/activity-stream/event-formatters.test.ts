@@ -55,11 +55,6 @@ describe("summarizeArgs", () => {
     it("readFile: path", () => {
       expect(summarizeArgs("readFile", { path: "src/index.ts" })).toBe("src/index.ts");
     });
-    it("ghIssue: action + repo + #N + title", () => {
-      expect(
-        summarizeArgs("ghIssue", { action: "comment", repo: "x/y", number: 42, title: "Bug" }),
-      ).toBe("comment x/y #42 Bug");
-    });
     it("httpRequest: method + url", () => {
       expect(summarizeArgs("httpRequest", { method: "POST", url: "https://api.example.com/x" })).toBe(
         "POST https://api.example.com/x",

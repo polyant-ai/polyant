@@ -208,7 +208,7 @@ export default defineTool({
     "Generate an A4 PDF from Markdown content.\n" +
     "Accepts GFM-style tables, lists, code blocks, links, images, blockquotes.\n" +
     "Optionally accepts headerImageUrl: a public https:// URL (e.g. a company logo) rendered as the FIRST element of the document, right-aligned, before the Markdown content. Visible on the first page.\n" +
-    "Returns an opaque pdfHandle (valid for 10 minutes) consumable by a follow-up tool (e.g. fileUpload, hubspotFile) to avoid passing the binary between tool calls.\n" +
+    "Returns an opaque pdfHandle (valid for 10 minutes) consumable by a follow-up tool (e.g. hubspotFile) to avoid passing the binary between tool calls.\n" +
     "Input limit: 100KB of markdown. Output limit: 10MB.",
   category: "document",
   inputExamples: [
@@ -277,7 +277,7 @@ export default defineTool({
         pdfHandle,
         filename,
         sizeBytes: buffer.length,
-        message: "PDF generated. Use pdfHandle in a follow-up tool (e.g. fileUpload, hubspotFile) to persist it.",
+        message: "PDF generated. Use pdfHandle in a follow-up tool (e.g. hubspotFile) to persist it.",
       };
     } catch (err) {
       return { error: `PDF generation error: ${errMsg(err)}` };

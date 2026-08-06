@@ -45,7 +45,7 @@ export interface WorkspacePaths {
 /**
  * Get workspace paths for an instance.
  * - `conversationsDir` is the parent of per-conversation sandboxed workspaces
- *   used by the readFile / writeFile / gitCloneRepo tools.
+ *   used by the readFile / writeFile / github:cloneRepo tools.
  * All agent configuration — including knowledge documents — is stored in
  * PostgreSQL.
  */

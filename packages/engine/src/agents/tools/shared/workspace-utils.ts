@@ -164,7 +164,7 @@ export async function ensureWorkspaceDir(
 
 /**
  * Assert that an ABSOLUTE path is contained within the conversation workspace.
- * Used to validate paths returned from tools like gitCloneRepo and then passed
+ * Used to validate paths returned from tools like github:cloneRepo and then passed
  * back to readFile/listDirectory.
  *
  * Performs BOTH the string-based normalized containment check AND the

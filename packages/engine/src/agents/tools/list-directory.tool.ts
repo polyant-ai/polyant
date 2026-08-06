@@ -19,7 +19,7 @@ export default defineTool({
     "List the contents of a directory from the current conversation's sandboxed workspace.\n" +
     "Supports two path formats, both resolved inside the same sandbox:\n" +
     "• RELATIVE (e.g. `.`, `.repos/owner/repo-abc123`) — more concise, recommended.\n" +
-    "• ABSOLUTE — must still reside inside the conversation workspace (typically the path returned by `gitCloneRepo`).\n" +
+    "• ABSOLUTE — must still reside inside the conversation workspace (typically the path returned by `github:cloneRepo`).\n" +
     "Returns the list of files and subdirectories with type and size.\n" +
     "To read the content of a file, use `readFile`.",
   category: "dev",

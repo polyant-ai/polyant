@@ -20,7 +20,7 @@ export default defineTool({
     "Read the content of a file from the current conversation's sandboxed workspace.\n" +
     "Supports two path formats, both resolved inside the same sandbox:\n" +
     "• RELATIVE (e.g. `notes.md`, `.repos/owner/repo/README.md`) — more concise, recommended.\n" +
-    "• ABSOLUTE — must still reside inside the conversation workspace (typically the path returned by `gitCloneRepo`).\n" +
+    "• ABSOLUTE — must still reside inside the conversation workspace (typically the path returned by `github:cloneRepo`).\n" +
     "Returns the file text (truncated to 500 lines or 512 KB).\n" +
     "Supports the `tail` option to read only the last N lines (useful for log files).\n" +
     "To explore the structure, use `listDirectory` first.",

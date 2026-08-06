@@ -96,7 +96,7 @@ describe("readFile tool", () => {
 
   // ---- Absolute paths (must be inside the conversation workspace) ----
 
-  it("reads a file with an absolute path inside the workspace (e.g. from gitCloneRepo output)", async () => {
+  it("reads a file with an absolute path inside the workspace (e.g. from github:cloneRepo output)", async () => {
     mockStat.mockResolvedValue({ isFile: () => true, size: 10 });
     mockReadFile.mockResolvedValue("cloned");
     const absPath = `${WORKSPACE_DIR}/.repos/owner/repo-xyz/file.md`;
