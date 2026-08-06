@@ -173,6 +173,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 /**
+ * Whether a rejection is the engine refusing on AUTHORIZATION grounds.
+ *
+ * The panel holds no read-model of the caller's permissions — the session
+ * carries the DEPLOYMENT role (`platform_admin` / `user`, see `lib/user-role.ts`)
+ * and nothing about their role in the organization, which is where RBAC is
+ * decided. So a surface cannot ask "may I?" before rendering; it learns from the
+ * refusal. This predicate is that seam, and it exists as one function rather
+ * than an inline `status === 403` per call site so the check reads as an
+ * authorization concept instead of a magic number.
+ *
+ * The message is deliberately NOT surfaced to the user with it: `PermissionGuard`
+ * throws `Missing permission: audit_log:read`, an internal key that means nothing
+ * to a reader and leaks vocabulary. Callers render their own explanation.
+ */
+export function isForbidden(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 403;
+}
+
+/**
  * Extract a user-safe error message. Strips server internals (paths, stack traces)
  * and caps length. Falls back to the provided default message.
  */

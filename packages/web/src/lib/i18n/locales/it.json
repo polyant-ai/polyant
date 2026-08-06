@@ -1102,5 +1102,9 @@
   "tenant.error.retry": "Riprova",
   "notFound.title": "Questa pagina non esiste",
   "notFound.description": "L'indirizzo potrebbe non essere più valido, oppure appartenere a un'organizzazione o a un workspace a cui non hai accesso.",
-  "notFound.action": "Torna alla tua dashboard"
+  "notFound.action": "Torna alla tua dashboard",
+  "permission.required.title": "Non hai accesso a questa sezione",
+  "permission.required.description": "Il tuo ruolo in questa organizzazione non lo comprende. Chiedi a un proprietario o a un amministratore di assegnartelo.",
+  "permission.required.auditLogs": "Leggere il registro di audit richiede il ruolo Amministratore o Proprietario. Chiedi a uno di loro di assegnartelo, oppure di condividere ciò che ti serve.",
+  "permission.required.members": "Gestire i membri richiede il ruolo Amministratore o Proprietario. Chiedi a uno di loro di assegnartelo."
 }

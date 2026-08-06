@@ -1,6 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { getUserErrorMessage, ApiError, api, API_BASE } from "./api";
+import { getUserErrorMessage, isForbidden, ApiError, api, API_BASE } from "./api";
+
+describe("isForbidden", () => {
+  it("recognises the engine refusing on authorization grounds", () => {
+    expect(isForbidden(new ApiError(403, "Missing permission: audit_log:read"))).toBe(true);
+  });
+
+  // 401 is "who are you", and its remedy differs — sign in again, which
+  // `TenantUnavailable` already offers. Conflating the two would tell someone
+  // whose session merely expired to go ask an administrator for a role.
+  it("does not treat an expired session as a permission problem", () => {
+    expect(isForbidden(new ApiError(401, "Authentication required"))).toBe(false);
+  });
+
+  it("is false for other API failures and for non-API errors", () => {
+    expect(isForbidden(new ApiError(500, "boom"))).toBe(false);
+    expect(isForbidden(new Error("network"))).toBe(false);
+    expect(isForbidden(undefined)).toBe(false);
+  });
+});
 
 describe("getUserErrorMessage", () => {
   it("returns short, clean ApiError messages", () => {

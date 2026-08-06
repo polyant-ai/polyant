@@ -43,7 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, ApiError, getUserErrorMessage, type Instance, type SecretStatus, type ModelsResponse, type RequiredSecretSpec } from "@/lib/api";
+import { api, getUserErrorMessage, isForbidden, type Instance, type SecretStatus, type ModelsResponse, type RequiredSecretSpec } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
@@ -252,10 +252,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
 
       if (secretsRes.status === "fulfilled") {
         setSecrets(secretsRes.value.secrets);
-      } else if (
-        secretsRes.reason instanceof ApiError &&
-        secretsRes.reason.status === 403
-      ) {
+      } else if (isForbidden(secretsRes.reason)) {
         setCanReadSecrets(false); // expected for member/viewer — degrade silently
       } else {
         toast.error(t("settings.tab.loadFailed"));

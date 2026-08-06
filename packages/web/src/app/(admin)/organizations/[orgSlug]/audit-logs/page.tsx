@@ -28,11 +28,13 @@ import {
 import {
   api,
   getUserErrorMessage,
+  isForbidden,
   type Instance,
   type AuditLogEntry,
   type AuditStatsResult,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { PermissionRequired } from "@/components/layout/permission-required";
 import { formatDateTime, truncate } from "@/lib/format";
 
 export default function AuditLogsPage() {
@@ -53,6 +55,11 @@ export default function AuditLogsPage() {
   const [stats, setStats] = useState<AuditStatsResult | null>(null);
   const [instances, setInstances] = useState<Instance[]>([]);
   const [loading, setLoading] = useState(true);
+  // `audit_log:read` is admin+. The nav entry is offered to every role because
+  // the panel cannot know the caller's, so a viewer legitimately lands here and
+  // both audit fetches refuse. That is an ANSWER, not a failure — it replaces the
+  // page body rather than raising the "failed to load" toast it used to.
+  const [forbidden, setForbidden] = useState(false);
   const [instanceFilter, setInstanceFilter] = useState("");
   const [toolFilter, setToolFilter] = useState("");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
@@ -71,7 +78,13 @@ export default function AuditLogsPage() {
     api.auditLogs
       .stats({ instanceId: instanceFilter || undefined })
       .then(setStats)
-      .catch((err) => toast.error(getUserErrorMessage(err, t("common.loadFailed"))));
+      .catch((err) => {
+        if (isForbidden(err)) {
+          setForbidden(true);
+          return;
+        }
+        toast.error(getUserErrorMessage(err, t("common.loadFailed")));
+      });
   }, [instanceFilter, t]);
 
   // Fetch audit logs — same: `undefined` instanceId means "show every instance".
@@ -88,7 +101,8 @@ export default function AuditLogsPage() {
       setLogs(result.items);
       setTotal(result.total);
     } catch (err) {
-      toast.error(getUserErrorMessage(err, t("common.loadFailed")));
+      if (isForbidden(err)) setForbidden(true);
+      else toast.error(getUserErrorMessage(err, t("common.loadFailed")));
     } finally {
       setLoading(false);
     }
@@ -100,6 +114,19 @@ export default function AuditLogsPage() {
 
   // Unique tool names from stats for filter dropdown
   const toolNames = stats?.byTool.map((t) => t.toolName) ?? [];
+
+  // Early, before the filters: with no readable log there is nothing to filter,
+  // and a working search over a permanently empty table is the misleading half
+  // of the dead-end this replaces.
+  if (forbidden) {
+    return (
+      <div>
+        <h1 className="text-3xl font-semibold tracking-tight">{t("auditLog.title")}</h1>
+        <p className="mt-1 text-muted-foreground">{t("auditLog.subtitle")}</p>
+        <PermissionRequired description={t("permission.required.auditLogs")} />
+      </div>
+    );
+  }
 
   return (
     <div>

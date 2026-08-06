@@ -69,10 +69,23 @@ const overviewDefs: NavItemDef[] = [
   { titleKey: "nav.auditLogs", path: "/audit-logs", scope: "org", icon: ScrollText },
 ];
 
-// Settings is platform-admin-only: it hosts both general system settings and the
-// users management tab. Nobody else sees this section at all.
-const platformAdminDefs: NavItemDef[] = [
+// Members administers the ORGANIZATION's people. Its route is gated by
+// `org.member:manage` — admin and owner — which the engine decides from the
+// caller's role binding, NOT by the deployment-wide platform-admin flag the
+// session carries. Sitting in `platformAdminDefs` therefore hid it from exactly
+// the org Owner it exists for, while a platform admin who happened to hold no
+// binding saw it. The panel has no permission read-model to gate it correctly
+// (see `isForbidden`), so it is offered to everyone and the page explains the
+// refusal — visible-then-explained beats correct-for-one-role-by-accident.
+const orgManagementDefs: NavItemDef[] = [
   { titleKey: "nav.members", path: "/members", scope: "org", icon: Users },
+];
+
+// Settings is platform-admin-only: it hosts both general system settings and the
+// users management tab. Nobody else sees this section at all — and unlike
+// Members, `platform_admin` IS the right gate, because `/api/users` is guarded
+// by `@RequireRole(PLATFORM_ADMIN_ROLE)`, the very claim the session carries.
+const platformAdminDefs: NavItemDef[] = [
   { titleKey: "nav.settings", path: "/settings", scope: "deployment", icon: Settings },
 ];
 
@@ -147,7 +160,9 @@ export function AppSidebar(
   const { key: navKey, direction } = useNavTransition(destination);
 
   const isPlatformAdmin = isPlatformAdminRole(user?.role);
-  const managementItems = isPlatformAdmin ? platformAdminDefs : [];
+  const managementItems = isPlatformAdmin
+    ? [...orgManagementDefs, ...platformAdminDefs]
+    : orgManagementDefs;
 
   return (
     <Sidebar collapsible="icon" {...sidebarProps}>

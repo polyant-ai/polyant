@@ -36,11 +36,13 @@ import {
 import {
   api,
   getUserErrorMessage,
+  isForbidden,
   MEMBER_ROLES,
   type MemberRole,
   type OrganizationMember,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { PermissionRequired } from "@/components/layout/permission-required";
 import type { TranslationKey } from "@/lib/i18n/types";
 
 const ROLE_LABEL_KEY: Record<MemberRole, TranslationKey> = {
@@ -55,6 +57,10 @@ export default function MembersPage() {
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [loading, setLoading] = useState(true);
+  // `org.member:manage` is admin+. The entry is now offered to every role (it
+  // used to be platform-admin-only, which hid it from the org Owner it exists
+  // for), so a viewer reaching it is expected and gets an explanation.
+  const [forbidden, setForbidden] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
   const fetchMembers = useCallback(async () => {
@@ -62,7 +68,8 @@ export default function MembersPage() {
       const { members } = await api.members.list(orgSlug);
       setMembers(members);
     } catch (err) {
-      toast.error(getUserErrorMessage(err, t("members.loadFailed")));
+      if (isForbidden(err)) setForbidden(true);
+      else toast.error(getUserErrorMessage(err, t("members.loadFailed")));
     } finally {
       setLoading(false);
     }
@@ -112,6 +119,16 @@ export default function MembersPage() {
       <div>
         <h1 className="text-3xl font-semibold tracking-tight">{t("members.title")}</h1>
         <p className="mt-2 text-muted-foreground">{t("common.loading")}</p>
+      </div>
+    );
+  }
+
+  if (forbidden) {
+    return (
+      <div>
+        <h1 className="text-3xl font-semibold tracking-tight">{t("members.title")}</h1>
+        <p className="mt-1 text-muted-foreground">{t("members.subtitle")}</p>
+        <PermissionRequired description={t("permission.required.members")} />
       </div>
     );
   }

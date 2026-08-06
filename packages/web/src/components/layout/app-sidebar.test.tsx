@@ -114,3 +114,40 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
     expect(within(content).queryByRole("link", { name: /comportamento/i })).not.toBeInTheDocument();
   });
 });
+
+// Two different gates that used to be one. Members answers to the caller's ROLE
+// IN THE ORGANIZATION (`org.member:manage`), which the session does not carry;
+// Settings answers to the deployment-wide platform-admin flag, which it does.
+// Gating both on the flag hid Members from the org Owner it is for.
+describe("AppSidebar — Members is org administration, Settings is platform administration", () => {
+  const renderAs = (role: string) =>
+    render(
+      <I18nProvider>
+        <SidebarProvider>
+          <AppSidebar user={{ name: "Ada", email: "ada@example.com", role }} />
+        </SidebarProvider>
+      </I18nProvider>,
+    );
+
+  it("offers Members to a non-platform-admin, who may well be the org Owner", () => {
+    renderAs("user");
+
+    const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
+    expect(within(content).getByRole("link", { name: /membri/i })).toBeInTheDocument();
+  });
+
+  it("still keeps Settings to a platform admin", () => {
+    renderAs("user");
+
+    const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
+    expect(within(content).queryByRole("link", { name: /impostazioni/i })).not.toBeInTheDocument();
+  });
+
+  it("shows both to a platform admin", () => {
+    renderAs("platform_admin");
+
+    const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
+    expect(within(content).getByRole("link", { name: /membri/i })).toBeInTheDocument();
+    expect(within(content).getByRole("link", { name: /impostazioni/i })).toBeInTheDocument();
+  });
+});

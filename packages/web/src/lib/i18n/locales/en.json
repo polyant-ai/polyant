@@ -1102,5 +1102,9 @@
   "tenant.error.retry": "Try again",
   "notFound.title": "This page does not exist",
   "notFound.description": "The address may be out of date, or it may belong to an organization or workspace you cannot access.",
-  "notFound.action": "Back to your dashboard"
+  "notFound.action": "Back to your dashboard",
+  "permission.required.title": "You do not have access to this section",
+  "permission.required.description": "Your role in this organization does not include this. Ask an owner or an administrator to grant it.",
+  "permission.required.auditLogs": "Reading the audit log requires the Administrator or Owner role. Ask one of them to grant it, or to share what you need.",
+  "permission.required.members": "Managing members requires the Administrator or Owner role. Ask one of them to grant it."
 }

@@ -27,6 +27,15 @@ const {
   mockToolsRequiredSecrets: vi.fn(),
 }));
 
+// Hoisted: the `@/lib/api` factory below runs before the imports, so the class
+// backing both `ApiError` and `isForbidden` has to exist by then — and it must
+// be the SAME class for the `instanceof` inside the predicate to hold.
+const { MockApiError } = vi.hoisted(() => ({
+  MockApiError: class ApiError extends Error {
+    status?: number;
+  },
+}));
+
 vi.mock("@/lib/i18n/context", () => ({
   useI18n: vi.fn(() => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() })),
   I18nProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -64,11 +73,11 @@ vi.mock("@/lib/api", () => ({
     models: { list: (...args: unknown[]) => mockModelsList(...args) },
     tools: { requiredSecrets: (...args: unknown[]) => mockToolsRequiredSecrets(...args) },
   },
-  // The component does `reason instanceof ApiError` on load failures; without
-  // this export it was `instanceof undefined` → TypeError, breaking the error path.
-  ApiError: class ApiError extends Error {
-    status?: number;
-  },
+  // The component asks `isForbidden(reason)` on load failures. Mocking the whole
+  // module means every export it reaches for has to be declared here, and a
+  // missing one is `undefined(...)` at the first failed load — not a type error.
+  ApiError: MockApiError,
+  isForbidden: (err: unknown) => err instanceof MockApiError && err.status === 403,
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
 
