@@ -7,7 +7,7 @@ import { config } from "../../../config.js";
 import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
 import { toModelToolName } from "../registry.js";
 import { listEnabledMcpServers, type McpServerRecord } from "../../../instances/mcp-servers.store.js";
-import { makeMcpOAuthProvider } from "./mcp-oauth-provider.js";
+import { makeMcpOAuthProvider, type McpVaultOAuthProvider } from "./mcp-oauth-provider.js";
 
 export interface McpBuildResult {
   tools: Record<string, Tool>;
@@ -126,24 +126,27 @@ export async function buildMcpTools(opts: {
   const servers = await listEnabledMcpServers(opts.instanceUuid);
 
   for (const server of servers) {
+    // The auth mode is decided ONCE here, in the branch that also enforces the
+    // oauth preconditions — rather than gating above and re-testing the mode in
+    // a ternary below, which read as two decisions that could drift apart.
+    let provider: McpVaultOAuthProvider | undefined;
     if (server.authMode === "oauth") {
       if (!opts.allowOAuth) {
         console.warn(`[mcp] server '${server.slug}' skipped: oauth not permitted on this call path (ephemeral/non-interactive conversation)`);
         continue;
       }
-      if (!opts.conversationId) continue; // no stable conversation to persist tokens against (defensive — allowOAuth callers always pass one)
+      // No stable conversation to persist tokens against (defensive — allowOAuth
+      // callers always pass one).
+      if (!opts.conversationId) continue;
+      provider = makeMcpOAuthProvider({
+        instanceUuid: opts.instanceUuid,
+        instanceSlug: opts.instanceSlug,
+        conversationId: opts.conversationId,
+        serverSlug: server.slug,
+        config: server.config,
+      });
     }
     const allowList = (server.config as { allowList?: string[] }).allowList;
-    const provider =
-      server.authMode === "oauth" && opts.conversationId
-        ? makeMcpOAuthProvider({
-            instanceUuid: opts.instanceUuid,
-            instanceSlug: opts.instanceSlug,
-            conversationId: opts.conversationId,
-            serverSlug: server.slug,
-            config: server.config,
-          })
-        : undefined;
     const transport = provider
       ? { type: "http" as const, url: server.url, authProvider: provider }
       : { type: "http" as const, url: server.url, headers: staticHeaders(server) };
