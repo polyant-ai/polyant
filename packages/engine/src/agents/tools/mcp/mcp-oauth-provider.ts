@@ -9,7 +9,7 @@ import type {
 } from "@ai-sdk/mcp";
 import { generateToken } from "../../../crypto/index.js";
 import { config } from "../../../config.js";
-import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
+import { type AgentSlug, type AgentUuid } from "../../../instances/identifiers.js";
 import { getPrincipalSecret, setPrincipalSecret } from "../../../conversations/principal-secrets.store.js";
 import { createOAuthState } from "../../../server/oauth/oauth-states.store.js";
 import { mergeMcpServerConfig } from "../../../instances/mcp-servers.store.js";
@@ -22,7 +22,7 @@ export function mcpRedirectUrl(): string {
 }
 
 export interface McpOAuthProviderDeps {
-  instanceUuid: InstanceUuid;
+  instanceUuid: AgentUuid;
   /**
    * Used ONLY for the `principal_secrets` writes (saveTokens/saveCodeVerifier):
    * `deleteInstance()`'s cascade deletes `principal_secrets` BY SLUG (instances/store.ts),
@@ -30,7 +30,7 @@ export interface McpOAuthProviderDeps {
    * oauth-callback.controller.ts). `instanceUuid` stays the key for the
    * uuid-FK-keyed server-config writes (`mergeMcpServerConfig`).
    */
-  instanceSlug: InstanceSlug;
+  instanceSlug: AgentSlug;
   conversationId: string;
   serverSlug: string;
   config: McpServerConfig;

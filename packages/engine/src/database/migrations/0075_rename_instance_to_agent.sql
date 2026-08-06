@@ -14,14 +14,10 @@
 -- not auto-rename them, and renaming is cosmetic only (not referenced by any
 -- query). DB and Drizzle schema stay mutually consistent on those legacy names.
 --
--- NOT covered here: instance_mcp_servers. That table belongs to the unmerged
--- MCP-client branch (PR #237) and does not exist on develop. Whichever of the
--- two lands second owns renaming the other's surface.
---
--- Slot 0075, not 0073: PR #237 (MCP) already claims 0073 and PR #257 (A2A)
--- claims 0074, so this takes the next free number instead of colliding with
--- either. If one of them is abandoned the gap is cosmetic — the Drizzle journal
--- orders by idx, not by filename.
+-- Slot 0075: PR #237 (MCP client) took 0073 and PR #257 (A2A) took 0074, both
+-- merged to develop while this rename was in flight. MCP landed FIRST, so per
+-- the agreed hand-off this migration owns renaming its table too —
+-- instance_mcp_servers -> agent_mcp_servers is included below.
 --
 -- Single transaction: any failure rolls the whole rename back.
 
@@ -47,6 +43,8 @@ ALTER TABLE instance_room      RENAME TO agent_room;
 ALTER TABLE agent_room         RENAME COLUMN instance_id TO agent_id;
 ALTER TABLE instance_hooks     RENAME TO agent_hooks;
 ALTER TABLE agent_hooks        RENAME COLUMN instance_id TO agent_id;
+ALTER TABLE instance_mcp_servers RENAME TO agent_mcp_servers;
+ALTER TABLE agent_mcp_servers    RENAME COLUMN instance_id TO agent_id;
 
 -- Tables keeping their name, column rename only (slug values unchanged)
 ALTER TABLE conversations       RENAME COLUMN instance_id TO agent_id;

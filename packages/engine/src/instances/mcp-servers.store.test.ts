@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { asInstanceUuid } from "./identifiers.js";
+import { asAgentUuid } from "./identifiers.js";
 
 const rows: any[] = [];
 vi.mock("../database/client.js", () => ({
@@ -14,7 +14,7 @@ vi.mock("../database/client.js", () => ({
 }));
 
 const { setMcpServer, listEnabledMcpServers, mcpServerConfigSchema } = await import("./mcp-servers.store.js");
-const IID = asInstanceUuid("11111111-1111-1111-1111-111111111111");
+const IID = asAgentUuid("11111111-1111-1111-1111-111111111111");
 
 describe("mcp-servers.store", () => {
   beforeEach(() => { rows.length = 0; });

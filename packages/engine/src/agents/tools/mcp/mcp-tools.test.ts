@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { asInstanceUuid, asInstanceSlug } from "../../../instances/identifiers.js";
+import { asAgentUuid, asAgentSlug } from "../../../instances/identifiers.js";
 // Skips are announced through the module's own logger, not `console.warn`: the
 // lines interpolate remote-controlled text, so they go through createLogger's
 // sanitizing formatter (see mcp-logger.ts). Spy there.
@@ -23,8 +23,8 @@ vi.mock("../../../config.js", async (importOriginal) => {
 });
 
 const { buildMcpTools } = await import("./mcp-tools.js");
-const IID = asInstanceUuid("iid");
-const SLUG = asInstanceSlug("my-instance");
+const IID = asAgentUuid("iid");
+const SLUG = asAgentSlug("my-instance");
 
 describe("buildMcpTools", () => {
   beforeEach(() => {

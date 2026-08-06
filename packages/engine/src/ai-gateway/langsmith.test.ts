@@ -73,7 +73,7 @@ describe("langsmith", () => {
       expect(call.metadata).toEqual({
         oa_conversation_id: "conv-123",
         thread_id: "conv-123",
-        instance_id: "inst-456",
+        agent_id: "inst-456",
       });
       // ls_provider and ls_model_name must NOT be present — our processOutputs
       // sends explicit costs; auto-pricing would conflict with our config.ts
@@ -91,7 +91,7 @@ describe("langsmith", () => {
       expect(call.metadata).toEqual({
         oa_conversation_id: "conv-123",
         thread_id: "conv-123-service",
-        instance_id: "inst-456",
+        agent_id: "inst-456",
       });
     });
 

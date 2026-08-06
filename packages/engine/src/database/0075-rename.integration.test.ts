@@ -40,6 +40,7 @@ const RENAMED_TABLES = [
   "agent_skill_env",
   "agent_room",
   "agent_hooks",
+  "agent_mcp_servers",
 ] as const;
 
 /** Every table that must carry an `agent_id` column after the migration. */
@@ -85,11 +86,7 @@ describe.skipIf(!DB_AVAILABLE)("0075 instance -> agent rename", () => {
       expect(tables, `expected table ${table}`).toContain(table);
     }
 
-    // `instance_mcp_servers` is excluded on purpose: it belongs to the unmerged
-    // MCP-client branch, so a dev DB carrying it must not fail this assertion.
-    const leftovers = [...tables].filter(
-      (t) => t.startsWith("instance") && t !== "instance_mcp_servers",
-    );
+    const leftovers = [...tables].filter((t) => t.startsWith("instance"));
     expect(leftovers).toEqual([]);
   });
 
@@ -103,8 +100,7 @@ describe.skipIf(!DB_AVAILABLE)("0075 instance -> agent rename", () => {
 
   it("leaves no instance_id column on any renamed table", async () => {
     const withInstanceId = await columnsNamed("instance_id");
-    const leftovers = [...withInstanceId].filter((t) => t !== "instance_mcp_servers");
-    expect(leftovers).toEqual([]);
+    expect([...withInstanceId]).toEqual([]);
   });
 
   it("keeps agent slug values readable through the renamed table", async () => {

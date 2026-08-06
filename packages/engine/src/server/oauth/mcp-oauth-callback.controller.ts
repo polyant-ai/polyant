@@ -7,8 +7,8 @@ import { Public } from "../../auth/decorators/public.decorator.js";
 import { consumeOAuthState } from "./oauth-states.store.js";
 import { getMcpServer } from "../../instances/mcp-servers.store.js";
 import { makeMcpOAuthProvider } from "../../agents/tools/mcp/mcp-oauth-provider.js";
-import { asInstanceUuid } from "../../instances/identifiers.js";
-import { resolveInstanceSlug } from "../../instances/resolve-instance-id.js";
+import { asAgentUuid } from "../../instances/identifiers.js";
+import { resolveAgentSlug } from "../../instances/resolve-agent-id.js";
 import { errMsg } from "../../utils/error.js";
 
 /** Escape the 5 HTML-significant characters (mirrors oauth-callback.controller.ts). */
@@ -51,7 +51,7 @@ export class McpOAuthCallbackController {
     }
 
     const serverSlug = pending.provider.slice("mcp:".length);
-    const instanceUuid = asInstanceUuid(pending.instanceId);
+    const instanceUuid = asAgentUuid(pending.instanceId);
     const server = await getMcpServer(instanceUuid, serverSlug);
     if (!server) {
       res.status(404).type("html").send(page("Errore", "Server MCP non trovato"));
@@ -60,7 +60,7 @@ export class McpOAuthCallbackController {
     // setPrincipalSecret's principal_secrets rows are cascade-deleted BY SLUG
     // (deleteInstance(), instances/store.ts) — resolve it here so saveTokens/
     // saveCodeVerifier key their writes the same way every other caller does.
-    const instanceSlug = await resolveInstanceSlug(instanceUuid);
+    const instanceSlug = await resolveAgentSlug(instanceUuid);
     if (!instanceSlug) {
       res.status(404).type("html").send(page("Errore", "Istanza non trovata"));
       return;

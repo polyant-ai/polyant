@@ -4,7 +4,7 @@ import { tool as aiTool, type Tool } from "ai";
 import { z } from "zod";
 import { createMCPClient, UnauthorizedError, type MCPClient } from "@ai-sdk/mcp";
 import { config } from "../../../config.js";
-import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
+import { type AgentSlug, type AgentUuid } from "../../../instances/identifiers.js";
 import { toModelToolName } from "../registry.js";
 import { listEnabledMcpServers, type McpServerRecord } from "../../../instances/mcp-servers.store.js";
 import { makeMcpOAuthProvider, type McpVaultOAuthProvider } from "./mcp-oauth-provider.js";
@@ -105,8 +105,8 @@ async function connectWithTimeout(
 }
 
 export async function buildMcpTools(opts: {
-  instanceUuid: InstanceUuid;
-  instanceSlug: InstanceSlug;
+  instanceUuid: AgentUuid;
+  instanceSlug: AgentSlug;
   conversationId?: string;
   abortSignal?: AbortSignal;
   /**

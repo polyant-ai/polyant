@@ -26,7 +26,7 @@ Everything below was re-verified against `develop` on 2026-08-06. Do not trust t
 | Web `/api/instances` refs | 74 across 4 files | **78 across 6 files** |
 | `WORKSPACES_ROOT` refs | 46 | **47** |
 
-**Incoming collision — `instance_mcp_servers`:** the MCP-client branch (PR #237) adds this table and it is already present in the local dev database, but it is **not** in `develop`. It is deliberately **excluded** from migration 0075. Whichever of the two lands second must rename the other's surface: if MCP merges first, add `instance_mcp_servers → agent_mcp_servers` to 0075; if this lands first, MCP must be authored as `agent_mcp_servers` and renumbered.
+**Resolved collision — `instance_mcp_servers`:** MCP (PR #237, migration 0073) and A2A (PR #257, migration 0074) both merged to `develop` while this rename was in flight. MCP landed first, so per the hand-off this branch owns renaming its surface: `instance_mcp_servers → agent_mcp_servers` IS in migration 0075, and the new MCP + A2A code carries the renamed identifiers.
 
 ## Global Constraints
 
@@ -295,13 +295,24 @@ above, all discovered during execution:
    `instance_mcp_servers` exists in the local dev DB but not on `develop` — excluded,
    with the hand-off documented in the migration header.
 
+4. **Rebased mid-flight onto a moved `develop`.** MCP (#237) and A2A (#257) merged while
+   this branch was open, which is also why the first PR push produced **zero CI runs**:
+   GitHub cannot build a merge ref for a conflicting PR, so `pull_request` workflows never
+   start — the absent checks were a symptom of the conflict, not of a broken workflow.
+   Absorbing them meant extending migration 0075 with `instance_mcp_servers →
+   agent_mcp_servers` (MCP landed first, so this branch owns it per the hand-off),
+   applying the rename to the new MCP + A2A code, `npm install` for MCP's new
+   `@ai-sdk/mcp` dependency, and re-doing every gate. One trap: the blanket
+   `\bInstanceSlug\b` rename also rewrote the deliberately-pinned brand payload literal
+   in `identifiers.ts` — restored, and the typecheck caught it immediately.
+
 **Verification actually run** (baseline recorded on `develop` first: engine 2524 tests,
-web 498, typecheck clean):
+web 498, typecheck clean; post-rebase the suite grew to 2660 as MCP + A2A tests came in):
 
 - Migration 0075 applied onto a **fresh** database through the whole 0001→0075 chain;
   the round-trip integration test fails at 0074 and passes at 0075.
-- Engine: `typecheck` ✓, **207 files / 2552 tests** ✓, `lint` 0 errors (513 warnings,
-  same as baseline).
+- Engine: `typecheck` ✓, **224 files / 2660 tests** ✓, `lint` 0 errors (538 warnings, all
+  pre-existing).
 - Web: `typecheck` ✓, **50 files / 498 tests** ✓, `build:web` ✓ (routes render as
   `/organizations/[orgSlug]/workspaces/[workspaceSlug]/agents[/[slug]]`), `lint` 0 errors.
 - Zero-residual greps green for: `pgTable("instance`, `"instance_id"` in schemas, raw

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi } from "vitest";
-import { asInstanceUuid } from "./identifiers.js";
+import { asAgentUuid } from "./identifiers.js";
 
 // exportMcpServers only calls listMcpServers — mock the store, not the DB.
 vi.mock("./mcp-servers.store.js", () => ({
@@ -12,7 +12,7 @@ const mcpServersStoreModule = await import("./mcp-servers.store.js");
 const listMcpServers = mcpServersStoreModule.listMcpServers as unknown as ReturnType<typeof vi.fn>;
 const { exportMcpServers, stripMcpSecrets } = await import("./export.service.js");
 
-const IID = asInstanceUuid("11111111-1111-1111-1111-111111111111");
+const IID = asAgentUuid("11111111-1111-1111-1111-111111111111");
 
 describe("stripMcpSecrets", () => {
   it("should_remove_the_bearer_token_from_a_static_config", () => {

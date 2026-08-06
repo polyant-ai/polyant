@@ -6,7 +6,7 @@ import { DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
 import { config } from "../../config.js";
 import { TtlCache } from "../../utils/ttl-cache.js";
 import { findInstanceBySlug } from "../../instances/store.js";
-import type { InstanceSlug } from "../../instances/identifiers.js";
+import type { AgentSlug } from "../../instances/identifiers.js";
 import type { StreamMessageHandler } from "../../channels/types.js";
 import { buildAgentCard } from "./agent-card.builder.js";
 import { createPolyantExecutor } from "./polyant-agent.executor.js";
@@ -27,13 +27,13 @@ export class A2aHandlerRegistry {
     this.streamHandler = handler;
   }
 
-  async getHandler(slug: InstanceSlug): Promise<DefaultRequestHandler> {
+  async getHandler(slug: AgentSlug): Promise<DefaultRequestHandler> {
     const cached = this.cache.get(slug);
     if (cached) return cached;
     if (!this.streamHandler) throw new Error("A2aHandlerRegistry: stream message handler not set");
 
     const instance = await findInstanceBySlug(slug);
-    if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
+    if (!instance) throw new NotFoundException(`Agent "${slug}" not found`);
 
     const baseUrl = config.server.baseUrl ?? `http://localhost:${config.server.port}`;
     const card = buildAgentCard(instance, baseUrl);

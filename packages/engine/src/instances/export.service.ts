@@ -311,7 +311,7 @@ export function stripMcpSecrets(authMode: McpAuthMode, config: Record<string, un
   return copy;
 }
 
-export async function exportMcpServers(instanceId: InstanceUuid) {
+export async function exportMcpServers(instanceId: AgentUuid) {
   const rows = await listMcpServers(instanceId);
   return rows.map((r) => ({
     slug: r.slug,

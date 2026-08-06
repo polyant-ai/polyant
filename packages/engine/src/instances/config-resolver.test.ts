@@ -235,7 +235,7 @@ describe("instances/config-resolver", () => {
       mockFindInstanceBySlug.mockResolvedValue(fakeInstance);
       mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
 
-      const cfg = await resolveInstanceConfig(asInstanceSlug("default"));
+      const cfg = await resolveInstanceConfig(asAgentSlug("default"));
 
       expect(cfg.a2aEnabled).toBe(true);
     });

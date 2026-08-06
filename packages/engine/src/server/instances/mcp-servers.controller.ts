@@ -5,7 +5,7 @@ import { z } from "zod";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
-import { asInstanceUuid } from "../../instances/identifiers.js";
+import { asAgentUuid } from "../../instances/identifiers.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { maskMcpConfig, mergeMaskedMcpSecrets } from "./mcp-config-mask.js";
 import {
@@ -41,7 +41,7 @@ const testBodySchema = setBodySchema.extend({
   slug: z.string().optional(),
 });
 
-@Controller("api/instances")
+@Controller("api/agents")
 export class McpServersController {
   private readonly auditLogger = createManagementAuditLogger();
 
@@ -49,7 +49,7 @@ export class McpServersController {
   @Get(":slug/mcp-servers")
   async list(@Param("slug") slug: string) {
     const inst = await findInstanceOrFail(slug);
-    const servers = await listMcpServers(asInstanceUuid(inst.id));
+    const servers = await listMcpServers(asAgentUuid(inst.id));
     return servers.map((s) => ({ ...s, config: maskMcpConfig(s.authMode, s.config as Record<string, unknown>) }));
   }
 
@@ -74,7 +74,7 @@ export class McpServersController {
     // Restore masked (••••) secret fields from the existing config so a
     // client re-submitting the masked GET response doesn't overwrite the
     // real secret (nested paths — see mcp-config-mask.ts).
-    const existing = await getMcpServer(asInstanceUuid(inst.id), serverSlug);
+    const existing = await getMcpServer(asAgentUuid(inst.id), serverSlug);
     const effective = mergeMaskedMcpSecrets(
       parsed.data.authMode,
       parsed.data.config,
@@ -89,7 +89,7 @@ export class McpServersController {
       throw err;
     }
 
-    await setMcpServer(asInstanceUuid(inst.id), {
+    await setMcpServer(asAgentUuid(inst.id), {
       slug: serverSlug,
       name: parsed.data.name,
       url: parsed.data.url,
@@ -115,7 +115,7 @@ export class McpServersController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const inst = await findInstanceOrFail(slug);
-    await deleteMcpServer(asInstanceUuid(inst.id), serverSlug);
+    await deleteMcpServer(asAgentUuid(inst.id), serverSlug);
     this.auditLogger.log({
       action: ManagementAuditAction.McpServerDelete,
       actor: toManagementAuditActor(user),
@@ -144,7 +144,7 @@ export class McpServersController {
     // doesn't probe the connection with no auth at all. Only possible when
     // the candidate identifies an existing server (`slug` present) — a
     // brand-new/unsaved server has nothing to restore from.
-    const existing = parsed.data.slug ? await getMcpServer(asInstanceUuid(inst.id), parsed.data.slug) : undefined;
+    const existing = parsed.data.slug ? await getMcpServer(asAgentUuid(inst.id), parsed.data.slug) : undefined;
     const effective = mergeMaskedMcpSecrets(
       parsed.data.authMode,
       parsed.data.config,

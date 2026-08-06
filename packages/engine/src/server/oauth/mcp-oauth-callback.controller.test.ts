@@ -17,8 +17,8 @@ vi.mock("../../instances/mcp-servers.store.js", () => ({
   getMcpServer: (...args: unknown[]) => mockGetMcpServer(...args),
 }));
 
-vi.mock("../../instances/resolve-instance-id.js", () => ({
-  resolveInstanceSlug: (...args: unknown[]) => mockResolveInstanceSlug(...args),
+vi.mock("../../instances/resolve-agent-id.js", () => ({
+  resolveAgentSlug: (...args: unknown[]) => mockResolveInstanceSlug(...args),
 }));
 
 vi.mock("../../agents/tools/mcp/mcp-oauth-provider.js", () => ({

@@ -10,7 +10,7 @@
 // phantom brands (`ToolContext.instanceId: InstanceSlug`) as part of its public
 // plugin contract. Changing the payload here would make every SDK-authored tool
 // and hook fail to typecheck against the engine. The payload follows once the
-// SDK renames its own contract (a major SDK release, with a deprecated alias);
+// SDK renames its own contract (plugin-sdk v1.6.0, additive with deprecated aliases);
 // until then this is an internal implementation detail with no runtime effect.
 
 /** Human-readable agent identifier (the `agents.slug` column). */
