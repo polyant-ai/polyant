@@ -274,7 +274,25 @@ function ChartLegendContent({
   return (
     <div
       className={cn(
-        "flex items-center justify-center gap-4",
+        // Local changes to this shadcn primitive — the next `shadcn add chart`
+        // reverts them.
+        //
+        // The legend is ONE ROW that shrinks, deliberately, and it took two tries
+        // to get here. It originally did not wrap, so a chart with long series
+        // names (model ids) overflowed its card and the whole PAGE grew a
+        // horizontal scrollbar. Adding `flex-wrap` moved the problem rather than
+        // fixing it: recharts measures the legend ONCE and reserves that height
+        // out of the chart's fixed box, so a legend that wraps to a second row
+        // becomes taller than the reservation and the card clips instead.
+        //
+        // A single row whose items shrink has a height recharts can always
+        // predict. `min-w-0` is what lets a flex item shrink below its content,
+        // and the label truncates.
+        //
+        // A long series name stays readable via the item's `title` attribute (see
+        // below). Fold the series before it reaches the chart (see
+        // `topModelsWithRest`) if the names matter more than the slices.
+        "flex items-center justify-center gap-4 overflow-hidden",
         verticalAlign === "top" ? "pb-3" : "pt-3",
         className
       )}
@@ -289,7 +307,7 @@ function ChartLegendContent({
             <div
               key={item.value}
               className={cn(
-                "[&>svg]:text-muted-foreground flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3"
+                "[&>svg]:text-muted-foreground flex min-w-0 items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3"
               )}
             >
               {itemConfig?.icon && !hideIcon ? (
@@ -302,7 +320,15 @@ function ChartLegendContent({
                   }}
                 />
               )}
-              {itemConfig?.label}
+              {/* `title` so a truncated name is still readable. A Pie's recharts
+                  tooltip fires on the SLICE, not on the legend row, and legend
+                  items are not focusable — so without this a name cut to a few
+                  characters could not be recovered by any means. Matters most
+                  where the series are not folded: `channel-distribution-chart`
+                  maps the API's channel list straight through. */}
+              <span className="truncate" title={String(itemConfig?.label ?? "")}>
+                {itemConfig?.label}
+              </span>
             </div>
           )
         })}

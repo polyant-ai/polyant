@@ -14,6 +14,7 @@ const {
   mockUpdateInstance,
   mockDeleteInstance,
   mockListAllInstances,
+  mockResolvePrincipalOrgId,
   mockSeedPrompts,
   mockSeedTools,
   mockSeedSkills,
@@ -29,6 +30,7 @@ const {
   mockUpdateInstance: vi.fn(),
   mockDeleteInstance: vi.fn(),
   mockListAllInstances: vi.fn(),
+  mockResolvePrincipalOrgId: vi.fn(),
   mockSeedPrompts: vi.fn(),
   mockSeedTools: vi.fn(),
   mockSeedSkills: vi.fn(),
@@ -59,6 +61,7 @@ vi.mock("../../instances/store.js", () => ({
   createInstance: mockCreateInstance,
   updateInstance: mockUpdateInstance,
   deleteInstance: mockDeleteInstance,
+  resolvePrincipalOrgId: mockResolvePrincipalOrgId,
 }));
 
 vi.mock("../../instances/prompts.store.js", () => ({ seedInstancePrompts: mockSeedPrompts }));
@@ -102,6 +105,7 @@ vi.mock("../memories/memory-status.js", () => ({
   computeMemoryStatusFromInstance: vi
     .fn()
     .mockResolvedValue({ needsOpenAIKey: false, canEnable: true }),
+  computeEmbedderStatus: vi.fn().mockResolvedValue({ needsCredentials: false }),
 }));
 
 import { InstancesController } from "./instances.controller.js";
@@ -140,6 +144,45 @@ describe("InstancesController", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Org scoping — the aggregate list has no `:slug` for the guard to scope on,
+  // so an unfiltered listAllInstances() enumerated every tenant's agents.
+  // -------------------------------------------------------------------------
+  describe("list — organization scoping", () => {
+    const agentA = { ...fullInstance, slug: "agent-a" };
+    const agentB = { ...fullInstance, slug: "agent-b" };
+
+    beforeEach(() => {
+      mockResolvePrincipalOrgId.mockImplementation(async (orgId?: string) => orgId ?? null);
+      mockListAllInstances.mockImplementation(async (orgId?: string) =>
+        orgId === "org-a" ? [agentA] : [agentA, agentB],
+      );
+    });
+
+    it("should_not_expose_org_b_agents_when_an_org_a_caller_lists", async () => {
+      const { instances } = await controller.list({
+        userId: "u1",
+        email: "a@example.com",
+        principalType: "user",
+        orgId: "org-a",
+      });
+
+      // Second argument is the addressed workspace; absent here, so undefined.
+      expect(mockListAllInstances).toHaveBeenCalledWith("org-a", undefined);
+      expect(instances.map((i) => i.slug)).toEqual(["agent-a"]);
+    });
+
+    it("should_return_no_agents_when_the_caller_organization_cannot_be_resolved", async () => {
+      mockResolvePrincipalOrgId.mockResolvedValue(null);
+
+      const { instances } = await controller.list(undefined);
+
+      expect(instances).toEqual([]);
+      // Fail closed: never fall through to the unscoped listing.
+      expect(mockListAllInstances).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // #85 — DTO whitelist
   // -------------------------------------------------------------------------
   describe("toInstanceDto (#85)", () => {
@@ -154,7 +197,9 @@ describe("InstancesController", () => {
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
         "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "stateInPromptEnabled", "datetimeInjectionEnabled", "cacheEnabled", "cacheTtl", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint",
-        "memory",
+        // Derived status blocks, not columns: `memory` is gated on the memory
+        // flag, `embedder` is not — which is why the Knowledge tab needs it.
+        "memory", "embedder",
       ]);
 
       for (const key of Object.keys(instance)) {
@@ -188,6 +233,24 @@ describe("InstancesController", () => {
   // #93 — TOCTOU-free create (DB unique constraint)
   // -------------------------------------------------------------------------
   describe("create (#93)", () => {
+    // Creating an agent needs an owning organization; these cases are about the
+    // duplicate-slug mapping, so give them a resolvable one by default. The
+    // unresolvable case has its own test below.
+    beforeEach(() => {
+      mockResolvePrincipalOrgId.mockResolvedValue("org-a");
+    });
+
+    it("should_reject_with_400_when_the_caller_organization_cannot_be_resolved", async () => {
+      // A principal with no org claim on a multi-org deployment: a caller-side
+      // condition, so a 400 — never a 500, and never the seed workspace.
+      mockResolvePrincipalOrgId.mockResolvedValue(null);
+
+      await expect(
+        controller.create({ slug: "orphan", name: "Orphan" }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockCreateInstance).not.toHaveBeenCalled();
+    });
+
     it("does NOT pre-query for existence — only inserts", async () => {
       mockCreateInstance.mockResolvedValue({ ...fullInstance, slug: "new-one" });
       mockSeedPrompts.mockResolvedValue(undefined);
@@ -224,6 +287,22 @@ describe("InstancesController", () => {
       await expect(
         controller.create({ slug: "dup-wrapped", name: "Dup" }),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it("should_create_the_agent_in_the_caller_organization_when_a_principal_is_present", async () => {
+      mockCreateInstance.mockResolvedValue({ ...fullInstance, slug: "new-one" });
+      mockResolvePrincipalOrgId.mockImplementation(async (orgId?: string) => orgId ?? null);
+
+      await controller.create(
+        // A hostile body cannot pick the target organization: the value from the
+        // principal is applied last.
+        { slug: "new-one", name: "New", orgId: "org-victim" } as never,
+        { userId: "u1", email: "b@example.com", principalType: "user", orgId: "org-b" },
+      );
+
+      expect(mockCreateInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ slug: "new-one", orgId: "org-b" }),
+      );
     });
 
     it("propagates non-unique-violation errors unchanged", async () => {

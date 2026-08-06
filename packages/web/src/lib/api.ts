@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { workspaceSlugFromPath } from "@/lib/tenant/paths";
+
 // Re-export all types for backward compatibility
 export type {
   AdminUser,
@@ -74,6 +76,7 @@ export type {
 export { MEMBER_ROLES } from "./api-types";
 
 // Internal import — only types used in the api object below (re-exports don't make types locally available)
+import type { UserRole } from "./user-role";
 import type {
   AdminUser,
   CreateUserResponse,
@@ -116,16 +119,10 @@ import type {
   OptoutContact,
   EmbeddingWipeResult,
   OrganizationMember,
+  TenantContextPayload,
 } from "./api-types";
 
 // ── HTTP Client ─────────────────────────────────────────────────────
-
-/**
- * The single OSS organization slug. The OSS build is single-org (the migration
- * seeds one default org); the management plane addresses it by this slug. When
- * multi-org lands (Phase 2) this becomes a route param instead of a constant.
- */
-export const DEFAULT_ORG_SLUG = "default";
 
 // API calls go through Next.js rewrites (which proxy to engine and forward cookies)
 // In client components, relative paths are resolved against the browser origin (the Next.js app)
@@ -143,8 +140,20 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const { headers, signal, ...rest } = options ?? {};
+  // The workspace comes from the URL being rendered — the one thing the user can
+  // see, share and bookmark. Reading it here rather than from a cookie is what
+  // makes the URL segment authoritative: there is no second, invisible notion of
+  // "the active workspace" that a link could disagree with. A path outside a
+  // workspace (org- or deployment-level) sends no header and is resolved by the
+  // caller's stored preference server-side.
+  const workspaceSlug =
+    typeof window !== "undefined" ? workspaceSlugFromPath(window.location.pathname) : null;
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(workspaceSlug ? { "X-Workspace-Slug": workspaceSlug } : {}),
+      ...headers,
+    },
     signal: signal ?? AbortSignal.timeout(30_000),
     ...rest,
   });
@@ -180,13 +189,24 @@ export function getUserErrorMessage(err: unknown, fallback: string): string {
 
 export const api = {
   users: {
-    list: () => request<{ users: AdminUser[] }>("/api/users"),
-    create: (data: { email: string; name?: string; role?: "superadmin" | "user"; password?: string }) =>
+    /**
+     * One page of installation accounts. `total` is what makes the page
+     * navigable — the engine bounds the response, so the caller cannot infer the
+     * end of the table from a short page.
+     */
+    list: (params: { limit?: number; offset?: number } = {}) => {
+      const qs = new URLSearchParams();
+      if (params.limit !== undefined) qs.set("limit", String(params.limit));
+      if (params.offset !== undefined) qs.set("offset", String(params.offset));
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return request<{ users: AdminUser[]; total: number }>(`/api/users${suffix}`);
+    },
+    create: (data: { email: string; name?: string; role?: UserRole; password?: string }) =>
       request<CreateUserResponse>("/api/users", {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    update: (id: string, data: { name?: string | null; role?: "superadmin" | "user" }) =>
+    update: (id: string, data: { name?: string | null; role?: UserRole }) =>
       request<{ user: AdminUser }>(`/api/users/${encodeURIComponent(id)}`, {
         method: "PATCH",
         body: JSON.stringify(data),
@@ -201,6 +221,7 @@ export const api = {
       }),
   },
   me: {
+    get: () => request<TenantContextPayload>("/api/me"),
     changePassword: (data: { currentPassword?: string; newPassword: string }) =>
       request<{ ok: boolean }>("/api/me/password", {
         method: "POST",
@@ -208,16 +229,16 @@ export const api = {
       }),
   },
   members: {
-    list: (orgSlug: string = DEFAULT_ORG_SLUG) =>
+    list: (orgSlug: string) =>
       request<{ members: OrganizationMember[] }>(
         `/api/organizations/${encodeURIComponent(orgSlug)}/members`,
       ),
-    assign: (userId: string, roleKey: string, orgSlug: string = DEFAULT_ORG_SLUG) =>
+    assign: (userId: string, roleKey: string, orgSlug: string) =>
       request<{ assigned: boolean }>(
         `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
         { method: "PUT", body: JSON.stringify({ roleKey }) },
       ),
-    remove: (userId: string, orgSlug: string = DEFAULT_ORG_SLUG) =>
+    remove: (userId: string, orgSlug: string) =>
       request<{ removed: boolean }>(
         `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
         { method: "DELETE" },

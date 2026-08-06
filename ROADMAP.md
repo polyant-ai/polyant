@@ -15,10 +15,15 @@ contributions and feedback.
 - Web search tool (Tavily / Brave Search wrappers).
 - More channel adapters (Discord, Microsoft Teams).
 - First-party MCP server support for tools.
+- Complete multi-tenancy: the `Organization > Workspace > Agent` schema, RBAC
+  (enforced unconditionally — there is no shadow mode), tenant-scoped frontend
+  URLs and an authoritative workspace URL segment are in place. Still missing:
+  organization/workspace CRUD, a workspace switcher, and an email-invitation flow
+  — today an administrator creates the user and then assigns them a role, which
+  works but is two manual steps.
 
 ## Future
 
-- Multi-tenancy (Organization > Project > Instance hierarchy).
 - Voice channel (STT/TTS pipeline).
 - Plugin marketplace for skills.
 

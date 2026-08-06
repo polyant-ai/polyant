@@ -9,7 +9,7 @@ import {
 
 // Mock the data store: every test injects its own behavior.
 vi.mock("./users.store.js", () => ({
-  countSuperadmins: vi.fn(),
+  countPlatformAdmins: vi.fn(),
   deleteSessionsForUser: vi.fn(),
   deleteUserById: vi.fn(),
   getUserByEmail: vi.fn(),
@@ -150,27 +150,27 @@ describe("UsersService", () => {
   // ---- update -----------------------------------------------------------
 
   describe("update", () => {
-    it("refuses to demote the last remaining superadmin", async () => {
+    it("refuses to demote the last remaining platform admin", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "sa", role: "superadmin" }),
+        makeUser({ id: "sa", role: "platform_admin" }),
       );
-      mocked.countSuperadmins.mockResolvedValueOnce(1);
+      mocked.countPlatformAdmins.mockResolvedValueOnce(1);
 
       await expect(
         service.update(
           "sa",
           { role: "user" },
-          { userId: "other", role: "superadmin" },
+          { userId: "other", role: "platform_admin" },
         ),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(mocked.updateUserMeta).not.toHaveBeenCalled();
     });
 
-    it("allows demoting a superadmin when more than one exists", async () => {
+    it("allows demoting a platform admin when more than one exists", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "sa1", role: "superadmin" }),
+        makeUser({ id: "sa1", role: "platform_admin" }),
       );
-      mocked.countSuperadmins.mockResolvedValueOnce(2);
+      mocked.countPlatformAdmins.mockResolvedValueOnce(2);
       mocked.updateUserMeta.mockResolvedValueOnce(
         makeUser({ id: "sa1", role: "user" }),
       );
@@ -178,7 +178,7 @@ describe("UsersService", () => {
       await service.update(
         "sa1",
         { role: "user" },
-        { userId: "actor", role: "superadmin" },
+        { userId: "actor", role: "platform_admin" },
       );
       expect(mocked.updateUserMeta).toHaveBeenCalledWith("sa1", expect.objectContaining({ role: "user" }));
       // Role changed for someone else → DB sessions invalidated.
@@ -188,15 +188,15 @@ describe("UsersService", () => {
     it("returns 404 when the target user does not exist", async () => {
       mocked.getUserById.mockResolvedValueOnce(null);
       await expect(
-        service.update("missing", { name: "X" }, { userId: "actor", role: "superadmin" }),
+        service.update("missing", { name: "X" }, { userId: "actor", role: "platform_admin" }),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it("does NOT invalidate sessions when the actor edits their own row", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "self", role: "superadmin" }),
+        makeUser({ id: "self", role: "platform_admin" }),
       );
-      mocked.countSuperadmins.mockResolvedValueOnce(2);
+      mocked.countPlatformAdmins.mockResolvedValueOnce(2);
       mocked.updateUserMeta.mockResolvedValueOnce(
         makeUser({ id: "self", role: "user" }),
       );
@@ -204,7 +204,7 @@ describe("UsersService", () => {
       await service.update(
         "self",
         { role: "user" },
-        { userId: "self", role: "superadmin" },
+        { userId: "self", role: "platform_admin" },
       );
       expect(mocked.deleteSessionsForUser).not.toHaveBeenCalled();
     });
@@ -220,11 +220,11 @@ describe("UsersService", () => {
       expect(mocked.deleteUserById).not.toHaveBeenCalled();
     });
 
-    it("blocks deleting the last superadmin", async () => {
+    it("blocks deleting the last platform admin", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "sa", role: "superadmin" }),
+        makeUser({ id: "sa", role: "platform_admin" }),
       );
-      mocked.countSuperadmins.mockResolvedValueOnce(1);
+      mocked.countPlatformAdmins.mockResolvedValueOnce(1);
 
       await expect(
         service.remove("sa", { userId: "other" }),
@@ -402,11 +402,11 @@ describe("UsersService", () => {
     it("returns the public user (no passwordHash) on a correct password", async () => {
       const hash = await hashPassword("right-pwd-9999");
       mocked.getUserByEmail.mockResolvedValueOnce(
-        makeUser({ id: "u", passwordHash: hash, hasPassword: true, role: "superadmin" }),
+        makeUser({ id: "u", passwordHash: hash, hasPassword: true, role: "platform_admin" }),
       );
       const res = await service.verifyCredentials("a@b.com", "right-pwd-9999");
       expect(res).not.toBeNull();
-      expect(res?.role).toBe("superadmin");
+      expect(res?.role).toBe("platform_admin");
       expect((res as unknown as Record<string, unknown>).passwordHash).toBeUndefined();
     });
 
@@ -415,7 +415,7 @@ describe("UsersService", () => {
       // the default seeded admin. Regression guard.
       const hash = await hashPassword("seed-admin-pwd");
       mocked.getUserByEmail.mockResolvedValueOnce(
-        makeUser({ email: "administrator@local", passwordHash: hash, hasPassword: true, role: "superadmin" }),
+        makeUser({ email: "administrator@local", passwordHash: hash, hasPassword: true, role: "platform_admin" }),
       );
       const res = await service.verifyCredentials("administrator@local", "seed-admin-pwd");
       expect(res).not.toBeNull();

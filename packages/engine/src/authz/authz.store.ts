@@ -61,6 +61,28 @@ export async function readAgentScope(agentSlug: string): Promise<AgentScope | nu
 }
 
 /**
+ * Resolve an addressed workspace only within the supplied organization. The
+ * workspace slug is not globally unique, so omitting the organization here
+ * would let a URL for one tenant validate against another tenant's workspace.
+ */
+export async function readWorkspaceId(
+  organizationId: string,
+  workspaceSlug: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(
+      and(
+        eq(workspaces.organizationId, organizationId),
+        eq(workspaces.slug, workspaceSlug),
+      ),
+    )
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/**
  * Load every role binding a user holds within an organization, each with its
  * role's expanded permission set. One query for the bindings, one batched query
  * for the permissions (no N+1).

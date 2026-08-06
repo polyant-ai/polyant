@@ -4,7 +4,8 @@
  * First DB-integrated RBAC E2E test.
  *
  * Proves the membership-management permission boundary end to end through the
- * UI: a real credentials login per role, a real navigation to /members, and an
+ * UI: a real credentials login per role, a real navigation to the canonical
+ * org-scoped members page, and an
  * assertion on BOTH the network result (200 vs 403 from the engine
  * PermissionGuard, proxied through Next) AND the rendered UI.
  *
@@ -13,15 +14,15 @@
  *   Viewer → not granted              → 403, no table.
  *
  * Only the database is integration-tested; no AI/channel service is touched by
- * this flow. Enforcement is real because the harness boots the engine with
- * AUTHZ_ENFORCE=true (see test-env.ts).
+ * this flow. Enforcement is real because RBAC has no off switch — there is no
+ * shadow mode a missing env var could leave these assertions passing under.
  */
 
 import { expect, test, type Response } from "@playwright/test";
 import { getTestUser } from "../setup/test-env.js";
 import { loginAs } from "../fixtures/auth.js";
 
-const MEMBERS_PATH = "/members";
+const MEMBERS_PATH = "/organizations/default/members";
 
 /** GET …/api/organizations/:slug/members — the call the page makes on load. */
 function isMembersListResponse(response: Response): boolean {

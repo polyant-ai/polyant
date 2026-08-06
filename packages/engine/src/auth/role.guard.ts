@@ -10,6 +10,7 @@ import {
 import { Reflector } from "@nestjs/core";
 import { REQUIRED_ROLES_KEY } from "./decorators/require-role.decorator.js";
 import type { AuthenticatedUser } from "./auth.types.js";
+import { isPlatformAdminRole } from "./user-role.js";
 import type { UserRole } from "./users.schema.js";
 
 /**
@@ -34,7 +35,12 @@ export class RoleGuard implements CanActivate {
       // AuthGuard should have rejected already; defensive guard.
       throw new ForbiddenException("Authentication required");
     }
-    if (!user.role || !required.includes(user.role)) {
+    const hasRequiredRole = user.role && required.some((role) =>
+      isPlatformAdminRole(role)
+        ? isPlatformAdminRole(user.role)
+        : role === user.role,
+    );
+    if (!hasRequiredRole) {
       throw new ForbiddenException("Insufficient role");
     }
     return true;

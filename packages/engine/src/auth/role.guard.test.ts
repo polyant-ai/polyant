@@ -5,9 +5,8 @@ import { Reflector } from "@nestjs/core";
 import { ForbiddenException, type ExecutionContext } from "@nestjs/common";
 import { RoleGuard } from "./role.guard.js";
 import { REQUIRED_ROLES_KEY } from "./decorators/require-role.decorator.js";
-import type { UserRole } from "./users.schema.js";
 
-function makeContext(user: unknown, metadata: UserRole[] | undefined): ExecutionContext {
+function makeContext(user: unknown, metadata: string[] | undefined): ExecutionContext {
   // Stash the metadata under both handler and class so getAllAndOverride finds it.
   const handler = function handler() {};
   const cls = class Cls {};
@@ -37,23 +36,30 @@ describe("RoleGuard", () => {
   });
 
   it("rejects when request.user is missing despite a role requirement", () => {
-    const ctx = makeContext(undefined, ["superadmin"]);
+    const ctx = makeContext(undefined, ["platform_admin"]);
     expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
   });
 
   it("allows when the user role matches the required role", () => {
-    const ctx = makeContext({ role: "superadmin" }, ["superadmin"]);
+    const ctx = makeContext({ role: "platform_admin" }, ["platform_admin"]);
+    expect(guard.canActivate(ctx)).toBe(true);
+  });
+
+  it("allows a normalized platform admin when a legacy decorator requires superadmin", () => {
+    // Old deployments can have @RequireRole("superadmin") metadata while
+    // AuthGuard normalizes the session claim to the canonical spelling.
+    const ctx = makeContext({ role: "platform_admin" }, ["superadmin"]);
     expect(guard.canActivate(ctx)).toBe(true);
   });
 
   it("rejects when the user role does not match", () => {
-    const ctx = makeContext({ role: "user" }, ["superadmin"]);
+    const ctx = makeContext({ role: "user" }, ["platform_admin"]);
     expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
   });
 
   it("supports multiple acceptable roles (OR semantics)", () => {
-    const ctx1 = makeContext({ role: "user" }, ["superadmin", "user"]);
-    const ctx2 = makeContext({ role: "superadmin" }, ["superadmin", "user"]);
+    const ctx1 = makeContext({ role: "user" }, ["platform_admin", "user"]);
+    const ctx2 = makeContext({ role: "platform_admin" }, ["platform_admin", "user"]);
     expect(guard.canActivate(ctx1)).toBe(true);
     expect(guard.canActivate(ctx2)).toBe(true);
   });

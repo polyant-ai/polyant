@@ -1,79 +1,37 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, expect, it } from "vitest";
-import { PATH_METADATA, METHOD_METADATA } from "@nestjs/common/constants";
-import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
-import { REQUIRE_PERMISSION_KEY } from "../authz/decorators/require-permission.decorator.js";
-
-import { HealthController } from "./health/health.controller.js";
-import { MemoriesController } from "./memories/memories.controller.js";
-import { InstancesController } from "./instances/instances.controller.js";
-import { InstancePromptsController } from "./instances/instance-prompts.controller.js";
-import { InstanceToolsController } from "./instances/instance-tools.controller.js";
-import { InstanceSkillsController } from "./instances/instance-skills.controller.js";
-import { InstanceSecretsController } from "./instances/instance-secrets.controller.js";
-import { InstanceChannelsController } from "./instances/instance-channels.controller.js";
-import { ConversationsController } from "./conversations/conversations.controller.js";
-import { AnalyticsController } from "./analytics/analytics.controller.js";
-import { ToolsController } from "./tools/tools.controller.js";
-import { InstanceKnowledgeController } from "./instances/instance-knowledge.controller.js";
-import { InstanceScheduledTasksController } from "./instances/instance-scheduled-tasks.controller.js";
-import { WebhookController } from "./webhooks/webhook.controller.js";
-import { TwilioWebhookController } from "./channels/twilio-webhook.controller.js";
-import { RoomController } from "./room/room.controller.js";
-import { InstanceHooksController } from "./hooks/instance-hooks.controller.js";
-import { HookFunctionsController } from "./hooks/hook-functions.controller.js";
-import { EventSourcesController } from "./webhooks/webhook-sources.controller.js";
-import { WebhookBacklogController } from "./webhooks/webhook-backlog.controller.js";
-import { AuditController } from "./audit/audit.controller.js";
-import { InstanceExportController } from "./instances/instance-export.controller.js";
-import { AttachmentsController } from "./attachments/attachments.controller.js";
-import { OptoutsController } from "./optouts/optouts.controller.js";
-import { OpenAIController } from "./openai/openai.controller.js";
-import { InstanceChatStreamController } from "./openai/instance-chat-stream.controller.js";
-import { MembersController } from "./members/members.controller.js";
-import { ActivityStreamController } from "../activity-stream/activity-stream.controller.js";
-import { OAuthCallbackController } from "./oauth/oauth-callback.controller.js";
-
 /**
- * The authoritative list of every controller registered in the NestJS server.
- * Kept in sync with `ServerModule`, `OptoutsModule`, and `OpenAIModule`; a
- * missing entry would let an undeclared handler slip past the guardrail.
+ * Every route handler the server mounts must declare how it is authorized.
+ *
+ * This guardrail used to walk a hand-maintained `ALL_CONTROLLERS` array that
+ * called itself "the authoritative list of every controller registered". It
+ * had drifted: it covered 29 of the 34 mounted controllers, and every
+ * undeclared route in the codebase lived in one of the five it did not import
+ * — so the test was green while `/api/users/*` and a duplicate, undecorated
+ * skills controller were reachable with no authorization declaration at all.
+ *
+ * The list is now DERIVED from the NestJS module graph, the same metadata Nest
+ * itself reads when it binds routes. A controller cannot be mounted without
+ * appearing here, so the guardrail can no longer fall out of date.
  */
-const ALL_CONTROLLERS = [
-  HealthController,
-  MemoriesController,
-  InstancesController,
-  InstancePromptsController,
-  InstanceToolsController,
-  InstanceSkillsController,
-  InstanceSecretsController,
-  InstanceChannelsController,
-  ConversationsController,
-  AnalyticsController,
-  ToolsController,
-  InstanceKnowledgeController,
-  InstanceScheduledTasksController,
-  WebhookController,
-  TwilioWebhookController,
-  RoomController,
-  InstanceHooksController,
-  HookFunctionsController,
-  EventSourcesController,
-  WebhookBacklogController,
-  AuditController,
-  InstanceExportController,
-  AttachmentsController,
-  OptoutsController,
-  OpenAIController,
-  InstanceChatStreamController,
-  MembersController,
-  ActivityStreamController,
-  OAuthCallbackController,
-] as const;
+
+import { describe, expect, it } from "vitest";
+import {
+  PATH_METADATA,
+  METHOD_METADATA,
+  MODULE_METADATA,
+} from "@nestjs/common/constants";
+import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
+import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
+import { REQUIRE_PERMISSION_KEY } from "../authz/decorators/require-permission.decorator.js";
+import { AUTHENTICATED_ONLY_KEY } from "../authz/decorators/authenticated-only.decorator.js";
+import { ServerModule } from "./server.module.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ControllerClass = new (...args: any[]) => object;
+type ModuleRef =
+  | ControllerClass
+  | { module?: unknown; imports?: unknown[]; controllers?: unknown[] };
 
 interface RouteHandler {
   readonly controller: ControllerClass;
@@ -82,6 +40,38 @@ interface RouteHandler {
 
 function describeHandler({ controller, handler }: RouteHandler): string {
   return `${controller.name}.${handler}`;
+}
+
+/**
+ * Depth-first walk of the module graph collecting every registered controller.
+ * Handles both static modules (metadata on the class) and dynamic ones
+ * (`ThrottlerModule.forRoot(...)` and friends return a plain object carrying
+ * the same keys), exactly as the NestJS module scanner does.
+ */
+function collectControllers(
+  entry: ModuleRef | undefined,
+  seen = new Set<unknown>(),
+  found = new Set<ControllerClass>(),
+): Set<ControllerClass> {
+  if (!entry || seen.has(entry)) return found;
+  seen.add(entry);
+
+  const dynamic = typeof entry === "object" ? entry : undefined;
+  const target = (dynamic?.module ?? entry) as object;
+
+  const controllers = [
+    ...((Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, target) as ControllerClass[]) ?? []),
+    ...((dynamic?.controllers as ControllerClass[]) ?? []),
+  ];
+  for (const controller of controllers) found.add(controller);
+
+  const imports = [
+    ...((Reflect.getMetadata(MODULE_METADATA.IMPORTS, target) as ModuleRef[]) ?? []),
+    ...((dynamic?.imports as ModuleRef[]) ?? []),
+  ];
+  for (const imported of imports) collectControllers(imported, seen, found);
+
+  return found;
 }
 
 /**
@@ -121,31 +111,49 @@ function isPublic(controller: ControllerClass, handler: string): boolean {
   return readMetadata(controller, handler, IS_PUBLIC_KEY) === true;
 }
 
-function hasRequiredPermission(
+/**
+ * The four decorators PermissionGuard accepts as a declaration. Keep this in
+ * step with `PermissionGuard.canActivate` — a decorator the guard honours but
+ * this test does not will make correct routes fail the guardrail, and the
+ * tempting fix (an allowlist) is exactly what reopens the hole.
+ */
+function declaresAuthorization(
   controller: ControllerClass,
   handler: string,
 ): boolean {
-  return readMetadata(controller, handler, REQUIRE_PERMISSION_KEY) !== undefined;
+  if (isPublic(controller, handler)) return true;
+  if (readMetadata(controller, handler, REQUIRE_PERMISSION_KEY) !== undefined) return true;
+  if (readMetadata(controller, handler, AUTHENTICATED_ONLY_KEY) === true) return true;
+  // @RequireRole defers the decision to RoleGuard — but only a NON-EMPTY list
+  // decides anything; RoleGuard short-circuits to allow on an empty one.
+  const roles = readMetadata(controller, handler, REQUIRED_ROLES_KEY);
+  return Array.isArray(roles) && roles.length > 0;
+}
+
+/** `GET /api/foo/:id`, normalised so two registrations of it compare equal. */
+function routeKey(controller: ControllerClass, handler: string): string {
+  const prototype = controller.prototype as Record<string, unknown>;
+  const base = String(Reflect.getMetadata(PATH_METADATA, controller) ?? "");
+  const path = String(Reflect.getMetadata(PATH_METADATA, prototype[handler] as object) ?? "");
+  const method = String(Reflect.getMetadata(METHOD_METADATA, prototype[handler] as object));
+  return `${method} /${base}/${path}`.replace(/\/+/g, "/").replace(/\/$/, "");
 }
 
 describe("route authorization guardrail", () => {
-  const handlers = ALL_CONTROLLERS.flatMap((controller) =>
-    collectRouteHandlers(controller),
-  );
+  const controllers = [...collectControllers(ServerModule)];
+  const handlers = controllers.flatMap((controller) => collectRouteHandlers(controller));
 
-  it("should_discover_route_handlers_across_all_controllers", () => {
-    // Sanity check: the introspection must actually find routes, otherwise the
-    // guardrail below would vacuously pass.
-    expect(handlers.length).toBeGreaterThan(0);
+  it("should_discover_controllers_from_the_module_graph", () => {
+    // Non-vacuity: a broken walk would silently make every assertion below
+    // pass. The floors are deliberately far under the real counts so ordinary
+    // additions and removals do not churn this test.
+    expect(controllers.length).toBeGreaterThan(20);
+    expect(handlers.length).toBeGreaterThan(80);
   });
 
   it("should_declare_authorization_on_every_handler", () => {
     const undeclared = handlers
-      .filter(
-        ({ controller, handler }) =>
-          !isPublic(controller, handler) &&
-          !hasRequiredPermission(controller, handler),
-      )
+      .filter(({ controller, handler }) => !declaresAuthorization(controller, handler))
       .map(describeHandler);
 
     expect(undeclared).toEqual([]);
@@ -156,10 +164,24 @@ describe("route authorization guardrail", () => {
       .filter(
         ({ controller, handler }) =>
           isPublic(controller, handler) &&
-          hasRequiredPermission(controller, handler),
+          readMetadata(controller, handler, REQUIRE_PERMISSION_KEY) !== undefined,
       )
       .map(describeHandler);
 
     expect(conflicting).toEqual([]);
+  });
+
+  it("should_not_mount_two_controllers_on_the_same_route", () => {
+    // A duplicate registration silently shadows one of the two, and the loser
+    // may be the decorated one. That is how an undecorated copy of
+    // `api/instances/:slug/skills` shipped alongside the RBAC-gated original.
+    const owners = new Map<string, string[]>();
+    for (const { controller, handler } of handlers) {
+      const key = routeKey(controller, handler);
+      owners.set(key, [...(owners.get(key) ?? []), describeHandler({ controller, handler })]);
+    }
+    const duplicated = [...owners.entries()].filter(([, list]) => list.length > 1);
+
+    expect(duplicated).toEqual([]);
   });
 });

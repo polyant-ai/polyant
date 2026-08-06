@@ -1,3 +1,4 @@
+import type { PersistedUserRole } from "./user-role";
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
@@ -81,7 +82,7 @@ interface CredentialsUser {
   email: string;
   name: string | null;
   image: string | null;
-  role: "superadmin" | "user";
+  role: PersistedUserRole;
   mustChangePassword: boolean;
 }
 
@@ -156,7 +157,7 @@ export const authConfig = {
       // SECURITY: never accept `role` from the client update patch. Role
       // changes must only land via a DB read on the next sign-in cycle.
       // Trusting client-supplied roles here let any authenticated user
-      // become superadmin by POSTing {role: "superadmin"} to
+      // become a platform admin by POSTing {role: "platform_admin"} to
       // `/api/auth/session` (which Auth.js v5 exposes by default).
       if (trigger === "update" && session && typeof session === "object") {
         const patch = session as { mustChangePassword?: boolean };
@@ -165,7 +166,7 @@ export const authConfig = {
         }
       }
       // For Google logins (no role on the user object) default to "user" —
-      // a superadmin can promote them later from /users.
+      // a platform admin can promote them later from /users.
       if (!token.role) token.role = "user";
       if (typeof token.mustChangePassword !== "boolean") {
         token.mustChangePassword = false;
@@ -199,7 +200,9 @@ export const authConfig = {
 
       if (!isLoggedIn) {
         const loginUrl = new URL("/login", nextUrl);
-        loginUrl.searchParams.set("callbackUrl", nextUrl.pathname);
+        // Carry the query string, not just the path: a bookmarked tenant-scoped
+        // deep link must survive the sign-in round trip unchanged.
+        loginUrl.searchParams.set("callbackUrl", nextUrl.pathname + nextUrl.search);
         return Response.redirect(loginUrl);
       }
 

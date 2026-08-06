@@ -9,7 +9,7 @@ import {
 } from "@nestjs/common";
 import { getAnalytics } from "../../analytics/analytics.store.js";
 import { getLatencyAnalytics } from "../../analytics/latency.store.js";
-import { findInstanceBySlug } from "../../instances/store.js";
+import { findInstanceBySlug, resolvePrincipalOrgId } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { parseDateRange } from "../utils/parse-date-range.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
@@ -27,7 +27,7 @@ export class AnalyticsController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const range = parseDateRange(from, to);
-    const orgId = user?.orgId;
+    const orgId = (await resolvePrincipalOrgId(user?.orgId)) ?? undefined;
     const [analytics, latency] = await Promise.all([
       getAnalytics(range, undefined, true, orgId),
       getLatencyAnalytics(range, undefined, orgId),
@@ -48,7 +48,7 @@ export class AnalyticsController {
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
 
     const range = parseDateRange(from, to);
-    const orgId = user?.orgId;
+    const orgId = (await resolvePrincipalOrgId(user?.orgId)) ?? undefined;
     // orgId is ANDed in the store: a foreign-org slug yields empty analytics
     // (param-IDOR closed at the store layer, not by an extra ownership check).
     const [analytics, latency] = await Promise.all([

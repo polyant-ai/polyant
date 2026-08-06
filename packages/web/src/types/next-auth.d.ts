@@ -1,3 +1,5 @@
+import type { PersistedUserRole } from "@/lib/user-role";
+
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import "next-auth";
@@ -10,14 +12,14 @@ declare module "next-auth" {
       email?: string | null;
       name?: string | null;
       image?: string | null;
-      role: "superadmin" | "user";
+      role: PersistedUserRole;
       mustChangePassword: boolean;
       orgId?: string;
     };
   }
 
   interface User {
-    role?: "superadmin" | "user";
+    role?: PersistedUserRole;
     mustChangePassword?: boolean;
   }
 }
@@ -25,7 +27,7 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     id?: string;
-    role?: "superadmin" | "user";
+    role?: PersistedUserRole;
     mustChangePassword?: boolean;
     orgId?: string;
   }

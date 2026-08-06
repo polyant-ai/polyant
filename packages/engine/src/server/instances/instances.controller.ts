@@ -22,6 +22,7 @@ import {
   createInstance,
   updateInstance,
   deleteInstance,
+  resolvePrincipalOrgId,
   type Instance,
 } from "../../instances/store.js";
 import { seedInstancePrompts } from "../../instances/prompts.store.js";
@@ -36,7 +37,7 @@ import {
 } from "../../embeddings-gateway/embedding-reset.service.js";
 import { countMemories } from "../../memory/index.js";
 import { countDocuments } from "../../knowledge/index.js";
-import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
+import { computeMemoryStatusFromInstance, computeEmbedderStatus } from "../memories/memory-status.js";
 import { providerConfigs, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
 import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
@@ -45,6 +46,7 @@ import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import { WorkspaceSlug } from "../../auth/decorators/workspace-slug.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import {
   createManagementAuditLogger,
@@ -114,11 +116,24 @@ function parseDataUri(dataUri: string): { contentType: string; body: Buffer } | 
 export class InstancesController {
   private readonly auditLogger = createManagementAuditLogger();
 
-  // GET /api/instances — list all instances
+  // GET /api/instances — list the caller organization's instances
   @RequirePermission(Permission.AGENT_READ)
   @Get()
-  async list() {
-    const all = await listAllInstances();
+  async list(
+    @CurrentUser() user?: AuthenticatedUser,
+    @WorkspaceSlug() workspaceSlug?: string,
+  ) {
+    // Agents are org-owned, and this route carries no `:slug` for the guard to
+    // scope on — so the org filter is applied here. An unresolvable organization
+    // yields an empty list (fail closed), never the whole deployment.
+    const orgId = await resolvePrincipalOrgId(user?.orgId);
+    if (!orgId) return { instances: [] };
+    // Narrowed to the addressed workspace when the caller is inside one. Without
+    // this, `/workspaces/sandbox/instances` listed every agent in the ORG,
+    // including other workspaces' — so the page advertised an isolation that did
+    // not exist. Still org-filtered underneath: the workspace narrows, it never
+    // widens, and a foreign slug matches nothing.
+    const all = await listAllInstances(orgId, workspaceSlug);
     return { instances: all.map(toInstanceDto) };
   }
 
@@ -175,6 +190,7 @@ export class InstancesController {
       instance: {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
+        embedder: await computeEmbedderStatus(instance),
       },
     };
   }
@@ -205,17 +221,44 @@ export class InstancesController {
   async create(
     @Body() body: { slug: string; name: string; description?: string; provider?: string; model?: string },
     @CurrentUser() user?: AuthenticatedUser,
+    @WorkspaceSlug() workspaceSlug?: string,
   ) {
     this.validateSlug(body.slug);
     this.validateModelConfig(body.provider, body.model);
+    // Resolve the owning organization up front: the store fails closed on an
+    // unresolvable one, and that is a caller-side condition (a principal with no
+    // org claim on a multi-org deployment), not a server fault — surface it as a
+    // 400 rather than letting the throw escape as a 500.
+    const orgId = await resolvePrincipalOrgId(user?.orgId);
+    if (!orgId) {
+      throw new BadRequestException(
+        "Cannot resolve the caller's organization — the agent has no workspace to be created in.",
+      );
+    }
     // Rely on the DB unique constraint as the authoritative duplicate check.
     // A pre-select + insert would introduce a TOCTOU race window.
     let instance: Instance;
     try {
-      instance = await createInstance({ ...body, slug: asInstanceSlug(body.slug) });
+      // `orgId` last: it comes from the authenticated principal and must never be
+      // overridable by a field of the request body. `workspaceSlug` comes from a
+      // header, not the body, for the same reason — and it is validated against
+      // `orgId` inside the store before it decides anything.
+      instance = await createInstance({
+        ...body,
+        slug: asInstanceSlug(body.slug),
+        orgId,
+        workspaceSlug,
+      });
     } catch (err: unknown) {
       if (isUniqueViolation(err)) {
         throw new ConflictException(`Slug "${body.slug}" already exists`);
+      }
+      // An addressed workspace that is not the caller's own is a caller-side
+      // condition, not a server fault: the agent is deliberately NOT filed under
+      // the organization default, because creating it somewhere other than the
+      // address bar says is the bug this path exists to prevent.
+      if (err instanceof Error && err.message.includes("does not belong to the caller")) {
+        throw new BadRequestException(err.message);
       }
       throw err;
     }
@@ -334,6 +377,7 @@ export class InstancesController {
       instance: {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
+        embedder: await computeEmbedderStatus(instance),
       },
       wiped,
     };
