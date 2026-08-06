@@ -3,29 +3,43 @@
 import { type ManagementAuditStore, managementAuditStore } from "./management-audit.store.js";
 
 /**
- * The destructive management mutations in OSS scope (RBAC Stream 7).
- * `member.remove` has no OSS endpoint yet (later RBAC stream) — the constant is
- * defined up front so the write path can wire it without re-touching this enum.
+ * The destructive and privilege-granting management mutations in OSS scope
+ * (RBAC Stream 7).
+ *
+ * Privilege-granting actions (`member.role_assign`, `member.remove`,
+ * `user.role_update`, `platform_admin.bootstrap`) are audited because a role
+ * change controls the permission guard — up to a total bypass. `role_bindings`
+ * are upserted delete-then-insert, so `role_bindings.created_by` is destroyed by
+ * the next assignment: this audit log is the ONLY durable trace of who granted
+ * what, and when.
  */
 export const ManagementAuditAction = {
   AgentCreate: "agent.create",
   AgentDelete: "agent.delete",
   SecretWrite: "secret.write",
   SecretDelete: "secret.delete",
+  MemberRoleAssign: "member.role_assign",
   MemberRemove: "member.remove",
   McpServerWrite: "mcp_server.write",
   McpServerDelete: "mcp_server.delete",
+  PlatformAdminBootstrap: "platform_admin.bootstrap",
+  UserCreate: "user.create",
+  UserRoleUpdate: "user.role_update",
+  UserDelete: "user.delete",
+  UserPasswordReset: "user.password_reset",
 } as const;
 
 export type ManagementAuditActionValue =
   (typeof ManagementAuditAction)[keyof typeof ManagementAuditAction];
 
-/** The kinds of target a destructive management mutation can act on. */
+/** The kinds of target an audited management mutation can act on. */
 export const ManagementAuditTarget = {
   Agent: "agent",
   Secret: "secret",
   Member: "member",
   McpServer: "mcp_server",
+  /** A platform-level account (`/api/users` surface, bootstrap-owner). */
+  User: "user",
 } as const;
 
 export type ManagementAuditTargetValue =

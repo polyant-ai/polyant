@@ -2,6 +2,14 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const { mockAuditLog } = vi.hoisted(() => ({ mockAuditLog: vi.fn() }));
+
+vi.mock("../management-audit/management-audit-logger.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../management-audit/management-audit-logger.js")>();
+  return { ...actual, createManagementAuditLogger: () => ({ log: mockAuditLog }) };
+});
+
 vi.mock("../config.js", () => ({
   config: {
     auth: {
@@ -21,6 +29,7 @@ vi.mock("./users.service.js", () => ({
 
 import { CredentialsController } from "./credentials.controller.js";
 import { ensureConfiguredPlatformAdminOwner } from "../organizations/organizations.store.js";
+import { ManagementAuditAction } from "../management-audit/management-audit-logger.js";
 
 const ensureOwner = ensureConfiguredPlatformAdminOwner as ReturnType<typeof vi.fn>;
 
@@ -38,6 +47,25 @@ describe("CredentialsController bootstrap-owner", () => {
     ).resolves.toEqual({ organizationId: "org-default" });
 
     expect(ensureOwner).toHaveBeenCalledWith("boss@example.com");
+  });
+
+  it("audits the platform-admin bootstrap", async () => {
+    await controller.bootstrapOwner("internal-secret-1234", { email: "boss@example.com" });
+
+    expect(mockAuditLog).toHaveBeenCalledWith({
+      action: ManagementAuditAction.PlatformAdminBootstrap,
+      actor: undefined,
+      targetType: "user",
+      targetId: "boss@example.com",
+      metadata: { organizationId: "org-default" },
+    });
+  });
+
+  it("does not audit a rejected bootstrap", async () => {
+    await expect(
+      controller.bootstrapOwner("internal-secret-1234", { email: "member@example.com" }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(mockAuditLog).not.toHaveBeenCalled();
   });
 
   it("refuses an arbitrary email even with the internal secret", async () => {
