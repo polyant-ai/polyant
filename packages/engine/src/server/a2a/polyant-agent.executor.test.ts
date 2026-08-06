@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { TaskState, Role, type Message, type Part, type TaskStatusUpdateEvent, type TaskArtifactUpdateEvent } from "@a2a-js/sdk";
 import type { RequestContext, ExecutionEventBus, AgentExecutionEvent } from "@a2a-js/sdk/server";
 import { createPolyantExecutor } from "./polyant-agent.executor.js";
+import { a2aLog } from "./a2a-logger.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import type { StreamMessageHandler, StreamOutgoingMessage } from "../../channels/types.js";
 
@@ -125,6 +126,24 @@ describe("createPolyantExecutor.execute", () => {
     const final = statusUpdateData(published.at(-1)!);
     expect(final.status?.state).toBe(TaskState.TASK_STATE_FAILED);
     expect(isFinished()).toBe(true);
+  });
+
+  it("should_log_the_failure_with_slug_and_task_id_and_never_the_user_text", async () => {
+    const spy = vi.spyOn(a2aLog, "error").mockImplementation(() => {});
+    const handler: StreamMessageHandler = async () => {
+      throw new Error("boom");
+    };
+    const exec = createPolyantExecutor(asInstanceSlug("acme"), handler);
+
+    await exec.execute(fakeContext(), fakeBus().bus);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [, msg, err] = spy.mock.calls[0]!;
+    expect(msg).toContain("acme");
+    expect(msg).toContain("t1");
+    expect(msg).not.toContain("hi"); // the user message text never reaches the log
+    expect((err as Error).message).toBe("boom");
+    spy.mockRestore();
   });
 
   it("should_abort_the_pipeline_signal_on_cancelTask", async () => {

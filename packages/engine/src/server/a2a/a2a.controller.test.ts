@@ -20,6 +20,7 @@ vi.mock("../openai/instance-api-key-auth.js", () => ({
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { validateInstanceApiKey } from "../openai/instance-api-key-auth.js";
 import { A2aController } from "./a2a.controller.js";
+import { a2aLog } from "./a2a-logger.js";
 
 function res() {
   return { setHeader: vi.fn(), write: vi.fn(), end: vi.fn(), json: vi.fn() } as never;
@@ -51,9 +52,44 @@ describe("A2aController", () => {
   });
 
   it("should_enforce_api_key_on_jsonrpc_when_enabled", async () => {
-    vi.mocked(resolveInstanceConfig).mockResolvedValue({ a2aEnabled: true } as never);
+    vi.mocked(resolveInstanceConfig).mockResolvedValue({ a2aEnabled: true, authEnabled: true } as never);
     await controller.jsonrpc("acme", req("Bearer k"), res());
     expect(validateInstanceApiKey).toHaveBeenCalledWith("acme", "Bearer k");
     expect(registry.getHandler).toHaveBeenCalled();
+  });
+
+  it("should_declare_a_rate_limit_on_the_jsonrpc_handler", () => {
+    // @Throttle stamps one `THROTTLER:...` metadata key per field on the handler.
+    const handler = (A2aController.prototype as unknown as Record<string, object>)["jsonrpc"];
+    const meta = Object.fromEntries(
+      Reflect.getMetadataKeys(handler)
+        .filter((k): k is string => typeof k === "string" && k.startsWith("THROTTLER"))
+        .map((k) => [k, Reflect.getMetadata(k, handler)]),
+    );
+    // Mirrors POST /v1/chat/completions: 20 requests / 60s.
+    expect(meta["THROTTLER:LIMITdefault"]).toBe(20);
+    expect(meta["THROTTLER:TTLdefault"]).toBe(60_000);
+  });
+
+  it("should_warn_once_per_slug_when_auth_is_disabled_but_still_serve", async () => {
+    const spy = vi.spyOn(a2aLog, "warn").mockImplementation(() => {});
+    vi.mocked(resolveInstanceConfig).mockResolvedValue({ a2aEnabled: true, authEnabled: false } as never);
+
+    await controller.jsonrpc("acme", req(), res());
+    await controller.jsonrpc("acme", req(), res());
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]![1]).toContain("auth DISABLED");
+    // still served — the auth-off contract is shared with /v1 and is not broken here
+    expect(registry.getHandler).toHaveBeenCalledTimes(2);
+    spy.mockRestore();
+  });
+
+  it("should_not_warn_when_auth_is_enabled", async () => {
+    const spy = vi.spyOn(a2aLog, "warn").mockImplementation(() => {});
+    vi.mocked(resolveInstanceConfig).mockResolvedValue({ a2aEnabled: true, authEnabled: true } as never);
+    await controller.jsonrpc("acme", req("Bearer k"), res());
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

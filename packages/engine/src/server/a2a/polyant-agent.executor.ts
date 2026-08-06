@@ -8,6 +8,7 @@ import { TaskState, Role, type Task, type TaskStatus, type Message, type Part } 
 import type { IncomingMessage, StreamMessageHandler, StreamOutgoingMessage } from "../../channels/types.js";
 import type { InstanceSlug } from "../../instances/identifiers.js";
 import { extractText } from "./a2a-context.js";
+import { a2aLog } from "./a2a-logger.js";
 
 function textPart(value: string): Part {
   return { content: { $case: "text", value }, metadata: undefined, filename: "", mediaType: "text/plain" };
@@ -137,8 +138,15 @@ export function createPolyantExecutor(slug: InstanceSlug, streamHandler: StreamM
 
         const { text: fullText } = await stream.completed;
         publishStatus(bus, ctx, TaskState.TASK_STATE_COMPLETED, buildReplyMessage(ctx, fullText));
-      } catch {
-        publishStatus(bus, ctx, abort.signal.aborted ? TaskState.TASK_STATE_CANCELED : TaskState.TASK_STATE_FAILED);
+      } catch (err) {
+        const canceled = abort.signal.aborted;
+        if (!canceled) {
+          // Without this the A2A caller sees TASK_STATE_FAILED and the server
+          // side is blank. Only the error message + routing identifiers are
+          // logged — never the user message text or any secret.
+          a2aLog.error("A2A", `execute failed (agent="${slug}" task="${ctx.taskId}")`, err);
+        }
+        publishStatus(bus, ctx, canceled ? TaskState.TASK_STATE_CANCELED : TaskState.TASK_STATE_FAILED);
       } finally {
         aborts.delete(ctx.taskId);
         bus.finished();
