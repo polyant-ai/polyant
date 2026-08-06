@@ -21,7 +21,7 @@ import { listEventSourcesWithDefinitions } from "../webhooks/webhook-sources.sto
 import { listByInstance as listScheduledTasks } from "../scheduled-tasks/store.js";
 import { listHooks } from "../hooks/hooks.store.js";
 import { listMcpServers, type McpAuthMode } from "./mcp-servers.store.js";
-import { MCP_SECRET_PATHS } from "../server/instances/mcp-config-mask.js";
+import { MCP_SECRET_PATHS, MCP_SECRET_SUBTREES } from "../server/instances/mcp-config-mask.js";
 import { INSTANCE_BUNDLE_VERSION, type InstanceBundle, type ExportInstanceData } from "./export.schema.js";
 
 // Credential-like config keys, stripped from channel config before export so a
@@ -301,13 +301,15 @@ export function stripMcpSecrets(authMode: McpAuthMode, config: Record<string, un
   for (const path of MCP_SECRET_PATHS[authMode]) {
     deleteAtPath(copy, path);
   }
-  // Beyond the shared leaf paths: dcrClient is dropped ENTIRELY (not just its
-  // client_secret leaf) because a DCR registration response also carries a
-  // registration_access_token — a second bearer credential the mask's leaf
-  // list doesn't need to know about (the response path redacts client_secret
-  // per-field), but an export has no use for a DCR client anyway — a fresh
-  // connect flow re-registers it.
-  delete copy.dcrClient;
+  // Credential-bearing SUBTREES (today: `dcrClient`) are dropped ENTIRELY — a
+  // DCR registration response also carries a registration_access_token and a
+  // registration_client_uri, so no leaf list can be complete. The subtree list
+  // is shared with the response mask (which redacts every leaf of the same
+  // subtrees) so the two can never drift; an export has no use for a DCR
+  // client anyway — a fresh connect flow re-registers it.
+  for (const path of MCP_SECRET_SUBTREES[authMode]) {
+    deleteAtPath(copy, path);
+  }
   return copy;
 }
 

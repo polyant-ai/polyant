@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { createMCPClient, UnauthorizedError } from "@ai-sdk/mcp";
+import { UnauthorizedError } from "@ai-sdk/mcp";
+import { connectWithTimeout } from "./mcp-connect.js";
+import { config } from "../../../config.js";
 import type { McpAuthMode } from "../../../instances/mcp-servers.store.js";
 
 export interface McpTestOptions {
@@ -25,9 +27,15 @@ export async function testMcpConnection(opts: McpTestOptions): Promise<McpTestRe
     }
     const auth = (opts.config as { auth?: { type: string; token: string; headerName?: string } }).auth;
     const headers = auth ? (auth.type === "bearer" ? { Authorization: `Bearer ${auth.token}` } : { [auth.headerName!]: auth.token }) : {};
-    const client = await createMCPClient({ transport: { type: "http", url: opts.url, headers } });
+    // Bounded by the same connect timeout the pipeline uses: a URL that accepts
+    // the TCP connection and never replies would otherwise pin this Nest
+    // request (and its socket) open forever. `connectWithTimeout` owns closing
+    // the client on the timeout and error paths.
+    const { client, toolSet } = await connectWithTimeout(
+      { type: "http", url: opts.url, headers },
+      config.mcp.connectTimeoutMs,
+    );
     try {
-      const toolSet = await client.tools();
       return { ok: true, tools: Object.keys(toolSet) };
     } finally {
       await client.close().catch(() => {

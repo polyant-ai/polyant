@@ -10,6 +10,7 @@ import { makeMcpOAuthProvider } from "../../agents/tools/mcp/mcp-oauth-provider.
 import { asInstanceUuid } from "../../instances/identifiers.js";
 import { resolveInstanceSlug } from "../../instances/resolve-instance-id.js";
 import { errMsg } from "../../utils/error.js";
+import { mcpLog } from "../../agents/tools/mcp/mcp-logger.js";
 
 /** Escape the 5 HTML-significant characters (mirrors oauth-callback.controller.ts). */
 function escapeHtml(s: string): string {
@@ -39,14 +40,14 @@ export class McpOAuthCallbackController {
     @Res() res: Response,
   ): Promise<void> {
     if (!code || !state) {
-      res.status(400).type("html").send(page("Errore", "Parametri mancanti"));
+      res.status(400).type("html").send(page("Error", "Missing parameters"));
       return;
     }
 
     // Consume the single-use state nonce (CSRF guard) before any further work.
     const pending = await consumeOAuthState(state);
     if (!pending || !pending.provider.startsWith("mcp:")) {
-      res.status(400).type("html").send(page("Errore", "Stato non valido o scaduto"));
+      res.status(400).type("html").send(page("Error", "Invalid or expired state"));
       return;
     }
 
@@ -54,7 +55,7 @@ export class McpOAuthCallbackController {
     const instanceUuid = asInstanceUuid(pending.instanceId);
     const server = await getMcpServer(instanceUuid, serverSlug);
     if (!server) {
-      res.status(404).type("html").send(page("Errore", "Server MCP non trovato"));
+      res.status(404).type("html").send(page("Error", "MCP server not found"));
       return;
     }
     // setPrincipalSecret's principal_secrets rows are cascade-deleted BY SLUG
@@ -62,7 +63,7 @@ export class McpOAuthCallbackController {
     // saveCodeVerifier key their writes the same way every other caller does.
     const instanceSlug = await resolveInstanceSlug(instanceUuid);
     if (!instanceSlug) {
-      res.status(404).type("html").send(page("Errore", "Istanza non trovata"));
+      res.status(404).type("html").send(page("Error", "Agent not found"));
       return;
     }
 
@@ -73,9 +74,13 @@ export class McpOAuthCallbackController {
       // callbackState) passes.
       provider.setStoredState(state);
       await auth(provider, { serverUrl: server.url, authorizationCode: code, callbackState: state });
-      res.type("html").send(page(`${server.name} collegato ✅`, "Torna alla chat e continua."));
+      res.type("html").send(page(`${server.name} connected ✅`, "Return to the chat and continue."));
     } catch (err) {
-      res.status(502).type("html").send(page("Errore", errMsg(err)));
+      // The token-exchange failure detail names the authorization server and its
+      // error — never render it to whoever holds the callback URL. Log it
+      // server-side instead and show the browser a generic message.
+      mcpLog.warn("mcp", `oauth callback failed for server '${serverSlug}': ${errMsg(err)}`);
+      res.status(502).type("html").send(page("Error", "Could not complete the connection. Please try again."));
     }
   }
 }

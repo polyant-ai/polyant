@@ -2,7 +2,8 @@
 
 import { tool as aiTool, type Tool } from "ai";
 import { z } from "zod";
-import { createMCPClient, UnauthorizedError, type MCPClient } from "@ai-sdk/mcp";
+import { UnauthorizedError } from "@ai-sdk/mcp";
+import { connectWithTimeout } from "./mcp-connect.js";
 import { config } from "../../../config.js";
 import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
 import { toModelToolName } from "../registry.js";
@@ -31,8 +32,6 @@ function connectTool(server: McpServerRecord, url: string): Tool {
   });
 }
 
-type McpTransport = Parameters<typeof createMCPClient>[0]["transport"];
-
 const MAX_MCP_TOOL_NAME_LENGTH = 128;
 
 /**
@@ -55,53 +54,6 @@ const MAX_MCP_TOOL_NAME_LENGTH = 128;
  */
 function capModelToolName(name: string): string {
   return name.length > MAX_MCP_TOOL_NAME_LENGTH ? name.slice(0, MAX_MCP_TOOL_NAME_LENGTH) : name;
-}
-
-/**
- * Connects to one MCP server and lists its tools, bounded by `timeoutMs`
- * (combined with the turn's `abortSignal` when given). A dead/slow server
- * must never block the whole turn — the caller treats a timeout exactly like
- * any other connect failure (log + skip; never an UnauthorizedError). Neither
- * `createMCPClient` nor `client.tools()` accept a signal/timeout of their own
- * (checked against the installed `@ai-sdk/mcp` types), so the race is the only
- * clean option. A client that only resolves AFTER the race is already lost
- * (slow server, late reply) is closed as soon as it settles so it never leaks
- * past this function.
- */
-async function connectWithTimeout(
-  transport: McpTransport,
-  timeoutMs: number,
-  abortSignal: AbortSignal | undefined,
-): Promise<{ client: MCPClient; toolSet: Awaited<ReturnType<MCPClient["tools"]>> }> {
-  const connect = createMCPClient({ transport }).then(async (client) => {
-    try {
-      const toolSet = await client.tools();
-      return { client, toolSet };
-    } catch (e) {
-      await client.close().catch(() => { /* best-effort */ });
-      throw e;
-    }
-  });
-
-  const deadline = abortSignal ? AbortSignal.any([AbortSignal.timeout(timeoutMs), abortSignal]) : AbortSignal.timeout(timeoutMs);
-  const timedOut = new Promise<never>((_, reject) => {
-    const fail = () => reject(deadline.reason instanceof Error ? deadline.reason : new Error(`MCP connect timed out after ${timeoutMs}ms`));
-    if (deadline.aborted) fail();
-    else deadline.addEventListener("abort", fail, { once: true });
-  });
-  // A timeout that fires AFTER `connect` already won the race (the common
-  // case) must never surface as an unhandled rejection.
-  timedOut.catch(() => { /* handled via the race outcome below */ });
-
-  try {
-    return await Promise.race([connect, timedOut]);
-  } catch (e) {
-    // `connect` can still resolve after losing the race (slow server) — never
-    // leak that client. If it instead rejects, that's the same failure we
-    // already surfaced (or was already closed above) — ignore it here.
-    connect.then((r) => r.client.close().catch(() => { /* best-effort */ })).catch(() => { /* already handled */ });
-    throw e;
-  }
 }
 
 export async function buildMcpTools(opts: {

@@ -99,7 +99,7 @@ describe("importMcpServers", () => {
     ]);
   });
 
-  it("persists the stripped config verbatim (round-trips through encryption, no secret re-added)", async () => {
+  it("persists only the non-secret allowList when the stripped config fails validation (never the raw bundle blob)", async () => {
     const { tx, inserted } = makeFakeTx();
 
     await importMcpServers(tx, "instance-1", [
@@ -109,11 +109,72 @@ describe("importMcpServers", () => {
         url: "https://mcp.example.com",
         authMode: "static",
         enabled: true,
-        config: { auth: { type: "bearer" } },
+        config: { auth: { type: "bearer" }, allowList: ["create_issue"] },
       },
     ]);
 
     const persisted = JSON.parse(decrypt(inserted[0].config as string));
-    expect(persisted).toEqual({ auth: { type: "bearer" } });
+    expect(persisted).toEqual({ allowList: ["create_issue"] });
+  });
+
+  it("persists the SCHEMA-VALIDATED config, dropping unknown keys a crafted bundle smuggled in", async () => {
+    const { tx, inserted } = makeFakeTx();
+
+    await importMcpServers(tx, "instance-1", [
+      {
+        slug: "linear",
+        name: "Linear",
+        url: "https://mcp.linear.app",
+        authMode: "oauth",
+        enabled: true,
+        config: {
+          scopes: ["read"],
+          // Not part of oauthConfigSchema — must never reach the encrypted config.
+          rogueKey: "steer-the-flow",
+        },
+      },
+    ]);
+
+    const persisted = JSON.parse(decrypt(inserted[0].config as string));
+    expect(persisted).toEqual({ scopes: ["read"] });
+    expect(persisted).not.toHaveProperty("rogueKey");
+  });
+
+  it("skips a server whose URL is not http(s) (SSRF guard) and warns", async () => {
+    const { tx, inserted } = makeFakeTx();
+
+    const warnings = await importMcpServers(tx, "instance-1", [
+      { slug: "evil", name: "Evil", url: "file:///etc/passwd", authMode: "none", enabled: true, config: {} },
+    ]);
+
+    expect(inserted).toHaveLength(0);
+    expect(warnings).toEqual([
+      { type: "mcp_server_invalid", message: expect.stringContaining("evil") },
+    ]);
+  });
+
+  it("skips a link-local/metadata URL in production (SSRF guard) instead of importing it enabled", async () => {
+    const { tx, inserted } = makeFakeTx();
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const warnings = await importMcpServers(tx, "instance-1", [
+        {
+          slug: "metadata",
+          name: "Metadata",
+          url: "http://169.254.169.254/latest/meta-data/",
+          authMode: "none",
+          enabled: true,
+          config: {},
+        },
+      ]);
+
+      expect(inserted).toHaveLength(0);
+      expect(warnings).toEqual([
+        { type: "mcp_server_invalid", message: expect.stringContaining("metadata") },
+      ]);
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
   });
 });

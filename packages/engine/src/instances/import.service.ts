@@ -25,6 +25,8 @@ import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { computeNextRun } from "../scheduled-tasks/schedule-utils.js";
 import { instanceMcpServers } from "./mcp-servers.schema.js";
 import { mcpServerConfigSchema, MCP_AUTH_MODES, type McpAuthMode } from "./mcp-servers.store.js";
+import { assertSafeMcpUrl } from "../agents/tools/mcp/mcp-url-guard.js";
+import { errMsg } from "../utils/error.js";
 import { generateToken, encrypt } from "../crypto/index.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
@@ -532,13 +534,30 @@ async function importChannels(
   return warnings;
 }
 
-/** True if the (already-stripped) config still satisfies its authMode's schema — i.e. needs no secret. */
-function canEnableMcpServer(authMode: McpAuthMode, config: Record<string, unknown>): boolean {
+/**
+ * Validated + STRIPPED config when the (already-secret-stripped) bundle config
+ * satisfies its authMode's schema — i.e. the server needs no secret to run;
+ * null otherwise.
+ *
+ * Returning the parsed output (rather than a boolean) matters: the schema is
+ * what drops unknown keys, exactly like `setMcpServer` does on the API write
+ * path. Persisting the bundle's raw config instead would let a crafted bundle
+ * seed arbitrary keys into the encrypted config — e.g. a fabricated
+ * `dcrClient`/`authServerInfo` steering the OAuth flow at the next connect.
+ */
+/** The only non-secret key shared by every MCP auth mode. */
+function pickMcpAllowList(config: Record<string, unknown>): Record<string, unknown> {
+  const allowList = config.allowList;
+  if (!Array.isArray(allowList)) return {};
+  const entries = allowList.filter((t): t is string => typeof t === "string");
+  return entries.length > 0 ? { allowList: entries } : {};
+}
+
+function validateMcpServerConfig(authMode: McpAuthMode, config: Record<string, unknown>): Record<string, unknown> | null {
   try {
-    mcpServerConfigSchema(authMode, config);
-    return true;
+    return mcpServerConfigSchema(authMode, config) as Record<string, unknown>;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -571,15 +590,34 @@ export async function importMcpServers(
       continue;
     }
 
-    const config = server.config ?? {};
+    // SSRF guard: the PUT/POST controller path validates every admin-entered
+    // URL (mcp-servers.controller.ts), so an import must too — otherwise a
+    // bundle carrying `authMode:"none"` and a link-local URL (e.g. the cloud
+    // metadata endpoint) lands ENABLED and every subsequent turn connects to
+    // it. Degrade per-item, like the unknown-authMode branch above.
+    try {
+      assertSafeMcpUrl(server.url);
+    } catch (err) {
+      warnings.push({
+        type: "mcp_server_invalid",
+        message: `MCP server "${server.slug}" has an unusable URL (${errMsg(err)}) — skipped`,
+      });
+      continue;
+    }
 
     // A server can be safely (re)enabled on import ONLY if its stripped config
     // alone satisfies the auth mode's validation schema — i.e. it needs no
     // secret. A static server fails this (the exporter stripped auth.token),
     // so it stays disabled until the token is reconfigured; an oauth server
     // with no required secret field passes and re-enables as-is.
-    const canEnable = canEnableMcpServer(authMode, config);
+    const validated = validateMcpServerConfig(authMode, server.config ?? {});
+    const canEnable = validated !== null;
     const enabled = server.enabled && canEnable;
+    // Never persist the bundle's config verbatim. When the schema accepted it,
+    // persist ITS output (unknown keys dropped, like setMcpServer). When it
+    // didn't (a stripped secret), keep only `allowList` — the one non-secret
+    // key every mode shares — so the admin just re-enters the credential.
+    const config = validated ?? pickMcpAllowList(server.config ?? {});
 
     await tx
       .insert(instanceMcpServers)
@@ -590,8 +628,7 @@ export async function importMcpServers(
         url: server.url,
         authMode: server.authMode,
         enabled,
-        // Persist the non-secret config as-is (encrypted at rest like any MCP
-        // server config) so the admin only has to fill in the missing credentials.
+        // Encrypted at rest like any MCP server config.
         config: encrypt(JSON.stringify(config)),
       })
       .onConflictDoNothing();

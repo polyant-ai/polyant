@@ -6,6 +6,8 @@ class FakeUnauthorized extends Error {}
 const createMCPClient = vi.fn();
 vi.mock("@ai-sdk/mcp", () => ({ createMCPClient, UnauthorizedError: FakeUnauthorized }));
 
+vi.mock("../../../config.js", () => ({ config: { mcp: { connectTimeoutMs: 50 } } }));
+
 const { testMcpConnection } = await import("./mcp-test.js");
 
 describe("testMcpConnection", () => {
@@ -35,6 +37,26 @@ describe("testMcpConnection", () => {
     const result = await testMcpConnection({ url: "https://x", authMode: "static", config: {} });
     expect(result).toEqual({ ok: false, error: "enumeration failed" });
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("should_fail_with_timeout_error_when_the_server_never_replies", async () => {
+    createMCPClient.mockReturnValue(new Promise(() => { /* never settles */ }));
+    const result = await testMcpConnection({ url: "https://x", authMode: "static", config: {} });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/timed out|timeout/i);
+  });
+
+  it("should_close_a_client_that_resolves_after_the_timeout_lost_the_race", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    createMCPClient.mockReturnValue(
+      new Promise((resolve) => {
+        setTimeout(() => resolve({ tools: async () => ({}), close }), 120);
+      }),
+    );
+    const result = await testMcpConnection({ url: "https://x", authMode: "static", config: {} });
+    expect(result.ok).toBe(false);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(close).toHaveBeenCalled();
   });
 
   it("should_report_requiresOAuth_when_createMCPClient_throws_unauthorized", async () => {
