@@ -249,6 +249,13 @@ export function ChannelsTab({ slug, instance, onInstanceUpdate }: Props) {
                     </Badge>
                   )}
                 </div>
+                {/* Named only here: this is the one section holding TWO controls,
+                    and an unnamed switch beside a named one reads as a caption for
+                    it rather than as a control of its own. Every other section has
+                    a single switch, which its own heading above already names. */}
+                {def.type === "agent" && (
+                  <Label className="text-sm font-medium">{t("channels.tab.agentInternal")}</Label>
+                )}
                 <p className="text-sm text-muted-foreground">{t(def.helpKey)}</p>
               </div>
               <div className="flex items-center gap-2">
