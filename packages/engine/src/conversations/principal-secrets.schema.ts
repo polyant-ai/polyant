@@ -19,7 +19,7 @@ export const principalSecrets = pgTable(
   {
     scope: text("scope").notNull().default("conversation"),
     scopeKey: text("scope_key").notNull(),
-    instanceId: text("instance_id"),
+    instanceId: text("agent_id"),
     key: text("key").notNull(),
     value: text("value").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),

@@ -72,7 +72,7 @@ export async function listAuditLogs(opts: {
   const [countResult, itemsResult] = await Promise.all([
     db.execute(sql`SELECT COUNT(*)::int AS total FROM tool_audit_logs ${where}`),
     db.execute(sql`
-      SELECT id, instance_id, conversation_id, tool_name, action, details, success, error, duration_ms, output, created_at
+      SELECT id, agent_id, conversation_id, tool_name, action, details, success, error, duration_ms, output, created_at
       FROM tool_audit_logs
       ${where}
       ORDER BY created_at DESC
@@ -83,7 +83,7 @@ export async function listAuditLogs(opts: {
   const total = asRows<{ total: number }>(countResult)[0]?.total ?? 0;
   const items = asRows<{
     id: string;
-    instance_id: string;
+    agent_id: string;
     conversation_id: string | null;
     tool_name: string;
     action: string;
@@ -95,7 +95,7 @@ export async function listAuditLogs(opts: {
     created_at: string;
   }>(itemsResult).map((r) => ({
     id: r.id,
-    instanceId: asInstanceSlug(r.instance_id),
+    instanceId: asInstanceSlug(r.agent_id),
     conversationId: r.conversation_id,
     toolName: r.tool_name,
     action: r.action,

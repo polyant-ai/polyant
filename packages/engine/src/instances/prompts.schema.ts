@@ -4,10 +4,10 @@ import { pgTable, uuid, varchar, text, timestamp, unique, index } from "drizzle-
 import { instances } from "./schema.js";
 
 export const instancePrompts = pgTable(
-  "instance_prompts",
+  "agent_prompts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id")
+    instanceId: uuid("agent_id")
       .notNull()
       .references(() => instances.id, { onDelete: "cascade" }),
     sectionKey: varchar("section_key", { length: 50 }).notNull(),

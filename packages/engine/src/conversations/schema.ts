@@ -9,7 +9,7 @@ export const conversations = pgTable(
     conversationId: text("conversation_id").notNull().unique(),
     summary: text("summary"),
     title: text("title"),
-    instanceId: text("instance_id"),
+    instanceId: text("agent_id"),
     channel: text("channel").default("web"),
     source: text("source").default("user"),
     userIdentifier: text("user_identifier"),
@@ -19,7 +19,7 @@ export const conversations = pgTable(
   },
   (table) => [
     index("idx_conversations_instance_created").on(table.instanceId, table.createdAt),
-    // Conversation list filters by instance_id and orders by updated_at DESC.
+    // Conversation list filters by agent_id and orders by updated_at DESC.
     index("idx_conversations_instance_updated").on(table.instanceId, table.updatedAt),
   ],
 );
@@ -138,7 +138,7 @@ export const conversationState = pgTable(
   {
     scope: text("scope").notNull().default("conversation"),
     scopeKey: text("scope_key").notNull(),
-    instanceId: text("instance_id"),
+    instanceId: text("agent_id"),
     data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

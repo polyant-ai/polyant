@@ -4,10 +4,10 @@ import { pgTable, uuid, varchar, text, boolean, timestamp, unique } from "drizzl
 import { instances } from "./schema.js";
 
 export const instanceChannels = pgTable(
-  "instance_channels",
+  "agent_channels",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    instanceId: uuid("agent_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
     channelType: varchar("channel_type", { length: 50 }).notNull(),
     enabled: boolean("enabled").notNull().default(false),
     config: text("config").notNull(), // encrypted JSON

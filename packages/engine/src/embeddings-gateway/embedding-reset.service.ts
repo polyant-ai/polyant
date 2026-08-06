@@ -54,7 +54,7 @@ export async function resetEmbeddingsForProviderSwitch(
   // all-or-nothing. A partial apply (data gone, dim still on the old value)
   // would strand the instance in an unembeddable state.
   return db.transaction(async (tx) => {
-    // memories + knowledge are SLUG-keyed (their instance_id columns store the
+    // memories + knowledge are SLUG-keyed (their agent_id columns store the
     // slug, not the UUID) — they MUST be filtered by slug or the delete matches
     // zero rows. The instances table is keyed by UUID. Passing the wrong one was
     // the bug that left the data orphaned while only realigning embedding_dim.

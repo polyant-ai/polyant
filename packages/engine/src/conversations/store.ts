@@ -456,7 +456,7 @@ export class ConversationStore {
 
     // Join with conversations to filter by instanceId if provided
     const instanceFilter = instanceId
-      ? sql`AND c.instance_id = ${instanceId}`
+      ? sql`AND c.agent_id = ${instanceId}`
       : sql``;
 
     const results = await db.execute(sql`
@@ -508,13 +508,13 @@ export class ConversationStore {
     const offset = options.offset ?? 0;
 
     const conditions: ReturnType<typeof sql>[] = [];
-    if (options.instanceId) conditions.push(sql`c.instance_id = ${options.instanceId}`);
+    if (options.instanceId) conditions.push(sql`c.agent_id = ${options.instanceId}`);
     if (options.source) conditions.push(sql`c.source = ${options.source}`);
     if (options.updatedSince) conditions.push(sql`c.updated_at >= ${options.updatedSince.toISOString()}::timestamptz`);
     if (options.updatedUntil) conditions.push(sql`c.updated_at < ${options.updatedUntil.toISOString()}::timestamptz`);
     // Cross-org gate: an aggregate list (no instanceId) returns only caller-org
     // rows; a foreign-org instanceId param yields zero rows (ANDed at the store).
-    if (options.orgId) conditions.push(buildOrgScopedAgentFilter(options.orgId, "c.instance_id"));
+    if (options.orgId) conditions.push(buildOrgScopedAgentFilter(options.orgId, "c.agent_id"));
     const instanceFilter = conditions.length > 0
       ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
       : sql``;
@@ -531,7 +531,7 @@ export class ConversationStore {
           c.title,
           c.summary,
           c.channel,
-          c.instance_id,
+          c.agent_id,
           i.name AS instance_name,
           (SELECT COUNT(*)::int FROM conversation_messages cm
            WHERE cm.conversation_id = c.conversation_id) AS message_count,
@@ -546,7 +546,7 @@ export class ConversationStore {
           c.created_at,
           c.updated_at
         FROM conversations c
-        LEFT JOIN instances i ON i.slug = c.instance_id
+        LEFT JOIN agents i ON i.slug = c.agent_id
         LEFT JOIN LATERAL (
           SELECT SUM(al.total_tokens) AS total_tokens,
                  SUM(al.estimated_cost_usd) AS total_cost,
@@ -577,7 +577,7 @@ export class ConversationStore {
         title: (r.title as string) ?? null,
         summary: (r.summary as string) ?? null,
         channel: (r.channel as string) ?? null,
-        instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
+        instanceId: r.agent_id ? asInstanceSlug(r.agent_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         messageCount: (r.message_count as number) ?? 0,
         totalTokens: (r.total_tokens as number) ?? 0,
@@ -599,7 +599,7 @@ export class ConversationStore {
   async getConversation(conversationId: string, orgId?: string): Promise<ConversationDetail | null> {
     // Cross-org gate: scoping the lookup to the caller's org turns a foreign-org
     // conversation id into a "not found" (the controller maps null → 404).
-    const orgFilter = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+    const orgFilter = buildOrgScopedAgentFilterFragment(orgId, "c.agent_id");
     const rows = await db.execute(sql`
       SELECT
         c.id,
@@ -607,7 +607,7 @@ export class ConversationStore {
         c.title,
         c.summary,
         c.channel,
-        c.instance_id,
+        c.agent_id,
         i.name AS instance_name,
         COUNT(cm.id)::int AS message_count,
         COALESCE(al_agg.total_tokens, 0)::int AS total_tokens,
@@ -621,7 +621,7 @@ export class ConversationStore {
         c.created_at,
         c.updated_at
       FROM conversations c
-      LEFT JOIN instances i ON i.slug = c.instance_id
+      LEFT JOIN agents i ON i.slug = c.agent_id
       LEFT JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
       LEFT JOIN LATERAL (
         SELECT SUM(al.total_tokens) AS total_tokens,
@@ -648,7 +648,7 @@ export class ConversationStore {
       title: (r.title as string) ?? null,
       summary: (r.summary as string) ?? null,
       channel: (r.channel as string) ?? null,
-      instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
+      instanceId: r.agent_id ? asInstanceSlug(r.agent_id as string) : null,
       instanceName: (r.instance_name as string) ?? null,
       messageCount: (r.message_count as number) ?? 0,
       totalTokens: (r.total_tokens as number) ?? 0,
@@ -753,9 +753,9 @@ export class ConversationStore {
 
     // Cross-org gate: a search with no instanceId stays scoped to the caller-org
     // rows; a foreign-org instanceId param yields zero rows.
-    const orgFilter = buildOrgScopedAgentFilterFragment(options.orgId, "c.instance_id");
+    const orgFilter = buildOrgScopedAgentFilterFragment(options.orgId, "c.agent_id");
     const instanceFilter = options.instanceId
-      ? sql`AND c.instance_id = ${options.instanceId} ${orgFilter}`
+      ? sql`AND c.agent_id = ${options.instanceId} ${orgFilter}`
       : orgFilter;
 
     const matchFilter = sql`(
@@ -775,7 +775,7 @@ export class ConversationStore {
           c.title,
           c.summary,
           c.channel,
-          c.instance_id,
+          c.agent_id,
           i.name AS instance_name,
           COUNT(cm.id)::int AS match_count,
           (SELECT cm2.content FROM conversation_messages cm2
@@ -798,7 +798,7 @@ export class ConversationStore {
           c.created_at,
           c.updated_at
         FROM conversations c
-        LEFT JOIN instances i ON i.slug = c.instance_id
+        LEFT JOIN agents i ON i.slug = c.agent_id
         LEFT JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
           AND cm.search_vector @@ ${tsQuery}
         LEFT JOIN LATERAL (
@@ -834,7 +834,7 @@ export class ConversationStore {
         title: (r.title as string) ?? null,
         summary: (r.summary as string) ?? null,
         channel: (r.channel as string) ?? null,
-        instanceId: r.instance_id ? asInstanceSlug(r.instance_id as string) : null,
+        instanceId: r.agent_id ? asInstanceSlug(r.agent_id as string) : null,
         instanceName: (r.instance_name as string) ?? null,
         matchCount: (r.match_count as number) ?? 0,
         bestSnippet: (r.best_snippet as string) ?? "",

@@ -64,7 +64,7 @@ vi.mock("../database/client.js", () => ({ db: mockDb }));
 
 vi.mock("./instance-tools.schema.js", () => ({
   instanceTools: {
-    instanceId: "instance_id",
+    instanceId: "agent_id",
     toolId: "tool_id",
     source: "source",
   },
@@ -72,7 +72,7 @@ vi.mock("./instance-tools.schema.js", () => ({
 
 vi.mock("./instance-skills.schema.js", () => ({
   instanceSkills: {
-    instanceId: "instance_id",
+    instanceId: "agent_id",
     skillVersionId: "skill_version_id",
     enabled: "enabled",
   },

@@ -4,10 +4,10 @@ import { pgTable, uuid, varchar, text, timestamp, unique } from "drizzle-orm/pg-
 import { instances } from "./schema.js";
 
 export const instanceSecrets = pgTable(
-  "instance_secrets",
+  "agent_secrets",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
+    instanceId: uuid("agent_id").notNull().references(() => instances.id, { onDelete: "cascade" }),
     key: varchar("key", { length: 100 }).notNull(),
     value: text("value").notNull(), // always encrypted
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

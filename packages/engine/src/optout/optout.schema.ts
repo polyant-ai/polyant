@@ -16,7 +16,7 @@ export const contactOptouts = pgTable(
   "contact_optouts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    instanceId: uuid("instance_id")
+    instanceId: uuid("agent_id")
       .notNull()
       .references(() => instances.id, { onDelete: "cascade" }),
     channelType: text("channel_type").notNull(),

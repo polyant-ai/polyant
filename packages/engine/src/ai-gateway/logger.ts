@@ -24,12 +24,12 @@ export const aiLogs = pgTable(
     reasoningChars: integer("reasoning_chars").notNull().default(0),
     stepCount: integer("step_count").notNull().default(0),
     conversationId: text("conversation_id"),
-    instanceId: text("instance_id"),
+    instanceId: text("agent_id"),
     callType: text("call_type").notNull().default("conversation"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
-    index("idx_ai_logs_instance_id").on(table.instanceId),
+    index("idx_ai_logs_agent_id").on(table.instanceId),
     index("idx_ai_logs_created_at").on(table.createdAt),
     index("idx_ai_logs_instance_created").on(table.instanceId, table.createdAt),
     // Conversation-list token/cost LATERAL aggregation filters by conversation_id.

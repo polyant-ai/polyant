@@ -30,7 +30,7 @@ vi.mock("../../database/client.js", () => ({
   },
 }));
 vi.mock("../../instances/instance-skills.schema.js", () => ({
-  instanceSkills: { id: "id", instanceId: "instance_id", skillId: "skill_id", skillVersionId: "skill_version_id", enabled: "enabled" },
+  instanceSkills: { id: "id", instanceId: "agent_id", skillId: "skill_id", skillVersionId: "skill_version_id", enabled: "enabled" },
 }));
 vi.mock("../../skills/schema.js", () => ({
   skills: { id: "id", slug: "slug", name: "name" },

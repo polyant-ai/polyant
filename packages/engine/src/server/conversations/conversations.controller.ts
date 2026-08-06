@@ -252,7 +252,7 @@ export class ConversationsController {
     const targetId = rawNewId && rawNewId.length > 0 ? rawNewId : id;
     if (targetId !== id) {
       // The web derives the instance scope from the id prefix and the row's
-      // instance_id column is NOT changed by a rename — a different prefix would
+      // agent_id column is NOT changed by a rename — a different prefix would
       // make the conversation unopenable and break IDOR scoping. Pin the prefix.
       if (targetId.split(":")[0] !== uid) {
         throw new BadRequestException(`conversationId must start with "${uid}:"`);

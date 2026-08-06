@@ -279,7 +279,7 @@ describe("InstancesController", () => {
       const driverError = Object.assign(new Error("duplicate key value violates unique constraint"), {
         code: "23505",
       });
-      const wrapped = Object.assign(new Error("Failed query: insert into instances ..."), {
+      const wrapped = Object.assign(new Error("Failed query: insert into agents ..."), {
         cause: driverError,
       });
       mockCreateInstance.mockRejectedValue(wrapped);

@@ -64,21 +64,21 @@ vi.mock("./schema.js", () => ({
 }));
 
 vi.mock("../conversations/schema.js", () => ({
-  conversations: { conversationId: "conversation_id", instanceId: "instance_id" },
+  conversations: { conversationId: "conversation_id", instanceId: "agent_id" },
   conversationMessages: { conversationId: "conversation_id" },
-  conversationState: { instanceId: "instance_id", scope: "scope", scopeKey: "scope_key" },
+  conversationState: { instanceId: "agent_id", scope: "scope", scopeKey: "scope_key" },
 }));
 
 vi.mock("../memory/schema.js", () => ({
-  memories: { instanceId: "instance_id", sourceConversationId: "source_conversation_id" },
+  memories: { instanceId: "agent_id", sourceConversationId: "source_conversation_id" },
 }));
 
 vi.mock("../knowledge/schema.js", () => ({
-  knowledgeDocuments: { instanceId: "instance_id" },
+  knowledgeDocuments: { instanceId: "agent_id" },
 }));
 
 vi.mock("../scheduled-tasks/schema.js", () => ({
-  scheduledTasks: { instanceId: "instance_id" },
+  scheduledTasks: { instanceId: "agent_id" },
 }));
 
 vi.mock("../organizations/organization.schema.js", () => ({

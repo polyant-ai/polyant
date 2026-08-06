@@ -574,7 +574,7 @@ export async function searchByKeyword(
       ts_rank(kc.content_tsv, websearch_to_tsquery('simple', ${query})) AS rank
     FROM knowledge_chunks kc
     INNER JOIN knowledge_documents kd ON kd.id = kc.document_id
-    WHERE kc.instance_id = ${instanceId}
+    WHERE kc.agent_id = ${instanceId}
       AND kc.content_tsv @@ websearch_to_tsquery('simple', ${query})
     ORDER BY rank DESC
     LIMIT ${limit}
