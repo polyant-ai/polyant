@@ -382,11 +382,19 @@ async function buildTools(opts: BuildToolsOptions) {
     }
   }
 
-  // spawnTask: meta-tool built last so the sub-agent's tool set is a
-  // point-in-time snapshot of everything else (including ask_* handoffs).
-  // Passing `{ ...tools }` ensures the sub-agent cannot see spawnTask
-  // inserted on the next line — the factory itself also strips spawnTask
-  // defensively (no self-recursion).
+  // spawnTask: meta-tool built last so the sub-agent's tool set is a snapshot of
+  // everything `buildTools` has assembled by this point — core/plugin tools plus
+  // the ask_* agent handoffs. Passing `{ ...tools }` ensures the sub-agent cannot
+  // see spawnTask inserted on the next line — the factory itself also strips
+  // spawnTask defensively (no self-recursion).
+  //
+  // NOT included: MCP tools. They are merged into the tool set by the CALLER,
+  // after `buildTools` returns, so this snapshot never contains them. That is
+  // intentional, not an oversight: MCP servers are untrusted third-party code
+  // configured per agent, and a sub-agent runs unattended with no user in the loop
+  // to notice a misbehaving external tool. Keeping them on the supervisor's turn
+  // only bounds their blast radius. Moving the merge before this point would
+  // silently hand every MCP tool to every sub-agent.
   if (allEnabled || enabledNames.has("spawnTask")) {
     const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId);
     tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);

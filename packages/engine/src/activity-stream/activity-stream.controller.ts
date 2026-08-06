@@ -194,20 +194,32 @@ export class ActivityStreamController {
       }
     };
 
+    /**
+     * Release EVERY resource on EVERY path, idempotently (express can fire
+     * `close` and `error`, so this runs more than once).
+     *
+     * `closed` may already be true because a write failed inside `flush()` or the
+     * heartbeat. That path still owes the interval and the bus subscription:
+     * returning early there leaked a 25 s timer plus a live subscription (holding
+     * `visibleSlugs` and `res`) for the process lifetime, and made the bus invoke
+     * one dead handler per abruptly-dropped client on every event.
+     *
+     * `clearInterval` and the unsubscribe (`emitter.off`) are both no-ops when
+     * already applied, so repeated calls are safe.
+     */
     const teardown = () => {
-      if (closed) {
-        // Even if `closed` was flipped by a write failure inside flush/heartbeat,
-        // we may still owe a counter decrement.
-        decrementCounters();
-        return;
-      }
+      const wasOpen = !closed;
       closed = true;
       clearInterval(heartbeat);
       unsubscribe();
-      try {
-        res.end();
-      } catch {
-        // ignored
+      // Only end a response that was still considered open — ending twice is
+      // harmless but pointless, and the write already failed on the closed path.
+      if (wasOpen) {
+        try {
+          res.end();
+        } catch {
+          // ignored
+        }
       }
       decrementCounters();
     };

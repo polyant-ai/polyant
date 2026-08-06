@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { open } from "fs/promises";
+import { constants } from "fs";
 import { resolve } from "path";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../../utils/error.js";
@@ -79,7 +80,14 @@ export default defineTool({
       // Stat and read through ONE file handle so the checks below apply to the very
       // bytes we return. Re-resolving the path for the read would let it point at a
       // different file than the one that passed the type/size gates (TOCTOU).
-      const handle = await open(resolvedPath, "r");
+      //
+      // O_NONBLOCK keeps that property while making the open itself un-blockable:
+      // opening a FIFO for reading blocks until a writer appears, and since the type
+      // gate can only run AFTER the open, a FIFO inside the workspace would otherwise
+      // hang the tool call. With O_NONBLOCK the open returns immediately and
+      // `isFile()` below rejects it. Regular files ignore the flag, so the normal
+      // read path is unchanged (no lstat-then-open race is reintroduced).
+      const handle = await open(resolvedPath, constants.O_RDONLY | constants.O_NONBLOCK);
       let fileStat: Awaited<ReturnType<typeof handle.stat>>;
       let content: string;
       try {

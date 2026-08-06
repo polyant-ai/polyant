@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, and, desc, asc, sql, count, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, sql, count, inArray, type SQL } from "drizzle-orm";
 import type { ModelMessage } from "ai";
 import { db } from "../database/client.js";
 import { conversations, conversationMessages, conversationState, type AttachmentMeta, type LlmDebugPayload, type ReasoningDetail, type StepDetail } from "./schema.js";
@@ -13,6 +13,32 @@ import { memories } from "../memory/schema.js";
 import { principalSecrets } from "./principal-secrets.schema.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilter, buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
+
+/**
+ * Explicit opt-out of the org-scoping filter, for INTERNAL/system callers that
+ * run outside any request and therefore have no organization to scope to (e.g.
+ * the `conversation-reset` hook checking whether an archive id is already taken).
+ *
+ * It is a `Symbol` on purpose: `buildOrgScopedAgentFilterFragment` fails closed
+ * (`and false`) when no `orgId` is given, so an internal caller passing nothing
+ * silently got zero rows. Handing those callers a system scope has to be
+ * unmistakable AND unreachable from a request — a symbol can never be produced by
+ * JSON body/query parsing, so no HTTP input can ever widen the tenancy filter.
+ */
+export const SYSTEM_SCOPE = Symbol("conversation-store:system-scope");
+
+/** Either a caller organization id, or the explicit internal system scope. */
+export type ConversationScope = string | typeof SYSTEM_SCOPE | undefined;
+
+/**
+ * Org-filter fragment for a `ConversationScope`: an empty (unconstrained)
+ * fragment ONLY for the explicit system scope, otherwise the fail-closed
+ * org-scoped predicate.
+ */
+function scopeFilterFragment(scope: ConversationScope, columnName: "c.instance_id"): SQL {
+  if (scope === SYSTEM_SCOPE) return sql``;
+  return buildOrgScopedAgentFilterFragment(scope, columnName);
+}
 
 export interface MessageRow {
   role: string;
@@ -595,11 +621,20 @@ export class ConversationStore {
     };
   }
 
-  /** Get a single conversation with metadata. */
-  async getConversation(conversationId: string, orgId?: string): Promise<ConversationDetail | null> {
+  /**
+   * Get a single conversation with metadata.
+   *
+   * @param scope the caller's organization id, or `SYSTEM_SCOPE` for an internal
+   *   caller with no organization. Omitting it fails CLOSED (always null) — never
+   *   pass nothing just to "skip" the filter.
+   */
+  async getConversation(
+    conversationId: string,
+    scope?: ConversationScope,
+  ): Promise<ConversationDetail | null> {
     // Cross-org gate: scoping the lookup to the caller's org turns a foreign-org
     // conversation id into a "not found" (the controller maps null → 404).
-    const orgFilter = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+    const orgFilter = scopeFilterFragment(scope, "c.instance_id");
     const rows = await db.execute(sql`
       SELECT
         c.id,

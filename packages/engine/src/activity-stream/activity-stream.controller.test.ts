@@ -176,3 +176,65 @@ describe("GET /api/activity-stream/live — organization scoping", () => {
     expect(mockListAllInstances).toHaveBeenCalledWith(ORG_A);
   });
 });
+
+/**
+ * Teardown must release the heartbeat interval AND the bus subscription on every
+ * path — including the one where `closed` was already flipped by a failed write.
+ * That branch used to only decrement the counters, leaking a 25 s timer plus a live
+ * subscription (holding `visibleSlugs` and `res`) for the process lifetime, and
+ * making the bus invoke one dead handler per dropped client on every event.
+ */
+describe("GET /api/activity-stream/live — teardown releases resources", () => {
+  let controller: ActivityStreamController;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    controller = new ActivityStreamController();
+    activityBus.__clearBuffer();
+    mockResolvePrincipalOrgId.mockResolvedValue(ORG_A);
+    mockListAllInstances.mockResolvedValue([{ slug: "agent-a" }]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("releases the interval and the subscription when a failed write already closed the stream", async () => {
+    const listenersBefore = activityBus.listenerCount();
+    const { res, written } = makeRes();
+    const { req, handlers } = makeReq();
+    await controller.live(req, res, callerOfOrgA, undefined);
+
+    expect(activityBus.listenerCount()).toBe(listenersBefore + 1);
+    expect(vi.getTimerCount()).toBe(1);
+
+    // A broken socket: the next write throws inside flush(), which flips `closed`.
+    vi.mocked(res.write).mockImplementation(() => {
+      throw new Error("EPIPE");
+    });
+    activityBus.emitEvent(eventFor("agent-a"));
+    expect(dataEvents(written)).toHaveLength(0);
+
+    // Express then fires `close` — the path that used to return early.
+    handlers.close?.();
+
+    expect(activityBus.listenerCount()).toBe(listenersBefore);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("is idempotent when both close and error fire", async () => {
+    const listenersBefore = activityBus.listenerCount();
+    const { res } = makeRes();
+    const { req, handlers } = makeReq();
+    await controller.live(req, res, callerOfOrgA, undefined);
+
+    handlers.close?.();
+    handlers.error?.();
+
+    expect(activityBus.listenerCount()).toBe(listenersBefore);
+    expect(vi.getTimerCount()).toBe(0);
+    // `res.end()` only on the first (still-open) teardown.
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+});

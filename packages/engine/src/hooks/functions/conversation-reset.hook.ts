@@ -4,7 +4,7 @@ import { defineHook } from "@polyant-ai/plugin-sdk";
 // First-party hook: importing the engine's own store is fine in-tree, but it makes
 // this function non-portable as an external plugin. If reset is ever needed from a
 // plugin, expose it as a method on `ctx.conversation` in the SDK instead.
-import { conversationStore } from "../../conversations/index.js";
+import { conversationStore, SYSTEM_SCOPE } from "../../conversations/index.js";
 
 /** Whole-message keyword, matched case-insensitively. Deliberately not configurable. */
 const KEYWORD = "RESET";
@@ -21,7 +21,11 @@ function randomSuffix(): string {
 async function pickArchiveId(conversationId: string): Promise<string> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const candidate = `${conversationId}#${randomSuffix()}`;
-    if (!(await conversationStore.getConversation(candidate))) return candidate;
+    // SYSTEM_SCOPE is required, not optional: a hook runs outside any request and
+    // has no organization, and the store's org filter fails closed on a missing
+    // scope — so an unscoped lookup would ALWAYS return null and this collision
+    // check would be dead code.
+    if (!(await conversationStore.getConversation(candidate, SYSTEM_SCOPE))) return candidate;
   }
   return `${conversationId}#${Date.now()}`;
 }

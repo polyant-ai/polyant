@@ -9,6 +9,14 @@ const mockOpen = vi.hoisted(() => vi.fn());
 const mockRealpath = vi.hoisted(() => vi.fn(async (p: string) => p));
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { constants } from "node:fs";
+
+/**
+ * The open must be non-blocking: the type gate runs after the open (TOCTOU-safe),
+ * so a FIFO in the workspace would otherwise hang the tool. See
+ * `read-file.tool.fifo.test.ts` for the real-filesystem proof.
+ */
+const OPEN_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK;
 
 vi.mock("fs/promises", () => ({
   open: mockOpen,
@@ -69,7 +77,7 @@ describe("readFile tool", () => {
 
     const result = await execute({ path: "notes.md", tail: null }) as { content: string; sizeBytes: number };
 
-    expect(mockOpen).toHaveBeenCalledWith(`${WORKSPACE_DIR}/notes.md`, "r");
+    expect(mockOpen).toHaveBeenCalledWith(`${WORKSPACE_DIR}/notes.md`, OPEN_FLAGS);
     expect(result.content).toBe("# Hello\n\nThis is a readme.");
     expect(result.sizeBytes).toBe(100);
   });
@@ -81,7 +89,7 @@ describe("readFile tool", () => {
 
     const result = await execute({ path: ".repos/owner/repo-abc123/README.md", tail: null }) as { content: string };
 
-    expect(mockOpen).toHaveBeenCalledWith(`${WORKSPACE_DIR}/.repos/owner/repo-abc123/README.md`, "r");
+    expect(mockOpen).toHaveBeenCalledWith(`${WORKSPACE_DIR}/.repos/owner/repo-abc123/README.md`, OPEN_FLAGS);
     expect(result.content).toBe("readme content");
   });
 
@@ -115,7 +123,7 @@ describe("readFile tool", () => {
 
     const result = await execute({ path: absPath, tail: null }) as { content: string };
 
-    expect(mockOpen).toHaveBeenCalledWith(absPath, "r");
+    expect(mockOpen).toHaveBeenCalledWith(absPath, OPEN_FLAGS);
     expect(result.content).toBe("cloned");
   });
 
