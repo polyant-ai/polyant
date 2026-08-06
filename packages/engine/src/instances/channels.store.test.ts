@@ -76,9 +76,11 @@ vi.mock("drizzle-orm", () => ({
 // ---------------------------------------------------------------------------
 // Imports (after mocks) -- zod is NOT mocked
 // ---------------------------------------------------------------------------
-import { ZodError } from "zod";
+import { ZodError, z } from "zod";
 import {
   CHANNEL_TYPES,
+  CHANNEL_CONFIG_KEYS,
+  channelConfigSchemas,
   setChannelConfig,
   getChannelConfig,
   listChannelConfigs,
@@ -493,6 +495,24 @@ describe("instances/channels.store", () => {
       expect(result!.config).toEqual({});
       expect(result!.channelType).toBe("whatsapp");
       expect(result!.enabled).toBe(false);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // CHANNEL_CONFIG_KEYS ↔ channelConfigSchemas
+  // -----------------------------------------------------------------------
+  describe("CHANNEL_CONFIG_KEYS", () => {
+    it("covers every channel type", () => {
+      expect(Object.keys(CHANNEL_CONFIG_KEYS).sort()).toEqual([...CHANNEL_TYPES].sort());
+    });
+
+    it("lists exactly the keys each channel schema declares", () => {
+      // The PUT handler writes only the keys in this allowlist, so a key added
+      // to a schema but not here would be silently dropped on save.
+      for (const channelType of CHANNEL_TYPES) {
+        const shape = (channelConfigSchemas[channelType] as z.ZodObject<z.ZodRawShape>).shape;
+        expect(CHANNEL_CONFIG_KEYS[channelType].slice().sort()).toEqual(Object.keys(shape).sort());
+      }
     });
   });
 });

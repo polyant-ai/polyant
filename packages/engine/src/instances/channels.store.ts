@@ -68,6 +68,27 @@ export const channelConfigSchemas: Record<ChannelType, z.ZodType> = {
   agent: z.object({}).passthrough(),
 };
 
+/**
+ * The config keys each channel type accepts from the management API — the
+ * allowlist the PUT handler iterates instead of iterating the request body.
+ *
+ * This exists so no property name written into a stored config can ever come
+ * from remote input: the handler walks THIS list and looks each key up in the
+ * body, rather than walking the body and writing whatever keys it finds.
+ *
+ * `agent` is deliberately empty. Its Zod schema is open-passthrough to leave
+ * room for future per-pair policies, but no such key is consumed today and the
+ * admin panel sends none — adding one means adding it here too, on purpose.
+ *
+ * Keep in sync with `channelConfigSchemas` above (guarded by a unit test).
+ */
+export const CHANNEL_CONFIG_KEYS: Record<ChannelType, readonly string[]> = {
+  telegram: ["botToken", "allowedUserIds"],
+  slack: ["botToken", "appToken", "signingSecret"],
+  whatsapp: ["accountSid", "authToken", "whatsappNumber"],
+  agent: [],
+};
+
 export interface ChannelConfig {
   channelType: ChannelType;
   enabled: boolean;

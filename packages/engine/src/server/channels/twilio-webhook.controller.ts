@@ -60,14 +60,15 @@ export class TwilioWebhookController {
     // Use the full URL from the request so it matches what Twilio signed against
     // (critical when behind proxies like ngrok)
     const webhookUrl = this.getFullUrl(req);
-    const params: Record<string, string> = {};
-    for (const [key, value] of Object.entries(body)) {
-      // Skip keys that would retarget the prototype chain instead of adding an own
-      // property — `params` is built from an untrusted body and then hashed, so a
-      // `__proto__` entry could silently skew signature validation.
-      if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
-      if (typeof value === "string") params[key] = value;
-    }
+    // Twilio signs EVERY POST parameter it sends, so an allowlist here is not an
+    // option: dropping one unknown-but-signed field (Twilio adds them over time)
+    // would make every webhook fail validation. Instead we never write a
+    // body-derived property name ourselves — `Object.fromEntries` defines own
+    // data properties, so a `__proto__` entry lands as a plain key (exactly as
+    // Twilio hashed it) instead of retargeting the prototype chain.
+    const params: Record<string, string> = Object.fromEntries(
+      Object.entries(body).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
 
     const isValid = adapter.validateSignature(signature || "", webhookUrl, params);
     if (!isValid) {

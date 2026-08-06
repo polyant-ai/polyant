@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+// `vi` is imported ahead of the `vi.hoisted` calls below purely so it is
+// declared before use — imports hoist either way, so the runtime order that
+// vitest needs (hoisted factories before the `vi.mock` registrations) is
+// unchanged.
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { constants } from "node:fs";
+
 // The tool stats and reads through a single file handle (TOCTOU-safe), so
 // `readFile`/`stat` are the HANDLE's methods here, not the module's.
 const mockReadFile = vi.hoisted(() => vi.fn());
@@ -7,9 +14,6 @@ const mockStat = vi.hoisted(() => vi.fn());
 const mockClose = vi.hoisted(() => vi.fn());
 const mockOpen = vi.hoisted(() => vi.fn());
 const mockRealpath = vi.hoisted(() => vi.fn(async (p: string) => p));
-
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { constants } from "node:fs";
 
 /**
  * The open must be non-blocking: the type gate runs after the open (TOCTOU-safe),
