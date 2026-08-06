@@ -32,8 +32,8 @@ describe("navHref", () => {
   });
 
   it("builds a workspace-level path", () => {
-    expect(navHref("workspace", "/instances", RESOLVED)).toBe(
-      "/organizations/default/workspaces/general/instances",
+    expect(navHref("workspace", "/agents", RESOLVED)).toBe(
+      "/organizations/default/workspaces/general/agents",
     );
   });
 
@@ -42,13 +42,13 @@ describe("navHref", () => {
   });
 
   it("falls back to the resolver when the workspace is unknown", () => {
-    expect(navHref("workspace", "/instances", { orgSlug: "default", workspaceSlug: null })).toBe(
+    expect(navHref("workspace", "/agents", { orgSlug: "default", workspaceSlug: null })).toBe(
       "/",
     );
   });
 
   it("falls back to the resolver for a workspace-scoped link when the org is unknown", () => {
-    expect(navHref("workspace", "/instances", { orgSlug: null, workspaceSlug: "general" })).toBe(
+    expect(navHref("workspace", "/agents", { orgSlug: null, workspaceSlug: "general" })).toBe(
       "/",
     );
   });

@@ -42,17 +42,17 @@ describe("authConfig.authorized", () => {
 
   it("sends a bare path through unchanged", () => {
     const response = visitAnonymously(
-      "/organizations/default/workspaces/default/instances",
+      "/organizations/default/workspaces/default/agents",
     );
 
     expect(callbackUrlOf(response)).toBe(
-      "/organizations/default/workspaces/default/instances",
+      "/organizations/default/workspaces/default/agents",
     );
   });
 
   it("redirects an anonymous visitor to the login page", () => {
     const response = visitAnonymously(
-      "/organizations/default/workspaces/default/instances",
+      "/organizations/default/workspaces/default/agents",
     );
 
     expect(new URL(response.headers.get("location")!).pathname).toBe("/login");

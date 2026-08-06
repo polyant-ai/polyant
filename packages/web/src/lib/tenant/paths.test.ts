@@ -36,8 +36,8 @@ describe("workspacePath", () => {
   });
 
   it("appends a sub-path", () => {
-    expect(workspacePath("acme", "core", "/instances")).toBe(
-      "/organizations/acme/workspaces/core/instances",
+    expect(workspacePath("acme", "core", "/agents")).toBe(
+      "/organizations/acme/workspaces/core/agents",
     );
   });
 
@@ -61,8 +61,8 @@ describe("PLATFORM_PREFIX", () => {
 describe("withWorkspaceSlug", () => {
   it("re-points a workspace-scoped path at another workspace", () => {
     expect(
-      withWorkspaceSlug("/organizations/acme/workspaces/core/instances/bot-1", "sales"),
-    ).toBe("/organizations/acme/workspaces/sales/instances/bot-1");
+      withWorkspaceSlug("/organizations/acme/workspaces/core/agents/bot-1", "sales"),
+    ).toBe("/organizations/acme/workspaces/sales/agents/bot-1");
   });
 
   it("keeps the query string and the org segment", () => {
@@ -94,7 +94,7 @@ describe("withWorkspaceSlug", () => {
 
 describe("workspaceSlugFromPath", () => {
   it("reads the workspace a URL addresses", () => {
-    expect(workspaceSlugFromPath("/organizations/acme/workspaces/sales/instances")).toBe("sales");
+    expect(workspaceSlugFromPath("/organizations/acme/workspaces/sales/agents")).toBe("sales");
   });
 
   it("reads it from the workspace root too", () => {
@@ -120,6 +120,6 @@ describe("workspaceSlugFromPath", () => {
   });
 
   it("round-trips with workspacePath", () => {
-    expect(workspaceSlugFromPath(workspacePath("acme", "sales", "/instances"))).toBe("sales");
+    expect(workspaceSlugFromPath(workspacePath("acme", "sales", "/agents"))).toBe("sales");
   });
 });

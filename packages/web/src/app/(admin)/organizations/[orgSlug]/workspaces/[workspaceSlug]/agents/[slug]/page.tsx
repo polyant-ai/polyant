@@ -102,14 +102,14 @@ function InstanceDetailContent() {
       api.prompts.list(slug),
     ])
       .then(([instanceRes, toolsRes, skillsRes, promptsRes]) => {
-        setInstance(instanceRes.instance);
+        setInstance(instanceRes.agent);
         setTools(toolsRes.tools);
         setSkills(skillsRes.skills);
         setPrompts(promptsRes.prompts);
       })
       .catch(() => {
         toast.error(t("instances.detail.notFound"));
-        router.push(paths.workspace("/instances"));
+        router.push(paths.workspace("/agents"));
       })
       .finally(() => setLoading(false));
   }, [params.slug, router, t]);
@@ -118,7 +118,7 @@ function InstanceDetailContent() {
     try {
       await api.instances.delete(params.slug);
       toast.success(t("instances.detail.deleted"));
-      router.push(paths.workspace("/instances"));
+      router.push(paths.workspace("/agents"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("instances.detail.deleteFailed")));
     }
@@ -163,7 +163,7 @@ function InstanceDetailContent() {
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href={paths.workspace("/instances")}>{t("instances.detail.breadcrumb")}</Link>
+              <Link href={paths.workspace("/agents")}>{t("instances.detail.breadcrumb")}</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
@@ -269,7 +269,7 @@ function InstanceDetailContent() {
             <PrivacyTab
               instance={instance}
               onSaved={() => {
-                api.instances.get(params.slug).then((r) => setInstance(r.instance)).catch(() => {});
+                api.instances.get(params.slug).then((r) => setInstance(r.agent)).catch(() => {});
               }}
             />
           )}

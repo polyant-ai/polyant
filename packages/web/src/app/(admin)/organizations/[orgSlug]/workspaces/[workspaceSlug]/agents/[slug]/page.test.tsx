@@ -55,7 +55,7 @@ const { mockRouterPush, resetSearch, setSearch } = vi.hoisted(() => {
 vi.mock("next/navigation", () => ({
   useParams: () => ({ slug: "test-instance" }),
   useRouter: () => ({ push: mockRouterPush }),
-  usePathname: () => "/organizations/acme/workspaces/vendite/instances/test-instance",
+  usePathname: () => "/organizations/acme/workspaces/vendite/agents/test-instance",
   useSearchParams: () =>
     useSyncExternalStore(setSearch.subscribe, setSearch.get, setSearch.get),
 }));
@@ -153,7 +153,7 @@ const ALL_TWELVE_TABS = [
 describe("InstanceDetailPage — tab regrouping", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockInstancesGet.mockResolvedValue({ instance: makeInstance() });
+    mockInstancesGet.mockResolvedValue({ agent: makeInstance() });
     resetSearch("");
   });
 

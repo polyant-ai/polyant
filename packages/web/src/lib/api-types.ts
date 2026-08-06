@@ -155,7 +155,7 @@ export interface Instance {
 
 /**
  * Result of the destructive embedding reset that runs when an instance's
- * embedding provider changes. Returned by `PATCH /api/instances/:slug` as
+ * embedding provider changes. Returned by `PATCH /api/agents/:slug` as
  * `wiped` when the switch discarded existing data. Existing vectors are NOT
  * converted — memories and the entire knowledge base are deleted.
  */

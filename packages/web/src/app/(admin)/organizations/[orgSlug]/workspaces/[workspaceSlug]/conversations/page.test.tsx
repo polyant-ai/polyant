@@ -135,7 +135,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 describe("ConversationsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockInstancesList.mockResolvedValue({ instances: [] });
+    mockInstancesList.mockResolvedValue({ agents: [] });
     mockConversationsList.mockResolvedValue({
       conversations: [],
       total: 0,
@@ -214,7 +214,7 @@ describe("ConversationsPage", () => {
 
   it("fetches instances for the filter dropdown", async () => {
     const instance = makeInstance();
-    mockInstancesList.mockResolvedValue({ instances: [instance] });
+    mockInstancesList.mockResolvedValue({ agents: [instance] });
 
     render(<ConversationsPage />);
 

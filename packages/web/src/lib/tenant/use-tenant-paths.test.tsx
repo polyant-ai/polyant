@@ -11,7 +11,7 @@ vi.mock("next/navigation", () => ({
 
 function Probe() {
   const paths = useTenantPaths();
-  return <span data-testid="workspace-path">{paths.workspace("/instances")}</span>;
+  return <span data-testid="workspace-path">{paths.workspace("/agents")}</span>;
 }
 
 describe("useTenantPaths", () => {
@@ -21,7 +21,7 @@ describe("useTenantPaths", () => {
     render(<Probe />);
 
     expect(screen.getByTestId("workspace-path")).toHaveTextContent(
-      "/organizations/default/workspaces/general/instances",
+      "/organizations/default/workspaces/general/agents",
     );
   });
 

@@ -76,7 +76,7 @@ function InstanceGrid({ instances, paths }: { instances: Instance[]; paths: Tena
       {instances.map((inst) => (
         <Link
           key={inst.id}
-          href={paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`)}
+          href={paths.workspace(`/agents/${encodeURIComponent(inst.slug)}`)}
           className="group flex flex-col items-center gap-2 rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50"
         >
           <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border bg-muted">
@@ -135,7 +135,7 @@ function InstanceList({ instances, t, paths }: {
           <TableRow key={inst.id} className="cursor-pointer">
             <TableCell className="font-medium">
               <Link
-                href={paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`)}
+                href={paths.workspace(`/agents/${encodeURIComponent(inst.slug)}`)}
                 className="flex items-center gap-2 hover:underline"
               >
                 {inst.icon && isSafeImageSrc(inst.icon) ? (
@@ -211,7 +211,7 @@ export default function InstancesPage() {
       await fetchInstances();
 
       // Navigate to the new instance
-      router.push(paths.workspace(`/instances/${encodeURIComponent(result.slug)}`));
+      router.push(paths.workspace(`/agents/${encodeURIComponent(result.slug)}`));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("exportImport.import.failed")));
     } finally {
@@ -222,7 +222,7 @@ export default function InstancesPage() {
 
   const fetchInstances = async () => {
     try {
-      const { instances } = await api.instances.list();
+      const { agents: instances } = await api.instances.list();
       setInstances(instances);
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("common.loadFailed")));

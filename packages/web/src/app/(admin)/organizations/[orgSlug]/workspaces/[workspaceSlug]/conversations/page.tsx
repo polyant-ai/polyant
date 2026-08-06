@@ -57,7 +57,7 @@ export default function ConversationsPage() {
 
   // Fetch instances for filter dropdown
   useEffect(() => {
-    api.instances.list().then(({ instances }) => setInstances(instances)).catch(() => {});
+    api.instances.list().then(({ agents: instances }) => setInstances(instances)).catch(() => {});
   }, []);
 
   // Fetch conversations

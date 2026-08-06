@@ -171,7 +171,7 @@ describe("GeneralTab", () => {
     const user = userEvent.setup();
     const instance = makeInstance();
     const updatedInstance = makeInstance({ name: "Updated Name" });
-    mockUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+    mockUpdate.mockResolvedValueOnce({ agent: updatedInstance });
 
     render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
@@ -200,7 +200,7 @@ describe("GeneralTab", () => {
     const user = userEvent.setup();
     const instance = makeInstance({ description: "Old desc" });
     const updatedInstance = makeInstance({ description: null });
-    mockUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+    mockUpdate.mockResolvedValueOnce({ agent: updatedInstance });
 
     render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
@@ -257,7 +257,7 @@ describe("GeneralTab", () => {
 
     await waitFor(() => expect(lastSaveAction.current?.saving).toBe(true));
 
-    resolveUpdate!({ instance: makeInstance({ name: "New" }) });
+    resolveUpdate!({ agent: makeInstance({ name: "New" }) });
     await savePromise;
 
     await waitFor(() => expect(onUpdate).toHaveBeenCalled());

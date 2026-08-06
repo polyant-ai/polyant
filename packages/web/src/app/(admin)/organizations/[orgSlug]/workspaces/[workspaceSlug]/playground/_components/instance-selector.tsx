@@ -32,7 +32,7 @@ export function InstanceSelector({
       .list()
       .then((res) =>
         setInstances(
-          res.instances.filter((inst) => inst.status === "active"),
+          res.agents.filter((inst) => inst.status === "active"),
         ),
       )
       .catch(() => {});

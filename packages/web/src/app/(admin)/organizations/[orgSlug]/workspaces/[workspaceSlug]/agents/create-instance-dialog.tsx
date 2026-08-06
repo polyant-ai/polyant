@@ -61,7 +61,7 @@ export function CreateInstanceDialog({ open, onOpenChange, onCreated }: Props) {
   const handleCreate = async () => {
     setCreating(true);
     try {
-      const { instance } = await api.instances.create({
+      const { agent: instance } = await api.instances.create({
         name: name.trim(),
         slug,
         description: description.trim() || undefined,
@@ -75,7 +75,7 @@ export function CreateInstanceDialog({ open, onOpenChange, onCreated }: Props) {
       // engine ignored the header and used the organization's DEFAULT workspace,
       // so creating from `/workspaces/sandbox/...` produced an agent in `general`
       // under a `sandbox` URL, which is then what gets bookmarked and shared.
-      router.push(paths.workspace(`/instances/${encodeURIComponent(instance.slug)}`));
+      router.push(paths.workspace(`/agents/${encodeURIComponent(instance.slug)}`));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("instances.create.error")));
     } finally {
