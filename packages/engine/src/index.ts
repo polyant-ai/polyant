@@ -277,6 +277,9 @@ async function main() {
       datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
       cacheConfig: ctx.instanceConfig.cacheConfig,
       debugEnabled: ctx.instanceConfig.debugEnabled,
+      // Conversational entry point: a real user behind a stable, reused
+      // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
+      allowOAuth: true,
       optoutHint:
         ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
           ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
@@ -460,6 +463,9 @@ async function main() {
         datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
         cacheConfig: ctx.instanceConfig.cacheConfig,
         debugEnabled: ctx.instanceConfig.debugEnabled,
+        // Conversational entry point: a real user behind a stable, reused
+        // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
+        allowOAuth: true,
         optoutHint:
           ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
             ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }

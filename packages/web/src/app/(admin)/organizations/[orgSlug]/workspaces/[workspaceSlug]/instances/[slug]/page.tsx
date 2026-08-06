@@ -37,6 +37,7 @@ import { SkillsTab } from "./skills-tab";
 import { SettingsTab } from "./settings-tab";
 import { KnowledgeTab } from "./knowledge-tab";
 import { ChannelsTab } from "./channels-tab";
+import { McpServersTab } from "./mcp-servers-tab";
 import { AnalyticsTab } from "./analytics-tab";
 import { TriggersTab } from "./triggers-tab";
 import { RoomTab } from "./room-tab";
@@ -243,6 +244,7 @@ function InstanceDetailContent() {
               onSkillsUpdate={setSkills}
             />
           )}
+          {activeTab === "mcp" && <McpServersTab slug={instance.slug} />}
           {activeTab === "skills" && (
             <SkillsTab
               slug={instance.slug}

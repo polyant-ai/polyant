@@ -463,6 +463,13 @@
       "when": 1781568000000,
       "tag": "0072_member_configures_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1781654400000,
+      "tag": "0073_instance_mcp_servers",
+      "breakpoints": true
     }
   ]
 }

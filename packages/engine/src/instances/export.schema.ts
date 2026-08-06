@@ -36,6 +36,18 @@ export const exportChannelSchema = z.object({
   config: z.record(z.unknown()).default({}),
 });
 
+export const exportMcpServerSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  url: z.string(),
+  authMode: z.string(),
+  enabled: z.boolean(),
+  // Nested secrets (auth.token / staticClient.clientSecret / dcrClient) are
+  // stripped at export time — see stripMcpSecrets in export.service.ts.
+  // Defaulted for 1.0/1.1 back-compat (the field didn't exist before 1.2).
+  config: z.record(z.unknown()).default({}),
+});
+
 export const exportHookSchema = z.object({
   event: z.string(),
   actionType: z.string(),
@@ -144,6 +156,7 @@ export const exportInstanceDataSchema = z.object({
   room: exportRoomSchema.nullable(),
   eventSources: z.array(exportEventSourceSchema),
   scheduledTasks: z.array(exportScheduledTaskSchema).default([]),
+  mcpServers: z.array(exportMcpServerSchema).default([]),
 });
 
 // ---------------------------------------------------------------------------
@@ -151,11 +164,11 @@ export const exportInstanceDataSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /** Current bundle format version emitted by the exporter. */
-export const INSTANCE_BUNDLE_VERSION = "1.1" as const;
+export const INSTANCE_BUNDLE_VERSION = "1.2" as const;
 
 export const instanceBundleSchema = z.object({
-  // Accept both the legacy 1.0 format and the current 1.1 (additive) format.
-  version: z.union([z.literal("1.0"), z.literal("1.1")]),
+  // Accept the legacy 1.0/1.1 formats plus the current 1.2 (additive) format.
+  version: z.union([z.literal("1.0"), z.literal("1.1"), z.literal("1.2")]),
   exportedAt: z.string(),
   type: z.literal("instance"),
   instance: exportInstanceDataSchema,

@@ -31,6 +31,7 @@ import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
 import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
+import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
 import { agentsShareOrganization, agentToolTarget } from "../../authz/agent-tenancy.js";
 
 export interface SupervisorInput {
@@ -113,6 +114,16 @@ export interface SupervisorInput {
   abortSignal?: AbortSignal;
   /** Per-run shared conversation state buffer; its `.api()` is exposed to tools as `ctx.state`. */
   stateBuffer?: ConversationStateBuffer;
+  /**
+   * Whether an MCP oauth server may be attempted this turn (authorize link handed
+   * out + tokens/PKCE verifier persisted against `conversationId`). Set true ONLY
+   * by the conversational entry point, where a real user sits behind a stable,
+   * reused conversationId. Room/webhook are "supervise-direct" and mint a FRESH
+   * conversationId every cycle (design spec §8.3) — leave this unset (defaults to
+   * false in buildMcpTools) there, or oauth servers get attempted with no one to
+   * authorize and leak an unreused oauth_states/principal_secrets row every cycle.
+   */
+  allowOAuth?: boolean;
 }
 
 export interface SupervisorOutput {
@@ -396,6 +407,8 @@ interface SupervisorContext {
   toolBuildingMs: number;
   toolCallTraces: ToolCallTrace[];
   signals: SupervisorSignals;
+  /** Closes every MCP client opened for this turn. Always await it, win or lose. */
+  mcpClose: () => Promise<void>;
 }
 
 /**
@@ -484,31 +497,63 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   });
   const toolBuildingMs = Date.now() - toolBuildStart;
 
-  const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
-    tools,
-    instanceId: instanceUuid,
+  // MCP tools are additive: merge them in after core tools so an MCP server
+  // can never clobber a core/plugin tool name (warn instead of overwrite —
+  // core tools are DB-governed, MCP servers are instance-configured and less trusted).
+  const mcp = await buildMcpTools({
+    instanceUuid,
     instanceSlug,
-    memoryEnabled: input.memoryEnabled,
-    conversationSummary: input.conversationSummary,
-    contextPrompt: input.contextPrompt,
-    channelIdentity: input.channelIdentity,
-    conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
-    datetimeInjectionEnabled: input.datetimeInjectionEnabled,
-    optoutHint: input.optoutHint,
+    conversationId: input.conversationId,
+    abortSignal: input.abortSignal,
+    allowOAuth: input.allowOAuth ?? false,
   });
 
-  pipelineLog.systemPrompt(instanceSlug, systemPrompt);
-  pipelineLog.supervisorStart(instanceSlug, Object.keys(tools).length);
+  // Everything below opens no new resources, but it DOES await (DB calls in
+  // buildSupervisorSystemPrompt) and can throw before `ctx` (carrying
+  // `mcpClose`) reaches the caller. If that happens, close the just-opened
+  // MCP clients here — otherwise they leak (the caller never gets `mcpClose`).
+  try {
+    for (const [name, mcpTool] of Object.entries(mcp.tools)) {
+      if (name in tools) {
+        console.warn(`MCP tool name collision: "${name}" already equipped by a core/plugin tool — skipping`);
+        continue;
+      }
+      // MCP tools bypass buildTools' per-tool ctx (they're pre-built by the SDK),
+      // but still go through the same audit wrapper as every other tool so a
+      // call records a toolCallTraces entry + tool-error log, keyed by the
+      // tool's already-namespaced model name (mcp__<slug>__<tool>).
+      tools[name] = wrapToolWithAudit(name, mcpTool, instanceSlug, input.conversationId, toolCallTraces, signals);
+    }
 
-  // Build user message — multimodal when attachments are present. The per-turn
-  // volatile context rides the tail of this message (see buildUserContent).
-  const userContent = buildUserContent(input.message, turnContext, input.attachments);
-  const messages: ModelMessage[] = [
-    ...(input.conversationHistory ?? []),
-    { role: "user", content: userContent },
-  ];
+    const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
+      tools,
+      instanceId: instanceUuid,
+      instanceSlug,
+      memoryEnabled: input.memoryEnabled,
+      conversationSummary: input.conversationSummary,
+      contextPrompt: input.contextPrompt,
+      channelIdentity: input.channelIdentity,
+      conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
+      datetimeInjectionEnabled: input.datetimeInjectionEnabled,
+      optoutHint: input.optoutHint,
+    });
 
-  return { instanceId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals };
+    pipelineLog.systemPrompt(instanceSlug, systemPrompt);
+    pipelineLog.supervisorStart(instanceSlug, Object.keys(tools).length);
+
+    // Build user message — multimodal when attachments are present. The per-turn
+    // volatile context rides the tail of this message (see buildUserContent).
+    const userContent = buildUserContent(input.message, turnContext, input.attachments);
+    const messages: ModelMessage[] = [
+      ...(input.conversationHistory ?? []),
+      { role: "user", content: userContent },
+    ];
+
+    return { instanceId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals, mcpClose: mcp.close };
+  } catch (err) {
+    await mcp.close().catch(() => { /* best-effort */ });
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -518,30 +563,40 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
 export async function superviseStream(input: SupervisorInput): Promise<SupervisorStreamOutput> {
   const ctx = await prepareSupervisor(input);
 
-  const stream = await chatStream(
-    {
-      tier: "standard",
-      provider: input.provider,
-      model: input.model,
-      thinking: input.thinkingEnabled ?? false,
-      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-      ...(input.temperature != null ? { temperature: input.temperature } : {}),
-      apiKeys: input.apiKeys,
-      langsmith: input.langsmith,
-      system: ctx.systemPrompt,
-      messages: ctx.messages,
-      tools: ctx.tools,
-      maxSteps: 15,
-      abortSignal: input.abortSignal,
-      captureDebug: input.debugEnabled ?? false,
-      cacheConfig: input.cacheConfig,
-    },
-    {
-      conversationId: input.conversationId,
-      instanceId: ctx.instanceId,
-      agentCallMetadata: input.agentCallMetadata,
-    }
-  );
+  // chatStream() can throw synchronously (unsupported streaming config,
+  // resolveCallConfig failure) before any stream/`completed` object exists —
+  // in that case the `.finally(() => ctx.mcpClose())` below never gets a
+  // chance to attach, so close here instead.
+  let stream: Awaited<ReturnType<typeof chatStream>>;
+  try {
+    stream = await chatStream(
+      {
+        tier: "standard",
+        provider: input.provider,
+        model: input.model,
+        thinking: input.thinkingEnabled ?? false,
+        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+        ...(input.temperature != null ? { temperature: input.temperature } : {}),
+        apiKeys: input.apiKeys,
+        langsmith: input.langsmith,
+        system: ctx.systemPrompt,
+        messages: ctx.messages,
+        tools: ctx.tools,
+        maxSteps: 15,
+        abortSignal: input.abortSignal,
+        captureDebug: input.debugEnabled ?? false,
+        cacheConfig: input.cacheConfig,
+      },
+      {
+        conversationId: input.conversationId,
+        instanceId: ctx.instanceId,
+        agentCallMetadata: input.agentCallMetadata,
+      }
+    );
+  } catch (err) {
+    await ctx.mcpClose().catch(() => { /* best-effort */ });
+    throw err;
+  }
 
   // Wrap textStream to capture TTFB (time to first token)
   let ttfbMs: number | undefined;
@@ -553,10 +608,11 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
     }
   })();
 
-  return {
-    textStream: ttfbTextStream,
-    fullStream: stream.fullStream,
-    completed: stream.response.then((response) => {
+  // The stream outlives this function's return, so MCP clients can't close
+  // synchronously here — tear them down once `completed` settles (success or
+  // error), via `.finally` on the mapped promise below.
+  const completed = stream.response
+    .then((response) => {
       pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
       return {
         text: response.text,
@@ -576,55 +632,67 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
         replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
         ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
       };
-    }),
+    })
+    .finally(() => ctx.mcpClose());
+
+  return {
+    textStream: ttfbTextStream,
+    fullStream: stream.fullStream,
+    completed,
   };
 }
 
 export async function supervise(input: SupervisorInput): Promise<SupervisorOutput> {
   const ctx = await prepareSupervisor(input);
 
-  const response = await chat(
-    {
-      tier: "standard",
-      provider: input.provider,
-      model: input.model,
-      thinking: input.thinkingEnabled ?? false,
-      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-      ...(input.temperature != null ? { temperature: input.temperature } : {}),
-      apiKeys: input.apiKeys,
-      langsmith: input.langsmith,
-      system: ctx.systemPrompt,
-      messages: ctx.messages,
-      tools: ctx.tools,
-      maxSteps: 15,
-      abortSignal: input.abortSignal,
-      captureDebug: input.debugEnabled ?? false,
-      cacheConfig: input.cacheConfig,
-    },
-    {
-      conversationId: input.conversationId,
-      instanceId: ctx.instanceId,
-      agentCallMetadata: input.agentCallMetadata,
-    }
-  );
+  try {
+    const response = await chat(
+      {
+        tier: "standard",
+        provider: input.provider,
+        model: input.model,
+        thinking: input.thinkingEnabled ?? false,
+        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+        ...(input.temperature != null ? { temperature: input.temperature } : {}),
+        apiKeys: input.apiKeys,
+        langsmith: input.langsmith,
+        system: ctx.systemPrompt,
+        messages: ctx.messages,
+        tools: ctx.tools,
+        maxSteps: 15,
+        abortSignal: input.abortSignal,
+        captureDebug: input.debugEnabled ?? false,
+        cacheConfig: input.cacheConfig,
+      },
+      {
+        conversationId: input.conversationId,
+        instanceId: ctx.instanceId,
+        agentCallMetadata: input.agentCallMetadata,
+      }
+    );
 
-  pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
+    pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
 
-  return {
-    text: response.text,
-    steps: response.steps,
-    ...(response.reasoning ? { reasoning: response.reasoning } : {}),
-    usage: response.usage,
-    model: response.model,
-    provider: response.provider,
-    ...(response.cost ? { cost: response.cost } : {}),
-    thinking: response.thinking,
-    temperature: response.temperature,
-    durationMs: response.durationMs,
-    toolBuildingMs: ctx.toolBuildingMs,
-    toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
-    replyHandled: ctx.signals.replyHandled || undefined,
-    replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
-    ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
-  };
+    return {
+      text: response.text,
+      steps: response.steps,
+      ...(response.reasoning ? { reasoning: response.reasoning } : {}),
+      usage: response.usage,
+      model: response.model,
+      provider: response.provider,
+      ...(response.cost ? { cost: response.cost } : {}),
+      thinking: response.thinking,
+      temperature: response.temperature,
+      durationMs: response.durationMs,
+      toolBuildingMs: ctx.toolBuildingMs,
+      toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
+      replyHandled: ctx.signals.replyHandled || undefined,
+      replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
+      ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
+    };
+  } finally {
+    // Non-streamed: the turn is fully done by the time we get here (success or
+    // throw) — safe to tear down MCP clients synchronously.
+    await ctx.mcpClose();
+  }
 }

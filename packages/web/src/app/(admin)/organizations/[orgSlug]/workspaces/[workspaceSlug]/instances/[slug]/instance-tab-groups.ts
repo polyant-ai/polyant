@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The agent detail page's TWELVE tabs, regrouped into five rail groups —
+ * The agent detail page's THIRTEEN tabs, regrouped into five rail groups —
  * design spec `2026-07-30-admin-console-ia-redesign-design.md`, agent-detail
  * phase (§8, phase 10): "group by the question each tab answers". DATA, on
  * purpose, so the page renders this list rather than hard-coding five JSX
@@ -11,7 +11,7 @@
  * `INSTANCE_TAB_VALUES` is derived from this list (not hand-duplicated) so
  * the set of valid `?tab=` values can never drift from the groups below it.
  *
- * FIVE groups for twelve tabs, so the last two hold one tab each. Kept as five
+ * FIVE groups for thirteen tabs, so the last two hold one tab each. Kept as five
  * rather than merged: the enterprise overlay fills them (governance and compliance
  * join Osservabilità, retention joins Dati e privacy — all three are enterprise
  * capabilities), and merging here would invent a THIRD grouping vocabulary for
@@ -50,6 +50,10 @@ export const INSTANCE_TAB_GROUPS: readonly InstanceTabGroup[] = [
     tabs: [
       { value: "prompts", labelKey: "instances.detail.tabPrompts" },
       { value: "tools", labelKey: "instances.detail.tabTools" },
+      // External MCP servers sit next to Tools on purpose: they answer the same
+      // question ("what can this agent do"), just for capabilities that live
+      // outside the engine — their tools reach the model as `mcp__<server>__*`.
+      { value: "mcp", labelKey: "instances.detail.tabMcp" },
       { value: "skills", labelKey: "instances.detail.tabSkills" },
       { value: "knowledge", labelKey: "instances.detail.tabKnowledge" },
       { value: "hooks", labelKey: "instances.detail.tabHooks" },

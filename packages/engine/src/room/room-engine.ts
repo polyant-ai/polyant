@@ -198,6 +198,10 @@ export async function executeRoomCycle(
         cacheConfig: instanceConfig.cacheConfig,
         includeHarness: new Set(["room"]),
         stateBuffer,
+        // Room mints a FRESH conversationId every cycle — no stable per-turn
+        // storage and no browser to authorize. Leave MCP oauth servers off
+        // (design spec §8.3); see SupervisorInput.allowOAuth.
+        allowOAuth: false,
       });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);

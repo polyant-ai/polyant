@@ -23,6 +23,8 @@ import type { HookActionConfig, HookActionType, HookEvent } from "../hooks/hook-
 import { eventSources, eventDefinitions } from "../webhooks/webhooks.schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { computeNextRun } from "../scheduled-tasks/schedule-utils.js";
+import { instanceMcpServers } from "./mcp-servers.schema.js";
+import { mcpServerConfigSchema, MCP_AUTH_MODES, type McpAuthMode } from "./mcp-servers.store.js";
 import { generateToken, encrypt } from "../crypto/index.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
@@ -38,7 +40,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface ImportWarning {
-  type: "missing_skill" | "missing_tool" | "secret_required" | "channel_credentials" | "skill_env_required" | "event_source_credentials";
+  type: "missing_skill" | "missing_tool" | "secret_required" | "channel_credentials" | "skill_env_required" | "event_source_credentials" | "mcp_server_credentials" | "mcp_server_invalid";
   message: string;
 }
 
@@ -153,7 +155,11 @@ export async function importNewInstance(
       await importScheduledTasks(tx, slug, data.scheduledTasks);
     }
 
-    // 11. Secrets — only generate warnings
+    // 11. Import MCP servers (non-secret config only; credentialed servers stay disabled)
+    const mcpWarnings = await importMcpServers(tx, id, data.mcpServers);
+    warnings.push(...mcpWarnings);
+
+    // 12. Secrets — only generate warnings
     for (const secret of data.secrets) {
       warnings.push({
         type: "secret_required",
@@ -291,7 +297,12 @@ export async function importOverwriteInstance(
       await importScheduledTasks(tx, targetSlug, data.scheduledTasks);
     }
 
-    // 11. Secrets warnings
+    // 11. Replace MCP servers (non-secret config only; credentialed servers stay disabled)
+    await tx.delete(instanceMcpServers).where(eq(instanceMcpServers.instanceId, instanceId));
+    const mcpWarnings = await importMcpServers(tx, instanceId, data.mcpServers);
+    warnings.push(...mcpWarnings);
+
+    // 12. Secrets warnings
     for (const secret of data.secrets) {
       warnings.push({
         type: "secret_required",
@@ -512,6 +523,81 @@ async function importChannels(
       warnings.push({
         type: "channel_credentials",
         message: `Channel "${ch.channelType}" imported disabled — configure credentials to enable`,
+      });
+    }
+  }
+
+  return warnings;
+}
+
+/** True if the (already-stripped) config still satisfies its authMode's schema — i.e. needs no secret. */
+function canEnableMcpServer(authMode: McpAuthMode, config: Record<string, unknown>): boolean {
+  try {
+    mcpServerConfigSchema(authMode, config);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Exported for direct unit testing (mirrors stripSensitiveKeys/exportMcpServers
+// in export.service.ts — the store-level insert is simple enough to test with
+// a fake `tx`, without mocking the whole database client).
+export async function importMcpServers(
+  tx: TxClient,
+  instanceId: string,
+  servers: ExportInstanceData["mcpServers"],
+): Promise<ImportWarning[]> {
+  const warnings: ImportWarning[] = [];
+
+  for (const server of servers) {
+    const authMode = server.authMode as McpAuthMode;
+
+    // exportMcpServerSchema.authMode is z.string() (export must round-trip
+    // whatever a future/foreign version writes), so an unknown value (e.g.
+    // "oidc", or garbage) is NOT rejected by the bundle schema. Guard it here:
+    // mcpServerConfigSchema falls back to the all-optional oauth schema for
+    // any authMode !== "static", so a bogus mode would otherwise validate and
+    // insert an ENABLED row the runtime doesn't recognize (no DB CHECK on
+    // auth_mode). Skip the server entirely rather than persist garbage —
+    // mirrors the per-item degradation used for channels/skills/tools above.
+    if (!MCP_AUTH_MODES.includes(authMode)) {
+      warnings.push({
+        type: "mcp_server_invalid",
+        message: `MCP server "${server.slug}" has unknown authMode "${server.authMode}" — skipped`,
+      });
+      continue;
+    }
+
+    const config = server.config ?? {};
+
+    // A server can be safely (re)enabled on import ONLY if its stripped config
+    // alone satisfies the auth mode's validation schema — i.e. it needs no
+    // secret. A static server fails this (the exporter stripped auth.token),
+    // so it stays disabled until the token is reconfigured; an oauth server
+    // with no required secret field passes and re-enables as-is.
+    const canEnable = canEnableMcpServer(authMode, config);
+    const enabled = server.enabled && canEnable;
+
+    await tx
+      .insert(instanceMcpServers)
+      .values({
+        instanceId,
+        slug: server.slug,
+        name: server.name,
+        url: server.url,
+        authMode: server.authMode,
+        enabled,
+        // Persist the non-secret config as-is (encrypted at rest like any MCP
+        // server config) so the admin only has to fill in the missing credentials.
+        config: encrypt(JSON.stringify(config)),
+      })
+      .onConflictDoNothing();
+
+    if (server.enabled && !canEnable) {
+      warnings.push({
+        type: "mcp_server_credentials",
+        message: `MCP server "${server.slug}" imported disabled — configure credentials to enable`,
       });
     }
   }
