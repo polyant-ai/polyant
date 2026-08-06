@@ -14,7 +14,7 @@ vi.mock("node:fs/promises", () => ({
 }));
 
 import {
-  OA_WORKSPACES_ROOT,
+  OA_SANDBOX_ROOT,
   getConversationWorkspaceDir,
   isRelativePath,
   assertInsideWorkspace,
@@ -52,14 +52,14 @@ describe("sanitizeConversationId", () => {
 });
 
 describe("getConversationWorkspaceDir", () => {
-  it("returns absolute path under OA_WORKSPACES_ROOT", () => {
+  it("returns absolute path under OA_SANDBOX_ROOT", () => {
     const dir = getConversationWorkspaceDir("my-instance", "conv-1");
-    expect(dir).toBe(`${OA_WORKSPACES_ROOT}/my-instance/conversations/conv-1`);
+    expect(dir).toBe(`${OA_SANDBOX_ROOT}/my-instance/conversations/conv-1`);
   });
 
   it("sanitizes the conversationId", () => {
     const dir = getConversationWorkspaceDir("my-instance", "inst:web:chat-123");
-    expect(dir).toBe(`${OA_WORKSPACES_ROOT}/my-instance/conversations/inst_web_chat-123`);
+    expect(dir).toBe(`${OA_SANDBOX_ROOT}/my-instance/conversations/inst_web_chat-123`);
   });
 
   it("rejects invalid instanceId", () => {
@@ -110,7 +110,7 @@ describe("assertInsideWorkspace", () => {
 describe("resolveWorkspacePath", () => {
   const instanceId = "my-instance";
   const conversationId = "conv-1";
-  const workspaceDir = `${OA_WORKSPACES_ROOT}/${instanceId}/conversations/${conversationId}`;
+  const workspaceDir = `${OA_SANDBOX_ROOT}/${instanceId}/conversations/${conversationId}`;
 
   it("resolves a simple relative path inside the workspace", async () => {
     const resolved = await resolveWorkspacePath("notes.md", instanceId, conversationId);
@@ -159,7 +159,7 @@ describe("resolveWorkspacePath", () => {
 
   it("sanitizes conversationId with unsafe characters", async () => {
     const resolved = await resolveWorkspacePath("note.md", instanceId, "inst:web:chat-1");
-    expect(resolved).toBe(`${OA_WORKSPACES_ROOT}/${instanceId}/conversations/inst_web_chat-1/note.md`);
+    expect(resolved).toBe(`${OA_SANDBOX_ROOT}/${instanceId}/conversations/inst_web_chat-1/note.md`);
   });
 
   it("blocks paths when realpath resolves outside the workspace (symlink escape)", async () => {
@@ -205,17 +205,17 @@ describe("ensureWorkspaceDir", () => {
     mockMkdir.mockResolvedValue(undefined);
     const dir = await ensureWorkspaceDir("my-instance", "conv-1");
     expect(mockMkdir).toHaveBeenCalledWith(
-      `${OA_WORKSPACES_ROOT}/my-instance/conversations/conv-1`,
+      `${OA_SANDBOX_ROOT}/my-instance/conversations/conv-1`,
       { recursive: true },
     );
-    expect(dir).toBe(`${OA_WORKSPACES_ROOT}/my-instance/conversations/conv-1`);
+    expect(dir).toBe(`${OA_SANDBOX_ROOT}/my-instance/conversations/conv-1`);
   });
 
   it("sanitizes conversationId before creating directory", async () => {
     mockMkdir.mockResolvedValue(undefined);
     await ensureWorkspaceDir("my-instance", "foo:bar");
     expect(mockMkdir).toHaveBeenCalledWith(
-      `${OA_WORKSPACES_ROOT}/my-instance/conversations/foo_bar`,
+      `${OA_SANDBOX_ROOT}/my-instance/conversations/foo_bar`,
       { recursive: true },
     );
   });
@@ -224,7 +224,7 @@ describe("ensureWorkspaceDir", () => {
 describe("assertInsideConversationWorkspace", () => {
   const instanceId = "my-instance";
   const conversationId = "conv-1";
-  const workspaceDir = `${OA_WORKSPACES_ROOT}/${instanceId}/conversations/${conversationId}`;
+  const workspaceDir = `${OA_SANDBOX_ROOT}/${instanceId}/conversations/${conversationId}`;
 
   it("accepts a path inside the workspace", async () => {
     await expect(
@@ -241,7 +241,7 @@ describe("assertInsideConversationWorkspace", () => {
   it("rejects a path outside the workspace (another conversation)", async () => {
     await expect(
       assertInsideConversationWorkspace(
-        `${OA_WORKSPACES_ROOT}/${instanceId}/conversations/other-conv/file.md`,
+        `${OA_SANDBOX_ROOT}/${instanceId}/conversations/other-conv/file.md`,
         instanceId,
         conversationId,
       ),
@@ -267,7 +267,7 @@ describe("assertInsideConversationWorkspace", () => {
   it("rejects a path in a different instance's workspace", async () => {
     await expect(
       assertInsideConversationWorkspace(
-        `${OA_WORKSPACES_ROOT}/other-instance/conversations/conv-1/file`,
+        `${OA_SANDBOX_ROOT}/other-instance/conversations/conv-1/file`,
         instanceId,
         conversationId,
       ),

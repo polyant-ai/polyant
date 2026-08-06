@@ -11,8 +11,12 @@ import { sanitizeConversationId } from "../agents/tools/shared/workspace-utils.j
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT
-  ? resolve(process.env.WORKSPACES_ROOT)
+// CONVENTION-EXCEPTION: dual env read during the sandbox rename deprecation
+// window. SANDBOX_ROOT is the new var; WORKSPACES_ROOT is kept as a deprecated
+// alias and removed next release. Default on-disk path value is unchanged.
+const sandboxRootEnv = process.env.SANDBOX_ROOT ?? process.env.WORKSPACES_ROOT;
+const SANDBOX_ROOT = sandboxRootEnv
+  ? resolve(sandboxRootEnv)
   : resolve(__dirname, "../../workspaces");
 
 // ---------------------------------------------------------------------------
@@ -51,7 +55,7 @@ export interface WorkspacePaths {
  */
 export function getWorkspacePaths(instanceId: string): WorkspacePaths {
   validateInstanceId(instanceId);
-  const root = resolve(WORKSPACES_ROOT, instanceId);
+  const root = resolve(SANDBOX_ROOT, instanceId);
   return {
     root,
     conversationsDir: resolve(root, "conversations"),

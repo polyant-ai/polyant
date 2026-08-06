@@ -27,7 +27,7 @@ vi.mock("../../utils/error.js", () => ({
 }));
 
 import { createMockAudit } from "../../test-utils.js";
-import { OA_WORKSPACES_ROOT } from "./shared/workspace-utils.js";
+import { OA_SANDBOX_ROOT } from "./shared/workspace-utils.js";
 import readFileTool from "./read-file.tool.js";
 
 const def = readFileTool;
@@ -52,7 +52,7 @@ beforeEach(() => {
   }));
 });
 
-const WORKSPACE_DIR = `${OA_WORKSPACES_ROOT}/test-instance/conversations/conv-1`;
+const WORKSPACE_DIR = `${OA_SANDBOX_ROOT}/test-instance/conversations/conv-1`;
 
 describe("readFile tool", () => {
   it("registers with correct metadata", () => {
@@ -129,7 +129,7 @@ describe("readFile tool", () => {
   });
 
   it("blocks absolute paths belonging to another conversation's workspace", async () => {
-    const otherPath = `${OA_WORKSPACES_ROOT}/test-instance/conversations/other-conv/file.md`;
+    const otherPath = `${OA_SANDBOX_ROOT}/test-instance/conversations/other-conv/file.md`;
     const { execute } = buildTool();
 
     const result = await execute({ path: otherPath, tail: null }) as { error: string };
