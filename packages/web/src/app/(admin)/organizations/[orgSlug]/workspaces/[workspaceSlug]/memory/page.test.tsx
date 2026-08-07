@@ -19,12 +19,15 @@ vi.mock("@/lib/api", () => ({
   getUserErrorMessage: vi.fn((_err: unknown, fallback: string) => fallback),
 }));
 
+// Stable identity — the source uses `t` in useCallback dependency arrays, so a
+// freshly-created object per call would trigger an infinite re-render loop.
+const i18nMock = {
+  t: (key: string) => key,
+  locale: "en",
+  setLocale: vi.fn(),
+};
 vi.mock("@/lib/i18n/context", () => ({
-  useI18n: vi.fn(() => ({
-    t: (key: string) => key,
-    locale: "en",
-    setLocale: vi.fn(),
-  })),
+  useI18n: () => i18nMock,
 }));
 
 vi.mock("@/lib/format", () => ({
@@ -60,11 +63,17 @@ vi.mock("sonner", () => ({
 }));
 
 // Mock the CreateMemoryDialog to avoid pulling in its dependencies
-vi.mock("./create-memory-dialog", () => ({
+vi.mock("@/components/memory/create-memory-dialog", () => ({
   CreateMemoryDialog: () => <div data-testid="create-memory-dialog" />,
 }));
 
-import MemoryPage from "./page";
+// The workspace now comes from the URL, so a component test that does not
+// exercise workspace switching only needs the hook to answer something.
+vi.mock("@/lib/tenant/use-workspace-slug", () => ({
+  useWorkspaceSlug: () => "general",
+}));
+
+import { MemoryView as MemoryPage } from "@/components/memory/memory-view";
 
 // ── Tests ────────────────────────────────────────────────────────────
 
@@ -80,11 +89,22 @@ describe("MemoryPage", () => {
     });
   });
 
-  it("renders the page title and subtitle", () => {
+  /**
+   * The title belongs to the PAGE, not to the list: the list is shared with the
+   * agent's Attività section, which titles itself from the section registry. What
+   * the shared view must still own is the agent picker — the thing the agent
+   * section drops.
+   */
+  it("offers the agent picker when no agent is fixed", () => {
     render(<MemoryPage />);
 
-    expect(screen.getByText("memory.title")).toBeInTheDocument();
-    expect(screen.getByText("memory.subtitle")).toBeInTheDocument();
+    expect(screen.getByText("memory.selectInstance")).toBeInTheDocument();
+  });
+
+  it("drops the agent picker when an agent is fixed", () => {
+    render(<MemoryPage lockedInstanceId="a1" />);
+
+    expect(screen.queryByText("memory.selectInstance")).not.toBeInTheDocument();
   });
 
   it("renders the 'Add Memory' button", () => {

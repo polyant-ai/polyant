@@ -26,7 +26,7 @@ interface ChatHistoryDialogProps {
   onSelectConversation: (conversationId: string) => void;
 }
 
-function formatRelativeTime(dateStr: string | null): string {
+function formatRelativeTime(dateStr: string | null, locale: string): string {
   if (!dateStr) return "";
   const date = new Date(dateStr);
   const now = new Date();
@@ -38,7 +38,7 @@ function formatRelativeTime(dateStr: string | null): string {
   if (diffHours < 24) return `${diffHours}h`;
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 30) return `${diffDays}d`;
-  return date.toLocaleDateString();
+  return date.toLocaleDateString(locale);
 }
 
 export function ChatHistoryDialog({
@@ -47,7 +47,7 @@ export function ChatHistoryDialog({
   activeConversationId,
   onSelectConversation,
 }: ChatHistoryDialogProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
 
   const handleSelect = (conversationId: string) => {
@@ -113,7 +113,7 @@ export function ChatHistoryDialog({
                         {conv.messageCount} msg
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {formatRelativeTime(conv.updatedAt)}
+                        {formatRelativeTime(conv.updatedAt, locale)}
                       </span>
                     </div>
                   </button>

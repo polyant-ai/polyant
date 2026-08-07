@@ -37,10 +37,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { api, getUserErrorMessage, type ScheduledTaskRun, type ScheduledTask } from "@/lib/api";
-import { parseUTC, formatRelativeTime, formatDuration } from "@/lib/format";
+import { formatRelativeTime, formatDuration } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { MarkdownRenderer } from "@/app/(admin)/organizations/[orgSlug]/workspaces/[workspaceSlug]/playground/_components/markdown-renderer";
+import { useFormat } from "@/lib/use-format";
 
 interface Props {
   slug: string;
@@ -80,6 +81,7 @@ function RunStatusBadge({ status }: { status: string }) {
 
 export function ScheduledTaskRunsSection({ slug, tasks }: Props) {
   const { t } = useI18n();
+  const fmt = useFormat();
   const paths = useTenantPaths();
   const [runs, setRuns] = useState<ScheduledTaskRun[]>([]);
   const [total, setTotal] = useState(0);
@@ -120,11 +122,12 @@ export function ScheduledTaskRunsSection({ slug, tasks }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* No heading of its own: the only place this renders is the Log section's
+          "Programmati" block, and "Log esecuzioni" underneath "Programmati"
+          underneath "Log" was the same word three times. The count stays — it is
+          the one thing the heading carried that the section title does not. */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h3 className="text-lg font-medium">{t("scheduledTasks.runs.title")}</h3>
-          <Badge variant="secondary" className="text-xs">{total}</Badge>
-        </div>
+        <Badge variant="secondary" className="text-xs">{total}</Badge>
         <div className="flex items-center gap-2">
           <Select value={filterTaskId} onValueChange={setFilterTaskId}>
             <SelectTrigger className="w-[220px]">
@@ -207,7 +210,7 @@ export function ScheduledTaskRunsSection({ slug, tasks }: Props) {
                             </span>
                           </TooltipTrigger>
                           <TooltipContent>
-                            {run.startedAt ? parseUTC(run.startedAt).toLocaleString() : "-"}
+                            {run.startedAt ? fmt.dateTime(run.startedAt) : "-"}
                           </TooltipContent>
                         </Tooltip>
                       </TableCell>

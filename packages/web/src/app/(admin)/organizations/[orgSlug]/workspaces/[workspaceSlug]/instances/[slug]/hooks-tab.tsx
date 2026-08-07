@@ -202,37 +202,64 @@ export function HooksTab({ slug }: Props) {
                   {t(`hooks.events.${event}`)}
                 </h3>
                 <div className="divide-y rounded-md border">
-                  {eventHooks.map((hook) => (
-                    <div key={hook.id} className="flex items-center gap-3 p-3">
-                      <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-                        {hook.actionConfig.functionName}
-                      </code>
-                      {!knownFunctions.has(hook.actionConfig.functionName) && (
-                        <Badge variant="destructive">{t("hooks.unknownFunction")}</Badge>
-                      )}
-                      <Badge variant="secondary">{hook.timeoutMs / 1000}s</Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {t("hooks.position")} {hook.position}
-                      </span>
-                      <div className="ml-auto flex items-center gap-2">
-                        <Switch
-                          checked={hook.enabled}
-                          onCheckedChange={(v) => handleToggle(hook, v)}
-                        />
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(hook)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive"
-                          onClick={() => setDeleting(hook)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                  {eventHooks.map((hook) => {
+                    /*
+                      A row is ALWAYS named. A hook whose action lost its function
+                      rendered an empty `<code>` followed by a red badge — a row
+                      with a destructive-looking state and nothing saying which
+                      hook it was, so the only way to identify it was to open the
+                      edit dialog. The fallback names the condition instead.
+                    */
+                    const fnName = hook.actionConfig.functionName;
+                    const named = fnName && fnName.trim().length > 0;
+
+                    return (
+                      <div key={hook.id} className="flex items-center gap-3 p-3">
+                        {named ? (
+                          <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{fnName}</code>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">
+                            {t("hooks.unknownAction")}
+                          </span>
+                        )}
+                        {named && !knownFunctions.has(fnName) && (
+                          <Badge variant="destructive">{t("hooks.unknownFunction")}</Badge>
+                        )}
+                        {/* Both metadata are LABELLED: "10s" and "0" beside a name
+                            said nothing about which number was which. */}
+                        <span className="text-xs text-muted-foreground">
+                          {t("hooks.timeoutLabel")} {hook.timeoutMs / 1000}s
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {t("hooks.position")} {hook.position}
+                        </span>
+                        <div className="ml-auto flex items-center gap-2">
+                          <Switch
+                            checked={hook.enabled}
+                            aria-label={t("hooks.enabledLabel")}
+                            onCheckedChange={(v) => handleToggle(hook, v)}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={t("common.edit")}
+                            onClick={() => openEdit(hook)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={t("common.delete")}
+                            className="text-destructive"
+                            onClick={() => setDeleting(hook)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );

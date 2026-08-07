@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Eye, EyeOff, Trash2, AlertTriangle, Info, Search, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Trash2, AlertTriangle, Info, Search, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,28 +46,42 @@ import {
 import { api, getUserErrorMessage, isForbidden, type Instance, type SecretStatus, type ModelsResponse, type RequiredSecretSpec } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
+import { SecretField, SecretStatusBadge } from "@/components/instance-secret/secret-field";
 import type { TranslationKey } from "@/lib/i18n/types";
+import {
+  PROVIDER_SECRET_SECTIONS,
+  SECRET_KEYS,
+  type ProviderSectionId,
+} from "@/lib/provider-secrets";
 import { usePageSaveAction } from "./page-actions-context";
 
 interface Props {
   instance: Instance;
   onUpdate: (instance: Instance) => void;
+  /**
+   * Which half of this form to render.
+   *
+   * Four pages come out of this one component, because they all need the same
+   * loaded secrets, the same required-secret specs and the same `secretFields`
+   * machine:
+   *
+   *   `model`       — which model runs the agent, the embedder, speech-to-text,
+   *                   prompt caching, temperature.
+   *   `credentials` — the PROVIDER keys. Their own page because a key used to be
+   *                   reachable from three places, and "where do I put an API key"
+   *                   must have one answer.
+   *   `toolSecrets` — the keys the enabled tools and hooks demand. Beside the tool
+   *                   list rather than with the provider keys: they exist because a
+   *                   tool asked for them, and they are read while deciding what the
+   *                   agent may do.
+   *   `params`      — what the engine puts in front of the model each turn. Rendered
+   *                   inside the Parametri page, next to memory and diagnostics.
+   *
+   * Only one is mounted at a time, so each writes only its own fields: a save from
+   * one page can never carry a stale copy of another's.
+   */
+  section: "model" | "credentials" | "toolSecrets" | "params";
 }
-
-const SECRET_KEYS = {
-  OPENAI: "openai_api_key",
-  ANTHROPIC: "anthropic_api_key",
-  NEBIUS: "nebius_api_key",
-  BEDROCK_API_KEY: "bedrock_api_key",
-  // AWS credentials for the AI provider (Bedrock chat + embedder, Transcribe STT).
-  // Dedicated namespace — independent of the generic aws_* keys used by tools.
-  AWS_PROVIDER_ACCESS_KEY_ID: "aws_provider_access_key_id",
-  AWS_PROVIDER_SECRET_ACCESS_KEY: "aws_provider_secret_access_key",
-  AWS_PROVIDER_REGION: "aws_provider_region",
-  LANGSMITH: "langsmith_api_key",
-  AUTH: "auth_api_key",
-  DEEPGRAM: "deepgram_api_key",
-} as const;
 
 type STTProvider = "openai" | "aws" | "deepgram";
 
@@ -127,11 +141,17 @@ function humanizeSecretKey(key: string): string {
     .join(" ");
 }
 
-export function SettingsTab({ instance, onUpdate }: Props) {
+export function SettingsTab({ instance, onUpdate, section }: Props) {
   const { t } = useI18n();
   const [secrets, setSecrets] = useState<SecretStatus[]>([]);
-  // SECRET_READ is admin+; member/viewer get a 403 on secrets.list. Hide the
-  // provider-secret UI for them instead of surfacing a misleading error.
+  // `agent.secret:read` is MEMBER+ now (a member configures an agent end to end,
+  // credentials included — docs/rbac-permission-matrix.md), so only a viewer gets a
+  // 403 on secrets.list. Hide the provider-secret UI for them instead of surfacing
+  // a misleading error.
+  //
+  // Derived from the engine's actual answer rather than from a client-side
+  // permission check, deliberately: one source (the 403) cannot disagree with
+  // enforcement the way a second, hand-maintained gate could.
   const [canReadSecrets, setCanReadSecrets] = useState(true);
   const [modelsData, setModelsData] = useState<ModelsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -219,10 +239,8 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   const [wipeOpen, setWipeOpen] = useState(false);
 
 
-  // Instance-level settings
-  const [authEnabled, setAuthEnabled] = useState(instance.authEnabled);
-  const [langsmithEnabled, setLangsmithEnabled] = useState(instance.langsmithEnabled);
-  const [langsmithProject, setLangsmithProject] = useState(instance.langsmithProject ?? "");
+  // `authEnabled` is NOT here any more: it gates the HTTP surface, so it lives with
+  // the Web/API channel, beside the key that satisfies it.
 
   // Audio (STT)
   const [sttProvider, setSttProvider] = useState<STTProvider>(
@@ -282,11 +300,23 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   const isConfigured = (key: string) =>
     secrets.some((s) => s.key === key && s.configured);
 
-  // The client-side "is the embedder configured" rule used to live here. It is
-  // gone: the engine reports it on `instance.embedder`, which the Knowledge tab
-  // reads. Recomputing it in the browser was also subtly wrong — the client cannot
-  // see the engine's AWS_REGION fallback, so a bedrock instance relying on it
-  // showed a false positive.
+
+  // The client-side "is the embedder configured" rule used to live here, unused
+  // since the knowledge switch moved to its own tab. It is gone: the engine reports
+  // it on `instance.embedder`, which the Knowledge tab reads. Recomputing it in the
+  // browser was also subtly wrong — the client cannot see the engine's AWS_REGION
+  // fallback.
+
+  // Which provider sections this agent needs: the provider is selected for chat,
+  // for the embedder, or for STT. `langsmith` is deliberately absent — its key is
+  // rendered next to the LangSmith enable switch below, where it is discoverable,
+  // rather than in a section that would appear far above the toggle that reveals it.
+  const providerSectionInUse: Partial<Record<ProviderSectionId, boolean>> = {
+    openai: provider === "openai" || embeddingProvider === "openai" || sttProvider === "openai",
+    anthropic: provider === "anthropic",
+    nebius: provider === "nebius",
+    aws: provider === "bedrock" || embeddingProvider === "bedrock" || sttProvider === "aws",
+  };
 
   const providerNames = modelsData ? Object.keys(modelsData.providers) : [];
 
@@ -389,24 +419,34 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     setModel("");
   };
 
-  const isDirty =
+  // Per-section, so the Save button of one half never lights up for an edit made in
+  // the other — and, more importantly, so its payload carries only its own fields.
+  const modelDirty =
     provider !== (instance.provider ?? "") ||
     model !== (instance.model ?? "") ||
     embeddingProvider !== ((instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai") ||
     thinkingToPersist !== instance.thinkingEnabled ||
     thinkingLevel !== (instance.thinkingLevel ?? "medium") ||
     temperature !== (instance.temperature ?? null) ||
-    stateInPromptEnabled !== instance.stateInPromptEnabled ||
-    datetimeInjectionEnabled !== instance.datetimeInjectionEnabled ||
     cacheEnabled !== instance.cacheEnabled ||
     cacheTtl !== instance.cacheTtl ||
-    toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
-    debugEnabled !== (instance.debugEnabled ?? false) ||
-    Object.values(secretFields).some((f) => f.value !== f.initial) ||
-    authEnabled !== instance.authEnabled ||
-    langsmithEnabled !== instance.langsmithEnabled ||
-    langsmithProject !== (instance.langsmithProject ?? "") ||
     sttProvider !== ((instance.sttProvider as STTProvider | null) ?? "openai");
+
+  const paramsDirty =
+    stateInPromptEnabled !== instance.stateInPromptEnabled ||
+    datetimeInjectionEnabled !== instance.datetimeInjectionEnabled ||
+    toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
+    debugEnabled !== (instance.debugEnabled ?? false);
+
+  // The two secret pages are dirty on their fields; the two settings pages on
+  // theirs. Nothing overlaps, so no page can save another's values.
+  const secretsDirty = Object.values(secretFields).some((f) => f.value !== f.initial);
+  const isDirty =
+    section === "credentials" || section === "toolSecrets"
+      ? secretsDirty
+      : section === "model"
+        ? modelDirty
+        : paramsDirty;
 
   const performSave = async (confirmWipe: boolean) => {
     setSaving(true);
@@ -432,29 +472,36 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         });
       }
 
-      // 2. Save instance-level settings. `confirmWipe` acknowledges that an
-      // embedding-provider change permanently deletes memories + knowledge; the
-      // engine rejects the switch without it when there is data to lose.
-      const { instance: updated } = await api.instances.update(instance.slug, {
-        provider: provider || null,
-        model: model || null,
-        embeddingProvider,
-        authEnabled,
-        thinkingEnabled: thinkingToPersist,
-        thinkingLevel,
-        temperature: canSetTemperature ? temperature : null,
-        stateInPromptEnabled,
-        datetimeInjectionEnabled,
-        cacheEnabled,
-        cacheTtl,
-        toolResultsInHistoryEnabled,
-        debugEnabled,
-        langsmithEnabled,
-        langsmithProject: langsmithProject || null,
-        sttProvider,
-        confirmWipe,
-      });
-      onUpdate(updated);
+      // 2. Save instance-level settings — the two secret pages have none, so they
+      // stop here rather than sending an update the engine would apply to nothing.
+      // `confirmWipe` acknowledges that an embedding-provider change permanently
+      // deletes memories + knowledge; the engine rejects the switch without it when
+      // there is data to lose.
+      if (section === "model" || section === "params") {
+        const { instance: updated } = await api.instances.update(
+          instance.slug,
+          section === "model"
+            ? {
+                provider: provider || null,
+                model: model || null,
+                embeddingProvider,
+                thinkingEnabled: thinkingToPersist,
+                thinkingLevel,
+                temperature: canSetTemperature ? temperature : null,
+                cacheEnabled,
+                cacheTtl,
+                sttProvider,
+                confirmWipe,
+              }
+            : {
+                stateInPromptEnabled,
+                datetimeInjectionEnabled,
+                toolResultsInHistoryEnabled,
+                debugEnabled,
+              },
+        );
+        onUpdate(updated);
+      }
 
       // Clear input fields after save
       clearAllSecretValues();
@@ -504,16 +551,283 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     }
   };
 
+  // The tools' and hooks' required secrets, rendered by the `params` section: a
+  // key exists because a tool asked for it, so it belongs beside the tool list,
+  // not beside the model picker. Extracted to a variable so the two sections stay
+  // two returns of one component rather than a copy of this block each.
+  const requiredSecretsBlock = (
+    <>
+        {requiredSecretSpecs.length > 0 ? (
+          /* No card and no heading: the section's own title says what these are,
+             and the box around a handful of fields framed nothing. */
+          <div className="space-y-4">
+            {requiredSecretSpecs.map((spec) => {
+              const label = spec.label ?? humanizeSecretKey(spec.key);
+              if (spec.type === "select") {
+                return (
+                  <ToolSelectField
+                    key={spec.key}
+                    label={label}
+                    description={spec.description}
+                    configured={isConfigured(spec.key)}
+                    value={secretValue(spec.key)}
+                    choices={spec.choices ?? []}
+                    onChange={(v) => setSecretValue(spec.key, v)}
+                    configuredLabel={t("settings.tab.configured")}
+                    notConfiguredLabel={t("settings.tab.notConfigured")}
+                  />
+                );
+              }
+              if (spec.sensitive === false) {
+                return (
+                  <ReadableField
+                    key={spec.key}
+                    label={label}
+                    sublabel={spec.description}
+                    value={secretValue(spec.key)}
+                    onChange={(v) => setSecretValue(spec.key, v)}
+                    configured={isConfigured(spec.key)}
+                    placeholder={isConfigured(spec.key) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
+                    onRemove={isConfigured(spec.key) ? () => handleRemoveSecret(spec.key) : undefined}
+                  />
+                );
+              }
+              return (
+                <SecretField
+                  key={spec.key}
+                  label={label}
+                  sublabel={spec.description}
+                  value={secretValue(spec.key)}
+                  onChange={(v) => setSecretValue(spec.key, v)}
+                  configured={isConfigured(spec.key)}
+                  visible={secretVisible(spec.key)}
+                  onToggleVisibility={() => toggleSecretVisibility(spec.key)}
+                  placeholder={isConfigured(spec.key) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
+                  onRemove={isConfigured(spec.key) ? () => handleRemoveSecret(spec.key) : undefined}
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <p className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+            {t("settings.tab.noRequiredSecrets")}
+          </p>
+        )}
+    </>
+  );
+
+  /*
+    Provider credentials — one block per provider, from the shared
+    PROVIDER_SECRET_SECTIONS the organization page renders too.
+
+    ONE visibility rule for every provider (generalized from what the AWS card
+    already did): a block shows when that provider is selected for chat, the
+    embedder or STT. The selects on the model page drive it off the loaded
+    instance, so a provider is authenticable as soon as it is chosen.
+
+    SECRET_READ only (hidden for member/viewer).
+  */
+  const providerCredentialsBlock = (
+    <>
+      {canReadSecrets &&
+        PROVIDER_SECRET_SECTIONS.filter((s) => providerSectionInUse[s.id] === true).map(
+          (providerSection) => (
+            <section key={providerSection.id} className="space-y-4 rounded-lg border p-4">
+              <div>
+                <Label className="text-base font-medium">{t(providerSection.titleKey)}</Label>
+                {providerSection.helpKey && (
+                  <p className="text-sm text-muted-foreground">{t(providerSection.helpKey)}</p>
+                )}
+              </div>
+
+              {providerSection.fields.map((field) => {
+                const placeholder = isConfigured(field.key)
+                  ? t("settings.tab.keyPlaceholderSet")
+                  : t(field.placeholderKey ?? "settings.tab.keyPlaceholder");
+                const shared = {
+                  label: t(field.labelKey),
+                  value: secretValue(field.key),
+                  onChange: (v: string) => setSecretValue(field.key, v),
+                  configured: isConfigured(field.key),
+                  placeholder,
+                  onRemove: isConfigured(field.key)
+                    ? () => handleRemoveSecret(field.key)
+                    : undefined,
+                };
+                // A region is config, not a credential — never masked.
+                return field.sensitive === false ? (
+                  <ReadableField key={field.key} {...shared} />
+                ) : (
+                  <SecretField
+                    key={field.key}
+                    {...shared}
+                    visible={secretVisible(field.key)}
+                    onToggleVisibility={() => toggleSecretVisibility(field.key)}
+                  />
+                );
+              })}
+
+              {providerSection.id === "aws" && (
+                <div className="flex items-start gap-2 rounded-md bg-blue-50 p-3 text-blue-900 dark:bg-blue-950/50 dark:text-blue-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p className="text-sm">{t("settings.tab.awsFallbackNote")}</p>
+                </div>
+              )}
+            </section>
+          ),
+        )}
+
+      {/* Deepgram is not a PROVIDER_SECRET_SECTIONS entry — it is reached only by
+          the speech-to-text picker — but its key is a credential, and credentials
+          have one home now. */}
+      {canReadSecrets && sttProvider === "deepgram" && (
+        <section className="space-y-4 rounded-lg border p-4">
+          <div>
+            <Label className="text-base font-medium">{t("settings.tab.stt")}</Label>
+          </div>
+          <SecretField
+            label={t("settings.tab.deepgramKey")}
+            value={secretValue(SECRET_KEYS.DEEPGRAM)}
+            onChange={(v) => setSecretValue(SECRET_KEYS.DEEPGRAM, v)}
+            configured={isConfigured(SECRET_KEYS.DEEPGRAM)}
+            visible={secretVisible(SECRET_KEYS.DEEPGRAM)}
+            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.DEEPGRAM)}
+            placeholder={
+              isConfigured(SECRET_KEYS.DEEPGRAM)
+                ? t("settings.tab.keyPlaceholderSet")
+                : t("settings.tab.keyPlaceholder")
+            }
+            onRemove={
+              isConfigured(SECRET_KEYS.DEEPGRAM)
+                ? () => handleRemoveSecret(SECRET_KEYS.DEEPGRAM)
+                : undefined
+            }
+          />
+        </section>
+      )}
+    </>
+  );
+
   if (loading) {
-    return <div className="max-w-2xl animate-pulse space-y-4">
+    return <div className="animate-pulse space-y-4">
       <div className="h-48 rounded-lg bg-muted" />
       <div className="h-32 rounded-lg bg-muted" />
       <div className="h-48 rounded-lg bg-muted" />
     </div>;
   }
 
+  if (section === "credentials") {
+    return <div className="space-y-8">{providerCredentialsBlock}</div>;
+  }
+
+  // The tools' own keys, beside the tool list — not with the provider ones.
+  if (section === "toolSecrets") {
+    return <div className="space-y-8">{requiredSecretsBlock}</div>;
+  }
+
+  /*
+    Behaviour parameters — what the engine puts in front of the model on every
+    turn, and what it keeps afterwards. A sibling of the model picker rather than
+    a destination of their own: none of them is a property of WHICH model runs,
+    but all of them are read while deciding how the agent thinks.
+  */
+  const behaviourParamsBlock = (
+        <section className="space-y-4 rounded-lg border p-4">
+          <div>
+            <Label className="text-base font-medium">{t("settings.tab.params")}</Label>
+            <p className="text-sm text-muted-foreground">{t("settings.tab.paramsHelp")}</p>
+          </div>
+
+          {/*
+            Conversation state store visibility. When on, the engine renders the
+            per-conversation state (read-only) into the system prompt. Default off
+            keeps the state purely tool-to-tool. Not model-gated.
+          */}
+          <div className="flex items-start justify-between gap-4 border-t pt-4">
+            <div className="space-y-1">
+              <Label htmlFor="agent-state-in-prompt" className="text-sm font-medium">
+                {t("settings.tab.stateInPrompt")}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.stateInPromptHelp")}
+              </p>
+            </div>
+            <Switch
+              id="agent-state-in-prompt"
+              checked={stateInPromptEnabled}
+              onCheckedChange={setStateInPromptEnabled}
+            />
+          </div>
+
+          {/*
+            Datetime injection. When on, the engine injects the current date/time
+            into every turn as a <current_datetime> tag. Default on; off = a
+            time-agnostic assistant.
+          */}
+          <div className="flex items-start justify-between gap-4 border-t pt-4">
+            <div className="space-y-1">
+              <Label htmlFor="agent-datetime-injection" className="text-sm font-medium">
+                {t("settings.tab.datetimeInjection")}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.datetimeInjectionHelp")}
+              </p>
+            </div>
+            <Switch
+              id="agent-datetime-injection"
+              checked={datetimeInjectionEnabled}
+              onCheckedChange={setDatetimeInjectionEnabled}
+            />
+          </div>
+
+          {/*
+            Tool-result replay. When on, the engine reconstructs prior-turn
+            tool_use/tool_result blocks (truncated) into the model's history so it
+            retains what tools returned across turns. Default off (extra tokens).
+          */}
+          <div className="flex items-start justify-between gap-4 border-t pt-4">
+            <div className="space-y-1">
+              <Label htmlFor="agent-tool-results-history" className="text-sm font-medium">
+                {t("settings.tab.toolResultsInHistory")}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.toolResultsInHistoryHelp")}
+              </p>
+            </div>
+            <Switch
+              id="agent-tool-results-history"
+              checked={toolResultsInHistoryEnabled}
+              onCheckedChange={setToolResultsInHistoryEnabled}
+            />
+          </div>
+
+          {/*
+            DEBUG mode. When on, the engine persists the exact LLM request payload
+            (full system prompt, the messages array sent, and the tool definitions)
+            per turn, viewable from the playground / conversation message detail.
+            Default off — heavy and stores PII at rest.
+          */}
+          <div className="flex items-start justify-between gap-4 border-t pt-4">
+            <div className="space-y-1">
+              <Label htmlFor="agent-debug" className="text-sm font-medium">
+                {t("settings.tab.debug")}
+              </Label>
+              <p className="text-xs text-muted-foreground">{t("settings.tab.debugHelp")}</p>
+            </div>
+            <Switch id="agent-debug" checked={debugEnabled} onCheckedChange={setDebugEnabled} />
+          </div>
+        </section>
+  );
+
+  /* The Parametri page is only this block — memory and diagnostics sit beside it,
+     rendered by `params-tab.tsx`, each with its own save. */
+  if (section === "params") {
+    return <div className="space-y-8">{behaviourParamsBlock}</div>;
+  }
+
+
   return (
-    <div className="max-w-2xl space-y-8">
+    <div className="space-y-8">
       {/* AI Model */}
       <section className="space-y-4 rounded-lg border p-4">
         <div className="flex items-start justify-between">
@@ -795,46 +1109,6 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         </div>
 
         {/*
-          Conversation state store visibility. When on, the engine renders the
-          per-conversation state (read-only) into the system prompt. Default off
-          keeps the state purely tool-to-tool. Not model-gated.
-        */}
-        <div className="flex items-start justify-between gap-4 border-t pt-4">
-          <div className="space-y-1">
-            <Label className="text-sm font-medium">
-              {t("settings.tab.stateInPrompt")}
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              {t("settings.tab.stateInPromptHelp")}
-            </p>
-          </div>
-          <Switch
-            checked={stateInPromptEnabled}
-            onCheckedChange={setStateInPromptEnabled}
-          />
-        </div>
-
-        {/*
-          Datetime injection. When on, the engine injects the current date/time
-          into every turn as a <current_datetime> tag. Default on; off = a
-          time-agnostic assistant.
-        */}
-        <div className="flex items-start justify-between gap-4 border-t pt-4">
-          <div className="space-y-1">
-            <Label className="text-sm font-medium">
-              {t("settings.tab.datetimeInjection")}
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              {t("settings.tab.datetimeInjectionHelp")}
-            </p>
-          </div>
-          <Switch
-            checked={datetimeInjectionEnabled}
-            onCheckedChange={setDatetimeInjectionEnabled}
-          />
-        </div>
-
-        {/*
           Prompt-cache control. Anthropic/Bedrock honour the on/off switch (off
           skips the cache marker → no cache write). OpenAI caches automatically
           (locked on); Nebius has no prompt-cache API (unavailable). TTL applies to
@@ -878,171 +1152,15 @@ export function SettingsTab({ instance, onUpdate }: Props) {
           )}
         </div>
 
-        {/*
-          Tool-result replay. When on, the engine reconstructs prior-turn
-          tool_use/tool_result blocks (truncated) into the model's history so it
-          retains what tools returned across turns. Default off (extra tokens).
-        */}
-        <div className="flex items-start justify-between gap-4 border-t pt-4">
-          <div className="space-y-1">
-            <Label className="text-sm font-medium">
-              {t("settings.tab.toolResultsInHistory")}
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              {t("settings.tab.toolResultsInHistoryHelp")}
-            </p>
-          </div>
-          <Switch
-            checked={toolResultsInHistoryEnabled}
-            onCheckedChange={setToolResultsInHistoryEnabled}
-          />
-        </div>
-
-        {/*
-          DEBUG mode. When on, the engine persists the exact LLM request payload
-          (full system prompt, the messages array sent, and the tool definitions)
-          per turn, viewable from the playground / conversation message detail.
-          Default off — heavy and stores PII at rest.
-        */}
-        <div className="flex items-start justify-between gap-4 border-t pt-4">
-          <div className="space-y-1">
-            <Label className="text-sm font-medium">
-              {t("settings.tab.debug")}
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              {t("settings.tab.debugHelp")}
-            </p>
-          </div>
-          <Switch
-            checked={debugEnabled}
-            onCheckedChange={setDebugEnabled}
-          />
-        </div>
       </section>
 
-      {/* AI Provider API Keys — SECRET_READ only (hidden for member/viewer) */}
-      {canReadSecrets && (
-      <section className="space-y-4 rounded-lg border p-4">
-        <div>
-          <Label className="text-base font-medium">{t("settings.tab.apiKeys")}</Label>
-          <p className="text-sm text-muted-foreground">
-            {t("settings.tab.apiKeysHelp")}
-          </p>
-        </div>
 
-        <SecretField
-          label={t("settings.tab.openaiKey")}
-          value={secretValue(SECRET_KEYS.OPENAI)}
-          onChange={(v) => setSecretValue(SECRET_KEYS.OPENAI, v)}
-          configured={isConfigured(SECRET_KEYS.OPENAI)}
-          visible={secretVisible(SECRET_KEYS.OPENAI)}
-          onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.OPENAI)}
-          placeholder={isConfigured(SECRET_KEYS.OPENAI) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-          onRemove={isConfigured(SECRET_KEYS.OPENAI) ? () => handleRemoveSecret(SECRET_KEYS.OPENAI) : undefined}
-        />
-
-        <SecretField
-          label={t("settings.tab.anthropicKey")}
-          value={secretValue(SECRET_KEYS.ANTHROPIC)}
-          onChange={(v) => setSecretValue(SECRET_KEYS.ANTHROPIC, v)}
-          configured={isConfigured(SECRET_KEYS.ANTHROPIC)}
-          visible={secretVisible(SECRET_KEYS.ANTHROPIC)}
-          onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.ANTHROPIC)}
-          placeholder={isConfigured(SECRET_KEYS.ANTHROPIC) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-          onRemove={isConfigured(SECRET_KEYS.ANTHROPIC) ? () => handleRemoveSecret(SECRET_KEYS.ANTHROPIC) : undefined}
-        />
-
-        <SecretField
-          label={t("settings.tab.nebiusKey")}
-          value={secretValue(SECRET_KEYS.NEBIUS)}
-          onChange={(v) => setSecretValue(SECRET_KEYS.NEBIUS, v)}
-          configured={isConfigured(SECRET_KEYS.NEBIUS)}
-          visible={secretVisible(SECRET_KEYS.NEBIUS)}
-          onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.NEBIUS)}
-          placeholder={isConfigured(SECRET_KEYS.NEBIUS) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-          onRemove={isConfigured(SECRET_KEYS.NEBIUS) ? () => handleRemoveSecret(SECRET_KEYS.NEBIUS) : undefined}
-        />
-      </section>
-      )}
-
-      {/*
-        AWS provider credentials — shown whenever ANY AWS-backed AI service is in
-        use: Bedrock chat, Bedrock embedder, or Transcribe STT. One shared set for
-        all three (same AWS account), dedicated to the AI provider and independent
-        of the generic aws_* secrets a tool may declare.
-      */}
-      {canReadSecrets && (provider === "bedrock" || embeddingProvider === "bedrock" || sttProvider === "aws") && (
-        <section className="space-y-4 rounded-lg border p-4">
-          <div>
-            <Label className="text-base font-medium">{t("settings.tab.awsCredentials")}</Label>
-            <p className="text-sm text-muted-foreground">
-              {t("settings.tab.awsCredentialsHelp")}
-            </p>
-          </div>
-
-          <SecretField
-            label={t("settings.tab.bedrockApiKey")}
-            value={secretValue(SECRET_KEYS.BEDROCK_API_KEY)}
-            onChange={(v) => setSecretValue(SECRET_KEYS.BEDROCK_API_KEY, v)}
-            configured={isConfigured(SECRET_KEYS.BEDROCK_API_KEY)}
-            visible={secretVisible(SECRET_KEYS.BEDROCK_API_KEY)}
-            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.BEDROCK_API_KEY)}
-            placeholder={isConfigured(SECRET_KEYS.BEDROCK_API_KEY) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-            onRemove={isConfigured(SECRET_KEYS.BEDROCK_API_KEY) ? () => handleRemoveSecret(SECRET_KEYS.BEDROCK_API_KEY) : undefined}
-          />
-
-          <SecretField
-            label={t("settings.tab.awsAccessKeyId")}
-            value={secretValue(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID)}
-            onChange={(v) => setSecretValue(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID, v)}
-            configured={isConfigured(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID)}
-            visible={secretVisible(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID)}
-            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID)}
-            placeholder={isConfigured(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID) ? t("settings.tab.keyPlaceholderSet") : "AKIA..."}
-            onRemove={isConfigured(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID) ? () => handleRemoveSecret(SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID) : undefined}
-          />
-
-          <SecretField
-            label={t("settings.tab.awsSecretAccessKey")}
-            value={secretValue(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY)}
-            onChange={(v) => setSecretValue(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY, v)}
-            configured={isConfigured(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY)}
-            visible={secretVisible(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY)}
-            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY)}
-            placeholder={isConfigured(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-            onRemove={isConfigured(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY) ? () => handleRemoveSecret(SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY) : undefined}
-          />
-
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Label>{t("settings.tab.awsRegion")}</Label>
-              {isConfigured(SECRET_KEYS.AWS_PROVIDER_REGION) && (
-                <Badge variant="default" className="text-xs">
-                  {t("settings.tab.configured")}
-                </Badge>
-              )}
-            </div>
-            <Input
-              value={secretValue(SECRET_KEYS.AWS_PROVIDER_REGION)}
-              onChange={(e) => setSecretValue(SECRET_KEYS.AWS_PROVIDER_REGION, e.target.value)}
-              placeholder={isConfigured(SECRET_KEYS.AWS_PROVIDER_REGION) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.awsRegionPlaceholder")}
-            />
-          </div>
-
-          <div className="flex items-start gap-2 rounded-md bg-blue-50 p-3 text-blue-900 dark:bg-blue-950/50 dark:text-blue-200">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p className="text-sm">{t("settings.tab.awsFallbackNote")}</p>
-          </div>
-        </section>
-      )}
-
-      {/* Audio (STT) */}
+      {/* Audio (STT) — which engine transcribes voice notes. Its key, when the
+          choice needs one, is in Credenziali with every other key. */}
       <section className="space-y-4 rounded-lg border p-4">
         <div>
           <Label className="text-base font-medium">{t("settings.tab.stt")}</Label>
-          <p className="text-sm text-muted-foreground">
-            {t("settings.tab.sttHelp")}
-          </p>
+          <p className="text-sm text-muted-foreground">{t("settings.tab.sttHelp")}</p>
         </div>
 
         <div className="space-y-2">
@@ -1058,160 +1176,6 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             </SelectContent>
           </Select>
         </div>
-
-        {sttProvider === "deepgram" && (
-          <SecretField
-            label={t("settings.tab.deepgramKey")}
-            value={secretValue(SECRET_KEYS.DEEPGRAM)}
-            onChange={(v) => setSecretValue(SECRET_KEYS.DEEPGRAM, v)}
-            configured={isConfigured(SECRET_KEYS.DEEPGRAM)}
-            visible={secretVisible(SECRET_KEYS.DEEPGRAM)}
-            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.DEEPGRAM)}
-            placeholder={isConfigured(SECRET_KEYS.DEEPGRAM) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-            onRemove={isConfigured(SECRET_KEYS.DEEPGRAM) ? () => handleRemoveSecret(SECRET_KEYS.DEEPGRAM) : undefined}
-          />
-        )}
-      </section>
-
-      {/* Required secrets (tools + hooks) */}
-      {requiredSecretSpecs.length > 0 ? (
-        <section className="space-y-4 rounded-lg border p-4">
-          <div>
-            <Label className="text-base font-medium">{t("settings.tab.requiredSecrets")}</Label>
-            <p className="text-sm text-muted-foreground">
-              {t("settings.tab.requiredSecretsHelp")}
-            </p>
-          </div>
-
-          {requiredSecretSpecs.map((spec) => {
-            const label = spec.label ?? humanizeSecretKey(spec.key);
-            if (spec.type === "select") {
-              return (
-                <ToolSelectField
-                  key={spec.key}
-                  label={label}
-                  description={spec.description}
-                  configured={isConfigured(spec.key)}
-                  value={secretValue(spec.key)}
-                  choices={spec.choices ?? []}
-                  onChange={(v) => setSecretValue(spec.key, v)}
-                  configuredLabel={t("settings.tab.configured")}
-                  notConfiguredLabel={t("settings.tab.notConfigured")}
-                />
-              );
-            }
-            if (spec.sensitive === false) {
-              return (
-                <ReadableField
-                  key={spec.key}
-                  label={label}
-                  sublabel={spec.description}
-                  value={secretValue(spec.key)}
-                  onChange={(v) => setSecretValue(spec.key, v)}
-                  configured={isConfigured(spec.key)}
-                  placeholder={isConfigured(spec.key) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-                  onRemove={isConfigured(spec.key) ? () => handleRemoveSecret(spec.key) : undefined}
-                />
-              );
-            }
-            return (
-              <SecretField
-                key={spec.key}
-                label={label}
-                sublabel={spec.description}
-                value={secretValue(spec.key)}
-                onChange={(v) => setSecretValue(spec.key, v)}
-                configured={isConfigured(spec.key)}
-                visible={secretVisible(spec.key)}
-                onToggleVisibility={() => toggleSecretVisibility(spec.key)}
-                placeholder={isConfigured(spec.key) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-                onRemove={isConfigured(spec.key) ? () => handleRemoveSecret(spec.key) : undefined}
-              />
-            );
-          })}
-        </section>
-      ) : (
-        <section className="space-y-4 rounded-lg border p-4">
-          <div>
-            <Label className="text-base font-medium">{t("settings.tab.requiredSecrets")}</Label>
-            <p className="text-sm text-muted-foreground">
-              {t("settings.tab.noRequiredSecrets")}
-            </p>
-          </div>
-        </section>
-      )}
-
-      {/* API Authentication */}
-      <section className="space-y-4 rounded-lg border p-4">
-        <div>
-          <Label className="text-base font-medium">{t("settings.tab.auth")}</Label>
-          <p className="text-sm text-muted-foreground">
-            {t("settings.tab.authHelp")}
-          </p>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <Label>{t("settings.tab.authEnabled")}</Label>
-          <Switch
-            checked={authEnabled}
-            onCheckedChange={setAuthEnabled}
-          />
-        </div>
-
-        {authEnabled && (
-          <SecretField
-            label={t("settings.tab.authApiKey")}
-            value={secretValue(SECRET_KEYS.AUTH)}
-            onChange={(v) => setSecretValue(SECRET_KEYS.AUTH, v)}
-            configured={isConfigured(SECRET_KEYS.AUTH)}
-            visible={secretVisible(SECRET_KEYS.AUTH)}
-            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.AUTH)}
-            placeholder={isConfigured(SECRET_KEYS.AUTH) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.authKeyPlaceholder")}
-            onRemove={isConfigured(SECRET_KEYS.AUTH) ? () => handleRemoveSecret(SECRET_KEYS.AUTH) : undefined}
-          />
-        )}
-      </section>
-
-      {/* LangSmith Tracing */}
-      <section className="space-y-4 rounded-lg border p-4">
-        <div>
-          <Label className="text-base font-medium">{t("settings.tab.langsmith")}</Label>
-          <p className="text-sm text-muted-foreground">
-            {t("settings.tab.langsmithHelp")}
-          </p>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <Label>{t("settings.tab.langsmithEnabled")}</Label>
-          <Switch
-            checked={langsmithEnabled}
-            onCheckedChange={setLangsmithEnabled}
-          />
-        </div>
-
-        {langsmithEnabled && (
-          <>
-            <div className="space-y-2">
-              <Label>{t("settings.tab.langsmithProject")}</Label>
-              <Input
-                value={langsmithProject}
-                onChange={(e) => setLangsmithProject(e.target.value)}
-                placeholder={t("settings.tab.langsmithProjectPlaceholder")}
-              />
-            </div>
-
-            <SecretField
-              label={t("settings.tab.langsmithApiKey")}
-              value={secretValue(SECRET_KEYS.LANGSMITH)}
-              onChange={(v) => setSecretValue(SECRET_KEYS.LANGSMITH, v)}
-              configured={isConfigured(SECRET_KEYS.LANGSMITH)}
-              visible={secretVisible(SECRET_KEYS.LANGSMITH)}
-              onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.LANGSMITH)}
-              placeholder={isConfigured(SECRET_KEYS.LANGSMITH) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-              onRemove={isConfigured(SECRET_KEYS.LANGSMITH) ? () => handleRemoveSecret(SECRET_KEYS.LANGSMITH) : undefined}
-            />
-          </>
-        )}
       </section>
 
       {/* Provider-change destructive wipe confirmation */}
@@ -1238,6 +1202,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
     </div>
   );
 }
+
+
+/** The "you need not configure this" line, shown only when nothing local overrides it. */
 
 // ── Readable Field Component ────────────────────────────────────────
 // For tool config fields with sensitive === false (e.g. a base URL):
@@ -1267,9 +1234,7 @@ function ReadableField({
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Label>{label}</Label>
-        <Badge variant={configured ? "default" : "secondary"} className="text-xs">
-          {configured ? t("settings.tab.configured") : t("settings.tab.notConfigured")}
-        </Badge>
+        <SecretStatusBadge configured={configured} />
       </div>
       {sublabel && <p className="text-xs text-muted-foreground">{sublabel}</p>}
       <div className="flex gap-2">
@@ -1313,17 +1278,6 @@ function ReadableField({
 
 // ── Secret Field Component ──────────────────────────────────────────
 
-interface SecretFieldProps {
-  label: string;
-  sublabel?: string;
-  value: string;
-  onChange: (value: string) => void;
-  configured: boolean;
-  visible: boolean;
-  onToggleVisibility: () => void;
-  placeholder: string;
-  onRemove?: () => void;
-}
 
 interface ToolSelectFieldProps {
   label: string;
@@ -1369,73 +1323,6 @@ function ToolSelectField({
           ))}
         </SelectContent>
       </Select>
-    </div>
-  );
-}
-
-function SecretField({
-  label,
-  sublabel,
-  value,
-  onChange,
-  configured,
-  visible,
-  onToggleVisibility,
-  placeholder,
-  onRemove,
-}: SecretFieldProps) {
-  const { t } = useI18n();
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Label>{label}</Label>
-        <Badge variant={configured ? "default" : "secondary"} className="text-xs">
-          {configured ? t("settings.tab.configured") : t("settings.tab.notConfigured")}
-        </Badge>
-      </div>
-      {sublabel && (
-        <p className="text-xs text-muted-foreground">{sublabel}</p>
-      )}
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Input
-            type={visible ? "text" : "password"}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-          />
-          <button
-            type="button"
-            onClick={onToggleVisibility}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-          >
-            {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        {onRemove && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="icon" className="shrink-0 text-destructive">
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{t("settings.tab.removeKeyTitle")}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {t("settings.tab.removeKeyDescription")}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                <AlertDialogAction onClick={onRemove} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                  {t("settings.tab.removeKey")}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
-      </div>
     </div>
   );
 }

@@ -4,9 +4,9 @@
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { parseUTC } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
+import { useFormat } from "@/lib/use-format";
 
 export interface BacklogEvent {
   id: string;
@@ -32,6 +32,7 @@ interface Props {
 
 export function BacklogSection({ backlog, status, onStatusChange }: Props) {
   const { t } = useI18n();
+  const fmt = useFormat();
   return (
     <section className="space-y-4">
       <h2 className="text-lg font-semibold">{t("room.backlog.title")}</h2>
@@ -61,7 +62,7 @@ export function BacklogSection({ backlog, status, onStatusChange }: Props) {
               </div>
               <div className="shrink-0 text-right">
                 <Badge variant="secondary">{event.status}</Badge>
-                <p className="mt-1 text-xs text-muted-foreground">{parseUTC(event.createdAt).toLocaleString()}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{fmt.dateTime(event.createdAt)}</p>
               </div>
             </div>
           ))}

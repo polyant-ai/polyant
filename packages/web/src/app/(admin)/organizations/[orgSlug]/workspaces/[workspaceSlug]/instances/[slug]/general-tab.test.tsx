@@ -2,35 +2,63 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 import { GeneralTab } from "./general-tab";
+import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import type { Instance } from "@/lib/api";
+
+function SaveButton() {
+  const { saveAction } = usePageActions();
+  if (!saveAction?.isDirty) return null;
+  return (
+    <button
+      onClick={() => saveAction.onSave()}
+      disabled={saveAction.saving}
+    >
+      {saveAction.saving ? "common.saving" : "common.save"}
+    </button>
+  );
+}
+
+function renderWithProvider(ui: ReactElement) {
+  return render(
+    <PageActionsProvider>
+      {ui}
+      <SaveButton />
+    </PageActionsProvider>,
+  );
+}
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
-const { mockUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
+const {
+  mockUpdate,
+  mockToastSuccess,
+  mockToastError,
+  mockSecretsList,
+  mockSecretsSet,
+  mockSecretsDelete,
+  mockOrgSecretsList,
+} = vi.hoisted(() => ({
   mockUpdate: vi.fn(),
   mockToastSuccess: vi.fn(),
   mockToastError: vi.fn(),
+  // Untyped `vi.fn()` and resolved in `beforeEach`: an inline zero-arg
+  // implementation makes the spread wrapper below a type error.
+  mockSecretsList: vi.fn(),
+  mockSecretsSet: vi.fn(),
+  mockSecretsDelete: vi.fn(),
+  mockOrgSecretsList: vi.fn(),
 }));
+
+// LangSmith moved into this tab, and its key comes through `useInstanceSecret` —
+// which reads the agent's secrets and its organization's to tell "configured"
+// from "inherited". Hence the two extra readers here.
+vi.mock("@/lib/tenant/use-org-slug", () => ({ useOrgSlug: () => "acme" }));
 
 vi.mock("@/lib/i18n/context", () => ({
   useI18n: vi.fn(() => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() })),
   I18nProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
-
-// Mock the page-actions context: the tab uses usePageSaveAction to register
-// its save callback with the top-bar Save button. In tests we capture the
-// most recent registration so the assertions can read isDirty/saving and
-// invoke onSave directly without rendering the top bar.
-const lastSaveAction = vi.hoisted(() => ({
-  current: null as null | { isDirty: boolean; saving: boolean; onSave: () => void | Promise<void> },
-}));
-vi.mock("./page-actions-context", () => ({
-  usePageSaveAction: (a: { isDirty: boolean; saving: boolean; onSave: () => void | Promise<void> }) => {
-    lastSaveAction.current = a;
-  },
-  usePageActions: vi.fn(() => ({ saveAction: null, setSaveAction: vi.fn() })),
-  PageActionsProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock("sonner", () => ({
@@ -45,6 +73,12 @@ vi.mock("@/lib/api", () => ({
     instances: {
       update: (...args: unknown[]) => mockUpdate(...args),
     },
+    secrets: {
+      list: (...args: unknown[]) => mockSecretsList(...args),
+      set: (...args: unknown[]) => mockSecretsSet(...args),
+      delete: (...args: unknown[]) => mockSecretsDelete(...args),
+    },
+    organizationSecrets: { list: (...args: unknown[]) => mockOrgSecretsList(...args) },
   },
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
@@ -94,11 +128,15 @@ describe("GeneralTab", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSecretsList.mockResolvedValue({ secrets: [] });
+    mockSecretsSet.mockResolvedValue({ secrets: [] });
+    mockSecretsDelete.mockResolvedValue({});
+    mockOrgSecretsList.mockResolvedValue({ secrets: [] });
   });
 
   it("renders all form fields with instance values", () => {
     const instance = makeInstance();
-    render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
     // Name field
     expect(screen.getByLabelText("general.name")).toHaveValue("Test Instance");
@@ -117,54 +155,55 @@ describe("GeneralTab", () => {
 
   it("renders with empty description when instance.description is null", () => {
     const instance = makeInstance({ description: null });
-    render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
     expect(screen.getByLabelText("general.description")).toHaveValue("");
   });
 
-  it("registers save action as non-dirty when form has not changed", () => {
+  it("does not show save button when form is not dirty", () => {
     const instance = makeInstance();
-    render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
-    expect(lastSaveAction.current?.isDirty).toBe(false);
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
   });
 
-  it("registers save action as dirty when name is changed", async () => {
+  it("shows save button when name is changed", async () => {
     const user = userEvent.setup();
     const instance = makeInstance();
-    render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
     const nameInput = screen.getByLabelText("general.name");
     await user.clear(nameInput);
     await user.type(nameInput, "New Name");
 
-    expect(lastSaveAction.current?.isDirty).toBe(true);
+    expect(screen.getByText("common.save")).toBeInTheDocument();
   });
 
-  it("registers save action as dirty when description is changed", async () => {
+  it("shows save button when description is changed", async () => {
     const user = userEvent.setup();
     const instance = makeInstance();
-    render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
     const descInput = screen.getByLabelText("general.description");
     await user.clear(descInput);
     await user.type(descInput, "New description");
 
-    expect(lastSaveAction.current?.isDirty).toBe(true);
+    expect(screen.getByText("common.save")).toBeInTheDocument();
   });
 
-  it("registers save action as dirty when status is toggled", async () => {
+  it("shows save button when status is toggled", async () => {
     const user = userEvent.setup();
     const instance = makeInstance({ status: "active" });
-    render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
-    // Named, not positional: this tab holds TWO switches now (status and memory),
+    // Toggle the switch (active -> inactive)
+    // Named, not positional: this tab holds two switches now (status and memory),
     // and `getByRole("switch")` cannot tell them apart — which is also why both
     // carry a label a screen reader can use.
     const toggle = screen.getByLabelText("general.status");
     await user.click(toggle);
 
-    expect(lastSaveAction.current?.isDirty).toBe(true);
+    expect(screen.getByText("common.save")).toBeInTheDocument();
   });
 
   it("saves successfully and calls onUpdate", async () => {
@@ -173,22 +212,22 @@ describe("GeneralTab", () => {
     const updatedInstance = makeInstance({ name: "Updated Name" });
     mockUpdate.mockResolvedValueOnce({ instance: updatedInstance });
 
-    render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
     const nameInput = screen.getByLabelText("general.name");
     await user.clear(nameInput);
     await user.type(nameInput, "Updated Name");
 
-    await lastSaveAction.current!.onSave();
+    const saveBtn = screen.getByText("common.save");
+    await user.click(saveBtn);
 
     await waitFor(() => {
-      // `memoryEnabled` joins the payload: the memory switch moved into this tab,
-      // and the tab sends its whole form.
+      // Identity only. Memory and LangSmith both left for Parametri, and this
+      // payload is where a regression that dragged one back would show.
       expect(mockUpdate).toHaveBeenCalledWith("test-instance", {
         name: "Updated Name",
         description: "A test instance",
         status: "active",
-        memoryEnabled: true,
       });
     });
 
@@ -202,12 +241,13 @@ describe("GeneralTab", () => {
     const updatedInstance = makeInstance({ description: null });
     mockUpdate.mockResolvedValueOnce({ instance: updatedInstance });
 
-    render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
     const descInput = screen.getByLabelText("general.description");
     await user.clear(descInput);
 
-    await lastSaveAction.current!.onSave();
+    const saveBtn = screen.getByText("common.save");
+    await user.click(saveBtn);
 
     await waitFor(() => {
       expect(mockUpdate).toHaveBeenCalledWith("test-instance", expect.objectContaining({
@@ -221,13 +261,14 @@ describe("GeneralTab", () => {
     const instance = makeInstance();
     mockUpdate.mockRejectedValueOnce(new Error("Network error"));
 
-    render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
     const nameInput = screen.getByLabelText("general.name");
     await user.clear(nameInput);
     await user.type(nameInput, "Changed Name");
 
-    await lastSaveAction.current!.onSave();
+    const saveBtn = screen.getByText("common.save");
+    await user.click(saveBtn);
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith("general.saveFailed");
@@ -236,7 +277,7 @@ describe("GeneralTab", () => {
     expect(onUpdate).not.toHaveBeenCalled();
   });
 
-  it("registers saving=true while save is in flight, then false on resolution", async () => {
+  it("disables save button while saving", async () => {
     const user = userEvent.setup();
     const instance = makeInstance();
 
@@ -247,20 +288,26 @@ describe("GeneralTab", () => {
       }),
     );
 
-    render(<GeneralTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<GeneralTab instance={instance} onUpdate={onUpdate} />);
 
     const nameInput = screen.getByLabelText("general.name");
     await user.clear(nameInput);
     await user.type(nameInput, "New");
 
-    const savePromise = lastSaveAction.current!.onSave();
+    const saveBtn = screen.getByText("common.save");
+    await user.click(saveBtn);
 
-    await waitFor(() => expect(lastSaveAction.current?.saving).toBe(true));
+    // While saving, button should show "saving" text and be disabled
+    await waitFor(() => {
+      expect(screen.getByText("common.saving")).toBeDisabled();
+    });
 
+    // Resolve the update
     resolveUpdate!({ instance: makeInstance({ name: "New" }) });
-    await savePromise;
 
-    await waitFor(() => expect(onUpdate).toHaveBeenCalled());
-    expect(lastSaveAction.current?.saving).toBe(false);
+    await waitFor(() => {
+      expect(onUpdate).toHaveBeenCalled();
+    });
   });
 });
+

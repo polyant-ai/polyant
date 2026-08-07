@@ -64,9 +64,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { api, getUserErrorMessage, type ScheduledTask, type ScheduledTaskSchedule } from "@/lib/api";
-import { parseUTC } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
+import { formatDateTime } from "@/lib/format";
 
 interface Props {
   slug: string;
@@ -201,13 +201,14 @@ function StatusBadge({ task, t }: { task: ScheduledTask; t: (key: TranslationKey
   );
 }
 
-function formatDate(iso: string | null): string {
+/** Takes the UI's locale explicitly: a module-level helper has no hook to read it. */
+function formatDate(iso: string | null, locale: string): string {
   if (!iso) return "-";
-  return parseUTC(iso).toLocaleString();
+  return formatDateTime(iso, locale);
 }
 
 export function TriggersScheduledTab({ slug }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -403,8 +404,8 @@ export function TriggersScheduledTab({ slug }: Props) {
                       </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm">{formatDate(task.nextRunAt)}</TableCell>
-                  <TableCell className="text-sm">{formatDate(task.lastRunAt)}</TableCell>
+                  <TableCell className="text-sm">{formatDate(task.nextRunAt, locale)}</TableCell>
+                  <TableCell className="text-sm">{formatDate(task.lastRunAt, locale)}</TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1">
                       <Tooltip>

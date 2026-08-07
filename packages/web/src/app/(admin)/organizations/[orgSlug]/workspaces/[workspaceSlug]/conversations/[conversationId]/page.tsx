@@ -55,6 +55,7 @@ import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
 import { formatRelativeTime, parseUTC } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
+import { useFormat } from "@/lib/use-format";
 
 const MESSAGES_PAGE_SIZE = 50;
 
@@ -67,7 +68,7 @@ const MESSAGES_PAGE_SIZE = 50;
  *  - older              → "22 mag 2024 14:30:25"
  * The locale is the browser's default — same approach as the rest of the page.
  */
-function formatTime(dateStr: string | null): string {
+function formatTime(dateStr: string | null, locale: string): string {
   if (!dateStr) return "";
   const date = parseUTC(dateStr);
   const now = new Date();
@@ -77,7 +78,7 @@ function formatTime(dateStr: string | null): string {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate();
 
-  const time = date.toLocaleTimeString(undefined, {
+  const time = date.toLocaleTimeString(locale, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -88,7 +89,7 @@ function formatTime(dateStr: string | null): string {
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
   if (sameDay(date, yesterday)) {
-    const label = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(-1, "day");
+    const label = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-1, "day");
     return `${label} ${time}`;
   }
 
@@ -97,13 +98,13 @@ function formatTime(dateStr: string | null): string {
   sixDaysAgo.setDate(now.getDate() - 6);
   sixDaysAgo.setHours(0, 0, 0, 0);
   if (date >= sixDaysAgo) {
-    const weekday = date.toLocaleDateString(undefined, { weekday: "short" });
+    const weekday = date.toLocaleDateString(locale, { weekday: "short" });
     return `${weekday} ${time}`;
   }
 
   // Older: include the date. Drop the year for messages in the current year.
   const sameYear = date.getFullYear() === now.getFullYear();
-  const datePart = date.toLocaleDateString(undefined, {
+  const datePart = date.toLocaleDateString(locale, {
     day: "numeric",
     month: "short",
     ...(sameYear ? {} : { year: "numeric" }),
@@ -160,7 +161,8 @@ function AttachmentDisplay({ attachments, isUser }: { attachments: AttachmentMet
 }
 
 export default function ConversationDetailPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const fmt = useFormat();
   const params = useParams<{ conversationId: string }>();
   const router = useRouter();
   const paths = useTenantPaths();
@@ -465,15 +467,15 @@ export default function ConversationDetailPage() {
                     <TooltipTrigger asChild>
                       <Badge variant="outline" className="gap-1 font-normal tabular-nums cursor-help">
                         <Zap className="h-3 w-3" />
-                        {conversation.totalTokens.toLocaleString()} tokens
+                        {fmt.number(conversation.totalTokens)} tokens
                       </Badge>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>{t("conversations.detail.conversationCost")}: {conversation.conversationTokens.toLocaleString()}</p>
-                      <p className="text-muted-foreground">{t("conversations.detail.serviceCost")}: {conversation.serviceTokens.toLocaleString()}</p>
+                      <p>{t("conversations.detail.conversationCost")}: {fmt.number(conversation.conversationTokens)}</p>
+                      <p className="text-muted-foreground">{t("conversations.detail.serviceCost")}: {fmt.number(conversation.serviceTokens)}</p>
                       {conversation.cachedInputTokens + conversation.cacheCreationInputTokens > 0 && (
                         <p className="text-muted-foreground">
-                          {t("conversations.detail.cacheTokens")}: {conversation.cachedInputTokens.toLocaleString()} / {conversation.cacheCreationInputTokens.toLocaleString()}
+                          {t("conversations.detail.cacheTokens")}: {fmt.number(conversation.cachedInputTokens)} / {fmt.number(conversation.cacheCreationInputTokens)}
                         </p>
                       )}
                     </TooltipContent>
@@ -561,7 +563,7 @@ export default function ConversationDetailPage() {
               const exec = item.exec;
               return (
                 <div key={`hook-${exec.id}`} className="flex justify-center">
-                  <HookExecutionPill execution={exec} timestamp={formatTime(exec.createdAt)} />
+                  <HookExecutionPill execution={exec} timestamp={formatTime(exec.createdAt, locale)} />
                 </div>
               );
             }
@@ -583,7 +585,7 @@ export default function ConversationDetailPage() {
                         </p>
                         {msg.createdAt && (
                           <p className="mt-1 text-xs text-amber-600/60 dark:text-amber-400/60">
-                            {formatTime(msg.createdAt)}
+                            {formatTime(msg.createdAt, locale)}
                           </p>
                         )}
                       </div>
@@ -659,7 +661,7 @@ export default function ConversationDetailPage() {
                         : "text-muted-foreground"
                     }`}
                   >
-                    <span>{formatTime(msg.createdAt)}</span>
+                    <span>{formatTime(msg.createdAt, locale)}</span>
                     <button
                       type="button"
                       onClick={() => handleShare(msg.id)}

@@ -14,6 +14,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { ACTIVE_ROW_CLASS } from "@/components/layout/nav-main";
+import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
 import {
@@ -71,11 +73,16 @@ export function NavDestination({ destination }: { destination: Destination }) {
               {group.items.map((item) => {
                 const label = t(item.titleKey);
                 const Icon = item.icon;
+                const isActive = isDestinationItemActive(item.href, pathname, currentTab);
                 return (
                   <SidebarMenuItem key={item.key}>
                     <SidebarMenuButton
                       asChild
-                      isActive={isDestinationItemActive(item.href, pathname, currentTab)}
+                      isActive={isActive}
+                      // Weight and a rail, not a filled pill: with every section
+                      // its own row the fill read as a selected block in a list
+                      // rather than as "you are here".
+                      className={cn(isActive && ACTIVE_ROW_CLASS)}
                       tooltip={label}
                     >
                       <Link href={item.href}>

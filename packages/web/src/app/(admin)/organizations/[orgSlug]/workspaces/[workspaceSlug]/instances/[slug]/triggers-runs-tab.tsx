@@ -7,13 +7,6 @@ import { toast } from "sonner";
 import { Loader2, MessageSquare, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -25,17 +18,26 @@ import { api, getUserErrorMessage, type ScheduledTask, type ConversationListItem
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { ScheduledTaskRunsSection } from "./scheduled-task-runs-section";
+import { useFormat } from "@/lib/use-format";
+
+/**
+ * Which half to render. The Log section titles each block itself — "Webhook",
+ * "Programmati" — so a component that always printed both under its own headings
+ * produced the doubled titles this replaces.
+ */
+export type RunsBlock = "webhook" | "scheduled";
 
 interface Props {
   slug: string;
+  /** Omit to render both, as the Automazioni page used to. */
+  block?: RunsBlock;
 }
 
-type RunType = "all" | "webhook" | "scheduled";
 
-export function TriggersRunsTab({ slug }: Props) {
+export function TriggersRunsTab({ slug, block }: Props) {
   const { t } = useI18n();
+  const fmt = useFormat();
   const paths = useTenantPaths();
-  const [runType, setRunType] = useState<RunType>("all");
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [webhookConversations, setWebhookConversations] = useState<ConversationListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,9 +45,12 @@ export function TriggersRunsTab({ slug }: Props) {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      // Both, always: with the type filter gone there is no case where one of the
+      // two is skipped, so the conditional `Promise.resolve` placeholders it used
+      // to need are gone with it.
       const [tasksRes, convRes] = await Promise.all([
-        (runType === "webhook") ? Promise.resolve({ tasks: [] }) : api.scheduledTasks.list(slug),
-        (runType === "scheduled") ? Promise.resolve({ conversations: [] }) : api.conversations.list({ instanceId: slug, source: "webhook", limit: 50 }),
+        api.scheduledTasks.list(slug),
+        api.conversations.list({ instanceId: slug, source: "webhook", limit: 50 }),
       ]);
       setTasks(tasksRes.tasks ?? []);
       setWebhookConversations(convRes.conversations ?? []);
@@ -54,7 +59,7 @@ export function TriggersRunsTab({ slug }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [slug, runType]);
+  }, [slug]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -69,29 +74,15 @@ export function TriggersRunsTab({ slug }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Type filter */}
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium">{t("triggers.runs.typeFilter")}</span>
-        <Select value={runType} onValueChange={(v) => setRunType(v as RunType)}>
-          <SelectTrigger className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t("triggers.runs.typeAll")}</SelectItem>
-            <SelectItem value="webhook">{t("triggers.runs.typeWebhook")}</SelectItem>
-            <SelectItem value="scheduled">{t("triggers.runs.typeScheduled")}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Webhook conversations section */}
-      {(runType === "all" || runType === "webhook") && (
-        <section className="space-y-3">
-          {runType === "all" && (
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-              {t("triggers.runs.typeWebhook")}
-            </h3>
-          )}
+      {/* No type filter. It selected between two tables whose columns do not
+          correspond: a scheduled run has a status, a duration, an output, an error
+          and its tool calls (with an expandable row for the full output), while a
+          webhook "run" is a CONVERSATION — channel, message count, a link. One
+          table would either drop what makes the scheduled view useful or render
+          eight columns with half of them empty on every webhook row. So both
+          sections simply render, each under its own heading. */}
+      {(!block || block === "webhook") && (
+      <section className="space-y-3">
           {webhookConversations.length === 0 ? (
             <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">
               <MessageSquare className="mx-auto mb-2 size-6" />
@@ -137,7 +128,7 @@ export function TriggersRunsTab({ slug }: Props) {
                         </TableCell>
                         <TableCell className="text-sm">
                           {conv.createdAt
-                            ? new Date(conv.createdAt).toLocaleString()
+                            ? fmt.dateTime(conv.createdAt)
                             : "-"}
                         </TableCell>
                         <TableCell className="text-right">
@@ -155,20 +146,14 @@ export function TriggersRunsTab({ slug }: Props) {
                 </TableBody>
               </Table>
             </div>
-          )}
-        </section>
+        )}
+      </section>
       )}
 
-      {/* Scheduled task runs section */}
-      {(runType === "all" || runType === "scheduled") && (
-        <section className="space-y-3">
-          {runType === "all" && (
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-              {t("triggers.runs.typeScheduled")}
-            </h3>
-          )}
-          <ScheduledTaskRunsSection slug={slug} tasks={tasks} />
-        </section>
+      {(!block || block === "scheduled") && (
+      <section className="space-y-3">
+        <ScheduledTaskRunsSection slug={slug} tasks={tasks} />
+      </section>
       )}
     </div>
   );

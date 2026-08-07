@@ -47,30 +47,49 @@ describe("resolveDestination", () => {
     expect(d?.backHref).toBe("/organizations/acme/workspaces/vendite/instances");
   });
 
-  // Every macro that holds a section becomes one entry, linking to its FIRST leaf.
-  it("offers one entry per non-empty macro, each landing on its first section", () => {
-    const items = resolveDestination(AGENT)!.groups.flatMap((g) => g.items);
+  /**
+   * Every SECTION is a row now, grouped under its macro's heading. It was one row
+   * per macro landing on its first section, with the rest behind a tab row — so
+   * finding a section meant remembering which macro held it.
+   */
+  it("makes one group per non-empty macro, holding a row per section", () => {
+    const groups = resolveDestination(AGENT)!.groups;
     const nonEmpty = AGENT_MACROS.filter(({ macro }) => agentSectionsByMacro(macro).length > 0);
 
-    expect(items).toHaveLength(nonEmpty.length);
-    for (const { macro } of nonEmpty) {
-      const landing = agentSectionsByMacro(macro)[0];
-      expect(items.find((i) => i.key === macro)?.href).toBe(`${AGENT}?tab=${landing.tab}`);
+    expect(groups).toHaveLength(nonEmpty.length);
+    expect(groups.flatMap((g) => g.items)).toHaveLength(AGENT_SECTIONS.length);
+
+    for (const { macro, titleKey } of nonEmpty) {
+      const group = groups.find((g) => g.key === macro)!;
+      expect(group.labelKey).toBe(titleKey);
+      expect(group.items.map((i) => i.href)).toEqual(
+        agentSectionsByMacro(macro).map((section) => `${AGENT}?tab=${section.tab}`),
+      );
     }
   });
 });
 
 describe("isDestinationItemActive", () => {
-  // The sections share ONE pathname and differ only in `?tab=`, so a path
-  // comparison would light every entry at once.
-  it("lights by MACRO, so an entry stays lit across its own tab row", () => {
+  /**
+   * The sections share ONE pathname and differ only in `?tab=`, so a path
+   * comparison would light every row at once. By LEAF, not by macro: every
+   * section has its own row now, and lighting the macro would light all seven
+   * rows of Comportamento for one open page.
+   */
+  it("lights one row per open section, not its whole macro", () => {
     const behaviour = `${AGENT}?tab=prompts`;
     expect(isDestinationItemActive(behaviour, AGENT, "prompts")).toBe(true);
-    // `hooks` is another section of the same macro — the entry must stay lit.
+    // `hooks` shares the macro and must stay dark all the same.
     expect(macroOfTab("hooks")).toBe(macroOfTab("prompts"));
-    expect(isDestinationItemActive(behaviour, AGENT, "hooks")).toBe(true);
-    // A section of a different macro must not light it.
+    expect(isDestinationItemActive(behaviour, AGENT, "hooks")).toBe(false);
     expect(isDestinationItemActive(behaviour, AGENT, "privacy")).toBe(false);
+  });
+
+  // A stale address lights the row whose page actually renders — the fallback is
+  // applied before the comparison, not after, so the sidebar and the page agree
+  // even when the URL names nothing.
+  it("lights the row a stale address resolves into", () => {
+    expect(isDestinationItemActive(`${AGENT}?tab=${DEFAULT_AGENT_TAB}`, AGENT, "triggers")).toBe(true);
   });
 
   it("treats an absent tab as the default section", () => {
