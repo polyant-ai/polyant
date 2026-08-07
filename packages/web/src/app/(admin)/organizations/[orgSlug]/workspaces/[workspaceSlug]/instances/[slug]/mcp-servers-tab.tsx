@@ -305,8 +305,11 @@ export function McpServersTab({ slug }: Props) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
+        {/* No heading of its own: the section IS "MCP" now, and the h3 under it
+            said "Server MCP" — the same thing twice. It earned its place while
+            this was a block at the bottom of the Tools page, which it no longer
+            is. The description stays; it says something the title cannot. */}
         <div>
-          <h3 className="text-lg font-medium">{t("mcp.title")}</h3>
           <p className="text-sm text-muted-foreground">{t("mcp.description")}</p>
         </div>
         <Button onClick={openCreate} size="sm">

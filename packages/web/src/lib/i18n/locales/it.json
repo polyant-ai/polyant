@@ -698,7 +698,6 @@
   "hooks.events.message_received": "Messaggio ricevuto",
   "hooks.events.response_generated": "Risposta generata",
   "hooks.events.response_sent": "Risposta inviata",
-  "mcp.title": "Server MCP",
   "mcp.description": "Collega server MCP esterni così l'agente può usare i loro strumenti. I server statici si autenticano con un token fisso; i server OAuth vengono autorizzati per singola conversazione, in chat, tramite un link di collegamento.",
   "mcp.add": "Aggiungi server",
   "mcp.empty": "Nessun server MCP configurato. Aggiungine uno per collegare strumenti esterni.",
