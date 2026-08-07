@@ -165,6 +165,7 @@ export class InstanceScheduledTasksController {
       outboundChannel?: string | null;
       outboundTarget?: string | null;
       keepHistory?: boolean;
+      enabled?: boolean;
     },
   ) {
     const instance = await findInstanceOrFail(slug);
@@ -196,6 +197,7 @@ export class InstanceScheduledTasksController {
       keepHistory: body.keepHistory,
       outboundChannel: body.outboundChannel,
       outboundTarget: body.outboundTarget,
+      enabled: body.enabled,
     });
 
     schedulerService.notify(task.id, "added");
