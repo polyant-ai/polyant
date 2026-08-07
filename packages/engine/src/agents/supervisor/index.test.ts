@@ -526,15 +526,17 @@ describe("supervise", () => {
       expect(mockCreateTaskTool).not.toHaveBeenCalled();
     });
 
-    it("empty enabled names (size=0) enables all tools including spawnTask", async () => {
-      mockGetEnabledToolNames.mockResolvedValue(new Set()); // empty = all enabled
+    it("empty enabled names (size=0) grants no tools at all, not every tool", async () => {
+      mockGetEnabledToolNames.mockResolvedValue(new Set());
 
       await supervise({ message: "hi" });
 
-      // All tools from registry should be built
-      expect(mockBuildTool).toHaveBeenCalledTimes(3); // read, write, saveMemory
-      // spawnTask is also added
-      expect(mockCreateTaskTool).toHaveBeenCalled();
+      // An empty set used to mean "enable everything", which made the least
+      // privileged configuration produce the most privileged agent: disabling
+      // every tool in the panel handed over the whole registry. No rows now
+      // means no tools.
+      expect(mockBuildTool).not.toHaveBeenCalled();
+      expect(mockCreateTaskTool).not.toHaveBeenCalled();
     });
 
     it("excludes harness tools when includeHarness is not provided", async () => {

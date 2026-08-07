@@ -267,15 +267,19 @@ interface BuildToolsOptions {
 /** Build the tool set scoped to an instance, filtered by DB-stored enabled tool names. */
 async function buildTools(opts: BuildToolsOptions) {
   const { instanceId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth, stateBuffer } = opts;
+  // No rows means no tools. This used to mean "enable everything", which made
+  // the empty tool set indistinguishable from the full one: disabling every
+  // tool in the panel granted the agent the entire registry instead of none of
+  // it, and an instance seeded before the tool catalog synced started life with
+  // full access. An agent's tool set is now always exactly what is stored.
   const enabledNames = await getEnabledToolNames(instanceUuid);
-  const allEnabled = enabledNames.size === 0; // empty = no rows, enable all (backward compat)
 
   const tools: Record<string, Tool> = {};
   for (const [name, def] of getToolRegistry()) {
     if (def.metaTool) continue; // Meta-tools are built separately below
     // Harness tools bypass instance_tools enablement — they are injected by the engine when includeHarness matches
     const isHarnessIncluded = def.harness && includeHarness?.has(def.category ?? "general");
-    if (isHarnessIncluded || allEnabled || enabledNames.has(name)) {
+    if (isHarnessIncluded || enabledNames.has(name)) {
       // Skip memory-category tools when memory is disabled for this instance
       if (memoryEnabled === false && def.category === "memory") continue;
       // Skip knowledge-category tools when knowledge is disabled for this instance
@@ -395,7 +399,7 @@ async function buildTools(opts: BuildToolsOptions) {
   // to notice a misbehaving external tool. Keeping them on the supervisor's turn
   // only bounds their blast radius. Moving the merge before this point would
   // silently hand every MCP tool to every sub-agent.
-  if (allEnabled || enabledNames.has("spawnTask")) {
+  if (enabledNames.has("spawnTask")) {
     const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId);
     tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);
   }
