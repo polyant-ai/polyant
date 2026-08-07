@@ -2,8 +2,32 @@
 
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 import { SettingsTab } from "./settings-tab";
+import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import type { Instance } from "@/lib/api";
+
+function SaveButton() {
+  const { saveAction } = usePageActions();
+  if (!saveAction?.isDirty) return null;
+  return (
+    <button
+      onClick={() => saveAction.onSave()}
+      disabled={saveAction.saving}
+    >
+      {saveAction.saving ? "common.saving" : "common.save"}
+    </button>
+  );
+}
+
+function renderWithProvider(ui: ReactElement) {
+  return render(
+    <PageActionsProvider>
+      {ui}
+      <SaveButton />
+    </PageActionsProvider>,
+  );
+}
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
@@ -27,6 +51,8 @@ const {
   mockToolsRequiredSecrets: vi.fn(),
 }));
 
+vi.mock("@/lib/tenant/use-org-slug", () => ({ useOrgSlug: () => "acme" }));
+
 // Hoisted: the `@/lib/api` factory below runs before the imports, so the class
 // backing both `ApiError` and `isForbidden` has to exist by then — and it must
 // be the SAME class for the `instanceof` inside the predicate to hold.
@@ -39,20 +65,6 @@ const { MockApiError } = vi.hoisted(() => ({
 vi.mock("@/lib/i18n/context", () => ({
   useI18n: vi.fn(() => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() })),
   I18nProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
-
-// Top-bar Save action registration mock — captures the most recent
-// registration so assertions can read isDirty/saving and invoke onSave
-// directly without rendering the top bar.
-const lastSaveAction = vi.hoisted(() => ({
-  current: null as null | { isDirty: boolean; saving: boolean; onSave: () => void | Promise<void> },
-}));
-vi.mock("./page-actions-context", () => ({
-  usePageSaveAction: (a: { isDirty: boolean; saving: boolean; onSave: () => void | Promise<void> }) => {
-    lastSaveAction.current = a;
-  },
-  usePageActions: vi.fn(() => ({ saveAction: null, setSaveAction: vi.fn() })),
-  PageActionsProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 vi.mock("sonner", () => ({
@@ -140,21 +152,25 @@ function setupDefaultMocks() {
       bedrock: { models: [{ id: "titan", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true }] },
     },
   });
-  // New shape: array of RequiredSecretSpec, not plain strings.
   mockToolsRequiredSecrets.mockResolvedValue({ requiredSecrets: [] });
 }
 
+/** The provider section carrying `titleKey`, or null when it isn't rendered. */
+function providerSection(titleKey: string): HTMLElement | null {
+  return screen.queryByText(titleKey)?.closest("section") ?? null;
+}
 
 /**
- * A switch that still LIVES in this tab, for tests that only need to dirty the
- * form. It was the memory switch, which moved to Generale — so a test using it to
- * make the form dirty was testing the move, not the save. Scoped by unique help
- * text rather than by index: index lookups (switches[0]/[3]) have already broken
- * once here when a new always-visible toggle shifted every switch down by one.
+ * A switch of the `params` half, for tests that only need to dirty that form.
+ *
+ * Was the memory switch, which moved to Generale. Located by its unique help text
+ * rather than by index: index-based lookups (switches[0]/[3]) broke when the
+ * always-visible thinking toggle (#178) shifted every switch down by one, and
+ * they would have broken again now.
  */
 function getDirtyingSwitch(): HTMLElement {
-  const section = screen.getByText("settings.tab.authHelp").closest("section");
-  return within(section as HTMLElement).getByRole("switch");
+  const row = screen.getByText("settings.tab.debugHelp").closest("div")?.parentElement;
+  return within(row as HTMLElement).getByRole("switch");
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -172,8 +188,8 @@ describe("SettingsTab", () => {
     mockSecretsList.mockReturnValue(new Promise(() => {}));
     mockModelsList.mockReturnValue(new Promise(() => {}));
 
-    const { container } = render(
-      <SettingsTab instance={makeInstance()} onUpdate={onUpdate} />,
+    const { container } = renderWithProvider(
+      <SettingsTab instance={makeInstance()} onUpdate={onUpdate} section="model" />,
     );
 
     // Loading state renders pulse divs
@@ -181,20 +197,53 @@ describe("SettingsTab", () => {
     expect(pulseElements.length).toBeGreaterThan(0);
   });
 
-  it("renders all sections after loading", async () => {
-    render(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} />);
+  /**
+   * Memory and the knowledge switch left this tab: memory to Generale (with its
+   * embedder-keyed warning, whose three cases moved to `general-tab.test.tsx` —
+   * #150 lives there now) and the knowledge switch to the Knowledge tab.
+   *
+   * The knowledge CREDENTIALS warning has no new home: it was computed here from
+   * the secrets list, and the Knowledge tab does not load them. That gap is
+   * recorded in `knowledge-tab.tsx` rather than papered over with a third copy of
+   * "is the embedder configured".
+   */
+  it("renders the model page: the model, the audio picker and the parameters", async () => {
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} section="model" />);
 
     await waitFor(() => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("settings.tab.apiKeys")).toBeInTheDocument();
-    expect(screen.getByText("settings.tab.auth")).toBeInTheDocument();
-    expect(screen.getByText("settings.tab.langsmith")).toBeInTheDocument();
+    // The behaviour parameters are NOT here: they went to Parametri, with memory
+    // and the diagnostics.
+    expect(screen.queryByText("settings.tab.params")).not.toBeInTheDocument();
+    // Speech-to-text stays: it IS part of which AI runs this agent.
+    expect(screen.getByText("settings.tab.stt")).toBeInTheDocument();
+    // CREDENTIALS are not here: they have one home, and a key rendered beside the
+    // model picker is how they came to have three. Asserted absent so a revert is loud.
+    expect(screen.queryByText("settings.tab.provider.openai")).not.toBeInTheDocument();
+    // Memory and the knowledge switch left earlier, to Conoscenza e memoria.
+    expect(screen.queryByText("settings.tab.memory")).not.toBeInTheDocument();
+    expect(screen.queryByText("settings.tab.knowledge")).not.toBeInTheDocument();
+    // LangSmith too — it traces what the agent DOES, which is not a property of
+    // the model. It is in Generale now, tested there.
+    expect(screen.queryByText("settings.tab.langsmith")).not.toBeInTheDocument();
+  });
+
+  /** The other half: every key the agent uses, and nothing that configures a model. */
+  it("renders the credentials page: the provider keys, no model picker", async () => {
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} section="credentials" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.provider.openai")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("settings.tab.aiModel")).not.toBeInTheDocument();
+    expect(screen.queryByText("settings.tab.params")).not.toBeInTheDocument();
   });
 
   it("loads secrets and models on mount", async () => {
-    render(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} />);
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} section="model" />);
 
     await waitFor(() => {
       expect(mockSecretsList).toHaveBeenCalledWith("test-instance");
@@ -203,10 +252,10 @@ describe("SettingsTab", () => {
   });
 
   it("shows configured badge for secrets that are set", async () => {
-    render(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} />);
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} section="credentials" />);
 
     await waitFor(() => {
-      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+      expect(screen.getByText("settings.tab.provider.openai")).toBeInTheDocument();
     });
 
     // OpenAI key is configured in our mock, so we expect at least one "configured" badge
@@ -215,10 +264,18 @@ describe("SettingsTab", () => {
   });
 
   it("shows not-configured badge for secrets that are not set", async () => {
-    render(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} />);
+    // A bedrock agent: its AWS keys are unset in the mock, and only a provider
+    // the agent uses renders a section at all.
+    renderWithProvider(
+      <SettingsTab
+        instance={makeInstance({ provider: "bedrock", model: "titan" })}
+        onUpdate={onUpdate}
+        section="credentials"
+      />,
+    );
 
     await waitFor(() => {
-      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+      expect(screen.getByText("settings.tab.awsCredentials")).toBeInTheDocument();
     });
 
     const notConfiguredBadges = screen.getAllByText("settings.tab.notConfigured");
@@ -226,13 +283,13 @@ describe("SettingsTab", () => {
   });
 
   it("does not show save button when nothing is changed", async () => {
-    render(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} />);
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} section="model" />);
 
     await waitFor(() => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    expect(lastSaveAction.current?.isDirty).toBe(false);
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
   });
 
 
@@ -241,20 +298,105 @@ describe("SettingsTab", () => {
 
 
 
+  // ── Provider sections ───────────────────────────────────────────────
+  // One section per provider, shown only for a provider this agent actually
+  // uses (chat, embedder or STT) — the same rule for every provider.
 
-  it("shows auth key field when authEnabled is true", async () => {
-    render(
-      <SettingsTab instance={makeInstance({ authEnabled: true })} onUpdate={onUpdate} />,
+  it("groups a provider's keys under that provider's section, and shows no other provider's", async () => {
+    renderWithProvider(
+      <SettingsTab instance={makeInstance({ provider: "openai" })} onUpdate={onUpdate} section="credentials" />,
     );
 
     await waitFor(() => {
-      expect(screen.getByText("settings.tab.authApiKey")).toBeInTheDocument();
+      expect(screen.getByText("settings.tab.provider.openai")).toBeInTheDocument();
     });
+
+    const openai = providerSection("settings.tab.provider.openai") as HTMLElement;
+    expect(within(openai).getByText("settings.tab.openaiKey")).toBeInTheDocument();
+    // The other providers' keys are not in this agent's picture at all.
+    expect(screen.queryByText("settings.tab.anthropicKey")).not.toBeInTheDocument();
+    expect(screen.queryByText("settings.tab.nebiusKey")).not.toBeInTheDocument();
+    expect(screen.queryByText("settings.tab.bedrockApiKey")).not.toBeInTheDocument();
   });
 
-  it("does not show auth key field when authEnabled is false", async () => {
-    render(
-      <SettingsTab instance={makeInstance({ authEnabled: false })} onUpdate={onUpdate} />,
+  it("keeps the AWS credential set together in one section", async () => {
+    renderWithProvider(
+      <SettingsTab
+        instance={makeInstance({ provider: "bedrock", model: "titan" })}
+        onUpdate={onUpdate}
+        section="credentials"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.awsCredentials")).toBeInTheDocument();
+    });
+
+    const aws = providerSection("settings.tab.awsCredentials") as HTMLElement;
+    for (const label of [
+      "settings.tab.bedrockApiKey",
+      "settings.tab.awsAccessKeyId",
+      "settings.tab.awsSecretAccessKey",
+      "settings.tab.awsRegion",
+    ]) {
+      expect(within(aws).getByText(label)).toBeInTheDocument();
+    }
+    // The chat provider is bedrock, but OpenAI is still the embedder default,
+    // so its section shows on its own account — never inside the AWS one.
+    expect(within(aws).queryByText("settings.tab.openaiKey")).not.toBeInTheDocument();
+  });
+
+  /**
+   * Credentials follow the SAVED provider, not the one currently picked.
+   *
+   * While both lived on one page, switching the provider revealed its key fields
+   * immediately — nobody had to save a provider they could not yet authenticate.
+   * Separate pages cost that: the credentials page reads the agent as persisted, so
+   * the order is now choose → save → authenticate.
+   */
+  it("shows the keys of the saved provider, not of an unsaved selection", async () => {
+    const user = userEvent.setup();
+    renderWithProvider(
+      <SettingsTab instance={makeInstance({ provider: "openai" })} onUpdate={onUpdate} section="model" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    // Pick an anthropic model from the catalog — the same path the wipe tests use.
+    await user.click(screen.getByText("settings.tab.viewPricing"));
+    await user.click(await screen.findByText("claude-3-opus"));
+
+    // No key field appears here, and nothing was written.
+    expect(screen.queryByText("settings.tab.anthropicKey")).not.toBeInTheDocument();
+    expect(mockInstanceUpdate).not.toHaveBeenCalled();
+  });
+
+  it("reports a key set nowhere as not configured", async () => {
+    mockSecretsList.mockResolvedValue({ secrets: [{ key: "openai_api_key", configured: false }] });
+
+    renderWithProvider(
+      <SettingsTab instance={makeInstance({ provider: "openai" })} onUpdate={onUpdate} section="credentials" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.provider.openai")).toBeInTheDocument();
+    });
+
+    const openai = providerSection("settings.tab.provider.openai") as HTMLElement;
+    expect(within(openai).getByText("settings.tab.notConfigured")).toBeInTheDocument();
+  });
+
+  /**
+   * The inbound API key and its switch are NOT here any more: they gate the HTTP
+   * surface, so they live with the Web/API channel (`channel-web-tab.test.tsx`).
+   * Asserted as an ABSENCE, because leaving a second copy behind is how one of the
+   * two ends up being the stale one.
+   */
+  it("no longer renders the inbound API key — it moved to the Web/API channel", async () => {
+    renderWithProvider(
+      <SettingsTab instance={makeInstance({ authEnabled: true })} onUpdate={onUpdate} section="model" />,
     );
 
     await waitFor(() => {
@@ -262,62 +404,34 @@ describe("SettingsTab", () => {
     });
 
     expect(screen.queryByText("settings.tab.authApiKey")).not.toBeInTheDocument();
+    expect(screen.queryByText("settings.tab.authEnabled")).not.toBeInTheDocument();
   });
 
-  it("shows langsmith project and key fields when langsmith is enabled", async () => {
-    render(
-      <SettingsTab
-        instance={makeInstance({ langsmithEnabled: true })}
-        onUpdate={onUpdate}
-      />,
-    );
 
-    await waitFor(() => {
-      expect(screen.getByText("settings.tab.langsmithProject")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText("settings.tab.langsmithApiKey")).toBeInTheDocument();
-  });
-
-  it("does not show langsmith details when langsmith is disabled", async () => {
-    render(
-      <SettingsTab
-        instance={makeInstance({ langsmithEnabled: false })}
-        onUpdate={onUpdate}
-      />,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
-    });
-
-    expect(screen.queryByText("settings.tab.langsmithProject")).not.toBeInTheDocument();
-    expect(screen.queryByText("settings.tab.langsmithApiKey")).not.toBeInTheDocument();
-  });
 
   it("saves instance settings and secrets on save", async () => {
     const user = userEvent.setup();
-    const instance = makeInstance({ memoryEnabled: false });
-    const updatedInstance = makeInstance({ memoryEnabled: true });
+    const instance = makeInstance({ debugEnabled: false });
+    const updatedInstance = makeInstance({ debugEnabled: true });
     mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
 
-    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+    // A behaviour parameter, so the `params` page — the model page no longer
+    // carries them, and its payload no longer mentions them.
+    renderWithProvider(<SettingsTab instance={instance} onUpdate={onUpdate} section="params" />);
 
     await waitFor(() => {
-      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+      expect(screen.getByText("settings.tab.params")).toBeInTheDocument();
     });
 
-    // Dirty the form with a switch that still lives here.
     await user.click(getDirtyingSwitch());
 
-    await lastSaveAction.current!.onSave();
+    const saveBtn = screen.getByText("common.save");
+    await user.click(saveBtn);
 
     await waitFor(() => {
       expect(mockInstanceUpdate).toHaveBeenCalledWith(
         "test-instance",
-        // The flag the dirtying switch actually owns — `memoryEnabled` is not in this
-        // tab's payload any more.
-        expect.objectContaining({ authEnabled: true }),
+        expect.objectContaining({ debugEnabled: true }),
       );
     });
 
@@ -332,7 +446,7 @@ describe("SettingsTab", () => {
       instance: makeInstance({ embeddingProvider: "bedrock" }),
     });
 
-    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<SettingsTab instance={instance} onUpdate={onUpdate} section="model" />);
 
     await waitFor(() => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
@@ -347,7 +461,7 @@ describe("SettingsTab", () => {
 
     // Saving with an embedder change opens the destructive wipe dialog
     // instead of saving directly.
-    await lastSaveAction.current!.onSave();
+    await user.click(screen.getByText("common.save"));
 
     await waitFor(() => {
       expect(screen.getByText("memory.wipe.title")).toBeInTheDocument();
@@ -371,7 +485,7 @@ describe("SettingsTab", () => {
     const updatedInstance = makeInstance({ provider: "anthropic", model: "claude-3-opus" });
     mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
 
-    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<SettingsTab instance={instance} onUpdate={onUpdate} section="model" />);
 
     await waitFor(() => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
@@ -380,7 +494,7 @@ describe("SettingsTab", () => {
     // openai → anthropic keeps the same embedding provider (openai), so no wipe.
     await user.click(screen.getByText("settings.tab.viewPricing"));
     await user.click(await screen.findByText("claude-3-opus"));
-    await lastSaveAction.current!.onSave();
+    await user.click(screen.getByText("common.save"));
 
     await waitFor(() => {
       expect(mockInstanceUpdate).toHaveBeenCalledWith(
@@ -394,24 +508,27 @@ describe("SettingsTab", () => {
   it("saves secrets when api key fields are filled", async () => {
     const user = userEvent.setup();
     const instance = makeInstance();
-    const updatedInstance = makeInstance();
 
     mockSecretsSet.mockResolvedValueOnce({
       secrets: [{ key: "openai_api_key", configured: true }],
     });
-    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+    // No `instances.update` mock, deliberately: the credentials page has no
+    // instance fields, so it must not call that endpoint at all — asserted below.
+    // (A queued `mockResolvedValueOnce` here also leaked into the next test, which
+    // expected a rejection and got this success instead.)
 
-    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<SettingsTab instance={instance} onUpdate={onUpdate} section="credentials" />);
 
     await waitFor(() => {
-      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+      expect(screen.getByText("settings.tab.provider.openai")).toBeInTheDocument();
     });
 
     // Type into the OpenAI key field (first password input in the API keys section)
     const passwordInputs = screen.getAllByPlaceholderText("settings.tab.keyPlaceholderSet");
     await user.type(passwordInputs[0], "sk-test-key");
 
-    await lastSaveAction.current!.onSave();
+    const saveBtn = screen.getByText("common.save");
+    await user.click(saveBtn);
 
     await waitFor(() => {
       expect(mockSecretsSet).toHaveBeenCalledWith(
@@ -421,6 +538,8 @@ describe("SettingsTab", () => {
         ]),
       );
     });
+    // The credentials page writes secrets and nothing else.
+    expect(mockInstanceUpdate).not.toHaveBeenCalled();
   });
 
   it("shows error toast on save failure", async () => {
@@ -428,16 +547,19 @@ describe("SettingsTab", () => {
     const instance = makeInstance({ memoryEnabled: false });
     mockInstanceUpdate.mockRejectedValueOnce(new Error("Server error"));
 
-    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<SettingsTab instance={instance} onUpdate={onUpdate} section="model" />);
 
     await waitFor(() => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    // Toggle memory to trigger dirty state
-    await user.click(getDirtyingSwitch());
+    // Dirtied through the temperature: an instance field, so the failing call is
+    // `instances.update`.
+    await user.clear(screen.getByLabelText(/temperature/i));
+    await user.type(screen.getByLabelText(/temperature/i), "0.7");
 
-    await lastSaveAction.current!.onSave();
+    const saveBtn = screen.getByText("common.save");
+    await user.click(saveBtn);
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith("settings.tab.saveFailed");
@@ -447,7 +569,7 @@ describe("SettingsTab", () => {
   it("shows error toast on initial load failure", async () => {
     mockSecretsList.mockRejectedValueOnce(new Error("Load error"));
 
-    render(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} />);
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} section="model" />);
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith("settings.tab.loadFailed");
@@ -465,8 +587,8 @@ describe("SettingsTab", () => {
       },
     });
 
-    render(
-      <SettingsTab instance={makeInstance({ model: "o3" })} onUpdate={onUpdate} />,
+    renderWithProvider(
+      <SettingsTab instance={makeInstance({ model: "o3" })} onUpdate={onUpdate} section="model" />,
     );
 
     await waitFor(() => {
@@ -487,10 +609,11 @@ describe("SettingsTab", () => {
       },
     });
 
-    render(
+    renderWithProvider(
       <SettingsTab
         instance={makeInstance({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinkingEnabled: true })}
         onUpdate={onUpdate}
+        section="model"
       />,
     );
 
@@ -514,8 +637,8 @@ describe("SettingsTab", () => {
       },
     });
 
-    render(
-      <SettingsTab instance={makeInstance({ model: "gpt-5.4", thinkingEnabled: true })} onUpdate={onUpdate} />,
+    renderWithProvider(
+      <SettingsTab instance={makeInstance({ model: "gpt-5.4", thinkingEnabled: true })} onUpdate={onUpdate} section="model" />,
     );
 
     await waitFor(() => {
@@ -538,10 +661,11 @@ describe("SettingsTab", () => {
       },
     });
 
-    render(
+    renderWithProvider(
       <SettingsTab
         instance={makeInstance({ provider: "bedrock", model: "qwen3", thinkingEnabled: true })}
         onUpdate={onUpdate}
+        section="model"
       />,
     );
 
@@ -569,7 +693,7 @@ describe("SettingsTab", () => {
     const instance = makeInstance({ model: "gpt-4o" });
     mockInstanceUpdate.mockResolvedValueOnce({ instance });
 
-    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<SettingsTab instance={instance} onUpdate={onUpdate} section="model" />);
 
     await waitFor(() => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
@@ -579,7 +703,7 @@ describe("SettingsTab", () => {
     await user.clear(tempInput);
     await user.type(tempInput, "0.5");
 
-    await lastSaveAction.current!.onSave();
+    await user.click(screen.getByText("common.save"));
 
     await waitFor(() => {
       expect(mockInstanceUpdate).toHaveBeenCalledWith(
@@ -600,10 +724,11 @@ describe("SettingsTab", () => {
       },
     });
 
-    render(
+    renderWithProvider(
       <SettingsTab
         instance={makeInstance({ provider: "bedrock", model: "openai.gpt-oss-120b-1:0", thinkingEnabled: false })}
         onUpdate={onUpdate}
+        section="model"
       />,
     );
 
@@ -643,7 +768,7 @@ describe("SettingsTab — tool secret rendering", () => {
       ],
     });
 
-    render(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} />);
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} section="toolSecrets" />);
 
     const readable = await screen.findByDisplayValue("https://api.example.com");
     expect(readable).toHaveAttribute("type", "text");
@@ -656,7 +781,7 @@ describe("SettingsTab — tool secret rendering", () => {
       ],
     });
 
-    const { container } = render(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} />);
+    const { container } = renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} section="toolSecrets" />);
 
     await screen.findByText("Service API key");
     expect(screen.queryByDisplayValue("https://api.example.com")).toBeNull();

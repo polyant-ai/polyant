@@ -27,20 +27,22 @@ const TYPE_STYLES: Record<string, string> = {
   monthly: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800",
 };
 
-function formatLogDate(dateStr: string, logType: string): string {
+/** Takes the UI's locale explicitly: a module-level helper has no hook to read it. */
+function formatLogDate(dateStr: string, logType: string, locale: string): string {
   const date = new Date(dateStr + "T00:00:00");
   if (logType === "monthly") {
-    return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    return date.toLocaleDateString(locale, { month: "long", year: "numeric" });
   }
   if (logType === "weekly") {
     const end = new Date(date);
     end.setDate(end.getDate() + 6);
-    return `${date.toLocaleDateString(undefined, { day: "numeric", month: "short" })} – ${end.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`;
+    return `${date.toLocaleDateString(locale, { day: "numeric", month: "short" })} – ${end.toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" })}`;
   }
-  return date.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  return date.toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 
 function ActivityLogEntry({ log }: { log: ActivityLog }) {
+  const { locale } = useI18n();
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -61,7 +63,7 @@ function ActivityLogEntry({ log }: { log: ActivityLog }) {
             <Badge variant="outline" className={`text-xs font-medium ${TYPE_STYLES[log.logType] ?? ""}`}>
               {log.logType}
             </Badge>
-            <span className="text-xs font-medium">{formatLogDate(log.logDate, log.logType)}</span>
+            <span className="text-xs font-medium">{formatLogDate(log.logDate, log.logType, locale)}</span>
             {log.eventCount > 0 && (
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                 <Activity className="size-3" />
@@ -81,7 +83,7 @@ function ActivityLogEntry({ log }: { log: ActivityLog }) {
 }
 
 export function ActivityLogSection({ activity }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   return (
     <section className="space-y-4">

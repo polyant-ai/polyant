@@ -15,17 +15,26 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+// Stable identity — the source uses `t` in useCallback dependency arrays, so a
+// freshly-created object per call would trigger an infinite re-render loop.
+const i18nMock = {
+  t: (key: string) => key,
+  locale: "en",
+  setLocale: vi.fn(),
+};
 vi.mock("@/lib/i18n/context", () => ({
-  useI18n: vi.fn(() => ({
-    t: (key: string) => key,
-    locale: "en",
-    setLocale: vi.fn(),
-  })),
+  useI18n: () => i18nMock,
 }));
 
+// `useFormat` pulls the whole formatter set from here, so a partial mock breaks the
+// hook rather than just this page's own calls.
 vi.mock("@/lib/format", () => ({
   formatRelativeTime: vi.fn(() => "just now"),
   truncate: vi.fn((text: string) => text),
+  formatDate: vi.fn((iso: string) => iso),
+  formatDateTime: vi.fn((iso: string) => iso),
+  formatTime: vi.fn((iso: string) => iso),
+  formatNumber: vi.fn((value: number) => String(value)),
 }));
 
 const mockPaginationFns = vi.hoisted(() => ({
@@ -64,6 +73,12 @@ vi.mock("next/link", () => ({
     children: React.ReactNode;
     href: string;
   }) => <a href={href}>{children}</a>,
+}));
+
+// The workspace now comes from the URL, so a component test that does not
+// exercise workspace switching only needs the hook to answer something.
+vi.mock("@/lib/tenant/use-workspace-slug", () => ({
+  useWorkspaceSlug: () => "general",
 }));
 
 import ConversationsPage from "./page";

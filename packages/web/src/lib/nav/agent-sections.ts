@@ -1,45 +1,89 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The agent's navigation: a handful of entries in the sidebar, each opening a page
- * whose tab row holds its sections.
+ * The agent's navigation: every section is a SIDEBAR row, grouped under headings.
+ * No tab row.
  *
- * Two levels, because one was never enough and thirteen peers were too many. The
- * thirteen were not peers at all — and the giveaway was that Trigger already
- * carried three tabs INSIDE itself, so a third level existed anyway, just
- * undeclared. Making it the official level removes the special case: Trigger's
- * three are now leaves of Automazioni, rendered by the same tab row as everything
- * else, and `triggers-tab.tsx` (a wrapper whose only job was that inner tab bar)
- * is gone.
+ * Two changes at once, and the second is the one that mattered. Moving the
+ * sections into the sidebar removed the "which macro was that in?" step — the
+ * whole vocabulary is visible and every section is one click away. But it also
+ * exposed the real defect: several destinations held a single toggle. A section is
+ * a place you GO; a lone switch is a row on a page. So the count came down by
+ * merging what nobody read apart:
  *
- * **The address is still `?tab=<leaf>`.** The macro entry is DERIVED from the leaf
- * (`macroOfTab`), so no second parameter was invented and the sidebar lights the
- * entry containing the active leaf. There is no alias table: the tenant-scoped
- * URLs are canonical everywhere in the panel, and a `?tab=` value that no longer
- * names a section degrades to the default section like any other unknown value.
+ * - **Strumenti**: the internal tools and the external MCP servers answer the same
+ *   question ("what can this agent do"), so they are one page.
+ * - **Credenziali**: a key was reachable from two places (the model picker and the
+ *   tool secrets). "Where do I put an API key" now has one answer, and the keys the
+ *   TOOLS demand have their own section beside the tool list, called Parametri.
+ * - **Avanzate**: memory, the per-turn parameters and the tracing were three
+ *   different destinations for one subject — what the engine carries into a turn
+ *   and what it keeps after.
+ * - **Attività**: conversations, saved memories and the run log were workspace-wide
+ *   pages only, so finding one agent's meant opening a filter. The engine already
+ *   takes `instanceId` on all of them.
+ *
+ * **The address is still `?tab=<section>`.** There is no alias table: a `?tab=`
+ * value that no longer names a section degrades to the landing page like any other
+ * unknown value.
+ *
+ * Enterprise adds sections to this list — the model card, the governance gates,
+ * compliance, retention and the tool traces — through its own copy of this file.
+ * The shape is identical so the two stay mergeable; only the rows differ.
  */
 
-import { Gauge, Brain, Settings2, Radio, Webhook, Shield } from "lucide-react";
+import {
+  Gauge,
+  Brain,
+  Settings2,
+  Webhook,
+  Shield,
+  BarChart3,
+  MessageSquareText,
+  Wrench,
+  GraduationCap,
+  BookOpen,
+  Anchor,
+  Activity,
+  IdCard,
+  Info,
+  KeySquare,
+  MessagesSquare,
+  SlidersHorizontal,
+  Cpu,
+  KeyRound,
+  Radio,
+  CalendarClock,
+  History,
+  DoorOpen,
+  EyeOff,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { TranslationKey } from "@/lib/i18n/types";
 
-/** A sidebar entry of the agent destination. */
+/** A group heading of the agent destination. */
 export type AgentMacro =
   | "overview"
   | "configuration"
   | "behaviour"
-  | "channels"
   | "automation"
-  | "governance";
+  | "governance"
+  | "activity";
 
 export interface AgentSectionDef {
   /** The `?tab=` value — this section's address and its stable key. */
   tab: string;
   titleKey: TranslationKey;
   macro: AgentMacro;
+  /**
+   * Its own glyph, now that the section IS the sidebar row: repeating the macro's
+   * icon down a group would make identical stacks, and a collapsed sidebar (labels
+   * and group headings both hidden) would have nothing left to read.
+   */
+  icon: LucideIcon;
 }
 
-/** Sidebar order. */
+/** Group headings, in order. */
 export const AGENT_MACROS: readonly {
   macro: AgentMacro;
   titleKey: TranslationKey;
@@ -51,55 +95,68 @@ export const AGENT_MACROS: readonly {
   // top-down.
   { macro: "configuration", titleKey: "instances.macro.configuration", icon: Settings2 },
   { macro: "behaviour", titleKey: "instances.macro.behaviour", icon: Brain },
-  { macro: "channels", titleKey: "instances.macro.channels", icon: Radio },
   { macro: "automation", titleKey: "instances.macro.automation", icon: Webhook },
   { macro: "governance", titleKey: "instances.macro.governance", icon: Shield },
+  // Last: it is where you go to find out what happened, which is a different
+  // errand from configuring the agent — and the one you arrive with least often.
+  { macro: "activity", titleKey: "instances.macro.activity", icon: Activity },
 ];
 
 export const AGENT_SECTIONS: readonly AgentSectionDef[] = [
-  // Panoramica — what the agent did over a period.
-  { tab: "analytics", titleKey: "instances.detail.tabAnalytics", macro: "overview" },
+  // Panoramica — whether the agent is well, and what it did over a period.
+  { tab: "overview", titleKey: "instances.detail.tabStatus", macro: "overview", icon: IdCard },
+  { tab: "analytics", titleKey: "instances.detail.tabAnalytics", macro: "overview", icon: BarChart3 },
 
-  // Configurazione — what the agent IS and what runs it.
-  { tab: "general", titleKey: "instances.detail.tabGeneral", macro: "configuration" },
-  { tab: "settings", titleKey: "instances.detail.tabSettings", macro: "configuration" },
+  // Configurazione — what the agent IS, what runs it, and how it is reached.
+  { tab: "general", titleKey: "instances.detail.tabGeneral", macro: "configuration", icon: Info },
+  { tab: "settings", titleKey: "instances.detail.tabSettings", macro: "configuration", icon: Cpu },
+  { tab: "credentials", titleKey: "instances.detail.tabCredentials", macro: "configuration", icon: KeyRound },
+  // ONE section for every channel: the channel is picked inside it.
+  { tab: "channels", titleKey: "instances.detail.tabChannels", macro: "configuration", icon: Radio },
 
   // Comportamento — what the agent knows, can do, and how it answers. Hooks belong
   // HERE rather than with the automations: a hook intercepts the lifecycle to
   // change the reply, which is behaviour, not scheduling.
-  { tab: "prompts", titleKey: "instances.detail.tabPrompts", macro: "behaviour" },
-  { tab: "tools", titleKey: "instances.detail.tabTools", macro: "behaviour" },
-  // External MCP servers sit next to Tools on purpose: they answer the same
-  // question ("what can this agent do"), for capabilities that live outside the
-  // engine — their tools reach the model as `mcp__<server>__*`.
-  { tab: "mcp", titleKey: "instances.detail.tabMcp", macro: "behaviour" },
-  { tab: "skills", titleKey: "instances.detail.tabSkills", macro: "behaviour" },
-  { tab: "knowledge", titleKey: "instances.detail.tabKnowledge", macro: "behaviour" },
-  { tab: "hooks", titleKey: "instances.detail.tabHooks", macro: "behaviour" },
+  { tab: "prompts", titleKey: "instances.detail.tabPrompts", macro: "behaviour", icon: MessageSquareText },
+  // Internal tools and external MCP servers on one page.
+  { tab: "tools", titleKey: "instances.detail.tabTools", macro: "behaviour", icon: Wrench },
+  // The keys the enabled tools and hooks demand — beside the tool list, because
+  // that is what makes them exist. Named "Parametri", NOT the same word as the
+  // per-turn ones below, which are under Avanzate.
+  { tab: "toolSecrets", titleKey: "instances.detail.tabToolSecrets", macro: "behaviour", icon: KeySquare },
+  { tab: "skills", titleKey: "instances.detail.tabSkills", macro: "behaviour", icon: GraduationCap },
+  { tab: "knowledge", titleKey: "instances.detail.tabKnowledge", macro: "behaviour", icon: BookOpen },
+  { tab: "hooks", titleKey: "instances.detail.tabHooks", macro: "behaviour", icon: Anchor },
+  // Memory, the per-turn parameters and the tracing.
+  { tab: "params", titleKey: "instances.detail.tabParams", macro: "behaviour", icon: SlidersHorizontal },
 
-  // Canali — ONE section, not one per channel: `ChannelsTab` renders every channel
-  // on a single page here. Splitting it the way a per-channel form would deserve is
-  // a change to that component, not to this registry.
-  { tab: "channels", titleKey: "instances.detail.tabChannels", macro: "channels" },
+  // Automazioni — what makes the agent act with nobody asking.
+  { tab: "webhooks", titleKey: "triggers.webhooks", macro: "automation", icon: Webhook },
+  { tab: "scheduled", titleKey: "triggers.scheduled", macro: "automation", icon: CalendarClock },
+  { tab: "room", titleKey: "instances.detail.tabRoom", macro: "automation", icon: DoorOpen },
 
-  // Automazioni — what makes the agent act with nobody asking. The first three are
-  // Trigger's own tabs, flattened out of it.
-  { tab: "webhooks", titleKey: "triggers.webhooks", macro: "automation" },
-  { tab: "scheduled", titleKey: "triggers.scheduled", macro: "automation" },
-  { tab: "runs", titleKey: "triggers.runs", macro: "automation" },
-  { tab: "room", titleKey: "instances.detail.tabRoom", macro: "automation" },
+  // Governance — gates, policies, retention and compliance are Enterprise; what
+  // ships here is the data-privacy section.
+  { tab: "privacy", titleKey: "instances.detail.tabPrivacy", macro: "governance", icon: EyeOff },
 
-  // Governance — the rules it runs under. Gates, policies, retention and compliance
-  // are Enterprise; what ships here is the data-privacy section.
-  { tab: "privacy", titleKey: "instances.detail.tabPrivacy", macro: "governance" },
+  // Attività — what this agent has DONE. The tool traces are Enterprise.
+  { tab: "conversations", titleKey: "nav.conversations", macro: "activity", icon: MessagesSquare },
+  { tab: "memories", titleKey: "nav.memory", macro: "activity", icon: Brain },
+  { tab: "logs", titleKey: "instances.detail.tabLogs", macro: "activity", icon: History },
 ];
 
-/** Where the page lands with no (or an unusable) `?tab=`. */
-export const DEFAULT_AGENT_TAB = "general";
+/**
+ * Where the page lands with no (or an unusable) `?tab=`.
+ *
+ * Stato, not Generale: arriving on an agent, the first question is whether it
+ * works, and the second is what it is. Generale answers neither — it holds the
+ * name and the description, which is the one thing the page header already says.
+ */
+export const DEFAULT_AGENT_TAB = "overview";
 
 export const AGENT_TAB_VALUES: readonly string[] = AGENT_SECTIONS.map((s) => s.tab);
 
-/** Sections of one macro entry, in registry order — the page's tab row. */
+/** Sections of one macro, in registry order — the rows under its heading. */
 export function agentSectionsByMacro(macro: AgentMacro): AgentSectionDef[] {
   return AGENT_SECTIONS.filter((section) => section.macro === macro);
 }
@@ -114,7 +171,14 @@ export function resolveAgentTab(raw: string | null | undefined): string {
   return AGENT_TAB_VALUES.includes(raw) ? raw : DEFAULT_AGENT_TAB;
 }
 
-/** The sidebar entry containing a leaf — what makes `?tab=` sufficient on its own. */
+/** The heading a section sits under — which group of the sidebar holds its row. */
 export function macroOfTab(tab: string): AgentMacro {
-  return AGENT_SECTIONS.find((s) => s.tab === tab)?.macro ?? "configuration";
+  return AGENT_SECTIONS.find((s) => s.tab === tab)?.macro ?? "overview";
+}
+
+/** The section a `?tab=` names, already resolved — what the page titles itself with. */
+export function agentSection(tab: string): AgentSectionDef {
+  const resolved = resolveAgentTab(tab);
+  // Non-null: `resolveAgentTab` only ever returns a registered tab.
+  return AGENT_SECTIONS.find((s) => s.tab === resolved)!;
 }

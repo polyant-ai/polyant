@@ -1,19 +1,42 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Tests for the Knowledge tab's enable switch and its embedder warning.
+ * Tests for the Knowledge section's two capability switches and their embedder
+ * warnings.
  *
- * The switch MOVED here from the model settings, and the "your embedder has no
+ * Retrieval MOVED here from the model settings, and the "your embedder has no
  * credentials" warning did not come with it — nor did the two tests that pinned
  * it. The consequence was silent: an admin turns retrieval on, gets a green
  * toast, uploads documents, and every one lands in `status: error` with nothing
  * on screen explaining why.
+ *
+ * The switch rides the page's Save rather than persisting on the flick, like every
+ * other form in the agent — it used to be the one exception, on the grounds that it
+ * was "just one boolean".
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
 import { KnowledgeTab } from "./knowledge-tab";
+import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import type { Instance } from "@/lib/api";
+
+function SaveButton() {
+  const { saveAction } = usePageActions();
+  if (!saveAction?.isDirty) return null;
+  return <button onClick={() => saveAction.onSave()}>common.save</button>;
+}
+
+/** Every render needs the provider: the switches register the page's save action. */
+function renderWithProvider(ui: ReactElement) {
+  return render(
+    <PageActionsProvider>
+      {ui}
+      <SaveButton />
+    </PageActionsProvider>,
+  );
+}
 
 const { mockList, mockUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
   mockList: vi.fn(),
@@ -68,7 +91,7 @@ beforeEach(() => {
 
 describe("KnowledgeTab — the embedder-credentials warning", () => {
   it("warns when retrieval is on and the embedder has no credentials", async () => {
-    render(
+    renderWithProvider(
       <KnowledgeTab
         slug="a1"
         instance={makeInstance({ embedder: { needsCredentials: true } })}
@@ -82,7 +105,7 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
   });
 
   it("names AWS credentials for a bedrock embedder", async () => {
-    render(
+    renderWithProvider(
       <KnowledgeTab
         slug="a1"
         instance={makeInstance({
@@ -99,7 +122,7 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
   });
 
   it("stays quiet when the embedder is configured", async () => {
-    render(
+    renderWithProvider(
       <KnowledgeTab
         slug="a1"
         instance={makeInstance({ embedder: { needsCredentials: false } })}
@@ -112,7 +135,7 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
   });
 
   it("stays quiet while retrieval is off, since nothing will be embedded", async () => {
-    render(
+    renderWithProvider(
       <KnowledgeTab
         slug="a1"
         instance={makeInstance({
@@ -131,7 +154,7 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
   // all-false whenever memory is off, so it cannot speak for a knowledge-only
   // agent — which is exactly how this warning got lost.
   it("does not fall back to the memory status", async () => {
-    render(
+    renderWithProvider(
       <KnowledgeTab
         slug="a1"
         instance={makeInstance({
@@ -148,37 +171,24 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
   });
 });
 
-describe("KnowledgeTab — the enable switch", () => {
-  it("writes only on change, never on mount", async () => {
-    render(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+describe("KnowledgeTab — the retrieval switch", () => {
+  const retrieval = () => screen.getByLabelText("knowledge.tab.enableTitle");
+
+  it("writes only on save, never on mount", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
     await waitFor(() => expect(mockList).toHaveBeenCalled());
 
     expect(mockUpdate).not.toHaveBeenCalled();
+    // Nothing is dirty, so there is no Save to press either.
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
   });
 
-  it("persists the flag and reports success", async () => {
-    const onUpdate = vi.fn();
-    render(
-      <KnowledgeTab
-        slug="a1"
-        instance={makeInstance({ knowledgeEnabled: false })}
-        onUpdate={onUpdate}
-      />,
-    );
-    await waitFor(() => expect(mockList).toHaveBeenCalled());
-
-    await userEvent.click(screen.getByRole("switch"));
-
-    await waitFor(() => {
-      expect(mockUpdate).toHaveBeenCalledWith("a1", { knowledgeEnabled: true });
-    });
-    expect(onUpdate).toHaveBeenCalled();
-    expect(mockToastSuccess).toHaveBeenCalled();
-  });
-
-  it("surfaces a failure instead of pretending it saved", async () => {
-    mockUpdate.mockRejectedValue(new Error("nope"));
-    render(
+  /**
+   * A flick alone must NOT persist. This is the rule the whole section follows
+   * now, and the one this switch used to break.
+   */
+  it("does not persist on the flick", async () => {
+    renderWithProvider(
       <KnowledgeTab
         slug="a1"
         instance={makeInstance({ knowledgeEnabled: false })}
@@ -187,7 +197,57 @@ describe("KnowledgeTab — the enable switch", () => {
     );
     await waitFor(() => expect(mockList).toHaveBeenCalled());
 
-    await userEvent.click(screen.getByRole("switch"));
+    await userEvent.click(retrieval());
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(screen.getByText("common.save")).toBeInTheDocument();
+  });
+
+  it("persists the flag on save and reports success", async () => {
+    const onUpdate = vi.fn();
+    renderWithProvider(
+      <KnowledgeTab
+        slug="a1"
+        instance={makeInstance({ knowledgeEnabled: false })}
+        onUpdate={onUpdate}
+      />,
+    );
+    await waitFor(() => expect(mockList).toHaveBeenCalled());
+
+    await userEvent.click(retrieval());
+    await userEvent.click(screen.getByText("common.save"));
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith("a1", { knowledgeEnabled: true });
+    });
+    expect(onUpdate).toHaveBeenCalled();
+    expect(mockToastSuccess).toHaveBeenCalled();
+  });
+
+  /**
+   * Memory is NOT here any more — it went to Parametri, with the per-turn
+   * parameters. Asserted as absent so a revert that drags it back is loud.
+   */
+  it("does not carry the memory switch", async () => {
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+    await waitFor(() => expect(mockList).toHaveBeenCalled());
+
+    expect(screen.queryByLabelText("settings.tab.memory")).not.toBeInTheDocument();
+  });
+
+  it("surfaces a failure instead of pretending it saved", async () => {
+    mockUpdate.mockRejectedValue(new Error("nope"));
+    renderWithProvider(
+      <KnowledgeTab
+        slug="a1"
+        instance={makeInstance({ knowledgeEnabled: false })}
+        onUpdate={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(mockList).toHaveBeenCalled());
+
+    await userEvent.click(retrieval());
+    await userEvent.click(screen.getByText("common.save"));
 
     await waitFor(() => expect(mockToastError).toHaveBeenCalled());
     expect(mockToastSuccess).not.toHaveBeenCalled();

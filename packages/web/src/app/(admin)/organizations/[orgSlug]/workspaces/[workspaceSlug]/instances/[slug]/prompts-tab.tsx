@@ -114,51 +114,60 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
   usePageSaveAction({ isDirty, saving, onSave: handleSave });
 
   return (
-    <div className="flex gap-8">
-      {/* Sticky navigation sidebar — desktop only. */}
-      <nav className="hidden md:block w-56 shrink-0">
-        <div className="sticky top-4">
-          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t("prompts.sidebarTitle")}
-          </p>
-          <ul className="space-y-1">
-            {prompts.map((prompt) => {
-              const Icon = PROMPT_ICONS[prompt.key] ?? Sparkles;
-              const active = activeKey === prompt.key;
-              const dirty = dirtyKeys.has(prompt.key);
-              return (
-                <li key={prompt.key}>
-                  <button
-                    type="button"
-                    onClick={() => scrollTo(prompt.key)}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-                      active
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    <span className="truncate flex-1">{prompt.title}</span>
-                    {dirty && (
-                      <span
-                        aria-label={t("prompts.modified")}
-                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
-                      />
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+    <div>
+      {/*
+        ANCHORS, in a row — not a second column.
+
+        This was a 224px rail of icon+label rows down the left of the content, which
+        with the agent's sections in the sidebar put two vertical columns of nav
+        rows side by side: the exact shape the panel's navigation removed one level
+        up, reintroduced inside a section. Same job (jump to a section, see which
+        one is dirty), one axis, and it works on a phone, which the hidden-on-mobile
+        rail did not.
+
+        The active chip is `primary`, not the lime accent: the accent is the chart
+        series colour elsewhere on this page, and one colour meaning both "this data
+        series" and "this selection" is what made it ambiguous.
+      */}
+      <nav
+        aria-label={t("prompts.sidebarTitle")}
+        className="sticky top-0 z-10 -mx-1 mb-6 flex gap-2 overflow-x-auto bg-background px-1 py-2"
+      >
+        {prompts.map((prompt) => {
+          const Icon = PROMPT_ICONS[prompt.key] ?? Sparkles;
+          const active = activeKey === prompt.key;
+          const dirty = dirtyKeys.has(prompt.key);
+          return (
+            <button
+              key={prompt.key}
+              type="button"
+              onClick={() => scrollTo(prompt.key)}
+              aria-current={active ? "true" : undefined}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm transition-colors",
+                active
+                  ? "border-foreground bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="truncate">{prompt.title}</span>
+              {dirty && (
+                <span
+                  aria-label={t("prompts.modified")}
+                  className="size-1.5 shrink-0 rounded-full bg-accent"
+                />
+              )}
+            </button>
+          );
+        })}
       </nav>
 
       {/* Stacked sections — always expanded, scroll to navigate. */}
-      <div className="min-w-0 max-w-3xl flex-1">
-        <p className="mb-6 text-sm text-muted-foreground">
-          {t("prompts.description")}
-        </p>
+      {/* No max-width and no flex column: the section rail became a row of
+          anchors above, so the editors take the full page width. */}
+      <div className="min-w-0">
+        <p className="mb-6 text-sm text-muted-foreground">{t("prompts.description")}</p>
         <div className="space-y-10">
           {prompts.map((prompt) => {
             const Icon = PROMPT_ICONS[prompt.key] ?? Sparkles;

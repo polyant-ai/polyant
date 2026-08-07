@@ -4,7 +4,6 @@
 
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
-import { AlertTriangle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,10 +25,6 @@ export function GeneralTab({ instance, onUpdate }: Props) {
   const [status, setStatus] = useState(instance.status);
   const [saving, setSaving] = useState(false);
   const [icon, setIcon] = useState(instance.icon);
-  // Memory moved here from the model settings: whether the agent remembers is
-  // part of what it IS, not of which model runs it. Rides the tab's existing
-  // save rather than writing on change, because it sits beside fields that do.
-  const [memoryEnabled, setMemoryEnabled] = useState(instance.memoryEnabled);
 
   const handleIconUpload = useCallback(async (dataUri: string) => {
     try {
@@ -56,8 +51,7 @@ export function GeneralTab({ instance, onUpdate }: Props) {
   const isDirty =
     name !== instance.name ||
     description !== (instance.description ?? "") ||
-    status !== instance.status ||
-    memoryEnabled !== instance.memoryEnabled;
+    status !== instance.status;
 
   const handleSave = async () => {
     setSaving(true);
@@ -66,7 +60,6 @@ export function GeneralTab({ instance, onUpdate }: Props) {
         name,
         description: description || null,
         status,
-        memoryEnabled,
       });
       onUpdate(updated);
       toast.success(t("general.saved"));
@@ -80,7 +73,7 @@ export function GeneralTab({ instance, onUpdate }: Props) {
   usePageSaveAction({ isDirty, saving, onSave: handleSave });
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-6">
       <IconUpload
         icon={icon}
         onUpload={handleIconUpload}
@@ -128,33 +121,10 @@ export function GeneralTab({ instance, onUpdate }: Props) {
         />
       </div>
 
-      <div className="space-y-4 rounded-lg border p-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1">
-            <Label htmlFor="agent-memory" className="text-base font-medium">
-              {t("settings.tab.memory")}
-            </Label>
-            <p className="text-sm text-muted-foreground">{t("settings.tab.memoryHelp")}</p>
-          </div>
-          <Switch id="agent-memory" checked={memoryEnabled} onCheckedChange={setMemoryEnabled} />
-        </div>
 
-        {/* Came along with the switch: the engine already reports this on the
-            instance, and it keys off the EMBEDDER (openai|bedrock), which is
-            independent of the chat provider (#150) and configured under Modello. */}
-        {memoryEnabled && instance.memory?.needsOpenAIKey && (
-          <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p className="text-sm">
-              {t(
-                instance.embeddingProvider === "bedrock"
-                  ? "memory.banner.bedrockNeedsAws"
-                  : "memory.banner.openaiNeedsKey",
-              )}
-            </p>
-          </div>
-        )}
-      </div>
+      {/* LangSmith used to be here too. It went to Parametri with the memory
+          switch: what traces the agent at runtime is not part of how the agent is
+          labelled, which is all this page is now. */}
     </div>
   );
 }

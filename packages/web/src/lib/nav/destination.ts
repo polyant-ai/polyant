@@ -22,7 +22,6 @@ import {
   AGENT_MACROS,
   AGENT_SECTIONS,
   agentSectionsByMacro,
-  macroOfTab,
   resolveAgentTab,
 } from "./agent-sections";
 
@@ -86,18 +85,23 @@ export function agentFromPath(
  */
 function agentGroups(orgSlug: string, workspaceSlug: string, agentSlug: string): DestinationGroup[] {
   const base = workspacePath(orgSlug, workspaceSlug, `/instances/${encodeURIComponent(agentSlug)}`);
-  return [
-    {
-      key: "agent",
-      labelKey: null,
-      items: AGENT_MACROS.flatMap(({ macro, titleKey, icon }) => {
-        // A macro with no section would be an entry linking nowhere; skip it rather
-        // than build an href from `undefined`.
-        const landing = agentSectionsByMacro(macro)[0];
-        return landing ? [{ key: macro, titleKey, href: `${base}?tab=${landing.tab}`, icon }] : [];
-      }),
-    },
-  ];
+  return AGENT_MACROS.flatMap(({ macro, titleKey }) => {
+    const sections = agentSectionsByMacro(macro);
+    // A macro with no section would be a heading over nothing.
+    if (sections.length === 0) return [];
+    return [
+      {
+        key: macro,
+        labelKey: titleKey,
+        items: sections.map((section) => ({
+          key: section.tab,
+          titleKey: section.titleKey,
+          href: `${base}?tab=${section.tab}`,
+          icon: section.icon,
+        })),
+      },
+    ];
+  });
 }
 
 /** Resolve the destination the URL is inside, or `null` for the daily surface. */
@@ -120,7 +124,7 @@ export function resolveDestination(pathname: string): Destination | null {
  * path comparison every other nav surface uses would mark every one of them active
  * at once. When an item's href carries a tab, the tab decides.
  *
- * And it decides by MACRO, not by leaf: a sidebar row is a macro entry linking to
+ * And it decides by LEAF: a sidebar row is a macro entry linking to
  * the first section it holds, so it must stay lit while you move along that page's
  * tab row — otherwise opening the second tab of Comportamento leaves the sidebar
  * with nothing lit at all. `resolveAgentTab` is applied first, so a legacy or absent
@@ -136,10 +140,7 @@ export function isDestinationItemActive(
   const [path, query] = href.split("?");
   const itemTab = query ? new URLSearchParams(query).get("tab") : null;
   if (!itemTab) return isNavActive(pathname, href);
-  return (
-    isNavActive(pathname, path, true) &&
-    macroOfTab(resolveAgentTab(currentTab)) === macroOfTab(itemTab)
-  );
+  return isNavActive(pathname, path, true) && resolveAgentTab(currentTab) === itemTab;
 }
 
 /**

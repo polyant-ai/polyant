@@ -9,10 +9,11 @@ import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { useI18n } from "@/lib/i18n/context";
 import type { ChatMessage } from "../_hooks/use-chat";
 
-function formatTime(dateStr: string | null): string {
+/** Takes the UI's locale explicitly: a module-level helper has no hook to read it. */
+function formatTime(dateStr: string | null, locale: string): string {
   if (!dateStr) return "";
   // parseUTC not needed here — playground timestamps are generated client-side with toISOString() (already has Z)
-  return new Date(dateStr).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(dateStr).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 interface MessageBubbleProps {
@@ -22,7 +23,7 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, onDebugClick }: MessageBubbleProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const isUser = message.role === "user";
 
   // System message → centered amber pill
@@ -38,7 +39,7 @@ export function MessageBubble({ message, onDebugClick }: MessageBubbleProps) {
               </p>
               {message.createdAt && (
                 <p className="mt-1 text-xs text-amber-600/60 dark:text-amber-400/60">
-                  {formatTime(message.createdAt)}
+                  {formatTime(message.createdAt, locale)}
                 </p>
               )}
             </div>
@@ -96,7 +97,7 @@ export function MessageBubble({ message, onDebugClick }: MessageBubbleProps) {
               isUser ? "text-primary-foreground/60" : "text-muted-foreground"
             }`}
           >
-            <span>{formatTime(message.createdAt)}</span>
+            <span>{formatTime(message.createdAt, locale)}</span>
             {!isUser && onDebugClick && (
               <button
                 type="button"

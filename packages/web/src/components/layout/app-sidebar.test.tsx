@@ -79,7 +79,7 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
     mockPathname.value = "/";
   });
 
-  it("shows the agent's macro entries, and NOT the daily nav, on an agent page", () => {
+  it("shows the agent's sections under their headings, and NOT the daily nav", () => {
     mockPathname.value = AGENT;
     render(
       <I18nProvider>
@@ -93,11 +93,23 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
     // The agent, by its slug, and the way back out.
     expect(within(content).getByText("bot-1")).toBeInTheDocument();
     expect(within(content).getByRole("link", { name: /agenti/i })).toBeInTheDocument();
-    // Its macro entries.
-    expect(within(content).getByRole("link", { name: /comportamento/i })).toBeInTheDocument();
-    // And none of the daily work.
-    expect(within(content).queryByRole("link", { name: /conversazioni/i })).not.toBeInTheDocument();
-    expect(within(content).queryByRole("link", { name: /memoria/i })).not.toBeInTheDocument();
+    // Its macros are HEADINGS now, and each section under them is its own row —
+    // it was one row per macro, with the sections behind a tab row.
+    expect(within(content).getByText("Comportamento")).toBeInTheDocument();
+    expect(within(content).queryByRole("link", { name: /^comportamento$/i })).not.toBeInTheDocument();
+    expect(within(content).getByRole("link", { name: /^prompt$/i })).toBeInTheDocument();
+    expect(within(content).getByRole("link", { name: /^strumenti$/i })).toBeInTheDocument();
+
+    /*
+      And none of the daily work. Conversazioni and Memoria are the trap here:
+      they exist under BOTH navigations, so their presence proves nothing — what
+      distinguishes them is where they point. Under an agent they address a
+      section of that agent, never the workspace-wide page.
+    */
+    expect(within(content).queryByRole("link", { name: /playground/i })).not.toBeInTheDocument();
+    expect(
+      within(content).getByRole("link", { name: /^conversazioni$/i }).getAttribute("href"),
+    ).toBe(`${AGENT}?tab=conversations`);
   });
 
   it("shows the daily nav, and no agent entries, everywhere else", () => {
@@ -111,7 +123,8 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
 
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     expect(within(content).getByRole("link", { name: /conversazioni/i })).toBeInTheDocument();
-    expect(within(content).queryByRole("link", { name: /comportamento/i })).not.toBeInTheDocument();
+    expect(within(content).queryByText("Comportamento")).not.toBeInTheDocument();
+    expect(within(content).queryByRole("link", { name: /^prompt$/i })).not.toBeInTheDocument();
   });
 });
 

@@ -1,25 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The agent detail page's twelve tabs regrouped into five rail groups
- * (design spec `2026-07-30-admin-console-ia-redesign-design.md`, agent-detail
- * phase, phase 10). This is a navigation test only — every tab body is
- * stubbed to a one-line marker, because the regrouping must not touch what
- * a tab renders, only how it is reached.
+ * The agent page under the flat navigation: TWENTY-THREE sections, every one of
+ * them a sidebar row, and no tab row on the page at all.
  *
- * What's pinned here:
- *  - the five groups render, each with its tabs' labels;
- *  - clicking a rail item switches the visible body;
- *  - the active tab still resolves from its `?tab=` address (unchanged
- *    query-param mechanism — the rail is a new nav, not a new addressing
- *    scheme);
- *  - all twelve tabs that were reachable before the regrouping are still
- *    reachable by address, asserted in one loop so a tab silently dropped by
- *    the regrouping cannot pass unnoticed.
+ * A navigation test only — every section body is stubbed to a one-line marker,
+ * because reorganising how a section is REACHED must not change what it renders.
+ *
+ * What is pinned here:
+ *  - the page lands on the overview, alone;
+ *  - every section resolves from its `?tab=` address;
+ *  - the addresses of the sections that MERGED resolve to nothing and land on the
+ *    default, because there is no alias table anywhere in the panel;
+ *  - the page renders no tab row, and names the open section itself — with the tab
+ *    row gone, the heading is the only thing on the page saying where you are.
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useSyncExternalStore } from "react";
 import type { Instance } from "@/lib/api";
 
@@ -86,25 +83,41 @@ vi.mock("@/lib/api", () => ({
   getUserErrorMessage: vi.fn((_e: unknown, d: string) => d),
 }));
 
-// Every tab body is stubbed to one marker element — proves the rail shows
-// the right body without re-testing twelve features (page bodies are
-// untouched by this change).
+// Every section body is stubbed to one marker element — proves the address
+// reaches the right body without re-testing eighteen features.
 vi.mock("./general-tab", () => ({ GeneralTab: () => <div>tab-body:general</div> }));
 vi.mock("./prompts-tab", () => ({ PromptsTab: () => <div>tab-body:prompts</div> }));
-vi.mock("./tools-tab", () => ({ ToolsTab: () => <div>tab-body:tools</div> }));
+// The merged sections are stubbed at the COMPOSITE, not at its parts: what the
+// page addresses now is the composite, and the parts' own tests still cover them.
+vi.mock("./tools-section", () => ({ ToolsSection: () => <div>tab-body:tools</div> }));
 vi.mock("./skills-tab", () => ({ SkillsTab: () => <div>tab-body:skills</div> }));
 vi.mock("./knowledge-tab", () => ({ KnowledgeTab: () => <div>tab-body:knowledge</div> }));
-vi.mock("./settings-tab", () => ({ SettingsTab: () => <div>tab-body:settings</div> }));
-vi.mock("./channels-tab", () => ({ ChannelsTab: () => <div>tab-body:channels</div> }));
+// One component, two sections: which half it renders is the `section` prop, and
+// the stub reports it — a copy-paste leaving both addresses on one half fails here.
+vi.mock("./settings-tab", () => ({
+  SettingsTab: ({ section }: { section: string }) => <div>tab-body:settings:{section}</div>,
+}));
+vi.mock("./channels-section", () => ({ ChannelsSection: () => <div>tab-body:channels</div> }));
 vi.mock("./analytics-tab", () => ({ AnalyticsTab: () => <div>tab-body:analytics</div> }));
+// Stubbed like every other body: this file is about navigation, and the status
+// block makes its own requests (covered by `overview-status.test.tsx`).
+vi.mock("./status-tab", () => ({ StatusTab: () => <div>tab-body:status</div> }));
+vi.mock("./logs-tab", () => ({ LogsTab: () => <div>tab-body:logs</div> }));
+vi.mock("./params-tab", () => ({ ParamsTab: () => <div>tab-body:params</div> }));
+vi.mock("./agent-conversations-tab", () => ({
+  AgentConversationsTab: () => <div>tab-body:conversations</div>,
+}));
+vi.mock("./agent-memories-tab", () => ({
+  AgentMemoriesTab: () => <div>tab-body:memories</div>,
+}));
 vi.mock("./triggers-webhooks-tab", () => ({ TriggersWebhooksTab: () => <div>tab-body:webhooks</div> }));
 vi.mock("./triggers-scheduled-tab", () => ({ TriggersScheduledTab: () => <div>tab-body:scheduled</div> }));
-vi.mock("./triggers-runs-tab", () => ({ TriggersRunsTab: () => <div>tab-body:runs</div> }));
 vi.mock("./room-tab", () => ({ RoomTab: () => <div>tab-body:room</div> }));
 vi.mock("./hooks-tab", () => ({ HooksTab: () => <div>tab-body:hooks</div> }));
 vi.mock("./privacy-tab", () => ({ PrivacyTab: () => <div>tab-body:privacy</div> }));
 
 import InstanceDetailPage from "./page";
+import { DEFAULT_AGENT_TAB } from "@/lib/nav/agent-sections";
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
   return {
@@ -141,101 +154,139 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
   } as Instance;
 }
 
-// Every `?tab=` address the page must resolve — hard-coded here, not imported
-// from the section registry, so a regrouping that silently drops one from the
-// production list cannot also make it disappear from this ground truth.
-//
-// Legacy addresses are NOT in this list: back-compatibility is dropped
-// deliberately and consistently across the panel, so a stale `?tab=` (e.g. the
-// folded `triggers`) is treated as any other unknown value.
-const REACHABLE = [
-  "general", "prompts", "tools", "skills", "knowledge", "settings",
-  "channels", "analytics", "webhooks", "scheduled", "runs",
-  "room", "hooks", "privacy",
+/**
+ * Ground truth for the addresses, hard-coded rather than imported from the
+ * registry: a reorganisation that drops a section should fail HERE, and it cannot
+ * if this list is derived from the same data the page reads.
+ */
+const EVERY_SECTION = [
+  "overview", "analytics",
+  "general", "settings", "credentials", "channels",
+  "prompts", "tools", "toolSecrets", "skills", "knowledge", "hooks", "params",
+  "webhooks", "scheduled", "room",
+  "privacy",
+  "conversations", "memories", "logs",
 ] as const;
 
-describe("InstanceDetailPage — tab regrouping", () => {
+/** Which stub body a section renders, where the two differ. */
+const BODY_OF: Record<string, string> = {
+  overview: "status",
+  // One component, four pages: the stub reports which half it was asked for, so a
+  // copy-paste leaving two addresses on one section fails here.
+  settings: "settings:model",
+  credentials: "settings:credentials",
+  toolSecrets: "settings:toolSecrets",
+};
+
+/**
+ * Addresses that used to name a section and no longer resolve — the six
+ * per-channel ones, the two halves that merged into a page, and the two logs.
+ * There is no alias table anywhere in the panel, so each of these is just an
+ * unknown value and lands on the default section.
+ *
+ * `channels` is deliberately NOT here: the merge gave that address a section
+ * again, and it is asserted as reachable above.
+ */
+const DROPPED_ADDRESSES = [
+  "triggers",
+  "governance",
+  // Enterprise sections. They are not aliases either: an address that names
+  // nothing in this build lands on the default section like any other.
+  "policy",
+  "compliance",
+  "traces",
+  "mcp",
+  "runs",
+  "governanceEvents",
+  "retention",
+  "channelWeb",
+  "channelTelegram",
+  "channelAgent",
+] as const;
+
+describe("InstanceDetailPage — sections", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockInstancesGet.mockResolvedValue({ instance: makeInstance() });
     resetSearch("");
   });
 
-  // The rail is gone: the sidebar shows the agent's macro entries, and the page shows
-  // the sections of the ONE that is lit — never all of them at once. That is the whole
-  // point of the regrouping, so it is what this asserts.
-  it("shows only the active macro's sections in the tab row", async () => {
+  it("lands on the overview, alone", async () => {
     render(<InstanceDetailPage />);
-    await screen.findByText("tab-body:general");
+    await screen.findByText("tab-body:status");
 
-    // Configurazione holds General and Settings — and nothing from another macro.
-    expect(screen.getByRole("tab", { name: "instances.detail.tabSettings" })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "instances.detail.tabPrompts" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "instances.detail.tabPrivacy" })).not.toBeInTheDocument();
+    for (const value of EVERY_SECTION) {
+      if (value === "overview") continue;
+      expect(screen.queryByText(`tab-body:${BODY_OF[value] ?? value}`)).not.toBeInTheDocument();
+    }
   });
 
-  // A macro with one section renders no row: a tab bar with a single tab is chrome
-  // that says nothing.
-  it("renders no tab row for a macro holding one section", async () => {
+  it("resolves the active section directly from its `?tab=` address", async () => {
     resetSearch("tab=privacy");
     render(<InstanceDetailPage />);
 
     await waitFor(() => expect(screen.getByText("tab-body:privacy")).toBeInTheDocument());
-    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+    expect(screen.queryByText("tab-body:prompts")).not.toBeInTheDocument();
   });
 
-  it("shows only the default General tab's body on first render", async () => {
-    render(<InstanceDetailPage />);
-    await screen.findByText("tab-body:general");
-
-    for (const value of REACHABLE) {
-      if (value === "general") continue;
-      expect(screen.queryByText(`tab-body:${value}`)).not.toBeInTheDocument();
-    }
-  });
-
-  it("selecting a section in the tab row shows its body and hides the previous one", async () => {
-    const user = userEvent.setup();
-    render(<InstanceDetailPage />);
-    await screen.findByText("tab-body:general");
-
-    await user.click(screen.getByRole("tab", { name: "instances.detail.tabSettings" }));
-
-    await waitFor(() => expect(screen.getByText("tab-body:settings")).toBeInTheDocument());
-    expect(screen.queryByText("tab-body:general")).not.toBeInTheDocument();
-    // The address moved with it.
-    expect(mockRouterPush).toHaveBeenCalledWith(
-      expect.stringContaining("tab=settings"),
-      expect.anything(),
-    );
-  });
-
-  it("resolves the active tab directly from its `?tab=` address", async () => {
-    resetSearch("tab=analytics");
-    render(<InstanceDetailPage />);
-
-    await waitFor(() => expect(screen.getByText("tab-body:analytics")).toBeInTheDocument());
-    expect(screen.queryByText("tab-body:general")).not.toBeInTheDocument();
-  });
-
-  it("resolves every section address to its own body", async () => {
-    for (const value of REACHABLE) {
+  it("keeps every section reachable by address", async () => {
+    for (const value of EVERY_SECTION) {
       resetSearch(`tab=${value}`);
       const { unmount } = render(<InstanceDetailPage />);
-      await waitFor(() => expect(screen.getByText(`tab-body:${value}`)).toBeInTheDocument());
+      const body = BODY_OF[value] ?? value;
+      await waitFor(() => expect(screen.getByText(`tab-body:${body}`)).toBeInTheDocument());
       unmount();
     }
   });
 
-  // Unknown AND stale values both degrade to the landing section — no alias table,
-  // no empty page, no throw.
-  it.each(["not-a-real-tab", "triggers", ""])(
-    "falls back to the General tab for `?tab=%s`",
-    async (value) => {
-      resetSearch(`tab=${value}`);
-      render(<InstanceDetailPage />);
+  /**
+   * The merged sections resolve to NOTHING now: the alias table is gone, matching
+   * the rest of the panel, where a legacy address lands rather than forwarding.
+   * Pinned so the removal is a decision and not a silent regression.
+   */
+  it("lands a dropped legacy address on the default section", async () => {
+    for (const legacy of DROPPED_ADDRESSES) {
+      resetSearch(`tab=${legacy}`);
+      const { unmount } = render(<InstanceDetailPage />);
+      const body = BODY_OF[DEFAULT_AGENT_TAB] ?? DEFAULT_AGENT_TAB;
+      await waitFor(() => expect(screen.getByText(`tab-body:${body}`)).toBeInTheDocument());
+      unmount();
+    }
+  });
 
-      await waitFor(() => expect(screen.getByText("tab-body:general")).toBeInTheDocument());
-    },
-  );
+  /**
+   * There is NO tab row any more: the sidebar lists every section, so a tab bar
+   * here would be the same vocabulary said twice, half of it hidden.
+   */
+  it("renders no tab row at all", async () => {
+    resetSearch("tab=tools");
+    render(<InstanceDetailPage />);
+    await waitFor(() => expect(screen.getByText("tab-body:tools")).toBeInTheDocument());
+
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+    expect(screen.queryByText("tab-body:prompts")).not.toBeInTheDocument();
+  });
+
+  /**
+   * The page NAMES the open section. Without the tab row, the only other thing
+   * saying which section is open is the lit row in the sidebar — a different
+   * surface, 500px away — and half the section bodies open with an unheaded
+   * paragraph.
+   */
+  it("names the open section in a heading", async () => {
+    resetSearch("tab=hooks");
+    render(<InstanceDetailPage />);
+
+    await waitFor(() => expect(screen.getByText("tab-body:hooks")).toBeInTheDocument());
+    expect(
+      screen.getByRole("heading", { name: "instances.detail.tabHooks", level: 2 }),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to the overview for an unknown `?tab=` value", async () => {
+    resetSearch("tab=not-a-real-tab");
+    render(<InstanceDetailPage />);
+
+    await waitFor(() => expect(screen.getByText("tab-body:status")).toBeInTheDocument());
+  });
 });

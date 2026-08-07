@@ -46,12 +46,31 @@ interface Props {
 
 export function RoomConfigSection({ form, onChange, onDelete, isNew }: Props) {
   const { t } = useI18n();
+  /*
+    No container. The section heading above already frames this, and a bordered
+    box holding the whole page is a frame around the page.
+
+    The switch is named "Room in ascolto" and says what being on MEANS. It was
+    "Configurazione Room" — the section's own title, repeated — then "Room
+    attiva", which is what a switch in the on position already shows. Neither told
+    you the thing worth knowing: that the agent starts evaluating events on a timer
+    and can act unprompted.
+  */
   return (
-    <section className="space-y-4 rounded-lg border p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold">{t("room.config.title")}</h2>
+    <section className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <Label htmlFor="room-enabled" className="text-base font-medium">
+            {t("room.config.title")}
+          </Label>
+          <p className="text-sm text-muted-foreground">{t("room.config.help")}</p>
+        </div>
         <div className="flex items-center gap-3">
-          <Switch checked={form.enabled} onCheckedChange={(v) => onChange({ ...form, enabled: v })} />
+          <Switch
+            id="room-enabled"
+            checked={form.enabled}
+            onCheckedChange={(v) => onChange({ ...form, enabled: v })}
+          />
           {!isNew && onDelete && (
             <AlertDialog>
               <AlertDialogTrigger asChild>

@@ -46,10 +46,11 @@ import { Switch } from "@/components/ui/switch";
 import { api, getUserErrorMessage, type Instance, type KnowledgeDocument } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
+import { usePageSaveAction } from "./page-actions-context";
 
 interface Props {
   slug: string;
-  /** For the enable switch above the documents — see `KnowledgeToggle`. */
+  /** For the capability switches above the documents — see `KnowledgeCapabilities`. */
   instance: Instance;
   onUpdate: (instance: Instance) => void;
 }
@@ -100,19 +101,43 @@ function formatBytes(bytes: number): string {
  *
  * It used to live in the model settings, three tabs away from the thing it
  * enables — so an empty-looking knowledge base gave no hint that it was simply
- * switched off. Writes on change rather than through the page's Save: it is one
- * boolean, and a Save button for a single switch is a second step for no reason.
+ * switched off.
+ *
+ * MEMORY sits beside it now, moved off Configurazione → Generale where it lived
+ * next to the agent's name and icon. Both switches answer one question — what
+ * this agent knows — and the two halves of that answer were two destinations
+ * apart.
+ *
+ * Both ride the page's Save (`usePageSaveAction`) rather than writing on change.
+ * They used to disagree: memory waited for Save because it sat among fields that
+ * do, retrieval wrote on the flick because it was "just one boolean". Two
+ * switches on one page with two different commit rules is exactly the ambiguity
+ * an explicit Save exists to remove.
  */
-function KnowledgeToggle({ instance, onUpdate }: { instance: Instance; onUpdate: (i: Instance) => void }) {
+function KnowledgeToggle({
+  instance,
+  onUpdate,
+}: {
+  instance: Instance;
+  onUpdate: (i: Instance) => void;
+}) {
   const { t } = useI18n();
   const [saving, setSaving] = useState(false);
-  const enabled = instance.knowledgeEnabled ?? false;
+  const [enabled, setEnabled] = useState(instance.knowledgeEnabled ?? false);
 
-  const toggle = async (next: boolean) => {
+  // Re-sync when the parent reloads the agent (a save elsewhere, or this one's own
+  // round trip): local state would otherwise keep showing the pre-save values.
+  useEffect(() => {
+    setEnabled(instance.knowledgeEnabled ?? false);
+  }, [instance.knowledgeEnabled]);
+
+  const isDirty = enabled !== (instance.knowledgeEnabled ?? false);
+
+  const handleSave = async () => {
     setSaving(true);
     try {
       const { instance: updated } = await api.instances.update(instance.slug, {
-        knowledgeEnabled: next,
+        knowledgeEnabled: enabled,
       });
       onUpdate(updated);
       toast.success(t("general.saved"));
@@ -122,6 +147,8 @@ function KnowledgeToggle({ instance, onUpdate }: { instance: Instance; onUpdate:
       setSaving(false);
     }
   };
+
+  usePageSaveAction({ isDirty, saving, onSave: handleSave });
 
   return (
     <section className="mb-6 space-y-4 rounded-lg border p-4">
@@ -137,8 +164,14 @@ function KnowledgeToggle({ instance, onUpdate }: { instance: Instance; onUpdate:
           </Label>
           <p className="text-sm text-muted-foreground">{t("knowledge.tab.enableHelp")}</p>
         </div>
-        <Switch id="agent-knowledge" checked={enabled} disabled={saving} onCheckedChange={toggle} />
+        <Switch
+          id="agent-knowledge"
+          checked={enabled}
+          disabled={saving}
+          onCheckedChange={setEnabled}
+        />
       </div>
+
 
       {/* Retrieval embeds every document, so without embedder credentials this
           switch produces a green toast and then a knowledge base where every
@@ -374,7 +407,10 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
             disabled={exporting || documents.length === 0}
           >
             {exporting ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : <Download className="mr-1.5 size-4" />}
-            {t("knowledge.tab.export")}
+            {/* "Esporta documenti", not "Esporta": the page header carries an
+                Esporta too, and that one exports the AGENT. One word, two
+                different things, forty pixels apart. */}
+            {t("knowledge.exportDocuments")}
           </Button>
           <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
             <DialogTrigger asChild>
