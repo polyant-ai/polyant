@@ -120,7 +120,20 @@ describe("TwilioWebhookController", () => {
     expect(payload.media).toEqual([{ url: "https://api.twilio.com/m0", contentType: "image/jpeg" }]);
   });
 
-  it("ignores a __proto__ key in the body when building the signature params", async () => {
+  /**
+   * The key is KEPT, and that is the fix rather than a weaker version of it.
+   *
+   * An earlier denylist dropped `__proto__` before hashing, which is the wrong
+   * answer here: Twilio signs EVERY parameter it sends and adds new ones over
+   * time, so a webhook carrying a field we silently discard fails validation
+   * outright. The finding (js/remote-property-injection) is that remote input
+   * chooses which property gets WRITTEN — and `Object.fromEntries` answers it by
+   * defining own data properties, so the entry lands as a flat key exactly as
+   * Twilio hashed it instead of retargeting the prototype chain.
+   *
+   * The prototype assertion is therefore the one carrying the security property.
+   */
+  it("keeps a __proto__ key as a flat own property, never on the prototype", async () => {
     // JSON.parse is how such a body actually arrives, and it yields a real OWN
     // enumerable "__proto__" property that Object.entries will hand back — an object
     // literal cannot express that (it would just set the prototype).
@@ -137,10 +150,13 @@ describe("TwilioWebhookController", () => {
     );
 
     const [, , params] = mockAdapter.validateSignature.mock.calls[0];
-    // The key never reaches the hashed params, as an own property or as a prototype.
-    expect(Object.hasOwn(params, "__proto__")).toBe(false);
+    // Hashed with the others, as Twilio signed it — and as DATA, so nothing the
+    // body named can reach the prototype chain of the object we build.
+    expect(Object.hasOwn(params, "__proto__")).toBe(true);
+    expect(params["__proto__" as keyof typeof params]).toBe("polluted");
     expect(Object.getPrototypeOf(params)).toBe(Object.prototype);
-    // Sanity: the body really did carry it, so the guard is what stopped it.
+    // Sanity: the body really did carry it as an own property, so this exercised
+    // the path it was written for.
     expect(Object.hasOwn(pollutedBody, "__proto__")).toBe(true);
   });
 
