@@ -49,6 +49,7 @@ import { useI18n } from "@/lib/i18n/context";
 import { SecretField, SecretStatusBadge } from "@/components/instance-secret/secret-field";
 import type { TranslationKey } from "@/lib/i18n/types";
 import {
+  PROVIDER_CREDENTIAL_KEYS,
   PROVIDER_SECRET_SECTIONS,
   SECRET_KEYS,
   type ProviderSectionId,
@@ -204,6 +205,12 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
   // how to render and persist the field (text input vs select dropdown).
   const [requiredSecretSpecs, setRequiredSecretSpecs] = useState<RequiredSecretSpec[]>([]);
 
+  // What the tools' own block renders: the required specs minus the provider
+  // credentials, which have their own blocks above (see PROVIDER_CREDENTIAL_KEYS).
+  const toolSecretSpecs = requiredSecretSpecs.filter(
+    (spec) => !PROVIDER_CREDENTIAL_KEYS.has(spec.key),
+  );
+
   // Secret input values, visibility toggles, and original value (for dirty tracking).
   // `initial` is the server-side value at load time (only populated for non-secret select fields).
   const [secretFields, setSecretFields] = useState<Record<string, { value: string; initial: string; visible: boolean }>>(
@@ -307,16 +314,24 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
   // browser was also subtly wrong — the client cannot see the engine's AWS_REGION
   // fallback.
 
-  // Which provider sections this agent needs: the provider is selected for chat,
-  // for the embedder, or for STT. `langsmith` is deliberately absent — its key is
-  // rendered next to the LangSmith enable switch below, where it is discoverable,
-  // rather than in a section that would appear far above the toggle that reveals it.
-  const providerSectionInUse: Partial<Record<ProviderSectionId, boolean>> = {
-    openai: provider === "openai" || embeddingProvider === "openai" || sttProvider === "openai",
-    anthropic: provider === "anthropic",
-    nebius: provider === "nebius",
-    aws: provider === "bedrock" || embeddingProvider === "bedrock" || sttProvider === "aws",
-  };
+  /*
+    Which provider sections Credenziali renders: EVERY one of them, whatever this
+    agent currently runs on.
+
+    It used to render only the providers already selected for chat, the embedder
+    or STT. That made the page describe the current choice rather than hold the
+    credentials, and it inverted the order of two steps an operator does in the
+    other order: a key could not be entered until the agent had already been
+    pointed at the provider it belongs to, so preparing an agent for Bedrock
+    before switching it to Bedrock was impossible, and the switch had to be saved
+    against a provider with no credentials.
+
+    `langsmith` stays out, and this is the one exception left: its key is rendered
+    by `langsmith-card.tsx` beside the switch that turns tracing on, with its own
+    save. That is a placement decision, not a gate — the key is always reachable
+    there, which is what this rule is about.
+  */
+  const providerSectionIsCredential = (id: ProviderSectionId) => id !== "langsmith";
 
   const providerNames = modelsData ? Object.keys(modelsData.providers) : [];
 
@@ -551,17 +566,17 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
     }
   };
 
-  // The tools' and hooks' required secrets, rendered by the `params` section: a
-  // key exists because a tool asked for it, so it belongs beside the tool list,
-  // not beside the model picker. Extracted to a variable so the two sections stay
-  // two returns of one component rather than a copy of this block each.
+  // The tools' and hooks' required secrets: a key exists because a tool asked
+  // for it, so it belongs beside the tool list, not beside the model picker.
+  // Reads `toolSecretSpecs`, NOT the raw specs — a provider credential a tool
+  // happens to declare is rendered by Credenziali and nowhere else.
   const requiredSecretsBlock = (
     <>
-        {requiredSecretSpecs.length > 0 ? (
+        {toolSecretSpecs.length > 0 ? (
           /* No card and no heading: the section's own title says what these are,
              and the box around a handful of fields framed nothing. */
           <div className="space-y-4">
-            {requiredSecretSpecs.map((spec) => {
+            {toolSecretSpecs.map((spec) => {
               const label = spec.label ?? humanizeSecretKey(spec.key);
               if (spec.type === "select") {
                 return (
@@ -630,7 +645,7 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
   const providerCredentialsBlock = (
     <>
       {canReadSecrets &&
-        PROVIDER_SECRET_SECTIONS.filter((s) => providerSectionInUse[s.id] === true).map(
+        PROVIDER_SECRET_SECTIONS.filter((s) => providerSectionIsCredential(s.id)).map(
           (providerSection) => (
             <section key={providerSection.id} className="space-y-4 rounded-lg border p-4">
               <div>
@@ -679,8 +694,9 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
 
       {/* Deepgram is not a PROVIDER_SECRET_SECTIONS entry — it is reached only by
           the speech-to-text picker — but its key is a credential, and credentials
-          have one home now. */}
-      {canReadSecrets && sttProvider === "deepgram" && (
+          have one home now. Shown whatever the picker currently says, for the
+          reason the provider sections above are. */}
+      {canReadSecrets && (
         <section className="space-y-4 rounded-lg border p-4">
           <div>
             <Label className="text-base font-medium">{t("settings.tab.stt")}</Label>

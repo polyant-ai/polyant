@@ -299,10 +299,10 @@ describe("SettingsTab", () => {
 
 
   // ── Provider sections ───────────────────────────────────────────────
-  // One section per provider, shown only for a provider this agent actually
-  // uses (chat, embedder or STT) — the same rule for every provider.
+  // One section per provider, and EVERY provider — a credential must be
+  // enterable before the agent is pointed at the provider that needs it.
 
-  it("groups a provider's keys under that provider's section, and shows no other provider's", async () => {
+  it("groups each provider's keys under that provider's own section", async () => {
     renderWithProvider(
       <SettingsTab instance={makeInstance({ provider: "openai" })} onUpdate={onUpdate} section="credentials" />,
     );
@@ -313,10 +313,44 @@ describe("SettingsTab", () => {
 
     const openai = providerSection("settings.tab.provider.openai") as HTMLElement;
     expect(within(openai).getByText("settings.tab.openaiKey")).toBeInTheDocument();
-    // The other providers' keys are not in this agent's picture at all.
-    expect(screen.queryByText("settings.tab.anthropicKey")).not.toBeInTheDocument();
-    expect(screen.queryByText("settings.tab.nebiusKey")).not.toBeInTheDocument();
-    expect(screen.queryByText("settings.tab.bedrockApiKey")).not.toBeInTheDocument();
+    // And it holds only its own key, however many sections are on the page.
+    expect(within(openai).queryByText("settings.tab.anthropicKey")).not.toBeInTheDocument();
+  });
+
+  // The rule this replaced showed a provider's section only once that provider
+  // was already selected for chat, the embedder or STT — so preparing an agent
+  // for Bedrock before switching it to Bedrock was impossible.
+  it("offers every provider's credentials whatever this agent currently runs on", async () => {
+    renderWithProvider(
+      <SettingsTab instance={makeInstance({ provider: "openai" })} onUpdate={onUpdate} section="credentials" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.provider.openai")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("settings.tab.anthropicKey")).toBeInTheDocument();
+    expect(screen.getByText("settings.tab.nebiusKey")).toBeInTheDocument();
+    expect(screen.getByText("settings.tab.bedrockApiKey")).toBeInTheDocument();
+    // Deepgram too: it is reached only through the speech-to-text picker, which
+    // is exactly the choice that used to hide its key until it was made.
+    expect(screen.getByText("settings.tab.deepgramKey")).toBeInTheDocument();
+  });
+
+  // LangSmith is the one section Credenziali does not render: its key sits beside
+  // the tracing switch (`langsmith-card.tsx`), with its own save. A placement
+  // decision, not a gate — but two fields for one key is what this excludes.
+  it("leaves the LangSmith key to the card that owns the switch", async () => {
+    renderWithProvider(
+      <SettingsTab instance={makeInstance({ provider: "openai" })} onUpdate={onUpdate} section="credentials" />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.provider.openai")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("settings.tab.provider.langsmith")).not.toBeInTheDocument();
+    expect(screen.queryByText("settings.tab.langsmithApiKey")).not.toBeInTheDocument();
   });
 
   it("keeps the AWS credential set together in one section", async () => {
@@ -789,5 +823,41 @@ describe("SettingsTab — tool secret rendering", () => {
       (i) => i.getAttribute("type") === "password",
     );
     expect(masked.length).toBeGreaterThan(0);
+  });
+
+  // A tool may declare a PROVIDER key (`claudeCode` asks for `anthropic_api_key`)
+  // and reads the very key the agent already holds. Credenziali renders those, so
+  // this page must not offer a second field for one credential.
+  it("leaves a provider credential a tool declares to the Credenziali page", async () => {
+    mockToolsRequiredSecrets.mockResolvedValue({
+      requiredSecrets: [
+        { key: "anthropic_api_key", type: "text", sensitive: true, label: "Anthropic API Key" },
+        { key: "aws_provider_region", type: "text", sensitive: false, label: "AWS Region" },
+        { key: "deepgram_api_key", type: "text", sensitive: true, label: "Deepgram API Key" },
+        { key: "service_api_key", type: "text", sensitive: true, label: "Service API key" },
+      ],
+    });
+
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} section="toolSecrets" />);
+
+    await screen.findByText("Service API key");
+    expect(screen.queryByText("Anthropic API Key")).toBeNull();
+    expect(screen.queryByText("AWS Region")).toBeNull();
+    expect(screen.queryByText("Deepgram API Key")).toBeNull();
+  });
+
+  // ...and when a provider key is ALL a tool asked for, the page is empty rather
+  // than showing a credential this surface does not own.
+  it("shows the empty state when every required secret is a provider credential", async () => {
+    mockToolsRequiredSecrets.mockResolvedValue({
+      requiredSecrets: [
+        { key: "openai_api_key", type: "text", sensitive: true, label: "OpenAI API Key" },
+      ],
+    });
+
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={vi.fn()} section="toolSecrets" />);
+
+    await screen.findByText("settings.tab.noRequiredSecrets");
+    expect(screen.queryByText("OpenAI API Key")).toBeNull();
   });
 });
