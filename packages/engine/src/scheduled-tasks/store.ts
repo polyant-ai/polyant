@@ -19,6 +19,13 @@ export interface CreateTaskInput {
   outboundChannel?: string | null;
   outboundTarget?: string | null;
   keepHistory?: boolean;
+  /**
+   * Defaults to true. Pass false to create a task that exists but does not fire,
+   * so a schedule can be reviewed before it starts writing to a live system —
+   * previously only reachable as create-then-disable, which leaves a window in
+   * which the cron can tick.
+   */
+  enabled?: boolean;
 }
 
 export interface UpdateTaskInput {
@@ -106,6 +113,7 @@ export async function create(input: CreateTaskInput): Promise<ScheduledTask> {
       outboundChannel: input.outboundChannel ?? null,
       outboundTarget: input.outboundTarget ?? null,
       keepHistory: input.keepHistory ?? false,
+      enabled: input.enabled ?? true,
       nextRunAt,
     })
     .returning();

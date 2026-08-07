@@ -101,7 +101,8 @@ vi.mock("drizzle-orm", () => ({
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
-import { markRunning, markFailed } from "./store.js";
+import { markRunning, markFailed, create } from "./store.js";
+import type { InstanceSlug } from "../instances/identifiers.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -131,6 +132,45 @@ describe("scheduled-tasks/store", () => {
     mockDb.update.mockReset();
     mockComputeNextRun.mockReset().mockReturnValue(new Date("2026-06-01T00:00:00Z"));
     mockComputeRetryDelay.mockReset().mockImplementation((n: number) => (n + 1) * 30_000);
+  });
+
+  // -----------------------------------------------------------------------
+  // create — the enabled flag at birth
+  // -----------------------------------------------------------------------
+  describe("create", () => {
+    function captureInsert() {
+      const chain = createChainMock([{ id: TASK_ID }]);
+      mockDb.insert.mockReset().mockReturnValue(chain);
+      return () =>
+        (chain as unknown as { values: { mock: { calls: [Record<string, unknown>][] } } }).values
+          .mock.calls[0][0];
+    }
+
+    const BASE_INPUT = {
+      instanceId: "acme" as InstanceSlug,
+      name: "weekly digest",
+      prompt: "Produce the weekly digest.",
+      schedule: { type: "cron" as const, expression: "0 8 * * 1", timezone: "Europe/Rome" },
+    };
+
+    it("enables the task when the caller says nothing, so existing callers are unaffected", async () => {
+      const inserted = captureInsert();
+
+      await create(BASE_INPUT);
+
+      expect(inserted().enabled).toBe(true);
+    });
+
+    it("creates a disabled task when asked, so a schedule can be reviewed before it ever fires", async () => {
+      const inserted = captureInsert();
+
+      await create({ ...BASE_INPUT, enabled: false });
+
+      // The due-task query filters on enabled = true, so false genuinely
+      // prevents the tick — the point of accepting the flag at creation
+      // rather than forcing create-then-disable.
+      expect(inserted().enabled).toBe(false);
+    });
   });
 
   // -----------------------------------------------------------------------
