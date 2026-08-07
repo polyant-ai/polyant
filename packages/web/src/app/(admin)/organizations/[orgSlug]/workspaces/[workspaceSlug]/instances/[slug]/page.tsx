@@ -29,7 +29,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api, getUserErrorMessage, type Instance, type ToolState, type SkillState, type PromptSection } from "@/lib/api";
 import { GeneralTab } from "./general-tab";
 import { PromptsTab } from "./prompts-tab";
-import { ToolsSection } from "./tools-section";
+import { ToolsTab } from "./tools-tab";
+import { McpServersTab } from "./mcp-servers-tab";
 import { SkillsTab } from "./skills-tab";
 import { SettingsTab } from "./settings-tab";
 import { KnowledgeTab } from "./knowledge-tab";
@@ -272,16 +273,25 @@ function InstanceDetailContent() {
           <PromptsTab slug={instance.slug} prompts={prompts} onUpdate={setPrompts} />
         </TabsContent>
         <TabsContent value="tools">
-          <ToolsSection
-            instance={instance}
+          <ToolsTab
+            slug={instance.slug}
             tools={tools}
             skills={skills}
+            memoryEnabled={instance.memoryEnabled}
+            knowledgeEnabled={instance.knowledgeEnabled}
             onToolsUpdate={setTools}
             onSkillsUpdate={setSkills}
           />
         </TabsContent>
         <TabsContent value="toolSecrets">
           <SettingsTab instance={instance} onUpdate={setInstance} section="toolSecrets" />
+        </TabsContent>
+        {/* MCP servers: their own section, no longer the tail of the Tools page.
+            `mcp-servers.controller.ts` gates it on the CHANNEL permission — an MCP
+            server is a connection this agent holds credentials for — so it fails on
+            its own terms rather than borrowing another page's. */}
+        <TabsContent value="mcp">
+          <McpServersTab slug={instance.slug} />
         </TabsContent>
         <TabsContent value="skills">
           <SkillsTab

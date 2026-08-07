@@ -57,6 +57,7 @@ import {
   History,
   DoorOpen,
   EyeOff,
+  Plug,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { TranslationKey } from "@/lib/i18n/types";
@@ -118,12 +119,23 @@ export const AGENT_SECTIONS: readonly AgentSectionDef[] = [
   // HERE rather than with the automations: a hook intercepts the lifecycle to
   // change the reply, which is behaviour, not scheduling.
   { tab: "prompts", titleKey: "instances.detail.tabPrompts", macro: "behaviour", icon: MessageSquareText },
-  // Internal tools and external MCP servers on one page.
   { tab: "tools", titleKey: "instances.detail.tabTools", macro: "behaviour", icon: Wrench },
   // The keys the enabled tools and hooks demand — beside the tool list, because
   // that is what makes them exist. Named "Parametri", NOT the same word as the
   // per-turn ones below, which are under Avanzate.
   { tab: "toolSecrets", titleKey: "instances.detail.tabToolSecrets", macro: "behaviour", icon: KeySquare },
+  /*
+    External MCP servers — a section of its own, after the tools and their keys.
+
+    It was a block at the bottom of the Tools page, on the argument that "what can
+    this agent do" is one question whichever side of the engine boundary answers
+    it. In the sidebar that reasoning stops holding: an MCP server is a CONNECTION
+    this agent holds credentials for and reaches over the network, configured and
+    debugged as its own thing, and it was findable only by scrolling past a list
+    of forty switches that has its own search and filters. Its own row is one
+    click; the bottom of another page is not addressable at all.
+  */
+  { tab: "mcp", titleKey: "instances.detail.tabMcp", macro: "behaviour", icon: Plug },
   { tab: "skills", titleKey: "instances.detail.tabSkills", macro: "behaviour", icon: GraduationCap },
   { tab: "knowledge", titleKey: "instances.detail.tabKnowledge", macro: "behaviour", icon: BookOpen },
   { tab: "hooks", titleKey: "instances.detail.tabHooks", macro: "behaviour", icon: Anchor },

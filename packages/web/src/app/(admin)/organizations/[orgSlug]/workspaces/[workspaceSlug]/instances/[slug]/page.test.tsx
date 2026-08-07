@@ -89,7 +89,8 @@ vi.mock("./general-tab", () => ({ GeneralTab: () => <div>tab-body:general</div> 
 vi.mock("./prompts-tab", () => ({ PromptsTab: () => <div>tab-body:prompts</div> }));
 // The merged sections are stubbed at the COMPOSITE, not at its parts: what the
 // page addresses now is the composite, and the parts' own tests still cover them.
-vi.mock("./tools-section", () => ({ ToolsSection: () => <div>tab-body:tools</div> }));
+vi.mock("./tools-tab", () => ({ ToolsTab: () => <div>tab-body:tools</div> }));
+vi.mock("./mcp-servers-tab", () => ({ McpServersTab: () => <div>tab-body:mcp</div> }));
 vi.mock("./skills-tab", () => ({ SkillsTab: () => <div>tab-body:skills</div> }));
 vi.mock("./knowledge-tab", () => ({ KnowledgeTab: () => <div>tab-body:knowledge</div> }));
 // One component, two sections: which half it renders is the `section` prop, and
@@ -162,7 +163,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 const EVERY_SECTION = [
   "overview", "analytics",
   "general", "settings", "credentials", "channels",
-  "prompts", "tools", "toolSecrets", "skills", "knowledge", "hooks", "params",
+  "prompts", "tools", "toolSecrets", "mcp", "skills", "knowledge", "hooks", "params",
   "webhooks", "scheduled", "room",
   "privacy",
   "conversations", "memories", "logs",
@@ -195,7 +196,6 @@ const DROPPED_ADDRESSES = [
   "policy",
   "compliance",
   "traces",
-  "mcp",
   "runs",
   "governanceEvents",
   "retention",
