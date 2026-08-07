@@ -3,6 +3,7 @@
 import { Controller, Get, Patch, Param, Body, BadRequestException } from "@nestjs/common";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { listAvailableTools } from "../../agents/tools/registry.js";
+import { resolveCatalogToolIds } from "../../agents/tools/tools-sync.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { getAllSecretsById } from "../../instances/secrets.store.js";
 import { db } from "../../database/client.js";
@@ -130,19 +131,31 @@ export class InstanceToolsController {
       }
     }
 
-    // Insert new manual tools
+    // Insert new manual tools.
+    //
+    // `resolveCatalogToolIds` repairs a catalog row the registry still holds, so
+    // a mirror that drifted from the registry cannot make this a silent no-op —
+    // which is what it was: an unresolved name simply inserted nothing, and the
+    // endpoint answered 200 with the tool still disabled. A name neither side
+    // knows is refused, with the message `assertAgentTargetsAreSiblings` uses so
+    // "does not exist" stays indistinguishable from "not yours".
     if (toAdd.length > 0) {
-      const toolRows = await db
-        .select({ id: tools.id })
-        .from(tools)
-        .where(inArray(tools.name, toAdd));
-
-      if (toolRows.length > 0) {
-        await db
-          .insert(instanceTools)
-          .values(toolRows.map((t) => ({ instanceId: instance.id, toolId: t.id, source: "manual" as const })))
-          .onConflictDoNothing();
+      const idsByName = await resolveCatalogToolIds(toAdd);
+      const unresolved = toAdd.filter((name) => !idsByName.has(name));
+      if (unresolved.length > 0) {
+        throw new BadRequestException(`Unknown or inaccessible tool "${unresolved[0]}".`);
       }
+
+      await db
+        .insert(instanceTools)
+        .values(
+          toAdd.map((name) => ({
+            instanceId: instance.id,
+            toolId: idsByName.get(name)!,
+            source: "manual" as const,
+          })),
+        )
+        .onConflictDoNothing();
     }
 
     // Remove manual tools that were disabled

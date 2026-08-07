@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { and, like, not, notInArray, or } from "drizzle-orm";
-import { getToolRegistry, requiredSecretKeys } from "./registry.js";
+import { and, inArray, like, not, notInArray, or } from "drizzle-orm";
+import { getToolRegistry, requiredSecretKeys, type ToolDefinition } from "./registry.js";
 import { db } from "../../database/client.js";
 import { tools } from "./tools.schema.js";
 import { instanceTools } from "../../instances/instance-tools.schema.js";
@@ -15,6 +15,23 @@ import { instanceTools } from "../../instances/instance-tools.schema.js";
  */
 const GLOBAL_TOOLS = new Set<string>([]);
 
+/** The catalog row a registry definition maps to — one place, so the boot sync
+ *  and the on-demand repair below can never write a row two different ways. */
+function catalogRow(name: string, def: ToolDefinition) {
+  return {
+    name,
+    description: def.description,
+    category: def.category ?? "general",
+    // DB stores only the flat list of secret keys (jsonb string[]). The richer
+    // shape (type/choices/label/...) lives in-memory in the registry and is
+    // exposed via the API — no need to persist it.
+    requiredSecrets: requiredSecretKeys(def.requiredSecrets),
+    isMeta: def.metaTool ?? false,
+    isGlobal: GLOBAL_TOOLS.has(name),
+    isHarness: def.harness ?? false,
+  };
+}
+
 /**
  * Upsert every tool from the in-memory registry into the `tools` DB table,
  * and hard-delete rows for tools that no longer exist in the registry.
@@ -26,34 +43,14 @@ export async function syncToolsToDb(): Promise<void> {
   await db.transaction(async (tx) => {
     for (const [name, def] of registry) {
       registryNames.push(name);
-
-      // DB stores only the flat list of secret keys (jsonb string[]). The richer
-      // shape (type/choices/label/...) lives in-memory in the registry and is
-      // exposed via the API — no need to persist it.
-      const secretKeys = requiredSecretKeys(def.requiredSecrets);
+      const row = catalogRow(name, def);
 
       await tx
         .insert(tools)
-        .values({
-          name,
-          description: def.description,
-          category: def.category ?? "general",
-          requiredSecrets: secretKeys,
-          isMeta: def.metaTool ?? false,
-          isGlobal: GLOBAL_TOOLS.has(name),
-          isHarness: def.harness ?? false,
-        })
+        .values(row)
         .onConflictDoUpdate({
           target: tools.name,
-          set: {
-            description: def.description,
-            category: def.category ?? "general",
-            requiredSecrets: secretKeys,
-            isMeta: def.metaTool ?? false,
-            isGlobal: GLOBAL_TOOLS.has(name),
-            isHarness: def.harness ?? false,
-            syncedAt: new Date(),
-          },
+          set: { ...row, syncedAt: new Date() },
         });
     }
 
@@ -95,4 +92,56 @@ export async function syncToolsToDb(): Promise<void> {
       await tx.delete(tools).where(not(like(tools.name, "%:%")));
     }
   });
+}
+
+/**
+ * Resolve catalog ids for `names`, materializing any row the REGISTRY holds and
+ * the catalog is missing. Returns name → id; a name in neither is absent from
+ * the map, and the caller refuses it.
+ *
+ * This exists because the two sides of the Tools tab read different sources: the
+ * list offers what the registry holds, the write resolves ids through the
+ * catalog. The catalog is a mirror maintained at boot, so any drift turned every
+ * enable of an affected tool into a SILENT no-op — the insert resolved zero ids,
+ * the endpoint answered 200, and the panel reported a successful save with every
+ * switch back to off. (Drift is not hypothetical: one boot whose registry lost
+ * the core tools prunes every flat catalog row, and `instance_tools.tool_id`
+ * cascades, so the agents lose the enablement too.)
+ *
+ * Repairing the mirror here — rather than only refusing — keeps "the registry is
+ * the authority, the catalog is its mirror" true at the moment the disagreement
+ * is discovered, instead of requiring a reboot to make the panel honest again.
+ */
+export async function resolveCatalogToolIds(
+  names: readonly string[],
+): Promise<Map<string, string>> {
+  if (names.length === 0) return new Map();
+
+  const select = async (wanted: readonly string[]) =>
+    wanted.length === 0
+      ? []
+      : await db
+          .select({ id: tools.id, name: tools.name })
+          .from(tools)
+          .where(inArray(tools.name, [...wanted]));
+
+  const byName = new Map((await select(names)).map((r) => [r.name, r.id]));
+
+  // Missing rows the registry can rebuild. A name the registry does not hold
+  // either (a stale `agent:{slug}` the channel no longer publishes, a tool that
+  // was removed) is deliberately left unresolved.
+  const registry = getToolRegistry();
+  const repairable = names.filter((name) => !byName.has(name) && registry.has(name));
+  if (repairable.length === 0) return byName;
+
+  for (const name of repairable) {
+    const def = registry.get(name)!;
+    await db
+      .insert(tools)
+      .values(catalogRow(name, def))
+      .onConflictDoNothing({ target: tools.name });
+  }
+
+  for (const row of await select(repairable)) byName.set(row.name, row.id);
+  return byName;
 }
