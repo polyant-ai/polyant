@@ -71,7 +71,7 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
-    "@eslint/js": "^9.0.0",
+    "@eslint/js": "^10.0.1",
     "@types/cookie-parser": "^1.4.10",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.0.0",
