@@ -74,9 +74,14 @@ the management API and stripped from exports. Harmless — a SID is not confiden
 **Mode switching prunes the other mode's keys** before validation, so a discarded
 credential does not stay encrypted at rest forever.
 
-**Backward compatibility.** Existing rows have no `authMode`. `getChannelConfig`
-normalizes a missing discriminant to `"authToken"`, so every current installation keeps
-its exact behaviour with no migration and no operator action. Note that stored configs
+**Backward compatibility.** Existing rows have no `authMode`, and neither do existing
+Management API callers that PUT the three legacy keys. Both are handled without touching
+the channel-agnostic read path: on the way in, a `z.preprocess` step defaults a config
+with no discriminant to `authToken` before the union is applied; on the way out, the
+WhatsApp consumers resolve it (`resolveWhatsAppAuthMode`) rather than
+`getChannelConfig`, which serves every channel type and must stay free of
+WhatsApp-specific normalization. Every current installation keeps its exact behaviour
+with no migration and no operator action. Note that stored configs
 are validated on write only: a legacy row whose `accountSid` violates the new regex
 keeps working until the next save of that channel, which will then reject it. Such a
 value would already fail against Twilio, so this is a latent-bug reveal, not a
