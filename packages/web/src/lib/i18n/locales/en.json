@@ -780,6 +780,8 @@
   "room.sources.name": "Source Name",
   "room.sources.type": "Source Type",
   "room.sources.webhookUrl": "Webhook URL",
+  "room.sources.webhookUrlLoading": "Loading…",
+  "room.sources.revealFailed": "Failed to load the webhook URL",
   "room.sources.copied": "Webhook URL copied",
   "room.sources.rotateToken": "Rotate Token",
   "room.sources.rotateConfirm": "This will invalidate the current webhook URL. Are you sure?",
