@@ -41,6 +41,83 @@ function safeDecryptConfig(encrypted: string): Record<string, unknown> {
   }
 }
 
+/**
+ * Twilio accepts two credential shapes for the same account, and an operator
+ * may hold only one of them:
+ *   - `authToken` — the account's Auth Token. Also the ONLY key Twilio uses to
+ *     sign inbound webhooks (HMAC-SHA1), so this mode keeps signature checks.
+ *   - `apiKey` — a revocable API Key (`SK…` + secret). Twilio publishes no
+ *     API-Key-keyed webhook signature, so this mode authenticates inbound with
+ *     `webhookSecret` (server-generated, carried in the webhook path).
+ */
+export const WHATSAPP_AUTH_MODES = ["authToken", "apiKey"] as const;
+export type WhatsAppAuthMode = (typeof WHATSAPP_AUTH_MODES)[number];
+
+/** Twilio SID formats: a 2-letter prefix followed by 32 hex characters. */
+const ACCOUNT_SID_PATTERN = /^AC[0-9a-fA-F]{32}$/;
+const API_KEY_SID_PATTERN = /^SK[0-9a-fA-F]{32}$/;
+
+const accountSidSchema = z
+  .string()
+  .trim()
+  .regex(ACCOUNT_SID_PATTERN, "accountSid must be a Twilio Account SID (AC followed by 32 hex characters)");
+const whatsappNumberSchema = z.string().trim().regex(/^\+\d+$/);
+
+const whatsappAuthTokenConfig = z.object({
+  authMode: z.literal("authToken"),
+  accountSid: accountSidSchema,
+  authToken: z.string().trim().min(1),
+  whatsappNumber: whatsappNumberSchema,
+});
+
+const whatsappApiKeyConfig = z.object({
+  authMode: z.literal("apiKey"),
+  accountSid: accountSidSchema,
+  apiKeySid: z
+    .string()
+    .trim()
+    .regex(API_KEY_SID_PATTERN, "apiKeySid must be a Twilio API Key SID (SK followed by 32 hex characters)"),
+  apiKeySecret: z.string().trim().min(1),
+  // Server-generated (see CHANNEL_CONFIG_KEYS): required here so a config in
+  // this mode can never be stored without an inbound authentication gate.
+  webhookSecret: z.string().trim().min(1),
+  whatsappNumber: whatsappNumberSchema,
+});
+
+/**
+ * Configs stored before this feature carry no `authMode`. Defaulting it to
+ * `authToken` here keeps every existing agent — and every existing Management
+ * API caller that PUTs the three legacy keys — working unchanged.
+ */
+const whatsappConfigSchema = z.preprocess(
+  (value) =>
+    typeof value === "object" && value !== null && !("authMode" in value)
+      ? { authMode: "authToken", ...value }
+      : value,
+  z.discriminatedUnion("authMode", [whatsappAuthTokenConfig, whatsappApiKeyConfig]),
+);
+
+/** Config keys that belong to exactly one WhatsApp credential mode. */
+const WHATSAPP_MODE_ONLY_KEYS: Record<WhatsAppAuthMode, readonly string[]> = {
+  authToken: ["authToken"],
+  apiKey: ["apiKeySid", "apiKeySecret", "webhookSecret"],
+};
+
+/** The stored mode, tolerating a legacy config that predates the field. */
+export function resolveWhatsAppAuthMode(config: Record<string, unknown>): WhatsAppAuthMode {
+  return config.authMode === "apiKey" ? "apiKey" : "authToken";
+}
+
+/**
+ * Drop the credentials of the mode NOT in use. Without this, switching mode
+ * would leave the discarded credential encrypted at rest forever.
+ */
+export function pruneWhatsAppCredentials(config: Record<string, unknown>): Record<string, unknown> {
+  const mode = resolveWhatsAppAuthMode(config);
+  const discard = mode === "apiKey" ? WHATSAPP_MODE_ONLY_KEYS.authToken : WHATSAPP_MODE_ONLY_KEYS.apiKey;
+  return Object.fromEntries(Object.entries(config).filter(([key]) => !discard.includes(key)));
+}
+
 /** Zod schemas for channel-specific config validation. */
 export const channelConfigSchemas: Record<ChannelType, z.ZodType> = {
   telegram: z.object({
@@ -52,11 +129,7 @@ export const channelConfigSchemas: Record<ChannelType, z.ZodType> = {
     appToken: z.string().min(1),
     signingSecret: z.string().min(1),
   }),
-  whatsapp: z.object({
-    accountSid: z.string().min(1),
-    authToken: z.string().min(1),
-    whatsappNumber: z.string().regex(/^\+\d+$/),
-  }),
+  whatsapp: whatsappConfigSchema,
   /**
    * Virtual in-process channel for agent-to-agent invocation. No external
    * credentials: enabling the row is the toggle that makes this instance
@@ -66,6 +139,26 @@ export const channelConfigSchemas: Record<ChannelType, z.ZodType> = {
    * schema migration.
    */
   agent: z.object({}).passthrough(),
+};
+
+/**
+ * The config keys each channel type accepts from the management API — the
+ * allowlist the PUT handler iterates instead of iterating the request body, so
+ * no property name written into a stored config can come from remote input.
+ *
+ * `webhookSecret` is deliberately ABSENT: it is minted server-side, and letting
+ * a caller supply it would defeat that.
+ *
+ * `agent` is deliberately empty. Its Zod schema is open-passthrough to leave
+ * room for future per-pair policies, but no such key is consumed today.
+ *
+ * Keep in sync with `channelConfigSchemas` above (guarded by a unit test).
+ */
+export const CHANNEL_CONFIG_KEYS: Record<ChannelType, readonly string[]> = {
+  telegram: ["botToken", "allowedUserIds"],
+  slack: ["botToken", "appToken", "signingSecret"],
+  whatsapp: ["authMode", "accountSid", "authToken", "apiKeySid", "apiKeySecret", "whatsappNumber"],
+  agent: [],
 };
 
 export interface ChannelConfig {
