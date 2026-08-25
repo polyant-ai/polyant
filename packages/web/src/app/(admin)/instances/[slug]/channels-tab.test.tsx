@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ChannelsTab } from "./channels-tab";
 import type { ChannelConfig } from "@/lib/api";
 
@@ -36,11 +37,25 @@ vi.mock("@/lib/api", () => ({
 
 // The card owns its own form/save/delete UI (tested separately in
 // whatsapp-channel-card.test.tsx) — mocking it here keeps this test focused
-// on the wiring: is the card rendered in place of the generic field list?
+// on the wiring: is the card rendered in place of the generic field list,
+// and does the `onChanged` callback passed into it actually refresh the tab?
+// `onChanged` is exposed as a clickable button so tests can trigger it the
+// same way the real card would (e.g. after a successful save or delete).
 vi.mock("./whatsapp-channel-card", () => ({
-  WhatsAppChannelCard: ({ slug, channel }: { slug: string; channel: ChannelConfig | null; onChanged: () => void }) => (
+  WhatsAppChannelCard: ({
+    slug,
+    channel,
+    onChanged,
+  }: {
+    slug: string;
+    channel: ChannelConfig | null;
+    onChanged: () => void;
+  }) => (
     <div data-testid="whatsapp-channel-card">
       whatsapp-card for {slug} ({channel ? "configured" : "unconfigured"})
+      <button type="button" data-testid="whatsapp-card-changed" onClick={onChanged}>
+        trigger onChanged
+      </button>
     </div>
   ),
 }));
@@ -76,9 +91,11 @@ describe("ChannelsTab", () => {
     });
     expect(screen.getByText("whatsapp-card for test-instance (configured)")).toBeInTheDocument();
 
-    // The generic field-list renderer must not also render WhatsApp's fields.
-    expect(screen.queryByText("channels.tab.whatsappAccountSid")).not.toBeInTheDocument();
-    expect(screen.queryByText("channels.tab.whatsappNumber")).not.toBeInTheDocument();
+    // The generic renderer's own section title only appears when the
+    // `custom` early return in channels-tab is skipped and WhatsApp falls
+    // through to the field-list branch — with the early return in place,
+    // that title text never appears since the mocked card doesn't render it.
+    expect(screen.queryByText("channels.tab.whatsapp")).not.toBeInTheDocument();
   });
 
   it("passes an unconfigured (null) channel to the card when whatsapp has no saved config", async () => {
@@ -143,6 +160,39 @@ describe("ChannelsTab", () => {
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith("channels.tab.saveFailed");
+    });
+  });
+
+  it("re-fetches the channel list and refreshes displayed state when the card reports onChanged", async () => {
+    // First load: WhatsApp is configured. After `onChanged` fires (e.g. the
+    // card just deleted the channel), the list endpoint reports it gone.
+    // This must be reflected in the DOM: `isConfigured` (and hence what the
+    // card is told via its `channel` prop) is derived from the `channels`
+    // state array, not from `channelStates` — so a refactor that keeps
+    // `initStates(res.channels)` but drops `setChannels(res.channels)` in
+    // the inline `onChanged` would leave this test's second assertion
+    // failing (the card would still be told it's "configured").
+    mockChannelsList
+      .mockResolvedValueOnce({
+        channels: [makeChannel({ channelType: "whatsapp", enabled: true, config: { accountSid: "AC123" } })],
+      })
+      .mockResolvedValueOnce({ channels: [] });
+
+    const user = userEvent.setup();
+    render(<ChannelsTab slug="test-instance" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("whatsapp-card for test-instance (configured)")).toBeInTheDocument();
+    });
+    expect(mockChannelsList).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByTestId("whatsapp-card-changed"));
+
+    await waitFor(() => {
+      expect(mockChannelsList).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(screen.getByText("whatsapp-card for test-instance (unconfigured)")).toBeInTheDocument();
     });
   });
 });
