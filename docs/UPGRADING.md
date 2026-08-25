@@ -3,7 +3,7 @@
 This guide covers upgrades that need an operator decision. For the full list of
 changes see the [changelog](../CHANGELOG.md).
 
-## Upgrading from 1.0.0
+## Upgrading from 1.0.0 to 1.1.0
 
 This release changes authorization, the persisted platform-admin role value, and
 the frontend URL scheme. Read the whole section before starting: two of the steps

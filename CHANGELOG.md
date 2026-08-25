@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-25
+
 > **Upgrading from 1.0.0 needs operator action** — this release is not a rolling
 > upgrade, is forward-only past migration `0071`, and requires forcing every user
 > to sign in again. See [docs/UPGRADING.md](docs/UPGRADING.md).
@@ -20,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   slow server cannot stall a turn.
 - **A2A server**: an agent can be exposed over the Agent2Agent protocol (Agent
   Card + JSON-RPC). Opt-in per agent, off by default.
+- **Tenant-scoped frontend URLs**: admin routes live under the workspace
+  segment, `GET /api/me` reports the caller's tenancy, and navigation is
+  scope-aware.
+- **Every agent section is addressable from the sidebar.** The agent detail page
+  dropped its nested tab row: each section is a sidebar row under the same
+  headings, and `?tab=` remains the address. Twenty-three destinations became
+  eighteen, and the workspace-wide conversations, saved memories and run log
+  gained a per-agent view.
+- **MCP servers are their own section** (`?tab=mcp`) rather than a block at the
+  tail of the Tools page.
+- A scheduled task can be created disabled: `POST` accepts `enabled` (default
+  `true`), so a schedule can be staged without a window in which it can tick.
 
 ### Changed
 
@@ -30,8 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check reduced to a no-op.
 - **BREAKING — `AUTH_MODE=alb-oidc` is not compatible with enforced RBAC.** A
   gateway-forwarded identity carries no organization and holds no role bindings,
-  so it is denied on every management route. Use `AUTH_MODE=session` until the
-  gateway-identity mapping exists.
+  so it is denied on every management route. The engine now refuses the
+  combination at boot instead of 403-ing at runtime. Use `AUTH_MODE=session`
+  until the gateway-identity mapping exists.
 - **BREAKING — membership is granted deliberately, never by signing in.** A new
   user is provisioned with no organization membership; an administrator must
   assign a role before they can reach anything.
@@ -48,6 +63,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is authoritative. Pre-existing bookmarks to flat paths (`/instances`,
   `/conversations/<id>`, `/playground`, …) and to legacy `?tab=` values no
   longer resolve; navigate from the organization dashboard instead.
+- **BREAKING — an empty tool set means no tools.** `instance_tools` holding no
+  rows used to be read as "enable everything", so an agent with every switch off
+  — or one seeded before the tool catalogue synced — ran with the whole
+  registry, `httpRequest` and the file tools included. An agent's tool set is now
+  exactly what is stored, on both the runtime and the secret-prompting side.
+  **Audit any agent whose tool rows are empty before upgrading**: it loses the
+  tools it was silently running.
+- **BREAKING — `POSTGRES_SSL` is parsed strictly.** Only the literal `"true"`
+  enables TLS; every other value is rejected at boot and an empty environment
+  variable means unset everywhere. The old coercion treated any non-empty value
+  as true, so `POSTGRES_SSL=false` switched TLS *on*. This bites before the
+  migrations run — audit it first.
 - **BREAKING — `GET /api/tools`** now requires `ORG_READ` instead of
   `TOOL_READ`: an agent-scoped principal that could previously list the registry
   now receives 403.
@@ -55,6 +82,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   active agent, for a principal whose organization cannot be resolved. An
   integration that enumerates models to discover a slug sees `[]` instead of an
   error.
+- **A new agent's prompt sections are seeded empty.** The seven rows still
+  exist, so the panel has somewhere to write; only the default prose is gone, so
+  an agent's behaviour no longer comes from text its author never read.
+- **Credentials offers every provider**, not just the ones an agent already
+  runs on, so a key can be entered before the agent is switched to it. LangSmith
+  stays the exception, beside the tracing switch that reveals it.
 - Membership grants and revocations, platform-admin bootstrap, and the
   `/api/users` mutations are now recorded in the management write-audit log.
 
@@ -65,7 +98,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   teardown no longer leaks a heartbeat timer plus a bus subscription when the
   connection drops mid-write.
 - CodeQL findings closed: log injection, a file-read TOCTOU, and a
-  prototype-pollution-prone key write.
+  prototype-pollution-prone key write. Third-party actions are pinned.
+- Cross-tenant boundaries closed on attachments, agent creation and listing,
+  memory writes, agent-to-agent handoffs and the sidebar; the organization
+  filter fails closed, a platform admin outranks every organization role, and a
+  route whose authorization is not RBAC is no longer denied outright.
+- Only one migrator runs at a time (session-level advisory lock), and a journal
+  entry that sorts before an already-applied one is no longer skipped in
+  silence.
+- A hook that ran out of time no longer affects the turn: the deadline aborts a
+  signal, late writes are refused by a fenced state view, and a control return
+  that arrives post-abort is dropped.
+- An MCP server URL is validated when it is dialled, not only when it is saved,
+  and an imported server is not treated as a trusted one.
+- An A2A task belongs to the agent it was created on, and the JSON-RPC endpoint
+  is bounded.
+- Enabling a tool the catalogue has lost no longer answers 200 with the change
+  undone: the mirror is repaired where registry and catalogue disagree.
+- The admin route group serves its own 404, the sidebar stays inside the
+  caller's tenant, navigation links no longer misfire while the tenancy loads,
+  and an anonymous visitor keeps their query string across the login bounce.
+- Resources acquired by the engine are released on every path.
 
 ## [1.0.0] - 2026-08-05
 
@@ -87,5 +140,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/polyant-ai/polyant/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/polyant-ai/polyant/releases/tag/v1.0.0
