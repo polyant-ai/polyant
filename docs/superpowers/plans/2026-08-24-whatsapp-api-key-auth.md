@@ -928,6 +928,21 @@ Then append this `describe` inside the top-level one:
     });
   });
 
+  it("collects a __proto__ body field as a plain key, not a prototype write", async () => {
+    await controller.handleWhatsAppWebhook(
+      "test-instance",
+      "valid-sig",
+      { ...validBody, __proto__: "polluted" } as never,
+      mockReq(),
+    );
+
+    const params = mockAdapter.validateSignature.mock.calls[0][2] as Record<string, unknown>;
+    // Twilio signs every field it sends, so the key must reach the validator
+    // verbatim — while never retargeting the prototype chain.
+    expect(Object.getPrototypeOf(params)).toBe(Object.prototype);
+    expect(Object.prototype).not.toHaveProperty("polluted");
+  });
+
   it("answers 404 on the secret route for an authToken channel", async () => {
     // Default beforeEach config is an authToken channel.
     await expect(
@@ -945,6 +960,8 @@ npm run test -w @polyant/engine -- src/server/channels/twilio-webhook.controller
 Expected: FAIL — `controller.handleWhatsAppWebhookWithSecret is not a function`.
 
 - [ ] **Step 3: Implement the route**
+
+This step also adopts the prototype-safe parameter collection already on `develop`: `Object.fromEntries` defines own data properties, so a `__proto__` field in the body cannot retarget the prototype chain the way `params[key] = value` can. It keeps every signed field (an allowlist would break validation whenever Twilio adds one) and makes that hunk a no-op on the eventual back-merge.
 
 In `twilio-webhook.controller.ts`, extend the imports:
 
@@ -995,10 +1012,15 @@ export class TwilioWebhookController {
     // Use the full URL from the request so it matches what Twilio signed against
     // (critical when behind proxies like ngrok)
     const webhookUrl = this.getFullUrl(req);
-    const params: Record<string, string> = {};
-    for (const [key, value] of Object.entries(body)) {
-      if (typeof value === "string") params[key] = value;
-    }
+    // Twilio signs EVERY POST parameter it sends, so an allowlist here is not an
+    // option: dropping one unknown-but-signed field (Twilio adds them over time)
+    // would make every webhook fail validation. Instead we never write a
+    // body-derived property name ourselves — `Object.fromEntries` defines own
+    // data properties, so a `__proto__` entry lands as a plain key (exactly as
+    // Twilio hashed it) instead of retargeting the prototype chain.
+    const params: Record<string, string> = Object.fromEntries(
+      Object.entries(body).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
 
     const isValid = adapter.validateSignature(signature || "", webhookUrl, params);
     if (!isValid) {
