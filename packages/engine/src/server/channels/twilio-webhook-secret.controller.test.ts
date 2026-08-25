@@ -231,6 +231,26 @@ describe("TwilioWebhookController (path secret route)", () => {
     });
   });
 
+  it("sanitizes a forged newline in the instance slug before logging (CWE-117)", async () => {
+    // Express decodes percent-escapes in a path segment, so a request to
+    // `/webhooks/twilio/foo%0A%5BINFO%5D%20forged/whatsapp/...` arrives here
+    // with `instanceSlug === "foo\n[INFO] forged"`. Without sanitization that
+    // newline would land in the plaintext log file as a second, forged record.
+    const forgedSlug = "foo\n[INFO] forged";
+    mockResolveInstanceId.mockResolvedValue(undefined);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const promise = controller.handleWhatsAppWebhookWithSecret(forgedSlug, "any-secret", validBody);
+    await expect(promise).rejects.toBeInstanceOf(NotFoundException);
+
+    const loggedText = warn.mock.calls.flat().map(String).join(" ");
+    expect(loggedText).not.toContain("\n");
+    expect(loggedText).toContain("foo [INFO] forged");
+
+    warn.mockRestore();
+  });
+
   it("answers 404 on the secret route for an authToken channel", async () => {
     // Default beforeEach config is an authToken channel.
     const promise = controller.handleWhatsAppWebhookWithSecret("test-instance", "any-secret", validBody);
