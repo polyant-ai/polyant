@@ -88,4 +88,17 @@ describe("redactWebhookPath", () => {
     expect(result).not.toContain(token);
     expect(result).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
   });
+
+  it("masks the secret in a full absolute URL, keeping the scheme and host", () => {
+    const result = redactWebhookPath("https://my-app.ngrok-free.dev/webhooks/twilio/acme-support/whatsapp/mysecret");
+
+    expect(result).toBe(`https://my-app.ngrok-free.dev/webhooks/twilio/acme-support/whatsapp/${REDACTED_PLACEHOLDER}`);
+    expect(result).not.toContain("mysecret");
+  });
+
+  it("keeps a host:port pair intact when redacting a full absolute URL", () => {
+    const result = redactWebhookPath("http://localhost:4000/webhooks/twilio/acme-support/whatsapp/mysecret");
+
+    expect(result).toBe(`http://localhost:4000/webhooks/twilio/acme-support/whatsapp/${REDACTED_PLACEHOLDER}`);
+  });
 });

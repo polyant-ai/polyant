@@ -11,9 +11,7 @@ import { channelManager } from "../../channels/channel-manager.js";
 import type { WhatsAppAdapter } from "../../channels/adapters/whatsapp/index.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { sanitizeForLog } from "../../utils/create-logger.js";
-
-/** Twilio caps a single inbound MMS at 10 media attachments. */
-const MAX_TWILIO_MEDIA = 10;
+import { redactWebhookPath } from "../filters/redact-webhook-path.js";
 
 interface TwilioWebhookBody {
   MessageSid: string;
@@ -28,6 +26,20 @@ interface TwilioWebhookBody {
   MediaContentType1?: string;
 }
 
+// Twilio caps a single inbound MMS at 10 media attachments.
+const MAX_TWILIO_MEDIA = 10;
+
+/**
+ * Single client-facing message for EVERY pre-auth failure on either webhook
+ * route (unknown instance, unconfigured/disabled channel, inactive adapter,
+ * or a mode mismatch — i.e. hitting the wrong route for the channel's
+ * configured auth mode). NestJS puts the exception message in the response
+ * body, so distinguishable messages here would let an anonymous caller with
+ * a junk secret enumerate valid instance slugs and learn which have a live
+ * WhatsApp channel. The real reason is logged server-side instead.
+ */
+const WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE = "WhatsApp webhook not available for this instance";
+
 /**
  * Constant-time comparison of two secrets. `timingSafeEqual` throws on a
  * length mismatch and the length itself would leak, so both sides are hashed
@@ -37,6 +49,30 @@ function secretsMatch(expected: string, received: string): boolean {
   const a = createHash("sha256").update(expected).digest();
   const b = createHash("sha256").update(received).digest();
   return timingSafeEqual(a, b);
+}
+
+/**
+ * Twilio signs EVERY POST parameter it sends, so an allowlist here is not an
+ * option: dropping one unknown-but-signed field (Twilio adds them over time)
+ * would make every webhook fail validation. Instead we never write a
+ * body-derived property name ourselves — `Object.fromEntries` defines own
+ * data properties, so a `__proto__` entry lands as a plain key (exactly as
+ * Twilio hashed it) instead of retargeting the prototype chain.
+ */
+export function collectSignedParams(body: TwilioWebhookBody): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(body).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
+}
+
+/**
+ * Log the real reason behind a webhook 404 without exposing it to the
+ * caller — see `WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE`. `instanceSlug` is
+ * request-controlled, so it is passed as a separate argument rather than
+ * interpolated into the format string (CodeQL js/tainted-format-string).
+ */
+function logWebhookUnavailable(reason: string, instanceSlug: string): void {
+  console.warn(`[whatsapp] Webhook unavailable (${reason}) for instance:`, instanceSlug);
 }
 
 @Controller("webhooks/twilio")
@@ -53,29 +89,26 @@ export class TwilioWebhookController {
   ): Promise<string> {
     const { config, adapter } = await this.resolveActiveChannel(instanceSlug);
 
-    // A channel authenticated by path secret must not be reachable here: a
-    // 404 (not 403) keeps the credential mode of a slug from leaking to an
-    // unauthenticated caller.
+    // A channel authenticated by path secret must not be reachable here: an
+    // identical 404 keeps the credential mode of a slug from leaking to an
+    // unauthenticated caller (see WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE).
     if (resolveWhatsAppAuthMode(config) !== "authToken") {
-      throw new NotFoundException(`WhatsApp channel not configured for "${instanceSlug}"`);
+      logWebhookUnavailable("wrong auth mode, expected authToken", instanceSlug);
+      throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
 
     // Use the full URL from the request so it matches what Twilio signed against
     // (critical when behind proxies like ngrok)
     const webhookUrl = this.getFullUrl(req);
-    // Twilio signs EVERY POST parameter it sends, so an allowlist here is not an
-    // option: dropping one unknown-but-signed field (Twilio adds them over time)
-    // would make every webhook fail validation. Instead we never write a
-    // body-derived property name ourselves — `Object.fromEntries` defines own
-    // data properties, so a `__proto__` entry lands as a plain key (exactly as
-    // Twilio hashed it) instead of retargeting the prototype chain.
-    const params: Record<string, string> = Object.fromEntries(
-      Object.entries(body).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-    );
+    const params = collectSignedParams(body);
 
     const isValid = adapter.validateSignature(signature || "", webhookUrl, params);
     if (!isValid) {
-      console.warn(`[whatsapp] Invalid Twilio signature for instance "${sanitizeForLog(instanceSlug)}" (url: ${sanitizeForLog(webhookUrl)})`);
+      console.warn(
+        "[whatsapp] Invalid Twilio signature for instance %s (url: %s)",
+        sanitizeForLog(instanceSlug),
+        sanitizeForLog(redactWebhookPath(webhookUrl)),
+      );
       throw new ForbiddenException("Invalid Twilio signature");
     }
 
@@ -103,7 +136,8 @@ export class TwilioWebhookController {
     const { config, adapter } = await this.resolveActiveChannel(instanceSlug);
 
     if (resolveWhatsAppAuthMode(config) !== "apiKey") {
-      throw new NotFoundException(`WhatsApp channel not configured for "${instanceSlug}"`);
+      logWebhookUnavailable("wrong auth mode, expected apiKey", instanceSlug);
+      throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
 
     const expected = typeof config.webhookSecret === "string" ? config.webhookSecret : "";
@@ -121,17 +155,22 @@ export class TwilioWebhookController {
     instanceSlug: string,
   ): Promise<{ config: Record<string, unknown>; adapter: WhatsAppAdapter }> {
     const instanceId = await resolveInstanceId(asInstanceSlug(instanceSlug));
-    if (!instanceId) throw new NotFoundException(`Instance "${instanceSlug}" not found`);
+    if (!instanceId) {
+      logWebhookUnavailable("instance not found", instanceSlug);
+      throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
+    }
 
     const channelConfig = await getChannelConfig(asInstanceSlug(instanceSlug), "whatsapp");
     if (!channelConfig || !channelConfig.enabled) {
-      throw new NotFoundException(`WhatsApp channel not configured for "${instanceSlug}"`);
+      logWebhookUnavailable("channel not configured or disabled", instanceSlug);
+      throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
 
     const instanceMap = (channelManager as any).adapters.get(instanceSlug) as Map<string, WhatsAppAdapter> | undefined;
     const adapter = instanceMap?.get("whatsapp") as WhatsAppAdapter | undefined;
     if (!adapter) {
-      throw new NotFoundException(`WhatsApp adapter not active for "${instanceSlug}"`);
+      logWebhookUnavailable("adapter not active", instanceSlug);
+      throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
 
     return { config: channelConfig.config, adapter };
@@ -178,3 +217,5 @@ export class TwilioWebhookController {
     return `${proto}://${host}${req.originalUrl}`;
   }
 }
+
+export { WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE };
