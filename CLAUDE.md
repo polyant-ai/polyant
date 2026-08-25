@@ -163,6 +163,7 @@ and no rationale is a wish, and belongs in neither file.
 - **A tool is one `*.tool.ts` default-exporting `defineTool(...)`**; a hook is one `*.hook.ts` default-exporting `defineHook(...)`. The loader finds both at boot; nothing else needs editing. Tool `parameters` must satisfy OpenAI strict mode — no `.optional()`, `.default()`, `.url()`/`.email()`, or unbounded `z.record`. *Enforced* by `agents/tools/strict-mode.test.ts`, which inspects every registered tool: if it fails, fix the schema, never soften the check. See `references/tools-and-hooks.md`
 - **Post-processing is fire-and-forget and commit-on-success**: messages, summary, memory and state are written after the reply, and an aborted turn writes nothing at all
 - **Independent deployment**: each package under `packages/` is deployable as a standalone service
+- **A WhatsApp channel authenticates to Twilio in one of two `authMode`s** (`authToken` or `apiKey`), each validated on its own inbound route with its own secret; `webhookSecret` is server-minted and never client-suppliable. See `references/channels.md`
 
 ### Data
 
@@ -222,7 +223,6 @@ PR summaries and none ever left. Model instruction-following degrades as input g
 past a few hundred lines the rules stop being read, and the ones that stop being read first
 are the sharp specific ones you most wanted followed. If an entry has become a story about
 how something was fixed, rewrite it as the invariant and move the story.
-
 
 ## Authentication & Authorization
 

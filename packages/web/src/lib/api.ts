@@ -407,7 +407,9 @@ export const api = {
     list: (slug: string) =>
       request<{ channels: ChannelConfig[] }>(`/api/instances/${encodeURIComponent(slug)}/channels`),
     set: (slug: string, channelType: string, config: Record<string, unknown>, enabled: boolean) =>
-      request<{ channel: ChannelConfig | null }>(
+      // `webhookUrl` is present only when the saved channel ends up in
+      // Twilio API Key mode (see the engine's `buildChannelResponse`).
+      request<{ channel: ChannelConfig | null; webhookUrl?: string }>(
         `/api/instances/${encodeURIComponent(slug)}/channels/${encodeURIComponent(channelType)}`,
         { method: "PUT", body: JSON.stringify({ config, enabled }) },
       ),
@@ -415,6 +417,15 @@ export const api = {
       request<{ deleted: boolean }>(
         `/api/instances/${encodeURIComponent(slug)}/channels/${encodeURIComponent(channelType)}`,
         { method: "DELETE" },
+      ),
+    webhookUrl: (slug: string) =>
+      request<{ webhookUrl: string }>(
+        `/api/instances/${encodeURIComponent(slug)}/channels/whatsapp/webhook-url`,
+      ),
+    rotateWebhookSecret: (slug: string) =>
+      request<{ webhookUrl: string }>(
+        `/api/instances/${encodeURIComponent(slug)}/channels/whatsapp/rotate-webhook-secret`,
+        { method: "POST" },
       ),
   },
   mcpServers: {

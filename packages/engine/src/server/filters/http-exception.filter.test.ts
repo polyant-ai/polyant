@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { HttpException, BadRequestException, NotFoundException } from "@nestjs/common";
 import { GlobalExceptionFilter } from "./http-exception.filter.js";
+import { REDACTED_PLACEHOLDER } from "./redact-webhook-path.js";
 
 function createMockHost(mockResponse: any, mockRequest: any) {
   return {
@@ -131,5 +132,89 @@ describe("GlobalExceptionFilter", () => {
 
     expect(res.statusCode).toBe(500);
     expect(res.body.message).toBe("Internal server error");
+  });
+
+  // Pins the wiring of `redactWebhookPath` into every log branch below. The
+  // helper has its own thorough unit tests, but nothing outside this file
+  // asserted that the filter actually calls it before logging `request.url`
+  // — a revert of that one call site left all other tests in this file
+  // green. Each test below must fail if the filter goes back to logging
+  // the raw `request.url`.
+  describe("webhook path redaction on the log line", () => {
+    const secret = "a".repeat(32) + "b".repeat(32); // 64 hex chars, like a real webhookSecret
+    const secretUrl = `/webhooks/twilio/acme-support/whatsapp/${secret}`;
+
+    /**
+     * Spy on every `console.*` channel the filter (or a future regression)
+     * could log through, so a stray `console.info`/`console.log`/`console.debug`
+     * line added next to the redaction can't silently carry the secret past
+     * a test that only watched one channel.
+     */
+    function spyAllConsoleChannels() {
+      return {
+        error: vi.spyOn(console, "error").mockImplementation(() => {}),
+        warn: vi.spyOn(console, "warn").mockImplementation(() => {}),
+        log: vi.spyOn(console, "log").mockImplementation(() => {}),
+        debug: vi.spyOn(console, "debug").mockImplementation(() => {}),
+        info: vi.spyOn(console, "info").mockImplementation(() => {}),
+      };
+    }
+
+    function allLoggedText(spies: ReturnType<typeof spyAllConsoleChannels>): string {
+      return Object.values(spies)
+        .flatMap((spy) => spy.mock.calls)
+        .flat()
+        .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
+        .join(" ");
+    }
+
+    function restoreAll(spies: ReturnType<typeof spyAllConsoleChannels>): void {
+      Object.values(spies).forEach((spy) => spy.mockRestore());
+    }
+
+    it("redacts the path secret on the HttpException log branch (console.error)", () => {
+      const spies = spyAllConsoleChannels();
+      const res = createMockResponse();
+      const host = createMockHost(res, createMockRequest("POST", secretUrl));
+
+      filter.catch(new HttpException("Too Many Requests", 429), host);
+
+      expect(spies.error).toHaveBeenCalledTimes(1);
+      const logged = allLoggedText(spies);
+      expect(logged).not.toContain(secret);
+      expect(logged).toContain(REDACTED_PLACEHOLDER);
+
+      restoreAll(spies);
+    });
+
+    it("redacts the path secret on the TypeError/RangeError -> 400 branch (console.warn)", () => {
+      const spies = spyAllConsoleChannels();
+      const res = createMockResponse();
+      const host = createMockHost(res, createMockRequest("POST", secretUrl));
+
+      filter.catch(new TypeError("Cannot read properties of undefined (reading 'map')"), host);
+
+      expect(spies.warn).toHaveBeenCalledTimes(1);
+      const logged = allLoggedText(spies);
+      expect(logged).not.toContain(secret);
+      expect(logged).toContain(REDACTED_PLACEHOLDER);
+
+      restoreAll(spies);
+    });
+
+    it("redacts the path secret on the unhandled -> 500 branch (console.error)", () => {
+      const spies = spyAllConsoleChannels();
+      const res = createMockResponse();
+      const host = createMockHost(res, createMockRequest("POST", secretUrl));
+
+      filter.catch(new Error("boom"), host);
+
+      expect(spies.error).toHaveBeenCalledTimes(1);
+      const logged = allLoggedText(spies);
+      expect(logged).not.toContain(secret);
+      expect(logged).toContain(REDACTED_PLACEHOLDER);
+
+      restoreAll(spies);
+    });
   });
 });
