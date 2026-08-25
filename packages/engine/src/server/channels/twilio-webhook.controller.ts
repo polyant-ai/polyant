@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { createHash, timingSafeEqual } from "node:crypto";
 import { Controller, Post, Param, Headers, Body, Req, HttpCode, NotFoundException, ForbiddenException } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { Public } from "../../auth/decorators/public.decorator.js";
-import { getChannelConfig } from "../../instances/channels.store.js";
+import { getChannelConfig, resolveWhatsAppAuthMode } from "../../instances/channels.store.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { WhatsAppAdapter } from "../../channels/adapters/whatsapp/index.js";
@@ -27,6 +28,17 @@ interface TwilioWebhookBody {
   MediaContentType1?: string;
 }
 
+/**
+ * Constant-time comparison of two secrets. `timingSafeEqual` throws on a
+ * length mismatch and the length itself would leak, so both sides are hashed
+ * to a fixed 32 bytes first.
+ */
+function secretsMatch(expected: string, received: string): boolean {
+  const a = createHash("sha256").update(expected).digest();
+  const b = createHash("sha256").update(received).digest();
+  return timingSafeEqual(a, b);
+}
+
 @Controller("webhooks/twilio")
 export class TwilioWebhookController {
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
@@ -39,24 +51,15 @@ export class TwilioWebhookController {
     @Body() body: TwilioWebhookBody,
     @Req() req: Request,
   ): Promise<string> {
-    // 1. Resolve instance
-    const instanceId = await resolveInstanceId(asInstanceSlug(instanceSlug));
-    if (!instanceId) throw new NotFoundException(`Instance "${instanceSlug}" not found`);
+    const { config, adapter } = await this.resolveActiveChannel(instanceSlug);
 
-    // 2. Load channel config
-    const channelConfig = await getChannelConfig(asInstanceSlug(instanceSlug), "whatsapp");
-    if (!channelConfig || !channelConfig.enabled) {
+    // A channel authenticated by path secret must not be reachable here: a
+    // 404 (not 403) keeps the credential mode of a slug from leaking to an
+    // unauthenticated caller.
+    if (resolveWhatsAppAuthMode(config) !== "authToken") {
       throw new NotFoundException(`WhatsApp channel not configured for "${instanceSlug}"`);
     }
 
-    // 3. Get the active adapter
-    const instanceMap = (channelManager as any).adapters.get(instanceSlug) as Map<string, WhatsAppAdapter> | undefined;
-    const adapter = instanceMap?.get("whatsapp") as WhatsAppAdapter | undefined;
-    if (!adapter) {
-      throw new NotFoundException(`WhatsApp adapter not active for "${instanceSlug}"`);
-    }
-
-    // 4. Validate Twilio signature
     // Use the full URL from the request so it matches what Twilio signed against
     // (critical when behind proxies like ngrok)
     const webhookUrl = this.getFullUrl(req);
@@ -76,11 +79,68 @@ export class TwilioWebhookController {
       throw new ForbiddenException("Invalid Twilio signature");
     }
 
-    // 5. Strip whatsapp: prefix from From
+    return this.dispatchInbound(instanceSlug, adapter, body);
+  }
+
+  /**
+   * Inbound for channels holding a Twilio API Key instead of the account Auth
+   * Token. Twilio signs webhooks with the Auth Token only, so authenticity is
+   * established by a server-generated secret in the path.
+   *
+   * Accepted cost: the secret appears in reverse-proxy access logs. Twilio
+   * messaging webhooks cannot carry custom headers, so a path segment is the
+   * only channel available; rotation is the mitigation.
+   */
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Public()
+  @Post(":instanceSlug/whatsapp/:webhookSecret")
+  @HttpCode(200)
+  async handleWhatsAppWebhookWithSecret(
+    @Param("instanceSlug") instanceSlug: string,
+    @Param("webhookSecret") webhookSecret: string,
+    @Body() body: TwilioWebhookBody,
+  ): Promise<string> {
+    const { config, adapter } = await this.resolveActiveChannel(instanceSlug);
+
+    if (resolveWhatsAppAuthMode(config) !== "apiKey") {
+      throw new NotFoundException(`WhatsApp channel not configured for "${instanceSlug}"`);
+    }
+
+    const expected = typeof config.webhookSecret === "string" ? config.webhookSecret : "";
+    if (!expected || !secretsMatch(expected, webhookSecret)) {
+      // Slug only — never the secret, never the path.
+      console.warn("[whatsapp] Invalid webhook secret for instance:", instanceSlug);
+      throw new ForbiddenException("Invalid webhook credentials");
+    }
+
+    return this.dispatchInbound(instanceSlug, adapter, body);
+  }
+
+  /** Resolve the instance, its stored WhatsApp config and the running adapter. */
+  private async resolveActiveChannel(
+    instanceSlug: string,
+  ): Promise<{ config: Record<string, unknown>; adapter: WhatsAppAdapter }> {
+    const instanceId = await resolveInstanceId(asInstanceSlug(instanceSlug));
+    if (!instanceId) throw new NotFoundException(`Instance "${instanceSlug}" not found`);
+
+    const channelConfig = await getChannelConfig(asInstanceSlug(instanceSlug), "whatsapp");
+    if (!channelConfig || !channelConfig.enabled) {
+      throw new NotFoundException(`WhatsApp channel not configured for "${instanceSlug}"`);
+    }
+
+    const instanceMap = (channelManager as any).adapters.get(instanceSlug) as Map<string, WhatsAppAdapter> | undefined;
+    const adapter = instanceMap?.get("whatsapp") as WhatsAppAdapter | undefined;
+    if (!adapter) {
+      throw new NotFoundException(`WhatsApp adapter not active for "${instanceSlug}"`);
+    }
+
+    return { config: channelConfig.config, adapter };
+  }
+
+  /** Hand the authenticated message to the pipeline and answer Twilio at once. */
+  private dispatchInbound(instanceSlug: string, adapter: WhatsAppAdapter, body: TwilioWebhookBody): string {
     const from = body.From?.replace(/^whatsapp:/, "") || "";
 
-    // 6. Process inbound message (fire-and-forget to avoid Twilio timeout)
-    // Note: the pipeline uses instanceId as slug (not UUID) — pass the slug
     // Collect media URLs (Twilio sends MediaUrl0, MediaUrl1, ...)
     const mediaItems: Array<{ url: string; contentType: string }> = [];
     // Clamp the attacker-supplied count: NumMedia rides in on the request body, so an
@@ -93,6 +153,7 @@ export class TwilioWebhookController {
       if (url) mediaItems.push({ url, contentType });
     }
 
+    // Fire-and-forget so Twilio is not kept waiting for the pipeline.
     adapter.handleInbound({
       from,
       body: body.Body || "",
@@ -106,7 +167,6 @@ export class TwilioWebhookController {
       console.error("[whatsapp] Error processing inbound for instance:", sanitizeForLog(instanceSlug), err),
     );
 
-    // 7. Return empty TwiML response immediately
     return "<Response/>";
   }
 

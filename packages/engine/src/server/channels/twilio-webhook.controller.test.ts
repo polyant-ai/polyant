@@ -18,6 +18,8 @@ vi.mock("../../instances/channels.store.js", () => ({
   // Keep in sync with the real tuple in instances/channels.store.ts —
   // any new API-configurable channel type must be added here.
   CHANNEL_TYPES: ["telegram", "slack", "whatsapp", "agent"],
+  resolveWhatsAppAuthMode: (cfg: Record<string, unknown>) =>
+    cfg.authMode === "apiKey" ? "apiKey" : "authToken",
 }));
 
 vi.mock("../../instances/resolve-instance-id.js", () => ({
@@ -210,5 +212,88 @@ describe("TwilioWebhookController", () => {
     await expect(
       controller.handleWhatsAppWebhook("test-instance", "sig", validBody, mockReq()),
     ).rejects.toThrow();
+  });
+
+  describe("apiKey mode (path secret)", () => {
+    const SECRET = "0123456789abcdef0123456789abcdef";
+
+    beforeEach(() => {
+      mockGetChannelConfig.mockResolvedValue({
+        channelType: "whatsapp",
+        enabled: true,
+        config: {
+          authMode: "apiKey",
+          accountSid: "AC00000000000000000000000000000001",
+          apiKeySid: "SK00000000000000000000000000000002",
+          apiKeySecret: "sec",
+          webhookSecret: SECRET,
+          whatsappNumber: "+14155238886",
+        },
+      });
+    });
+
+    it("processes an inbound message when the secret matches", async () => {
+      const result = await controller.handleWhatsAppWebhookWithSecret("test-instance", SECRET, validBody);
+
+      expect(result).toBe("<Response/>");
+      expect(mockAdapter.validateSignature).not.toHaveBeenCalled();
+      expect(mockAdapter.handleInbound).toHaveBeenCalledWith(
+        expect.objectContaining({ from: "+393331234567", body: "Hello agent", messageSid: "SM123" }),
+      );
+    });
+
+    it("rejects a wrong secret without processing the message", async () => {
+      await expect(
+        controller.handleWhatsAppWebhookWithSecret("test-instance", "wrong-secret", validBody),
+      ).rejects.toThrow();
+      expect(mockAdapter.handleInbound).not.toHaveBeenCalled();
+    });
+
+    it("rejects a secret of a different length (no length oracle)", async () => {
+      await expect(
+        controller.handleWhatsAppWebhookWithSecret("test-instance", "short", validBody),
+      ).rejects.toThrow();
+    });
+
+    it("never logs the secret", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await expect(
+        controller.handleWhatsAppWebhookWithSecret("test-instance", "wrong-secret", validBody),
+      ).rejects.toThrow();
+
+      const logged = warn.mock.calls.flat().join(" ");
+      expect(logged).not.toContain(SECRET);
+      expect(logged).not.toContain("wrong-secret");
+      warn.mockRestore();
+    });
+
+    it("answers 404 on the signature route for an apiKey channel", async () => {
+      await expect(
+        controller.handleWhatsAppWebhook("test-instance", "sig", validBody, mockReq()),
+      ).rejects.toThrow(/not configured/);
+    });
+  });
+
+  it("collects a __proto__ body field as a plain key, not a prototype write", async () => {
+    await controller.handleWhatsAppWebhook(
+      "test-instance",
+      "valid-sig",
+      { ...validBody, __proto__: "polluted" } as never,
+      mockReq(),
+    );
+
+    const params = mockAdapter.validateSignature.mock.calls[0][2] as Record<string, unknown>;
+    // Twilio signs every field it sends, so the key must reach the validator
+    // verbatim — while never retargeting the prototype chain.
+    expect(Object.getPrototypeOf(params)).toBe(Object.prototype);
+    expect(Object.prototype).not.toHaveProperty("polluted");
+  });
+
+  it("answers 404 on the secret route for an authToken channel", async () => {
+    // Default beforeEach config is an authToken channel.
+    await expect(
+      controller.handleWhatsAppWebhookWithSecret("test-instance", "any-secret", validBody),
+    ).rejects.toThrow(/not configured/);
   });
 });
