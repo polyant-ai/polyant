@@ -16,7 +16,7 @@ import { ZodError } from "zod";
 import {
   setChannelConfig, listChannelConfigs, getChannelConfig, deleteChannelConfig,
   CHANNEL_TYPES, CHANNEL_CONFIG_KEYS, resolveWhatsAppAuthMode,
-  WHATSAPP_CHANNEL_TYPE, WHATSAPP_AUTH_MODE_API_KEY,
+  WHATSAPP_CHANNEL_TYPE, WHATSAPP_AUTH_MODE_API_KEY, AGENT_CHANNEL_TYPE,
   type ChannelType, type SetChannelConfigResult, type SetChannelConfigOptions,
 } from "../../instances/channels.store.js";
 import { channelManager } from "../../channels/channel-manager.js";
@@ -37,6 +37,11 @@ import {
 
 /** Thrown by `whatsappWebhookUrl` and `rotateWhatsappWebhookSecret` below. */
 const WHATSAPP_NOT_IN_API_KEY_MODE = "WhatsApp channel is not configured in API Key mode";
+
+/** The `targetId` shared by every audit row for the WhatsApp inbound webhook secret — key only, never the value. */
+function webhookSecretAuditTargetId(slug: string): string {
+  return `${slug}:whatsapp.webhookSecret`;
+}
 
 /** A Zod parse failure — the only error shape `setChannelConfig` throws for invalid input. */
 function isChannelConfigValidationError(err: unknown): err is ZodError {
@@ -169,7 +174,36 @@ export class InstanceChannelsController {
       actor: toManagementAuditActor(user),
       targetType: ManagementAuditTarget.Secret,
       // Key only — the value is never audited.
-      targetId: `${slug}:whatsapp.webhookSecret`,
+      targetId: webhookSecretAuditTargetId(slug),
+    });
+  }
+
+  /**
+   * Audit the destruction of an inbound secret — a save that switches
+   * `authMode` away from `apiKey` runs `pruneWhatsAppCredentials` and
+   * discards the existing `webhookSecret`, permanently killing the only
+   * authenticator of an internet-facing route. The store reports what it
+   * persisted (`SetChannelConfigResult`); it has no actor to audit with, so
+   * this compares that result against the config already read before the
+   * save (`existing`, fetched by `setChannel` for the allowlist merge) —
+   * the same seam `auditWebhookSecretWrite` uses for minting.
+   */
+  private auditWebhookSecretDeleteIfDiscarded(
+    slug: string,
+    existingConfig: Record<string, unknown> | undefined,
+    finalConfig: Record<string, unknown>,
+    user: AuthenticatedUser | undefined,
+  ): void {
+    const hadSecret = typeof existingConfig?.webhookSecret === "string" && existingConfig.webhookSecret.length > 0;
+    const hasSecret = typeof finalConfig.webhookSecret === "string" && finalConfig.webhookSecret.length > 0;
+    if (!hadSecret || hasSecret) return;
+
+    this.auditLogger.log({
+      action: ManagementAuditAction.SecretDelete,
+      actor: toManagementAuditActor(user),
+      targetType: ManagementAuditTarget.Secret,
+      // Key only — the discarded value is never audited.
+      targetId: webhookSecretAuditTargetId(slug),
     });
   }
 
@@ -199,7 +233,7 @@ export class InstanceChannelsController {
     } else {
       await channelManager.stopChannel(slug, channelType);
     }
-    if (channelType === "agent") {
+    if (channelType === AGENT_CHANNEL_TYPE) {
       await syncAgentTool({ slug, description: instanceDescription, enable: enabled });
     }
   }
@@ -250,6 +284,7 @@ export class InstanceChannelsController {
     // Audit BEFORE the side-effecting adapter start/stop: the write already
     // happened, so the audit row must exist even if the side effect fails.
     if (result.mintedWebhookSecret) this.auditWebhookSecretWrite(slug, user);
+    this.auditWebhookSecretDeleteIfDiscarded(slug, existing?.config, finalConfig, user);
     await this.syncChannelSideEffects(slug, type, body.enabled, finalConfig, instance.description ?? null);
 
     return this.buildChannelResponse(slug, type, body.enabled, finalConfig);
@@ -264,7 +299,7 @@ export class InstanceChannelsController {
     const instance = await findInstanceOrFail(slug);
     await channelManager.stopChannel(slug, channelType);
     await deleteChannelConfig(instance.id, channelType as ChannelType);
-    if (channelType === "agent") {
+    if (channelType === AGENT_CHANNEL_TYPE) {
       await syncAgentTool({ slug, description: null, enable: false });
     }
     return { deleted: true };

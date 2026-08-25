@@ -5,7 +5,13 @@ import { Controller, Post, Param, Headers, Body, Req, HttpCode, NotFoundExceptio
 import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { Public } from "../../auth/decorators/public.decorator.js";
-import { getChannelConfig, resolveWhatsAppAuthMode } from "../../instances/channels.store.js";
+import {
+  getChannelConfig,
+  resolveWhatsAppAuthMode,
+  WHATSAPP_CHANNEL_TYPE,
+  WHATSAPP_AUTH_MODE_TOKEN,
+  WHATSAPP_AUTH_MODE_API_KEY,
+} from "../../instances/channels.store.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { WhatsAppAdapter } from "../../channels/adapters/whatsapp/index.js";
@@ -96,7 +102,7 @@ export class TwilioWebhookController {
     // A channel authenticated by path secret must not be reachable here: an
     // identical 404 keeps the credential mode of a slug from leaking to an
     // unauthenticated caller (see WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE).
-    if (resolveWhatsAppAuthMode(config) !== "authToken") {
+    if (resolveWhatsAppAuthMode(config) !== WHATSAPP_AUTH_MODE_TOKEN) {
       logWebhookUnavailable("wrong auth mode, expected authToken", instanceSlug);
       throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
@@ -139,7 +145,7 @@ export class TwilioWebhookController {
   ): Promise<string> {
     const { config, adapter } = await this.resolveActiveChannel(instanceSlug);
 
-    if (resolveWhatsAppAuthMode(config) !== "apiKey") {
+    if (resolveWhatsAppAuthMode(config) !== WHATSAPP_AUTH_MODE_API_KEY) {
       logWebhookUnavailable("wrong auth mode, expected apiKey", instanceSlug);
       throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
@@ -170,7 +176,7 @@ export class TwilioWebhookController {
       throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
 
-    const channelConfig = await getChannelConfig(asInstanceSlug(instanceSlug), "whatsapp");
+    const channelConfig = await getChannelConfig(asInstanceSlug(instanceSlug), WHATSAPP_CHANNEL_TYPE);
     if (!channelConfig || !channelConfig.enabled) {
       logWebhookUnavailable("channel not configured or disabled", instanceSlug);
       throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
