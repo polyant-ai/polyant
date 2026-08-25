@@ -32,13 +32,16 @@ import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { WebhookAuthSection } from "./room-event-source-auth";
 
+/**
+ * The list response (ROOM_READ) deliberately omits `webhookUrl`/`webhookToken`
+ * — the token is bearer-equivalent. The card receives the revealed URL (if
+ * any) as a separate prop, fetched on demand by the parent.
+ */
 export interface EventSource {
   id: string;
   name: string;
   sourceType: string;
   enabled: boolean;
-  webhookUrl: string;
-  webhookToken: string;
   /** Non-secret config; string values are masked (••••last4) by the API. */
   config?: Record<string, unknown>;
   definitions: EventDefinition[];
@@ -177,6 +180,12 @@ function DefinitionForm({
 interface Props {
   source: EventSource;
   expanded: boolean;
+  /**
+   * The revealed webhook URL for this source, or `undefined` while it has
+   * not been fetched yet (the parent fetches it lazily on first expand, not
+   * eagerly for every source in the list).
+   */
+  webhookUrl: string | undefined;
   onToggleExpand: () => void;
   onToggleEnabled: (id: string, enabled: boolean) => void;
   onCopyWebhook: (url: string) => void;
@@ -195,7 +204,7 @@ interface Props {
 }
 
 export function EventSourceCard({
-  source, expanded, onToggleExpand, onToggleEnabled, onCopyWebhook, onRotateToken,
+  source, expanded, webhookUrl, onToggleExpand, onToggleEnabled, onCopyWebhook, onRotateToken,
   onUpdateSource, onDeleteSource, onAddDefinition, onUpdateDefinition, onDeleteDefinition,
 }: Props) {
   const { t } = useI18n();
@@ -275,9 +284,11 @@ export function EventSourceCard({
             checked={source.enabled}
             onCheckedChange={(v) => onToggleEnabled(source.id, v)}
           />
-          <Button size="icon" variant="ghost" onClick={() => onCopyWebhook(source.webhookUrl)}>
-            <Copy className="h-4 w-4" />
-          </Button>
+          {webhookUrl && (
+            <Button size="icon" variant="ghost" onClick={() => onCopyWebhook(webhookUrl)}>
+              <Copy className="h-4 w-4" />
+            </Button>
+          )}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button size="icon" variant="ghost" className="text-muted-foreground">
@@ -318,7 +329,9 @@ export function EventSourceCard({
         <div className="border-t px-4 pb-4 pt-3 space-y-4">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">{t("room.sources.webhookUrl")}</Label>
-            <code className="block text-xs bg-muted rounded px-2 py-1 break-all">{source.webhookUrl}</code>
+            <code className="block text-xs bg-muted rounded px-2 py-1 break-all">
+              {webhookUrl ?? t("room.sources.webhookUrlLoading")}
+            </code>
           </div>
 
           <WebhookAuthSection

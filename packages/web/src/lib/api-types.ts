@@ -723,13 +723,16 @@ export interface EventDefinition {
   enabled: boolean;
 }
 
+/**
+ * The list endpoint (ROOM_READ) deliberately omits `webhookUrl`/`webhookToken`
+ * — the token is bearer-equivalent, so a read-only caller must not receive
+ * it. Fetch it on demand via `api.eventSources.webhookUrl` (ROOM_WRITE).
+ */
 export interface EventSource {
   id: string;
   name: string;
   sourceType: string;
   enabled: boolean;
-  webhookUrl: string;
-  webhookToken: string;
   /** Non-secret config; string values are masked (••••last4) by the API. */
   config?: Record<string, unknown>;
   definitions: EventDefinition[];

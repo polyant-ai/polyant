@@ -780,6 +780,8 @@
   "room.sources.name": "Nome Sorgente",
   "room.sources.type": "Tipo Sorgente",
   "room.sources.webhookUrl": "URL Webhook",
+  "room.sources.webhookUrlLoading": "Caricamento…",
+  "room.sources.revealFailed": "Impossibile caricare l'URL webhook",
   "room.sources.copied": "URL Webhook copiato",
   "room.sources.rotateToken": "Rigenera Token",
   "room.sources.rotateConfirm": "Questo invaliderà l'URL webhook attuale. Sei sicuro?",

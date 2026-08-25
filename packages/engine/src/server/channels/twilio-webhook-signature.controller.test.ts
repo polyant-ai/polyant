@@ -191,6 +191,48 @@ describe("TwilioWebhookController (signature route)", () => {
     );
   });
 
+  it("takes only the first hop of a comma-separated X-Forwarded-Proto", async () => {
+    const req = mockReq({
+      protocol: "http",
+      headers: {
+        host: "localhost:4000",
+        "x-forwarded-proto": "https, http",
+      },
+    });
+
+    await controller.handleWhatsAppWebhook("test-instance", "valid-sig", validBody, req);
+
+    expect(mockAdapter.validateSignature).toHaveBeenCalledWith(
+      "valid-sig",
+      "https://example.ngrok-free.dev/webhooks/twilio/test-instance/whatsapp",
+      expect.any(Object),
+    );
+  });
+
+  it("clamps a poisoned X-Forwarded-Proto to req.protocol instead of echoing it into the reconstructed URL", async () => {
+    // A value like "user:pass@https" no longer matches the `scheme://` shape
+    // once echoed raw, which broke redactWebhookPath's userinfo-stripping
+    // branch and let the attacker's own string reach the log unmasked. It
+    // also silently corrupts the URL the Twilio signature is verified
+    // against. Clamping to http/https (falling back to req.protocol for
+    // anything else) fixes both.
+    const req = mockReq({
+      protocol: "https",
+      headers: {
+        host: "example.ngrok-free.dev",
+        "x-forwarded-proto": "user:pass@https",
+      },
+    });
+
+    await controller.handleWhatsAppWebhook("test-instance", "valid-sig", validBody, req);
+
+    expect(mockAdapter.validateSignature).toHaveBeenCalledWith(
+      "valid-sig",
+      "https://example.ngrok-free.dev/webhooks/twilio/test-instance/whatsapp",
+      expect.any(Object),
+    );
+  });
+
   it("returns 404 when instance not found", async () => {
     mockResolveInstanceId.mockResolvedValue(undefined);
 

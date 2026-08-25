@@ -910,6 +910,12 @@ export const api = {
       request(`/api/instances/${encodeURIComponent(slug)}/event-sources/${id}`, { method: "DELETE" }),
     rotateToken: (slug: string, id: string) =>
       request<{ webhookToken: string; webhookUrl: string }>(`/api/instances/${encodeURIComponent(slug)}/event-sources/${id}/rotate-token`, { method: "POST" }),
+    // ROOM_WRITE only — the list endpoint above deliberately omits this
+    // bearer-equivalent URL, so the caller fetches it on demand per source.
+    webhookUrl: (slug: string, id: string) =>
+      request<{ webhookUrl: string }>(
+        `/api/instances/${encodeURIComponent(slug)}/event-sources/${id}/webhook-url`,
+      ),
     listDefinitions: (slug: string, sourceId: string) =>
       request<EventDefinition[]>(`/api/instances/${encodeURIComponent(slug)}/event-sources/${sourceId}/definitions`),
     createDefinition: (slug: string, sourceId: string, data: { name: string; matchingPrompt: string; interpretationPrompt: string; enabled?: boolean }) =>

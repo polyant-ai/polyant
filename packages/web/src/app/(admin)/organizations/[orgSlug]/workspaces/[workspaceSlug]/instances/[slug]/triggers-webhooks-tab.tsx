@@ -32,6 +32,10 @@ export function TriggersWebhooksTab({ slug }: Props) {
   const [sources, setSources] = useState<EventSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
+  // The list endpoint deliberately omits the bearer-equivalent webhook URL
+  // (see EventSource in room-event-source-card.tsx), so it is fetched on
+  // demand per source — never eagerly for the whole list — and cached here.
+  const [webhookUrls, setWebhookUrls] = useState<Record<string, string>>({});
   const [newSourceForm, setNewSourceForm] = useState({ name: "", sourceType: "webhook", showForm: false });
 
   useEffect(() => {
@@ -105,12 +109,30 @@ export function TriggersWebhooksTab({ slug }: Props) {
   async function handleRotateToken(id: string) {
     try {
       const res = await api.eventSources.rotateToken(slug, id);
-      setSources((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, webhookUrl: res.webhookUrl, webhookToken: res.webhookToken } : s)),
-      );
+      // The rotate response already carries the fresh URL under ROOM_WRITE,
+      // so cache it directly rather than issuing a redundant reveal fetch.
+      setWebhookUrls((prev) => ({ ...prev, [id]: res.webhookUrl }));
       toast.success(t("room.sources.copied"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("room.sources.rotateToken")));
+    }
+  }
+
+  async function revealWebhookUrl(id: string) {
+    try {
+      const res = await api.eventSources.webhookUrl(slug, id);
+      setWebhookUrls((prev) => ({ ...prev, [id]: res.webhookUrl }));
+    } catch (err) {
+      toast.error(getUserErrorMessage(err, t("room.sources.revealFailed")));
+    }
+  }
+
+  /** Expand toggles the row and, on first expand only, fetches its webhook URL. */
+  function handleToggleExpand(id: string) {
+    const willExpand = !expandedSources[id];
+    setExpandedSources((prev) => ({ ...prev, [id]: willExpand }));
+    if (willExpand && !webhookUrls[id]) {
+      void revealWebhookUrl(id);
     }
   }
 
@@ -211,7 +233,8 @@ export function TriggersWebhooksTab({ slug }: Props) {
           key={source.id}
           source={source}
           expanded={!!expandedSources[source.id]}
-          onToggleExpand={() => setExpandedSources((p) => ({ ...p, [source.id]: !p[source.id] }))}
+          webhookUrl={webhookUrls[source.id]}
+          onToggleExpand={() => handleToggleExpand(source.id)}
           onToggleEnabled={handleToggleSourceEnabled}
           onCopyWebhook={copyWebhookUrl}
           onRotateToken={handleRotateToken}

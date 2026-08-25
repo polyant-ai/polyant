@@ -161,6 +161,22 @@ export async function rotateWebhookToken(id: string, instanceId: InstanceUuid): 
   return newToken;
 }
 
+/**
+ * The current webhook token for one source, scoped to its owning instance so
+ * a caller can never reveal a token belonging to another instance by id
+ * alone. Returns `null` when the source does not exist or does not belong to
+ * this instance — the controller maps that to a 404, same shape as every
+ * other id-scoped lookup here.
+ */
+export async function getEventSourceWebhookToken(id: string, instanceId: InstanceUuid): Promise<string | null> {
+  const rows = await db
+    .select({ webhookToken: eventSources.webhookToken })
+    .from(eventSources)
+    .where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)))
+    .limit(1);
+  return rows[0]?.webhookToken ?? null;
+}
+
 export async function findByWebhookToken(
   token: string,
 ): Promise<{ source: EventSource; instanceId: InstanceUuid; configReadable: boolean } | null> {
