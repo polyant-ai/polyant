@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -65,10 +66,18 @@ export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
 
+  // Derived as primitives (not the `channel` object itself) so the effect
+  // below depends only on values that actually change what it does. The
+  // parent rebuilds `channel` as a fresh object after every list re-fetch
+  // (e.g. after any save/delete elsewhere), which would otherwise re-trigger
+  // this fetch of a secret-bearing URL on every unrelated re-render.
+  const hasChannel = channel !== null;
+  const isStoredApiKeyMode = storedMode === "apiKey";
+
   const loadWebhookUrl = useCallback(async () => {
     // Only an apiKey channel has a secret-bearing URL, and only after its
     // first save (the secret is minted server-side at that point).
-    if (storedMode !== "apiKey" || !channel) {
+    if (!isStoredApiKeyMode || !hasChannel) {
       setWebhookUrl(null);
       return;
     }
@@ -78,7 +87,7 @@ export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
     } catch {
       setWebhookUrl(null);
     }
-  }, [slug, storedMode, channel]);
+  }, [slug, isStoredApiKeyMode, hasChannel]);
 
   useEffect(() => {
     void loadWebhookUrl();
@@ -131,6 +140,24 @@ export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
       toast.success(t("channels.tab.saved"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("channels.tab.saveFailed")));
+    }
+  }
+
+  async function copyWebhookUrl(url: string) {
+    // navigator.clipboard is undefined in insecure (non-HTTPS) contexts and
+    // in some older browsers, and writeText() rejects if the page lost focus
+    // or the user denied permission. Either case must surface as a toast,
+    // not a swallowed/console-only error, since the operator needs to know
+    // whether the secret-bearing URL actually made it to the clipboard.
+    if (!navigator.clipboard) {
+      toast.error(t("channels.tab.whatsappUrlCopyFailed"));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(t("channels.tab.whatsappUrlCopied"));
+    } catch {
+      toast.error(t("channels.tab.whatsappUrlCopyFailed"));
     }
   }
 
@@ -201,19 +228,17 @@ export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
       </div>
 
       <div className="space-y-1">
-        <Label htmlFor="whatsapp-auth-mode">{t("channels.tab.whatsappAuthMode")}</Label>
+        <Label>{t("channels.tab.whatsappAuthMode")}</Label>
         <p className="text-xs text-muted-foreground">{t("channels.tab.whatsappAuthModeHelp")}</p>
-        {/* Native select: the mode drives which fields exist, and a plain
-            element keeps this card testable without a portal-aware harness. */}
-        <select
-          id="whatsapp-auth-mode"
-          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-          value={mode}
-          onChange={(e) => changeMode(e.target.value as AuthMode)}
-        >
-          <option value="authToken">{t("channels.tab.whatsappAuthModeToken")}</option>
-          <option value="apiKey">{t("channels.tab.whatsappAuthModeApiKey")}</option>
-        </select>
+        <Select value={mode} onValueChange={(v) => changeMode(v as AuthMode)}>
+          <SelectTrigger aria-label={t("channels.tab.whatsappAuthMode")} className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="authToken">{t("channels.tab.whatsappAuthModeToken")}</SelectItem>
+            <SelectItem value="apiKey">{t("channels.tab.whatsappAuthModeApiKey")}</SelectItem>
+          </SelectContent>
+        </Select>
         {mode !== storedMode && (
           <p className="text-xs text-destructive">{t("channels.tab.whatsappModeSwitchWarning")}</p>
         )}
@@ -259,8 +284,7 @@ export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
               size="icon"
               variant="ghost"
               onClick={() => {
-                void navigator.clipboard.writeText(webhookUrl);
-                toast.success(t("channels.tab.whatsappUrlCopied"));
+                void copyWebhookUrl(webhookUrl);
               }}
             >
               <Copy className="h-4 w-4" />
