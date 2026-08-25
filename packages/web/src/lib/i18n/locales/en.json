@@ -494,6 +494,7 @@
   "channels.tab.whatsappRotateTitle": "Regenerate the webhook secret?",
   "channels.tab.whatsappRotateDescription": "The current URL stops working immediately. Inbound messages are lost until the new URL is configured in Twilio.",
   "channels.tab.whatsappUrlCopied": "URL copied",
+  "channels.tab.whatsappUrlCopyFailed": "Could not copy the URL",
   "channels.tab.enabled": "Enabled",
   "channels.tab.disabled": "Disabled",
   "channels.tab.saved": "Channel saved",
