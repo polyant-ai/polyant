@@ -223,8 +223,27 @@ export class TwilioWebhookController {
   /** Reconstruct the full URL as seen by the external caller (Twilio).
    *  Honors X-Forwarded-Proto / X-Forwarded-Host set by reverse proxies (ngrok, Render, etc). */
   private getFullUrl(req: Request): string {
-    const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol;
+    const proto = this.resolveForwardedProto(req);
     const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "localhost";
     return `${proto}://${host}${req.originalUrl}`;
+  }
+
+  /**
+   * Clamp `X-Forwarded-Proto` to exactly `http` or `https`, falling back to
+   * the connection-level `req.protocol` for anything else. A successive-proxy
+   * chain sends a comma-separated list (closest hop first), so only the first
+   * token is considered. Without this clamp a crafted value like
+   * `user:pass@https` would be echoed straight into the URL this function
+   * builds — which is both what the Twilio signature is verified against
+   * (silently corrupting it, so the signature just fails to match) and what
+   * gets logged on that failure (where it broke `redactWebhookPath`'s
+   * userinfo-stripping branch, since the string no longer starts with a bare
+   * `scheme://`).
+   */
+  private resolveForwardedProto(req: Request): string {
+    const header = req.headers["x-forwarded-proto"];
+    const raw = Array.isArray(header) ? header[0] : header;
+    const firstHop = raw?.split(",")[0]?.trim().toLowerCase();
+    return firstHop === "http" || firstHop === "https" ? firstHop : req.protocol;
   }
 }
