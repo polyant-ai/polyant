@@ -14,30 +14,39 @@ const TWILIO_SECRET_PATH = /^(\/webhooks\/twilio\/[^/]+\/whatsapp)\/[^/]+(\/?)$/
 // that route and must be masked in full.
 const GENERIC_WEBHOOK_TOKEN_PATH = /^\/webhooks\/[^/]+(\/?)$/;
 
+// Matches a leading `scheme://host[:port]` so a full absolute URL (as built
+// by `TwilioWebhookController.getFullUrl` from x-forwarded-host / the
+// request's own host) can be redacted too, not just a bare path.
+const ORIGIN_PREFIX = /^[a-z][a-z0-9+.-]*:\/\/[^/]*/i;
+
 /**
- * Mask the credential-bearing segment of an inbound webhook path so it is
- * safe to write to plaintext log files, while keeping the rest of the path
- * (instance slug, route shape) intact and useful for debugging.
+ * Mask the credential-bearing segment of an inbound webhook path (or full
+ * URL) so it is safe to write to plaintext log files, while keeping the rest
+ * (scheme/host, instance slug, route shape) intact and useful for debugging.
  *
  * The query string is always dropped — a secret must not survive there
  * either, and no caller of this function needs it. Paths that do not match
  * a known webhook shape are returned unchanged (minus the query string).
  */
 export function redactWebhookPath(url: string): string {
-  const queryIndex = url.indexOf("?");
-  const pathname = queryIndex === -1 ? url : url.slice(0, queryIndex);
+  const originMatch = url.match(ORIGIN_PREFIX);
+  const origin = originMatch ? originMatch[0] : "";
+  const rest = origin ? url.slice(origin.length) : url;
+
+  const queryIndex = rest.indexOf("?");
+  const pathname = queryIndex === -1 ? rest : rest.slice(0, queryIndex);
 
   const twilioMatch = pathname.match(TWILIO_SECRET_PATH);
   if (twilioMatch) {
     const [, prefix, trailingSlash] = twilioMatch;
-    return `${prefix}/${REDACTED_PLACEHOLDER}${trailingSlash}`;
+    return `${origin}${prefix}/${REDACTED_PLACEHOLDER}${trailingSlash}`;
   }
 
   const genericMatch = pathname.match(GENERIC_WEBHOOK_TOKEN_PATH);
   if (genericMatch) {
     const [, trailingSlash] = genericMatch;
-    return `/webhooks/${REDACTED_PLACEHOLDER}${trailingSlash}`;
+    return `${origin}/webhooks/${REDACTED_PLACEHOLDER}${trailingSlash}`;
   }
 
-  return pathname;
+  return `${origin}${pathname}`;
 }
