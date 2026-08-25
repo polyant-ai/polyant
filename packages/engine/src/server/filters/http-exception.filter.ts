@@ -2,6 +2,7 @@
 
 import { ExceptionFilter, Catch, ArgumentsHost, HttpException } from "@nestjs/common";
 import type { Request, Response } from "express";
+import { redactWebhookPath } from "./redact-webhook-path.js";
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -11,7 +12,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     const method = request.method;
-    const path = request.url;
+    // Webhook routes carry their sole authentication credential in the path
+    // itself (a Twilio API-Key-mode secret, a Room event-source token), and
+    // this filter's log lines are teed to a plaintext, 14-day-retention log
+    // file by `installFileLogger()` — so the path must be redacted before it
+    // is ever interpolated into a log line, in EVERY branch below.
+    const path = redactWebhookPath(request.url);
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
