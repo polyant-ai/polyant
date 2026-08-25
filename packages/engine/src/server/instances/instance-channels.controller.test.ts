@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import { NotFoundException, BadRequestException } from "@nestjs/common";
+import { ZodError } from "zod";
 
 const {
   mockSetChannelConfig,
@@ -69,9 +70,11 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
     vi.clearAllMocks();
     controller = new InstanceChannelsController();
     mockGetChannelConfig.mockResolvedValue(null);
-    // Default: the store did not mint a new secret. Individual tests override
-    // this to exercise the audit-on-mint path.
-    mockSetChannelConfig.mockResolvedValue({ mintedWebhookSecret: false });
+    // Default: the store did not mint a new secret, and persisted an empty
+    // config. Individual tests override this to exercise the audit-on-mint
+    // path and to make the persisted config (now read from the store's
+    // return value, not a re-fetch) realistic for their assertions.
+    mockSetChannelConfig.mockResolvedValue({ mintedWebhookSecret: false, config: {} });
   });
 
   // -------------------------------------------------------------------
@@ -117,10 +120,8 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
   // -------------------------------------------------------------------
   describe("audit on mint", () => {
     it("should_audit_a_secret_write_when_the_store_mints_a_webhook_secret", async () => {
-      mockSetChannelConfig.mockResolvedValue({ mintedWebhookSecret: true });
-      mockGetChannelConfig.mockResolvedValue({
-        channelType: "whatsapp",
-        enabled: true,
+      mockSetChannelConfig.mockResolvedValue({
+        mintedWebhookSecret: true,
         config: { ...apiKeyBody().config, webhookSecret: "minted-secret-value" },
       });
 
@@ -139,7 +140,7 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
     });
 
     it("should_not_audit_when_the_store_did_not_mint_a_secret", async () => {
-      mockSetChannelConfig.mockResolvedValue({ mintedWebhookSecret: false });
+      mockSetChannelConfig.mockResolvedValue({ mintedWebhookSecret: false, config: apiKeyBody().config });
 
       await controller.setChannel("acme", "whatsapp", apiKeyBody(), USER);
 
@@ -154,9 +155,11 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
   // -------------------------------------------------------------------
   describe("PUT response shape", () => {
     it("should_include_the_webhook_url_when_the_saved_channel_is_in_apiKey_mode", async () => {
-      mockGetChannelConfig.mockResolvedValue({
-        channelType: "whatsapp",
-        enabled: true,
+      // The response is now built from what the store actually returned
+      // (item 1), not from a post-save re-fetch — so it is `setChannelConfig`'s
+      // resolved value that must carry the secret here.
+      mockSetChannelConfig.mockResolvedValue({
+        mintedWebhookSecret: false,
         config: { ...apiKeyBody().config, webhookSecret: "abc123" },
       });
 
@@ -166,16 +169,15 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
     });
 
     it("should_omit_the_webhook_url_when_the_saved_channel_is_in_authToken_mode", async () => {
-      mockGetChannelConfig.mockResolvedValue({
-        channelType: "whatsapp",
-        enabled: true,
-        config: { authMode: "authToken", accountSid: ACCOUNT_SID, authToken: "tok", whatsappNumber: "+14155238886" },
-      });
+      const authTokenConfig = {
+        authMode: "authToken",
+        accountSid: ACCOUNT_SID,
+        authToken: "tok",
+        whatsappNumber: "+14155238886",
+      };
+      mockSetChannelConfig.mockResolvedValue({ mintedWebhookSecret: false, config: authTokenConfig });
 
-      const res = await controller.setChannel("acme", "whatsapp", {
-        config: { authMode: "authToken", accountSid: ACCOUNT_SID, authToken: "tok", whatsappNumber: "+14155238886" },
-        enabled: true,
-      });
+      const res = await controller.setChannel("acme", "whatsapp", { config: authTokenConfig, enabled: true });
 
       expect(res).not.toHaveProperty("webhookUrl");
     });
@@ -218,8 +220,15 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
 
     const res = await controller.rotateWhatsappWebhookSecret("acme", USER);
 
+    // The new secret travels ONLY via `rotateWebhookSecretTo` (item 1) — the
+    // `config` argument itself must carry no webhookSecret at all, old or new.
     const stored = mockSetChannelConfig.mock.calls[0][2] as Record<string, unknown>;
-    expect(stored.webhookSecret).not.toBe("old-secret");
+    expect(stored).not.toHaveProperty("webhookSecret");
+    const options = mockSetChannelConfig.mock.calls[0][4] as { rotateWebhookSecretTo?: string };
+    const newSecret = options.rotateWebhookSecretTo;
+    expect(newSecret).toBeTruthy();
+    expect(newSecret).not.toBe("old-secret");
+    expect(res.webhookUrl).toContain(newSecret as string);
     expect(res.webhookUrl).not.toContain("old-secret");
     expect(mockAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -231,6 +240,79 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
     // The audited row must carry the KEY only — never the secret value.
     const auditedArg = mockAuditLog.mock.calls[0][0];
     expect(JSON.stringify(auditedArg)).not.toContain("old-secret");
-    expect(JSON.stringify(auditedArg)).not.toContain(stored.webhookSecret as string);
+    expect(JSON.stringify(auditedArg)).not.toContain(newSecret as string);
+  });
+
+  // -------------------------------------------------------------------
+  // Item 3 — controller-level proof of the carry-forward invariant. The
+  // store-level test (channels.store.test.ts) proves the store preserves a
+  // secret it is HANDED; this proves the controller actually HANDS it the
+  // existing config, via `mergeAllowedConfig`'s `{ ...existing }` base.
+  // Mutating that to `{}` must fail this test (verified manually — see the
+  // task report).
+  // -------------------------------------------------------------------
+  describe("carry-forward through the allowlist merge", () => {
+    it("should_carry_the_untouched_apiKeySecret_forward_and_apply_only_the_new_number", async () => {
+      const EXISTING_CONFIG = {
+        authMode: "apiKey",
+        accountSid: ACCOUNT_SID,
+        apiKeySid: API_KEY_SID,
+        apiKeySecret: "real",
+        webhookSecret: "carried",
+        whatsappNumber: "+14155238886",
+      };
+      mockGetChannelConfig.mockResolvedValue({
+        channelType: "whatsapp",
+        enabled: true,
+        config: EXISTING_CONFIG,
+      });
+      // Stand-in for the store's own carry-forward logic (unit-tested
+      // separately in channels.store.test.ts): a save that supplies no
+      // webhookSecret and only changes whatsappNumber keeps the existing
+      // secret and mints nothing.
+      mockSetChannelConfig.mockResolvedValue({
+        mintedWebhookSecret: false,
+        config: { ...EXISTING_CONFIG, whatsappNumber: "+19995551234" },
+      });
+
+      await controller.setChannel("acme", "whatsapp", {
+        config: { whatsappNumber: "+19995551234", apiKeySecret: "••••real" },
+        enabled: true,
+      });
+
+      // The client sent the masked placeholder for apiKeySecret (never the
+      // real value) and no webhookSecret at all — the ONLY way `stored` can
+      // carry the real `apiKeySecret` and the ORIGINAL `webhookSecret` is if
+      // the merge started from `{ ...existing }`, not `{}`.
+      const stored = mockSetChannelConfig.mock.calls[0][2] as Record<string, unknown>;
+      expect(stored.apiKeySecret).toBe("real");
+      expect(stored.webhookSecret).toBe("carried");
+      expect(stored.whatsappNumber).toBe("+19995551234");
+
+      // The persisted result (item 1: taken from the store's return value)
+      // still carries the ORIGINAL secret, and no mint was reported.
+      expect(mockAuditLog).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // Item 4 — the guard translating a store failure into a 400 must react
+  // ONLY to a real ZodError, not any error whose message happens to contain
+  // a particular substring.
+  // -------------------------------------------------------------------
+  describe("validation error translation", () => {
+    it("should_translate_a_ZodError_from_the_store_into_a_BadRequestException", async () => {
+      mockSetChannelConfig.mockRejectedValue(new ZodError([]));
+
+      await expect(controller.setChannel("acme", "whatsapp", apiKeyBody())).rejects.toThrow(BadRequestException);
+    });
+
+    it("should_NOT_translate_a_non_ZodError_even_if_its_message_contains_Validation", async () => {
+      mockSetChannelConfig.mockRejectedValue(new Error("Validation exploded for unrelated reasons"));
+
+      await expect(controller.setChannel("acme", "whatsapp", apiKeyBody())).rejects.not.toThrow(
+        BadRequestException,
+      );
+    });
   });
 });

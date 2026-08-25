@@ -16,7 +16,8 @@ import { ZodError } from "zod";
 import {
   setChannelConfig, listChannelConfigs, getChannelConfig, deleteChannelConfig,
   CHANNEL_TYPES, CHANNEL_CONFIG_KEYS, resolveWhatsAppAuthMode,
-  type ChannelConfig, type ChannelType, type SetChannelConfigResult,
+  WHATSAPP_CHANNEL_TYPE, WHATSAPP_AUTH_MODE_API_KEY,
+  type ChannelType, type SetChannelConfigResult, type SetChannelConfigOptions,
 } from "../../instances/channels.store.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { syncAgentTool } from "../../instances/agent-tool-sync.js";
@@ -34,12 +35,12 @@ import {
   toManagementAuditActor,
 } from "../../management-audit/management-audit-logger.js";
 
-/** Thrown by `getChannelConfig`/`whatsappWebhookUrl` call sites below. */
+/** Thrown by `whatsappWebhookUrl` and `rotateWhatsappWebhookSecret` below. */
 const WHATSAPP_NOT_IN_API_KEY_MODE = "WhatsApp channel is not configured in API Key mode";
 
-/** A Zod parse failure, or the legacy string-matched validation error shape. */
-function isChannelConfigValidationError(err: unknown): err is Error {
-  return err instanceof ZodError || (err instanceof Error && err.message.includes("Validation"));
+/** A Zod parse failure — the only error shape `setChannelConfig` throws for invalid input. */
+function isChannelConfigValidationError(err: unknown): err is ZodError {
+  return err instanceof ZodError;
 }
 
 @Controller("api/instances")
@@ -70,8 +71,8 @@ export class InstanceChannelsController {
   @Get(":slug/channels/whatsapp/webhook-url")
   async whatsappWebhookUrl(@Param("slug") slug: string) {
     await findInstanceOrFail(slug);
-    const channel = await getChannelConfig(asInstanceSlug(slug), "whatsapp");
-    const secret = channel && resolveWhatsAppAuthMode(channel.config) === "apiKey"
+    const channel = await getChannelConfig(asInstanceSlug(slug), WHATSAPP_CHANNEL_TYPE);
+    const secret = channel && resolveWhatsAppAuthMode(channel.config) === WHATSAPP_AUTH_MODE_API_KEY
       ? channel.config.webhookSecret
       : undefined;
     if (typeof secret !== "string" || !secret) {
@@ -80,7 +81,12 @@ export class InstanceChannelsController {
     return { webhookUrl: buildTwilioWhatsAppWebhookUrl(slug, secret) };
   }
 
-  /** Rotate the inbound secret. The previous URL stops working immediately. */
+  /**
+   * Rotate the inbound secret. The previous URL stops working immediately.
+   * The new value travels ONLY through `rotateWebhookSecretTo` — never inside
+   * the `config` argument — so the store, not this handler, is what decides
+   * the persisted secret (see `setChannelConfig` in `channels.store.ts`).
+   */
   @RequirePermission(Permission.CHANNEL_WRITE)
   @Post(":slug/channels/whatsapp/rotate-webhook-secret")
   async rotateWhatsappWebhookSecret(
@@ -88,19 +94,29 @@ export class InstanceChannelsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const instance = await findInstanceOrFail(slug);
-    const channel = await getChannelConfig(asInstanceSlug(slug), "whatsapp");
-    if (!channel || resolveWhatsAppAuthMode(channel.config) !== "apiKey") {
+    const channel = await getChannelConfig(asInstanceSlug(slug), WHATSAPP_CHANNEL_TYPE);
+    if (!channel || resolveWhatsAppAuthMode(channel.config) !== WHATSAPP_AUTH_MODE_API_KEY) {
       throw new NotFoundException(WHATSAPP_NOT_IN_API_KEY_MODE);
     }
 
     const webhookSecret = generateToken(32);
-    const nextConfig = { ...channel.config, webhookSecret };
-    await this.saveChannelConfig(instance.id, "whatsapp", nextConfig, channel.enabled);
+    const configWithoutSecret: Record<string, unknown> = { ...channel.config };
+    delete configWithoutSecret.webhookSecret;
+    const result = await this.saveChannelConfig(
+      instance.id,
+      WHATSAPP_CHANNEL_TYPE,
+      configWithoutSecret,
+      channel.enabled,
+      { rotateWebhookSecretTo: webhookSecret },
+    );
+
+    // Audit BEFORE the side-effecting adapter restart: the write already
+    // happened, so the audit row must exist even if the restart below fails.
+    this.auditWebhookSecretWrite(slug, user);
     if (channel.enabled) {
-      await channelManager.startChannel(slug, "whatsapp", nextConfig);
+      await channelManager.startChannel(slug, WHATSAPP_CHANNEL_TYPE, result.config);
     }
 
-    this.auditWebhookSecretWrite(slug, user);
     return { webhookUrl: buildTwilioWhatsAppWebhookUrl(slug, webhookSecret) };
   }
 
@@ -131,9 +147,10 @@ export class InstanceChannelsController {
     channelType: ChannelType,
     config: Record<string, unknown>,
     enabled: boolean,
+    options?: SetChannelConfigOptions,
   ): Promise<SetChannelConfigResult> {
     try {
-      return await setChannelConfig(instanceId, channelType, config, enabled);
+      return await setChannelConfig(instanceId, channelType, config, enabled, options);
     } catch (err) {
       if (isChannelConfigValidationError(err)) throw new BadRequestException(err.message);
       throw err;
@@ -157,7 +174,9 @@ export class InstanceChannelsController {
     channelType: ChannelType,
     config: Record<string, unknown>,
   ): string | undefined {
-    if (channelType !== "whatsapp" || resolveWhatsAppAuthMode(config) !== "apiKey") return undefined;
+    if (channelType !== WHATSAPP_CHANNEL_TYPE || resolveWhatsAppAuthMode(config) !== WHATSAPP_AUTH_MODE_API_KEY) {
+      return undefined;
+    }
     const secret = config.webhookSecret;
     return typeof secret === "string" && secret ? buildTwilioWhatsAppWebhookUrl(slug, secret) : undefined;
   }
@@ -184,21 +203,21 @@ export class InstanceChannelsController {
   private buildChannelResponse(
     slug: string,
     channelType: ChannelType,
-    channel: ChannelConfig | null,
-    finalConfig: Record<string, unknown>,
+    enabled: boolean,
+    persistedConfig: Record<string, unknown>,
   ) {
-    const webhookUrl = this.buildWebhookUrlIfApiKeyMode(slug, channelType, finalConfig);
+    const webhookUrl = this.buildWebhookUrlIfApiKeyMode(slug, channelType, persistedConfig);
     return {
-      channel: channel ? {
-        channelType: channel.channelType,
-        enabled: channel.enabled,
-        config: maskSensitiveConfig(channel.config),
-      } : null,
+      channel: { channelType, enabled, config: maskSensitiveConfig(persistedConfig) },
       ...(webhookUrl ? { webhookUrl } : {}),
     };
   }
 
+  // `no-store`: for whatsapp/apiKey the response body carries the inbound
+  // webhook URL, which embeds the bearer-equivalent webhookSecret — same
+  // reason as the GET .../webhook-url route above.
   @RequirePermission(Permission.CHANNEL_WRITE)
+  @Header("Cache-Control", "no-store")
   @Put(":slug/channels/:type")
   async setChannel(
     @Param("slug") slug: string,
@@ -216,16 +235,19 @@ export class InstanceChannelsController {
     const mergedConfig = this.mergeAllowedConfig(existing?.config ?? {}, body.config, type);
     const result = await this.saveChannelConfig(instance.id, type, mergedConfig, body.enabled);
 
-    // Re-fetch so downstream consumers (adapter start, response body) see the
-    // config the store actually persisted (pruned + possibly secret-minted),
-    // not the pre-normalization value the controller sent in.
-    const channel = await getChannelConfig(asInstanceSlug(slug), type);
-    const finalConfig = channel?.config ?? mergedConfig;
+    // Use what the store actually persisted (pruned + possibly secret-minted)
+    // directly from its return value — NOT a post-save re-fetch. A re-fetch
+    // that raced a concurrent delete/disable would return null and silently
+    // drop a freshly minted secret from the response, which is exactly the
+    // failure the webhookUrl-in-response contract exists to prevent.
+    const finalConfig = result.config;
 
-    await this.syncChannelSideEffects(slug, type, body.enabled, finalConfig, instance.description ?? null);
+    // Audit BEFORE the side-effecting adapter start/stop: the write already
+    // happened, so the audit row must exist even if the side effect fails.
     if (result.mintedWebhookSecret) this.auditWebhookSecretWrite(slug, user);
+    await this.syncChannelSideEffects(slug, type, body.enabled, finalConfig, instance.description ?? null);
 
-    return this.buildChannelResponse(slug, type, channel, finalConfig);
+    return this.buildChannelResponse(slug, type, body.enabled, finalConfig);
   }
 
   @RequirePermission(Permission.CHANNEL_WRITE)
