@@ -16,7 +16,7 @@ import { ZodError } from "zod";
 import {
   setChannelConfig, listChannelConfigs, getChannelConfig, deleteChannelConfig,
   CHANNEL_TYPES, CHANNEL_CONFIG_KEYS, resolveWhatsAppAuthMode,
-  WHATSAPP_CHANNEL_TYPE, WHATSAPP_AUTH_MODE_API_KEY,
+  WHATSAPP_CHANNEL_TYPE, WHATSAPP_AUTH_MODE_API_KEY, AGENT_CHANNEL_TYPE,
   type ChannelType, type SetChannelConfigResult, type SetChannelConfigOptions,
 } from "../../instances/channels.store.js";
 import { channelManager } from "../../channels/channel-manager.js";
@@ -37,6 +37,11 @@ import {
 
 /** Thrown by `whatsappWebhookUrl` and `rotateWhatsappWebhookSecret` below. */
 const WHATSAPP_NOT_IN_API_KEY_MODE = "WhatsApp channel is not configured in API Key mode";
+
+/** The `targetId` shared by every audit row for the WhatsApp inbound webhook secret — key only, never the value. */
+function webhookSecretAuditTargetId(slug: string): string {
+  return `${slug}:whatsapp.webhookSecret`;
+}
 
 /** A Zod parse failure — the only error shape `setChannelConfig` throws for invalid input. */
 function isChannelConfigValidationError(err: unknown): err is ZodError {
@@ -169,7 +174,7 @@ export class InstanceChannelsController {
       actor: toManagementAuditActor(user),
       targetType: ManagementAuditTarget.Secret,
       // Key only — the value is never audited.
-      targetId: `${slug}:whatsapp.webhookSecret`,
+      targetId: webhookSecretAuditTargetId(slug),
     });
   }
 
@@ -198,7 +203,7 @@ export class InstanceChannelsController {
       actor: toManagementAuditActor(user),
       targetType: ManagementAuditTarget.Secret,
       // Key only — the discarded value is never audited.
-      targetId: `${slug}:whatsapp.webhookSecret`,
+      targetId: webhookSecretAuditTargetId(slug),
     });
   }
 
@@ -228,7 +233,7 @@ export class InstanceChannelsController {
     } else {
       await channelManager.stopChannel(slug, channelType);
     }
-    if (channelType === "agent") {
+    if (channelType === AGENT_CHANNEL_TYPE) {
       await syncAgentTool({ slug, description: instanceDescription, enable: enabled });
     }
   }
@@ -294,7 +299,7 @@ export class InstanceChannelsController {
     const instance = await findInstanceOrFail(slug);
     await channelManager.stopChannel(slug, channelType);
     await deleteChannelConfig(instance.id, channelType as ChannelType);
-    if (channelType === "agent") {
+    if (channelType === AGENT_CHANNEL_TYPE) {
       await syncAgentTool({ slug, description: null, enable: false });
     }
     return { deleted: true };
