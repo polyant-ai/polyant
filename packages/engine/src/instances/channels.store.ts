@@ -103,8 +103,20 @@ const whatsappConfigSchema = z.preprocess(
   z.discriminatedUnion("authMode", [whatsappAuthTokenConfig, whatsappApiKeyConfig]),
 );
 
+/**
+ * The per-mode Zod object schemas, exported ONLY so a test can derive
+ * `WHATSAPP_MODE_ONLY_KEYS` from the schema shape instead of restating the
+ * list by hand (see the sync test in `channels.store.whatsapp-schema.test.ts`)
+ * — a hand-restated expectation would pass even if a field were added to one
+ * of these schemas and forgotten here.
+ */
+export const WHATSAPP_MODE_SCHEMAS = {
+  authToken: whatsappAuthTokenConfig,
+  apiKey: whatsappApiKeyConfig,
+} satisfies Record<WhatsAppAuthMode, z.AnyZodObject>;
+
 /** Config keys that belong to exactly one WhatsApp credential mode. */
-const WHATSAPP_MODE_ONLY_KEYS: Record<WhatsAppAuthMode, readonly string[]> = {
+export const WHATSAPP_MODE_ONLY_KEYS: Record<WhatsAppAuthMode, readonly string[]> = {
   authToken: ["authToken"],
   apiKey: ["apiKeySid", "apiKeySecret", "webhookSecret"],
 };

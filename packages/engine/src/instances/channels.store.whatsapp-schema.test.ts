@@ -32,7 +32,13 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
 }));
 
-import { channelConfigSchemas, pruneWhatsAppCredentials, resolveWhatsAppAuthMode } from "./channels.store.js";
+import {
+  channelConfigSchemas,
+  pruneWhatsAppCredentials,
+  resolveWhatsAppAuthMode,
+  WHATSAPP_MODE_ONLY_KEYS,
+  WHATSAPP_MODE_SCHEMAS,
+} from "./channels.store.js";
 
 const ACCOUNT_SID = "AC00000000000000000000000000000001";
 const API_KEY_SID = "SK00000000000000000000000000000002";
@@ -139,5 +145,29 @@ describe("instances/channels.store — whatsapp credential modes (schema)", () =
     expect(resolveWhatsAppAuthMode({ accountSid: ACCOUNT_SID })).toBe("authToken");
     expect(resolveWhatsAppAuthMode({ authMode: "apiKey" })).toBe("apiKey");
     expect(resolveWhatsAppAuthMode({ authMode: "nonsense" })).toBe("authToken");
+  });
+
+  // -------------------------------------------------------------------
+  // #285 (item 1) — WHATSAPP_MODE_ONLY_KEYS has no sync test, unlike its
+  // sibling CHANNEL_CONFIG_KEYS. This DERIVES the expected mode-only keys
+  // from the mode schemas themselves (the field belongs to exactly one
+  // mode's shape and not the other's) instead of restating the literal list
+  // — a test that just repeated the current array would still pass if a
+  // third field were added to one mode's schema and forgotten here, which
+  // is exactly the failure this exists to catch. Verified by mutation (see
+  // task report): adding a key to `whatsappApiKeyConfig` without adding it
+  // to `WHATSAPP_MODE_ONLY_KEYS.apiKey` turns this test red.
+  // -------------------------------------------------------------------
+  describe("WHATSAPP_MODE_ONLY_KEYS", () => {
+    it("should_match_exactly_the_keys_unique_to_each_mode_schema", () => {
+      const authTokenKeys = new Set(Object.keys(WHATSAPP_MODE_SCHEMAS.authToken.shape));
+      const apiKeyKeys = new Set(Object.keys(WHATSAPP_MODE_SCHEMAS.apiKey.shape));
+
+      const authTokenOnly = [...authTokenKeys].filter((key) => !apiKeyKeys.has(key));
+      const apiKeyOnly = [...apiKeyKeys].filter((key) => !authTokenKeys.has(key));
+
+      expect([...WHATSAPP_MODE_ONLY_KEYS.authToken].sort()).toEqual(authTokenOnly.sort());
+      expect([...WHATSAPP_MODE_ONLY_KEYS.apiKey].sort()).toEqual(apiKeyOnly.sort());
+    });
   });
 });
