@@ -55,10 +55,48 @@ describe("redactWebhookPath", () => {
     expect(result).toBe(`/webhooks/twilio/acme-support/whatsapp/${REDACTED_PLACEHOLDER}/`);
   });
 
-  it("does not throw on extra unexpected path segments", () => {
-    expect(() =>
-      redactWebhookPath("/webhooks/twilio/acme-support/whatsapp/mysecret/extra/segments"),
-    ).not.toThrow();
+  it("masks the secret when extra unexpected path segments trail it (fail-safe default)", () => {
+    const result = redactWebhookPath("/webhooks/twilio/acme-support/whatsapp/mysecret/extra/segments");
+
+    expect(result).not.toContain("mysecret");
+    expect(result).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
+  });
+
+  it("masks a doubled slash before the secret (fail-safe default)", () => {
+    const result = redactWebhookPath("/webhooks/twilio/acme-support/whatsapp//mysecret");
+
+    expect(result).not.toContain("mysecret");
+    expect(result).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
+  });
+
+  it("masks a leading doubled slash before /webhooks/ (fail-safe default)", () => {
+    const result = redactWebhookPath("//webhooks/twilio/acme-support/whatsapp/mysecret");
+
+    expect(result).not.toContain("mysecret");
+    expect(result).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
+  });
+
+  it("masks a percent-encoded route segment that breaks the literal match (fail-safe default)", () => {
+    const result = redactWebhookPath("/webhooks/twilio/acme-support/whats%61pp/mysecret");
+
+    expect(result).not.toContain("mysecret");
+    expect(result).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
+  });
+
+  it("is case-insensitive for the Twilio secret route (matches Express's default routing)", () => {
+    const upper = redactWebhookPath("/WEBHOOKS/TWILIO/acme-support/WHATSAPP/mysecret");
+    expect(upper).not.toContain("mysecret");
+
+    const mixed = redactWebhookPath("/WebHooks/Twilio/acme-support/WhatsApp/mysecret");
+    expect(mixed).not.toContain("mysecret");
+  });
+
+  it("is case-insensitive for the generic token route (matches Express's default routing)", () => {
+    const upper = redactWebhookPath("/WEBHOOKS/abcdef123456");
+    expect(upper).not.toContain("abcdef123456");
+
+    const mixed = redactWebhookPath("/WebHooks/AbcDef123456");
+    expect(mixed).not.toContain("AbcDef123456");
   });
 
   it("does not throw on an empty path", () => {

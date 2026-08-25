@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { HttpException, BadRequestException, NotFoundException } from "@nestjs/common";
 import { GlobalExceptionFilter } from "./http-exception.filter.js";
+import { REDACTED_PLACEHOLDER } from "./redact-webhook-path.js";
 
 function createMockHost(mockResponse: any, mockRequest: any) {
   return {
@@ -131,5 +132,61 @@ describe("GlobalExceptionFilter", () => {
 
     expect(res.statusCode).toBe(500);
     expect(res.body.message).toBe("Internal server error");
+  });
+
+  // Pins the wiring of `redactWebhookPath` into every log branch below. The
+  // helper has its own thorough unit tests, but nothing outside this file
+  // asserted that the filter actually calls it before logging `request.url`
+  // — a revert of that one call site left all other tests in this file
+  // green. Each test below must fail if the filter goes back to logging
+  // the raw `request.url`.
+  describe("webhook path redaction on the log line", () => {
+    const secret = "a".repeat(32) + "b".repeat(32); // 64 hex chars, like a real webhookSecret
+    const secretUrl = `/webhooks/twilio/acme-support/whatsapp/${secret}`;
+
+    it("redacts the path secret on the HttpException log branch (console.error)", () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = createMockResponse();
+      const host = createMockHost(res, createMockRequest("POST", secretUrl));
+
+      filter.catch(new HttpException("Too Many Requests", 429), host);
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const logged = errorSpy.mock.calls[0].join(" ");
+      expect(logged).not.toContain(secret);
+      expect(logged).toContain(REDACTED_PLACEHOLDER);
+
+      errorSpy.mockRestore();
+    });
+
+    it("redacts the path secret on the TypeError/RangeError -> 400 branch (console.warn)", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const res = createMockResponse();
+      const host = createMockHost(res, createMockRequest("POST", secretUrl));
+
+      filter.catch(new TypeError("Cannot read properties of undefined (reading 'map')"), host);
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      const logged = warnSpy.mock.calls[0].join(" ");
+      expect(logged).not.toContain(secret);
+      expect(logged).toContain(REDACTED_PLACEHOLDER);
+
+      warnSpy.mockRestore();
+    });
+
+    it("redacts the path secret on the unhandled -> 500 branch (console.error)", () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const res = createMockResponse();
+      const host = createMockHost(res, createMockRequest("POST", secretUrl));
+
+      filter.catch(new Error("boom"), host);
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const logged = errorSpy.mock.calls[0].join(" ");
+      expect(logged).not.toContain(secret);
+      expect(logged).toContain(REDACTED_PLACEHOLDER);
+
+      errorSpy.mockRestore();
+    });
   });
 });

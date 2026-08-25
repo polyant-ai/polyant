@@ -241,21 +241,21 @@ describe("TwilioWebhookController", () => {
     it("rejects a wrong secret without processing the message", async () => {
       const promise = controller.handleWhatsAppWebhookWithSecret("test-instance", "wrong-secret", validBody);
 
-      await expect(promise).rejects.toBeInstanceOf(ForbiddenException);
-      await expect(promise).rejects.toThrow(/Invalid webhook credentials/);
+      await expect(promise).rejects.toBeInstanceOf(NotFoundException);
+      await expect(promise).rejects.toThrow(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
       expect(mockAdapter.handleInbound).not.toHaveBeenCalled();
     });
 
     it("rejects a secret of a different length (no length oracle)", async () => {
       // An implementation that dropped the SHA-256 hashing and called
       // timingSafeEqual on raw buffers would throw a bare RangeError here —
-      // which the global filter maps to 400, not 403 — leaking the secret's
-      // byte length through the response status code. Assert the specific
-      // rejection so that regression is caught.
+      // which the global filter maps to 400, not the shared 404 — leaking
+      // the secret's byte length through the response status code. Assert
+      // the specific rejection so that regression is caught.
       const promise = controller.handleWhatsAppWebhookWithSecret("test-instance", "short", validBody);
 
-      await expect(promise).rejects.toBeInstanceOf(ForbiddenException);
-      await expect(promise).rejects.toThrow(/Invalid webhook credentials/);
+      await expect(promise).rejects.toBeInstanceOf(NotFoundException);
+      await expect(promise).rejects.toThrow(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     });
 
     it("rejects when the stored webhookSecret is missing", async () => {
@@ -267,7 +267,7 @@ describe("TwilioWebhookController", () => {
 
       const promise = controller.handleWhatsAppWebhookWithSecret("test-instance", SECRET, validBody);
 
-      await expect(promise).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(promise).rejects.toBeInstanceOf(NotFoundException);
       expect(mockAdapter.handleInbound).not.toHaveBeenCalled();
     });
 
@@ -280,7 +280,7 @@ describe("TwilioWebhookController", () => {
 
       const promise = controller.handleWhatsAppWebhookWithSecret("test-instance", "", validBody);
 
-      await expect(promise).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(promise).rejects.toBeInstanceOf(NotFoundException);
       expect(mockAdapter.handleInbound).not.toHaveBeenCalled();
     });
 
@@ -293,7 +293,7 @@ describe("TwilioWebhookController", () => {
 
       const promise = controller.handleWhatsAppWebhookWithSecret("test-instance", SECRET, validBody);
 
-      await expect(promise).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(promise).rejects.toBeInstanceOf(NotFoundException);
       expect(mockAdapter.handleInbound).not.toHaveBeenCalled();
     });
 
@@ -302,18 +302,26 @@ describe("TwilioWebhookController", () => {
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       const log = vi.spyOn(console, "log").mockImplementation(() => {});
       const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
 
       await expect(
         controller.handleWhatsAppWebhookWithSecret("test-instance", "wrong-secret", validBody),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      ).rejects.toBeInstanceOf(NotFoundException);
 
       expect(warn).toHaveBeenCalledTimes(1);
       expect(warn).toHaveBeenCalledWith("[whatsapp] Invalid webhook secret for instance:", "test-instance");
       expect(error).not.toHaveBeenCalled();
       expect(log).not.toHaveBeenCalled();
       expect(debug).not.toHaveBeenCalled();
+      expect(info).not.toHaveBeenCalled();
 
-      const allLoggedText = [...warn.mock.calls, ...error.mock.calls, ...log.mock.calls, ...debug.mock.calls]
+      const allLoggedText = [
+        ...warn.mock.calls,
+        ...error.mock.calls,
+        ...log.mock.calls,
+        ...debug.mock.calls,
+        ...info.mock.calls,
+      ]
         .flat()
         .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
         .join(" ");
@@ -324,6 +332,7 @@ describe("TwilioWebhookController", () => {
       error.mockRestore();
       log.mockRestore();
       debug.mockRestore();
+      info.mockRestore();
     });
 
     it("answers 404 on the signature route for an apiKey channel", async () => {
@@ -371,6 +380,14 @@ describe("TwilioWebhookController", () => {
     const promise = controller.handleWhatsAppWebhookWithSecret("test-instance", "any-secret", validBody);
 
     await expect(promise).rejects.toBeInstanceOf(NotFoundException);
-    await expect(promise).rejects.toThrow(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
+    // `toThrow(string)` is substring semantics — it would still pass if the
+    // real message grew a suffix like " (wrong mode: expected apiKey)",
+    // which is exactly the mode-mismatch detail this route must not reveal
+    // to an anonymous prober. Pin the exact message instead.
+    let caught: Error | undefined;
+    await promise.catch((err) => {
+      caught = err as Error;
+    });
+    expect(caught?.message).toBe(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
   });
 });
