@@ -40,6 +40,8 @@ vi.mock("@/lib/api", () => ({
       list: (...args: unknown[]) => mockList(...args),
       set: (...args: unknown[]) => mockSet(...args),
       delete: (...args: unknown[]) => mockDelete(...args),
+      webhookUrl: vi.fn().mockResolvedValue({ webhookUrl: "" }),
+      rotateWebhookSecret: vi.fn().mockResolvedValue({ webhookUrl: "" }),
     },
     // A2A is not a channel: it persists through the instance endpoint.
     instances: { update: (...args: unknown[]) => mockInstanceUpdate(...args) },
@@ -148,6 +150,53 @@ describe("ChannelsTab — nothing is persisted without an explicit save", () => 
     // The config-less channel used to PERSIST on the switch flick; a write on
     // mount is the same class of surprise.
     expect(mockSet).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * WhatsApp does not fit the generic field-list section (two mutually
+ * exclusive credential modes plus a secret-bearing webhook URL), so it
+ * renders through its own dedicated card instead.
+ */
+describe("ChannelsTab — WhatsApp renders through its dedicated card", () => {
+  it("renders the WhatsApp card, not the generic field-list section", async () => {
+    mockList.mockResolvedValue({ channels: [channel("whatsapp", true)] });
+
+    renderTab("whatsapp");
+
+    // The dedicated card has no On/Off button pair (it uses its own Switch)
+    // and no generic "channels.tab.whatsappAccountSid" field label from the
+    // field-list renderer's translation key set — it renders its own fields.
+    await waitFor(() => expect(screen.getByRole("switch")).toBeInTheDocument());
+    expect(screen.queryByText("common.on")).not.toBeInTheDocument();
+    expect(screen.queryByText("common.off")).not.toBeInTheDocument();
+  });
+
+  it("still renders the generic section for the other channels", async () => {
+    mockList.mockResolvedValue({ channels: [channel("telegram", true)] });
+
+    renderTab("telegram");
+
+    await waitFor(() => expect(screen.getByText("common.on")).toBeInTheDocument());
+  });
+
+  it("refreshes the channel list after the card reports a change", async () => {
+    mockList.mockResolvedValue({ channels: [] });
+
+    renderTab("whatsapp");
+    await waitFor(() => expect(screen.getByLabelText("channels.tab.whatsappAccountSid")).toBeInTheDocument());
+    const callsBeforeSave = mockList.mock.calls.length;
+
+    mockSet.mockResolvedValue({ channel: channel("whatsapp", true), webhookUrl: undefined });
+    // Fill the minimum authToken-mode fields the card renders and save via
+    // its own inline button — exercising `onChanged`, which this tab wires
+    // back to a fresh `channels.list()` call.
+    await userEvent.type(screen.getByLabelText("channels.tab.whatsappAccountSid"), "AC0");
+    await userEvent.type(screen.getByLabelText("channels.tab.whatsappAuthToken"), "tok");
+    await userEvent.type(screen.getByLabelText("channels.tab.whatsappNumber"), "+1");
+    await userEvent.click(screen.getByRole("button", { name: "common.saveSingle" }));
+
+    await waitFor(() => expect(mockList.mock.calls.length).toBeGreaterThan(callsBeforeSave));
   });
 });
 

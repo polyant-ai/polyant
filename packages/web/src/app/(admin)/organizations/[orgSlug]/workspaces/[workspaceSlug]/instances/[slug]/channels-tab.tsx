@@ -12,6 +12,7 @@ import { api, getUserErrorMessage, type ChannelConfig, type Instance } from "@/l
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
+import { WhatsAppChannelCard } from "./whatsapp-channel-card";
 
 interface Props {
   slug: string;
@@ -74,11 +75,12 @@ const CHANNEL_DEFS = [
     type: "whatsapp",
     nameKey: "channels.tab.whatsapp" as const,
     helpKey: "channels.tab.whatsappHelp" as const,
-    fields: [
-      { key: "accountSid", labelKey: "channels.tab.whatsappAccountSid" as const, sensitive: true },
-      { key: "authToken", labelKey: "channels.tab.whatsappAuthToken" as const, sensitive: true },
-      { key: "whatsappNumber", labelKey: "channels.tab.whatsappNumber" as const, sensitive: false },
-    ],
+    // Rendered by WhatsAppChannelCard — two mutually exclusive credential
+    // modes plus a secret-bearing webhook URL do not fit the generic
+    // field-list renderer below. Kept in this list (with empty fields) so
+    // the channel picker above still lists it like every other channel.
+    fields: [] as { key: string; labelKey: "channels.tab.whatsapp"; sensitive: boolean }[],
+    custom: true,
   },
   {
     type: "agent",
@@ -99,6 +101,11 @@ export function ChannelsTab({
   const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [channelStates, setChannelStates] = useState<Record<string, ChannelState>>({});
+  // Raw list, kept alongside the derived `channelStates`: WhatsAppChannelCard
+  // owns its own form state and needs the untransformed ChannelConfig (with
+  // `authMode` and — in apiKey mode — the masked credentials), not the
+  // flattened shape the generic field-list renderer works from.
+  const [rawChannels, setRawChannels] = useState<ChannelConfig[]>([]);
   const [savingChannel, setSavingChannel] = useState<string | null>(null);
   const [visibleFields, setVisibleFields] = useState<Record<string, boolean>>({});
 
@@ -149,6 +156,7 @@ export function ChannelsTab({
 
   function initStates(chList: ChannelConfig[]) {
     onChannelsLoaded?.(chList);
+    setRawChannels(chList);
     const states: Record<string, ChannelState> = {};
     for (const def of CHANNEL_DEFS) {
       const existing = chList.find((c) => c.channelType === def.type);
@@ -236,6 +244,22 @@ export function ChannelsTab({
       {CHANNEL_DEFS.filter((def) => def.type === channelType).map((def) => {
         const state = channelStates[def.type];
         if (!state) return null;
+
+        // WhatsApp owns its own form (two mutually exclusive credential
+        // modes plus a secret-bearing webhook URL) and its own inline Save —
+        // it does not participate in this page's shared save action.
+        if ("custom" in def && def.custom) {
+          return (
+            <WhatsAppChannelCard
+              key={def.type}
+              slug={slug}
+              channel={rawChannels.find((c) => c.channelType === def.type) ?? null}
+              onChanged={() => {
+                void api.channels.list(slug).then((res) => initStates(res.channels));
+              }}
+            />
+          );
+        }
 
         return (
           <section key={def.type} className="space-y-4 rounded-lg border p-4">
