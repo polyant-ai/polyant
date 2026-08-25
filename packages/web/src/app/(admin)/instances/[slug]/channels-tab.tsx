@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api, getUserErrorMessage, type ChannelConfig } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { WhatsAppChannelCard } from "./whatsapp-channel-card";
 
 interface Props {
   slug: string;
@@ -59,11 +60,11 @@ const CHANNEL_DEFS = [
     type: "whatsapp",
     nameKey: "channels.tab.whatsapp" as const,
     helpKey: "channels.tab.whatsappHelp" as const,
-    fields: [
-      { key: "accountSid", labelKey: "channels.tab.whatsappAccountSid" as const, sensitive: true },
-      { key: "authToken", labelKey: "channels.tab.whatsappAuthToken" as const, sensitive: true },
-      { key: "whatsappNumber", labelKey: "channels.tab.whatsappNumber" as const, sensitive: false },
-    ],
+    // Rendered by WhatsAppChannelCard — two credential modes plus a webhook
+    // URL do not fit the generic field-list renderer. Kept in this list so the
+    // channel keeps its position in the page order.
+    fields: [] as { key: string; labelKey: "channels.tab.whatsapp"; sensitive: boolean }[],
+    custom: true,
   },
   {
     type: "agent",
@@ -209,6 +210,22 @@ export function ChannelsTab({ slug }: Props) {
         const existingChannel = channels.find((c) => c.channelType === def.type);
         const isConfigured = !!existingChannel;
         const isNoConfig = "noConfig" in def && def.noConfig;
+
+        if ("custom" in def && def.custom) {
+          return (
+            <WhatsAppChannelCard
+              key={def.type}
+              slug={slug}
+              channel={existingChannel ?? null}
+              onChanged={() => {
+                void api.channels.list(slug).then((res) => {
+                  setChannels(res.channels);
+                  initStates(res.channels);
+                });
+              }}
+            />
+          );
+        }
 
         return (
           <section key={def.type} className="space-y-4 rounded-lg border p-4">
