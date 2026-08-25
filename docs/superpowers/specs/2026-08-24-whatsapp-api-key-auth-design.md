@@ -1,7 +1,7 @@
 # WhatsApp channel: Twilio API Key authentication
 
 **Date:** 2026-08-24
-**Status:** approved, not implemented
+**Status:** implemented on `fix/whatsapp-api-key-auth`
 **Base branch:** `main` (hotfix — `develop` carries unrelated features that ship later)
 **Branch:** `fix/whatsapp-api-key-auth`
 
@@ -118,15 +118,23 @@ POST /webhooks/twilio/:slug/whatsapp/:webhookSecret   → authMode "apiKey": sha
 
 - **The routes do not cross over.** A request on the secret-less route for a channel in
   `apiKey` mode (or vice versa) returns `404`, not `403`: a 403 would confirm to an
-  outsider which mode a given slug uses. A secret *mismatch* returns `403`, identical to
-  a signature failure.
+  outsider which mode a given slug uses. **As shipped, a secret *mismatch* also returns
+  `404`, not `403`** — the same unified 404, with the same shared message, as every
+  other pre-auth failure (unknown slug, unconfigured/disabled channel, adapter not
+  running, a mode mismatch on either route). This is a deliberate improvement made
+  during implementation: a distinct 403 on a secret mismatch would itself be an
+  existence oracle, confirming to an anonymous caller that the slug exists and is
+  running in API-Key mode with a live adapter — precisely what the unified-404 design
+  for the mode-mismatch case above is already trying to prevent. Only a bad HMAC
+  signature on the unchanged `authToken` route still answers `403` (that path predates
+  this feature and is unaffected).
 - **Constant-time comparison over digests.** `timingSafeEqual` throws on length
   mismatch, and the length is itself an oracle, so both sides are SHA-256'd to a fixed
   32 bytes before comparison.
 - The existing `@Throttle({ limit: 60, ttl: 60_000 })` covers the new route. Brute
   forcing 256 bits is not a real threat; the limit exists so a Twilio misconfiguration
-  cannot spin a 403 loop.
-- **The 403 log line carries the slug only** — never the path, never the secret. The
+  cannot spin a 404 loop.
+- **The failure log line carries the slug only** — never the path, never the secret. The
   engine runs no HTTP request logger, so the secret is not written anywhere on our side.
 - **Accepted cost:** the secret rides in the URL path and will appear in reverse-proxy
   access logs. This is inherent to a mechanism Twilio can drive (Twilio messaging
@@ -211,7 +219,7 @@ Engine (vitest; the `twilio` module is already mocked in the existing suite):
 |---|---|
 | `apiKey` mode passes `{ accountSid }` as the SDK's third argument; Basic auth is `SK:secret` vs `AC:token` (asserted on the typing-indicator and Content API fetches); `validateWebhook` unavailable in `apiKey` mode | `twilio-client.test.ts` |
 | the union accepts both shapes and rejects a mixed one; the other mode's keys are pruned; a legacy config without `authMode` normalizes to `authToken`; `webhookSecret` is not in the allowlist | `channels.store.test.ts` |
-| existing signature tests stay green; correct secret → 200; wrong secret → 403; secret route on an `authToken` channel → 404 and vice versa; the 403 log line contains no secret | `twilio-webhook.controller.test.ts` |
+| existing signature tests stay green; correct secret → 200; wrong secret → 404 (unified with every other pre-auth failure, see above); secret route on an `authToken` channel → 404 and vice versa; the failure log line contains no secret | `twilio-webhook-signature.controller.test.ts` (existing HMAC-signature suite) + `twilio-webhook-secret.controller.test.ts` (new API-Key-secret suite) |
 | reveal builds the URL from `BASE_URL`; rotation changes the secret and the old URL stops working | new `instance-channels.controller.test.ts` |
 | an export bundle preserves `authMode` | `export.schema.test.ts` — the test that would have caught the `credentialMode` naming trap |
 
@@ -235,10 +243,31 @@ reported as such — never claimed as locally passing.
   in the Twilio Console — the old route answers 404 and Twilio discards those messages.
   This is intrinsic: without an Auth Token the old route cannot be authenticated. Save in
   Polyant, copy the URL, update Twilio, and do it in a low-traffic window.
-- **Back-merge `main` → `develop`:** `twilio-client.ts` and `media-fetch.ts` are
-  byte-identical across the two branches and merge cleanly; the webhook controller
-  conflicts lightly (`develop` added `sanitizeForLog`, prototype-safe param collection
-  and a `NumMedia` clamp); the `CHANNEL_CONFIG_KEYS` hunk lands as a no-op; the web card
-  must be re-applied by hand under `develop`'s moved path
-  (`organizations/[orgSlug]/workspaces/[workspaceSlug]/instances/[slug]/`).
+- **Reaching `develop` is a cherry-pick, not a merge.** `main` was never back-merged
+  into `develop` after the v1.0.0 release: `git merge-base --is-ancestor 09b9a1d
+  origin/develop` is false, and a plain `git merge main` into `develop` conflicts in
+  ~509 files. This hotfix must reach `develop` as a cherry-pick of its commits.
+  Verified against `origin/develop`:
+  - `twilio-client.ts` and `media-fetch.ts` ARE byte-identical across the two branches
+    and apply cleanly.
+  - `develop` **deleted** the old web path entirely: `channels-tab.tsx` now lives only
+    under `organizations/[orgSlug]/workspaces/[workspaceSlug]/instances/[slug]/`. A
+    naive merge/cherry-pick would RESURRECT `(admin)/instances/[slug]/channels-tab.tsx`
+    and drop `whatsapp-channel-card.tsx` beside it at an unroutable path — dead code,
+    while the live tenant-path tab keeps rendering WhatsApp through the generic loop.
+    Both resurrected files must be deleted and the card re-applied under the tenant
+    path instead.
+  - **Highest silent-loss risk:** `develop`'s `CHANNEL_CONFIG_KEYS.whatsapp` is still
+    the legacy 3-key list. Taking `develop`'s side of that hunk silently drops
+    `authMode` from the allowlist — every `apiKey` save then either 400s on the union
+    or persists in `authToken` mode, with no error surfaced at merge time.
+  - `develop` already logs the signature failure through `sanitizeForLog`, a util that
+    does not exist on `main`. On merge, COMPOSE it with `redactWebhookPath` — neither
+    should replace the other.
+  - `webhook-url.ts` (this branch's shared URL builder) is new here and absent on
+    `develop`, whose `webhook-sources.controller.ts` still holds the inline
+    `buildWebhookUrl`. Resolve toward the one shared helper, or the codebase ends up
+    with two implementations of the same thing.
+  - `http-exception.filter.ts` is untouched on `develop`, so the redaction fix applies
+    there cleanly.
 - `CLAUDE.md` gains a bullet describing the two modes.
