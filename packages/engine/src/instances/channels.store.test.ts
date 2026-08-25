@@ -168,7 +168,10 @@ describe("instances/channels.store", () => {
       };
       await setChannelConfig(INSTANCE_UUID, "whatsapp", config, true);
 
-      expect(mockEncrypt).toHaveBeenCalledWith(JSON.stringify(config));
+      // The persisted value is the PARSED config, so a legacy payload missing
+      // `authMode` is normalized (defaulted to "authToken") before it is
+      // encrypted — not the raw input.
+      expect(mockEncrypt).toHaveBeenCalledWith(JSON.stringify({ authMode: "authToken", ...config }));
       expect(mockDb.insert).toHaveBeenCalled();
     });
 
@@ -208,6 +211,44 @@ describe("instances/channels.store", () => {
       ).rejects.toThrow(ZodError);
 
       expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+
+    it("should_persist_trimmed_credentials", async () => {
+      const chain = createChainMock(undefined);
+      mockDb.insert.mockReturnValue(chain as any);
+
+      const config = {
+        authMode: "authToken",
+        accountSid: " AC00000000000000000000000000000001 ",
+        authToken: " tok\n",
+        whatsappNumber: "+14155238886",
+      };
+      await setChannelConfig(INSTANCE_UUID, "whatsapp", config, true);
+
+      const encryptedPayload = mockEncrypt.mock.calls[0][0] as string;
+      expect(encryptedPayload).toContain("AC00000000000000000000000000000001");
+      expect(encryptedPayload).toContain("tok");
+      expect(encryptedPayload).not.toContain(" AC00000000000000000000000000000001 ");
+      expect(encryptedPayload).not.toContain(" tok\n");
+    });
+
+    it("should_not_persist_stale_credentials_from_the_other_mode", async () => {
+      const chain = createChainMock(undefined);
+      mockDb.insert.mockReturnValue(chain as any);
+
+      const config = {
+        authMode: "apiKey",
+        accountSid: "AC00000000000000000000000000000001",
+        apiKeySid: "SK00000000000000000000000000000002",
+        apiKeySecret: "sec",
+        webhookSecret: "deadbeef",
+        whatsappNumber: "+14155238886",
+        authToken: "stale",
+      };
+      await setChannelConfig(INSTANCE_UUID, "whatsapp", config, true);
+
+      const encryptedPayload = mockEncrypt.mock.calls[0][0] as string;
+      expect(JSON.parse(encryptedPayload)).not.toHaveProperty("authToken");
     });
   });
 
