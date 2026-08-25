@@ -8,17 +8,12 @@ import {
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { maskSensitiveConfig } from "../instances/instance-helpers.js";
-import { config } from "../../config.js";
 import {
   createEventSourceSchema, updateEventSourceSchema,
   createDefinitionSchema, updateDefinitionSchema,
 } from "../../webhooks/webhook.validators.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
-
-function buildWebhookUrl(token: string): string {
-  const base = config.server.baseUrl ?? `http://localhost:${config.server.port}`;
-  return `${base}/webhooks/${token}`;
-}
+import { buildEventSourceWebhookUrl as buildWebhookUrl } from "../webhook-url.js";
 
 @Controller("api/instances/:slug/event-sources")
 export class EventSourcesController {
