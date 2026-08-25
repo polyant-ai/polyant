@@ -11,6 +11,7 @@ import { channelManager } from "../../channels/channel-manager.js";
 import type { WhatsAppAdapter } from "../../channels/adapters/whatsapp/index.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { redactWebhookPath } from "../filters/redact-webhook-path.js";
+import { sanitizeForLog } from "../../utils/create-logger.js";
 
 interface TwilioWebhookBody {
   MessageSid: string;
@@ -69,10 +70,13 @@ export function collectSignedParams(body: TwilioWebhookBody): Record<string, str
  * Log the real reason behind a webhook 404 without exposing it to the
  * caller — see `WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE`. `instanceSlug` is
  * request-controlled, so it is passed as a separate argument rather than
- * interpolated into the format string (CodeQL js/tainted-format-string).
+ * interpolated into the format string (CodeQL js/tainted-format-string),
+ * AND sanitized (Express decodes percent-escapes in a path segment, so a
+ * slug like "foo%0A[INFO] fake" arrives containing a real newline —
+ * CWE-117).
  */
 function logWebhookUnavailable(reason: string, instanceSlug: string): void {
-  console.warn(`[whatsapp] Webhook unavailable (${reason}) for instance:`, instanceSlug);
+  console.warn(`[whatsapp] Webhook unavailable (${reason}) for instance:`, sanitizeForLog(instanceSlug));
 }
 
 @Controller("webhooks/twilio")
@@ -106,8 +110,8 @@ export class TwilioWebhookController {
     if (!isValid) {
       console.warn(
         "[whatsapp] Invalid Twilio signature for instance %s (url: %s)",
-        instanceSlug,
-        redactWebhookPath(webhookUrl),
+        sanitizeForLog(instanceSlug),
+        sanitizeForLog(redactWebhookPath(webhookUrl)),
       );
       throw new ForbiddenException("Invalid Twilio signature");
     }
@@ -149,7 +153,7 @@ export class TwilioWebhookController {
       // exact existence oracle the unified 404 exists to close. The
       // distinguishing detail (bad secret vs. unconfigured channel) is kept
       // in this server-side log line only.
-      console.warn("[whatsapp] Invalid webhook secret for instance:", instanceSlug);
+      console.warn("[whatsapp] Invalid webhook secret for instance:", sanitizeForLog(instanceSlug));
       throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
 
@@ -208,8 +212,9 @@ export class TwilioWebhookController {
       media: mediaItems.length > 0 ? mediaItems : undefined,
     }).catch((err) =>
       // Pass the user-controlled slug as a separate argument so it is never
-      // treated as part of the format string (CodeQL js/tainted-format-string).
-      console.error("[whatsapp] Error processing inbound for instance:", instanceSlug, err),
+      // treated as part of the format string (CodeQL js/tainted-format-string),
+      // and sanitized so it cannot forge extra log lines (CWE-117).
+      console.error("[whatsapp] Error processing inbound for instance:", sanitizeForLog(instanceSlug), err),
     );
 
     return "<Response/>";
