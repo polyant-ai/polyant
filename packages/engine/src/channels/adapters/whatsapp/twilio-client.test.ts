@@ -25,26 +25,35 @@ describe("TwilioWhatsAppClient", () => {
 
   describe("create", () => {
     it("creates a client with valid credentials", () => {
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create(
+        { mode: "authToken", accountSid: "AC123", authToken: "token123" },
+        "+14155238886",
+      );
       expect(client).toBeDefined();
     });
 
-    it("throws for empty accountSid", () => {
-      expect(() => TwilioWhatsAppClient.create("", "token", "+14155238886")).toThrow();
+    it("throws without an accountSid", () => {
+      expect(() =>
+        TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "", authToken: "token" }, "+14155238886"),
+      ).toThrow();
     });
 
-    it("throws for empty authToken", () => {
-      expect(() => TwilioWhatsAppClient.create("AC123", "", "+14155238886")).toThrow();
+    it("throws without an authToken", () => {
+      expect(() =>
+        TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "" }, "+14155238886"),
+      ).toThrow();
     });
 
-    it("throws for invalid whatsappNumber (missing +)", () => {
-      expect(() => TwilioWhatsAppClient.create("AC123", "token", "14155238886")).toThrow();
+    it("throws on a malformed whatsapp number", () => {
+      expect(() =>
+        TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token" }, "14155238886"),
+      ).toThrow();
     });
   });
 
   describe("sendMessage", () => {
     it("sends a message with correct whatsapp: prefixes", async () => {
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       await client.sendMessage("+393331234567", "Hello from agent");
 
       expect(mockCreate).toHaveBeenCalledWith({
@@ -55,7 +64,7 @@ describe("TwilioWhatsAppClient", () => {
     });
 
     it("strips whatsapp: prefix from 'to' if already present", async () => {
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       await client.sendMessage("whatsapp:+393331234567", "Hello");
 
       expect(mockCreate).toHaveBeenCalledWith({
@@ -69,7 +78,7 @@ describe("TwilioWhatsAppClient", () => {
       // Twilio Programmable Messaging rejects body > 1600 chars (error 21617),
       // so CHANNEL_MAX_LENGTH.whatsapp caps at 1600 even though the WhatsApp
       // app accepts ~4096. Ref: https://www.twilio.com/docs/errors/21617
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       const longText = "A".repeat(4500);
       await client.sendMessage("+393331234567", longText);
 
@@ -78,7 +87,7 @@ describe("TwilioWhatsAppClient", () => {
     });
 
     it("attaches mediaUrl on the first chunk only", async () => {
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       const longText = "A".repeat(3500);
       await client.sendMessage("+393331234567", longText, {
         mediaUrl: ["https://hubspot.example/file/abc.pdf"],
@@ -94,7 +103,7 @@ describe("TwilioWhatsAppClient", () => {
     });
 
     it("sends a media-only message with empty body when text is empty", async () => {
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       await client.sendMessage("+393331234567", "", {
         mediaUrl: ["https://hubspot.example/file/abc.pdf"],
       });
@@ -112,7 +121,7 @@ describe("TwilioWhatsAppClient", () => {
   describe("sendTemplate", () => {
     it("sends a template with contentSid and JSON-stringified variables", async () => {
       mockCreate.mockResolvedValueOnce({ sid: "SM_TPL_123" });
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       const sid = await client.sendTemplate("+393331234567", "HXabc", { "1": "Mario", "2": "14:30" });
 
       expect(mockCreate).toHaveBeenCalledWith({
@@ -126,7 +135,7 @@ describe("TwilioWhatsAppClient", () => {
 
     it("strips whatsapp: prefix from 'to'", async () => {
       mockCreate.mockResolvedValueOnce({ sid: "SM_TPL_456" });
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       await client.sendTemplate("whatsapp:+393331234567", "HXabc", {});
 
       expect(mockCreate).toHaveBeenCalledWith({
@@ -139,7 +148,7 @@ describe("TwilioWhatsAppClient", () => {
 
     it("propagates Twilio errors", async () => {
       mockCreate.mockRejectedValueOnce(new Error("invalid template"));
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       await expect(client.sendTemplate("+393331234567", "HXabc", {})).rejects.toThrow("invalid template");
     });
   });
@@ -157,7 +166,7 @@ describe("TwilioWhatsAppClient", () => {
       });
       vi.stubGlobal("fetch", mockFetch);
 
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       await client.sendTypingIndicator("SMabc");
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -180,19 +189,19 @@ describe("TwilioWhatsAppClient", () => {
       });
       vi.stubGlobal("fetch", mockFetch);
 
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       await expect(client.sendTypingIndicator("SMbogus")).rejects.toThrow(/404/);
     });
 
     it("throws when messageSid is empty", async () => {
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       await expect(client.sendTypingIndicator("")).rejects.toThrow(/messageSid/i);
     });
   });
 
   describe("validateWebhook", () => {
     it("delegates to Twilio.validateRequest", () => {
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       const result = client.validateWebhook("sig", "https://example.com/webhook", { Body: "hi" });
 
       expect(mockValidateRequest).toHaveBeenCalledWith("token123", "sig", "https://example.com/webhook", { Body: "hi" });
@@ -201,10 +210,60 @@ describe("TwilioWhatsAppClient", () => {
 
     it("returns false when signature is invalid", () => {
       mockValidateRequest.mockReturnValueOnce(false);
-      const client = TwilioWhatsAppClient.create("AC123", "token123", "+14155238886");
+      const client = TwilioWhatsAppClient.create({ mode: "authToken", accountSid: "AC123", authToken: "token123" }, "+14155238886");
       const result = client.validateWebhook("badsig", "https://example.com/webhook", {});
 
       expect(result).toBe(false);
+    });
+  });
+
+  describe("apiKey mode", () => {
+    const API_KEY_CREDENTIALS = {
+      mode: "apiKey" as const,
+      accountSid: "AC00000000000000000000000000000001",
+      apiKeySid: "SK00000000000000000000000000000002",
+      apiKeySecret: "secret-value",
+    };
+
+    it("passes the accountSid to the SDK as a separate option", async () => {
+      TwilioWhatsAppClient.create(API_KEY_CREDENTIALS, "+14155238886");
+
+      // The Node SDK rejects a username that is not an AC-SID unless the
+      // account is supplied separately, and builds REST paths from it.
+      const Twilio = (await import("twilio")).default as unknown as ReturnType<typeof vi.fn>;
+      expect(Twilio).toHaveBeenCalledWith(
+        "SK00000000000000000000000000000002",
+        "secret-value",
+        { accountSid: "AC00000000000000000000000000000001" },
+      );
+    });
+
+    it("signs hand-rolled Basic auth with the api key, not the account sid", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const client = TwilioWhatsAppClient.create(API_KEY_CREDENTIALS, "+14155238886");
+      await client.sendTypingIndicator("SM123");
+
+      const expected = Buffer.from(
+        "SK00000000000000000000000000000002:secret-value",
+      ).toString("base64");
+      expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(`Basic ${expected}`);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("refuses to validate a webhook signature", () => {
+      const client = TwilioWhatsAppClient.create(API_KEY_CREDENTIALS, "+14155238886");
+      expect(() => client.validateWebhook("sig", "https://example.com/hook", {})).toThrow(
+        /auth token/i,
+      );
+    });
+
+    it("throws without an apiKeySecret", () => {
+      expect(() =>
+        TwilioWhatsAppClient.create({ ...API_KEY_CREDENTIALS, apiKeySecret: "" }, "+14155238886"),
+      ).toThrow();
     });
   });
 });
