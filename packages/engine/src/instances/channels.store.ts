@@ -174,11 +174,14 @@ export async function setChannelConfig(
   config: Record<string, unknown>,
   enabled: boolean,
 ): Promise<void> {
-  // Validate config against channel schema
+  // Validate config against channel schema.
   const schema = channelConfigSchemas[channelType];
-  schema.parse(config);
+  // Persist the PARSED value, not the raw input: the schemas trim pasted
+  // credentials and drop keys that do not belong to the validated shape, and
+  // both only take effect if the parsed result is what gets encrypted.
+  const parsed = schema.parse(config) as Record<string, unknown>;
 
-  const encryptedConfig = encrypt(JSON.stringify(config));
+  const encryptedConfig = encrypt(JSON.stringify(parsed));
 
   await db
     .insert(instanceChannels)
