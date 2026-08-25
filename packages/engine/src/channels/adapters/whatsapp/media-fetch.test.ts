@@ -68,4 +68,45 @@ describe("fetchMediaFollowingRedirects", () => {
     const r = await fetchMediaFollowingRedirects("not a url", "B", { fetchFn: (async () => res(200)) as unknown as typeof fetch, makeDispatcher: okDispatcher, signal: sig() });
     expect(r).toBeNull();
   });
+
+  it("refuses a non-Twilio first-hop host: no fetch is made, no Authorization is sent, returns null (#281)", async () => {
+    const fetchFn = vi.fn(async () => res(200)) as unknown as typeof fetch;
+    const makeDispatcher = vi.fn(okDispatcher);
+
+    const r = await fetchMediaFollowingRedirects("https://attacker.example/x", "SECRET", {
+      fetchFn,
+      makeDispatcher,
+      signal: sig(),
+    });
+
+    expect(r).toBeNull();
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(makeDispatcher).not.toHaveBeenCalled();
+  });
+
+  it("refuses a look-alike Twilio host (suffix match must not be satisfiable)", async () => {
+    const fetchFn = vi.fn(async () => res(200)) as unknown as typeof fetch;
+
+    const lookalikes = ["https://evil-twilio.com/x", "https://api.twilio.com.evil.test/x"];
+    for (const url of lookalikes) {
+      const r = await fetchMediaFollowingRedirects(url, "SECRET", { fetchFn, makeDispatcher: okDispatcher, signal: sig() });
+      expect(r).toBeNull();
+    }
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("still allows the legitimate Twilio host, including the cross-host redirect to the CDN (#281 regression guard)", async () => {
+    const calls: Array<{ url: string; auth?: string }> = [];
+    const fetchFn = vi.fn(async (url: string, init: { headers?: Record<string, string> }) => {
+      calls.push({ url, auth: init.headers?.["Authorization"] });
+      return url.startsWith(TWILIO) ? res(302, { location: CDN }) : res(200);
+    }) as unknown as typeof fetch;
+
+    const r = await fetchMediaFollowingRedirects(TWILIO, "BASIC", { fetchFn, makeDispatcher: okDispatcher, signal: sig() });
+
+    expect(r?.status).toBe(200);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].auth).toBe("Basic BASIC");
+    expect(calls[1].auth).toBeUndefined();
+  });
 });
