@@ -70,11 +70,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exactly what is stored, on both the runtime and the secret-prompting side.
   **Audit any agent whose tool rows are empty before upgrading**: it loses the
   tools it was silently running.
-- **BREAKING — `POSTGRES_SSL` is parsed strictly.** Only the literal `"true"`
-  enables TLS; every other value is rejected at boot and an empty environment
-  variable means unset everywhere. The old coercion treated any non-empty value
-  as true, so `POSTGRES_SSL=false` switched TLS *on*. This bites before the
-  migrations run — audit it first.
+- **BREAKING — `POSTGRES_SSL` is parsed strictly.** `true` and `false` are the
+  only accepted values and anything else — `1`, `TRUE`, `require`, `yes` —
+  fails the boot; an empty environment variable now means unset everywhere, for
+  every optional variable. The old coercion treated any non-empty value as true,
+  so `POSTGRES_SSL=false` switched TLS *on*. This bites before the migrations
+  run — audit it first.
 - **BREAKING — `GET /api/tools`** now requires `ORG_READ` instead of
   `TOOL_READ`: an agent-scoped principal that could previously list the registry
   now receives 403.
@@ -99,6 +100,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connection drops mid-write.
 - CodeQL findings closed: log injection, a file-read TOCTOU, and a
   prototype-pollution-prone key write. Third-party actions are pinned.
+- **A revoked platform admin kept a full authorization bypass for up to five
+  minutes.** The platform-admin cache had a 5-minute TTL and was never
+  invalidated; every write of the flag now clears it.
+- **A duplicate, undecorated `InstanceSkillsController` is gone.** It served
+  `POST`/`DELETE` on `api/instances/:slug/skills` with no authorization
+  decorator at all, so under the previous shadow mode any authenticated user
+  could enable or disable skills — and with them the tool surface and prompt —
+  on any agent.
 - Cross-tenant boundaries closed on attachments, agent creation and listing,
   memory writes, agent-to-agent handoffs and the sidebar; the organization
   filter fails closed, a platform admin outranks every organization role, and a
