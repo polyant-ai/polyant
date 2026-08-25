@@ -3,9 +3,15 @@
 /**
  * Unit tests for packages/engine/src/instances/channels.store.ts
  *
- * Tests: setChannelConfig, getChannelConfig, listChannelConfigs,
- * listEnabledChannelConfigs, deleteChannelConfig.
+ * Tests: setChannelConfig (telegram/slack + generic validation),
+ * getChannelConfig, listChannelConfigs, listEnabledChannelConfigs,
+ * deleteChannelConfig, CHANNEL_CONFIG_KEYS.
  * Zod validation is NOT mocked (real schemas are used).
+ *
+ * WhatsApp credential-mode + webhook-secret-minting coverage lives in the
+ * sibling `channels.store.whatsapp.test.ts`; `safeDecryptConfig` edge cases
+ * live in `channels.store.decrypt.test.ts` — both split out to keep this
+ * file under the ≤400-line rule.
  */
 
 // ---------------------------------------------------------------------------
@@ -47,6 +53,9 @@ vi.mock("../database/client.js", () => ({ db: mockDb }));
 vi.mock("../crypto/index.js", () => ({
   encrypt: mockEncrypt,
   decrypt: mockDecrypt,
+  // Deterministic-shaped fake token (real `generateToken` returns 64 hex
+  // chars for `generateToken(32)`) so tests can assert on the shape.
+  generateToken: vi.fn(() => "a".repeat(64)),
 }));
 
 vi.mock("./schema.js", () => ({
@@ -79,6 +88,7 @@ vi.mock("drizzle-orm", () => ({
 import { ZodError } from "zod";
 import {
   CHANNEL_TYPES,
+  CHANNEL_CONFIG_KEYS,
   setChannelConfig,
   getChannelConfig,
   listChannelConfigs,
@@ -117,7 +127,7 @@ describe("instances/channels.store", () => {
   });
 
   // -----------------------------------------------------------------------
-  // setChannelConfig
+  // setChannelConfig (telegram/slack — generic path, no WhatsApp invariant)
   // -----------------------------------------------------------------------
   describe("setChannelConfig", () => {
     it("validates config, encrypts JSON, and upserts (telegram)", async () => {
@@ -153,15 +163,15 @@ describe("instances/channels.store", () => {
       expect(mockDb.insert).toHaveBeenCalled();
     });
 
-    it("validates config, encrypts JSON, and upserts (whatsapp)", async () => {
+    it("returns the persisted (schema-parsed) config in the result", async () => {
       const chain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(chain as any);
 
-      const config = { accountSid: "AC123", authToken: "token", whatsappNumber: "+14155238886" };
-      await setChannelConfig(INSTANCE_UUID, "whatsapp", config, true);
+      const config = { botToken: "123:ABC" };
+      const result = await setChannelConfig(INSTANCE_UUID, "telegram", config, true);
 
-      expect(mockEncrypt).toHaveBeenCalledWith(JSON.stringify(config));
-      expect(mockDb.insert).toHaveBeenCalled();
+      expect(result.config).toEqual(config);
+      expect(result.mintedWebhookSecret).toBe(false);
     });
 
     it("throws ZodError for invalid telegram config (missing botToken)", async () => {
@@ -181,20 +191,13 @@ describe("instances/channels.store", () => {
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
-    it("throws ZodError for invalid whatsapp config (missing accountSid)", async () => {
-      await expect(
-        setChannelConfig(INSTANCE_UUID, "whatsapp", { authToken: "tok", whatsappNumber: "+1" }, true),
-      ).rejects.toThrow(ZodError);
+    it("does not query the DB for a non-whatsapp save (no carry-forward read to make)", async () => {
+      const chain = createChainMock(undefined);
+      mockDb.insert.mockReturnValue(chain as any);
 
-      expect(mockDb.insert).not.toHaveBeenCalled();
-    });
+      await setChannelConfig(INSTANCE_UUID, "telegram", { botToken: "123:ABC" }, true);
 
-    it("throws ZodError for invalid whatsapp config (bad phone format)", async () => {
-      await expect(
-        setChannelConfig(INSTANCE_UUID, "whatsapp", { accountSid: "AC1", authToken: "tok", whatsappNumber: "nope" }, true),
-      ).rejects.toThrow(ZodError);
-
-      expect(mockDb.insert).not.toHaveBeenCalled();
+      expect(mockDb.select).not.toHaveBeenCalled();
     });
   });
 
@@ -329,170 +332,27 @@ describe("instances/channels.store", () => {
     });
   });
 
-  // -----------------------------------------------------------------------
-  // safeDecryptConfig edge cases (exercised through getChannelConfig / listChannelConfigs)
-  // -----------------------------------------------------------------------
-  describe("safeDecryptConfig (via getChannelConfig)", () => {
-    it("returns {} config when encrypted config is empty string", async () => {
-      mockResolveInstanceId(true);
-      const configChain = createChainMock([
-        { channelType: "telegram", enabled: true, config: "" },
-      ]);
-      mockDb.select.mockReturnValueOnce(configChain as any);
+  // `safeDecryptConfig` edge cases (via getChannelConfig/listChannelConfigs)
+  // moved to `channels.store.decrypt.test.ts` to keep this file ≤400 lines.
 
-      const result = await getChannelConfig(INSTANCE_SLUG, "telegram");
-
-      expect(result).toEqual({
-        channelType: "telegram",
-        enabled: true,
-        config: {},
-      });
-      // decrypt should NOT be called for empty string
-      expect(mockDecrypt).not.toHaveBeenCalled();
+  describe("CHANNEL_CONFIG_KEYS", () => {
+    it("should_cover_every_channel_type", () => {
+      expect(Object.keys(CHANNEL_CONFIG_KEYS).sort()).toEqual([...CHANNEL_TYPES].sort());
     });
 
-    it("returns {} config when encrypted string has no colons (invalid format)", async () => {
-      mockResolveInstanceId(true);
-      const configChain = createChainMock([
-        { channelType: "slack", enabled: false, config: "nocolonshere" },
-      ]);
-      mockDb.select.mockReturnValueOnce(configChain as any);
-
-      const result = await getChannelConfig(INSTANCE_SLUG, "slack");
-
-      expect(result).toEqual({
-        channelType: "slack",
-        enabled: false,
-        config: {},
-      });
-      expect(mockDecrypt).not.toHaveBeenCalled();
+    it("should_not_expose_the_server_generated_webhook_secret", () => {
+      expect(CHANNEL_CONFIG_KEYS.whatsapp).not.toContain("webhookSecret");
     });
 
-    it("returns parsed object when encrypted config is valid", async () => {
-      const originalConfig = { botToken: "123:ABC", allowedUserIds: "42" };
-      const encryptedJson = `encrypted:${JSON.stringify(originalConfig)}`;
-
-      mockResolveInstanceId(true);
-      const configChain = createChainMock([
-        { channelType: "telegram", enabled: true, config: encryptedJson },
+    it("should_accept_both_credential_modes_for_whatsapp", () => {
+      expect(CHANNEL_CONFIG_KEYS.whatsapp).toEqual([
+        "authMode",
+        "accountSid",
+        "authToken",
+        "apiKeySid",
+        "apiKeySecret",
+        "whatsappNumber",
       ]);
-      mockDb.select.mockReturnValueOnce(configChain as any);
-
-      const result = await getChannelConfig(INSTANCE_SLUG, "telegram");
-
-      expect(result).toEqual({
-        channelType: "telegram",
-        enabled: true,
-        config: originalConfig,
-      });
-      expect(mockDecrypt).toHaveBeenCalledWith(encryptedJson);
-    });
-
-    it("returns {} config when decrypt throws (corrupted/wrong key)", async () => {
-      mockResolveInstanceId(true);
-      // The config has a colon so safeDecryptConfig will attempt decrypt
-      const configChain = createChainMock([
-        { channelType: "whatsapp", enabled: true, config: "corrupted:garbage:data" },
-      ]);
-      mockDb.select.mockReturnValueOnce(configChain as any);
-
-      // Make decrypt throw to simulate wrong key / corrupted data
-      mockDecrypt.mockImplementationOnce(() => {
-        throw new Error("Unsupported state or unable to authenticate data");
-      });
-
-      const result = await getChannelConfig(INSTANCE_SLUG, "whatsapp");
-
-      expect(result).toEqual({
-        channelType: "whatsapp",
-        enabled: true,
-        config: {},
-      });
-      expect(mockDecrypt).toHaveBeenCalledWith("corrupted:garbage:data");
-    });
-
-    it("returns {} config when decrypt returns invalid JSON", async () => {
-      mockResolveInstanceId(true);
-      const configChain = createChainMock([
-        { channelType: "telegram", enabled: true, config: "iv:not-json" },
-      ]);
-      mockDb.select.mockReturnValueOnce(configChain as any);
-
-      // decrypt succeeds but returns non-JSON
-      mockDecrypt.mockReturnValueOnce("this is not json");
-
-      const result = await getChannelConfig(INSTANCE_SLUG, "telegram");
-
-      expect(result).toEqual({
-        channelType: "telegram",
-        enabled: true,
-        config: {},
-      });
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // listChannelConfigs with empty/corrupt config
-  // -----------------------------------------------------------------------
-  describe("listChannelConfigs with empty config", () => {
-    it("does not crash when a channel has empty config string", async () => {
-      mockResolveInstanceId(true);
-      const listChain = createChainMock([
-        { channelType: "telegram", enabled: true, config: "" },
-        { channelType: "slack", enabled: false, config: "nocolon" },
-      ]);
-      mockDb.select.mockReturnValueOnce(listChain as any);
-
-      const result = await listChannelConfigs(INSTANCE_SLUG);
-
-      expect(result).toHaveLength(2);
-      expect(result[0].config).toEqual({});
-      expect(result[1].config).toEqual({});
-      // decrypt should not be called for either (empty or no colon)
-      expect(mockDecrypt).not.toHaveBeenCalled();
-    });
-
-    it("gracefully handles mix of valid and corrupted configs", async () => {
-      const validConfig = { botToken: "123:ABC" };
-      const encryptedValid = `encrypted:${JSON.stringify(validConfig)}`;
-
-      mockResolveInstanceId(true);
-      const listChain = createChainMock([
-        { channelType: "telegram", enabled: true, config: encryptedValid },
-        { channelType: "slack", enabled: false, config: "bad:corrupted" },
-      ]);
-      mockDb.select.mockReturnValueOnce(listChain as any);
-
-      // First call (telegram) succeeds, second call (slack) throws
-      mockDecrypt
-        .mockReturnValueOnce(JSON.stringify(validConfig))
-        .mockImplementationOnce(() => { throw new Error("decrypt failed"); });
-
-      const result = await listChannelConfigs(INSTANCE_SLUG);
-
-      expect(result).toHaveLength(2);
-      expect(result[0].config).toEqual(validConfig);
-      expect(result[1].config).toEqual({});
-    });
-  });
-
-  // -----------------------------------------------------------------------
-  // getChannelConfig with empty config (explicit)
-  // -----------------------------------------------------------------------
-  describe("getChannelConfig with empty config", () => {
-    it("returns {} config and does not crash for empty config field", async () => {
-      mockResolveInstanceId(true);
-      const configChain = createChainMock([
-        { channelType: "whatsapp", enabled: false, config: "" },
-      ]);
-      mockDb.select.mockReturnValueOnce(configChain as any);
-
-      const result = await getChannelConfig(INSTANCE_SLUG, "whatsapp");
-
-      expect(result).not.toBeNull();
-      expect(result!.config).toEqual({});
-      expect(result!.channelType).toBe("whatsapp");
-      expect(result!.enabled).toBe(false);
     });
   });
 });

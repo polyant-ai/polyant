@@ -161,4 +161,24 @@ describe("stripSensitiveKeys", () => {
   it("should_return_an_empty_object_for_the_credential_less_agent_config", () => {
     expect(stripSensitiveKeys({})).toEqual({});
   });
+
+  it("should_keep_the_whatsapp_authMode_discriminant_but_strip_its_credentials", () => {
+    const stripped = stripSensitiveKeys({
+      authMode: "apiKey",
+      accountSid: "AC00000000000000000000000000000001",
+      apiKeySid: "SK00000000000000000000000000000002",
+      apiKeySecret: "sec",
+      webhookSecret: "deadbeef",
+      whatsappNumber: "+14155238886",
+    });
+
+    // The discriminant must survive: a bundle that loses it silently reimports
+    // as an authToken channel. This is why the field is not called
+    // "credentialMode" — that would match the sensitive-key pattern.
+    expect(stripped).toEqual({
+      authMode: "apiKey",
+      accountSid: "AC00000000000000000000000000000001",
+      whatsappNumber: "+14155238886",
+    });
+  });
 });

@@ -19,7 +19,7 @@
 
 ## Release status
 
-Polyant v1.0.0 is the first public stable release. Review the [changelog](CHANGELOG.md), the [release notes](docs/releases/v1.0.0.md), and the [GitHub release](https://github.com/polyant-ai/polyant/releases/tag/v1.0.0). In a running admin installation, version and release details are available at [/about](/about).
+Polyant v1.0.1 is the current stable release, a patch on the first public stable release v1.0.0. Review the [changelog](CHANGELOG.md), the [release notes](docs/releases/v1.0.1.md), and the [GitHub release](https://github.com/polyant-ai/polyant/releases/tag/v1.0.1). In a running admin installation, version and release details are available at [/about](/about).
 
 > The name comes from Hofstadter's *Gödel, Escher, Bach* — specifically the "Ant Fugue" dialogue and the character of Aunt Hillary, an ant colony understood as the archetype of emergent intelligence: individual agents, each one limited, that produce — by coordinating — a collective intelligent behaviour that exceeds the sum of its parts. It is, literally, the thesis we are pitching: fleets of specialised agents that, when orchestrated, generate performance impossible for any single agent. *Poly-* (classical Greek, "many") makes the key concept explicit: coordinated multiplicity.
 >
@@ -224,7 +224,7 @@ polyant/
 | **HTTP API** | OpenAI-compatible (`/v1/chat/completions`) | Instances appear as selectable models |
 | **Telegram** | Long polling (grammY) | Text, photos, document attachments |
 | **Slack** | Socket Mode (@slack/bolt) | Per-instance configuration |
-| **WhatsApp** | Webhook via Twilio | Text and media attachments |
+| **WhatsApp** | Webhook via Twilio (Auth Token or API Key) | Text and media attachments |
 
 All channel configs are stored encrypted per-instance. Adapters start/stop dynamically without a restart.
 

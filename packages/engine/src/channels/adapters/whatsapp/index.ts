@@ -7,12 +7,9 @@ import type { ChannelAdapter, Attachment, MessageHandler, OutgoingMessage } from
 import { transcribeAudio } from "../../audio-transcription.js";
 import { fetchMediaFollowingRedirects } from "./media-fetch.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
+import { resolveTwilioCredentials, type WhatsAppConfig } from "./resolve-credentials.js";
 
-export interface WhatsAppConfig {
-  accountSid: string;
-  authToken: string;
-  whatsappNumber: string;
-}
+export type { WhatsAppConfig };
 
 export class WhatsAppAdapter implements ChannelAdapter {
   name = "whatsapp" as const;
@@ -26,8 +23,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
 
   async initialize(onMessage: MessageHandler): Promise<void> {
     this.client = TwilioWhatsAppClient.create(
-      this.cfg.accountSid,
-      this.cfg.authToken,
+      resolveTwilioCredentials(this.cfg),
       this.cfg.whatsappNumber,
     );
     this.onMessage = onMessage;
@@ -117,8 +113,8 @@ export class WhatsAppAdapter implements ChannelAdapter {
    */
   private async downloadMedia(url: string, contentType: string): Promise<Attachment | null> {
     try {
-      const auth = Buffer.from(`${this.cfg.accountSid}:${this.cfg.authToken}`).toString("base64");
-      const res = await fetchMediaFollowingRedirects(url, auth);
+      if (!this.client) return null;
+      const res = await fetchMediaFollowingRedirects(url, this.client.basicAuthValue());
       if (!res || !res.ok) return null;
       const data = Buffer.from(await res.arrayBuffer());
       const isImage = contentType.startsWith("image/");
@@ -195,9 +191,32 @@ export class WhatsAppAdapter implements ChannelAdapter {
     this.onMessage = null;
   }
 
-  /** Validate a Twilio webhook signature. */
+  /** Validate a Twilio webhook signature. Returns false when this channel uses
+   *  an API key, which cannot validate signatures — the webhook controller
+   *  routes those channels to the path-secret gate instead and never calls
+   *  this. */
   validateSignature(signature: string, url: string, params: Record<string, string>): boolean {
     if (!this.client) return false;
-    return this.client.validateWebhook(signature, url, params);
+    try {
+      return this.client.validateWebhook(signature, url, params);
+    } catch (err) {
+      // `validateWebhook` throws deliberately when this channel is in `apiKey`
+      // mode (expected — the webhook controller should not have called this
+      // path at all). Anything else is an unexpected internal failure (e.g. a
+      // malformed url/params making the Twilio SDK throw) and must be
+      // distinguishable from a forged-signature `false`, or the operator has
+      // no way to tell "attack" apart from "broken code". Never log
+      // credential material — only the error message.
+      const isWrongModeError = err instanceof Error && /auth token/i.test(err.message);
+      if (isWrongModeError) {
+        console.warn("[whatsapp] Signature validation skipped: %s", err.message);
+      } else {
+        console.error(
+          "[whatsapp] Signature validation threw unexpectedly:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      return false;
+    }
   }
 }
