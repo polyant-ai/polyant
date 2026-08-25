@@ -263,11 +263,24 @@ async function prepareChannelConfig(
  * Set or update a channel config for an instance (by UUID).
  *
  * NOTE: `packages/engine/src/instances/import.service.ts` writes rows into
- * `instance_channels` directly, bypassing this function entirely. That is
- * safe ONLY because the export/import schema strips credential-like keys
- * (including `webhookSecret`) and leaves such a channel disabled on import —
- * it never produces an enabled `apiKey`-mode WhatsApp config, so it never
- * exercises the invariant this function guarantees.
+ * `instance_channels` directly, bypassing this function entirely. Only the
+ * EXPORT side strips credential-like keys (`export.service.ts`) — the import
+ * side does NOT: `export.schema.ts` types channel config as
+ * `z.record(z.unknown())`, and `import.service.ts` computes `canEnable` by
+ * `safeParse`-ing whatever the bundle contains. A hand-crafted bundle
+ * carrying `authMode: "apiKey"` plus a caller-chosen `webhookSecret` satisfies
+ * the union and IS written enabled, bypassing both the allowlist and the
+ * invariant this function guarantees. Stripping on import is a tracked
+ * follow-up, not yet implemented.
+ *
+ * What actually contains the blast radius today: `POST /api/instances/import`
+ * requires `AGENT_WRITE`, and every system role holding `AGENT_WRITE` also
+ * holds `CHANNEL_WRITE` (`authz/permissions.ts` — `MEMBER_PERMISSIONS` grants
+ * both together, and `admin`/`owner` inherit both) — so importing a bundle
+ * crosses no role boundary a caller couldn't already cross directly via the
+ * channels PUT endpoint. Also, import never starts channel adapters: an
+ * imported WhatsApp channel only goes live at the next engine boot, not
+ * immediately on import.
  */
 export async function setChannelConfig(
   instanceId: InstanceUuid,

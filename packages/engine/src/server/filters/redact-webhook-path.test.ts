@@ -128,6 +128,21 @@ describe("redactWebhookPath", () => {
     expect(mixed).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
   });
 
+  it("is case-insensitive for the fail-safe branch on an uppercase, unrecognised webhook shape (pinned exact output)", () => {
+    // The fail-safe branch (WEBHOOKS_SEGMENT) is the last line of defense for
+    // any shape that isn't one of the three explicitly-recognised routes. A
+    // mutation test proved dropping `/i` from WEBHOOKS_SEGMENT leaves all
+    // other tests green, because the two other case-insensitivity tests above
+    // only exercise TWILIO_SECRET_PATH / GENERIC_WEBHOOK_TOKEN_PATH, which
+    // carry their own `/i`. This pins the fail-safe branch itself, uppercase,
+    // with a prefixed + extra-segment shape it does not otherwise recognise.
+    const result = redactWebhookPath("/API/WEBHOOKS/TWILIO/acme/WHATSAPP/EXTRA/s3cr3t");
+
+    expect(result).toBe(
+      `/API/WEBHOOKS/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}`,
+    );
+  });
+
   it("strips userinfo from the origin before echoing it into the log", () => {
     // `getFullUrl` builds the origin from the attacker-controlled
     // X-Forwarded-Host header, and that URL is logged on signature failure —
