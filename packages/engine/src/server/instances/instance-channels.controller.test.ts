@@ -149,6 +149,87 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
   });
 
   // -------------------------------------------------------------------
+  // Audit — setChannel must audit a secret.delete when a save discards an
+  // existing apiKey-mode webhookSecret (mode switched to authToken).
+  // -------------------------------------------------------------------
+  describe("audit on destroy", () => {
+    it("should_audit_a_secret_delete_when_a_save_discards_an_existing_apiKey_secret", async () => {
+      mockGetChannelConfig.mockResolvedValue({
+        channelType: "whatsapp",
+        enabled: true,
+        config: {
+          authMode: "apiKey",
+          accountSid: ACCOUNT_SID,
+          apiKeySid: API_KEY_SID,
+          apiKeySecret: "sec",
+          webhookSecret: "old-secret",
+          whatsappNumber: "+14155238886",
+        },
+      });
+      const authTokenConfig = {
+        authMode: "authToken",
+        accountSid: ACCOUNT_SID,
+        authToken: "tok",
+        whatsappNumber: "+14155238886",
+      };
+      mockSetChannelConfig.mockResolvedValue({ mintedWebhookSecret: false, config: authTokenConfig });
+
+      await controller.setChannel("acme", "whatsapp", { config: authTokenConfig, enabled: true }, USER);
+
+      expect(mockAuditLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "secret.delete",
+          targetType: "secret",
+          targetId: "acme:whatsapp.webhookSecret",
+        }),
+      );
+      // The audited row must carry the KEY only — never the discarded value.
+      const auditedArg = mockAuditLog.mock.calls.find((call) => call[0].action === "secret.delete")?.[0];
+      expect(JSON.stringify(auditedArg)).not.toContain("old-secret");
+    });
+
+    it("should_not_audit_a_delete_when_there_was_no_existing_secret_to_discard", async () => {
+      mockGetChannelConfig.mockResolvedValue(null);
+      const authTokenConfig = {
+        authMode: "authToken",
+        accountSid: ACCOUNT_SID,
+        authToken: "tok",
+        whatsappNumber: "+14155238886",
+      };
+      mockSetChannelConfig.mockResolvedValue({ mintedWebhookSecret: false, config: authTokenConfig });
+
+      await controller.setChannel("acme", "whatsapp", { config: authTokenConfig, enabled: true }, USER);
+
+      expect(mockAuditLog).not.toHaveBeenCalled();
+    });
+
+    it("should_not_audit_a_delete_on_an_unrelated_apiKey_mode_save_that_keeps_the_secret", async () => {
+      const existingConfig = {
+        authMode: "apiKey",
+        accountSid: ACCOUNT_SID,
+        apiKeySid: API_KEY_SID,
+        apiKeySecret: "sec",
+        webhookSecret: "keep-me",
+        whatsappNumber: "+14155238886",
+      };
+      mockGetChannelConfig.mockResolvedValue({ channelType: "whatsapp", enabled: true, config: existingConfig });
+      mockSetChannelConfig.mockResolvedValue({
+        mintedWebhookSecret: false,
+        config: { ...existingConfig, whatsappNumber: "+19998887777" },
+      });
+
+      await controller.setChannel(
+        "acme",
+        "whatsapp",
+        { config: { whatsappNumber: "+19998887777" }, enabled: true },
+        USER,
+      );
+
+      expect(mockAuditLog).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------
   // Response shape — the PUT response must surface the full webhook URL
   // whenever the saved channel ends up in apiKey mode, so a mode round-trip
   // that silently re-mints the secret is never invisible to the operator.

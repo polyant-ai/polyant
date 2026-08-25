@@ -173,6 +173,35 @@ export class InstanceChannelsController {
     });
   }
 
+  /**
+   * Audit the destruction of an inbound secret — a save that switches
+   * `authMode` away from `apiKey` runs `pruneWhatsAppCredentials` and
+   * discards the existing `webhookSecret`, permanently killing the only
+   * authenticator of an internet-facing route. The store reports what it
+   * persisted (`SetChannelConfigResult`); it has no actor to audit with, so
+   * this compares that result against the config already read before the
+   * save (`existing`, fetched by `setChannel` for the allowlist merge) —
+   * the same seam `auditWebhookSecretWrite` uses for minting.
+   */
+  private auditWebhookSecretDeleteIfDiscarded(
+    slug: string,
+    existingConfig: Record<string, unknown> | undefined,
+    finalConfig: Record<string, unknown>,
+    user: AuthenticatedUser | undefined,
+  ): void {
+    const hadSecret = typeof existingConfig?.webhookSecret === "string" && existingConfig.webhookSecret.length > 0;
+    const hasSecret = typeof finalConfig.webhookSecret === "string" && finalConfig.webhookSecret.length > 0;
+    if (!hadSecret || hasSecret) return;
+
+    this.auditLogger.log({
+      action: ManagementAuditAction.SecretDelete,
+      actor: toManagementAuditActor(user),
+      targetType: ManagementAuditTarget.Secret,
+      // Key only — the discarded value is never audited.
+      targetId: `${slug}:whatsapp.webhookSecret`,
+    });
+  }
+
   /** The full webhook URL when the saved channel ended up in apiKey mode, else undefined. */
   private buildWebhookUrlIfApiKeyMode(
     slug: string,
@@ -250,6 +279,7 @@ export class InstanceChannelsController {
     // Audit BEFORE the side-effecting adapter start/stop: the write already
     // happened, so the audit row must exist even if the side effect fails.
     if (result.mintedWebhookSecret) this.auditWebhookSecretWrite(slug, user);
+    this.auditWebhookSecretDeleteIfDiscarded(slug, existing?.config, finalConfig, user);
     await this.syncChannelSideEffects(slug, type, body.enabled, finalConfig, instance.description ?? null);
 
     return this.buildChannelResponse(slug, type, body.enabled, finalConfig);
