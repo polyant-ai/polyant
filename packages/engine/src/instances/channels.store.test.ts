@@ -47,6 +47,9 @@ vi.mock("../database/client.js", () => ({ db: mockDb }));
 vi.mock("../crypto/index.js", () => ({
   encrypt: mockEncrypt,
   decrypt: mockDecrypt,
+  // Deterministic-shaped fake token (real `generateToken` returns 64 hex
+  // chars for `generateToken(32)`) so tests can assert on the shape.
+  generateToken: vi.fn(() => "a".repeat(64)),
 }));
 
 vi.mock("./schema.js", () => ({
@@ -249,6 +252,100 @@ describe("instances/channels.store", () => {
 
       const encryptedPayload = mockEncrypt.mock.calls[0][0] as string;
       expect(JSON.parse(encryptedPayload)).not.toHaveProperty("authToken");
+    });
+
+    // -------------------------------------------------------------------
+    // Webhook secret minting — the ONE chokepoint for the invariant that a
+    // stored apiKey config always carries a server-minted webhookSecret.
+    // -------------------------------------------------------------------
+    describe("apiKey webhook secret minting", () => {
+      const ACCOUNT_SID = "AC00000000000000000000000000000001";
+      const API_KEY_SID = "SK00000000000000000000000000000002";
+      const NUMBER = "+14155238886";
+
+      it("should_mint_a_webhook_secret_on_the_first_save_in_apiKey_mode", async () => {
+        const chain = createChainMock(undefined);
+        mockDb.insert.mockReturnValue(chain as any);
+
+        const result = await setChannelConfig(
+          INSTANCE_UUID,
+          "whatsapp",
+          {
+            authMode: "apiKey",
+            accountSid: ACCOUNT_SID,
+            apiKeySid: API_KEY_SID,
+            apiKeySecret: "sec",
+            whatsappNumber: NUMBER,
+          },
+          true,
+        );
+
+        expect(result.mintedWebhookSecret).toBe(true);
+        const encryptedPayload = mockEncrypt.mock.calls[0][0] as string;
+        const stored = JSON.parse(encryptedPayload) as Record<string, unknown>;
+        expect(stored.webhookSecret).toMatch(/^[0-9a-f]{64}$/);
+      });
+
+      // Whether a webhookSecret arriving at the store came from a trusted
+      // carry-forward (controller merge) or an untrusted client is NOT this
+      // function's concern — it is the CALLER's job to strip a client-supplied
+      // value before reaching the store (see CHANNEL_CONFIG_KEYS, which omits
+      // `webhookSecret` from the writable allowlist, and the controller test
+      // `should_ignore_a_client_supplied_webhook_secret`). At the store layer,
+      // "a webhookSecret is present" and "keep it, do not mint" are the same
+      // condition by design — this is exactly the non-rotation invariant below.
+      it("should_NOT_rotate_an_existing_webhook_secret_on_an_unrelated_field_save — the non-rotation invariant", async () => {
+        const chain = createChainMock(undefined);
+        mockDb.insert.mockReturnValue(chain as any);
+
+        // Simulate the caller re-saving an already-configured apiKey channel,
+        // changing only whatsappNumber, with the existing secret carried
+        // forward (as the controller does by merging on top of the stored
+        // config). Regression scenario: dropping the `!pruned.webhookSecret`
+        // condition would mint a brand-new secret here and silently kill the
+        // Twilio Console URL already configured for "keep-me".
+        const result = await setChannelConfig(
+          INSTANCE_UUID,
+          "whatsapp",
+          {
+            authMode: "apiKey",
+            accountSid: ACCOUNT_SID,
+            apiKeySid: API_KEY_SID,
+            apiKeySecret: "sec",
+            whatsappNumber: "+19998887777",
+            webhookSecret: "keep-me",
+          },
+          true,
+        );
+
+        expect(result.mintedWebhookSecret).toBe(false);
+        const encryptedPayload = mockEncrypt.mock.calls[0][0] as string;
+        const stored = JSON.parse(encryptedPayload) as Record<string, unknown>;
+        expect(stored.webhookSecret).toBe("keep-me");
+      });
+
+      it("should_not_mint_a_secret_for_authToken_mode", async () => {
+        const chain = createChainMock(undefined);
+        mockDb.insert.mockReturnValue(chain as any);
+
+        const result = await setChannelConfig(
+          INSTANCE_UUID,
+          "whatsapp",
+          { authMode: "authToken", accountSid: ACCOUNT_SID, authToken: "tok", whatsappNumber: NUMBER },
+          true,
+        );
+
+        expect(result.mintedWebhookSecret).toBe(false);
+      });
+
+      it("should_not_mint_a_secret_for_non_whatsapp_channels", async () => {
+        const chain = createChainMock(undefined);
+        mockDb.insert.mockReturnValue(chain as any);
+
+        const result = await setChannelConfig(INSTANCE_UUID, "telegram", { botToken: "123:ABC" }, true);
+
+        expect(result.mintedWebhookSecret).toBe(false);
+      });
     });
   });
 

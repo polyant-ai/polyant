@@ -8,18 +8,20 @@ import {
   Delete,
   Param,
   Body,
+  Header,
   BadRequestException,
   NotFoundException,
 } from "@nestjs/common";
+import { ZodError } from "zod";
 import {
   setChannelConfig, listChannelConfigs, getChannelConfig, deleteChannelConfig,
-  CHANNEL_TYPES, CHANNEL_CONFIG_KEYS, pruneWhatsAppCredentials, resolveWhatsAppAuthMode,
-  type ChannelType,
+  CHANNEL_TYPES, CHANNEL_CONFIG_KEYS, resolveWhatsAppAuthMode,
+  type ChannelConfig, type ChannelType, type SetChannelConfigResult,
 } from "../../instances/channels.store.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { syncAgentTool } from "../../instances/agent-tool-sync.js";
 import { findInstanceOrFail, maskSensitiveConfig } from "./instance-helpers.js";
-import { asInstanceSlug } from "../../instances/identifiers.js";
+import { asInstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { generateToken } from "../../crypto/index.js";
 import { buildTwilioWhatsAppWebhookUrl } from "../webhook-url.js";
@@ -31,6 +33,14 @@ import {
   ManagementAuditTarget,
   toManagementAuditActor,
 } from "../../management-audit/management-audit-logger.js";
+
+/** Thrown by `getChannelConfig`/`whatsappWebhookUrl` call sites below. */
+const WHATSAPP_NOT_IN_API_KEY_MODE = "WhatsApp channel is not configured in API Key mode";
+
+/** A Zod parse failure, or the legacy string-matched validation error shape. */
+function isChannelConfigValidationError(err: unknown): err is Error {
+  return err instanceof ZodError || (err instanceof Error && err.message.includes("Validation"));
+}
 
 @Controller("api/instances")
 export class InstanceChannelsController {
@@ -53,8 +63,10 @@ export class InstanceChannelsController {
    * The inbound URL to paste into the Twilio Console. Gated on CHANNEL_WRITE,
    * not CHANNEL_READ: the secret it embeds is bearer-equivalent, so a
    * read-only role must not be able to take over an agent's inbound channel.
+   * `no-store` because the response carries that bearer-equivalent secret.
    */
   @RequirePermission(Permission.CHANNEL_WRITE)
+  @Header("Cache-Control", "no-store")
   @Get(":slug/channels/whatsapp/webhook-url")
   async whatsappWebhookUrl(@Param("slug") slug: string) {
     await findInstanceOrFail(slug);
@@ -63,7 +75,7 @@ export class InstanceChannelsController {
       ? channel.config.webhookSecret
       : undefined;
     if (typeof secret !== "string" || !secret) {
-      throw new NotFoundException("WhatsApp channel is not configured in API Key mode");
+      throw new NotFoundException(WHATSAPP_NOT_IN_API_KEY_MODE);
     }
     return { webhookUrl: buildTwilioWhatsAppWebhookUrl(slug, secret) };
   }
@@ -78,16 +90,63 @@ export class InstanceChannelsController {
     const instance = await findInstanceOrFail(slug);
     const channel = await getChannelConfig(asInstanceSlug(slug), "whatsapp");
     if (!channel || resolveWhatsAppAuthMode(channel.config) !== "apiKey") {
-      throw new NotFoundException("WhatsApp channel is not configured in API Key mode");
+      throw new NotFoundException(WHATSAPP_NOT_IN_API_KEY_MODE);
     }
 
     const webhookSecret = generateToken(32);
     const nextConfig = { ...channel.config, webhookSecret };
-    await setChannelConfig(instance.id, "whatsapp", nextConfig, channel.enabled);
+    await this.saveChannelConfig(instance.id, "whatsapp", nextConfig, channel.enabled);
     if (channel.enabled) {
       await channelManager.startChannel(slug, "whatsapp", nextConfig);
     }
 
+    this.auditWebhookSecretWrite(slug, user);
+    return { webhookUrl: buildTwilioWhatsAppWebhookUrl(slug, webhookSecret) };
+  }
+
+  /**
+   * Merge the request body into the existing config, walking the ALLOWLIST
+   * rather than the request body: no property name written into a stored
+   * config may come from remote input. Masked values (••••) are skipped so
+   * unchanged secrets survive.
+   */
+  private mergeAllowedConfig(
+    existing: Record<string, unknown>,
+    incoming: Record<string, unknown>,
+    channelType: ChannelType,
+  ): Record<string, unknown> {
+    const merged: Record<string, unknown> = { ...existing };
+    // Walk the allowlist, not the body. Every property name written below
+    // comes from CHANNEL_CONFIG_KEYS — a module constant — so a caller cannot
+    // choose which key it writes, only the value of a key this channel type
+    // declares. `hasOwnProperty` (not `in`) so an inherited/prototype
+    // property can never be mistaken for a client-supplied value.
+    for (const key of CHANNEL_CONFIG_KEYS[channelType]) {
+      if (!Object.prototype.hasOwnProperty.call(incoming, key)) continue;
+      const value = incoming[key];
+      if (typeof value === "string" && value.startsWith("••••")) continue;
+      merged[key] = value;
+    }
+    return merged;
+  }
+
+  /** Persist the config, translating a schema violation into a 400 instead of a 500. */
+  private async saveChannelConfig(
+    instanceId: InstanceUuid,
+    channelType: ChannelType,
+    config: Record<string, unknown>,
+    enabled: boolean,
+  ): Promise<SetChannelConfigResult> {
+    try {
+      return await setChannelConfig(instanceId, channelType, config, enabled);
+    } catch (err) {
+      if (isChannelConfigValidationError(err)) throw new BadRequestException(err.message);
+      throw err;
+    }
+  }
+
+  /** Audit a fresh inbound secret — minted on save or explicitly rotated. */
+  private auditWebhookSecretWrite(slug: string, user: AuthenticatedUser | undefined): void {
     this.auditLogger.log({
       action: ManagementAuditAction.SecretWrite,
       actor: toManagementAuditActor(user),
@@ -95,8 +154,53 @@ export class InstanceChannelsController {
       // Key only — the value is never audited.
       targetId: `${slug}:whatsapp.webhookSecret`,
     });
+  }
 
-    return { webhookUrl: buildTwilioWhatsAppWebhookUrl(slug, webhookSecret) };
+  /** The full webhook URL when the saved channel ended up in apiKey mode, else undefined. */
+  private buildWebhookUrlIfApiKeyMode(
+    slug: string,
+    channelType: ChannelType,
+    config: Record<string, unknown>,
+  ): string | undefined {
+    if (channelType !== "whatsapp" || resolveWhatsAppAuthMode(config) !== "apiKey") return undefined;
+    const secret = config.webhookSecret;
+    return typeof secret === "string" && secret ? buildTwilioWhatsAppWebhookUrl(slug, secret) : undefined;
+  }
+
+  /** Start/stop the channel adapter and mirror the virtual `agent` channel into the tools catalog. */
+  private async syncChannelSideEffects(
+    slug: string,
+    channelType: ChannelType,
+    enabled: boolean,
+    config: Record<string, unknown>,
+    instanceDescription: string | null,
+  ): Promise<void> {
+    if (enabled) {
+      await channelManager.startChannel(slug, channelType, config);
+    } else {
+      await channelManager.stopChannel(slug, channelType);
+    }
+    if (channelType === "agent") {
+      await syncAgentTool({ slug, description: instanceDescription, enable: enabled });
+    }
+  }
+
+  /** Build the masked channel + optional webhookUrl response shape shared by `setChannel`. */
+  private buildChannelResponse(
+    slug: string,
+    channelType: ChannelType,
+    channel: ChannelConfig | null,
+    finalConfig: Record<string, unknown>,
+  ) {
+    const webhookUrl = this.buildWebhookUrlIfApiKeyMode(slug, channelType, finalConfig);
+    return {
+      channel: channel ? {
+        channelType: channel.channelType,
+        enabled: channel.enabled,
+        config: maskSensitiveConfig(channel.config),
+      } : null,
+      ...(webhookUrl ? { webhookUrl } : {}),
+    };
   }
 
   @RequirePermission(Permission.CHANNEL_WRITE)
@@ -105,63 +209,28 @@ export class InstanceChannelsController {
     @Param("slug") slug: string,
     @Param("type") channelType: string,
     @Body() body: { config: Record<string, unknown>; enabled: boolean },
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     if (!CHANNEL_TYPES.includes(channelType as ChannelType)) {
       throw new BadRequestException(`Invalid channel type "${channelType}". Valid: ${CHANNEL_TYPES.join(", ")}`);
     }
+    const type = channelType as ChannelType;
     const instance = await findInstanceOrFail(slug);
 
-    // Merge with existing config, walking the ALLOWLIST rather than the request
-    // body: no property name written into a stored config may come from remote
-    // input. Masked values (••••) are skipped so unchanged secrets survive.
-    const existing = await getChannelConfig(asInstanceSlug(slug), channelType as ChannelType);
-    const mergedConfig: Record<string, unknown> = { ...(existing?.config ?? {}) };
-    // Walk the allowlist, not the body. Every property name written below comes
-    // from CHANNEL_CONFIG_KEYS — a module constant — so a caller cannot choose
-    // which key it writes, only the value of a key this channel type declares.
-    for (const key of CHANNEL_CONFIG_KEYS[channelType as ChannelType]) {
-      if (!Object.prototype.hasOwnProperty.call(body.config, key)) continue;
-      const v = body.config[key];
-      if (typeof v === "string" && v.startsWith("••••")) continue;
-      mergedConfig[key] = v;
-    }
+    const existing = await getChannelConfig(asInstanceSlug(slug), type);
+    const mergedConfig = this.mergeAllowedConfig(existing?.config ?? {}, body.config, type);
+    const result = await this.saveChannelConfig(instance.id, type, mergedConfig, body.enabled);
 
-    const finalConfig =
-      channelType === "whatsapp" ? this.prepareWhatsAppConfig(mergedConfig) : mergedConfig;
+    // Re-fetch so downstream consumers (adapter start, response body) see the
+    // config the store actually persisted (pruned + possibly secret-minted),
+    // not the pre-normalization value the controller sent in.
+    const channel = await getChannelConfig(asInstanceSlug(slug), type);
+    const finalConfig = channel?.config ?? mergedConfig;
 
-    try {
-      await setChannelConfig(instance.id, channelType as ChannelType, finalConfig, body.enabled);
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("Validation")) {
-        throw new BadRequestException(err.message);
-      }
-      throw err;
-    }
+    await this.syncChannelSideEffects(slug, type, body.enabled, finalConfig, instance.description ?? null);
+    if (result.mintedWebhookSecret) this.auditWebhookSecretWrite(slug, user);
 
-    if (body.enabled) {
-      await channelManager.startChannel(slug, channelType, finalConfig);
-    } else {
-      await channelManager.stopChannel(slug, channelType);
-    }
-
-    // Mirror enable/disable of the virtual `agent` channel into the tools
-    // catalog so OTHER instances see this one as a selectable agent target.
-    if (channelType === "agent") {
-      await syncAgentTool({
-        slug,
-        description: instance.description ?? null,
-        enable: body.enabled,
-      });
-    }
-
-    const channel = await getChannelConfig(asInstanceSlug(slug), channelType as ChannelType);
-    return {
-      channel: channel ? {
-        channelType: channel.channelType,
-        enabled: channel.enabled,
-        config: maskSensitiveConfig(channel.config),
-      } : null,
-    };
+    return this.buildChannelResponse(slug, type, channel, finalConfig);
   }
 
   @RequirePermission(Permission.CHANNEL_WRITE)
@@ -177,20 +246,5 @@ export class InstanceChannelsController {
       await syncAgentTool({ slug, description: null, enable: false });
     }
     return { deleted: true };
-  }
-
-  /**
-   * Prune the unused mode's credentials and mint the inbound secret. The
-   * `apiKey` schema variant REQUIRES `webhookSecret` and no client may send one
-   * (it is absent from CHANNEL_CONFIG_KEYS), so the server mints it here —
-   * before validation, or every first save in that mode would fail its own
-   * schema.
-   */
-  private prepareWhatsAppConfig(merged: Record<string, unknown>): Record<string, unknown> {
-    const pruned = pruneWhatsAppCredentials(merged);
-    if (resolveWhatsAppAuthMode(pruned) === "apiKey" && !pruned.webhookSecret) {
-      return { ...pruned, webhookSecret: generateToken(32) };
-    }
-    return pruned;
   }
 }

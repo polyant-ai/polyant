@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../database/client.js";
 import { instanceChannels } from "./channels.schema.js";
-import { encrypt, decrypt } from "../crypto/index.js";
+import { encrypt, decrypt, generateToken } from "../crypto/index.js";
 import { resolveInstanceId } from "./resolve-instance-id.js";
 import { type InstanceSlug, type InstanceUuid } from "./identifiers.js";
 
@@ -167,19 +167,53 @@ export interface ChannelConfig {
   config: Record<string, unknown>;
 }
 
+export interface SetChannelConfigResult {
+  /** True when the store minted a new inbound webhook secret for this save. */
+  mintedWebhookSecret: boolean;
+}
+
+/**
+ * Channel-type-specific normalization applied before validation/persistence.
+ * WhatsApp is the only type with a stateful invariant today — pruning the
+ * unused credential mode's fields and, for `apiKey` mode, minting the inbound
+ * webhook secret when the incoming config does not already carry one. This is
+ * the SOLE chokepoint for that invariant: every writer of `setChannelConfig`
+ * goes through it, so a stored `apiKey` config can never be missing a secret.
+ *
+ * The mint is CONDITIONAL — an incoming config that already carries a
+ * `webhookSecret` keeps it unchanged, so a save that only touches an unrelated
+ * field (e.g. `whatsappNumber`) never rotates the secret out from under an
+ * already-configured Twilio Console.
+ */
+function prepareChannelConfig(
+  channelType: ChannelType,
+  config: Record<string, unknown>,
+): { config: Record<string, unknown>; mintedWebhookSecret: boolean } {
+  if (channelType !== "whatsapp") {
+    return { config, mintedWebhookSecret: false };
+  }
+  const pruned = pruneWhatsAppCredentials(config);
+  if (resolveWhatsAppAuthMode(pruned) === "apiKey" && !pruned.webhookSecret) {
+    return { config: { ...pruned, webhookSecret: generateToken(32) }, mintedWebhookSecret: true };
+  }
+  return { config: pruned, mintedWebhookSecret: false };
+}
+
 /** Set or update a channel config for an instance (by UUID). */
 export async function setChannelConfig(
   instanceId: InstanceUuid,
   channelType: ChannelType,
   config: Record<string, unknown>,
   enabled: boolean,
-): Promise<void> {
-  // Validate config against channel schema.
+): Promise<SetChannelConfigResult> {
+  const { config: prepared, mintedWebhookSecret } = prepareChannelConfig(channelType, config);
+
+  // Validate config against channel schema. Persist the PARSED value, not the
+  // raw input: the schemas trim pasted credentials and drop keys that do not
+  // belong to the validated shape, and both only take effect if the parsed
+  // result is what gets encrypted.
   const schema = channelConfigSchemas[channelType];
-  // Persist the PARSED value, not the raw input: the schemas trim pasted
-  // credentials and drop keys that do not belong to the validated shape, and
-  // both only take effect if the parsed result is what gets encrypted.
-  const parsed = schema.parse(config) as Record<string, unknown>;
+  const parsed = schema.parse(prepared) as Record<string, unknown>;
 
   const encryptedConfig = encrypt(JSON.stringify(parsed));
 
@@ -190,6 +224,8 @@ export async function setChannelConfig(
       target: [instanceChannels.instanceId, instanceChannels.channelType],
       set: { enabled, config: encryptedConfig, updatedAt: new Date() },
     });
+
+  return { mintedWebhookSecret };
 }
 
 /** Get a single channel config for an instance (by slug). */
