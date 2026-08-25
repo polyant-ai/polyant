@@ -6,18 +6,35 @@ import { sanitizeForLog } from "../../../utils/create-logger.js";
 const MAX_REDIRECTS = 3;
 const TIMEOUT_MS = 30_000;
 
+/** Twilio's global Media resource host. */
+const TWILIO_GLOBAL_MEDIA_HOST = "api.twilio.com";
 /**
- * Hosts Twilio names in an inbound `MediaUrl0`/`MediaUrl1`/… webhook field.
- * The Twilio Media resource is served exclusively from `api.twilio.com`
- * (`https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Messages/{MessageSid}/Media/{MediaSid}`)
- * and 302-redirects to a CDN host — that redirect target does NOT need to be
- * in this set, because the credential is dropped before it is followed (see
- * below). Matched with an EXACT host comparison, never `endsWith`/regex: a
- * suffix check would also accept `evil-twilio.com` or
- * `api.twilio.com.evil.test`, which is exactly the bypass this allowlist
- * exists to close.
+ * Suffix (leading dot included) shared by Twilio's regional API hosts, used by
+ * accounts with data residency: `api.dublin.ie1.twilio.com`,
+ * `api.sydney.au1.twilio.com`, and so on. An inbound `MediaUrl` on such an
+ * account names the regional host, so allowlisting only the global host would
+ * silently drop every attachment for those accounts.
  */
-const TWILIO_MEDIA_HOSTS: ReadonlySet<string> = new Set(["api.twilio.com"]);
+const TWILIO_API_HOST_SUFFIX = ".twilio.com";
+const TWILIO_API_HOST_PREFIX = "api.";
+
+/**
+ * Is this host one Twilio serves the Media resource from?
+ *
+ * The rule is "starts with `api.` AND ends with `.twilio.com`", which accepts
+ * the global host and every regional variant while rejecting the look-alikes
+ * this check exists for:
+ *   - `evil-twilio.com`        — does not end with the DOTTED suffix
+ *   - `api.twilio.com.evil.test` — ends with `.evil.test`
+ *   - `apifoo.twilio.com`      — does not start with the DOTTED prefix
+ *
+ * Anything that satisfies both ends is under Twilio's own registrable domain,
+ * so it cannot be pointed at an attacker-controlled host.
+ */
+function isTwilioMediaHost(host: string): boolean {
+  if (host === TWILIO_GLOBAL_MEDIA_HOST) return true;
+  return host.startsWith(TWILIO_API_HOST_PREFIX) && host.endsWith(TWILIO_API_HOST_SUFFIX);
+}
 
 /**
  * Injectable ONLY for testability (default params): production uses the global
@@ -37,7 +54,7 @@ export interface MediaFetchDeps {
  * initial host would not follow the cross-host redirect (it would connect to the
  * wrong IP → fetch failure).
  *
- * The first hop's host MUST be a Twilio API host (`TWILIO_MEDIA_HOSTS`) before
+ * The first hop's host MUST be a Twilio API host (`isTwilioMediaHost`) before
  * the Basic `Authorization` header is ever sent — an inbound `MediaUrl0` is
  * attacker-reachable (anyone able to deliver one inbound webhook controls it),
  * so without this check a URL pointed at `https://attacker.example/x` would
@@ -76,7 +93,7 @@ export async function fetchMediaFollowingRedirects(
       return null;
     }
     if (originHost === null) {
-      if (!TWILIO_MEDIA_HOSTS.has(target.host)) {
+      if (!isTwilioMediaHost(target.host)) {
         console.warn(
           "[whatsapp] Media URL host is not an allowlisted Twilio host, refusing to fetch: %s",
           sanitizeForLog(currentUrl),

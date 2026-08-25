@@ -87,12 +87,45 @@ describe("fetchMediaFollowingRedirects", () => {
   it("refuses a look-alike Twilio host (suffix match must not be satisfiable)", async () => {
     const fetchFn = vi.fn(async () => res(200)) as unknown as typeof fetch;
 
-    const lookalikes = ["https://evil-twilio.com/x", "https://api.twilio.com.evil.test/x"];
+    const lookalikes = [
+      "https://evil-twilio.com/x",
+      "https://api.twilio.com.evil.test/x",
+      "https://apifoo.twilio.com/x",
+      "https://api.evil.com/x",
+    ];
     for (const url of lookalikes) {
       const r = await fetchMediaFollowingRedirects(url, "SECRET", { fetchFn, makeDispatcher: okDispatcher, signal: sig() });
       expect(r).toBeNull();
     }
     expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("allows Twilio's regional API hosts, which accounts with data residency use", async () => {
+    // An inbound MediaUrl on an EU- or AU-resident account names a regional
+    // host, e.g. api.dublin.ie1.twilio.com. Allowlisting only the global host
+    // would drop every attachment for those accounts, silently — downloadMedia
+    // swallows a null and the message just arrives without its media.
+    const regionalHosts = [
+      "https://api.dublin.ie1.twilio.com/2010-04-01/Accounts/AC/Messages/MM/Media/ME",
+      "https://api.sydney.au1.twilio.com/2010-04-01/Accounts/AC/Messages/MM/Media/ME",
+    ];
+
+    for (const url of regionalHosts) {
+      const seen: Array<string | undefined> = [];
+      const fetchFn = vi.fn(async (_u: string, init: { headers?: Record<string, string> }) => {
+        seen.push(init.headers?.Authorization);
+        return res(200);
+      }) as unknown as typeof fetch;
+
+      const r = await fetchMediaFollowingRedirects(url, "SECRET", {
+        fetchFn,
+        makeDispatcher: okDispatcher,
+        signal: sig(),
+      });
+
+      expect(r).not.toBeNull();
+      expect(seen[0]).toBe("Basic SECRET");
+    }
   });
 
   it("still allows the legitimate Twilio host, including the cross-host redirect to the CDN (#281 regression guard)", async () => {
