@@ -19,8 +19,21 @@ export interface WhatsAppConfig {
 
 /**
  * Map a stored channel config onto the credential shape the Twilio client
- * takes. The config schema has already validated that the fields for the
- * selected mode are present (see `channels.store.ts`), so this only picks.
+ * takes.
+ *
+ * The invariant "the fields for the selected mode are present" holds only
+ * for configs that went through `setChannelConfig` (`channels.store.ts`),
+ * which parses the payload with the Zod schema before persisting it. It does
+ * NOT hold for the read path: `getChannelConfig`/`listChannelConfigs` decrypt
+ * straight into `Record<string, unknown>` with no re-validation, and
+ * `channel-manager.ts` casts that blindly to `WhatsAppConfig`. A row that
+ * predates a field, or one edited directly in the DB, can reach here missing
+ * a required credential.
+ *
+ * So this function does not assume the invariant — a missing field degrades
+ * to `""` (via `?? ""`) rather than throwing here. `TwilioWhatsAppClient.create`
+ * is what actually rejects the empty string loudly, and `channel-manager.ts`
+ * auto-disables the channel in response.
  */
 export function resolveTwilioCredentials(cfg: WhatsAppConfig): TwilioCredentials {
   if (cfg.authMode === "apiKey") {

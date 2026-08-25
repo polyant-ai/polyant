@@ -200,7 +200,23 @@ export class WhatsAppAdapter implements ChannelAdapter {
     if (!this.client) return false;
     try {
       return this.client.validateWebhook(signature, url, params);
-    } catch {
+    } catch (err) {
+      // `validateWebhook` throws deliberately when this channel is in `apiKey`
+      // mode (expected — the webhook controller should not have called this
+      // path at all). Anything else is an unexpected internal failure (e.g. a
+      // malformed url/params making the Twilio SDK throw) and must be
+      // distinguishable from a forged-signature `false`, or the operator has
+      // no way to tell "attack" apart from "broken code". Never log
+      // credential material — only the error message.
+      const isWrongModeError = err instanceof Error && /auth token/i.test(err.message);
+      if (isWrongModeError) {
+        console.warn("[whatsapp] Signature validation skipped: %s", err.message);
+      } else {
+        console.error(
+          "[whatsapp] Signature validation threw unexpectedly:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
       return false;
     }
   }
