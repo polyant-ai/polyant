@@ -32,13 +32,14 @@ const MAX_TWILIO_MEDIA = 10;
 /**
  * Single client-facing message for EVERY pre-auth failure on either webhook
  * route (unknown instance, unconfigured/disabled channel, inactive adapter,
- * or a mode mismatch — i.e. hitting the wrong route for the channel's
- * configured auth mode). NestJS puts the exception message in the response
- * body, so distinguishable messages here would let an anonymous caller with
- * a junk secret enumerate valid instance slugs and learn which have a live
+ * a mode mismatch — i.e. hitting the wrong route for the channel's
+ * configured auth mode — or a wrong/missing path secret on the apiKey
+ * route). NestJS puts the exception message in the response body, so
+ * distinguishable messages here would let an anonymous caller with a junk
+ * secret enumerate valid instance slugs and learn which have a live
  * WhatsApp channel. The real reason is logged server-side instead.
  */
-const WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE = "WhatsApp webhook not available for this instance";
+export const WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE = "WhatsApp webhook not available for this instance";
 
 /**
  * Constant-time comparison of two secrets. `timingSafeEqual` throws on a
@@ -142,9 +143,15 @@ export class TwilioWebhookController {
 
     const expected = typeof config.webhookSecret === "string" ? config.webhookSecret : "";
     if (!expected || !secretsMatch(expected, webhookSecret)) {
-      // Slug only — never the secret, never the path.
+      // Slug only — never the secret, never the path. Answers the same
+      // shared 404 as every other pre-auth failure: a distinguishable 403
+      // here would tell an anonymous prober "this slug exists AND has an
+      // enabled API-Key-mode WhatsApp channel with a live adapter" — the
+      // exact existence oracle the unified 404 exists to close. The
+      // distinguishing detail (bad secret vs. unconfigured channel) is kept
+      // in this server-side log line only.
       console.warn("[whatsapp] Invalid webhook secret for instance:", instanceSlug);
-      throw new ForbiddenException("Invalid webhook credentials");
+      throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
 
     return this.dispatchInbound(instanceSlug, adapter, body);
@@ -217,5 +224,3 @@ export class TwilioWebhookController {
     return `${proto}://${host}${req.originalUrl}`;
   }
 }
-
-export { WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE };
