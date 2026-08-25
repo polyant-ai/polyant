@@ -263,17 +263,18 @@ async function prepareChannelConfig(
  * Set or update a channel config for an instance (by UUID).
  *
  * NOTE: `packages/engine/src/instances/import.service.ts` writes rows into
- * `instance_channels` directly, bypassing this function entirely. Only the
- * EXPORT side strips credential-like keys (`export.service.ts`) — the import
- * side does NOT: `export.schema.ts` types channel config as
- * `z.record(z.unknown())`, and `import.service.ts` computes `canEnable` by
- * `safeParse`-ing whatever the bundle contains. A hand-crafted bundle
- * carrying `authMode: "apiKey"` plus a caller-chosen `webhookSecret` satisfies
- * the union and IS written enabled, bypassing both the allowlist and the
- * invariant this function guarantees. Stripping on import is a tracked
- * follow-up, not yet implemented.
+ * `instance_channels` directly, bypassing this function entirely.
+ * `export.schema.ts` types channel config as `z.record(z.unknown())`, so
+ * `import.service.ts` computes `canEnable` by `safeParse`-ing whatever the
+ * bundle contains — a hand-crafted bundle carrying `authMode: "apiKey"` plus
+ * a caller-chosen `webhookSecret` would otherwise satisfy the union and be
+ * written enabled, bypassing both the allowlist and the invariant this
+ * function guarantees. `import.service.ts` now runs the bundle's config
+ * through `stripSensitiveKeys` (`channel-config-sanitize.ts`, shared with
+ * `export.service.ts`) before it ever reaches `channelConfigSchemas`, so a
+ * credential-like key can no longer survive the round trip either way.
  *
- * What actually contains the blast radius today: `POST /api/instances/import`
+ * What further contains the blast radius: `POST /api/instances/import`
  * requires `AGENT_WRITE`, and every system role holding `AGENT_WRITE` also
  * holds `CHANNEL_WRITE` (`authz/permissions.ts` — `MEMBER_PERMISSIONS` grants
  * both together, and `admin`/`owner` inherit both) — so importing a bundle

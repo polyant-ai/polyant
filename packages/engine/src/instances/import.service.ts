@@ -13,6 +13,7 @@ import { instanceSkills } from "./instance-skills.schema.js";
 import { instanceTools } from "./instance-tools.schema.js";
 import { instanceChannels } from "./channels.schema.js";
 import { channelConfigSchemas, type ChannelType } from "./channels.store.js";
+import { stripSensitiveKeys } from "./channel-config-sanitize.js";
 import { instanceSkillEnv } from "./skill-env.schema.js";
 import { skills, skillVersions } from "../skills/schema.js";
 import { tools } from "../agents/tools/tools.schema.js";
@@ -491,7 +492,10 @@ async function importManualTools(
   return warnings;
 }
 
-async function importChannels(
+// Exported for direct unit testing (mirrors importMcpServers below) — a
+// minimal fake `tx` capturing insert().values() calls is enough to verify the
+// credential-stripping behaviour, without mocking the whole database client.
+export async function importChannels(
   tx: TxClient,
   instanceId: string,
   channels: ExportInstanceData["channels"],
@@ -499,7 +503,14 @@ async function importChannels(
   const warnings: ImportWarning[] = [];
 
   for (const ch of channels) {
-    const config = ch.config ?? {};
+    // Strip credential-like keys BEFORE validation/persistence — never trust
+    // the exporter to have done it. A hand-crafted bundle (as opposed to one
+    // this codebase produced) could carry a caller-chosen `webhookSecret` for
+    // the WhatsApp `apiKey` inbound-auth route; stripping it here means the
+    // union below can only ever be satisfied by a genuinely credential-less
+    // config, exactly like the invariant `setChannelConfig` enforces on the
+    // normal write path (see the NOTE on that function in channels.store.ts).
+    const config = stripSensitiveKeys(ch.config ?? {});
     const schema = channelConfigSchemas[ch.channelType as ChannelType];
 
     // A channel can be safely (re)enabled on import ONLY if its non-secret
@@ -769,6 +780,16 @@ async function importRoom(
     });
 }
 
+// No `stripSensitiveKeys` call needed here, unlike importChannels: a bundle
+// cannot carry an event-source credential even in principle.
+// `exportEventSourceSchema` (export.schema.ts) has no `config`/`webhookToken`
+// field at all — Zod's default object parsing drops any such key a crafted
+// bundle adds — and this function ignores `source.enabled` and never persists
+// `source.config`: every imported row is inserted with `config: ""`,
+// `enabled: false`, and a freshly server-minted `webhookToken`
+// (`generateToken(32)`, same primitive `setChannelConfig` uses for the
+// WhatsApp webhook secret), so a bundle-supplied value could never reach
+// storage either way.
 async function importEventSources(
   tx: TxClient,
   instanceId: string,

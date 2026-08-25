@@ -14,6 +14,7 @@ import { instanceTools } from "./instance-tools.schema.js";
 import { tools } from "../agents/tools/tools.schema.js";
 import { instanceSecrets } from "./secrets.schema.js";
 import { instanceChannels } from "./channels.schema.js";
+import { stripSensitiveKeys } from "./channel-config-sanitize.js";
 import { instanceSkillEnv } from "./skill-env.schema.js";
 import { decrypt } from "../crypto/index.js";
 import { getRoomByInstanceId } from "../room/room.store.js";
@@ -23,18 +24,6 @@ import { listHooks } from "../hooks/hooks.store.js";
 import { listMcpServers, type McpAuthMode } from "./mcp-servers.store.js";
 import { MCP_SECRET_PATHS, MCP_SECRET_SUBTREES } from "../server/instances/mcp-config-mask.js";
 import { INSTANCE_BUNDLE_VERSION, type InstanceBundle, type ExportInstanceData } from "./export.schema.js";
-
-// Credential-like config keys, stripped from channel config before export so a
-// bundle never carries secrets at rest. Mirrors the masking rule used by the
-// management API (instance-helpers.ts) — kept local to avoid a server→domain dep.
-const SENSITIVE_KEY_PATTERN = /(?:token|secret|password|key|credential)/i;
-
-/** Return a copy of `config` with credential-like keys removed. */
-export function stripSensitiveKeys(config: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(config).filter(([key]) => !SENSITIVE_KEY_PATTERN.test(key)),
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Export instance
@@ -276,7 +265,7 @@ async function exportHooks(instanceId: InstanceUuid) {
 // MCP servers
 // ---------------------------------------------------------------------------
 
-// stripSensitiveKeys (above) is FLAT (top-level key-name matching) — MCP
+// stripSensitiveKeys (channel-config-sanitize.ts) is FLAT (top-level key-name matching) — MCP
 // secrets are NESTED (config.auth.token, config.staticClient.clientSecret,
 // config.dcrClient.client_secret), so a flat strip would miss them entirely.
 // The leaf paths themselves come from the SAME MCP_SECRET_PATHS const that
