@@ -198,6 +198,43 @@ describe("ChannelsTab — WhatsApp renders through its dedicated card", () => {
 
     await waitFor(() => expect(mockList.mock.calls.length).toBeGreaterThan(callsBeforeSave));
   });
+
+  /**
+   * `channel` — what the card is told via its prop — must be derived from a
+   * freshly re-fetched list, not from stale state. A refactor that keeps
+   * calling `initStates(res.channels)` in `onChanged` but stops updating the
+   * raw list (e.g. drops `setRawChannels`) would leave the card believing a
+   * just-deleted channel is still configured, with no test catching it.
+   */
+  it("reflects a deletion reported through onChanged: the card goes from configured to unconfigured", async () => {
+    // A stable implementation (not queued mockResolvedValueOnce calls) —
+    // this component's `useI18n` mock returns a fresh `t` identity on every
+    // render, which re-runs the list-loading effect on every commit, so a
+    // once-queue would be drained by that churn before the test ever gets
+    // to click anything. Reading current mutable state on every call is
+    // immune to how many times the effect happens to fire.
+    let configured = true;
+    mockList.mockImplementation(() =>
+      Promise.resolve({ channels: configured ? [channel("whatsapp", true)] : [] }),
+    );
+    mockDelete.mockImplementation(() => {
+      configured = false;
+      return Promise.resolve({ deleted: true });
+    });
+
+    renderTab("whatsapp");
+
+    // Configured: the card renders its destructive Trash trigger (icon-only,
+    // so identified by the same class the rest of this file already uses).
+    await waitFor(() => expect(document.querySelector("button.text-destructive")).not.toBeNull());
+
+    await userEvent.click(document.querySelector("button.text-destructive") as HTMLElement);
+    await userEvent.click(screen.getByRole("button", { name: "common.delete" }));
+
+    // Unconfigured after the refresh the card's own onChanged triggered: the
+    // Trash trigger (only rendered when `channel` is truthy) is gone.
+    await waitFor(() => expect(document.querySelector("button.text-destructive")).toBeNull());
+  });
 });
 
 /**
