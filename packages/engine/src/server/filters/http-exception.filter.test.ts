@@ -144,49 +144,77 @@ describe("GlobalExceptionFilter", () => {
     const secret = "a".repeat(32) + "b".repeat(32); // 64 hex chars, like a real webhookSecret
     const secretUrl = `/webhooks/twilio/acme-support/whatsapp/${secret}`;
 
+    /**
+     * Spy on every `console.*` channel the filter (or a future regression)
+     * could log through, so a stray `console.info`/`console.log`/`console.debug`
+     * line added next to the redaction can't silently carry the secret past
+     * a test that only watched one channel.
+     */
+    function spyAllConsoleChannels() {
+      return {
+        error: vi.spyOn(console, "error").mockImplementation(() => {}),
+        warn: vi.spyOn(console, "warn").mockImplementation(() => {}),
+        log: vi.spyOn(console, "log").mockImplementation(() => {}),
+        debug: vi.spyOn(console, "debug").mockImplementation(() => {}),
+        info: vi.spyOn(console, "info").mockImplementation(() => {}),
+      };
+    }
+
+    function allLoggedText(spies: ReturnType<typeof spyAllConsoleChannels>): string {
+      return Object.values(spies)
+        .flatMap((spy) => spy.mock.calls)
+        .flat()
+        .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
+        .join(" ");
+    }
+
+    function restoreAll(spies: ReturnType<typeof spyAllConsoleChannels>): void {
+      Object.values(spies).forEach((spy) => spy.mockRestore());
+    }
+
     it("redacts the path secret on the HttpException log branch (console.error)", () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const spies = spyAllConsoleChannels();
       const res = createMockResponse();
       const host = createMockHost(res, createMockRequest("POST", secretUrl));
 
       filter.catch(new HttpException("Too Many Requests", 429), host);
 
-      expect(errorSpy).toHaveBeenCalledTimes(1);
-      const logged = errorSpy.mock.calls[0].join(" ");
+      expect(spies.error).toHaveBeenCalledTimes(1);
+      const logged = allLoggedText(spies);
       expect(logged).not.toContain(secret);
       expect(logged).toContain(REDACTED_PLACEHOLDER);
 
-      errorSpy.mockRestore();
+      restoreAll(spies);
     });
 
     it("redacts the path secret on the TypeError/RangeError -> 400 branch (console.warn)", () => {
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const spies = spyAllConsoleChannels();
       const res = createMockResponse();
       const host = createMockHost(res, createMockRequest("POST", secretUrl));
 
       filter.catch(new TypeError("Cannot read properties of undefined (reading 'map')"), host);
 
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      const logged = warnSpy.mock.calls[0].join(" ");
+      expect(spies.warn).toHaveBeenCalledTimes(1);
+      const logged = allLoggedText(spies);
       expect(logged).not.toContain(secret);
       expect(logged).toContain(REDACTED_PLACEHOLDER);
 
-      warnSpy.mockRestore();
+      restoreAll(spies);
     });
 
     it("redacts the path secret on the unhandled -> 500 branch (console.error)", () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const spies = spyAllConsoleChannels();
       const res = createMockResponse();
       const host = createMockHost(res, createMockRequest("POST", secretUrl));
 
       filter.catch(new Error("boom"), host);
 
-      expect(errorSpy).toHaveBeenCalledTimes(1);
-      const logged = errorSpy.mock.calls[0].join(" ");
+      expect(spies.error).toHaveBeenCalledTimes(1);
+      const logged = allLoggedText(spies);
       expect(logged).not.toContain(secret);
       expect(logged).toContain(REDACTED_PLACEHOLDER);
 
-      errorSpy.mockRestore();
+      restoreAll(spies);
     });
   });
 });
