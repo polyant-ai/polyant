@@ -55,48 +55,97 @@ describe("redactWebhookPath", () => {
     expect(result).toBe(`/webhooks/twilio/acme-support/whatsapp/${REDACTED_PLACEHOLDER}/`);
   });
 
-  it("masks the secret when extra unexpected path segments trail it (fail-safe default)", () => {
+  it("masks each trailing segment individually when extra unexpected path segments trail the secret (fail-safe default)", () => {
+    // The fail-safe must preserve the SEGMENT COUNT — that's the detail an
+    // operator needs to diagnose a mistyped webhook URL — rather than
+    // collapsing the whole tail into one opaque token.
     const result = redactWebhookPath("/webhooks/twilio/acme-support/whatsapp/mysecret/extra/segments");
 
     expect(result).not.toContain("mysecret");
-    expect(result).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
+    expect(result).toBe(
+      `/webhooks/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}`,
+    );
   });
 
-  it("masks a doubled slash before the secret (fail-safe default)", () => {
+  it("masks a doubled slash before the secret while preserving the doubled slash (fail-safe default)", () => {
     const result = redactWebhookPath("/webhooks/twilio/acme-support/whatsapp//mysecret");
 
     expect(result).not.toContain("mysecret");
-    expect(result).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
+    expect(result).toBe(
+      `/webhooks/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}//${REDACTED_PLACEHOLDER}`,
+    );
   });
 
-  it("masks a leading doubled slash before /webhooks/ (fail-safe default)", () => {
+  it("masks a leading doubled slash before /webhooks/, keeping the leading slash visible (fail-safe default)", () => {
     const result = redactWebhookPath("//webhooks/twilio/acme-support/whatsapp/mysecret");
 
     expect(result).not.toContain("mysecret");
-    expect(result).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
+    expect(result).toBe(
+      `//webhooks/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}`,
+    );
   });
 
   it("masks a percent-encoded route segment that breaks the literal match (fail-safe default)", () => {
     const result = redactWebhookPath("/webhooks/twilio/acme-support/whats%61pp/mysecret");
 
     expect(result).not.toContain("mysecret");
-    expect(result).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
+    expect(result).toBe(
+      `/webhooks/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}`,
+    );
   });
 
-  it("is case-insensitive for the Twilio secret route (matches Express's default routing)", () => {
+  it("masks a webhook path reachable under an added prefix, e.g. a future global prefix or proxy (unanchored fail-safe)", () => {
+    // `WEBHOOKS_SEGMENT` is unanchored (matches `webhooks/` anywhere,
+    // preceded by `/` or the string start), so a global prefix
+    // (`app.setGlobalPrefix`) or a proxy forwarding under its own path
+    // still gets the secret masked instead of falling through unredacted.
+    const result = redactWebhookPath("/api/proxy/webhooks/twilio/acme-support/whatsapp/mysecret");
+
+    expect(result).not.toContain("mysecret");
+    expect(result).toBe(
+      `/api/proxy/webhooks/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}`,
+    );
+  });
+
+  it("is case-insensitive for the Twilio secret route (matches Express's default routing), preserving the original case of the slug", () => {
+    // Pinned to an EXACT output: `not.toContain(secret)` alone would also
+    // pass if the fail-safe branch (independently case-insensitive) fired
+    // instead of `TWILIO_SECRET_PATH` — the two mechanisms would shadow each
+    // other and neither would be individually pinned.
     const upper = redactWebhookPath("/WEBHOOKS/TWILIO/acme-support/WHATSAPP/mysecret");
-    expect(upper).not.toContain("mysecret");
+    expect(upper).toBe(`/WEBHOOKS/TWILIO/acme-support/WHATSAPP/${REDACTED_PLACEHOLDER}`);
 
     const mixed = redactWebhookPath("/WebHooks/Twilio/acme-support/WhatsApp/mysecret");
-    expect(mixed).not.toContain("mysecret");
+    expect(mixed).toBe(`/WebHooks/Twilio/acme-support/WhatsApp/${REDACTED_PLACEHOLDER}`);
   });
 
   it("is case-insensitive for the generic token route (matches Express's default routing)", () => {
+    // Pinned to an EXACT output for the same reason as above.
     const upper = redactWebhookPath("/WEBHOOKS/abcdef123456");
-    expect(upper).not.toContain("abcdef123456");
+    expect(upper).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
 
     const mixed = redactWebhookPath("/WebHooks/AbcDef123456");
-    expect(mixed).not.toContain("AbcDef123456");
+    expect(mixed).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
+  });
+
+  it("strips userinfo from the origin before echoing it into the log", () => {
+    // `getFullUrl` builds the origin from the attacker-controlled
+    // X-Forwarded-Host header, and that URL is logged on signature failure —
+    // so a crafted `user:pass@host` authority must never reach the log line.
+    const result = redactWebhookPath(
+      "https://user:p4ssw0rd@host/webhooks/twilio/acme-support/whatsapp/mysecret",
+    );
+
+    expect(result).toBe(`https://host/webhooks/twilio/acme-support/whatsapp/${REDACTED_PLACEHOLDER}`);
+    expect(result).not.toContain("p4ssw0rd");
+    expect(result).not.toContain("user:");
+  });
+
+  it("strips a bare userinfo (no password) from the origin", () => {
+    const result = redactWebhookPath("https://user@host/webhooks/abcdef123456");
+
+    expect(result).toBe(`https://host/webhooks/${REDACTED_PLACEHOLDER}`);
+    expect(result).not.toContain("user@");
   });
 
   it("does not throw on an empty path", () => {
