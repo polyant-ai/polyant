@@ -47,6 +47,7 @@ const { mockDb, mockEncrypt, mockDecrypt, mockGenerateToken } = vi.hoisted(() =>
     update: vi.fn(),
     insert: vi.fn(),
     delete: vi.fn(),
+    transaction: vi.fn(),
   };
   const mockEncrypt = vi.fn((v: string) => `encrypted:${v}`);
   const mockDecrypt = vi.fn((v: string) => v.replace("encrypted:", ""));
@@ -113,10 +114,17 @@ function lastPersistedConfig(): Record<string, unknown> {
   return JSON.parse((storedRow as { config: string }).config.replace("encrypted:", "")) as Record<string, unknown>;
 }
 
+/** The most recent chain object returned by `mockDb.select`, so a test can inspect e.g. `.for(...)`. */
+let lastSelectChain: ReturnType<typeof createChainMock> | undefined;
+
 beforeEach(() => {
   vi.clearAllMocks();
   storedRow = null;
-  mockDb.select.mockImplementation(() => createChainMock(storedRow ? [{ config: storedRow.config }] : []));
+  lastSelectChain = undefined;
+  mockDb.select.mockImplementation(() => {
+    lastSelectChain = createChainMock(storedRow ? [{ config: storedRow.config }] : []);
+    return lastSelectChain;
+  });
   mockDb.insert.mockImplementation(() => {
     const chain: Record<string, unknown> = {};
     chain.values = vi.fn((values: { config: string }) => {
@@ -126,6 +134,10 @@ beforeEach(() => {
     chain.onConflictDoUpdate = vi.fn(() => chain);
     return chain;
   });
+  // Real `db.transaction` hands the callback a tx client; the fake here hands
+  // it the SAME `mockDb` so `select`/`insert` inside the callback are the
+  // exact spies these tests already assert on.
+  mockDb.transaction.mockImplementation(async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb));
 });
 
 describe("instances/channels.store — WhatsApp credential modes", () => {
@@ -335,6 +347,93 @@ describe("instances/channels.store — WhatsApp credential modes", () => {
       );
       expect(fourth.mintedWebhookSecret).toBe(true);
       expect(fourth.config.webhookSecret).not.toBe(secretA);
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // Read-then-write transactionality (#279). A real concurrent race cannot
+  // be reproduced in a unit test — these tests pin the MECHANISM (the
+  // carry-forward read runs inside the same transaction as the upsert and
+  // takes a row lock), not the race itself.
+  // -------------------------------------------------------------------
+  describe("read-then-write transactionality (carry-forward path)", () => {
+    it("wraps the carry-forward read and the upsert in one db.transaction, with a row lock on the read", async () => {
+      seedStoredRow({
+        authMode: "apiKey",
+        accountSid: ACCOUNT_SID,
+        apiKeySid: API_KEY_SID,
+        apiKeySecret: "sec",
+        webhookSecret: "keep-me",
+        whatsappNumber: NUMBER,
+      });
+
+      await setChannelConfig(
+        INSTANCE_UUID,
+        "whatsapp",
+        {
+          authMode: "apiKey",
+          accountSid: ACCOUNT_SID,
+          apiKeySid: API_KEY_SID,
+          apiKeySecret: "sec",
+          whatsappNumber: "+19998887777",
+        },
+        true,
+      );
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+      // The read that carries the secret forward must take a row lock ...
+      expect(lastSelectChain?.for).toHaveBeenCalledWith("update");
+      // ... and both the read and the write must happen INSIDE the
+      // transaction (i.e. after `db.transaction` was invoked), not before it.
+      const txOrder = mockDb.transaction.mock.invocationCallOrder[0];
+      const selectOrder = mockDb.select.mock.invocationCallOrder[0];
+      const insertOrder = mockDb.insert.mock.invocationCallOrder[0];
+      expect(selectOrder).toBeGreaterThan(txOrder);
+      expect(insertOrder).toBeGreaterThan(txOrder);
+    });
+
+    it("also wraps the first-ever mint (no prior row) in the same transaction", async () => {
+      await setChannelConfig(
+        INSTANCE_UUID,
+        "whatsapp",
+        { authMode: "apiKey", accountSid: ACCOUNT_SID, apiKeySid: API_KEY_SID, apiKeySecret: "sec", whatsappNumber: NUMBER },
+        true,
+      );
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+      expect(lastSelectChain?.for).toHaveBeenCalledWith("update");
+    });
+
+    it("does NOT open a transaction for a rotation (no carry-forward read to protect)", async () => {
+      seedStoredRow({
+        authMode: "apiKey",
+        accountSid: ACCOUNT_SID,
+        apiKeySid: API_KEY_SID,
+        apiKeySecret: "sec",
+        webhookSecret: "old-secret",
+        whatsappNumber: NUMBER,
+      });
+
+      await setChannelConfig(
+        INSTANCE_UUID,
+        "whatsapp",
+        { authMode: "apiKey", accountSid: ACCOUNT_SID, apiKeySid: API_KEY_SID, apiKeySecret: "sec", whatsappNumber: NUMBER },
+        true,
+        { rotateWebhookSecretTo: "explicit-rotated-value" },
+      );
+
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+
+    it("does NOT open a transaction for an authToken-mode save", async () => {
+      await setChannelConfig(
+        INSTANCE_UUID,
+        "whatsapp",
+        { authMode: "authToken", accountSid: ACCOUNT_SID, authToken: "tok", whatsappNumber: NUMBER },
+        true,
+      );
+
+      expect(mockDb.transaction).not.toHaveBeenCalled();
     });
   });
 

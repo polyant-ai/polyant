@@ -2,7 +2,7 @@
 
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "../database/client.js";
+import { db, type DbExecutor, type DbTransaction } from "../database/client.js";
 import { instanceChannels } from "./channels.schema.js";
 import { encrypt, decrypt, generateToken } from "../crypto/index.js";
 import { resolveInstanceId } from "./resolve-instance-id.js";
@@ -194,13 +194,23 @@ export interface SetChannelConfigResult {
 /**
  * Read the webhookSecret of the currently stored WhatsApp config, if any and
  * if it is in `apiKey` mode. Used only to carry the secret forward across a
- * save that does not rotate it — see `prepareChannelConfig`.
+ * save that does not rotate it — see `setChannelConfig`.
+ *
+ * MUST run inside the same transaction as the upsert that follows, on a `tx`
+ * that has already taken `FOR UPDATE` on this row (see #279): otherwise a
+ * rotation or another save committing between this read and that upsert can
+ * overwrite it with the value read here, undoing the concurrent write while
+ * the audit log claims it succeeded.
  */
-async function readExistingApiKeyWebhookSecret(instanceId: InstanceUuid): Promise<string | undefined> {
-  const rows = await db
+async function readExistingApiKeyWebhookSecretForUpdate(
+  instanceId: InstanceUuid,
+  tx: DbTransaction,
+): Promise<string | undefined> {
+  const rows = await tx
     .select({ config: instanceChannels.config })
     .from(instanceChannels)
     .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, WHATSAPP_CHANNEL_TYPE)))
+    .for("update")
     .limit(1);
   if (!rows[0]) return undefined;
 
@@ -211,12 +221,61 @@ async function readExistingApiKeyWebhookSecret(instanceId: InstanceUuid): Promis
 }
 
 /**
- * Channel-type-specific normalization applied before validation/persistence.
+ * Pure (no DB) half of WhatsApp config preparation: strip any caller-supplied
+ * `webhookSecret` (see the chokepoint note on `setChannelConfig` below) and
+ * drop the credentials of the mode not in use. Split out so `setChannelConfig`
+ * can decide — WITHOUT touching the DB — whether this save needs the
+ * carry-forward read at all, and therefore whether it needs a transaction.
+ */
+function pruneAndResolveWhatsAppConfig(config: Record<string, unknown>): {
+  pruned: Record<string, unknown>;
+  mode: WhatsAppAuthMode;
+} {
+  const withoutSecret: Record<string, unknown> = { ...config };
+  delete withoutSecret.webhookSecret;
+  const pruned = pruneWhatsAppCredentials(withoutSecret);
+  return { pruned, mode: resolveWhatsAppAuthMode(pruned) };
+}
+
+/**
+ * Validate `config` against its channel schema and upsert it, on the given
+ * executor (the root `db`, or an open transaction for the one path that needs
+ * one — see `setChannelConfig`). Persists the PARSED value, not the raw
+ * input: the schemas trim pasted credentials and drop keys that do not belong
+ * to the validated shape, and both only take effect if the parsed result is
+ * what gets encrypted.
+ */
+async function persistChannelConfig(
+  executor: DbExecutor,
+  instanceId: InstanceUuid,
+  channelType: ChannelType,
+  config: Record<string, unknown>,
+  enabled: boolean,
+  mintedWebhookSecret: boolean,
+): Promise<SetChannelConfigResult> {
+  const schema = channelConfigSchemas[channelType];
+  const parsed = schema.parse(config) as Record<string, unknown>;
+  const encryptedConfig = encrypt(JSON.stringify(parsed));
+
+  await executor
+    .insert(instanceChannels)
+    .values({ instanceId, channelType, enabled, config: encryptedConfig })
+    .onConflictDoUpdate({
+      target: [instanceChannels.instanceId, instanceChannels.channelType],
+      set: { enabled, config: encryptedConfig, updatedAt: new Date() },
+    });
+
+  return { mintedWebhookSecret, config: parsed };
+}
+
+/**
+ * Set or update a channel config for an instance (by UUID).
+ *
  * WhatsApp is the only type with a stateful invariant today — pruning the
  * unused credential mode's fields and, for `apiKey` mode, guaranteeing a
  * server-controlled inbound webhook secret. This is the SOLE chokepoint for
  * that invariant: a `webhookSecret` inside `config` is unconditionally
- * stripped before it reaches validation, so NO writer of `setChannelConfig` —
+ * stripped before it reaches validation, so NO caller of `setChannelConfig` —
  * present or future — can let a caller-chosen value become the authenticator
  * of the unauthenticated inbound webhook route, even if it forgets to
  * allowlist the field itself. The only sanctioned way to set the secret is
@@ -224,43 +283,19 @@ async function readExistingApiKeyWebhookSecret(instanceId: InstanceUuid): Promis
  *
  * When the target mode is `apiKey` and no rotation was requested, the secret
  * is carried forward from the currently stored row (an extra read, scoped to
- * exactly this case — telegram/slack/agent saves and authToken-mode WhatsApp
- * saves never pay it) so a save that only touches an unrelated field (e.g.
- * `whatsappNumber`) never rotates the secret out from under an
- * already-configured Twilio Console. Its absence — first save in `apiKey`
- * mode, or the previous save was `authToken` mode — mints a fresh one.
- */
-async function prepareChannelConfig(
-  instanceId: InstanceUuid,
-  channelType: ChannelType,
-  config: Record<string, unknown>,
-  options: SetChannelConfigOptions,
-): Promise<{ config: Record<string, unknown>; mintedWebhookSecret: boolean }> {
-  if (channelType !== WHATSAPP_CHANNEL_TYPE) {
-    return { config, mintedWebhookSecret: false };
-  }
-
-  const withoutSecret: Record<string, unknown> = { ...config };
-  delete withoutSecret.webhookSecret;
-  const pruned = pruneWhatsAppCredentials(withoutSecret);
-
-  if (resolveWhatsAppAuthMode(pruned) !== WHATSAPP_AUTH_MODE_API_KEY) {
-    return { config: pruned, mintedWebhookSecret: false };
-  }
-
-  if (options.rotateWebhookSecretTo) {
-    return { config: { ...pruned, webhookSecret: options.rotateWebhookSecretTo }, mintedWebhookSecret: false };
-  }
-
-  const existingSecret = await readExistingApiKeyWebhookSecret(instanceId);
-  if (existingSecret) {
-    return { config: { ...pruned, webhookSecret: existingSecret }, mintedWebhookSecret: false };
-  }
-  return { config: { ...pruned, webhookSecret: generateToken(32) }, mintedWebhookSecret: true };
-}
-
-/**
- * Set or update a channel config for an instance (by UUID).
+ * exactly this case — telegram/slack/agent saves, authToken-mode WhatsApp
+ * saves, and explicit rotations never pay it) so a save that only touches an
+ * unrelated field (e.g. `whatsappNumber`) never rotates the secret out from
+ * under an already-configured Twilio Console. Its absence — first save in
+ * `apiKey` mode, or the previous save was `authToken` mode — mints a fresh
+ * one.
+ *
+ * That carry-forward is the only read-then-write in this function, so it is
+ * the only branch wrapped in `db.transaction` with a row lock on the read
+ * (`readExistingApiKeyWebhookSecretForUpdate`, #279): a rotation or an
+ * unrelated save committing between the read and the upsert below must not be
+ * able to resurrect the value read here — the leaked secret this function
+ * exists to retire would go live again while the audit log says otherwise.
  *
  * NOTE: `packages/engine/src/instances/import.service.ts` writes rows into
  * `instance_channels` directly, bypassing this function entirely.
@@ -290,31 +325,26 @@ export async function setChannelConfig(
   enabled: boolean,
   options: SetChannelConfigOptions = {},
 ): Promise<SetChannelConfigResult> {
-  const { config: prepared, mintedWebhookSecret } = await prepareChannelConfig(
-    instanceId,
-    channelType,
-    config,
-    options,
-  );
+  if (channelType !== WHATSAPP_CHANNEL_TYPE) {
+    return persistChannelConfig(db, instanceId, channelType, config, enabled, false);
+  }
 
-  // Validate config against channel schema. Persist the PARSED value, not the
-  // raw input: the schemas trim pasted credentials and drop keys that do not
-  // belong to the validated shape, and both only take effect if the parsed
-  // result is what gets encrypted.
-  const schema = channelConfigSchemas[channelType];
-  const parsed = schema.parse(prepared) as Record<string, unknown>;
+  const { pruned, mode } = pruneAndResolveWhatsAppConfig(config);
 
-  const encryptedConfig = encrypt(JSON.stringify(parsed));
+  if (mode !== WHATSAPP_AUTH_MODE_API_KEY) {
+    return persistChannelConfig(db, instanceId, channelType, pruned, enabled, false);
+  }
 
-  await db
-    .insert(instanceChannels)
-    .values({ instanceId, channelType, enabled, config: encryptedConfig })
-    .onConflictDoUpdate({
-      target: [instanceChannels.instanceId, instanceChannels.channelType],
-      set: { enabled, config: encryptedConfig, updatedAt: new Date() },
-    });
+  if (options.rotateWebhookSecretTo) {
+    const withSecret = { ...pruned, webhookSecret: options.rotateWebhookSecretTo };
+    return persistChannelConfig(db, instanceId, channelType, withSecret, enabled, false);
+  }
 
-  return { mintedWebhookSecret, config: parsed };
+  return db.transaction(async (tx) => {
+    const existingSecret = await readExistingApiKeyWebhookSecretForUpdate(instanceId, tx);
+    const withSecret = { ...pruned, webhookSecret: existingSecret ?? generateToken(32) };
+    return persistChannelConfig(tx, instanceId, channelType, withSecret, enabled, !existingSecret);
+  });
 }
 
 /** Get a single channel config for an instance (by slug). */
