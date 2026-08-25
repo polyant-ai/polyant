@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Webhook paths that carry a credential are redacted before being written to logs, covering both the WhatsApp inbound webhook secret and the Room event-source webhook token.
 - Inbound WhatsApp webhook requests that fail before authentication all return one identical response, so an anonymous caller cannot enumerate agent slugs or determine which credential mode a channel uses.
+- Request-controlled values are stripped of line breaks before being written to a log line, so they cannot introduce additional log records.
 
 ## [1.0.0] - 2026-08-05
 
