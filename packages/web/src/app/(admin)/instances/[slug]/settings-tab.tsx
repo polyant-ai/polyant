@@ -1128,7 +1128,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         <div className="space-y-2">
           <Label>{t("settings.tab.sttProvider")}</Label>
           <Select value={sttProvider} onValueChange={(v) => setSttProvider(v as STTProvider)}>
-            <SelectTrigger>
+            <SelectTrigger aria-label={t("settings.tab.sttProvider")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

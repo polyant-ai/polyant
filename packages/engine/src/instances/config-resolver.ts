@@ -136,7 +136,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
 
   const secrets = await getAllSecretsById(instance.id);
 
-  const sttProviderRaw = (instance as { sttProvider?: string | null }).sttProvider ?? "openai";
+  const sttProviderRaw = instance.sttProvider;
   const sttProvider: InstanceSttSetting =
     sttProviderRaw === "aws" || sttProviderRaw === "deepgram" || sttProviderRaw === "disabled"
       ? sttProviderRaw
