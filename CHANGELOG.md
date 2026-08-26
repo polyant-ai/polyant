@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tail of the Tools page.
 - A scheduled task can be created disabled: `POST` accepts `enabled` (default
   `true`), so a schedule can be staged without a window in which it can tick.
+- **WhatsApp channels can authenticate with a Twilio API Key** instead of the
+  account Auth Token. Twilio signs inbound webhooks with the Auth Token only, so
+  a channel in that mode receives messages on a dedicated webhook URL carrying a
+  server-generated secret, revealed and rotatable from the admin panel. First
+  released in 1.0.1; included here.
 
 ### Changed
 
@@ -128,6 +133,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   caller's tenant, navigation links no longer misfire while the tenancy loads,
   and an anonymous visitor keeps their query string across the login bounce.
 - Resources acquired by the engine are released on every path.
+- **An instance bundle can no longer introduce a channel credential.** Import
+  strips credential-like keys the way export already did, so a crafted bundle
+  cannot arrive carrying a webhook secret and have the channel enabled with it.
+- **WhatsApp media downloads only send Twilio credentials to Twilio.** The
+  `MediaUrl` on an inbound message is attacker-influenced; the first hop is now
+  checked against Twilio's API hosts, regional data-residency hosts included,
+  before the Basic credential is sent.
+- **A Room event-source webhook token now requires write permission to read.**
+  It lets its holder inject events into an agent, so a read-only role could
+  previously go from "can look" to "can drive". Its list response no longer
+  carries the token; a dedicated endpoint reveals it.
+- Credential-bearing webhook paths are redacted before they reach a log line
+  even when the path is percent-encoded or differently cased, and
+  request-controlled values are stripped of line breaks so they cannot forge
+  additional log records.
+- `X-Forwarded-Proto` is clamped to `http`/`https` when the webhook URL is
+  reconstructed, so a crafted value can neither corrupt the signature check nor
+  reach the log.
+- **Rotating a WhatsApp inbound secret can no longer be undone by a concurrent
+  save.** The carry-forward reads under a row lock inside the same transaction
+  as the write; previously a save that started before a rotation could commit
+  the old secret back, reviving it while the audit log said it had been retired.
+- Destroying a WhatsApp inbound secret is audited, both when a credential-mode
+  switch discards it and when the channel is deleted — so the audit trail no
+  longer records only the mints and rotations.
 
 ## [1.0.1] - 2026-08-25
 
