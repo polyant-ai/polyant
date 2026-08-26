@@ -2,6 +2,7 @@
 
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   BookOpen,
   ExternalLink,
@@ -11,10 +12,14 @@ import {
   PackageSearch,
   Scale,
 } from "lucide-react";
+import { useSession } from "next-auth/react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChangelogEntryCard } from "@/components/layout/changelog-entry-card";
 import { useI18n } from "@/lib/i18n/context";
 import { releaseInfo } from "@/lib/release-info";
+import { isPlatformAdminRole } from "@/lib/user-role";
+import type { ChangelogEntry } from "@/lib/changelog-types";
 
 const externalLinkProps = {
   target: "_blank",
@@ -45,6 +50,17 @@ function LinkTile({
 
 export default function AboutPage() {
   const { t } = useI18n();
+  const { data: session } = useSession();
+  const canViewChangelog = isPlatformAdminRole(session?.user?.role);
+  const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
+
+  useEffect(() => {
+    if (!canViewChangelog) return;
+    fetch("/changelog.json")
+      .then((res) => res.json())
+      .then((data: { changelog: ChangelogEntry[] }) => setChangelog(data.changelog))
+      .catch(() => setChangelog([]));
+  }, [canViewChangelog]);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -103,6 +119,19 @@ export default function AboutPage() {
           <LinkTile href="https://docs.polyant.ai" icon={BookOpen} label={t("about.documentation")} />
         </CardContent>
       </Card>
+
+      {canViewChangelog && changelog.length > 0 && (
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle>{t("about.changelogTitle")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {changelog.map((entry) => (
+              <ChangelogEntryCard key={entry.version} entry={entry} />
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <p className="mt-6 text-center text-sm text-muted-foreground">
         {t("about.maintainedByPrefix")}{" "}

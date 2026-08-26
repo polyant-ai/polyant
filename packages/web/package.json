@@ -15,7 +15,9 @@
     "url": "https://github.com/polyant-ai/polyant/issues"
   },
   "scripts": {
+    "predev": "tsx scripts/generate-changelog.ts",
     "dev": "next dev",
+    "prebuild": "tsx scripts/generate-changelog.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
