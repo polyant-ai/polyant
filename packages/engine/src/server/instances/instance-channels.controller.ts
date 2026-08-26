@@ -295,10 +295,23 @@ export class InstanceChannelsController {
   async removeChannel(
     @Param("slug") slug: string,
     @Param("type") channelType: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const instance = await findInstanceOrFail(slug);
+    const existing = await getChannelConfig(asInstanceSlug(slug), channelType as ChannelType);
+
     await channelManager.stopChannel(slug, channelType);
     await deleteChannelConfig(instance.id, channelType as ChannelType);
+
+    // Audit AFTER the config is actually gone but BEFORE the remaining side
+    // effect (agent-tool sync). Auditing earlier would claim a destruction
+    // that a failing delete never performed — worse than a missing row, since
+    // an operator reading `secret.delete` concludes the route is already dead
+    // and stops looking. Auditing later would risk losing the row for a
+    // destruction that did happen. Same reasoning as the mint/discard path in
+    // `setChannel`, adjusted for the fact that here the write IS the delete.
+    this.auditWebhookSecretDeleteIfDiscarded(slug, existing?.config, {}, user);
+
     if (channelType === AGENT_CHANNEL_TYPE) {
       await syncAgentTool({ slug, description: null, enable: false });
     }
