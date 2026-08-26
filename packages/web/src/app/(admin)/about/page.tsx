@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  Bot,
   BookOpen,
   ExternalLink,
   GitBranch,
@@ -14,7 +15,9 @@ import {
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { ChangelogEntryCard } from "@/components/layout/changelog-entry-card";
 import { useI18n } from "@/lib/i18n/context";
 import { releaseInfo } from "@/lib/release-info";
@@ -26,7 +29,7 @@ const externalLinkProps = {
   rel: "noreferrer",
 };
 
-function LinkTile({
+function LinkRow({
   href,
   icon: Icon,
   label,
@@ -37,13 +40,13 @@ function LinkTile({
 }) {
   return (
     <a
-      className="group flex items-center gap-3 rounded-md border border-border p-3 transition-colors hover:border-accent-strong hover:bg-secondary"
+      className="group flex items-center gap-2 text-sm underline underline-offset-4 hover:text-accent-strong"
       href={href}
       {...externalLinkProps}
     >
       <Icon className="size-4 text-muted-foreground group-hover:text-accent-strong" />
-      <span className="flex-1 text-sm font-medium">{label}</span>
-      <ExternalLink className="size-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+      {label}
+      <ExternalLink className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
     </a>
   );
 }
@@ -64,70 +67,55 @@ export default function AboutPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <div className="flex items-center gap-3">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {t("about.title", { version: releaseInfo.version })}
-          </h1>
-          <p className="text-muted-foreground">{t("about.description")}</p>
-        </div>
-      </div>
-
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>{t("about.version")}</CardTitle>
-          <CardDescription>{releaseInfo.version}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          {releaseInfo.revision && (
+      <Card>
+        <CardContent className="flex flex-col gap-4 p-4 sm:flex-row">
+          <div className="flex shrink-0 flex-col gap-2 sm:w-40">
             <div className="flex items-center gap-2">
-              <GitCommitHorizontal className="size-4 text-muted-foreground" />
-              <span className="text-muted-foreground">{t("about.revision")}:</span>
-              <code className="rounded-sm bg-secondary px-1.5 py-0.5">{releaseInfo.revision}</code>
+              <div className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                <Bot className="size-4" />
+              </div>
+              <span className="text-lg font-semibold">Polyant</span>
             </div>
-          )}
-          <div className="flex items-center gap-2">
-            <Scale className="size-4 text-muted-foreground" />
-            <span className="text-muted-foreground">{t("about.license")}:</span>
-            <a
-              className="text-accent-strong underline-offset-4 hover:underline"
-              href="https://www.gnu.org/licenses/agpl-3.0.html"
-              {...externalLinkProps}
-            >
-              AGPL-3.0
-            </a>
-          </div>
-          <a
-            className="inline-flex items-center gap-2 text-accent-strong underline-offset-4 hover:underline"
-            href={releaseInfo.releaseUrl}
-            {...externalLinkProps}
-          >
-            {t("about.releaseNotes")}
-            <ExternalLink className="size-3.5" />
-          </a>
-        </CardContent>
-      </Card>
 
-      <Card className="mt-4">
-        <CardHeader>
-          <CardTitle>Polyant</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2">
-          <LinkTile href={releaseInfo.repositoryUrl} icon={GitBranch} label={t("about.repository")} />
-          <LinkTile href={releaseInfo.sdkUrl} icon={PackageSearch} label={t("about.sdk")} />
-          <LinkTile href="https://polyant.ai" icon={Globe} label={t("about.website")} />
-          <LinkTile href="https://docs.polyant.ai" icon={BookOpen} label={t("about.documentation")} />
+            <Badge variant="outline" className="w-fit font-mono">
+              v{releaseInfo.version}
+            </Badge>
+
+            {releaseInfo.revision && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <GitCommitHorizontal className="size-3.5" />
+                <code>{releaseInfo.revision}</code>
+              </div>
+            )}
+          </div>
+
+          <Separator orientation="vertical" className="hidden sm:block" />
+          <Separator className="sm:hidden" />
+
+          <div className="flex flex-1 flex-col gap-3">
+            <p className="text-sm text-muted-foreground">{t("about.description")}</p>
+
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              <LinkRow href={releaseInfo.repositoryUrl} icon={GitBranch} label={t("about.repository")} />
+              <LinkRow href={releaseInfo.sdkUrl} icon={PackageSearch} label={t("about.sdk")} />
+              <LinkRow href="https://polyant.ai" icon={Globe} label={t("about.website")} />
+              <LinkRow href="https://docs.polyant.ai" icon={BookOpen} label={t("about.documentation")} />
+              <LinkRow
+                href="https://www.gnu.org/licenses/agpl-3.0.html"
+                icon={Scale}
+                label={`${t("about.license")}: AGPL-3.0`}
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
       {canViewChangelog && changelog.length > 0 && (
         <Card className="mt-4">
-          <CardHeader>
-            <CardTitle>{t("about.changelogTitle")}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {changelog.map((entry) => (
-              <ChangelogEntryCard key={entry.version} entry={entry} />
+          <CardContent className="space-y-3 p-4">
+            <h2 className="text-lg font-semibold">{t("about.changelogTitle")}</h2>
+            {changelog.map((entry, idx) => (
+              <ChangelogEntryCard key={entry.version} entry={entry} defaultOpen={idx === 0} />
             ))}
           </CardContent>
         </Card>

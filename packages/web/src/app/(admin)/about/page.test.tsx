@@ -35,9 +35,8 @@ describe("AboutPage", () => {
       </I18nProvider>,
     );
 
-    expect(
-      screen.getByRole("heading", { name: `Polyant ${releaseInfo.version}` }),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Polyant")).toBeInTheDocument();
+    expect(screen.getByText(`v${releaseInfo.version}`)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /agpl/i })).toHaveAttribute(
       "href",
       "https://www.gnu.org/licenses/agpl-3.0.html",
