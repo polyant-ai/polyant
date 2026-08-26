@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-08-26
+
+### Fixed
+
+- The Speech-to-Text provider setting now accepts an explicit "Disabled" value. An unrecognised or unset provider previously fell back silently to OpenAI Whisper, so an operator who wanted voice messages turned off had no way to say so, and audio replies could fail looking for credentials that were never configured. Choosing "Disabled" now returns a plain "voice messages are not supported" reply instead.
+
 ## [1.0.1] - 2026-08-25
 
 ### Added

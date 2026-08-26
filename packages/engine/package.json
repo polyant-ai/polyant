@@ -1,6 +1,6 @@
 {
   "name": "@polyant/engine",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Polyant AI runtime engine and management API",
   "license": "AGPL-3.0-or-later",
   "author": "Exelab S.r.l.",
