@@ -457,6 +457,7 @@
   "settings.tab.stt": "Audio (STT)",
   "settings.tab.sttHelp": "Provider per la trascrizione dei messaggi vocali in entrata. OpenAI usa la chiave già configurata; AWS usa le credenziali Bedrock; Deepgram richiede una chiave dedicata nei segreti.",
   "settings.tab.sttProvider": "Provider di Trascrizione",
+  "settings.tab.sttProviderDisabled": "Disabilitato",
   "settings.tab.deepgramKey": "Chiave API Deepgram",
   "channels.tab.title": "Canali di Comunicazione",
   "channels.tab.description": "Configura le integrazioni di messaggistica per questo agente. Ogni canale collega una piattaforma a questo agente AI.",

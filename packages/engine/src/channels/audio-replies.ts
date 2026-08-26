@@ -6,7 +6,8 @@ export type AudioReplyReason =
   | "unsupported_format"
   | "provider_error"
   | "timeout"
-  | "empty_transcript";
+  | "empty_transcript"
+  | "stt_disabled";
 
 const EN: Record<AudioReplyReason, string> = {
   too_long: "The audio is too long. Please send a shorter one (max 60 seconds).",
@@ -15,6 +16,7 @@ const EN: Record<AudioReplyReason, string> = {
   provider_error: "I couldn't understand the audio. Could you type your message?",
   timeout: "I couldn't understand the audio. Could you type your message?",
   empty_transcript: "I didn't get any clear audio. Please try again or type your message.",
+  stt_disabled: "Voice messages are not supported. Please type your message instead.",
 };
 
 export function audioReply(reason: AudioReplyReason, _language: string = "en"): string {

@@ -67,6 +67,23 @@ describe("transcribeAudio", () => {
     if (!result.ok) expect(result.reason).toBe("provider_error");
   });
 
+  it("returns stt_disabled without calling the gateway when the provider is disabled", async () => {
+    resolveInstanceConfigMock.mockResolvedValue({
+      stt: { provider: "disabled", credentials: {} },
+    });
+    const result = await transcribeAudio({
+      audio: Buffer.from([0]),
+      mimeType: "audio/ogg",
+      instanceSlug: "demo",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("stt_disabled");
+      expect(result.userReply).toBe("Voice messages are not supported. Please type your message instead.");
+    }
+    expect(transcribeMock).not.toHaveBeenCalled();
+  });
+
   it("returns the transcript and metadata on success", async () => {
     transcribeMock.mockResolvedValue({
       text: "ciao mondo",

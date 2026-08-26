@@ -458,6 +458,7 @@
   "settings.tab.stt": "Audio (STT)",
   "settings.tab.sttHelp": "Provider for transcribing incoming voice messages. OpenAI uses the already-configured key; AWS uses Bedrock credentials; Deepgram requires a dedicated key in secrets.",
   "settings.tab.sttProvider": "Transcription Provider",
+  "settings.tab.sttProviderDisabled": "Disabled",
   "settings.tab.deepgramKey": "Deepgram API Key",
   "channels.tab.title": "Communication Channels",
   "channels.tab.description": "Configure messaging integrations for this agent. Each channel connects a platform to this AI agent.",

@@ -205,6 +205,18 @@ describe("instances/config-resolver", () => {
       expect(mockGetAllSecretsById).toHaveBeenCalledWith("uuid-1");
     });
 
+    it("preserves an explicit disabled sttProvider without falling back to openai", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({
+        ...fakeInstance,
+        sttProvider: "disabled",
+      });
+      mockGetAllSecretsById.mockResolvedValue(fakeSecrets);
+
+      const config = await resolveInstanceConfig(asInstanceSlug("default"));
+
+      expect(config.stt).toEqual({ provider: "disabled", credentials: {} });
+    });
+
     it("handles null provider and model gracefully", async () => {
       mockFindInstanceBySlug.mockResolvedValue({
         ...fakeInstance,
