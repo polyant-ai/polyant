@@ -190,7 +190,11 @@ export class EventSourcesController {
     const instanceId = await resolveInstanceId(asInstanceSlug(slug));
     if (!instanceId) throw new NotFoundException("Instance not found");
 
-    await updateDefinition(defId, id, instanceId, parsed.data);
+    try {
+      await updateDefinition(defId, id, instanceId, parsed.data);
+    } catch (err) {
+      throw new BadRequestException(err instanceof Error ? err.message : "Invalid definition update");
+    }
     return { success: true };
   }
 
