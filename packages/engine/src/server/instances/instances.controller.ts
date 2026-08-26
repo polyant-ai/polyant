@@ -308,7 +308,7 @@ export class InstancesController {
       a2aEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
-      sttProvider?: "openai" | "aws" | "deepgram";
+      sttProvider?: "openai" | "aws" | "deepgram" | "disabled";
       optoutEnabled?: boolean;
       optoutStopKeywords?: string[];
       optoutResumeKeywords?: string[];

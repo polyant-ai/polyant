@@ -2,6 +2,9 @@
 
 export type STTProviderName = "openai" | "aws" | "deepgram";
 
+/** Per-instance STT setting: a real provider, or the explicit opt-out. */
+export type InstanceSttSetting = STTProviderName | "disabled";
+
 export interface STTOpenAICredentials {
   apiKey: string;
   model?: string;
