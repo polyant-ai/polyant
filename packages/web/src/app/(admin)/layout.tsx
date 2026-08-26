@@ -3,6 +3,7 @@
 import { cookies } from "next/headers";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
+import { ChangelogUpdateModal } from "@/components/layout/changelog-update-modal";
 import { Header } from "@/components/layout/header";
 import { ActivityStreamProvider } from "@/lib/activity-stream/provider";
 import { auth } from "@/lib/auth";
@@ -36,6 +37,7 @@ export default async function AdminLayout({
           </SidebarInset>
         </SidebarProvider>
       </ActivityStreamProvider>
+      <ChangelogUpdateModal />
     </TenantProvider>
   );
 }

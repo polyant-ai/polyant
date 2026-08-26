@@ -28,6 +28,9 @@ coverage/
 packages/engine/scripts/eval-loop/**/*.json
 packages/engine/scripts/eval-loop/**/*.md
 
+# Changelog data, regenerated from CHANGELOG.md at predev/prebuild
+packages/web/public/changelog.json
+
 # Worktrees
 .worktrees/
 .claude/worktrees/

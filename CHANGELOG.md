@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > **Upgrading from 1.0.0 needs operator action** — this release is not a rolling
 > upgrade, is forward-only past migration `0071`, and requires forcing every user
-> to sign in again. See [docs/UPGRADING.md](docs/UPGRADING.md).
+> to sign in again. See [docs/UPGRADING.md](https://github.com/polyant-ai/polyant/blob/main/docs/UPGRADING.md).
 
 ### Added
 
