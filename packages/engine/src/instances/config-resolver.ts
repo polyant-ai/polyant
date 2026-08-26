@@ -7,7 +7,7 @@ import { SECRET_KEYS } from "./secrets.store.js";
 import { TtlCache } from "../utils/ttl-cache.js";
 import { isThinkingCapable, resolveModel, clampTemperature, temperatureSupported } from "../ai-gateway/config.js";
 import type { CacheTtl, ModelTier } from "../ai-gateway/types.js";
-import type { STTCredentials, STTProviderName } from "../stt-gateway/types.js";
+import type { STTCredentials, InstanceSttSetting } from "../stt-gateway/types.js";
 
 export interface InstanceConfig {
   provider: string | undefined;
@@ -67,7 +67,7 @@ export interface InstanceConfig {
     injectPromptHint: boolean;
   };
   stt: {
-    provider: STTProviderName;
+    provider: InstanceSttSetting;
     credentials: STTCredentials;
   };
 }
@@ -139,9 +139,11 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
 
   const secrets = await getAllSecretsById(instance.id);
 
-  const sttProviderRaw = (instance as { sttProvider?: string | null }).sttProvider ?? "openai";
-  const sttProvider: STTProviderName =
-    sttProviderRaw === "aws" || sttProviderRaw === "deepgram" ? sttProviderRaw : "openai";
+  const sttProviderRaw = instance.sttProvider;
+  const sttProvider: InstanceSttSetting =
+    sttProviderRaw === "aws" || sttProviderRaw === "deepgram" || sttProviderRaw === "disabled"
+      ? sttProviderRaw
+      : "openai";
 
   const sttCredentials: STTCredentials = {};
   if (sttProvider === "openai" && secrets[SECRET_KEYS.OPENAI_API_KEY]) {
