@@ -1,57 +1,47 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // ---------------------------------------------------------------------------
-// Import service — creates/overwrites instances from exported bundles
+// Import service — creates/overwrites instances from exported bundles.
+//
+// This file is the public face: the two orchestrators below, plus
+// re-exports of the per-domain importers other modules reach for directly
+// (`importChannels`, `importMcpServers` — unit-tested against a fake `tx`).
+// Each domain's actual import logic lives in its own `{entity}.import.ts`
+// file next to this one (see report for the split rationale).
 // ---------------------------------------------------------------------------
 
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "./schema.js";
 import { resolveWorkspaceIdForPrincipal } from "./store.js";
-import { instancePrompts } from "./prompts.schema.js";
 import { instanceSkills } from "./instance-skills.schema.js";
 import { instanceTools } from "./instance-tools.schema.js";
 import { instanceChannels } from "./channels.schema.js";
-import { channelConfigSchemas, type ChannelType } from "./channels.store.js";
-import { stripSensitiveKeys } from "./channel-config-sanitize.js";
-import { instanceSkillEnv } from "./skill-env.schema.js";
-import { skills, skillVersions } from "../skills/schema.js";
-import { tools } from "../agents/tools/tools.schema.js";
 import { instanceRoom } from "../room/room.schema.js";
 import { instanceHooks } from "../hooks/hooks.schema.js";
 import { invalidateHooksCache } from "../hooks/hooks.store.js";
-import type { HookActionConfig, HookActionType, HookEvent } from "../hooks/hook-types.js";
-import { eventSources, eventDefinitions } from "../webhooks/webhooks.schema.js";
+import { eventSources } from "../webhooks/webhooks.schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
-import { computeNextRun } from "../scheduled-tasks/schedule-utils.js";
 import { instanceMcpServers } from "./mcp-servers.schema.js";
-import { mcpServerConfigSchema, MCP_AUTH_MODES, type McpAuthMode } from "./mcp-servers.store.js";
-import { assertSafeMcpUrl } from "../agents/tools/mcp/mcp-url-guard.js";
-import { errMsg } from "../utils/error.js";
-import { generateToken, encrypt } from "../crypto/index.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
 import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
 import { invalidateInstanceConfigCache } from "./config-resolver.js";
-import {
-  instanceBundleSchema,
-  type ExportInstanceData,
-} from "./export.schema.js";
+import { instanceBundleSchema } from "./export.schema.js";
+import { importPrompts } from "./prompts.import.js";
+import { importSkillAssignments } from "./skill-assignments.import.js";
+import { importManualTools } from "./manual-tools.import.js";
+import { importChannels } from "./channels.import.js";
+import { importSkillEnv, importSkillEnvOverwrite } from "./skill-env.import.js";
+import { importHooks } from "./hooks.import.js";
+import { importRoom } from "./room.import.js";
+import { importEventSources } from "./event-sources.import.js";
+import { importScheduledTasks } from "./scheduled-tasks.import.js";
+import { importMcpServers } from "./mcp-servers.import.js";
+import type { ImportWarning, ImportResult } from "./import.types.js";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface ImportWarning {
-  type: "missing_skill" | "missing_tool" | "secret_required" | "channel_credentials" | "skill_env_required" | "event_source_credentials" | "mcp_server_credentials" | "mcp_server_invalid";
-  message: string;
-}
-
-export interface ImportResult {
-  slug: string;
-  instanceId: string;
-  warnings: ImportWarning[];
-}
+export type { ImportWarning, ImportResult } from "./import.types.js";
+export { importChannels, importMcpServers };
 
 // ---------------------------------------------------------------------------
 // Import as new instance
@@ -325,10 +315,8 @@ export async function importOverwriteInstance(
 }
 
 // ---------------------------------------------------------------------------
-// Import helpers (run inside transaction)
+// Import helpers
 // ---------------------------------------------------------------------------
-
-type TxClient = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 async function resolveUniqueSlug(desired: string): Promise<string> {
   const [existing] = await db
@@ -351,514 +339,4 @@ async function resolveUniqueSlug(desired: string): Promise<string> {
   }
 
   throw new Error(`Could not resolve unique slug for "${desired}"`);
-}
-
-async function importPrompts(
-  tx: TxClient,
-  instanceId: string,
-  prompts: ExportInstanceData["prompts"],
-): Promise<void> {
-  for (const p of prompts) {
-    // Anti-resurrection: the 08-datetime section was removed with the datetime
-    // flag; drop it from any legacy bundle so an import can't recreate it.
-    if (p.sectionKey === "08-datetime") continue;
-    await tx
-      .insert(instancePrompts)
-      .values({
-        instanceId,
-        sectionKey: p.sectionKey,
-        title: p.title,
-        content: p.content,
-      })
-      .onConflictDoUpdate({
-        target: [instancePrompts.instanceId, instancePrompts.sectionKey],
-        set: { title: p.title, content: p.content, updatedAt: sql`now()` },
-      });
-  }
-}
-
-async function importSkillAssignments(
-  tx: TxClient,
-  instanceId: string,
-  assignments: ExportInstanceData["skills"],
-): Promise<ImportWarning[]> {
-  const warnings: ImportWarning[] = [];
-  if (assignments.length === 0) return warnings;
-
-  // Batch-resolve skill slugs to IDs + version info
-  const slugs = assignments.map((a) => a.skillSlug);
-  const skillRows = await tx
-    .select({
-      id: skills.id,
-      slug: skills.slug,
-      currentVersionId: skills.currentVersionId,
-    })
-    .from(skills)
-    .where(inArray(skills.slug, slugs));
-
-  const skillMap = new Map(skillRows.map((r) => [r.slug, r]));
-
-  for (const assignment of assignments) {
-    const skill = skillMap.get(assignment.skillSlug);
-    if (!skill) {
-      warnings.push({
-        type: "missing_skill",
-        message: `Skill "${assignment.skillSlug}" not found — skipped`,
-      });
-      continue;
-    }
-
-    // Try to find the specific pinned version
-    const [version] = await tx
-      .select({ id: skillVersions.id })
-      .from(skillVersions)
-      .where(
-        and(
-          eq(skillVersions.skillId, skill.id),
-          eq(skillVersions.version, assignment.pinnedVersion),
-        ),
-      )
-      .limit(1);
-
-    // Fall back to current version if pinned version not found
-    const versionId = version?.id ?? skill.currentVersionId;
-    if (!versionId) {
-      warnings.push({
-        type: "missing_skill",
-        message: `Skill "${assignment.skillSlug}" has no available version — skipped`,
-      });
-      continue;
-    }
-
-    await tx
-      .insert(instanceSkills)
-      .values({
-        instanceId,
-        skillId: skill.id,
-        skillVersionId: versionId,
-        enabled: assignment.enabled,
-        autoLoad: assignment.autoLoad,
-      })
-      .onConflictDoUpdate({
-        target: [instanceSkills.instanceId, instanceSkills.skillId],
-        set: {
-          skillVersionId: versionId,
-          enabled: assignment.enabled,
-          autoLoad: assignment.autoLoad,
-          updatedAt: sql`now()`,
-        },
-      });
-  }
-
-  return warnings;
-}
-
-async function importManualTools(
-  tx: TxClient,
-  instanceId: string,
-  toolNames: string[],
-): Promise<ImportWarning[]> {
-  const warnings: ImportWarning[] = [];
-  if (toolNames.length === 0) return warnings;
-
-  const toolRows = await tx
-    .select({ id: tools.id, name: tools.name })
-    .from(tools)
-    .where(inArray(tools.name, toolNames));
-
-  const foundNames = new Set(toolRows.map((r) => r.name));
-  for (const name of toolNames) {
-    if (!foundNames.has(name)) {
-      warnings.push({
-        type: "missing_tool",
-        message: `Tool "${name}" not found — skipped`,
-      });
-    }
-  }
-
-  if (toolRows.length > 0) {
-    await tx
-      .insert(instanceTools)
-      .values(
-        toolRows.map((t) => ({
-          instanceId,
-          toolId: t.id,
-          source: "manual" as const,
-        })),
-      )
-      .onConflictDoNothing();
-  }
-
-  return warnings;
-}
-
-// Exported for direct unit testing (mirrors importMcpServers below) — a
-// minimal fake `tx` capturing insert().values() calls is enough to verify the
-// credential-stripping behaviour, without mocking the whole database client.
-export async function importChannels(
-  tx: TxClient,
-  instanceId: string,
-  channels: ExportInstanceData["channels"],
-): Promise<ImportWarning[]> {
-  const warnings: ImportWarning[] = [];
-
-  for (const ch of channels) {
-    // Strip credential-like keys BEFORE validation/persistence — never trust
-    // the exporter to have done it. A hand-crafted bundle (as opposed to one
-    // this codebase produced) could carry a caller-chosen `webhookSecret` for
-    // the WhatsApp `apiKey` inbound-auth route; stripping it here means the
-    // union below can only ever be satisfied by a genuinely credential-less
-    // config, exactly like the invariant `setChannelConfig` enforces on the
-    // normal write path (see the NOTE on that function in channels.store.ts).
-    const config = stripSensitiveKeys(ch.config ?? {});
-    const schema = channelConfigSchemas[ch.channelType as ChannelType];
-
-    // A channel can be safely (re)enabled on import ONLY if its non-secret
-    // config alone satisfies the channel's validation schema — i.e. it needs no
-    // credentials (today: the `agent` channel, whose config is empty/passthrough).
-    // Credentialed channels (telegram/slack/whatsapp) fail this check because the
-    // export stripped their secrets, so they stay disabled until reconfigured.
-    const canEnable = schema ? schema.safeParse(config).success : false;
-    const enabled = ch.enabled && canEnable;
-    const hasConfig = Object.keys(config).length > 0;
-
-    await tx
-      .insert(instanceChannels)
-      .values({
-        instanceId,
-        channelType: ch.channelType,
-        enabled,
-        // Persist the non-secret config (encrypted at rest like any channel
-        // config) so the admin only has to fill in the missing credentials.
-        config: hasConfig ? encrypt(JSON.stringify(config)) : "",
-      })
-      .onConflictDoNothing();
-
-    if (ch.enabled && !canEnable) {
-      warnings.push({
-        type: "channel_credentials",
-        message: `Channel "${ch.channelType}" imported disabled — configure credentials to enable`,
-      });
-    }
-  }
-
-  return warnings;
-}
-
-/**
- * Validated + STRIPPED config when the (already-secret-stripped) bundle config
- * satisfies its authMode's schema — i.e. the server needs no secret to run;
- * null otherwise.
- *
- * Returning the parsed output (rather than a boolean) matters: the schema is
- * what drops unknown keys, exactly like `setMcpServer` does on the API write
- * path. Persisting the bundle's raw config instead would let a crafted bundle
- * seed arbitrary keys into the encrypted config — e.g. a fabricated
- * `dcrClient`/`authServerInfo` steering the OAuth flow at the next connect.
- */
-/** The only non-secret key shared by every MCP auth mode. */
-function pickMcpAllowList(config: Record<string, unknown>): Record<string, unknown> {
-  const allowList = config.allowList;
-  if (!Array.isArray(allowList)) return {};
-  const entries = allowList.filter((t): t is string => typeof t === "string");
-  return entries.length > 0 ? { allowList: entries } : {};
-}
-
-function validateMcpServerConfig(authMode: McpAuthMode, config: Record<string, unknown>): Record<string, unknown> | null {
-  try {
-    return mcpServerConfigSchema(authMode, config) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-// Exported for direct unit testing (mirrors stripSensitiveKeys/exportMcpServers
-// in export.service.ts — the store-level insert is simple enough to test with
-// a fake `tx`, without mocking the whole database client).
-export async function importMcpServers(
-  tx: TxClient,
-  instanceId: string,
-  servers: ExportInstanceData["mcpServers"],
-): Promise<ImportWarning[]> {
-  const warnings: ImportWarning[] = [];
-
-  for (const server of servers) {
-    const authMode = server.authMode as McpAuthMode;
-
-    // exportMcpServerSchema.authMode is z.string() (export must round-trip
-    // whatever a future/foreign version writes), so an unknown value (e.g.
-    // "oidc", or garbage) is NOT rejected by the bundle schema. Guard it here:
-    // mcpServerConfigSchema's last branch is the all-optional oauth schema, so a
-    // bogus mode would otherwise validate there and insert an ENABLED row the
-    // runtime does not recognize (there is no DB CHECK on auth_mode). Skip the
-    // server entirely rather than persist garbage —
-    // mirrors the per-item degradation used for channels/skills/tools above.
-    if (!MCP_AUTH_MODES.includes(authMode)) {
-      warnings.push({
-        type: "mcp_server_invalid",
-        message: `MCP server "${server.slug}" has unknown authMode "${server.authMode}" — skipped`,
-      });
-      continue;
-    }
-
-    // SSRF guard: the PUT/POST controller path validates every admin-entered
-    // URL (mcp-servers.controller.ts), so an import must too — otherwise a
-    // bundle carrying `authMode:"none"` and a link-local URL (e.g. the cloud
-    // metadata endpoint) lands ENABLED and every subsequent turn connects to
-    // it. Degrade per-item, like the unknown-authMode branch above.
-    try {
-      assertSafeMcpUrl(server.url);
-    } catch (err) {
-      warnings.push({
-        type: "mcp_server_invalid",
-        message: `MCP server "${server.slug}" has an unusable URL (${errMsg(err)}) — skipped`,
-      });
-      continue;
-    }
-
-    // A server can be safely (re)enabled on import ONLY if its stripped config
-    // alone satisfies the auth mode's validation schema — i.e. it needs no
-    // secret. A static server fails this (the exporter stripped auth.token),
-    // so it stays disabled until the token is reconfigured; an oauth server
-    // with no required secret field passes and re-enables as-is.
-    const validated = validateMcpServerConfig(authMode, server.config ?? {});
-    const canEnable = validated !== null;
-    const enabled = server.enabled && canEnable;
-    // Never persist the bundle's config verbatim. When the schema accepted it,
-    // persist ITS output (unknown keys dropped, like setMcpServer). When it
-    // didn't (a stripped secret), keep only `allowList` — the one non-secret
-    // key every mode shares — so the admin just re-enters the credential.
-    const config = validated ?? pickMcpAllowList(server.config ?? {});
-
-    await tx
-      .insert(instanceMcpServers)
-      .values({
-        instanceId,
-        slug: server.slug,
-        name: server.name,
-        url: server.url,
-        authMode: server.authMode,
-        enabled,
-        // Encrypted at rest like any MCP server config.
-        config: encrypt(JSON.stringify(config)),
-      })
-      .onConflictDoNothing();
-
-    if (server.enabled && !canEnable) {
-      warnings.push({
-        type: "mcp_server_credentials",
-        message: `MCP server "${server.slug}" imported disabled — configure credentials to enable`,
-      });
-    }
-  }
-
-  return warnings;
-}
-
-async function importHooks(
-  tx: TxClient,
-  instanceId: string,
-  hooks: ExportInstanceData["hooks"],
-): Promise<void> {
-  for (const h of hooks) {
-    await tx.insert(instanceHooks).values({
-      instanceId,
-      event: h.event as HookEvent,
-      actionType: h.actionType as HookActionType,
-      actionConfig: h.actionConfig as unknown as HookActionConfig,
-      enabled: h.enabled,
-      position: h.position,
-      timeoutMs: h.timeoutMs,
-    });
-  }
-}
-
-async function importSkillEnv(
-  tx: TxClient,
-  instanceId: string,
-  envVars: ExportInstanceData["skillEnv"],
-): Promise<ImportWarning[]> {
-  const warnings: ImportWarning[] = [];
-
-  for (const env of envVars) {
-    if (env.encrypted) {
-      warnings.push({
-        type: "skill_env_required",
-        message: `Skill env "${env.skillSlug}.${env.key}" (encrypted) needs to be configured`,
-      });
-      continue;
-    }
-
-    // Non-encrypted values can be imported directly
-    await tx
-      .insert(instanceSkillEnv)
-      .values({
-        instanceId,
-        skillSlug: env.skillSlug,
-        key: env.key,
-        value: env.value ?? "",
-        encrypted: false,
-      })
-      .onConflictDoUpdate({
-        target: [instanceSkillEnv.instanceId, instanceSkillEnv.skillSlug, instanceSkillEnv.key],
-        set: { value: env.value ?? "", encrypted: false, updatedAt: new Date() },
-      });
-  }
-
-  return warnings;
-}
-
-async function importSkillEnvOverwrite(
-  tx: TxClient,
-  instanceId: string,
-  envVars: ExportInstanceData["skillEnv"],
-): Promise<void> {
-  // Delete only non-encrypted env vars (keep encrypted ones intact)
-  // Then import non-encrypted values from bundle
-  const nonEncryptedRows = await tx
-    .select({ id: instanceSkillEnv.id })
-    .from(instanceSkillEnv)
-    .where(
-      and(
-        eq(instanceSkillEnv.instanceId, instanceId),
-        eq(instanceSkillEnv.encrypted, false),
-      ),
-    );
-
-  if (nonEncryptedRows.length > 0) {
-    await tx
-      .delete(instanceSkillEnv)
-      .where(
-        and(
-          eq(instanceSkillEnv.instanceId, instanceId),
-          eq(instanceSkillEnv.encrypted, false),
-        ),
-      );
-  }
-
-  for (const env of envVars) {
-    if (env.encrypted) continue;
-
-    await tx
-      .insert(instanceSkillEnv)
-      .values({
-        instanceId,
-        skillSlug: env.skillSlug,
-        key: env.key,
-        value: env.value ?? "",
-        encrypted: false,
-      })
-      .onConflictDoNothing();
-  }
-}
-
-async function importRoom(
-  tx: TxClient,
-  instanceId: string,
-  room: NonNullable<ExportInstanceData["room"]>,
-): Promise<void> {
-  await tx
-    .insert(instanceRoom)
-    .values({
-      instanceId,
-      enabled: room.enabled,
-      prompt: room.prompt,
-      outboundChannel: room.outboundChannel,
-      outboundTarget: room.outboundTarget,
-      evalIntervalMinutes: room.evalIntervalMinutes,
-    })
-    .onConflictDoUpdate({
-      target: [instanceRoom.instanceId],
-      set: {
-        enabled: room.enabled,
-        prompt: room.prompt,
-        outboundChannel: room.outboundChannel,
-        outboundTarget: room.outboundTarget,
-        evalIntervalMinutes: room.evalIntervalMinutes,
-        updatedAt: new Date(),
-      },
-    });
-}
-
-// No `stripSensitiveKeys` call needed here, unlike importChannels: a bundle
-// cannot carry an event-source credential even in principle.
-// `exportEventSourceSchema` (export.schema.ts) has no `config`/`webhookToken`
-// field at all — Zod's default object parsing drops any such key a crafted
-// bundle adds — and this function ignores `source.enabled` and never persists
-// `source.config`: every imported row is inserted with `config: ""`,
-// `enabled: false`, and a freshly server-minted `webhookToken`
-// (`generateToken(32)`, same primitive `setChannelConfig` uses for the
-// WhatsApp webhook secret), so a bundle-supplied value could never reach
-// storage either way.
-async function importEventSources(
-  tx: TxClient,
-  instanceId: string,
-  sources: ExportInstanceData["eventSources"],
-): Promise<ImportWarning[]> {
-  const warnings: ImportWarning[] = [];
-
-  for (const source of sources) {
-    const webhookToken = generateToken(32);
-
-    const [created] = await tx
-      .insert(eventSources)
-      .values({
-        instanceId,
-        name: source.name,
-        sourceType: source.sourceType,
-        config: "", // empty — user must configure credentials
-        enabled: false, // disabled until configured
-        webhookToken,
-      })
-      .returning({ id: eventSources.id });
-
-    warnings.push({
-      type: "event_source_credentials",
-      message: `Event source "${source.name}" imported without credentials — configure manually`,
-    });
-
-    // Import definitions
-    for (const def of source.definitions) {
-      await tx.insert(eventDefinitions).values({
-        eventSourceId: created.id,
-        name: def.name,
-        matchingPrompt: def.matchingPrompt,
-        interpretationPrompt: def.interpretationPrompt,
-        action: def.action,
-        contextPrompt: def.contextPrompt,
-        outboundChannel: def.outboundChannel,
-        outboundTarget: def.outboundTarget,
-        enabled: def.enabled,
-      });
-    }
-  }
-
-  return warnings;
-}
-
-async function importScheduledTasks(
-  tx: TxClient,
-  instanceId: string,
-  tasks: NonNullable<ExportInstanceData["scheduledTasks"]>,
-): Promise<void> {
-  for (const task of tasks) {
-    const schedule = task.schedule as import("../scheduled-tasks/schema.js").ScheduleConfig;
-    const nextRunAt = task.enabled ? computeNextRun(schedule) : null;
-
-    await tx.insert(scheduledTasks).values({
-      instanceId,
-      name: task.name,
-      description: task.description,
-      enabled: task.enabled,
-      schedule,
-      prompt: task.prompt,
-      outboundChannel: task.outboundChannel,
-      outboundTarget: task.outboundTarget,
-      keepHistory: task.keepHistory,
-      deleteAfterRun: task.deleteAfterRun,
-      maxRetries: task.maxRetries,
-      createdBy: task.createdBy,
-      nextRunAt,
-    });
-  }
 }
