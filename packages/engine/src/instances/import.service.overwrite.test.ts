@@ -57,7 +57,7 @@ const {
   mockImportManualTools: vi.fn(async () => []),
   mockImportChannels: vi.fn(async () => []),
   mockImportSkillEnvOverwrite: vi.fn(async () => undefined),
-  mockImportHooks: vi.fn(async () => undefined),
+  mockImportHooks: vi.fn(async () => []),
   mockImportRoom: vi.fn(async () => undefined),
   mockImportEventSources: vi.fn(async () => []),
   mockImportScheduledTasks: vi.fn(async () => undefined),
