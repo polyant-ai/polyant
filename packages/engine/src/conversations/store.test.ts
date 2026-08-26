@@ -827,7 +827,7 @@ describe("ConversationStore", () => {
       await conversationStore.listConversations({});
 
       const sawUnsatisfiablePredicate = (sqlMock as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-        ([strings]: [TemplateStringsArray]) => Array.isArray(strings) && strings.join("") === "false",
+        (args: unknown[]) => Array.isArray(args[0]) && (args[0] as string[]).join("") === "false",
       );
       expect(sawUnsatisfiablePredicate).toBe(true);
     });
@@ -840,8 +840,7 @@ describe("ConversationStore", () => {
       await conversationStore.listConversations({ orgId: "org-a" });
 
       const sawOrgScopedSubquery = (sqlMock as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
-        ([strings]: [TemplateStringsArray]) =>
-          Array.isArray(strings) && strings.join("").includes("join workspaces"),
+        (args: unknown[]) => Array.isArray(args[0]) && (args[0] as string[]).join("").includes("join workspaces"),
       );
       expect(sawOrgScopedSubquery).toBe(true);
     });
