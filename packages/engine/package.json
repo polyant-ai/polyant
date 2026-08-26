@@ -32,10 +32,10 @@
     "test:functional": "vitest run --fileParallelism=false 'functional'"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "^4.0.111",
-    "@ai-sdk/anthropic": "^3.0.81",
-    "@ai-sdk/openai": "^3.0.67",
-    "@ai-sdk/openai-compatible": "^2.0.56",
+    "@ai-sdk/amazon-bedrock": "^5.0.61",
+    "@ai-sdk/anthropic": "^4.0.41",
+    "@ai-sdk/openai": "^4.0.46",
+    "@ai-sdk/openai-compatible": "^3.0.35",
     "@aws-sdk/client-s3": "^3.1052.0",
     "@aws-sdk/client-transcribe-streaming": "^3.1052.0",
     "@aws-sdk/credential-providers": "^3.1052.0",
@@ -47,7 +47,7 @@
     "@polyant-ai/plugin-sdk": "git+https://github.com/polyant-ai/polyant-sdk.git#v1.5.0",
     "@slack/bolt": "^4.7.3",
     "@tavily/core": "^0.7.5",
-    "ai": "^6.0.194",
+    "ai": "^7.0.77",
     "ajv": "^6.12.6",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
