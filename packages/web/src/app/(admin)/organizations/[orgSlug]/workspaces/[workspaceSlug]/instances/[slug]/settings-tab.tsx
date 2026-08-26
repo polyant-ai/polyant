@@ -84,21 +84,6 @@ interface Props {
   section: "model" | "credentials" | "toolSecrets" | "params";
 }
 
-const SECRET_KEYS = {
-  OPENAI: "openai_api_key",
-  ANTHROPIC: "anthropic_api_key",
-  NEBIUS: "nebius_api_key",
-  BEDROCK_API_KEY: "bedrock_api_key",
-  // AWS credentials for the AI provider (Bedrock chat + embedder, Transcribe STT).
-  // Dedicated namespace — independent of the generic aws_* keys used by tools.
-  AWS_PROVIDER_ACCESS_KEY_ID: "aws_provider_access_key_id",
-  AWS_PROVIDER_SECRET_ACCESS_KEY: "aws_provider_secret_access_key",
-  AWS_PROVIDER_REGION: "aws_provider_region",
-  LANGSMITH: "langsmith_api_key",
-  AUTH: "auth_api_key",
-  DEEPGRAM: "deepgram_api_key",
-} as const;
-
 type STTProvider = "openai" | "aws" | "deepgram" | "disabled";
 
 const BRAND_NAMES: Record<string, string> = {

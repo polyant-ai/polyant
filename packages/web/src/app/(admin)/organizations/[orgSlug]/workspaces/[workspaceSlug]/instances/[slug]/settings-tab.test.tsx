@@ -545,22 +545,20 @@ describe("SettingsTab", () => {
     const updatedInstance = makeInstance({ sttProvider: "disabled" });
     mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
 
-    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+    renderWithProvider(<SettingsTab instance={instance} onUpdate={onUpdate} section="model" />);
 
     await waitFor(() => {
       expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
     });
 
-    expect(lastSaveAction.current?.isDirty).toBe(false);
+    expect(screen.queryByText("common.save")).not.toBeInTheDocument();
 
     const sttTrigger = screen.getByRole("combobox", { name: "settings.tab.sttProvider" });
     sttTrigger.focus();
     await user.keyboard("{Enter}");
     await user.click(await screen.findByRole("option", { name: "settings.tab.sttProviderDisabled" }));
 
-    expect(lastSaveAction.current?.isDirty).toBe(true);
-
-    await lastSaveAction.current!.onSave();
+    await user.click(screen.getByText("common.save"));
 
     await waitFor(() => {
       expect(mockInstanceUpdate).toHaveBeenCalledWith(
