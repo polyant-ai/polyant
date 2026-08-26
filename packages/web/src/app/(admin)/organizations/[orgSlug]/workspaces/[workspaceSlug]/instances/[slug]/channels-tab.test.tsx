@@ -25,8 +25,15 @@ const { mockList, mockSet, mockDelete, mockInstanceUpdate } = vi.hoisted(() => (
   mockDelete: vi.fn(),
 }));
 
+// `t` must keep ONE identity across renders, the way the real provider's does:
+// `ChannelsTab`'s list-loading effect depends on `[slug, t]`, so a `t` that
+// changes identity on every call (as a fresh arrow function would) reruns
+// that effect on every render and wipes any just-typed field before the test
+// can observe it.
+const stableT = (key: string) => key;
+
 vi.mock("@/lib/i18n/context", () => ({
-  useI18n: vi.fn(() => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() })),
+  useI18n: vi.fn(() => ({ t: stableT, locale: "en", setLocale: vi.fn() })),
   I18nProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
@@ -154,6 +161,49 @@ describe("ChannelsTab — nothing is persisted without an explicit save", () => 
 });
 
 /**
+ * Safety net for the render-section extraction (issue #287): pins the field's
+ * dirty tracking and the eye mask/reveal, neither of which had a test before
+ * the refactor. Both live in the block being pulled out of `ChannelsTab`.
+ */
+describe("ChannelsTab — the generic field-list section", () => {
+  it("shows no save action until a field is edited, then shows it dirty", async () => {
+    mockList.mockResolvedValue({ channels: [channel("telegram", true)] });
+
+    renderTab("telegram");
+    await section();
+
+    expect(screen.queryByRole("button", { name: /save/i })).not.toBeInTheDocument();
+
+    await userEvent.type(
+      screen.getByLabelText("channels.tab.telegramAllowedUserIds"),
+      "123",
+    );
+
+    expect(screen.getByRole("button", { name: /save/i })).toBeInTheDocument();
+  });
+
+  it("masks a sensitive field behind the eye toggle and reveals it on click", async () => {
+    mockList.mockResolvedValue({
+      channels: [
+        { channelType: "telegram", enabled: true, config: { botToken: "sk-masked-1234" } } as unknown as ChannelConfig,
+      ],
+    });
+
+    renderTab("telegram");
+    await section();
+
+    const input = screen.getByLabelText("channels.tab.telegramBotToken") as HTMLInputElement;
+    expect(input.type).toBe("password");
+    expect(input.placeholder).toBe("sk-masked-1234");
+
+    await userEvent.click(screen.getByLabelText("common.show"));
+
+    expect(input.type).toBe("text");
+    expect(screen.getByLabelText("common.hide")).toBeInTheDocument();
+  });
+});
+
+/**
  * WhatsApp does not fit the generic field-list section (two mutually
  * exclusive credential modes plus a secret-bearing webhook URL), so it
  * renders through its own dedicated card instead.
@@ -208,11 +258,10 @@ describe("ChannelsTab — WhatsApp renders through its dedicated card", () => {
    */
   it("reflects a deletion reported through onChanged: the card goes from configured to unconfigured", async () => {
     // A stable implementation (not queued mockResolvedValueOnce calls) —
-    // this component's `useI18n` mock returns a fresh `t` identity on every
-    // render, which re-runs the list-loading effect on every commit, so a
-    // once-queue would be drained by that churn before the test ever gets
-    // to click anything. Reading current mutable state on every call is
-    // immune to how many times the effect happens to fire.
+    // the list-loading effect can re-fire more than once as the card and
+    // this tab settle, so a once-queue could be drained before the test
+    // ever gets to click anything. Reading current mutable state on every
+    // call is immune to how many times the effect happens to fire.
     let configured = true;
     mockList.mockImplementation(() =>
       Promise.resolve({ channels: configured ? [channel("whatsapp", true)] : [] }),
