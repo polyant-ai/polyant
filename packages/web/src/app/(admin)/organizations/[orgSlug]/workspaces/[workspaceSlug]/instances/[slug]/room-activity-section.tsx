@@ -83,7 +83,7 @@ function ActivityLogEntry({ log }: { log: ActivityLog }) {
 }
 
 export function ActivityLogSection({ activity }: Props) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
 
   return (
     <section className="space-y-4">

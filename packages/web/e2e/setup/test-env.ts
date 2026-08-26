@@ -44,8 +44,8 @@ export const REPO_ROOT = findRepoRoot();
 export const WEB_PACKAGE_ROOT = resolve(REPO_ROOT, "packages", "web");
 
 /** Dedicated ports so the harness never collides with a running dev stack. */
-export const ENGINE_PORT = 4100;
-export const WEB_PORT = 3100;
+export const ENGINE_PORT = Number(process.env.E2E_ENGINE_PORT ?? 4100);
+export const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 3100);
 export const ENGINE_URL = `http://127.0.0.1:${ENGINE_PORT}`;
 export const WEB_URL = `http://127.0.0.1:${WEB_PORT}`;
 

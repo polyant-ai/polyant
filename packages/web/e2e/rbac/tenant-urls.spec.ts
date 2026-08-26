@@ -52,8 +52,13 @@ test.describe("tenant-scoped URLs", () => {
 
     await expect(page.locator("body")).toContainText(NOT_FOUND_COPY);
     // The link home proves this is the admin group's own 404 boundary and not
-    // Next's stock page, which offers no way back.
-    await expect(page.getByRole("link", { name: /dashboard/i })).toBeVisible();
+    // Next's stock page, which offers no way back. Match on `href="/"` as well
+    // as the name: the boundary renders INSIDE the admin layout, whose sidebar
+    // carries its own Dashboard row pointing at /organizations/<slug>, so the
+    // name alone resolves to two links.
+    await expect(
+      page.getByRole("link", { name: /dashboard/i }).and(page.locator('[href="/"]')),
+    ).toBeVisible();
   });
 
   test("an unknown workspace slug is a 404", async ({ page }) => {
