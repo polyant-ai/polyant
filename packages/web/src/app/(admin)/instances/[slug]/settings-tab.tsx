@@ -69,7 +69,7 @@ const SECRET_KEYS = {
   DEEPGRAM: "deepgram_api_key",
 } as const;
 
-type STTProvider = "openai" | "aws" | "deepgram";
+type STTProvider = "openai" | "aws" | "deepgram" | "disabled";
 
 const BRAND_NAMES: Record<string, string> = {
   hubspot: "HubSpot",
@@ -1128,13 +1128,14 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         <div className="space-y-2">
           <Label>{t("settings.tab.sttProvider")}</Label>
           <Select value={sttProvider} onValueChange={(v) => setSttProvider(v as STTProvider)}>
-            <SelectTrigger>
+            <SelectTrigger aria-label={t("settings.tab.sttProvider")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="openai">OpenAI Whisper</SelectItem>
               <SelectItem value="aws">Amazon Transcribe</SelectItem>
               <SelectItem value="deepgram">Deepgram</SelectItem>
+              <SelectItem value="disabled">{t("settings.tab.sttProviderDisabled")}</SelectItem>
             </SelectContent>
           </Select>
         </div>

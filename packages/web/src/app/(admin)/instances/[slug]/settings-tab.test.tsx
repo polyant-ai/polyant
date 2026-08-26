@@ -502,6 +502,37 @@ describe("SettingsTab", () => {
     expect(screen.queryByText("memory.wipe.title")).not.toBeInTheDocument();
   });
 
+  it("selects the disabled STT provider and includes it in the save payload", async () => {
+    const user = userEvent.setup();
+    const instance = makeInstance({ sttProvider: "openai" });
+    const updatedInstance = makeInstance({ sttProvider: "disabled" });
+    mockInstanceUpdate.mockResolvedValueOnce({ instance: updatedInstance });
+
+    render(<SettingsTab instance={instance} onUpdate={onUpdate} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    expect(lastSaveAction.current?.isDirty).toBe(false);
+
+    const sttTrigger = screen.getByRole("combobox", { name: "settings.tab.sttProvider" });
+    sttTrigger.focus();
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("option", { name: "settings.tab.sttProviderDisabled" }));
+
+    expect(lastSaveAction.current?.isDirty).toBe(true);
+
+    await lastSaveAction.current!.onSave();
+
+    await waitFor(() => {
+      expect(mockInstanceUpdate).toHaveBeenCalledWith(
+        "test-instance",
+        expect.objectContaining({ sttProvider: "disabled" }),
+      );
+    });
+  });
+
   it("saves secrets when api key fields are filled", async () => {
     const user = userEvent.setup();
     const instance = makeInstance();

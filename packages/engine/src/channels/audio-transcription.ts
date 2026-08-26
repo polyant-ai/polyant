@@ -64,6 +64,10 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
   const config = await resolveInstanceConfig(asInstanceSlug(input.instanceSlug));
   const provider = config.stt.provider;
 
+  if (provider === "disabled") {
+    return fail("stt_disabled");
+  }
+
   if (!hasCredentialsFor(provider, config.stt.credentials)) {
     console.error(
       `[stt] instance="${input.instanceSlug}" provider="${provider}" missing credentials`,
