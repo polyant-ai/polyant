@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { db } from "../database/client.js";
+// `import type`, not a value import: this module is imported by every
+// per-domain importer, and a value import of `db` would make each of them
+// transitively open the database client at module load the day
+// `verbatimModuleSyntax` is enabled — which would break any unit test that
+// imports a domain module and hands it a fake `tx`.
+import type { db } from "../database/client.js";
 
 export interface ImportWarning {
   type:

@@ -445,7 +445,7 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
       expect(mockAuditLog).not.toHaveBeenCalled();
     });
 
-    it("should_audit_before_deleting_the_config", async () => {
+    it("should_audit_only_after_the_config_is_actually_deleted", async () => {
       mockGetChannelConfig.mockResolvedValue({
         channelType: "whatsapp",
         enabled: true,
@@ -461,9 +461,14 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
 
       await controller.removeChannel("acme", "whatsapp", USER);
 
+      // A `secret.delete` row must never claim a destruction that did not
+      // happen: an operator reading it concludes the inbound route is already
+      // dead and stops investigating. So the row is written only once the
+      // config is gone — and still before the agent-tool side effect, so a
+      // failure there cannot lose it.
       const auditOrder = mockAuditLog.mock.invocationCallOrder[0];
       const deleteOrder = mockDeleteChannelConfig.mock.invocationCallOrder[0];
-      expect(auditOrder).toBeLessThan(deleteOrder);
+      expect(deleteOrder).toBeLessThan(auditOrder);
     });
   });
 
