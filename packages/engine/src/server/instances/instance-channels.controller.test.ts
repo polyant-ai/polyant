@@ -7,11 +7,13 @@ import { ZodError } from "zod";
 const {
   mockSetChannelConfig,
   mockGetChannelConfig,
+  mockDeleteChannelConfig,
   mockChannelManager,
   mockAuditLog,
 } = vi.hoisted(() => ({
   mockSetChannelConfig: vi.fn(),
   mockGetChannelConfig: vi.fn(),
+  mockDeleteChannelConfig: vi.fn(),
   mockChannelManager: { startChannel: vi.fn(), stopChannel: vi.fn() },
   mockAuditLog: vi.fn(),
 }));
@@ -25,7 +27,7 @@ vi.mock("../../instances/channels.store.js", async () => {
     setChannelConfig: mockSetChannelConfig,
     getChannelConfig: mockGetChannelConfig,
     listChannelConfigs: vi.fn().mockResolvedValue([]),
-    deleteChannelConfig: vi.fn(),
+    deleteChannelConfig: mockDeleteChannelConfig,
   };
 });
 
@@ -70,6 +72,7 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
     vi.clearAllMocks();
     controller = new InstanceChannelsController();
     mockGetChannelConfig.mockResolvedValue(null);
+    mockDeleteChannelConfig.mockResolvedValue(undefined);
     // Default: the store did not mint a new secret, and persisted an empty
     // config. Individual tests override this to exercise the audit-on-mint
     // path and to make the persisted config (now read from the store's
@@ -381,6 +384,89 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
   // ONLY to a real ZodError, not any error whose message happens to contain
   // a particular substring.
   // -------------------------------------------------------------------
+  // -------------------------------------------------------------------
+  // Audit — removeChannel must audit a secret.delete when the deleted
+  // channel actually had a webhookSecret, and audit nothing otherwise.
+  // -------------------------------------------------------------------
+  describe("audit on channel delete", () => {
+    it("should_audit_a_secret_delete_when_deleting_an_apiKey_mode_whatsapp_channel", async () => {
+      mockGetChannelConfig.mockResolvedValue({
+        channelType: "whatsapp",
+        enabled: true,
+        config: {
+          authMode: "apiKey",
+          accountSid: ACCOUNT_SID,
+          apiKeySid: API_KEY_SID,
+          apiKeySecret: "sec",
+          webhookSecret: "old-secret",
+          whatsappNumber: "+14155238886",
+        },
+      });
+
+      await controller.removeChannel("acme", "whatsapp", USER);
+
+      expect(mockAuditLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "secret.delete",
+          targetType: "secret",
+          targetId: "acme:whatsapp.webhookSecret",
+        }),
+      );
+      const auditedArg = mockAuditLog.mock.calls.find((call) => call[0].action === "secret.delete")?.[0];
+      expect(JSON.stringify(auditedArg)).not.toContain("old-secret");
+    });
+
+    it("should_not_audit_when_deleting_an_authToken_mode_whatsapp_channel", async () => {
+      mockGetChannelConfig.mockResolvedValue({
+        channelType: "whatsapp",
+        enabled: true,
+        config: {
+          authMode: "authToken",
+          accountSid: ACCOUNT_SID,
+          authToken: "tok",
+          whatsappNumber: "+14155238886",
+        },
+      });
+
+      await controller.removeChannel("acme", "whatsapp", USER);
+
+      expect(mockAuditLog).not.toHaveBeenCalled();
+    });
+
+    it("should_not_audit_when_deleting_a_non_whatsapp_channel", async () => {
+      mockGetChannelConfig.mockResolvedValue({
+        channelType: "telegram",
+        enabled: true,
+        config: { botToken: "tok" },
+      });
+
+      await controller.removeChannel("acme", "telegram", USER);
+
+      expect(mockAuditLog).not.toHaveBeenCalled();
+    });
+
+    it("should_audit_before_deleting_the_config", async () => {
+      mockGetChannelConfig.mockResolvedValue({
+        channelType: "whatsapp",
+        enabled: true,
+        config: {
+          authMode: "apiKey",
+          accountSid: ACCOUNT_SID,
+          apiKeySid: API_KEY_SID,
+          apiKeySecret: "sec",
+          webhookSecret: "old-secret",
+          whatsappNumber: "+14155238886",
+        },
+      });
+
+      await controller.removeChannel("acme", "whatsapp", USER);
+
+      const auditOrder = mockAuditLog.mock.invocationCallOrder[0];
+      const deleteOrder = mockDeleteChannelConfig.mock.invocationCallOrder[0];
+      expect(auditOrder).toBeLessThan(deleteOrder);
+    });
+  });
+
   describe("validation error translation", () => {
     it("should_translate_a_ZodError_from_the_store_into_a_BadRequestException", async () => {
       mockSetChannelConfig.mockRejectedValue(new ZodError([]));

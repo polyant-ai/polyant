@@ -295,8 +295,15 @@ export class InstanceChannelsController {
   async removeChannel(
     @Param("slug") slug: string,
     @Param("type") channelType: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const instance = await findInstanceOrFail(slug);
+    const existing = await getChannelConfig(asInstanceSlug(slug), channelType as ChannelType);
+
+    // Audit BEFORE the delete's side effects (adapter stop / agent-tool
+    // sync): the audit row must exist even if a side effect fails.
+    this.auditWebhookSecretDeleteIfDiscarded(slug, existing?.config, {}, user);
+
     await channelManager.stopChannel(slug, channelType);
     await deleteChannelConfig(instance.id, channelType as ChannelType);
     if (channelType === AGENT_CHANNEL_TYPE) {
