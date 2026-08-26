@@ -540,7 +540,11 @@ export class ConversationStore {
     if (options.updatedUntil) conditions.push(sql`c.updated_at < ${options.updatedUntil.toISOString()}::timestamptz`);
     // Cross-org gate: an aggregate list (no instanceId) returns only caller-org
     // rows; a foreign-org instanceId param yields zero rows (ANDed at the store).
-    if (options.orgId) conditions.push(buildOrgScopedAgentFilter(options.orgId, "c.instance_id"));
+    // Applied UNCONDITIONALLY — mirrors searchConversations, which always ANDs
+    // this predicate via buildOrgScopedAgentFilterFragment. A missing orgId (an
+    // unresolved principal scope) must fail CLOSED to zero rows, never fall
+    // through to an unfiltered cross-org listing.
+    conditions.push(options.orgId ? buildOrgScopedAgentFilter(options.orgId, "c.instance_id") : sql`false`);
     const instanceFilter = conditions.length > 0
       ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
       : sql``;
