@@ -131,7 +131,8 @@ export async function importNewInstance(
     warnings.push(...envWarnings);
 
     // 7. Import hooks
-    await importHooks(tx, id, data.hooks);
+    const hookWarnings = await importHooks(tx, id, data.hooks);
+    warnings.push(...hookWarnings);
 
     // 8. Import room config
     if (data.room) {
@@ -271,7 +272,8 @@ export async function importOverwriteInstance(
 
     // 7. Replace hooks
     await tx.delete(instanceHooks).where(eq(instanceHooks.instanceId, instanceId));
-    await importHooks(tx, instanceId, data.hooks);
+    const hookWarnings = await importHooks(tx, instanceId, data.hooks);
+    warnings.push(...hookWarnings);
 
     // 8. Replace room config
     await tx.delete(instanceRoom).where(eq(instanceRoom.instanceId, instanceId));

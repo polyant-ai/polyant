@@ -16,7 +16,8 @@ export interface ImportWarning {
     | "skill_env_required"
     | "event_source_credentials"
     | "mcp_server_credentials"
-    | "mcp_server_invalid";
+    | "mcp_server_invalid"
+    | "hook_invalid";
   message: string;
 }
 

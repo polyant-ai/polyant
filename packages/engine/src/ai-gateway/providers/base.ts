@@ -498,12 +498,15 @@ function describeMessages(messages: ModelMessage[]): string {
 }
 
 /**
- * Log the FULL detail of a provider SDK error (AI SDK `APICallError` & friends)
- * before it propagates. Without this an upstream 400/500 reaches the global HTTP
+ * Log detail of a provider SDK error (AI SDK `APICallError` & friends) before
+ * it propagates. Without this an upstream 400/500 reaches the global HTTP
  * filter as a bare status message ("Bad Request"), with the provider's actual
- * reason (`responseBody`) discarded. `ctx` is the folded request actually sent to
- * the SDK — dumped so role-alternation / message-shape bugs are visible. Duck-typed,
- * no SDK import.
+ * reason (`responseBody`) discarded. `ctx` is the folded request actually sent
+ * to the SDK — dumped structurally (never raw) so role-alternation /
+ * message-shape bugs are visible. `responseBody` can echo request/message text
+ * back (e.g. a content-policy 400), so like `ctx` it is only logged in full
+ * under `DEBUG_LLM_PAYLOAD`; otherwise just its length. Duck-typed, no SDK
+ * import.
  */
 function logProviderError(
   providerName: string,
@@ -524,7 +527,16 @@ function logProviderError(
     e?.statusCode != null ? `status=${String(e.statusCode)}` : "",
     typeof e?.message === "string" ? e.message : String(err),
   ];
-  if (e?.responseBody != null) parts.push(`body=${String(e.responseBody).slice(0, 2000)}`);
+  if (e?.responseBody != null) {
+    // A provider error body commonly echoes the offending request/message text
+    // back (e.g. a content-policy 400 quoting the flagged content), so it is
+    // exactly as sensitive as `ctx.messages` above — which is why that side is
+    // never logged raw, only via `describeMessages`'s structural summary. Mirror
+    // that here: full body only under the same prod-guarded DEBUG_LLM_PAYLOAD
+    // toggle used for request logging; otherwise just its length.
+    const body = String(e.responseBody);
+    parts.push(DEBUG_LLM_PAYLOAD ? `body=${body.slice(0, 2000)}` : `body_length=${body.length}`);
+  }
   if (typeof e?.url === "string") parts.push(`url=${e.url}`);
   console.error(parts.filter(Boolean).join(" "));
   if (ctx) {

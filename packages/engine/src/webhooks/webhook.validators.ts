@@ -57,8 +57,9 @@ export const updateDefinitionSchema = z.object({
   (data) => {
     // When both fields are present in the patch, they must be coherent
     // (both set or both null/empty). Partial patches that touch only one
-    // of the two are intentionally allowed — coherence is checked again
-    // at the engine layer using the merged definition.
+    // of the two are intentionally allowed — coherence is re-checked in
+    // webhook-sources.store.ts#updateDefinition against the merged row
+    // (patch + persisted current value) before the write happens.
     if (data.outboundChannel === undefined && data.outboundTarget === undefined) return true;
     if (data.outboundChannel === undefined || data.outboundTarget === undefined) return true;
     const hasChannel = !!data.outboundChannel;

@@ -287,6 +287,28 @@ export async function updateDefinition(
 ): Promise<void> {
   if (!(await verifyEventSourceOwnership(eventSourceId, instanceId))) return;
 
+  // updateDefinitionSchema deliberately allows a patch to touch only one of
+  // outboundChannel/outboundTarget, deferring coherence to the row as it will
+  // exist after the merge. Fetch-merge-validate that merged state here, before
+  // writing: a raw partial `set()` could otherwise persist e.g. a channel with
+  // no target, which the webhook engine then silently refuses to fire on
+  // forever (webhook-engine.ts), with no error ever surfaced to this caller.
+  if (data.outboundChannel !== undefined || data.outboundTarget !== undefined) {
+    const rows = await db
+      .select({ outboundChannel: eventDefinitions.outboundChannel, outboundTarget: eventDefinitions.outboundTarget })
+      .from(eventDefinitions)
+      .where(and(eq(eventDefinitions.id, id), eq(eventDefinitions.eventSourceId, eventSourceId)))
+      .limit(1);
+    const current = rows[0];
+    if (!current) return;
+
+    const mergedChannel = data.outboundChannel !== undefined ? data.outboundChannel : current.outboundChannel;
+    const mergedTarget = data.outboundTarget !== undefined ? data.outboundTarget : current.outboundTarget;
+    if (!!mergedChannel !== !!mergedTarget) {
+      throw new Error("outboundChannel and outboundTarget must both be set or both be empty after this update");
+    }
+  }
+
   await db.update(eventDefinitions).set({ ...data, updatedAt: new Date() }).where(and(eq(eventDefinitions.id, id), eq(eventDefinitions.eventSourceId, eventSourceId)));
 }
 

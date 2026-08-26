@@ -80,6 +80,7 @@ vi.mock("drizzle-orm", () => ({
   inArray: vi.fn((col: unknown, values: unknown[]) => ({ type: "inArray", col, values })),
   sql: Object.assign(vi.fn((...args: unknown[]) => ({ type: "sql", args })), {
     raw: vi.fn(),
+    join: vi.fn((parts: unknown[], separator: unknown) => ({ type: "sql-join", parts, separator })),
   }),
   count: vi.fn(() => "count"),
 }));
@@ -812,6 +813,36 @@ describe("ConversationStore", () => {
       const result = await conversationStore.listConversations({});
 
       expect(result.total).toBe(0);
+    });
+
+    // A principal with no resolvable orgId (a legacy JWT, or a genuinely
+    // ambiguous multi-org principal) must never see a cross-org listing.
+    // Mirrors the fail-closed guarantee searchConversations already has via
+    // buildOrgScopedAgentFilterFragment.
+    it("fails closed (adds an unsatisfiable predicate) when orgId is absent", async () => {
+      mockDb.execute
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ total: 0 }]);
+
+      await conversationStore.listConversations({});
+
+      const sawUnsatisfiablePredicate = (sqlMock as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        (args: unknown[]) => Array.isArray(args[0]) && (args[0] as string[]).join("") === "false",
+      );
+      expect(sawUnsatisfiablePredicate).toBe(true);
+    });
+
+    it("scopes to the caller's organization when orgId is present", async () => {
+      mockDb.execute
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ total: 0 }]);
+
+      await conversationStore.listConversations({ orgId: "org-a" });
+
+      const sawOrgScopedSubquery = (sqlMock as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        (args: unknown[]) => Array.isArray(args[0]) && (args[0] as string[]).join("").includes("join workspaces"),
+      );
+      expect(sawOrgScopedSubquery).toBe(true);
     });
   });
 
