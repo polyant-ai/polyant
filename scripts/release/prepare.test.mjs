@@ -225,6 +225,18 @@ test("foreignChanges reports tracked work in progress, and ignores untracked fil
   assert.deepEqual(foreignChanges(porcelain, owned), ["packages/engine/src/pipeline.ts"]);
 });
 
+test("ownedPaths follows the generated artefacts this build declares, if any", () => {
+  const withArtefacts = ownedPaths("1.2.0", {
+    ...releaseFacts,
+    generatedArtefacts: { script: "openapi:generate", files: ["packages/engine/openapi.json"] },
+  });
+  assert.ok(withArtefacts.has("packages/engine/openapi.json"));
+
+  // This build commits no API contract, so the paths must not appear — and
+  // `release:prepare` must not try to run a script the workspace does not have.
+  assert.ok(!ownedPaths("1.2.0", { ...releaseFacts, generatedArtefacts: null }).has("packages/engine/openapi.json"));
+});
+
 test("ownedPaths covers every mirror the command writes", () => {
   const owned = ownedPaths("1.2.0", releaseFacts);
   for (const manifest of releaseFacts.manifests) assert.ok(owned.has(manifest), manifest);
@@ -232,5 +244,4 @@ test("ownedPaths covers every mirror the command writes", () => {
   assert.ok(owned.has("package-lock.json"));
   assert.ok(owned.has("infra/package-lock.json"));
   assert.ok(owned.has("docs/releases/v1.2.0.md"));
-  assert.ok(owned.has("packages/engine/openapi.json"));
 });

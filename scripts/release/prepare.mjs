@@ -235,8 +235,7 @@ export function ownedPaths(version, facts = releaseFacts) {
     "CHANGELOG.md",
     "README.md",
     path.posix.join("docs", "releases", `v${version}.md`),
-    path.posix.join("packages", "engine", "api-index.md"),
-    path.posix.join("packages", "engine", "openapi.json"),
+    ...(facts.generatedArtefacts?.files ?? []),
   ]);
 }
 
@@ -287,7 +286,8 @@ async function assertTreeCleanOutsideOwned(rootDir, version, facts) {
  * not values.
  */
 async function regenerateApiArtefacts(rootDir, facts) {
-  await shell("npm", ["run", "openapi:generate", "-w", facts.engineWorkspace], {
+  if (!facts.generatedArtefacts) return false;
+  await shell("npm", ["run", facts.generatedArtefacts.script, "-w", facts.engineWorkspace], {
     cwd: rootDir,
     env: {
       ...process.env,
@@ -296,6 +296,7 @@ async function regenerateApiArtefacts(rootDir, facts) {
       POSTGRES_PASSWORD: "release-prepare",
     },
   });
+  return true;
 }
 
 async function main() {
@@ -330,8 +331,12 @@ async function main() {
   await retargetReadmeRelease(rootDir, previous, version);
   console.log(`readme     release paragraph points at v${version}`);
 
-  await regenerateApiArtefacts(rootDir, facts);
-  console.log("artefacts  api-index.md + openapi.json regenerated");
+  const regenerated = await regenerateApiArtefacts(rootDir, facts);
+  console.log(
+    regenerated
+      ? `artefacts  ${facts.generatedArtefacts.files.join(" + ")} regenerated`
+      : "artefacts  none for this build",
+  );
 
   const { validateReleaseMetadata } = await import("../ci/verify-release-metadata.mjs");
   await validateReleaseMetadata(rootDir);

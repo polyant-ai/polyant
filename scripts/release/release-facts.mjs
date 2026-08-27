@@ -22,7 +22,8 @@
 
 /** @typedef {{ productName: string, versionSuffix: string | null, repositoryUrl: string,
  *              engineWorkspace: string, manifests: string[], lockfileRoots: string[],
- *              dockerStubs: { file: string, package: string }[] }} ReleaseFacts */
+ *              dockerStubs: { file: string, package: string }[],
+ *              generatedArtefacts: { script: string, files: string[] } | null }} ReleaseFacts */
 
 /** @type {ReleaseFacts} */
 export const releaseFacts = {
@@ -60,6 +61,17 @@ export const releaseFacts = {
     { file: "Dockerfile.engine", package: "@polyant/web" },
     { file: "Dockerfile.web", package: "@polyant/engine" },
   ],
+
+  /**
+   * Generated files that restate the engine version, and the workspace script
+   * that rewrites them — or `null` where this build generates none.
+   *
+   * The Enterprise build commits an API contract (`api-index.md` +
+   * `openapi.json`) whose header carries the version; this build has neither the
+   * artefacts nor the script. Naming it here rather than assuming it is why
+   * `release:prepare` does not fail on the build that has nothing to generate.
+   */
+  generatedArtefacts: null,
 };
 
 const SEMVER_CORE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
