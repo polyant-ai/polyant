@@ -33,6 +33,8 @@
     "test:unit": "npm run test:unit -w @polyant/engine",
     "test:integration": "npm run test:integration -w @polyant/engine",
     "test:functional": "npm run test:functional -w @polyant/engine",
+    "release:prepare": "node scripts/release/prepare.mjs",
+    "release:audit": "node scripts/release/audit.mjs",
     "release:verify": "node scripts/ci/verify-release-metadata.mjs",
     "licenses": "npx --yes license-checker --excludePackages \"@polyant/engine;@polyant/web;polyant\" --excludePrivatePackages --markdown | grep -v '^\\[@polyant/'"
   },
