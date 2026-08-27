@@ -115,5 +115,6 @@ jobs:
       - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
       - run: npm ci
       - run: npm run release:verify
-      - run: node --test scripts/ci/verify-release-metadata.test.mjs
+      # Every release-tooling test, so a new script cannot land untested.
+      - run: node --test scripts/ci/*.test.mjs scripts/release/*.test.mjs
       - run: npm run build
