@@ -159,6 +159,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   switch discards it and when the channel is deleted — so the audit trail no
   longer records only the mints and rotations.
 
+## [1.0.2] - 2026-08-26
+
+### Fixed
+
+- The Speech-to-Text provider setting now accepts an explicit "Disabled" value. An unrecognised or unset provider previously fell back silently to OpenAI Whisper, so an operator who wanted voice messages turned off had no way to say so, and audio replies could fail looking for credentials that were never configured. Choosing "Disabled" now returns a plain "voice messages are not supported" reply instead.
+
 ## [1.0.1] - 2026-08-25
 
 > Released from `main` as a hotfix on 1.0.0. Its changes are also present in
@@ -202,6 +208,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Node.js 22 is aligned across the supported development and container environments.
 
 [Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.1.0...HEAD
-[1.1.0]: https://github.com/polyant-ai/polyant/compare/v1.0.0...v1.1.0
+[1.1.0]: https://github.com/polyant-ai/polyant/compare/v1.0.2...v1.1.0
+[1.0.2]: https://github.com/polyant-ai/polyant/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/polyant-ai/polyant/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/polyant-ai/polyant/releases/tag/v1.0.0

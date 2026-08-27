@@ -43,10 +43,26 @@ Edit `.env` and set at minimum:
 
 | Variable | Description |
 |----------|-------------|
-| `ENCRYPTION_KEY` | 32-byte hex key — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `AUTH_SECRET` | Random string for JWT signing — generate with `openssl rand -base64 32` |
+| `ENCRYPTION_KEY` | 32-byte hex key for instance secrets — generate with `openssl rand -hex 32` |
+| `AUTH_SECRET` | Auth.js JWE encryption secret — generate with `openssl rand -hex 32` |
+| `AUTH_INTERNAL_SECRET` | Shared secret for web→engine internal calls — generate with `openssl rand -hex 32` |
+| `INITIAL_ADMIN_PASSWORD` | Seeds the first admin account at boot — without it no admin is created |
+| `INITIAL_ADMIN_EMAIL` | Email of that account (optional, defaults to `administrator@local`) |
 
-For the web frontend, create `packages/web/.env.local` with the Google OAuth credentials (see `.env.example` for the variable names).
+Next.js does not read the monorepo root `.env`, so mirror the web-facing values into
+`packages/web/.env.local`:
+
+```bash
+AUTH_SECRET=<same value as .env>
+AUTH_INTERNAL_SECRET=<same value as .env>
+AUTH_TRUST_HOST=true
+DATABASE_URL=postgresql://polyant:changeme@localhost:5432/polyant
+NEXT_PUBLIC_API_URL=http://localhost:4000
+INTERNAL_ENGINE_URL=http://localhost:4000
+```
+
+Google OAuth is optional: set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` to enable the
+Google button, or leave them empty and sign in with the admin credentials above.
 
 ### 5. Run database migrations
 
@@ -58,25 +74,63 @@ npm run db:migrate
 
 ```bash
 # Terminal 1 — engine (NestJS, port 4000)
+
 npm run dev
 
-# Terminal 2 — admin panel (Next.js, port 3001)
+# Terminal 2 — admin panel (Next.js, port 3000)
+
 npm run dev:web
 ```
 
-Open the admin panel at `http://localhost:3001` and create your first instance.
+Open the admin panel at `http://localhost:3000`, sign in with `INITIAL_ADMIN_EMAIL` /
+`INITIAL_ADMIN_PASSWORD`, and create your first instance.
 
 ## Project Structure
 
 ```
 polyant/
 ├── packages/
-│   ├── engine/   # NestJS — AI runtime, management API, channels
-│   └── web/      # Next.js — admin panel
-└── examples/     # Minimal working examples (instances, skills)
+│   ├── engine/               # @polyant/engine — NestJS AI runtime + API
+│   │   └── src/
+│   │       ├── agents/       # Supervisor, tool registry, sub-agent delegation
+│   │       ├── ai-gateway/   # Provider-agnostic LLM abstraction (tier-based)
+│   │       ├── channels/     # Telegram, Slack, WhatsApp adapters
+│   │       ├── memory/       # pgvector embeddings + hybrid search
+│   │       ├── knowledge/    # Per-instance document store + retrieval
+│   │       ├── hooks/        # Conversation lifecycle hooks
+│   │       ├── room/         # Event-driven proactive agent workspace
+│   │       ├── instances/    # Instance CRUD, secrets, config resolver
+│   │       ├── skills/       # Global skill library CRUD
+│   │       ├── authz/        # Roles, permissions, tenancy scoping
+│   │       └── server/       # NestJS controllers (REST + OpenAI-compat)
+│   └── web/                  # @polyant/web — Next.js admin panel
+│       └── src/app/
+│           ├── (auth)/       # Sign-in (email + password, optional Google OAuth)
+│           └── (admin)/      # Protected admin routes
+├── examples/                 # Minimal working examples (instances, skills)
+└── docker-compose.yml        # PostgreSQL + pgvector
 ```
 
 See [Architecture](https://docs.polyant.ai/concepts/architecture) for a full technical reference (source: [polyant-ai/docs](https://github.com/polyant-ai/docs)).
+
+## Commands
+
+Every command runs from the monorepo root and delegates to the right workspace.
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start engine with hot reload (tsx watch, port 4000) |
+| `npm run dev:web` | Start Next.js admin panel (port 3000) |
+| `npm run build` | Build all packages |
+| `npm start` | Run engine from compiled output |
+| `npm run db:generate` | Generate Drizzle migrations from schema |
+| `npm run db:migrate` | Apply pending migrations |
+| `npm run db:studio` | Open Drizzle Studio GUI |
+| `npm test` | Run all tests |
+| `npm run test:unit` | Unit tests only (no DB required) |
+| `npm run test:integration` | Integration tests (requires PostgreSQL) |
+| `npm run lint` | ESLint all packages |
+| `npm run typecheck` | TypeScript check all packages |
 
 ## Development Workflow
 
@@ -87,10 +141,14 @@ See [Architecture](https://docs.polyant.ai/concepts/architecture) for a full tec
 
 ### Making changes
 
-1. Fork the repository and create a branch from `main`:
+1. Fork the repository and create a branch from `develop`:
    ```bash
+   git checkout develop
    git checkout -b feat/my-feature
    ```
+   `develop` is the integration branch; `main` only ever holds released code and is
+   updated by a release or a hotfix PR. Base your work on `develop` unless you are
+   fixing something that is broken in the current release.
 2. Make your changes following the conventions below.
 3. Run the checks before pushing:
    ```bash
@@ -141,7 +199,7 @@ sign-off cannot be merged.
 
 ### Pull Request process
 
-1. Open a PR against `main` with a clear title (Conventional Commits format).
+1. Open a PR against `develop` with a clear title (Conventional Commits format). CI runs on both `main` and `develop`.
 2. Fill in the PR description: what changes, why, and how to test.
 3. CI must pass (lint + typecheck + tests).
 4. All commits must be signed off (see DCO section above).
@@ -162,8 +220,15 @@ See [`.claude/rules/`](.claude/rules/) for the full coding style rules.
 ## Adding a New Tool
 
 1. Create `packages/engine/src/agents/tools/my-tool.tool.ts`.
-2. Call `registerTool({ name, description, create: (ctx) => ... })` at module level.
-3. The tool auto-discovers at boot — no imports to update elsewhere.
+2. Default-export `defineTool({ name, description, parameters, execute })` from
+   `@polyant-ai/plugin-sdk`. `parameters` is a **static** Zod schema (it must not read
+   `ctx`); the business logic lives in `execute(input, ctx)`.
+3. The loader collects the default export at boot and syncs the `tools` table — no
+   imports to update elsewhere.
+
+Domain-specific tools belong in an external **plugin** repo rather than in the engine.
+See [docs/plugins.md](docs/plugins.md) and the
+[Plugins & the SDK](README.md#plugins--the-sdk) section of the README.
 
 ## Adding a New Skill
 

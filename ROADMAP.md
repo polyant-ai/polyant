@@ -12,7 +12,6 @@ contributions and feedback.
 
 ## Next
 
-- Web search tool (Tavily / Brave Search wrappers).
 - More channel adapters (Discord, Microsoft Teams).
 - Expose Polyant's own tools as an MCP **server**, so an external client can
   consume them. The client side has shipped — an agent can already equip tools
@@ -29,7 +28,9 @@ contributions and feedback.
 
 ## Future
 
-- Voice channel (STT/TTS pipeline).
+- Bidirectional voice channel: inbound audio is already transcribed per agent
+  (Whisper / Amazon Transcribe / Deepgram); what is missing is TTS and a realtime
+  transport.
 - Plugin marketplace for skills.
 
 ## Out of scope
