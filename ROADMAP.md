@@ -12,14 +12,20 @@ contributions and feedback.
 
 ## Next
 
-- Web search tool (Tavily / Brave Search wrappers).
 - More channel adapters (Discord, Microsoft Teams).
-- First-party MCP server support for tools.
+- Model Context Protocol: consume tools from external MCP servers, and expose
+  Polyant's own tools as an MCP server.
+- Agent2Agent (A2A) protocol support.
+- Complete multi-tenancy: the `Organization > Workspace > Instance` schema and
+  the RBAC role/permission model are in place, but enforcement is opt-in
+  (`AUTHZ_ENFORCE`), and organization/workspace CRUD and an email-invitation
+  flow are still missing.
 
 ## Future
 
-- Multi-tenancy (Organization > Project > Instance hierarchy).
-- Voice channel (STT/TTS pipeline).
+- Bidirectional voice channel: inbound audio is already transcribed per instance
+  (Whisper / Amazon Transcribe / Deepgram); what is missing is TTS and a realtime
+  transport.
 - Plugin marketplace for skills.
 
 ## Out of scope

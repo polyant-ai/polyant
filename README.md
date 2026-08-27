@@ -9,7 +9,7 @@
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL--v3-blue.svg)](LICENSE)
 [![Node.js 22](https://img.shields.io/badge/node-22-green.svg)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
 🌐 **Website**: [polyant.ai](https://polyant.ai) &nbsp;·&nbsp; 📚 **Docs**: [docs.polyant.ai](https://docs.polyant.ai) &nbsp;·&nbsp; 💬 **GitHub**: [polyant-ai/polyant](https://github.com/polyant-ai/polyant)
 
@@ -19,7 +19,7 @@
 
 ## Release status
 
-Polyant v1.0.2 is the current stable release, a patch on the first public stable release v1.0.0. Review the [changelog](CHANGELOG.md), the [release notes](docs/releases/v1.0.2.md), and the [GitHub release](https://github.com/polyant-ai/polyant/releases/tag/v1.0.2). In a running admin installation, version and release details are available at [/about](/about).
+Polyant v1.0.2 is the current stable release, a patch on the first public stable release v1.0.0. Review the [changelog](CHANGELOG.md), the [release notes](docs/releases/v1.0.2.md), and the [GitHub release](https://github.com/polyant-ai/polyant/releases/tag/v1.0.2). In a running admin installation, version and release details are available at `/about`.
 
 > The name comes from Hofstadter's *Gödel, Escher, Bach* — specifically the "Ant Fugue" dialogue and the character of Aunt Hillary, an ant colony understood as the archetype of emergent intelligence: individual agents, each one limited, that produce — by coordinating — a collective intelligent behaviour that exceeds the sum of its parts. It is, literally, the thesis we are pitching: fleets of specialised agents that, when orchestrated, generate performance impossible for any single agent. *Poly-* (classical Greek, "many") makes the key concept explicit: coordinated multiplicity.
 >
@@ -46,17 +46,25 @@ Polyant is, in short, what happens when you take the architectural lessons of Op
 - **Supervisor Agent** — Central orchestrator with tool use, up to 15 reasoning steps per request (Vercel AI SDK)
 - **Long-term Memory** — Automatic fact extraction via LLM; hybrid search with pgvector cosine similarity + PostgreSQL FTS fused via Reciprocal Rank Fusion
 - **Multi-channel** — Telegram, Slack, WhatsApp, and an OpenAI-compatible HTTP API (with file attachment support)
-- **Provider-agnostic** — Switch between OpenAI and Anthropic per-instance via the admin panel; tier abstraction (`fast | standard | heavy`) decouples code from model names
+- **Provider-agnostic** — Switch between OpenAI, Anthropic, Amazon Bedrock, and Nebius Token Factory per instance from the admin panel; the embedding provider is chosen independently of the chat provider. A tier abstraction (`fast | standard | heavy`) decouples code from model names, and a model catalog carries per-model pricing, vision, reasoning, and prompt-caching capabilities
 - **Tools & Plugins** — Author a tool as `export default defineTool(...)` from `@polyant-ai/plugin-sdk`; the engine loader collects it at boot with no wiring. Tools live in-engine or in external **plugin** repos loaded via `PLUGIN_DIRS` — see [Plugins & the SDK](#plugins--the-sdk)
 - **Skill System** — Markdown-based skill definitions stored in the database; per-instance encrypted env vars for skills that need API keys
 - **Multi-instance** — Independent configuration of prompts, skills, tool availability, and identity per instance; instances exposed as selectable "models" via the OpenAI-compatible API
 - **Per-instance Secrets** — API keys, channel config, and LangSmith settings stored AES-256-GCM encrypted per instance
-- **Admin Panel** — Next.js 15 frontend for managing instances, conversations, memories, skills, tools, channels, and analytics
+- **Admin Panel** — Next.js 16 frontend for managing instances, conversations, memories, skills, tools, channels, and analytics
 - **Event-driven Room** — Proactive agent workspace that processes webhook events on a 30-second tick and can push outbound messages
 - **Conversation Tracking** — Full message history with summaries and full-text search in PostgreSQL
 - **Analytics** — Token usage, cost tracking, and pipeline latency per instance
 - **Cost Monitoring** — Every LLM call logged with token counts and estimated USD cost
 - **File Attachments** — Photos and PDFs from WhatsApp/Telegram stored in S3, passed as multimodal content to the LLM
+- **Voice Messages** — Inbound audio transcribed per instance via OpenAI Whisper, Amazon Transcribe, or Deepgram — or turned off explicitly
+- **Knowledge Base** — Per-instance documents chunked and retrieved with pgvector, editable from the panel and portable as a JSON bundle
+- **Lifecycle Hooks** — Typed code hooks at four fixed pipeline points that can inject context, halt a turn and answer, or replace the generated reply
+- **Scheduled Tasks** — Cron-style prompts an instance runs on its own, with a per-run log
+- **Agent-to-Agent** — An instance can call another instance in-process as an `ask_<slug>` tool, bounded to one hop
+- **RBAC & Tenancy** — `Organization → Workspace → Instance` with four system roles (Owner / Admin / Member / Viewer) over a `resource:action` permission matrix. In v1.0.x the guard ships in **shadow mode**: decisions are resolved and logged but never denied until you set `AUTHZ_ENFORCE=true`
+- **GDPR Opt-out** — Deterministic STOP/START keyword gate per contact, enforced in code rather than by the model, blocking inbound and proactive outbound alike
+- **Export & Import** — A full instance configuration (prompts, skills, tools, channels, hooks, Room, tasks) travels as a JSON bundle; secrets are never exported
 
 ## Documentation
 
@@ -136,16 +144,16 @@ INTERNAL_ENGINE_URL=http://localhost:4000
 ```bash
 npm run db:migrate   # create all tables
 npm run dev          # engine on :4000
-npm run dev:web      # admin panel on :3001 (separate terminal)
+npm run dev:web      # admin panel on :3000 (separate terminal)
 ```
 
-Open `http://localhost:3001`, sign in with the admin credentials from step 3, create an instance, and configure your AI provider keys in the Settings tab.
+Open `http://localhost:3000`, sign in with the admin credentials from step 3, create an instance, and configure your AI provider keys in the Settings tab.
 
 ## Architecture
 
 ```
 ┌──────────────────────────────────────────────┐
-│         packages/web  (Next.js 15)           │
+│         packages/web  (Next.js 16)           │
 │     Admin Panel — instance management        │
 └─────────────────┬────────────────────────────┘
                   │ REST API + cookie auth
@@ -172,17 +180,20 @@ polyant/
 ├── packages/
 │   ├── engine/               # @polyant/engine — NestJS AI runtime + API
 │   │   └── src/
-│   │       ├── agents/       # Supervisor, tools registry, sub-agent types
+│   │       ├── agents/       # Supervisor, tool registry, sub-agent delegation
 │   │       ├── ai-gateway/   # Provider-agnostic LLM abstraction (tier-based)
 │   │       ├── channels/     # Telegram, Slack, WhatsApp adapters
 │   │       ├── memory/       # pgvector embeddings + hybrid search
+│   │       ├── knowledge/    # Per-instance document store + retrieval
+│   │       ├── hooks/        # Conversation lifecycle hooks
 │   │       ├── room/         # Event-driven proactive agent workspace
 │   │       ├── instances/    # Instance CRUD, secrets, config resolver
 │   │       ├── skills/       # Global skill library CRUD
+│   │       ├── authz/        # Roles, permissions, tenancy scoping
 │   │       └── server/       # NestJS controllers (REST + OpenAI-compat)
 │   └── web/                  # @polyant/web — Next.js admin panel
 │       └── src/app/
-│           ├── (auth)/       # Google OAuth login
+│           ├── (auth)/       # Sign-in (email + password, optional Google OAuth)
 │           └── (admin)/      # Protected admin routes
 ├── examples/                 # Minimal working examples (instances, skills)
 └── docker-compose.yml        # PostgreSQL + pgvector
@@ -205,7 +216,7 @@ polyant/
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Start engine with hot reload (tsx watch, port 4000) |
-| `npm run dev:web` | Start Next.js admin panel (port 3001) |
+| `npm run dev:web` | Start Next.js admin panel (port 3000) |
 | `npm run build` | Build all packages |
 | `npm start` | Run engine from compiled output |
 | `npm run db:generate` | Generate Drizzle migrations from schema |
@@ -300,20 +311,20 @@ See [GitHub Issues](https://github.com/polyant-ai/polyant/issues) and [Discussio
 
 ### Architectural directions
 
-- **Multi-tenancy** — formalize the *Organization → Project → Instance* hierarchy already sketched in the auth module (Phase 2). Adds invitation-based memberships, configurable RBAC, and tenant-scoped URLs (`/organizations/{org}/projects/{project}/instances/{slug}/...`). Schema design (`organizations`, `projects`, `organization_memberships`, `roles`, `invitations`) is documented; not yet implemented.
-- **Pluggable memory backend** — today the memory layer is hard-wired to OpenAI for embeddings (the per-instance `openai_api_key` secret is required regardless of the assistant's chat provider, because Anthropic has no embedding API). The roadmap is to introduce a `MemoryProvider` abstraction so that embeddings can come from Voyage, Cohere, local models (e.g. via Ollama / a locally hosted bge / nomic), or a self-hosted gateway — just like the chat layer already is provider-agnostic via the AI Gateway tiers.
+- **Multi-tenancy** — the *Organization → Workspace → Instance* hierarchy, its RBAC role/permission model, and the `PermissionGuard` are implemented ("Project" was renamed **Workspace**). What is still missing is the tenant *experience*: enforcement is opt-in (`AUTHZ_ENFORCE`, shadow mode by default), a single default organization and workspace are seeded with no CRUD for either, there is no workspace switcher, and there is no email-invitation flow — an administrator creates the user and then assigns a role, which works but is two manual steps. Custom per-organization roles are out of scope for the OSS edition.
+- **More embedding providers** — embeddings go through their own gateway (`embeddings-gateway/`) and the provider is chosen per instance, independently of the chat provider, but the choice is currently OpenAI or Amazon Bedrock Titan. We want the same breadth the chat layer has: Voyage, Cohere, and local models (Ollama, a self-hosted bge / nomic). Note that switching an instance's embedder is destructive by design — vector spaces are not convertible, so memories and the knowledge base are wiped and must be re-imported.
 - **Sandboxed tool execution** — high-impact tools (anything that runs git, executes shell, writes files, or talks to a customer's infrastructure) should not run inside the engine process. We want to push these into an external sandbox (firecracker / gVisor / a remote isolate-style runner) with a tight contract: tool input → sandbox → tool output. The current trade-offs (e.g. the `gitCloneRepo` token written under `.git/polyant-token` while the workspace exists) become non-issues once execution is moved off-host.
 - **Evaluation suite** — simulation-based regression testing for assistants: digital twins, scenario libraries, golden conversations, and a CI integration so that changing a prompt or skill produces a measurable delta.
 
 ### Channels & UX
 
-- **Voice channel** — bidirectional voice as a first-class adapter alongside Telegram / Slack / WhatsApp.
+- **Voice channel** — bidirectional voice as a first-class adapter alongside Telegram / Slack / WhatsApp. Inbound audio is already transcribed per instance (Whisper / Amazon Transcribe / Deepgram); TTS and a realtime transport are the missing half.
 - **Web widget** — embeddable chat surface that talks to an instance directly via the OpenAI-compatible API.
 - **Channel-level analytics** — per-channel cost, latency, error rate (today analytics are aggregated per instance).
 
 ### Developer experience
 
-- **Self-service skill editor in the admin panel** — today skills are edited as markdown via API; an in-product editor with version diffing is on the list.
+- **Skill version diffing** — the admin panel has a skill editor, but comparing two versions of a skill still means reading both by hand.
 - **Tool scaffolding CLI** — `npm run create-tool <name>` to drop a `*.tool.ts` skeleton wired to the registry.
 - **Drizzle migration ergonomics** — the current ESM workaround for `drizzle-kit generate` (running it via `npx tsx ../../node_modules/drizzle-kit/bin.cjs generate`) and the lack of snapshot files force migrations to be hand-edited. We want to either fix the toolchain interaction or migrate the schema-diff workflow to an alternative that plays nicely with ESM monorepos.
 
@@ -323,29 +334,27 @@ These are deliberate trade-offs, deferred decisions, or rough edges that ship wi
 
 ### Architecture & coupling
 
-- **Memory is locked to OpenAI** — `packages/engine/src/memory/embedder.ts` calls the OpenAI embeddings endpoint directly. An instance configured to use Anthropic for the chat tier still needs an `openai_api_key` secret if memory is enabled. Replacing this with a `MemoryProvider` interface is a high-priority item on the roadmap above.
+- **Embeddings have only two providers** — the embedder is resolved per instance in `embeddings-gateway/provider-resolver.ts` and is independent of the chat provider, but the only choices are OpenAI and Amazon Bedrock Titan. An instance on Anthropic still needs credentials for one of those two if memory or knowledge is enabled, and changing the embedder later wipes memories and the knowledge base (vector spaces are not convertible) — export the knowledge base first.
 - **Critical tools run in-process** — `gitCloneRepo`, file system access, and any future shell-style tools execute in the engine's own runtime. The current safeguards (per-conversation workspace, ephemeral credentials at `.git/polyant-token` mode 0600, automatic cleanup) keep the blast radius small but do not isolate CPU, network, or filesystem at OS level. Moving tool execution to an external sandbox is on the roadmap.
-- **Drizzle version mismatch between packages** — `packages/web/src/lib/auth.ts` casts the Drizzle adapter through `as any` (4 sites) because `packages/engine` and `packages/web` pin different `drizzle-orm` versions. Works today, but it's brittle — a single version pin across the workspace is the proper fix.
-- **`workspaces/` directory is a leftover** — the filesystem `workspaces/<instanceId>/` tree is documented as legacy and only used for knowledge-file sync. The intent is to either fold knowledge into the database (consistent with the rest of the configuration model) or to formalize `workspaces/` as a sandbox root.
+- **Untyped Auth.js adapter wiring** — `packages/web/src/lib/auth.ts` casts the Drizzle adapter and its four table arguments through `as any` (5 sites). Both packages now pin the same `drizzle-orm`, so the original reason no longer applies; the casts survive because `@auth/drizzle-adapter` expects its own schema shape. Typing the mapping properly would remove them.
+- **`workspaces/` is an overloaded name** — the filesystem `workspaces/<instanceId>/conversations/<convId>/` tree is now *only* a per-conversation tool sandbox (knowledge moved fully into PostgreSQL), while `workspaces` is also the RBAC tenancy level between organization and instance, and npm calls the two packages workspaces too. Three unrelated meanings, one word — renaming the filesystem root (e.g. to `sandboxes/`) is the cheap fix.
 
 ### Robustness
 
 - **Fire-and-forget post-processing swallows failures** — message persistence, summary updates, and memory extraction run async after the user reply (`pipeline.ts`). On error they currently log via `console.error` and move on. There is no retry, no dead-letter queue, and no surfacing in the admin panel — a failed memory write is invisible to operators.
-- **Structured logging is incomplete** — several boot/runtime paths still use `console.log` / `console.error` (the project's own coding rules forbid this in production code). We want a single structured logger across engine and web with consistent fields (instanceId, conversationId, requestId).
+- **Structured logging is incomplete** — a level-gated logger factory (`utils/create-logger.ts`) is in place and daily log files are written, but roughly twenty engine modules still call `console.log` / `console.error` directly. The goal is one structured logger across engine and web with consistent fields (instanceId, conversationId, requestId).
 - **Webhook backlog drops events silently** — `POST /webhooks/:token` always returns `200 OK` and drops events when the per-instance backlog cap (100) is reached. There is no operator-facing signal. A bounded queue with overflow alerting is the planned fix.
-- **Rate limiting is uneven** — the OpenAI-compatible endpoint is throttled, but `/memories` and several management endpoints have no per-tenant rate limits. Memory-write spam from a misbehaving client is not prevented today.
-- **Activity-log compaction is described but not scheduled** — Room activity is documented as auto-compacted (`7d daily → weekly → monthly`) but no scheduled job actually runs the compaction step yet. Tables grow until manually pruned.
+- **Rate limiting is per-IP, not per-tenant** — a global throttler (30 requests/minute by default, with tighter per-route limits on sign-in, knowledge import, and the OpenAI-compatible endpoint) applies to every route, but the bucket is keyed by IP address. Two tenants behind one egress IP share a budget, and one API key cannot be throttled independently of another.
 
 ### Code quality & deferred design
 
-- **`SubAgentDefinition` is unused** — the type is defined in `packages/engine/src/agents/sub-agents/types.ts` and a place-holder for specialized sub-agents (researcher, analyst, …). Today `spawnTask` creates ad-hoc agents that don't reference it. Either wire it up or delete the type until it's needed.
 - **WhatsApp template fallback is a stub in OSS** — `channels/adapters/whatsapp/stub-templates.ts` ships with an empty `STUB_TEMPLATES` map. Operators using WhatsApp's strict 24-hour session window must populate it with their own approved templates; otherwise the adapter falls back to a compact summary string.
 - **Files exceeding the 400-line house rule** — a few files in `packages/web/src/` still bundle multiple responsibilities and are due for a split.
 
 ### Documentation gaps
 
-- The "Phase 2 — Multi-Tenancy" section of `CLAUDE.md` describes a hierarchy that does not exist in the schema yet; this is a roadmap document, not a description of current behavior.
 - Trade-offs around the `gitCloneRepo` credential lifecycle (token at rest while the workspace exists) are documented in `CLAUDE.md` but should be surfaced on [docs.polyant.ai](https://docs.polyant.ai) as well, since they affect deployment posture.
+- The RBAC guard defaults to shadow mode (`AUTHZ_ENFORCE` unset), which is not stated in the deployment documentation — an operator can reasonably believe roles are being enforced when they are not.
 
 If you would like to take on any of the items above, please open an issue first so we can scope it together — most of these decisions involve trade-offs we are happy to discuss in the open.
 
@@ -363,13 +372,13 @@ For vulnerability reports, see [SECURITY.md](SECURITY.md) — please do not file
 |-------|-----------|
 | Monorepo | npm workspaces |
 | Language | TypeScript / Node.js (ESM) |
-| Agent Framework | Vercel AI SDK v4 |
+| Agent Framework | Vercel AI SDK v6 |
 | Engine Server | NestJS 11 |
-| Admin Panel | Next.js 15, React 19, Tailwind CSS 4, shadcn/ui |
+| Admin Panel | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui |
 | Database | PostgreSQL 16 + pgvector (Drizzle ORM) |
 | Memory | pgvector cosine similarity + PostgreSQL FTS (RRF fusion) |
 | Encryption | AES-256-GCM (Node.js crypto) |
-| Auth | Auth.js v5 (Google OAuth, JWT/JWE) |
+| Auth | Auth.js v5 (email + password, optional Google OAuth, JWT/JWE) |
 | Tracing | LangSmith |
 | Infrastructure | Docker Compose |
 
