@@ -205,6 +205,17 @@ polyant/                            # Monorepo root
 
 **When modifying prompts:** use the Management API (`PATCH /api/instances/:slug/prompts`) or update `instance_prompts` rows. Default prompt content for new instances is defined in `packages/engine/src/instances/defaults.ts`.
 
+## Agent Runtime
+
+Every user message is handled by one **Supervisor** — a single LLM call loop with the tools enabled for that instance. There are no specialised, pre-registered agents.
+
+- **Entry points** (`agents/supervisor/index.ts`): `supervise(input)` returns the full response once every reasoning step is done; `superviseStream(input)` returns a stream. Both take an optional `AbortSignal`, propagated end-to-end (supervisor → ai-gateway `chat`/`chatStream` → AI SDK), which is what lets the inbound `MessageCoordinator` cancel and restart a run on a fragment burst
+- **Max steps**: 15 for the Supervisor, 10 for a delegated sub-agent. Tier is `standard`, per-instance configurable
+- **Prompt**: assembled by `supervisor/prompt.ts` from the 7 sections in `instance_prompts` (defaults in `instances/defaults.ts`), read through `getPrompts(instanceId)` with a 60s TTL cache. Volatile per-turn context is NOT part of it — see the prompt-caching caveat
+- **Steps**: each step is buffered by the gateway and surfaced as `ChatResponse.steps` (`{ text, reasoningBlocks, toolCalls }`), persisted on `conversation_messages.steps` + `reasoning`
+- **Delegation** (`agents/tools/task-tool.ts`): `spawnTask` composes a sub-agent on the fly with the parent's tools minus `spawnTask` itself (a snapshot taken before `spawnTask` is appended, so `ask_*` handoffs stay visible). Max delegation depth is therefore 1
+- **Agent-to-agent** (`channels/adapters/agent.adapter.ts`, `agents/tools/agent-invoke.helpers.ts`): when an instance has the `agent` channel enabled, every OTHER instance with that channel enabled is synthesised as a tool named `ask_<slug>` — dashes become underscores, so `my-helper` → `ask_my_helper`. The call runs the callee's Supervisor in-process (no HTTP), bounded to one hop (the callee's own `ask_*` synthesis is stripped) and wrapped in a per-call timeout (`AGENT_CALL_TIMEOUT_MS`, default 60s) that aborts the request and returns a structured timeout error
+
 ## Key Conventions
 
 - **ESM only** (`"type": "module"` in package.json, `.js` extensions in imports)

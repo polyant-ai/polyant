@@ -74,9 +74,11 @@ npm run db:migrate
 
 ```bash
 # Terminal 1 — engine (NestJS, port 4000)
+
 npm run dev
 
 # Terminal 2 — admin panel (Next.js, port 3000)
+
 npm run dev:web
 ```
 
@@ -88,12 +90,47 @@ Open the admin panel at `http://localhost:3000`, sign in with `INITIAL_ADMIN_EMA
 ```
 polyant/
 ├── packages/
-│   ├── engine/   # NestJS — AI runtime, management API, channels
-│   └── web/      # Next.js — admin panel
-└── examples/     # Minimal working examples (instances, skills)
+│   ├── engine/               # @polyant/engine — NestJS AI runtime + API
+│   │   └── src/
+│   │       ├── agents/       # Supervisor, tool registry, sub-agent delegation
+│   │       ├── ai-gateway/   # Provider-agnostic LLM abstraction (tier-based)
+│   │       ├── channels/     # Telegram, Slack, WhatsApp adapters
+│   │       ├── memory/       # pgvector embeddings + hybrid search
+│   │       ├── knowledge/    # Per-instance document store + retrieval
+│   │       ├── hooks/        # Conversation lifecycle hooks
+│   │       ├── room/         # Event-driven proactive agent workspace
+│   │       ├── instances/    # Instance CRUD, secrets, config resolver
+│   │       ├── skills/       # Global skill library CRUD
+│   │       ├── authz/        # Roles, permissions, tenancy scoping
+│   │       └── server/       # NestJS controllers (REST + OpenAI-compat)
+│   └── web/                  # @polyant/web — Next.js admin panel
+│       └── src/app/
+│           ├── (auth)/       # Sign-in (email + password, optional Google OAuth)
+│           └── (admin)/      # Protected admin routes
+├── examples/                 # Minimal working examples (instances, skills)
+└── docker-compose.yml        # PostgreSQL + pgvector
 ```
 
 See [Architecture](https://docs.polyant.ai/concepts/architecture) for a full technical reference (source: [polyant-ai/docs](https://github.com/polyant-ai/docs)).
+
+## Commands
+
+Every command runs from the monorepo root and delegates to the right workspace.
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start engine with hot reload (tsx watch, port 4000) |
+| `npm run dev:web` | Start Next.js admin panel (port 3000) |
+| `npm run build` | Build all packages |
+| `npm start` | Run engine from compiled output |
+| `npm run db:generate` | Generate Drizzle migrations from schema |
+| `npm run db:migrate` | Apply pending migrations |
+| `npm run db:studio` | Open Drizzle Studio GUI |
+| `npm test` | Run all tests |
+| `npm run test:unit` | Unit tests only (no DB required) |
+| `npm run test:integration` | Integration tests (requires PostgreSQL) |
+| `npm run lint` | ESLint all packages |
+| `npm run typecheck` | TypeScript check all packages |
 
 ## Development Workflow
 

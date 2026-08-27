@@ -27,19 +27,13 @@ Polyant v1.0.2 is the current stable release, a patch on the first public stable
 
 ## Background
 
-Polyant was conceived in the wake of the **OpenClaw** release. OpenClaw was a watershed moment for the agent ecosystem: it showed, in working code, what a reactive personal AI assistant could feel like and — more importantly — how to build the *harness* around the model: the loop, the tool dispatch, the message lifecycle, the guard rails. For the first time, the engineering pattern behind a serious assistant was readable, hackable, and reproducible outside a vendor-controlled platform.
+Polyant grew out of taking **OpenClaw** apart and asking a different question: what does it
+take to run that kind of assistant *inside an organization*? The answer produced a
+multi-instance model, an admin panel as the primary surface, per-instance secret encryption,
+a proactive Room engine next to the reactive chat loop, and an OpenAI-compatible API as the
+default integration surface.
 
-We took OpenClaw apart, studied its design, and used it as the starting point for an analysis of what a multi-tenant, enterprise-grade evolution of that idea would need. Several technological choices in Polyant echo OpenClaw directly — the tool registry pattern, the supervisor-as-loop architecture, the markdown-driven skill system, the tier abstraction over models — because that vocabulary turned out to be the right one for this class of system.
-
-From that foundation we set out to answer a different question: **what does it take to run this kind of assistant inside an organization?** The answer drove most of the layers you see today and pushed Polyant toward a web-based product rather than a CLI:
-
-- A **multi-instance** model, so a single deployment can serve different assistants — each with its own personality, tools, secrets, and channels — without code branching.
-- An **admin panel** as the primary surface, because the people who configure assistants in a company are not always the people who can edit a config file.
-- **Per-instance encryption** of every secret (AES-256-GCM), so credentials for one assistant cannot leak into another tenant's blast radius.
-- A **proactive Room engine** alongside the reactive chat loop, because real assistants do not only answer — they observe events and act.
-- An **OpenAI-compatible API** as the default integration surface, so any client (Open WebUI, custom apps, scripts) can talk to any instance with zero adaptation.
-
-Polyant is, in short, what happens when you take the architectural lessons of OpenClaw, hold them up against the requirements of building assistants that real teams can deploy, govern, and trust — and then ship the result as open source.
+Read the long version in **[Why Polyant](docs/why-polyant.md)**.
 
 ## Features
 
@@ -71,14 +65,17 @@ Polyant is, in short, what happens when you take the architectural lessons of Op
 The full documentation lives at **[docs.polyant.ai](https://docs.polyant.ai)** (source: [polyant-ai/docs](https://github.com/polyant-ai/docs)).
 
 ### Get started
+
 - **[Getting Started](https://docs.polyant.ai/getting-started/quickstart)** — build your first agent in 10 minutes
 - **[Channels Setup](https://docs.polyant.ai/getting-started/connect-a-channel)** — Telegram, Slack, WhatsApp recipes
 - **[Examples](examples/README.md)** — minimal instance, skill, and tool templates
 
 ### Operate
+
 - **[Deployment](https://docs.polyant.ai/operations/deployment)** — Docker Compose, Render, Fly.io, Kubernetes
 
 ### Understand
+
 - **[Architecture](https://docs.polyant.ai/concepts/architecture)** — full technical deep dive
 - **[Glossary](https://docs.polyant.ai/concepts/glossary)** — Instance, Tier, Room, Skill, Tool explained
 
@@ -131,6 +128,7 @@ into `packages/web/.env.local`:
 
 ```bash
 # packages/web/.env.local
+
 AUTH_SECRET=<same value as .env>
 AUTH_INTERNAL_SECRET=<same value as .env>
 AUTH_TRUST_HOST=true
@@ -173,32 +171,6 @@ Open `http://localhost:3000`, sign in with the admin credentials from step 3, cr
 
 See [Architecture](https://docs.polyant.ai/concepts/architecture) for the full technical reference.
 
-## Project Structure
-
-```
-polyant/
-├── packages/
-│   ├── engine/               # @polyant/engine — NestJS AI runtime + API
-│   │   └── src/
-│   │       ├── agents/       # Supervisor, tool registry, sub-agent delegation
-│   │       ├── ai-gateway/   # Provider-agnostic LLM abstraction (tier-based)
-│   │       ├── channels/     # Telegram, Slack, WhatsApp adapters
-│   │       ├── memory/       # pgvector embeddings + hybrid search
-│   │       ├── knowledge/    # Per-instance document store + retrieval
-│   │       ├── hooks/        # Conversation lifecycle hooks
-│   │       ├── room/         # Event-driven proactive agent workspace
-│   │       ├── instances/    # Instance CRUD, secrets, config resolver
-│   │       ├── skills/       # Global skill library CRUD
-│   │       ├── authz/        # Roles, permissions, tenancy scoping
-│   │       └── server/       # NestJS controllers (REST + OpenAI-compat)
-│   └── web/                  # @polyant/web — Next.js admin panel
-│       └── src/app/
-│           ├── (auth)/       # Sign-in (email + password, optional Google OAuth)
-│           └── (admin)/      # Protected admin routes
-├── examples/                 # Minimal working examples (instances, skills)
-└── docker-compose.yml        # PostgreSQL + pgvector
-```
-
 ## Key Concepts
 
 | Concept | Description |
@@ -210,23 +182,6 @@ polyant/
 | **Skill system** | Markdown skill definitions in DB; encrypted per-instance env vars for API keys |
 | **Room** | Event-driven workspace that runs a ReAct cycle on webhook-triggered events |
 | **Fire-and-forget** | Post-response tasks (memory extraction, summary) run async without blocking the user |
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start engine with hot reload (tsx watch, port 4000) |
-| `npm run dev:web` | Start Next.js admin panel (port 3000) |
-| `npm run build` | Build all packages |
-| `npm start` | Run engine from compiled output |
-| `npm run db:generate` | Generate Drizzle migrations from schema |
-| `npm run db:migrate` | Apply pending migrations |
-| `npm run db:studio` | Open Drizzle Studio GUI |
-| `npm test` | Run all tests |
-| `npm run test:unit` | Unit tests only (no DB required) |
-| `npm run test:integration` | Integration tests (requires PostgreSQL) |
-| `npm run lint` | ESLint all packages |
-| `npm run typecheck` | TypeScript check all packages |
 
 ## Channels
 
@@ -241,55 +196,32 @@ All channel configs are stored encrypted per-instance. Adapters start/stop dynam
 
 ## Plugins & the SDK
 
-Polyant is **framework-first** — it ships generic tools, and domain-specific ones (a CRM's booking flow, a billing lookup) live in **plugins**: external git repos of tool files the engine loads at boot. Both the engine's own tools and plugin tools use one small, stateless contract package: **[`@polyant-ai/plugin-sdk`](https://github.com/polyant-ai/polyant-sdk)** (referenced as a public git dependency, `git+https://github.com/polyant-ai/polyant-sdk.git#v1.5.0`).
-
-### Writing a tool
-
-A tool file lives at `tools/<name>.tool.ts` and **default-exports** a `defineTool(...)`:
+Polyant is **framework-first** — it ships generic tools, and domain-specific ones (a CRM's
+booking flow, a billing lookup) live in **plugins**: external git repos of tool files the
+engine loads at boot. A tool is a `*.tool.ts` file that default-exports a `defineTool(...)`
+from **[`@polyant-ai/plugin-sdk`](https://github.com/polyant-ai/polyant-sdk)**, a small
+stateless contract package:
 
 ```ts
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { z } from "zod";
 
 export default defineTool({
-  name: "bookAppointment",              // loads as "<namespace>:bookAppointment" in a plugin
+  name: "bookAppointment",
   description: "Book an appointment in the CRM.",
-  category: "plugin",
-  requiredSecrets: [{ key: "crm_api_key", type: "text" }],
-  parameters: z.object({                // STATIC schema — must NOT depend on ctx
-    patientId: z.string(),
-    date: z.string().describe("ISO 8601"),
-  }),
-  execute: async (input, ctx) => {      // ctx: instanceId, secrets, audit, state, apiKeys…
-    const key = ctx.secrets?.crm_api_key;
-    // …call your API; do runtime validation here and return { error } rather than throwing…
-    return { status: "booked", id: "..." };
-  },
+  parameters: z.object({ patientId: z.string(), date: z.string() }),
+  execute: async (input, ctx) => ({ status: "booked" }),
 });
 ```
 
-`defineTool` serializes the static Zod `parameters` to **JSON Schema at module load, in your plugin's own realm**. The engine only ever receives **data** (`inputSchema`) plus your `execute` function — never a live Zod object. That data boundary is what lets the engine and each plugin resolve their own copies of the SDK (and `zod`, `ai`, …) without breakage.
+`defineTool` serializes the static Zod schema to JSON Schema inside your plugin's own realm,
+so the engine and each plugin resolve their own copies of the SDK without breakage. Point
+the engine at a plugin repo with `PLUGIN_DIRS`, or drop it into
+`packages/engine/src/plugins/`.
 
-Schema rules (OpenAI strict-mode compatible): use `.nullable()` not `.optional()`/`.default()`; no `.transform()`/`.refine()`/`.preprocess()` in `parameters` (move that into `execute`); avoid `.url()`/`.email()`/`.uuid()`/`.datetime()` formats. A boot-time test (`strict-mode.test.ts`) enforces this.
-
-### `plugin.json` (at the plugin repo root)
-
-```json
-{ "name": "acme-tools", "version": "1.0.0", "engine": ">=0.1.0", "toolsDir": "tools", "namespace": "acme" }
-```
-
-`namespace` prefixes every tool name (`acme:bookAppointment`); defaults to `name`. A plugin whose `engine` range excludes the running engine version is **skipped with a warning** — the deployment keeps running.
-
-### Loading a plugin
-
-The loader scans two sources (env wins de-dup):
-
-1. **`PLUGIN_DIRS`** — comma-separated absolute paths, e.g. `PLUGIN_DIRS=/abs/path/to/my-plugin npm run dev`. Point it at a plugin repo that has its **own** `node_modules` (`npm install` there, with the SDK as a git dep).
-2. **Convention dir** — every subdir of `packages/engine/src/plugins/*` that has a `plugin.json` (gitignored runtime drop dir). A **real dir here** resolves the monorepo's `node_modules` and `tsx watch` hot-reloads it.
-
-**Do not symlink a plugin** — Node/`tsx` resolve a file's imports from its real on-disk location, so a symlink points back at the external repo and can't find the monorepo deps.
-
-Full authoring reference: **[docs/plugins.md](docs/plugins.md)**, the SDK's own **[README](https://github.com/polyant-ai/polyant-sdk#readme)**, and the design record at `docs/superpowers/specs/2026-07-02-serialized-plugin-mechanism.md`.
+Full authoring reference — schema rules, `plugin.json`, module resolution, the symlink trap:
+**[docs/plugins.md](docs/plugins.md)** and the
+[SDK README](https://github.com/polyant-ai/polyant-sdk#readme).
 
 ## Stability and compatibility
 
@@ -307,56 +239,10 @@ Restart the services, then smoke-test sign-in and a representative chat.
 
 ## Roadmap
 
-See [GitHub Issues](https://github.com/polyant-ai/polyant/issues) and [Discussions](https://github.com/polyant-ai/polyant/discussions) for the live list of planned features and open requests. The items below describe the major directions we want Polyant to grow in, grouped by intent.
-
-### Architectural directions
-
-- **Multi-tenancy** — the *Organization → Workspace → Instance* hierarchy, its RBAC role/permission model, and the `PermissionGuard` are implemented ("Project" was renamed **Workspace**). What is still missing is the tenant *experience*: enforcement is opt-in (`AUTHZ_ENFORCE`, shadow mode by default), a single default organization and workspace are seeded with no CRUD for either, there is no workspace switcher, and there is no email-invitation flow — an administrator creates the user and then assigns a role, which works but is two manual steps. Custom per-organization roles are out of scope for the OSS edition.
-- **More embedding providers** — embeddings go through their own gateway (`embeddings-gateway/`) and the provider is chosen per instance, independently of the chat provider, but the choice is currently OpenAI or Amazon Bedrock Titan. We want the same breadth the chat layer has: Voyage, Cohere, and local models (Ollama, a self-hosted bge / nomic). Note that switching an instance's embedder is destructive by design — vector spaces are not convertible, so memories and the knowledge base are wiped and must be re-imported.
-- **Sandboxed tool execution** — high-impact tools (anything that runs git, executes shell, writes files, or talks to a customer's infrastructure) should not run inside the engine process. We want to push these into an external sandbox (firecracker / gVisor / a remote isolate-style runner) with a tight contract: tool input → sandbox → tool output. The current trade-offs (e.g. the `gitCloneRepo` token written under `.git/polyant-token` while the workspace exists) become non-issues once execution is moved off-host.
-- **Evaluation suite** — simulation-based regression testing for assistants: digital twins, scenario libraries, golden conversations, and a CI integration so that changing a prompt or skill produces a measurable delta.
-
-### Channels & UX
-
-- **Voice channel** — bidirectional voice as a first-class adapter alongside Telegram / Slack / WhatsApp. Inbound audio is already transcribed per instance (Whisper / Amazon Transcribe / Deepgram); TTS and a realtime transport are the missing half.
-- **Web widget** — embeddable chat surface that talks to an instance directly via the OpenAI-compatible API.
-- **Channel-level analytics** — per-channel cost, latency, error rate (today analytics are aggregated per instance).
-
-### Developer experience
-
-- **Skill version diffing** — the admin panel has a skill editor, but comparing two versions of a skill still means reading both by hand.
-- **Tool scaffolding CLI** — `npm run create-tool <name>` to drop a `*.tool.ts` skeleton wired to the registry.
-- **Drizzle migration ergonomics** — the current ESM workaround for `drizzle-kit generate` (running it via `npx tsx ../../node_modules/drizzle-kit/bin.cjs generate`) and the lack of snapshot files force migrations to be hand-edited. We want to either fix the toolchain interaction or migrate the schema-diff workflow to an alternative that plays nicely with ESM monorepos.
-
-## Known Open Issues
-
-These are deliberate trade-offs, deferred decisions, or rough edges that ship with Polyant today. They are listed here so that contributors and adopters know what they are picking up — and so that we can collect help and PRs against a shared list rather than a private wiki.
-
-### Architecture & coupling
-
-- **Embeddings have only two providers** — the embedder is resolved per instance in `embeddings-gateway/provider-resolver.ts` and is independent of the chat provider, but the only choices are OpenAI and Amazon Bedrock Titan. An instance on Anthropic still needs credentials for one of those two if memory or knowledge is enabled, and changing the embedder later wipes memories and the knowledge base (vector spaces are not convertible) — export the knowledge base first.
-- **Critical tools run in-process** — `gitCloneRepo`, file system access, and any future shell-style tools execute in the engine's own runtime. The current safeguards (per-conversation workspace, ephemeral credentials at `.git/polyant-token` mode 0600, automatic cleanup) keep the blast radius small but do not isolate CPU, network, or filesystem at OS level. Moving tool execution to an external sandbox is on the roadmap.
-- **Untyped Auth.js adapter wiring** — `packages/web/src/lib/auth.ts` casts the Drizzle adapter and its four table arguments through `as any` (5 sites). Both packages now pin the same `drizzle-orm`, so the original reason no longer applies; the casts survive because `@auth/drizzle-adapter` expects its own schema shape. Typing the mapping properly would remove them.
-- **`workspaces/` is an overloaded name** — the filesystem `workspaces/<instanceId>/conversations/<convId>/` tree is now *only* a per-conversation tool sandbox (knowledge moved fully into PostgreSQL), while `workspaces` is also the RBAC tenancy level between organization and instance, and npm calls the two packages workspaces too. Three unrelated meanings, one word — renaming the filesystem root (e.g. to `sandboxes/`) is the cheap fix.
-
-### Robustness
-
-- **Fire-and-forget post-processing swallows failures** — message persistence, summary updates, and memory extraction run async after the user reply (`pipeline.ts`). On error they currently log via `console.error` and move on. There is no retry, no dead-letter queue, and no surfacing in the admin panel — a failed memory write is invisible to operators.
-- **Structured logging is incomplete** — a level-gated logger factory (`utils/create-logger.ts`) is in place and daily log files are written, but roughly twenty engine modules still call `console.log` / `console.error` directly. The goal is one structured logger across engine and web with consistent fields (instanceId, conversationId, requestId).
-- **Webhook backlog drops events silently** — `POST /webhooks/:token` always returns `200 OK` and drops events when the per-instance backlog cap (100) is reached. There is no operator-facing signal. A bounded queue with overflow alerting is the planned fix.
-- **Rate limiting is per-IP, not per-tenant** — a global throttler (30 requests/minute by default, with tighter per-route limits on sign-in, knowledge import, and the OpenAI-compatible endpoint) applies to every route, but the bucket is keyed by IP address. Two tenants behind one egress IP share a budget, and one API key cannot be throttled independently of another.
-
-### Code quality & deferred design
-
-- **WhatsApp template fallback is a stub in OSS** — `channels/adapters/whatsapp/stub-templates.ts` ships with an empty `STUB_TEMPLATES` map. Operators using WhatsApp's strict 24-hour session window must populate it with their own approved templates; otherwise the adapter falls back to a compact summary string.
-- **Files exceeding the 400-line house rule** — a few files in `packages/web/src/` still bundle multiple responsibilities and are due for a split.
-
-### Documentation gaps
-
-- Trade-offs around the `gitCloneRepo` credential lifecycle (token at rest while the workspace exists) are documented in `CLAUDE.md` but should be surfaced on [docs.polyant.ai](https://docs.polyant.ai) as well, since they affect deployment posture.
-- The RBAC guard defaults to shadow mode (`AUTHZ_ENFORCE` unset), which is not stated in the deployment documentation — an operator can reasonably believe roles are being enforced when they are not.
-
-If you would like to take on any of the items above, please open an issue first so we can scope it together — most of these decisions involve trade-offs we are happy to discuss in the open.
+See **[ROADMAP.md](ROADMAP.md)** for the direction, and
+[GitHub Issues](https://github.com/polyant-ai/polyant/issues) and
+[Discussions](https://github.com/polyant-ai/polyant/discussions) for the live list of planned
+work and open requests.
 
 ## Contributing
 
