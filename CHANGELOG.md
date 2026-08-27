@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/polyant-ai/polyant/releases/tag/v1.0.2
 [1.0.1]: https://github.com/polyant-ai/polyant/releases/tag/v1.0.1
 [1.0.0]: https://github.com/polyant-ai/polyant/releases/tag/v1.0.0

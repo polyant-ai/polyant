@@ -225,7 +225,7 @@ async function jwtWithOrg(params: Parameters<NonNullable<typeof baseJwtCallback>
   return token;
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any -- DrizzleAdapter types conflict between drizzle-orm versions (engine 0.38 vs web 0.45) */
+/* eslint-disable @typescript-eslint/no-explicit-any -- @auth/drizzle-adapter expects its own schema shape, which does not line up with the engine-owned tables */
 const drizzleAuthAdapter = DrizzleAdapter(db as any, {
   usersTable: usersTable as any,
   accountsTable: accountsTable as any,
