@@ -77,7 +77,7 @@ packages/
 │   ├── index.ts                 # Boot sequence + message pipeline
 │   ├── config.ts                # Zod-validated env config
 │   ├── ai-gateway/              # Provider-agnostic LLM abstraction (tier-based) + providers/
-│   ├── agents/                  # supervisor/, sub-agents/, tools/ (*.tool.ts + registry)
+│   ├── agents/                  # supervisor/, tools/ (*.tool.ts + registry)
 │   ├── hooks/                   # Conversation lifecycle hooks (*.hook.ts + runner)
 │   ├── plugin-system/           # Plugin roots, manifests
 │   ├── memory/ knowledge/       # pgvector + FTS, hybrid search; documents + chunks
@@ -172,7 +172,7 @@ and no rationale is a wish, and belongs in neither file.
 - **Hybrid search fuses pgvector cosine similarity with PostgreSQL FTS via Reciprocal Rank Fusion**
 - **Memory extraction runs only when the instance's `memoryEnabled` is set.** It is fire-and-forget: an LLM extracts facts as JSON, they are embedded and upserted with cosine-similarity dedup at 0.90. Relative dates are converted to absolute, and facts are written in the conversation's language
 - **Skills live in `skills` + `skill_versions`**, assignments in `instance_skills`. Never create a skill file on disk
-- **`SubAgentDefinition` (`agents/sub-agents/types.ts`) is unused**: `spawnTask` creates ad-hoc sub-agents. Either wire the type up or delete it — do not treat it as the current mechanism
+- **Sub-agents are ad-hoc and one hop deep**: `spawnTask` (`agents/tools/task-tool.ts`) composes a sub-agent on the fly with the parent's tools minus `spawnTask` itself — 15 steps for the supervisor, 10 for the sub-agent. There is no registry of named, typed sub-agents; the `agents/sub-agents/` module that once held one is gone. Agent-to-agent goes through the `agent` channel instead, as `ask_<slug>` tools
 
 ### Where the rest lives
 
@@ -230,7 +230,10 @@ Hierarchy: **Organization > Workspace > Agent** (the agent table is still named
 `instances`). "Project" in the original design was renamed Workspace; there is no
 `projects` table.
 
-**Authentication.** A human carries an Auth.js session (encrypted JWE), which the engine
+**Authentication.** A human signs in with **email + password** (Credentials, seeded from
+`INITIAL_ADMIN_*` at boot) or, when its client id and secret are configured, with **Google
+OAuth** — neither is mandatory in code, but disabling both leaves no way in. Either way the
+human carries an Auth.js session (encrypted JWE), which the engine
 decrypts with `AUTH_SECRET` and no per-request DB query — the strategy is JWT because
 Next.js middleware runs in the Edge Runtime and cannot open a TCP/DB connection. An agent
 caller carries that agent's `auth_api_key` (`instance_secrets` + the `authEnabled` flag) and
@@ -278,8 +281,11 @@ Tenant URL tiers are [ADR-0002](docs/adr/0002-canonical-tenant-boundaries.md).
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GOOGLE_CLIENT_ID` | Yes (web) | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Yes (web) | Google OAuth client secret |
+| `INITIAL_ADMIN_PASSWORD` | Yes (engine) | Seeds the first admin account at boot. Without it no admin is seeded — seeding is skipped rather than auto-generating a password into the logs |
+| `INITIAL_ADMIN_EMAIL` | No (engine) | Email of that account (defaults to `administrator@local`) |
+| `AUTH_INTERNAL_SECRET` | Yes (web + engine) | Shared secret the web's Credentials provider uses to call the engine. Unset disables email/password sign-in, leaving Google as the only path |
+| `GOOGLE_CLIENT_ID` | No (web) | Google OAuth client id — omit to hide the Google button |
+| `GOOGLE_CLIENT_SECRET` | No (web) | Google OAuth client secret |
 | `AUTH_SECRET` | Yes (web + engine) | Auth.js JWT encryption secret (32+ random chars). Must be identical in both packages — engine uses it to decrypt JWE tokens |
 | `AUTH_TRUST_HOST` | No | Set to `true` behind reverse proxy |
 | `DATABASE_URL` | Alt (web) | PostgreSQL connection string for Auth.js adapter. Web needs this in `.env.local` or root `.env` (Next.js doesn't auto-load monorepo root `.env`) |
