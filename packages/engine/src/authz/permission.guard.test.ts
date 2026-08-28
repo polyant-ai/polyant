@@ -34,6 +34,7 @@ import { REQUIRES_FEATURE_KEY } from "./decorators/requires-feature.decorator.js
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
 import { AUTHENTICATED_ONLY_KEY } from "./decorators/authenticated-only.decorator.js";
 import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
+import { PLATFORM_ADMIN_ONLY_KEY } from "./decorators/platform-admin-only.decorator.js";
 import type { AgentScope } from "./authz.store.js";
 
 const SCOPE: AgentScope = {
@@ -48,6 +49,7 @@ interface MetaMap {
   [IS_PUBLIC_KEY]?: boolean;
   [AUTHENTICATED_ONLY_KEY]?: boolean;
   [REQUIRED_ROLES_KEY]?: string[];
+  [PLATFORM_ADMIN_ONLY_KEY]?: boolean;
 }
 
 interface Overrides {
@@ -424,5 +426,49 @@ describe("PermissionGuard", () => {
       userReq({}),
     );
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+describe("@PlatformAdminOnly", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("allows a current platform admin", async () => {
+    const { guard, context } = setup(
+      { [PLATFORM_ADMIN_ONLY_KEY]: true },
+      { user: { principalType: "user", userId: "u1" } },
+      { isPlatformAdmin: true },
+    );
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+  });
+
+  it("denies a user whose DB flag is false, whatever the token says", async () => {
+    const { guard, context } = setup(
+      { [PLATFORM_ADMIN_ONLY_KEY]: true },
+      { user: { principalType: "user", userId: "u1", role: "platform_admin" } },
+      { isPlatformAdmin: false },
+    );
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      "Current platform administrator standing required",
+    );
+  });
+
+  it("denies a management API key", async () => {
+    const { guard, context } = setup(
+      { [PLATFORM_ADMIN_ONLY_KEY]: true },
+      { user: { principalType: "service", orgId: "org-1" } },
+      { isPlatformAdmin: true },
+    );
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      "Current platform administrator standing required",
+    );
+  });
+
+  it("denies when there is no principal at all", async () => {
+    const { guard, context } = setup({ [PLATFORM_ADMIN_ONLY_KEY]: true }, {}, {});
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      "Current platform administrator standing required",
+    );
   });
 });
