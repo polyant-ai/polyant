@@ -164,6 +164,8 @@ and no rationale is a wish, and belongs in neither file.
 - **Every web→engine call goes through `request<T>()`** (`packages/web/src/lib/api.ts`). It is the ONLY place `X-Workspace-Slug` is stamped, read from the URL by `workspaceSlugFromPath`. A bare `fetch` in a component sends no workspace, so the engine falls back to the caller's stored preference and the call executes against a DIFFERENT workspace than the URL the reader is looking at — no error, no failing test, a wrong answer. Enforced by nothing; today the only `fetch` outside `lib/` reads a static file
 - **`replyHandled` and `replyText` are RESERVED field names in a tool's return value.** `agents/supervisor/index.ts` reads them off ANY tool's output and uses them to replace what the user sees — no allow-list, no opt-in flag on the definition. `sendOutboundMessage` and `sendWhatsappTemplate` do it deliberately; any other tool returning a field with either name silently authors the assistant's reply
 - **Independent deployment**: each package under `packages/` is deployable as a standalone service
+- **Outbound HTTP with a `dispatcher` goes through `safeFetch` / `pairedFetch` (`utils/safe-http.ts`), never the global `fetch`.** A dispatcher only works with the fetch from the same undici, and Node bundles its own — an undici 8 `Agent` handed to the global fetch dies with `invalid onRequestStart method`, disabling the SSRF DNS pinning. *Enforced* by `utils/safe-http.test.ts`, which does NOT mock undici (the tool tests do, which is why they missed it). `overrides.undici` stays scoped to jsdom + `@ai-sdk/provider-utils` on 7.x
+- **The AI SDK boundary is `ai-gateway/providers/base.ts` and stays there** — it is the only file that calls the SDK. Two v7 traps live in it: `usage` is the CUMULATIVE across-steps total (v6's meaning of `totalUsage`), decided once in `cumulativeUsage` because reading the wrong field mis-bills silently rather than throwing; and a `role: "system"` message inside `messages` is rejected, so the prompt-cache marker rides on `instructions` (typed `string | SystemModelMessage | SystemModelMessage[]`), never `allowSystemInMessages`. The unit suite mocks the SDK and cannot see either — run `scripts/smoke/ai-sdk-7.mjs`, with an invalid key if need be, since request shapes are validated before auth
 - **A WhatsApp channel authenticates to Twilio in one of two `authMode`s** (`authToken` or `apiKey`), each validated on its own inbound route with its own secret; `webhookSecret` is server-minted and never client-suppliable. See `references/channels.md`
 
 ### Data
@@ -183,7 +185,7 @@ behind the rules above.
 
 | Topic | Reference |
 |---|---|
-| Model catalog, prompt caching, provider adapters, AI SDK v6 boundary | [`references/ai-gateway.md`](.claude/skills/backend-architecture/references/ai-gateway.md) |
+| Model catalog, prompt caching, provider adapters, AI SDK v7 boundary | [`references/ai-gateway.md`](.claude/skills/backend-architecture/references/ai-gateway.md) |
 | Burst coordination, cancellation, conversation state, debug capture, typed SSE | [`references/pipeline.md`](.claude/skills/backend-architecture/references/pipeline.md) |
 | Embedder independence, the destructive embedder switch, AWS secret namespaces, export/import | [`references/instances.md`](.claude/skills/backend-architecture/references/instances.md) |
 | Channel adapters, GDPR opt-out | [`references/channels.md`](.claude/skills/backend-architecture/references/channels.md) |

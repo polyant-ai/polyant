@@ -2,7 +2,7 @@
   "name": "polyant",
   "version": "1.1.0",
   "private": true,
-  "description": "Polyant — open-source platform for building AI assistants with long-term memory and multi-channel support",
+  "description": "Polyant \u2014 open-source platform for building AI assistants with long-term memory and multi-channel support",
   "license": "AGPL-3.0-or-later",
   "author": "Exelab S.r.l.",
   "homepage": "https://github.com/polyant-ai/polyant",
@@ -42,7 +42,12 @@
     "next": "^16.3.0",
     "axios": "^1.15.0",
     "langsmith": "^0.7.3",
-    "undici": "^7.29.0"
+    "jsdom": {
+      "undici": "^7.29.0"
+    },
+    "@ai-sdk/provider-utils": {
+      "undici": "^7.29.0"
+    }
   },
   "dependencies": {
     "axios": "^1.15.0",

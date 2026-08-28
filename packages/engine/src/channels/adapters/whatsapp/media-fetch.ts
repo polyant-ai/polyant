@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { createSafeDispatcher } from "../../../utils/safe-http.js";
+import { createSafeDispatcher, pairedFetch, type PairedFetch } from "../../../utils/safe-http.js";
 import { sanitizeForLog } from "../../../utils/create-logger.js";
 
 const MAX_REDIRECTS = 3;
@@ -41,7 +41,7 @@ function isTwilioMediaHost(host: string): boolean {
  * `fetch`, `createSafeDispatcher`, and a real timeout.
  */
 export interface MediaFetchDeps {
-  fetchFn?: typeof fetch;
+  fetchFn?: PairedFetch;
   makeDispatcher?: (url: URL) => Promise<{ dispatcher: unknown }>;
   signal?: AbortSignal;
 }
@@ -77,7 +77,9 @@ export async function fetchMediaFollowingRedirects(
   basicAuth: string,
   deps: MediaFetchDeps = {},
 ): Promise<Response | null> {
-  const fetchFn = deps.fetchFn ?? fetch;
+  // NOT the global fetch: it bundles its own undici and cannot accept the
+  // dispatcher createSafeDispatcher builds. See pairedFetch.
+  const fetchFn = deps.fetchFn ?? pairedFetch;
   const makeDispatcher = deps.makeDispatcher ?? createSafeDispatcher;
   const signal = deps.signal ?? AbortSignal.timeout(TIMEOUT_MS);
 
@@ -123,7 +125,6 @@ export async function fetchMediaFollowingRedirects(
       headers,
       redirect: "manual",
       signal,
-      // @ts-expect-error -- Node 22 fetch supports the undici dispatcher option
       dispatcher,
     });
 

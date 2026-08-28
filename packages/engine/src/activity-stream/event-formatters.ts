@@ -164,7 +164,7 @@ export function formatArgsForSpotlight(toolName: string, args: unknown): string 
       .filter((line): line is string => line !== null)
       .join("\n");
 
-  let formatted = "";
+  let formatted: string;
   switch (toolName) {
     case "hubspotContact": {
       // Mirror the actual tool schema (hubspot-contact.tool.ts): include the

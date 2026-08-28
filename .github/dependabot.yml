@@ -17,6 +17,19 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    ignore:
+      # TypeScript 7 ships no programmatic compiler API (`require("typescript")`
+      # exposes 2 keys instead of 2248), and two things in this tree need one:
+      # eslint-config-next depends on typescript-eslint, whose peer range is
+      # `<6.1.0` and which closed TS7 support as not planned; and next itself
+      # resolves `typescript/lib/typescript.js`, a file TS 7 does not ship.
+      # So TypeScript 6 stays in the tree regardless, and the bump can only
+      # break `npm run lint` and `next build`. See the closing comment on #196.
+      # Remove this once typescript-eslint declares TS7 support and next stops
+      # requiring the TS6 API — both downstream of TypeScript 7.1.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+
     groups:
       ai-sdk:
         patterns:

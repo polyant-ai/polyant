@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { createSafeDispatcher, truncateBody, pickHeaders } from "../../utils/safe-http.js";
+import { safeFetch, truncateBody, pickHeaders } from "../../utils/safe-http.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_BODY_SIZE = 16_384;
@@ -232,9 +232,6 @@ export default defineTool({
           }
         }
 
-        // SSRF protection: block private/internal IPs, pin DNS
-        const { dispatcher } = await createSafeDispatcher(targetUrl);
-
         // Build headers. Auth header is injected only when both authStyle and
         // the secret are present; otherwise the request goes out un-authenticated.
         const headers: Record<string, string> = {
@@ -249,13 +246,12 @@ export default defineTool({
           authApplied = "bearer";
         }
 
-        const response = await fetch(targetUrl.toString(), {
+        // SSRF protection (block private/internal IPs, pin DNS) is applied by safeFetch.
+        const response = await safeFetch(targetUrl, {
           method,
           headers,
           body: JSON.stringify(requestBody),
           signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
-          // @ts-expect-error -- Node 22 fetch supports undici dispatcher option
-          dispatcher,
         });
 
         const rawBody = await response.text();

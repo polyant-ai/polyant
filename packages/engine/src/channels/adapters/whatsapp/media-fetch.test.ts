@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect, vi } from "vitest";
+import type { PairedFetch } from "../../../utils/safe-http.js";
 import { fetchMediaFollowingRedirects } from "./media-fetch.js";
 
 const TWILIO = "https://api.twilio.com/2010-04-01/Accounts/AC/Messages/MM/Media/ME";
@@ -22,7 +23,7 @@ describe("fetchMediaFollowingRedirects", () => {
     const fetchFn = vi.fn(async (url: string, init: { headers?: Record<string, string> }) => {
       calls.push({ url, auth: init.headers?.["Authorization"] });
       return url.startsWith(TWILIO) ? res(302, { location: CDN }) : res(200);
-    }) as unknown as typeof fetch;
+    }) as unknown as PairedFetch;
 
     const r = await fetchMediaFollowingRedirects(TWILIO, "BASIC", { fetchFn, makeDispatcher: okDispatcher, signal: sig() });
     expect(r?.status).toBe(200);
@@ -32,7 +33,7 @@ describe("fetchMediaFollowingRedirects", () => {
   });
 
   it("re-validates SSRF (makeDispatcher) on every hop, per-host", async () => {
-    const fetchFn = vi.fn(async (url: string) => (url.startsWith(TWILIO) ? res(302, { location: CDN }) : res(200))) as unknown as typeof fetch;
+    const fetchFn = vi.fn(async (url: string) => (url.startsWith(TWILIO) ? res(302, { location: CDN }) : res(200))) as unknown as PairedFetch;
     const makeDispatcher = vi.fn(okDispatcher);
     await fetchMediaFollowingRedirects(TWILIO, "B", { fetchFn, makeDispatcher, signal: sig() });
     expect(makeDispatcher).toHaveBeenCalledTimes(2);
@@ -41,7 +42,7 @@ describe("fetchMediaFollowingRedirects", () => {
   });
 
   it("returns null when a redirect hop fails the SSRF check (blocked private IP)", async () => {
-    const fetchFn = vi.fn(async () => res(302, { location: "http://169.254.169.254/latest/meta-data" })) as unknown as typeof fetch;
+    const fetchFn = vi.fn(async () => res(302, { location: "http://169.254.169.254/latest/meta-data" })) as unknown as PairedFetch;
     const makeDispatcher = async (url: URL) => {
       if (url.host !== "api.twilio.com") throw new Error("blocked private IP");
       return { dispatcher: {} };
@@ -51,26 +52,26 @@ describe("fetchMediaFollowingRedirects", () => {
   });
 
   it("returns the response directly when there is no redirect", async () => {
-    const fetchFn = vi.fn(async () => res(200)) as unknown as typeof fetch;
+    const fetchFn = vi.fn(async () => res(200)) as unknown as PairedFetch;
     const r = await fetchMediaFollowingRedirects(TWILIO, "B", { fetchFn, makeDispatcher: okDispatcher, signal: sig() });
     expect(r?.status).toBe(200);
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
   it("gives up after too many redirects → null", async () => {
-    const fetchFn = vi.fn(async () => res(302, { location: CDN })) as unknown as typeof fetch;
+    const fetchFn = vi.fn(async () => res(302, { location: CDN })) as unknown as PairedFetch;
     const r = await fetchMediaFollowingRedirects(TWILIO, "B", { fetchFn, makeDispatcher: okDispatcher, signal: sig() });
     expect(r).toBeNull();
     expect((fetchFn as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(4); // hop 0..3
   });
 
   it("returns null on an invalid URL", async () => {
-    const r = await fetchMediaFollowingRedirects("not a url", "B", { fetchFn: (async () => res(200)) as unknown as typeof fetch, makeDispatcher: okDispatcher, signal: sig() });
+    const r = await fetchMediaFollowingRedirects("not a url", "B", { fetchFn: (async () => res(200)) as unknown as PairedFetch, makeDispatcher: okDispatcher, signal: sig() });
     expect(r).toBeNull();
   });
 
   it("refuses a non-Twilio first-hop host: no fetch is made, no Authorization is sent, returns null (#281)", async () => {
-    const fetchFn = vi.fn(async () => res(200)) as unknown as typeof fetch;
+    const fetchFn = vi.fn(async () => res(200)) as unknown as PairedFetch;
     const makeDispatcher = vi.fn(okDispatcher);
 
     const r = await fetchMediaFollowingRedirects("https://attacker.example/x", "SECRET", {
@@ -85,7 +86,7 @@ describe("fetchMediaFollowingRedirects", () => {
   });
 
   it("refuses a look-alike Twilio host (suffix match must not be satisfiable)", async () => {
-    const fetchFn = vi.fn(async () => res(200)) as unknown as typeof fetch;
+    const fetchFn = vi.fn(async () => res(200)) as unknown as PairedFetch;
 
     const lookalikes = [
       "https://evil-twilio.com/x",
@@ -115,7 +116,7 @@ describe("fetchMediaFollowingRedirects", () => {
       const fetchFn = vi.fn(async (_u: string, init: { headers?: Record<string, string> }) => {
         seen.push(init.headers?.Authorization);
         return res(200);
-      }) as unknown as typeof fetch;
+      }) as unknown as PairedFetch;
 
       const r = await fetchMediaFollowingRedirects(url, "SECRET", {
         fetchFn,
@@ -133,7 +134,7 @@ describe("fetchMediaFollowingRedirects", () => {
     const fetchFn = vi.fn(async (url: string, init: { headers?: Record<string, string> }) => {
       calls.push({ url, auth: init.headers?.["Authorization"] });
       return url.startsWith(TWILIO) ? res(302, { location: CDN }) : res(200);
-    }) as unknown as typeof fetch;
+    }) as unknown as PairedFetch;
 
     const r = await fetchMediaFollowingRedirects(TWILIO, "BASIC", { fetchFn, makeDispatcher: okDispatcher, signal: sig() });
 
