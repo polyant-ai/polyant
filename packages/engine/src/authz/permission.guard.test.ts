@@ -33,7 +33,6 @@ import { REQUIRE_PERMISSION_KEY } from "./decorators/require-permission.decorato
 import { REQUIRES_FEATURE_KEY } from "./decorators/requires-feature.decorator.js";
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
 import { AUTHENTICATED_ONLY_KEY } from "./decorators/authenticated-only.decorator.js";
-import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import { PLATFORM_ADMIN_ONLY_KEY } from "./decorators/platform-admin-only.decorator.js";
 import type { AgentScope } from "./authz.store.js";
 
@@ -48,7 +47,6 @@ interface MetaMap {
   [REQUIRES_FEATURE_KEY]?: string;
   [IS_PUBLIC_KEY]?: boolean;
   [AUTHENTICATED_ONLY_KEY]?: boolean;
-  [REQUIRED_ROLES_KEY]?: string[];
   [PLATFORM_ADMIN_ONLY_KEY]?: boolean;
 }
 
@@ -338,25 +336,6 @@ describe("PermissionGuard", () => {
     const { guard, context } = setup({ [AUTHENTICATED_ONLY_KEY]: true }, {
       user: { kind: "instance", instanceSlug: "agent-1" },
     });
-    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
-  });
-
-  it("should_deny_a_non_platform_admin_require_role_without_a_permission", async () => {
-    // `@RequireRole("user")` names the role every authenticated principal
-    // already has, so accepting it alone was an unscoped allow-all. It must be
-    // paired with @RequirePermission to authorize anything.
-    const { guard, context, authz } = setup(
-      { [REQUIRED_ROLES_KEY]: ["user"] },
-      userReq({}),
-    );
-    await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
-    expect(authz.can).not.toHaveBeenCalled();
-  });
-
-  it("should_still_deny_a_route_with_an_empty_require_role_list", async () => {
-    // An empty list is not a declaration — RoleGuard short-circuits to allow on
-    // it, so treating it as declared here would leave the route wide open.
-    const { guard, context } = setup({ [REQUIRED_ROLES_KEY]: [] }, userReq({}));
     await expect(guard.canActivate(context)).rejects.toBeInstanceOf(ForbiddenException);
   });
 

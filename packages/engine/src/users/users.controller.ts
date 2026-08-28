@@ -12,10 +12,8 @@ import {
   Query,
 } from "@nestjs/common";
 import { UsersService } from "./users.service.js";
-import { RequireRole } from "../auth/decorators/require-role.decorator.js";
 import { CurrentUser } from "../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
-import { PLATFORM_ADMIN_ROLE } from "../auth/user-role.js";
 import { parsePagination } from "../server/utils/parse-pagination.js";
 import {
   createManagementAuditLogger,
@@ -23,9 +21,10 @@ import {
   ManagementAuditTarget,
   toManagementAuditActor,
 } from "../management-audit/management-audit-logger.js";
+import { PlatformAdminOnly } from "../authz/index.js";
 
 @Controller("api/users")
-@RequireRole(PLATFORM_ADMIN_ROLE)
+@PlatformAdminOnly()
 export class UsersController {
   constructor(@Inject(UsersService) private readonly users: UsersService) {}
 
