@@ -6,6 +6,11 @@
 // flat presets directly and run via the ESLint CLI (`eslint .`).
 import coreWebVitals from "eslint-config-next/core-web-vitals";
 import typescript from "eslint-config-next/typescript";
+// Shared with the engine, which runs it in the OPPOSITE direction. Here a
+// relative value import must be EXTENSIONLESS: Next's bundler does not map
+// `./x.js` onto `x.ts`, so such an import type-checks, passes vitest and fails
+// `next build` with module-not-found.
+import relativeImportExtension from "../engine/eslint-rules/relative-import-extension.js";
 
 const eslintConfig = [
   ...coreWebVitals,
@@ -23,7 +28,9 @@ const eslintConfig = [
       "react-hooks/refs": "warn",
       "react-hooks/purity": "warn",
       "@next/next/no-img-element": "warn",
+      "polyant/relative-import-extension": ["error", { style: "extensionless" }],
     },
+    plugins: { polyant: { rules: { "relative-import-extension": relativeImportExtension } } },
   },
   {
     // next-env.d.ts is a Next.js generated file (triple-slash refs, not meant to
