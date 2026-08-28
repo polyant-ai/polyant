@@ -17,12 +17,17 @@ alwaysApply: true
 - Column naming: database in `snake_case`, TypeScript in `camelCase`
 
 ### Module Organization
-- Feature-based: `modules/{feature}/` containing controller, service, schema, test
+- Feature-based: `src/{feature}/` holds the domain — store, service, `{name}.schema.ts`,
+  co-located tests. HTTP controllers live apart in `src/server/{area}/`: the NestJS bridge
+  is the one deliberately layer-based directory. There is no `modules/` directory
 - Never layer-based: no `controllers/`, `services/`, `schemas/` at the root
 - Barrel exports: every module has an `index.ts` exposing the public interface
 
 ## SHOULD (warnings)
 
-- Migration files generated automatically by Drizzle Kit, never written by hand
+- Migration files AND their `meta/_journal.json` entry are written BY HAND. `drizzle-kit
+  generate` emits a full-schema migration every time in this repo (no snapshot files), and
+  a `00NN_*.sql` with no journal entry is silently skipped by `db:migrate` — which then
+  reports success. See CLAUDE.md → Key Conventions for the `tag` / `when` rules
 - Relations defined in `relations()` separate from the schema to avoid circular dependencies
 - Transaction wrapper for multi-table operations

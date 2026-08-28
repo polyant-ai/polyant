@@ -160,7 +160,7 @@ and no rationale is a wish, and belongs in neither file.
 - **Instance configuration is DATABASE-first, never the filesystem** — prompts, skills, tool availability, secrets, channels are rows, not files. `packages/engine/workspaces/` is the per-conversation sandbox for the file tools and nothing else
 - **Components ask for a `fast | standard | heavy` tier, never a model name.** The mapping is `ai-gateway/config.ts`; per-`(provider, model)` pricing and capabilities live in one catalog, `ai-gateway/model-catalog.ts`, and every capability gate is a lookup into it. A model-id regex in a provider file is a bug — see `references/ai-gateway.md`
 - **A tool is one `*.tool.ts` default-exporting `defineTool(...)`**; a hook is one `*.hook.ts` default-exporting `defineHook(...)`. The loader finds both at boot; nothing else needs editing. Tool `parameters` must satisfy OpenAI strict mode — no `.optional()`, `.default()`, `.url()`/`.email()`, or unbounded `z.record`. *Enforced* by `agents/tools/strict-mode.test.ts`, which inspects every registered tool: if it fails, fix the schema, never soften the check. See `references/tools-and-hooks.md`
-- **Post-processing is fire-and-forget and commit-on-success**: messages, summary, memory and state are written after the reply, and an aborted turn writes nothing at all
+- **Post-processing is fire-and-forget and commit-on-success**: messages, summary, memory and state are written after the reply, and an abort before `runPipelinePost`'s gate skips all four. It is NOT "an aborted turn writes nothing" — the `conversations` row, the inbound activity event, one `hook_executions` row per pre-LLM hook and one `ai_logs` row per call those hooks made are all written BEFORE the gate and survive. Pre-LLM hooks also re-run on every coordinator restart, so a side-effecting hook fires once per attempt, not once per message
 - **Independent deployment**: each package under `packages/` is deployable as a standalone service
 - **A WhatsApp channel authenticates to Twilio in one of two `authMode`s** (`authToken` or `apiKey`), each validated on its own inbound route with its own secret; `webhookSecret` is server-minted and never client-suppliable. See `references/channels.md`
 
@@ -307,8 +307,13 @@ could only ever be a copy that has already drifted.
 Layered helpers under `.claude/`:
 
 - **`rules/`** — enforced constraints, always loaded: coding style, security, testing, git workflow, performance, TypeScript conventions
-- **`hooks/`** — automatic enforcement: pre-commit secret scan, post-edit lint, console.log warning
+- **`hooks/`** — Claude Code hooks, NOT git hooks: pre-commit secret scan, post-edit lint,
+  console.log warning. They fire only when Claude runs the command through its Bash tool.
+  There is no `.husky/`, no `postinstall` that installs anything, and `core.hooksPath` is
+  unset — a human typing `git commit` is checked by none of them
 - **`agents/`** — 8 specialized agents (planner, code-reviewer, architect, tdd-guide, security-reviewer, doc-updater, build-error-resolver, refactor-cleaner)
-- **`contexts/`** — behavioural modes: `dev`, `review`, `research`
+- **`contexts/`** — three reference documents (`dev`, `review`, `research`). NOTHING loads
+  them: no command, no setting and no hook names the directory. Read one deliberately or
+  delete them — they are not a mode the harness switches into
 - **`commands/`** — `/plan`, `/tdd`, `/brainstorming`, `/review`, `/verify`, `/security-scan`
 - **`skills/`** — project knowledge, loaded on demand: `backend-architecture` (and its `references/`), `frontend-design-system`, `plugin-authoring`, and the four release skills

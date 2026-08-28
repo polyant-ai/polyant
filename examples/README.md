@@ -9,7 +9,7 @@ examples/
 ├── instances/             # Example instance configurations
 │   └── hello-world/       # Bare-minimum assistant
 │       ├── instance.json     # Instance metadata
-│       └── prompts/          # 8 system prompt sections
+│       └── prompts/          # system prompt sections (7 in defaults.ts; 2 shown here)
 ├── skills/                # Reusable skill definitions
 │   └── weather/           # Skill with an API-key env var
 │       └── SKILL.md
