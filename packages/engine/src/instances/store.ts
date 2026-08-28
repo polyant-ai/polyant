@@ -184,6 +184,40 @@ export async function findInstanceBySlug(slug: InstanceSlug): Promise<Instance |
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
+/**
+ * Resolve several agent-handoff targets in ONE query: identity plus the
+ * organization that owns them.
+ *
+ * `buildTools` synthesises an `ask_<slug>` tool per `agent:` entry, and it used
+ * to spend three serialized round trips per entry — `findInstanceBySlug`, then
+ * `agentsShareOrganization`, which is itself two `readAgentScope` reads, one of
+ * them for the CALLER and therefore identical on every iteration. That runs on
+ * the request path of every turn, before the model is even called: an
+ * orchestrator wired to twenty sub-agents paid sixty round trips per message,
+ * inside the span the pipeline reports as `toolBuildingMs`.
+ *
+ * The join to `workspaces` is what carries the organization, and it is an INNER
+ * join on purpose: an agent whose workspace row is missing resolves to nothing
+ * and is therefore skipped by the caller — fail-closed, matching `readAgentScope`.
+ */
+export async function findAgentHandoffTargets(
+  slugs: InstanceSlug[],
+): Promise<Map<string, { id: string; slug: string; name: string; description: string | null; organizationId: string }>> {
+  if (slugs.length === 0) return new Map();
+  const rows = await db
+    .select({
+      id: instances.id,
+      slug: instances.slug,
+      name: instances.name,
+      description: instances.description,
+      organizationId: workspaces.organizationId,
+    })
+    .from(instances)
+    .innerJoin(workspaces, eq(instances.workspaceId, workspaces.id))
+    .where(inArray(instances.slug, slugs));
+  return new Map(rows.map((r) => [r.slug, r]));
+}
+
 /** Find an instance by id (UUID). Returns undefined if not found. */
 export async function findInstanceById(id: string): Promise<Instance | undefined> {
   const rows = await db.select().from(instances).where(eq(instances.id, id)).limit(1);
@@ -407,17 +441,27 @@ export async function updateInstance(
  */
 export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
   return db.transaction(async (tx) => {
-    // conversation_messages has no instance_id — delete via the instance's conversations.
-    const convRows = await tx
-      .select({ conversationId: conversations.conversationId })
-      .from(conversations)
-      .where(eq(conversations.instanceId, slug));
-    const convIds = convRows.map((r) => r.conversationId);
-    if (convIds.length > 0) {
-      await tx
-        .delete(conversationMessages)
-        .where(inArray(conversationMessages.conversationId, convIds));
-    }
+    /*
+      conversation_messages has no instance_id, so it is deleted through the
+      instance's conversations — as a SUBQUERY, not as a list of ids.
+
+      Reading the ids into Node and binding them all worked until an agent had
+      enough conversations. A channel agent keys one per contact
+      (`slug:channel:identity`), so a WhatsApp or Telegram support agent reaches
+      tens of thousands in ordinary use; past 65 535 the extended query protocol
+      refuses the statement, and because this is one transaction the whole delete
+      rolls back — the agent becomes UNDELETABLE through the API, with no
+      diagnosis beyond a driver error. Same semantics, one bind parameter.
+    */
+    await tx.delete(conversationMessages).where(
+      inArray(
+        conversationMessages.conversationId,
+        tx
+          .select({ conversationId: conversations.conversationId })
+          .from(conversations)
+          .where(eq(conversations.instanceId, slug)),
+      ),
+    );
     await tx.delete(conversations).where(eq(conversations.instanceId, slug));
     await tx.delete(memories).where(eq(memories.instanceId, slug));
     // knowledge_chunks cascade via their document_id FK.

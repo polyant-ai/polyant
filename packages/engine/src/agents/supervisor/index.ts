@@ -21,7 +21,7 @@ import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { serializeForLog } from "../../utils/serialize-for-log.js";
 import { config, DEFAULT_INSTANCE_ID } from "../../config.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
-import { findInstanceBySlug } from "../../instances/store.js";
+import { findInstanceBySlug, findAgentHandoffTargets } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import type { ChatRequest, CostBreakdown } from "../../ai-gateway/types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
@@ -33,7 +33,8 @@ import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
 import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
 import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
-import { agentsShareOrganization, agentToolTarget } from "../../authz/agent-tenancy.js";
+import { agentToolTarget } from "../../authz/agent-tenancy.js";
+import { readAgentScope } from "../../authz/authz.store.js";
 
 export interface SupervisorInput {
   message: string;
@@ -348,9 +349,27 @@ async function buildTools(opts: BuildToolsOptions) {
   const agentEntries = [...enabledNames].filter((n) => agentToolTarget(n) !== null);
   if (agentEntries.length > 0) {
     const currentDepth = agentCallDepth ?? 0;
+
+    /*
+      Two queries for the whole set, not three per entry.
+
+      This loop used to call `findInstanceBySlug` and then
+      `agentsShareOrganization` — itself two `readAgentScope` reads, one of them
+      for the CALLER and so identical on every iteration — which is three
+      serialized round trips per sub-agent, on the request path of every turn,
+      before the model is called. Twenty sub-agents meant sixty.
+
+      The caller's own scope is read once; the targets come back in a single
+      keyed read that carries their organization with them.
+    */
+    const callerScope = await readAgentScope(instanceId);
+    const targets = await findAgentHandoffTargets(
+      agentEntries.map((n) => asInstanceSlug(agentToolTarget(n)!)),
+    );
+
     for (const entryName of agentEntries) {
       const targetSlug = agentToolTarget(entryName)!;
-      const target = await findInstanceBySlug(asInstanceSlug(targetSlug));
+      const target = targets.get(targetSlug);
       if (!target) {
         console.warn(`[supervisor] agent tool '${entryName}': target instance not found`);
         continue;
@@ -359,7 +378,11 @@ async function buildTools(opts: BuildToolsOptions) {
       // an `ask_` handoff runs the target's whole pipeline, so it must never
       // cross an organization boundary. The tools API rejects such an entry at
       // write time; this also neutralises rows written before that gate existed.
-      if (!(await agentsShareOrganization(instanceId, targetSlug))) {
+      // Fail-closed on an unresolvable caller, exactly as agentsShareOrganization did.
+      const sameOrg =
+        targetSlug === instanceId ||
+        (callerScope !== null && callerScope.organizationId === target.organizationId);
+      if (!sameOrg) {
         console.warn(`[supervisor] agent tool '${entryName}': target is in another organization — skipped`);
         continue;
       }

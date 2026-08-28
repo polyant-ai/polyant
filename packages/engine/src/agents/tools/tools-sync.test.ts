@@ -37,13 +37,16 @@ vi.mock("./registry.js", () => ({
 const mockOnConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
 const mockValues = vi.fn().mockReturnValue({ onConflictDoUpdate: mockOnConflictDoUpdate });
 const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
-// `tx.select({...}).from(instanceTools)` — enabled tool ids. Default: none enabled.
+// `tx.selectDistinct({...}).from(instanceTools)` — enabled tool ids. Default: none enabled.
 const mockSelectFrom = vi.fn().mockResolvedValue([]);
 
 const mockTx = {
   insert: vi.fn().mockReturnValue({ values: mockValues }),
   delete: vi.fn().mockReturnValue({ where: mockDeleteWhere }),
   select: vi.fn().mockReturnValue({ from: mockSelectFrom }),
+  // selectDistinct: the enabled-tool-id read is DISTINCT so the parameter list
+  // is bounded by the registry size, not by agents × tools.
+  selectDistinct: vi.fn().mockReturnValue({ from: mockSelectFrom }),
 };
 
 vi.mock("../../database/client.js", () => ({
@@ -85,6 +88,7 @@ beforeEach(() => {
   mockTx.delete.mockReturnValue({ where: mockDeleteWhere });
   mockSelectFrom.mockResolvedValue([]);
   mockTx.select.mockReturnValue({ from: mockSelectFrom });
+  mockTx.selectDistinct.mockReturnValue({ from: mockSelectFrom });
   mockDbSelectWhere.mockResolvedValue([]);
   mockDbInsertConflict.mockResolvedValue(undefined);
   mockDbInsertValues.mockReturnValue({ onConflictDoNothing: mockDbInsertConflict });
@@ -189,7 +193,7 @@ describe("syncToolsToDb", () => {
     await syncToolsToDb();
 
     // The enabled-anywhere guard (instance_tools read) must run before the delete.
-    expect(mockTx.select).toHaveBeenCalledTimes(1);
+    expect(mockTx.selectDistinct).toHaveBeenCalledTimes(1);
     expect(mockSelectFrom).toHaveBeenCalledTimes(1);
   });
 
