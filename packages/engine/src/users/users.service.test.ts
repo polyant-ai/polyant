@@ -295,6 +295,41 @@ describe("UsersService", () => {
         expect.objectContaining({ isPlatformAdmin: true }),
       );
     });
+
+    it("rejects a non-boolean isPlatformAdmin instead of coercing it", async () => {
+      mocked.getUserById.mockResolvedValueOnce(
+        makeUser({ id: "u4", isPlatformAdmin: false }),
+      );
+
+      await expect(
+        service.update(
+          "u4",
+          { isPlatformAdmin: "true" as unknown as boolean },
+          { userId: "actor" },
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mocked.updateUserMeta).not.toHaveBeenCalled();
+    });
+
+    it("cannot demote the last platform admin with a truthy non-boolean", async () => {
+      // `"off"` is truthy in JS and false in Postgres: without the runtime type
+      // check the guard below sees "no demotion" while the DB performs one,
+      // leaving the deployment with zero platform admins. There is no DTO
+      // validation on this route, so the service is the only place to catch it.
+      mocked.getUserById.mockResolvedValueOnce(
+        makeUser({ id: "sa", isPlatformAdmin: true }),
+      );
+
+      await expect(
+        service.update(
+          "sa",
+          { isPlatformAdmin: "off" as unknown as boolean },
+          { userId: "actor" },
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mocked.countPlatformAdmins).not.toHaveBeenCalled();
+      expect(mocked.updateUserMeta).not.toHaveBeenCalled();
+    });
   });
 
   // ---- remove -----------------------------------------------------------

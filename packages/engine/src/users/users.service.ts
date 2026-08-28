@@ -55,7 +55,15 @@ function readPlatformAdminFlag(body: {
   isPlatformAdmin?: boolean;
   role?: string;
 }): boolean | undefined {
-  if (body.isPlatformAdmin !== undefined) return body.isPlatformAdmin;
+  if (typeof body.isPlatformAdmin === "boolean") return body.isPlatformAdmin;
+  if (body.isPlatformAdmin !== undefined) {
+    // There is no DTO validation on this route — NestJS erases the controller's
+    // parameter type at runtime — so a non-boolean would flow straight through
+    // to Postgres. `"off"` is truthy here and false there: the
+    // last-platform-admin guard would see no demotion and the DB would perform
+    // one, leaving the deployment with zero platform admins.
+    throw new BadRequestException("isPlatformAdmin must be a boolean");
+  }
   if (body.role !== undefined) {
     const isPlatformAdminRole = body.role === "platform_admin" || body.role === "superadmin";
     if (body.role !== "user" && !isPlatformAdminRole) {
