@@ -24,6 +24,8 @@ export const ManagementAuditAction = {
   McpServerDelete: "mcp_server.delete",
   PlatformAdminBootstrap: "platform_admin.bootstrap",
   UserCreate: "user.create",
+  // The wire value stays `user.role_update` although `users.role` is gone:
+  // renaming it would orphan every audit row already written under it.
   UserRoleUpdate: "user.role_update",
   UserDelete: "user.delete",
   UserPasswordReset: "user.password_reset",

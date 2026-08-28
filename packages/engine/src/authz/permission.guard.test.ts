@@ -444,6 +444,17 @@ describe("@PlatformAdminOnly", () => {
     );
   });
 
+  it("denies a per-instance API key", async () => {
+    const { guard, context } = setup(
+      { [PLATFORM_ADMIN_ONLY_KEY]: true },
+      { user: { kind: "instance", instanceId: "agent-1" } },
+      { isPlatformAdmin: true },
+    );
+    await expect(guard.canActivate(context)).rejects.toThrow(
+      "Current platform administrator standing required",
+    );
+  });
+
   it("denies when there is no principal at all", async () => {
     const { guard, context } = setup({ [PLATFORM_ADMIN_ONLY_KEY]: true }, {}, {});
     await expect(guard.canActivate(context)).rejects.toThrow(
