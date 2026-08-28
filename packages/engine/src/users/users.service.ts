@@ -27,10 +27,9 @@ import {
   verifyPassword,
 } from "./password.util.js";
 import { isLastOwnerOfAnyOrg } from "../organizations/members.store.js";
-import type { UserRole } from "../auth/users.schema.js";
 import { generateToken } from "../crypto/index.js";
 import { isUniqueViolation } from "../utils/db-errors.js";
-import { PLATFORM_ADMIN_ROLE, isPlatformAdminRole } from "../auth/user-role.js";
+import { isPlatformAdminRole } from "../auth/user-role.js";
 
 // RFC 5321 caps an email address at 254 chars. Enforce it before the regex
 // runs so the polynomial-ish backtracking cost of the [^\s@]+ groups can
@@ -39,15 +38,31 @@ const EMAIL_MAX_LEN = 254;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Accept either spelling of the platform-admin role, but return only the
- * canonical one — expand on read, contract on write. The error names the value a
- * caller SHOULD send and deliberately does not advertise the tolerated legacy
- * one.
+ * Read the platform-admin flag out of a request body.
+ *
+ * `isPlatformAdmin: boolean` is the only value ever WRITTEN. For ONE release
+ * this also accepts the deprecated `role` alias — `"platform_admin"` / the
+ * pre-rename `"superadmin"` / `"user"` — mapped through `isPlatformAdminRole`,
+ * the last surviving call to that two-spelling predicate now that the role
+ * itself leaves this store. The alias is never persisted as a role; it is only
+ * ever read into the boolean.
+ *
+ * Returns `undefined` when the caller sent neither field, which the create and
+ * update paths interpret differently: create defaults to `false` (an ordinary
+ * user), update treats it as "leave the flag untouched".
  */
-function validRole(value: unknown): UserRole {
-  if (value === "user") return value;
-  if (isPlatformAdminRole(value as string)) return PLATFORM_ADMIN_ROLE;
-  throw new BadRequestException("Invalid role: expected 'platform_admin' or 'user'");
+function readPlatformAdminFlag(body: {
+  isPlatformAdmin?: boolean;
+  role?: string;
+}): boolean | undefined {
+  if (body.isPlatformAdmin !== undefined) return body.isPlatformAdmin;
+  if (body.role !== undefined) {
+    if (body.role !== "user" && !isPlatformAdminRole(body.role)) {
+      throw new BadRequestException("Invalid role: expected 'platform_admin' or 'user'");
+    }
+    return isPlatformAdminRole(body.role);
+  }
+  return undefined;
 }
 
 export type PublicUser = UserRow;
@@ -78,14 +93,16 @@ export class UsersService {
   async create(body: {
     email?: string;
     name?: string;
+    /** @deprecated wire alias for `isPlatformAdmin`, scheduled for retirement — see readPlatformAdminFlag */
     role?: string;
+    isPlatformAdmin?: boolean;
     password?: string;
   }): Promise<CreateUserResult> {
     const email = (body.email ?? "").trim().toLowerCase();
     if (email.length > EMAIL_MAX_LEN || !EMAIL_RE.test(email)) {
       throw new BadRequestException("Invalid email");
     }
-    const role = validRole(body.role ?? "user");
+    const isPlatformAdmin = readPlatformAdminFlag(body) ?? false;
 
     let plain = body.password?.trim();
     let generated: string | undefined;
@@ -105,7 +122,7 @@ export class UsersService {
         email,
         name: body.name?.trim() || null,
         passwordHash,
-        role,
+        isPlatformAdmin,
         mustChangePassword: true,
       });
       return { user: stripSecret(created), generatedPassword: generated };
@@ -119,25 +136,18 @@ export class UsersService {
 
   async update(
     id: string,
-    body: { name?: string | null; role?: string },
+    body: { name?: string | null; role?: string; isPlatformAdmin?: boolean },
     actor: { userId: string },
   ): Promise<PublicUser> {
     const target = await getUserById(id);
     if (!target) throw new NotFoundException(`User ${id} not found`);
 
-    let nextRole: UserRole | undefined;
-    if (body.role !== undefined) {
-      nextRole = validRole(body.role);
+    const nextFlag = readPlatformAdminFlag(body);
+    if (nextFlag !== undefined) {
       // Prevent removing the last platform admin (also blocks self-demotion if
-      // you're the only one).
-      //
-      // Keyed on the standing the target HOLDS — the enforced `is_platform_admin`
-      // flag OR a platform-admin role — not on the role alone. `updateUserMeta`
-      // derives the flag from the incoming role, so a row carrying the flag with
-      // an ordinary role had its bypass revoked by a role PATCH that changed
-      // nothing on paper, without ever consulting this guard.
-      const targetIsAdmin = target.isPlatformAdmin || isPlatformAdminRole(target.role);
-      if (targetIsAdmin && !isPlatformAdminRole(nextRole)) {
+      // you're the only one). `target.isPlatformAdmin` IS the standing now —
+      // there is no second, role-derived source to fall back on.
+      if (target.isPlatformAdmin && !nextFlag) {
         const count = await countPlatformAdmins();
         if (count <= 1) {
           throw new ConflictException(
@@ -149,13 +159,13 @@ export class UsersService {
 
     const updated = await updateUserMeta(id, {
       name: body.name === undefined ? undefined : body.name,
-      role: nextRole,
+      isPlatformAdmin: nextFlag,
     });
     if (!updated) throw new NotFoundException(`User ${id} not found`);
 
-    // If the role changed for someone else, invalidate their DB sessions.
+    // If the standing changed for someone else, invalidate their DB sessions.
     // (JWE stays valid until expiry — known trade-off.)
-    if (nextRole && nextRole !== target.role && actor.userId !== id) {
+    if (nextFlag !== undefined && nextFlag !== target.isPlatformAdmin && actor.userId !== id) {
       await deleteSessionsForUser(id);
     }
 
@@ -169,8 +179,8 @@ export class UsersService {
     const target = await getUserById(id);
     if (!target) throw new NotFoundException(`User ${id} not found`);
 
-    // Same standing test as `update`: the enforced flag OR a platform-admin role.
-    if (target.isPlatformAdmin || isPlatformAdminRole(target.role)) {
+    // Same standing test as `update`: the enforced flag, and only the flag.
+    if (target.isPlatformAdmin) {
       const count = await countPlatformAdmins();
       if (count <= 1) {
         throw new ConflictException("Cannot delete the last platform admin");

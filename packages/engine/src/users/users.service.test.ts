@@ -50,7 +50,7 @@ function makeUser(overrides: Record<string, unknown> = {}) {
     email: "alice@example.com",
     name: "Alice",
     image: null,
-    role: "user" as const,
+    isPlatformAdmin: false,
     mustChangePassword: false,
     hasPassword: true,
     passwordHash: null as string | null,
@@ -98,6 +98,37 @@ describe("UsersService", () => {
       // bcrypt hashes start with $2a/$2b/$2y depending on lib version
       expect(insertedHash).toMatch(/^\$2[aby]\$/);
       expect(mocked.insertUser.mock.calls[0][0].mustChangePassword).toBe(true);
+    });
+
+    it("creates a platform admin from isPlatformAdmin", async () => {
+      mocked.insertUser.mockResolvedValueOnce(
+        makeUser({ email: "a@b.c", isPlatformAdmin: true }),
+      );
+
+      const { user } = await service.create({
+        email: "a@b.c",
+        password: "supplied-pwd-1",
+        isPlatformAdmin: true,
+      });
+
+      expect(user.isPlatformAdmin).toBe(true);
+      expect(user).not.toHaveProperty("role");
+      expect(mocked.insertUser.mock.calls[0][0].isPlatformAdmin).toBe(true);
+    });
+
+    it("still accepts the deprecated role alias on input for one release", async () => {
+      mocked.insertUser.mockResolvedValueOnce(
+        makeUser({ email: "d@e.f", isPlatformAdmin: true }),
+      );
+
+      const { user } = await service.create({
+        email: "d@e.f",
+        password: "supplied-pwd-2",
+        role: "platform_admin",
+      });
+
+      expect(user.isPlatformAdmin).toBe(true);
+      expect(mocked.insertUser.mock.calls[0][0].isPlatformAdmin).toBe(true);
     });
 
     it("uses the supplied password and does NOT echo it back to the caller", async () => {
@@ -152,14 +183,14 @@ describe("UsersService", () => {
   describe("update", () => {
     it("refuses to demote the last remaining platform admin", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "sa", role: "platform_admin" }),
+        makeUser({ id: "sa", isPlatformAdmin: true }),
       );
       mocked.countPlatformAdmins.mockResolvedValueOnce(1);
 
       await expect(
         service.update(
           "sa",
-          { role: "user" },
+          { isPlatformAdmin: false },
           { userId: "other" },
         ),
       ).rejects.toBeInstanceOf(ConflictException);
@@ -168,20 +199,23 @@ describe("UsersService", () => {
 
     it("allows demoting a platform admin when more than one exists", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "sa1", role: "platform_admin" }),
+        makeUser({ id: "sa1", isPlatformAdmin: true }),
       );
       mocked.countPlatformAdmins.mockResolvedValueOnce(2);
       mocked.updateUserMeta.mockResolvedValueOnce(
-        makeUser({ id: "sa1", role: "user" }),
+        makeUser({ id: "sa1", isPlatformAdmin: false }),
       );
 
       await service.update(
         "sa1",
-        { role: "user" },
+        { isPlatformAdmin: false },
         { userId: "actor" },
       );
-      expect(mocked.updateUserMeta).toHaveBeenCalledWith("sa1", expect.objectContaining({ role: "user" }));
-      // Role changed for someone else → DB sessions invalidated.
+      expect(mocked.updateUserMeta).toHaveBeenCalledWith(
+        "sa1",
+        expect.objectContaining({ isPlatformAdmin: false }),
+      );
+      // Standing changed for someone else → DB sessions invalidated.
       expect(mocked.deleteSessionsForUser).toHaveBeenCalledWith("sa1");
     });
 
@@ -194,19 +228,35 @@ describe("UsersService", () => {
 
     it("does NOT invalidate sessions when the actor edits their own row", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "self", role: "platform_admin" }),
+        makeUser({ id: "self", isPlatformAdmin: true }),
       );
       mocked.countPlatformAdmins.mockResolvedValueOnce(2);
       mocked.updateUserMeta.mockResolvedValueOnce(
-        makeUser({ id: "self", role: "user" }),
+        makeUser({ id: "self", isPlatformAdmin: false }),
       );
 
       await service.update(
         "self",
-        { role: "user" },
+        { isPlatformAdmin: false },
         { userId: "self" },
       );
       expect(mocked.deleteSessionsForUser).not.toHaveBeenCalled();
+    });
+
+    it("still accepts the deprecated role alias on a PATCH", async () => {
+      mocked.getUserById.mockResolvedValueOnce(
+        makeUser({ id: "u2", isPlatformAdmin: false }),
+      );
+      mocked.updateUserMeta.mockResolvedValueOnce(
+        makeUser({ id: "u2", isPlatformAdmin: true }),
+      );
+
+      await service.update("u2", { role: "platform_admin" }, { userId: "actor" });
+
+      expect(mocked.updateUserMeta).toHaveBeenCalledWith(
+        "u2",
+        expect.objectContaining({ isPlatformAdmin: true }),
+      );
     });
   });
 
@@ -222,7 +272,7 @@ describe("UsersService", () => {
 
     it("blocks deleting the last platform admin", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "sa", role: "platform_admin" }),
+        makeUser({ id: "sa", isPlatformAdmin: true }),
       );
       mocked.countPlatformAdmins.mockResolvedValueOnce(1);
 
@@ -402,11 +452,12 @@ describe("UsersService", () => {
     it("returns the public user (no passwordHash) on a correct password", async () => {
       const hash = await hashPassword("right-pwd-9999");
       mocked.getUserByEmail.mockResolvedValueOnce(
-        makeUser({ id: "u", passwordHash: hash, hasPassword: true, role: "platform_admin" }),
+        makeUser({ id: "u", passwordHash: hash, hasPassword: true, isPlatformAdmin: true }),
       );
       const res = await service.verifyCredentials("a@b.com", "right-pwd-9999");
       expect(res).not.toBeNull();
-      expect(res?.role).toBe("platform_admin");
+      expect(res?.isPlatformAdmin).toBe(true);
+      expect(res).not.toHaveProperty("role");
       expect((res as unknown as Record<string, unknown>).passwordHash).toBeUndefined();
     });
 
@@ -415,7 +466,7 @@ describe("UsersService", () => {
       // the default seeded admin. Regression guard.
       const hash = await hashPassword("seed-admin-pwd");
       mocked.getUserByEmail.mockResolvedValueOnce(
-        makeUser({ email: "administrator@local", passwordHash: hash, hasPassword: true, role: "platform_admin" }),
+        makeUser({ email: "administrator@local", passwordHash: hash, hasPassword: true, isPlatformAdmin: true }),
       );
       const res = await service.verifyCredentials("administrator@local", "seed-admin-pwd");
       expect(res).not.toBeNull();
