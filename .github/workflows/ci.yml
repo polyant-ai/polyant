@@ -58,6 +58,28 @@ jobs:
       - run: npm ci
       - run: npm run test:unit -w @polyant/engine
 
+  test-web:
+    name: Web Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # The plugin-sdk is a public git dependency; npm/pacote resolves github
+      # git deps over ssh by default, which CI has no key for. Rewrite to https
+      # (works anonymously for the public repo) so `npm ci` can fetch it.
+      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+      - run: npm ci
+      # 64 files / 655 tests that had never run in CI: `git log -S "polyant/web"`
+      # on this file returned nothing since it was created. lint and build DO
+      # cover the package, which is what made the gap easy to miss — web was in
+      # CI, just never its tests. Everything the panel wrote to protect itself
+      # (TenantScopeGuard, validateTenantParams, the locale key-parity contract)
+      # was advisory until now.
+      - run: npm run test -w @polyant/web
+
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
@@ -86,6 +108,12 @@ jobs:
       POSTGRES_DB: polyant
       AUTH_SECRET: test-secret-at-least-32-chars-long-yes
       ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      # Integration files self-skip when the DB probe loses its 3s race, so a
+      # database that is slow to accept turns the whole tier — every cross-org
+      # isolation test included — into "9 passed" and a green tick. This flag
+      # makes an unreachable database a FAILURE here while leaving the local
+      # skip-when-absent behaviour alone.
+      CI_REQUIRE_DB: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

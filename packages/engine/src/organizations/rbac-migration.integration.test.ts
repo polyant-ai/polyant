@@ -9,24 +9,14 @@
  *   docker compose up -d postgres && npm run db:migrate && npm run test:integration
  */
 
+import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, afterEach } from "vitest";
 import { sql } from "drizzle-orm";
 import { db, queryClient } from "../database/client.js";
 import { SYSTEM_ROLE_PERMISSIONS, SYSTEM_ROLE_KEYS } from "../authz/permissions.js";
 
-async function dbReachable(): Promise<boolean> {
-  try {
-    await Promise.race([
-      db.execute(sql`select 1`),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("db probe timeout")), 3000)),
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
-const DB_AVAILABLE = await dbReachable();
+const DB_AVAILABLE = await resolveDatabaseAvailability();
 
 /** UUID of the seeded default org (assumed present from the migration). */
 async function defaultOrgId(): Promise<string> {

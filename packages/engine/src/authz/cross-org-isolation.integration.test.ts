@@ -14,6 +14,7 @@
  *   docker compose up -d postgres && npm run db:migrate && npm run test:integration
  */
 
+import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { sql } from "drizzle-orm";
 import { db, queryClient } from "../database/client.js";
@@ -25,19 +26,8 @@ import {
 } from "../memory/memory-store.js";
 import { conversationStore } from "../conversations/store.js";
 
-async function dbReachable(): Promise<boolean> {
-  try {
-    await Promise.race([
-      db.execute(sql`select 1`),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("db probe timeout")), 3000)),
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
-const DB_AVAILABLE = await dbReachable();
+const DB_AVAILABLE = await resolveDatabaseAvailability();
 
 // Unique suffix keeps parallel/repeat runs from colliding on the slug/email
 // unique constraints; the afterAll teardown removes everything by this marker.

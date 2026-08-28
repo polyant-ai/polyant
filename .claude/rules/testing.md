@@ -37,6 +37,27 @@ alwaysApply: true
 - Group failures by module/package to spot patterns
 - Every test MUST test ONE thing (single assertion per concept, not per line)
 
+### Guardrail tests
+
+A guardrail test asserts a property of the WHOLE codebase, not of one unit. Two
+rules, both learned the hard way, and neither previously written down:
+
+- **Derive the subject list from the code, never from a hand-kept array.**
+  `server/route-authorization-guardrail.test.ts` walks the NestJS module graph;
+  `agents/tools/strict-mode.test.ts` iterates the live registry;
+  `database/migration-journal.test.ts` globs the directory in both directions.
+  A hand-maintained list is a list a new file silently escapes — the guard stays
+  green precisely when it should have caught something.
+- **Assert a non-vacuity floor.** A guardrail whose input set is empty passes.
+  `strict-mode.test.ts` has `expect(checked, "no tools were checked — registry
+  empty?").toBeGreaterThan(0)`; the route guardrail has `controllers.length > 20`.
+  Without a floor, a broken loader or a changed glob turns the guard into a
+  no-op and nothing says so.
+
+Counter-example in the tree: the panel's `status-checks.test.ts` "every check"
+test derives its subjects from ONE crafted input rather than the catalogue, so a
+check whose trigger that fixture does not satisfy escapes the rule entirely.
+
 ### Flaky Tests
 - Flaky tests MUST be flagged and tracked — they mask real regressions
 - Patterns to watch for: timing dependencies, execution order, external resources

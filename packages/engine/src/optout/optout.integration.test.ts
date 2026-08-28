@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
@@ -13,30 +14,8 @@ const SLUG = asInstanceSlug("optout-itest");
 let instanceId: ReturnType<typeof asInstanceUuid>;
 let workspaceId: string;
 
-/**
- * Self-skip without a database, like every other integration suite here.
- *
- * This one did not, so a checkout with no reachable Postgres reported a FAILING
- * suite rather than a skipped one — and a red test that means "no database" is a
- * red test nobody reads, which is how the ones that mean something get missed.
- *
- * The probe has to gate the seed too: `beforeAll` sat at module level and ran
- * whatever the describe decided, so `skipIf` alone would still have thrown on the
- * insert. It moved inside.
- */
-async function dbReachable(): Promise<boolean> {
-  try {
-    await Promise.race([
-      db.execute(sql`select 1`),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("db probe timeout")), 3000)),
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
-const DB_AVAILABLE = await dbReachable();
+const DB_AVAILABLE = await resolveDatabaseAvailability();
 
 describe.skipIf(!DB_AVAILABLE)("contact opt-out lifecycle (integration)", () => {
   beforeAll(async () => {
