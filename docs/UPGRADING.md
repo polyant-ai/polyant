@@ -3,6 +3,61 @@
 This guide covers upgrades that need an operator decision. For the full list of
 changes see the [changelog](../CHANGELOG.md).
 
+## Upgrading from 1.1.0 to the next release (unreleased)
+
+This release makes `users.is_platform_admin` the only persisted record of
+platform-admin standing and **drops the `users.role` column**. One migration,
+one operator decision — but it is the same decision as the 1.1.0 upgrade, for
+the same reason.
+
+### 1. This release is NOT a rolling upgrade either — stop, then start
+
+`0075_drop_users_role` reconciles the flag one last time and then drops the
+column. Both packages break on an overlapping deploy, and one of them less
+obviously than the other:
+
+- An **old engine** replica still calls `listUsers`, `insertUser` and
+  `countPlatformAdmins`, all of which name `role` in their SELECT and INSERT
+  lists. Every one of them fails with `42703` (undefined column) the moment the
+  migration lands — that is the whole users API, not just the platform-admin
+  paths.
+- An **old web** replica is affected too, which is easy to miss because nothing
+  in the panel reads a role any more: its Auth.js Drizzle mirror of the `users`
+  table still declares the column, so the adapter selects it on **every** query
+  it makes. Credential sign-in fails there, not just the Admin Console.
+
+Deploy with a **stop-then-start** (or single-replica) strategy so exactly one
+version of each package serves traffic at a time. Do not use blue/green or a
+rolling update with overlap. The condition is transient — it clears as soon as
+the last old replica drains — and no data is lost either way.
+
+### 2. There is no rollback past `0075`
+
+The column is gone and `0075` has no down migration. Restoring it means
+restoring a backup: an older image would find the column missing and fail on
+every read of the users table, and re-adding it by hand would produce an empty
+column that no code writes, so every account would read as an ordinary user.
+
+Take a database backup before upgrading. Treat everything from `0071` onward as
+forward-only, `0075` included.
+
+### 3. Nobody has to sign in again — but promotions now land on their own
+
+Platform-admin standing is read from the database on every request instead of
+being carried on the session token, so promoting or revoking an account takes
+effect within the five-minute platform-admin cache window. Where the 1.1.0
+upgrade required a sign-out for a membership change, this one does not: no
+session rotation is needed, and `AUTH_SECRET` can stay as it is.
+
+### 4. If you automate user creation, move off `role`
+
+`POST /api/users` and `PATCH /api/users/:id` take `isPlatformAdmin: boolean` and
+no longer return `role`. `role` is still accepted **on input** for one release,
+as a deprecated alias for both legacy spellings (`platform_admin` and
+`superadmin`), and is never persisted or echoed back. Any script that reads
+`role` off a response is already broken by this release; any script that sends
+it has one release to switch.
+
 ## Upgrading from 1.0.0 to 1.1.0
 
 This release changes authorization, the persisted platform-admin role value, and
@@ -69,7 +124,7 @@ forward-only.
 `orgId` is stamped into the session JWT **at sign-in only**. Anyone signed in
 across the upgrade keeps a token without that claim and is denied on every
 organization-scoped management route for the remaining life of the token (up to
-30 days).
+24 hours).
 
 Rotate `AUTH_SECRET` as part of the deploy (or clear the `sessions` table). Every
 user gets a login prompt once and a correct token thereafter. This is not

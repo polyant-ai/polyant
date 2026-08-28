@@ -11,7 +11,13 @@
 -- Final reconciliation before the drop: a row promoted via a direct UPDATE to
 -- `role` alone, and never to the flag, would otherwise lose every power it has,
 -- silently, the moment the column disappears. Scoped to disagreements only, so
--- this is a no-op on a consistent database and idempotent on a second run.
+-- it is a no-op on an already consistent database.
+--
+-- NOT re-runnable: only the DROP below is guarded by IF EXISTS; this UPDATE
+-- would fail with `column "role" does not exist` on a second execution. That is
+-- deliberate rather than papered over with a DO $$ block — Drizzle never
+-- re-runs a migration recorded in the journal, so the case cannot arise, and
+-- extra machinery inside an irreversible migration buys nothing.
 UPDATE users
 SET is_platform_admin = true, updated_at = now()
 WHERE is_platform_admin = false

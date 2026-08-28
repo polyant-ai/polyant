@@ -161,11 +161,12 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
      *  value here once the gateway identity is mapped onto a local user. */
     mode: z.enum(["session", "alb-oidc"]).default("session"),
     /** RBAC: the user with this email is promoted to Platform Admin on boot by
-     *  the OrganizationsModule bootstrap — `is_platform_admin = true` AND
-     *  `role = 'platform_admin'`, because the flag alone produces an account the
-     *  UI renders as an ordinary user while the guard grants it everything.
-     *  Idempotent; unset = no promotion (migration 0071 already promotes
-     *  pre-existing platform-admin users). */
+     *  the OrganizationsModule bootstrap. It sets `is_platform_admin = true` and
+     *  nothing else — that flag is the sole authority for platform-admin
+     *  standing, read from the database on every request, and the panel renders
+     *  the account from the same flag. Idempotent; unset = no promotion
+     *  (migration 0075 reconciles any pre-existing platform-admin user before
+     *  the old `users.role` column is dropped). */
     platformAdminEmail: z.string().email().optional(),
   }),
 

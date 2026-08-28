@@ -36,7 +36,7 @@ of step"*. È esattamente il caso che ha prodotto il bug.
 
 `auth/role.guard.ts` confronta `request.user.role`, che arriva dal JWT Auth.js
 (`auth-user.service.ts` → `normalizeUserRole(payload.role)`). Il claim è uno **snapshot fatto
-al sign-in** (`auth.config.ts`, callback `jwt`) e vive fino a 30 giorni senza revoca.
+al sign-in** (`auth.config.ts`, callback `jwt`) e vive fino a 24 ore senza revoca.
 
 `RoleGuard` è APP_GUARD #2b: gira **prima** di `PermissionGuard`, che invece saprebbe
 rileggere il flag fresco dal DB — e infatti lo fa già, per le liste di ruoli puramente
@@ -45,7 +45,7 @@ platform-admin. Ma non ci arriva mai, perché `RoleGuard` ha già risposto 403.
 Conseguenza: promuovere qualcuno a platform admin nel DB **non ha effetto sulla Admin
 Console** (`/api/users`, `/api/platform/*`, impersonation, 2FA platform) finché quella
 persona non fa logout/login. E, specularmente, revocare il ruolo non chiude l'accesso per
-un massimo di 30 giorni.
+un massimo di 24 ore.
 
 Lato web lo stesso errore è replicato in **7 pagine** che si gatano su
 `session?.user?.role` invece che sul flag DB servito da `/api/me/access`:
@@ -97,18 +97,19 @@ un'aggiunta.
 
 Effetti:
 - la promozione/revoca ha effetto entro il TTL di 5 minuti della cache di
-  `AuthorizationService.isPlatformAdmin`, non entro 30 giorni;
+  `AuthorizationService.isPlatformAdmin`, non entro 24 ore;
 - sparisce lo shim di compatibilità `superadmin` (`auth/user-role.ts` e il gemello web
   `lib/user-role.ts`), che era dichiarato "one release" e non è mai stato rimosso;
 - sparisce la divergenza già presente fra OSS ed enterprise su `role.guard.ts` (OSS tollera
   lo spelling legacy, enterprise no);
 - le 7 pagine web si gatano sul flag DB, coerenti con il resto del pannello.
 
-CLAUDE.md dichiara che **cinque** dichiarazioni soddisfano il guard, e
-`route-authorization-guardrail.test.ts` accetta le stesse cinque. Restano cinque:
-`@Public()`, `@RequirePermission()`, `@PlatformAdminOnly()` (al posto di `@RequireRole()`),
-`@AuthenticatedOnly()`, `@ServicePrincipalOnly()`. Il test e CLAUDE.md vanno aggiornati in
-lockstep.
+CLAUDE.md dichiara che **tre** dichiarazioni soddisfano il guard, e
+`route-authorization-guardrail.test.ts` accetta le stesse tre. Restano tre:
+`@RequirePermission()`, `@PlatformAdminOnly()` (al posto di `@RequireRole()`) e
+`@AuthenticatedOnly()`. Le cinque dichiarazioni — con `@ServicePrincipalOnly()` — sono il
+conteggio ENTERPRISE: qui quel decoratore non esiste. Il test e CLAUDE.md vanno aggiornati
+in lockstep.
 
 **Contratto pubblico.** `POST /api/users` e `PATCH /api/users/:id` accettano oggi
 `role: "platform_admin" | "user"` e lo restituiscono. Il campo diventa

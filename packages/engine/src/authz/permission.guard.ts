@@ -84,7 +84,7 @@ function isUserPrincipal(p: Principal): p is UserPrincipal {
  *      `@PlatformAdminOnly()` allows only a human whose `users.is_platform_admin`
  *      is true RIGHT NOW, read from the DB — no JWT claim is consulted. This
  *      replaces the old `@RequireRole("platform_admin")` + RoleGuard pair, which
- *      decided the same question from a 30-day JWT claim no promotion or
+ *      decided the same question from a 24-hour JWT claim no promotion or
  *      revocation ever reached. Otherwise the route is undeclared → deny.
  *   4. ManagementKeyPrincipal (org API key) → allow iff the permission is in
  *      the key's own permission set AND the addressed agent belongs to the

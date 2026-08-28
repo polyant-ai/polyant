@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Un solo fatto persistito per lo standing platform-admin (`users.is_platform_admin`), letto dal DB a ogni richiesta; `users.role`, `RoleGuard` e `@RequireRole()` spariscono, e la revoca ha effetto entro 5 minuti invece che entro 30 giorni.
+**Goal:** Un solo fatto persistito per lo standing platform-admin (`users.is_platform_admin`), letto dal DB a ogni richiesta; `users.role`, `RoleGuard` e `@RequireRole()` spariscono, e la revoca ha effetto entro 5 minuti invece che entro 24 ore.
 
 **Architecture:** `@RequireRole("platform_admin")` viene sostituito da `@PlatformAdminOnly()`, che `PermissionGuard` risolve leggendo il flag dal DB — codice che esiste già nel guard per le liste puramente platform-admin. Con l'ultimo lettore del claim eliminato, `RoleGuard` (APP_GUARD #2b) e il claim `role` nel JWT diventano morti e vengono rimossi; la colonna `role` viene infine droppata da una migrazione che prima riconcilia il flag un'ultima volta. La sessione web continua a portare un `isPlatformAdmin` booleano, ma **solo come suggerimento di presentazione**: nessuna decisione lato server lo legge.
 
@@ -108,7 +108,7 @@ export const PLATFORM_ADMIN_ONLY_KEY = "platformAdminOnly";
  * La rotta richiede lo standing platform-admin CORRENTE, letto dal database.
  *
  * Sostituisce `@RequireRole("platform_admin")`, che veniva deciso da `RoleGuard`
- * sul claim `role` di un JWT valido fino a 30 giorni e senza revoca: promuovere o
+ * sul claim `role` di un JWT valido fino a 24 ore e senza revoca: promuovere o
  * revocare un platform admin nel DB non aveva effetto su queste rotte fino al
  * successivo sign-in. `PermissionGuard` risolve invece il flag con la stessa
  * lettura cached 5 minuti che ogni altro bypass platform-admin già usa.

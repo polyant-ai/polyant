@@ -8,7 +8,7 @@ export const PLATFORM_ADMIN_ONLY_KEY = "platformAdminOnly";
  * The route requires CURRENT platform-admin standing, read from the database.
  *
  * Replaces `@RequireRole("platform_admin")`, which RoleGuard decided from the
- * `role` claim of a JWT valid for up to 30 days with no revocation: promoting
+ * `role` claim of a JWT valid for up to 24 hours with no revocation: promoting
  * or revoking a platform admin in the DB had no effect on these routes until
  * the next sign-in. `PermissionGuard` instead resolves the flag with the same
  * 5-minute cached read every other platform-admin bypass already uses.
