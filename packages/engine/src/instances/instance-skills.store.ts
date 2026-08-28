@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { eq, and, sql, inArray } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { db, type DbExecutor } from "../database/client.js";
 import { instanceSkills } from "./instance-skills.schema.js";
 import { skills, skillVersions } from "../skills/schema.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
@@ -272,10 +272,13 @@ export async function setAutoLoad(
  * Enables DEFAULT_SKILL_SLUGS, pinning each to the current version.
  * Silently skips skills that don't exist in DB yet.
  */
-export async function seedInstanceSkills(instanceId: InstanceUuid): Promise<void> {
+export async function seedInstanceSkills(
+  instanceId: InstanceUuid,
+  executor: DbExecutor = db,
+): Promise<void> {
   if (DEFAULT_SKILL_SLUGS.length === 0) return;
 
-  const defaultSkills = await db
+  const defaultSkills = await executor
     .select({ id: skills.id, slug: skills.slug, currentVersionId: skills.currentVersionId })
     .from(skills)
     .where(inArray(skills.slug, DEFAULT_SKILL_SLUGS));

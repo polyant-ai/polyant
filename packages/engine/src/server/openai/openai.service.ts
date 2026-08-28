@@ -61,7 +61,7 @@ export class OpenAIService {
   async chatCompletion(
     request: ChatCompletionRequest,
   ): Promise<ChatCompletionResponse> {
-    const { text, conversationHistory, systemMessages, instanceId, channelId } =
+    const { text, conversationHistory, instanceId, channelId } =
       this.prepareRequest(request);
 
     // Call the pipeline via messageHandler
@@ -70,7 +70,7 @@ export class OpenAIService {
       channelId,
       instanceId,
       text,
-      metadata: { conversationHistory, systemMessages },
+      metadata: { conversationHistory },
     });
 
     const completionId = `chatcmpl-${randomUUID().replace(/-/g, "").slice(0, 24)}`;
@@ -105,7 +105,7 @@ export class OpenAIService {
   async chatCompletionStream(
     request: ChatCompletionRequest,
   ): Promise<StreamOutgoingMessage> {
-    const { text, conversationHistory, systemMessages, instanceId, channelId } =
+    const { text, conversationHistory, instanceId, channelId } =
       this.prepareRequest(request);
 
     return this.streamMessageHandler({
@@ -113,14 +113,13 @@ export class OpenAIService {
       channelId,
       instanceId,
       text,
-      metadata: { conversationHistory, systemMessages },
+      metadata: { conversationHistory },
     });
   }
 
   private prepareRequest(request: ChatCompletionRequest): {
     text: string;
     conversationHistory: ModelMessage[];
-    systemMessages: Array<{ role: "system"; content: string }>;
     instanceId: InstanceSlug;
     channelId: string;
   } {
@@ -140,18 +139,27 @@ export class OpenAIService {
       messages.slice(0, lastUserIdx),
     );
 
-    // Extract system messages from this request (to be persisted)
-    const systemMessages = messages
-      .filter((m): m is ChatCompletionMessage & { role: "system" } => m.role === "system")
-      .map((m) => ({ role: "system" as const, content: m.content }));
+    /*
+      Client-supplied `system` messages are NOT collected here any more.
 
+      They used to travel as `metadata.systemMessages`, which `foldSystemMessages`
+      appended to the operator's system prompt with a bare blank line, and which
+      `afterResponse` then persisted as `system` rows — so `getRecentMessages`
+      replayed them on every later turn of the conversation, including turns
+      arriving from Telegram or WhatsApp. On a route that is `@Public()` and, at
+      the default `auth_enabled = false`, unauthenticated, that was a way to edit
+      an agent's persona from the outside and make the edit stick.
+
+      Dropping them at the source is what makes the fix real: filtering only
+      `toModelMessages` would have left this second path intact.
+    */
     // Use the model field as instance slug (falls back to default).
     // `request.model` is the client-chosen instance slug; its existence is validated downstream by findInstanceBySlug.
     const instanceId = request.model ? asInstanceSlug(request.model) : DEFAULT_INSTANCE_ID;
 
     const channelId = this.deriveChannelId(messages, chat_id);
 
-    return { text, conversationHistory, systemMessages, instanceId, channelId };
+    return { text, conversationHistory, instanceId, channelId };
   }
 
   /**
@@ -166,11 +174,33 @@ export class OpenAIService {
     return `api-${randomUUID()}`;
   }
 
+  /**
+   * Client-supplied `system` messages are DROPPED, not honoured.
+   *
+   * They used to be kept, and `foldSystemMessages` concatenated them onto the end
+   * of the operator's system prompt with a bare blank line — no tag, no marker of
+   * provenance. On a route that is `@Public()` and, with `auth_enabled` at its
+   * default, open, that let any caller append instructions to the agent's
+   * persona; `afterResponse` then persisted them as `system` rows, so
+   * `getRecentMessages` replayed the injection on every later turn of that
+   * conversation, including turns arriving from Telegram or WhatsApp.
+   *
+   * Dropped rather than REJECTED with a 400, deliberately. The schema still
+   * accepts the role because standard OpenAI clients always send one, and
+   * because our own playground echoes back the history it loaded — which can
+   * legitimately contain `system` rows the ENGINE wrote (a webhook's
+   * contextPrompt is persisted exactly that way). We cannot tell our own echo
+   * from a caller's injection, so we trust neither: the authoritative history
+   * lives in the conversation store and is read from there.
+   *
+   * The agent's system prompt is the operator's. There is no route by which a
+   * caller adds to it.
+   */
   private toModelMessages(messages: ChatCompletionMessage[]): ModelMessage[] {
     return messages
-      .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "system")
+      .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({
-        role: m.role as "user" | "assistant" | "system",
+        role: m.role as "user" | "assistant",
         content: m.content,
       }));
   }

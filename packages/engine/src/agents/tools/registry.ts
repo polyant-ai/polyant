@@ -6,6 +6,7 @@ import { existsSync, readdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { pipelineLog } from "../../utils/pipeline-logger.js";
+import { hasPlaceholder, substituteSkillEnv } from "./shared/skill-env-placeholder.js";
 import { errMsg } from "../../utils/error.js";
 import { toModelToolName } from "../../utils/model-tool-wire.js";
 import type { InstanceSlug } from "../../instances/identifiers.js";
@@ -249,9 +250,25 @@ export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
   if (def.inputExamples?.length) description = appendExamplesRaw(description, def.inputExamples);
 
   const wrappedExecute = async (input: unknown) => {
+    // Log FIRST, with the input as the model wrote it. Everything downstream of
+    // the substitution below holds a real secret, so a log written after it
+    // would move the leak rather than close it.
     pipelineLog.toolCall(ctx.instanceId, def.name, input as Record<string, unknown>);
     try {
-      const result = await def.execute(input, ctx);
+      /*
+        Resolve `{{skill_env.<skill>.<KEY>}}` for keys the operator marked
+        sensitive. `readSkill` hands the model a placeholder instead of the
+        plaintext, so the value first exists here — between validation and
+        execute — and never in the conversation, the persisted history or
+        `tool_audit_logs`.
+
+        Guarded by `hasPlaceholder` so the overwhelming majority of tool calls
+        pay a synchronous tree walk and no query at all.
+      */
+      const resolved = hasPlaceholder(input)
+        ? await substituteSkillEnv(input, ctx.instanceId)
+        : input;
+      const result = await def.execute(resolved, ctx);
       pipelineLog.toolResult(ctx.instanceId, def.name, true);
       return result;
     } catch (err) {

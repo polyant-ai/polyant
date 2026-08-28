@@ -58,7 +58,7 @@ const {
 vi.mock("../../instances/store.js", () => ({
   listAllInstances: mockListAllInstances,
   findInstanceBySlug: mockFindInstanceBySlug,
-  createInstance: mockCreateInstance,
+  createInstanceWithDefaults: mockCreateInstance,
   updateInstance: mockUpdateInstance,
   deleteInstance: mockDeleteInstance,
   resolvePrincipalOrgId: mockResolvePrincipalOrgId,

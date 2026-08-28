@@ -56,7 +56,53 @@ jobs:
       # (works anonymously for the public repo) so `npm ci` can fetch it.
       - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
       - run: npm ci
-      - run: npm run test:unit -w @polyant/engine
+      # --coverage activates the thresholds in vitest.config.ts: a ratchet that
+      # fails the build if a PR lowers coverage. Local runs stay fast without it.
+      - run: npm run test:unit -w @polyant/engine -- --coverage
+
+  secrets:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The scanner diffs against the base ref, so it needs its history.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      # `.claude/hooks/pre-commit-check.js` has scanned for these since the repo
+      # began, but it is a CLAUDE CODE hook, not a git hook: it fires only when
+      # Claude runs the commit through its Bash tool. There is no .husky/, no
+      # postinstall and no core.hooksPath, so a human typing `git commit` — or
+      # anyone contributing from a fork — was never checked, while CLAUDE.md
+      # described the directory as "automatic enforcement". A local hook would
+      # not fix that: it is skippable with --no-verify and has to be installed by
+      # every clone. This job is neither, and it reads the same pattern list.
+      - name: Scan added lines for secrets
+        run: node scripts/ci/scan-secrets.cjs "origin/${{ github.base_ref || 'develop' }}"
+
+  test-web:
+    name: Web Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # The plugin-sdk is a public git dependency; npm/pacote resolves github
+      # git deps over ssh by default, which CI has no key for. Rewrite to https
+      # (works anonymously for the public repo) so `npm ci` can fetch it.
+      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+      - run: npm ci
+      # 64 files / 655 tests that had never run in CI: `git log -S "polyant/web"`
+      # on this file returned nothing since it was created. lint and build DO
+      # cover the package, which is what made the gap easy to miss — web was in
+      # CI, just never its tests. Everything the panel wrote to protect itself
+      # (TenantScopeGuard, validateTenantParams, the locale key-parity contract)
+      # was advisory until now.
+      - run: npm run test -w @polyant/web -- --coverage
 
   integration:
     name: Integration Tests
@@ -86,6 +132,12 @@ jobs:
       POSTGRES_DB: polyant
       AUTH_SECRET: test-secret-at-least-32-chars-long-yes
       ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      # Integration files self-skip when the DB probe loses its 3s race, so a
+      # database that is slow to accept turns the whole tier — every cross-org
+      # isolation test included — into "9 passed" and a green tick. This flag
+      # makes an unreachable database a FAILURE here while leaving the local
+      # skip-when-absent behaviour alone.
+      CI_REQUIRE_DB: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

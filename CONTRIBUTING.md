@@ -239,7 +239,6 @@ Skills live in the database. Use the management API or admin panel to create the
 ```bash
 npm run test:unit          # fast, no DB required
 npm run test:integration   # requires a running PostgreSQL instance
-npm run test:functional    # end-to-end scenario tests
 ```
 
 ## Reporting Security Issues

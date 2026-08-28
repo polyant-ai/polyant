@@ -44,6 +44,17 @@ const { mockDb } = vi.hoisted(() => {
 
 vi.mock("../database/client.js", () => ({ db: mockDb }));
 
+// The three seeds are stubbed so the transaction test can assert they received
+// the SAME executor the row was written with — which is the whole property.
+const { mockSeedPrompts, mockSeedTools, mockSeedSkills } = vi.hoisted(() => ({
+  mockSeedPrompts: vi.fn(),
+  mockSeedTools: vi.fn(),
+  mockSeedSkills: vi.fn(),
+}));
+vi.mock("./prompts.store.js", () => ({ seedInstancePrompts: mockSeedPrompts }));
+vi.mock("./instance-tools.store.js", () => ({ seedInstanceTools: mockSeedTools }));
+vi.mock("./instance-skills.store.js", () => ({ seedInstanceSkills: mockSeedSkills }));
+
 vi.mock("./schema.js", () => ({
   instances: {
     id: "id",
@@ -129,8 +140,17 @@ import {
   deleteInstance,
   listAllInstances,
   resolveWorkspaceIdForPrincipal,
+  createInstanceWithDefaults,
 } from "./store.js";
 import { asInstanceSlug } from "./identifiers.js";
+// The table objects themselves, so the cascade test can assert WHICH tables are
+// deleted and in what order rather than how many times `delete` was called.
+import { instances } from "./schema.js";
+import { conversations, conversationMessages, conversationState } from "../conversations/schema.js";
+import { memories } from "../memory/schema.js";
+import { knowledgeDocuments } from "../knowledge/schema.js";
+import { scheduledTasks } from "../scheduled-tasks/schema.js";
+import { principalSecrets } from "../conversations/principal-secrets.schema.js";
 import { DEFAULT_EMBEDDING_DIM } from "../embeddings-gateway/config.js";
 
 // ---------------------------------------------------------------------------
@@ -435,11 +455,61 @@ describe("instances/store", () => {
   });
 
   // -----------------------------------------------------------------------
+  // createInstanceWithDefaults
+  // -----------------------------------------------------------------------
+  describe("createInstanceWithDefaults", () => {
+    /*
+      The agent row and its three seeds must land together or not at all. As four
+      independent statements, a failure between any two committed an agent with
+      no prompt sections (the pipeline then builds a system prompt from nothing)
+      or no instance_tools rows (buildTools reads that as "exactly zero tools",
+      by design). Nothing repairs it and the slug is taken, so the operator's
+      retry returns 409.
+    */
+    it("seeds prompts, tools and skills inside the same transaction as the row", async () => {
+      mockDb.insert.mockReturnValue(
+        createChainMock([{ ...fakeInstance, id: "uuid-new" }]) as any,
+      );
+      mockDb.select.mockReturnValue(createChainMock([{ id: "ws-1" }]) as any);
+
+      await createInstanceWithDefaults({ slug: asInstanceSlug("fresh"), name: "Fresh", orgId: "org-1" });
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+      expect(mockSeedPrompts).toHaveBeenCalledWith("uuid-new", mockDb);
+      expect(mockSeedTools).toHaveBeenCalledWith("uuid-new", mockDb);
+      expect(mockSeedSkills).toHaveBeenCalledWith("uuid-new", mockDb);
+    });
+
+    it("does not seed when the row insert fails", async () => {
+      mockDb.insert.mockImplementation(() => {
+        throw new Error("duplicate key");
+      });
+      mockDb.select.mockReturnValue(createChainMock([{ id: "ws-1" }]) as any);
+
+      await expect(
+        createInstanceWithDefaults({ slug: asInstanceSlug("dup"), name: "Dup", orgId: "org-1" }),
+      ).rejects.toThrow("duplicate key");
+
+      expect(mockSeedPrompts).not.toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // deleteInstance
   // -----------------------------------------------------------------------
   describe("deleteInstance", () => {
-    it("runs in a transaction and returns true when the instance row is deleted", async () => {
-      // No conversations for this instance → the conversation_messages delete is skipped.
+    /*
+      Assert WHICH tables, and in what ORDER — not how many times `delete` was
+      called. A count passes when one table is dropped from the cascade and
+      another is deleted twice, which is exactly the mistake worth catching; and
+      the order is not cosmetic, it is the foreign-key order (children first).
+
+      conversation_messages is now deleted unconditionally, through a subquery
+      over the instance's conversations instead of a list of ids read into Node —
+      so there is no longer a "no conversations" branch to test separately. An
+      empty set is handled by SQL.
+    */
+    it("deletes every slug-keyed table, children first, inside one transaction", async () => {
       mockDb.select.mockReturnValue(createChainMock([]) as any);
       mockDb.delete.mockReturnValue(createChainMock([fakeInstance]) as any);
 
@@ -447,21 +517,16 @@ describe("instances/store", () => {
 
       expect(result).toBe(true);
       expect(mockDb.transaction).toHaveBeenCalled();
-      // conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + principal_secrets + instances
-      expect(mockDb.delete).toHaveBeenCalledTimes(7);
-    });
-
-    it("also deletes conversation_messages when the instance has conversations", async () => {
-      mockDb.select.mockReturnValue(
-        createChainMock([{ conversationId: "c1" }, { conversationId: "c2" }]) as any,
-      );
-      mockDb.delete.mockReturnValue(createChainMock([fakeInstance]) as any);
-
-      const result = await deleteInstance(asInstanceSlug("default"));
-
-      expect(result).toBe(true);
-      // conversation_messages + conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + principal_secrets + instances
-      expect(mockDb.delete).toHaveBeenCalledTimes(8);
+      expect(mockDb.delete.mock.calls.map((c) => c[0])).toEqual([
+        conversationMessages,
+        conversations,
+        memories,
+        knowledgeDocuments,
+        scheduledTasks,
+        conversationState,
+        principalSecrets,
+        instances,
+      ]);
     });
 
     it("returns false when no instance row is deleted", async () => {

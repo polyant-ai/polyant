@@ -3,13 +3,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Send, Hash, MessageCircle, Bot } from "lucide-react";
+import { Globe, Send, Hash, MessageCircle, Bot } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { api, type ChannelConfig, type Instance } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
+import { ChannelWebTab } from "./channel-web-tab";
 import { ChannelsTab } from "./channels-tab";
 
 /**
@@ -29,7 +30,13 @@ import { ChannelsTab } from "./channels-tab";
  */
 
 /**
- * Web/API and HTTP are Enterprise channels and are absent here: the panel would
+ * Web/API leads: every agent has it, and it is the one that used to hide in the
+ * model settings as "Autenticazione API".
+ *
+ * It is not a channel TYPE — `CHANNEL_TYPES` has no `web`, here or in enterprise.
+ * It is a panel over `instances.auth_enabled` plus the `auth_api_key` secret, and
+ * it is listed here because to a reader it is what it looks like: a way in. The
+ * genuinely enterprise channel is `http`, and that one stays out — the panel would
  * offer a page for an adapter this build does not ship.
  */
 const CHANNELS: readonly {
@@ -37,6 +44,7 @@ const CHANNELS: readonly {
   titleKey: TranslationKey;
   icon: LucideIcon;
 }[] = [
+  { type: "web", titleKey: "channels.tab.web", icon: Globe },
   { type: "telegram", titleKey: "channels.tab.telegram", icon: Send },
   { type: "slack", titleKey: "channels.tab.slack", icon: Hash },
   { type: "whatsapp", titleKey: "channels.tab.whatsapp", icon: MessageCircle },
@@ -121,14 +129,18 @@ export function ChannelsSection({
         channel it is given, so remounting on a change is what keeps the panel's
         dirty state from surviving into a channel it does not belong to.
       */}
-      <ChannelsTab
-        key={selected}
-        slug={instance.slug}
-        channelType={selected}
-        instance={instance}
-        onInstanceUpdate={onUpdate}
-        onChannelsLoaded={setConfigured}
-      />
+      {selected === "web" ? (
+        <ChannelWebTab instance={instance} onUpdate={onUpdate} />
+      ) : (
+        <ChannelsTab
+          key={selected}
+          slug={instance.slug}
+          channelType={selected}
+          instance={instance}
+          onInstanceUpdate={onUpdate}
+          onChannelsLoaded={setConfigured}
+        />
+      )}
     </div>
   );
 }

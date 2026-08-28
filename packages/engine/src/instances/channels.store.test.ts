@@ -327,8 +327,23 @@ describe("instances/channels.store", () => {
 
       await deleteChannelConfig(INSTANCE_UUID, "telegram");
 
+    /*
+      Assert the PREDICATE, not that `.where()` was called.
+
+      The chain mock is a Proxy whose every property returns itself, so any chain
+      shape resolves and `expect(chain.where).toHaveBeenCalled()` passes for a
+      delete with no condition at all. Dropping the key predicate wipes every
+      secret of that agent; dropping the instance predicate wipes that key for
+      EVERY tenant. Both kept the old assertion green.
+    */
       expect(mockDb.delete).toHaveBeenCalled();
-      expect(chain.where).toHaveBeenCalled();
+      expect(chain.where.mock.calls[0][0]).toEqual({
+        type: "and",
+        args: [
+          { type: "eq", args: ["instance_id", INSTANCE_UUID] },
+          { type: "eq", args: ["channel_type", "telegram"] },
+        ],
+      });
     });
   });
 

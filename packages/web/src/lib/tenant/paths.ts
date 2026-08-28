@@ -10,11 +10,13 @@
  * callers can append an already-encoded path plus a query string.
  *
  * The client SENDS the workspace the URL names — `request()` reads it back with
- * `workspaceSlugFromPath` and puts it on `X-Workspace-Slug` — but no route in this
- * build reads that header yet, so a workspace-scoped URL still isolates nothing
- * here. The plumbing is in place so that the segment, and not a cookie or a
- * cached "active workspace", is what a future scoping reads: two notions of the
- * current workspace is how a link and a request come to disagree.
+ * `workspaceSlugFromPath` and puts it on `X-Workspace-Slug`. The engine DOES read
+ * that header: `instances.controller.ts` (list and create) and `PermissionGuard`.
+ * Coverage is PARTIAL, not absent — conversations, memory and analytics are still
+ * scoped by organization alone, so a workspace URL narrows the agent list and not
+ * those. The segment, never a cookie and never a cached "active workspace", is the
+ * one answer: two notions of the current workspace is how a link and a request come
+ * to disagree.
  */
 
 /** Reserved for the future platform management console (deployment scope). */

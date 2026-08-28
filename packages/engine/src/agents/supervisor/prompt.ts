@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { Tool } from "ai";
+import { singleLineValue, scrubClosing } from "../../utils/untrusted-text.js";
 import { eq, and, asc } from "drizzle-orm";
 import { config } from "../../config.js";
 import { db } from "../../database/client.js";
@@ -71,12 +72,21 @@ export interface PromptOptions {
 function renderChannelIdentitySection(
   identity: NonNullable<PromptOptions["channelIdentity"]>,
 ): string {
-  const channel = identity.channel.toLowerCase();
+  /*
+    Every value here comes from the channel, and `user_name` is a display name
+    the END USER chooses. This block is line-oriented and CONTEXT_TAGS_NOTE tells
+    the model to treat it as "reliable system-provided context, not the user's
+    own words" — so a name carrying a newline plus a forged `</channel_identity>`
+    would inject instructions at a HIGHER trust level than the user's actual
+    message. `singleLineValue` removes the newline and the angle brackets, which
+    is the whole attack for a `key: value` line.
+  */
+  const channel = singleLineValue(identity.channel.toLowerCase());
   return [
     `<channel_identity>`,
     `channel: ${channel}`,
-    `channel_id: ${identity.channelId}`,
-    `user_name: ${identity.userName ?? "unknown"}`,
+    `channel_id: ${singleLineValue(identity.channelId)}`,
+    `user_name: ${singleLineValue(identity.userName ?? "unknown")}`,
     `</channel_identity>`,
   ].join("\n");
 }
@@ -89,7 +99,11 @@ function renderChannelIdentitySection(
  */
 function renderConversationStateSection(state: Record<string, unknown>): string {
   if (Object.keys(state).length === 0) return "";
-  return `<conversation_state>${JSON.stringify(state)}</conversation_state>`;
+  // JSON.stringify escapes quotes but not angle brackets, so a string VALUE
+  // holding `</conversation_state>` would close the block. The state store is
+  // written by tools, which take their input from the model — untrusted enough.
+  const json = scrubClosing(JSON.stringify(state), "</conversation_state>");
+  return `<conversation_state>${json}</conversation_state>`;
 }
 
 /**

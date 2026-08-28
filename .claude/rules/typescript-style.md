@@ -9,7 +9,16 @@ alwaysApply: true
 ## MUST (violations block PR)
 
 ### ESM & Imports
-- ALL relative imports MUST end in `.js` — ESM requires it at runtime. No exceptions.
+- Relative VALUE imports: in `packages/engine` they MUST end in `.js` (Node ESM resolves
+  no extension at runtime); in `packages/web` they MUST be EXTENSIONLESS (Next's bundler
+  does not map `./x.js` onto `x.ts`, so a `.js` specifier passes tsc and vitest and fails
+  `next build`). Type-only imports are erased and are correct either way — which is how a
+  wrong `.js` gets copied from one into a value import unnoticed.
+  *Enforced* by the ESLint rule `polyant/relative-import-extension`, registered in both
+  packages with opposite `style` options, and auto-fixable. Before it existed nothing
+  checked either direction: the engine's 1 928 compliant imports were compliant by habit,
+  and the "no exceptions" wording this replaces is what put two `.js` imports into web
+  test files, where they survive only because `next build` never compiles tests.
 - Never use default exports. ALWAYS named exports for refactoring and tree-shaking.
 - Import order: 1) node built-ins, 2) external packages, 3) internal modules, 4) relative
 
