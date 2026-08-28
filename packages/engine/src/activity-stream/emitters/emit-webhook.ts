@@ -51,7 +51,7 @@ function payloadDigest(payload: unknown): string {
   if (payload == null || typeof payload !== "object") {
     return `payload: ${typeof payload}`;
   }
-  let size = 0;
+  let size: number;
   try {
     size = JSON.stringify(payload).length;
   } catch {

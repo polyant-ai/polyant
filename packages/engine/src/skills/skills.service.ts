@@ -71,7 +71,7 @@ export class SkillsService {
       return this.toDetail(created);
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new Error(`Skill "${safeName}" already exists`);
+        throw new Error(`Skill "${safeName}" already exists`, { cause: err });
       }
       throw err;
     }
