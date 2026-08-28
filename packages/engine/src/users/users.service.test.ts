@@ -131,6 +131,25 @@ describe("UsersService", () => {
       expect(mocked.insertUser.mock.calls[0][0].isPlatformAdmin).toBe(true);
     });
 
+    it("still accepts the pre-rename 'superadmin' spelling on input", async () => {
+      // Pins the legacy spelling now that auth/user-role.ts (the only other
+      // place that tested it) is gone: a future edit to the inlined
+      // comparison in users.service.ts that drops "superadmin" would demote
+      // any legacy client silently, with no other test to catch it.
+      mocked.insertUser.mockResolvedValueOnce(
+        makeUser({ email: "g@h.i", isPlatformAdmin: true }),
+      );
+
+      const { user } = await service.create({
+        email: "g@h.i",
+        password: "supplied-pwd-3",
+        role: "superadmin",
+      });
+
+      expect(user.isPlatformAdmin).toBe(true);
+      expect(mocked.insertUser.mock.calls[0][0].isPlatformAdmin).toBe(true);
+    });
+
     it("uses the supplied password and does NOT echo it back to the caller", async () => {
       mocked.insertUser.mockResolvedValueOnce(makeUser({ email: "x@y.com" }));
 
@@ -255,6 +274,24 @@ describe("UsersService", () => {
 
       expect(mocked.updateUserMeta).toHaveBeenCalledWith(
         "u2",
+        expect.objectContaining({ isPlatformAdmin: true }),
+      );
+    });
+
+    it("still accepts the pre-rename 'superadmin' spelling on a PATCH", async () => {
+      // Pins the legacy spelling on the update path too — see the sibling
+      // "superadmin" case under create for why this must not silently regress.
+      mocked.getUserById.mockResolvedValueOnce(
+        makeUser({ id: "u3", isPlatformAdmin: false }),
+      );
+      mocked.updateUserMeta.mockResolvedValueOnce(
+        makeUser({ id: "u3", isPlatformAdmin: true }),
+      );
+
+      await service.update("u3", { role: "superadmin" }, { userId: "actor" });
+
+      expect(mocked.updateUserMeta).toHaveBeenCalledWith(
+        "u3",
         expect.objectContaining({ isPlatformAdmin: true }),
       );
     });

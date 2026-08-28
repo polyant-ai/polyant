@@ -15,7 +15,7 @@ import {
 /**
  * Auth.js v5 compatible tables (via @auth/drizzle-adapter).
  * Column names follow Auth.js conventions exactly. The credentials columns
- * (password_hash, role, must_change_password) are extensions that Auth.js
+ * (password_hash, must_change_password) are extensions that Auth.js
  * ignores but that we use for the email/password provider and the admin
  * users management UI.
  */
