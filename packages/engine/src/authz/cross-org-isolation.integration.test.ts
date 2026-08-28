@@ -16,8 +16,7 @@
 
 import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { sql } from "drizzle-orm";
-import { db, queryClient } from "../database/client.js";
+import { queryClient } from "../database/client.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import {
   searchMemories,

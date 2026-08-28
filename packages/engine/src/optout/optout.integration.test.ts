@@ -6,7 +6,7 @@ import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
 import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
 import { contactOptouts } from "./optout.schema.js";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { asInstanceSlug, asInstanceUuid } from "../instances/identifiers.js";
 import { getOptoutStatus, setOptoutStatus, listOptouts } from "./index.js";
 

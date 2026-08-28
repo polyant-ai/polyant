@@ -11,8 +11,7 @@
 
 import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, afterEach } from "vitest";
-import { sql } from "drizzle-orm";
-import { db, queryClient } from "../database/client.js";
+import { queryClient } from "../database/client.js";
 import { SYSTEM_ROLE_PERMISSIONS, SYSTEM_ROLE_KEYS } from "../authz/permissions.js";
 
 
