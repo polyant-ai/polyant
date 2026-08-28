@@ -2,12 +2,6 @@
 
 // ── Users ───────────────────────────────────────────────────────────
 
-// Re-exported from the vocabulary module so `lib/api.ts`'s backward-compat
-// re-export block keeps resolving. `UserRole` itself is unrelated to the DTO
-// change below — only `AdminUser.role` leaves; the write-side vocabulary type
-// still exists for the deprecated `role` alias `create`/`update` still accept.
-export type { UserRole } from "./user-role";
-
 export interface AdminUser {
   id: string;
   email: string;

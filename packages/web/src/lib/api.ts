@@ -5,7 +5,6 @@ import { workspaceSlugFromPath } from "@/lib/tenant/paths";
 // Re-export all types for backward compatibility
 export type {
   AdminUser,
-  UserRole,
   CreateUserResponse,
   ResetPasswordResponse,
   MemberRole,
@@ -79,7 +78,6 @@ export type {
 export { MEMBER_ROLES } from "./api-types";
 
 // Internal import — only types used in the api object below (re-exports don't make types locally available)
-import type { UserRole } from "./user-role";
 import type {
   AdminUser,
   CreateUserResponse,
@@ -176,12 +174,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
  * Whether a rejection is the engine refusing on AUTHORIZATION grounds.
  *
  * The panel holds no read-model of the caller's permissions — the session
- * carries the DEPLOYMENT role (`platform_admin` / `user`, see `lib/user-role.ts`)
- * and nothing about their role in the organization, which is where RBAC is
- * decided. So a surface cannot ask "may I?" before rendering; it learns from the
- * refusal. This predicate is that seam, and it exists as one function rather
- * than an inline `status === 403` per call site so the check reads as an
- * authorization concept instead of a magic number.
+ * carries the DEPLOYMENT-level `isPlatformAdmin` flag and nothing about their
+ * role in the organization, which is where RBAC is decided. So a surface cannot
+ * ask "may I?" before rendering; it learns from the refusal. This predicate is
+ * that seam, and it exists as one function rather than an inline
+ * `status === 403` per call site so the check reads as an authorization
+ * concept instead of a magic number.
  *
  * The message is deliberately NOT surfaced to the user with it: `PermissionGuard`
  * throws `Missing permission: audit_log:read`, an internal key that means nothing
@@ -226,12 +224,12 @@ export const api = {
       const suffix = qs.toString() ? `?${qs}` : "";
       return request<{ users: AdminUser[]; total: number }>(`/api/users${suffix}`);
     },
-    create: (data: { email: string; name?: string; role?: UserRole; password?: string }) =>
+    create: (data: { email: string; name?: string; isPlatformAdmin?: boolean; password?: string }) =>
       request<CreateUserResponse>("/api/users", {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    update: (id: string, data: { name?: string | null; role?: UserRole }) =>
+    update: (id: string, data: { name?: string | null; isPlatformAdmin?: boolean }) =>
       request<{ user: AdminUser }>(`/api/users/${encodeURIComponent(id)}`, {
         method: "PATCH",
         body: JSON.stringify(data),

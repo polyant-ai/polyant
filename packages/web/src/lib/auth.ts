@@ -151,7 +151,7 @@ const orgProvisioningPort: OrgProvisioningPort = {
 };
 
 /**
- * The Edge-safe `jwt` callback (from `auth.config.ts`) handles role /
+ * The Edge-safe `jwt` callback (from `auth.config.ts`) handles isPlatformAdmin /
  * mustChangePassword. Here in the Node context we additionally resolve and
  * stamp `orgId` at sign-in, which requires DB access the Edge runtime can't do.
  * `orgId` is resolved only on the first call (when `user` is present) and then

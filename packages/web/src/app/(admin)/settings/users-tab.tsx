@@ -33,7 +33,6 @@ import { api, getUserErrorMessage, type AdminUser } from "@/lib/api";
 import { CreateUserDialog } from "./create-user-dialog";
 import { EditUserDialog } from "./edit-user-dialog";
 import { ResetPasswordDialog } from "./reset-password-dialog";
-import { isPlatformAdminRole } from "@/lib/user-role";
 
 const PAGE_SIZE = 25;
 
@@ -148,8 +147,8 @@ export function UsersTab() {
                   <TableCell className="font-medium">{u.email}</TableCell>
                   <TableCell>{u.name ?? "—"}</TableCell>
                   <TableCell>
-                    <Badge variant={isPlatformAdminRole(u.role) ? "default" : "secondary"}>
-                      {isPlatformAdminRole(u.role)
+                    <Badge variant={u.isPlatformAdmin ? "default" : "secondary"}>
+                      {u.isPlatformAdmin
                         ? t("users.role.platformAdmin")
                         : t("users.role.user")}
                     </Badge>
