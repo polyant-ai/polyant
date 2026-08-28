@@ -19,6 +19,15 @@ export default tseslint.config(
     rules: { "polyant/require-inject-in-nest-classes": "error" },
   },
   {
+    // Plain-JS scripts under scripts/ run on Node directly, so `no-undef` needs
+    // to know about the Node globals it would otherwise flag. Kept narrow on
+    // purpose: src/ is TypeScript and gets its globals from @types/node.
+    files: ["scripts/**/*.mjs", "scripts/**/*.js"],
+    languageOptions: {
+      globals: { process: "readonly", console: "readonly" },
+    },
+  },
+  {
     ignores: ["dist/", "node_modules/", "eslint-rules/**/*.test.js"],
   }
 );
