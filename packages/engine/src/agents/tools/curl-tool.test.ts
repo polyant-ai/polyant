@@ -2,8 +2,16 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockFetch = vi.fn();
-vi.stubGlobal("fetch", mockFetch);
+const mockFetch = vi.hoisted(() => vi.fn());
+
+// The tool's HTTP seam is `safeFetch`, which owns the SSRF check, the pinned
+// dispatcher and the undici-paired fetch. See the note in
+// http-request.tool.test.ts; the unmocked mechanics live in
+// utils/safe-http.test.ts.
+vi.mock("../../utils/safe-http.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../utils/safe-http.js")>()),
+  safeFetch: mockFetch,
+}));
 
 vi.mock("@/utils/pipeline-logger.js", () => ({
   pipelineLog: {
@@ -11,17 +19,6 @@ vi.mock("@/utils/pipeline-logger.js", () => ({
     toolResult: vi.fn(),
   },
 }));
-
-vi.mock("../../utils/url-safety.js", () => ({
-  assertSafeUrl: vi.fn().mockResolvedValue({ address: "1.2.3.4", family: 4 }),
-  pinnedLookup: vi.fn().mockReturnValue((_hostname: string, _opts: unknown, cb: any) => cb(null, "1.2.3.4", 4)),
-}));
-
-vi.mock("undici", () => {
-  // Must use `function` (not arrow) so it's valid as a constructor with `new`.
-  function MockAgent() { /* noop */ }
-  return { Agent: MockAgent };
-});
 
 import curlTool from "./curl.tool.js";
 import { buildTool } from "./registry.js";
@@ -71,8 +68,9 @@ describe("curl", () => {
 
     const result = await curl.execute({ url: "https://api.example.com/data", headers: null, queryParams: null, maxBodySize: null, timeoutMs: null }, toolCtx);
 
+    expect(String(mockFetch.mock.calls[0]![0])).toBe("https://api.example.com/data");
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.example.com/data",
+      expect.any(URL),
       expect.objectContaining({ method: "GET" }),
     );
     expect(result.status).toBe(200);
@@ -89,7 +87,7 @@ describe("curl", () => {
       toolCtx,
     );
 
-    const calledUrl = mockFetch.mock.calls[0][0] as string;
+    const calledUrl = String(mockFetch.mock.calls[0]![0]);
     expect(calledUrl).toContain("q=test");
     expect(calledUrl).toContain("page=1");
   });
@@ -266,7 +264,7 @@ describe("curl", () => {
       toolCtx,
     );
 
-    const calledUrl = mockFetch.mock.calls[0][0] as string;
+    const calledUrl = String(mockFetch.mock.calls[0]![0]);
     // URL constructor normalises, but encoded params should be preserved
     expect(calledUrl).toMatch(/q=hello(\+|%20)world/);
     expect(calledUrl).toContain("tag=%23trending");
@@ -286,7 +284,7 @@ describe("curl", () => {
       toolCtx,
     );
 
-    const calledUrl = mockFetch.mock.calls[0][0] as string;
+    const calledUrl = String(mockFetch.mock.calls[0]![0]);
     expect(calledUrl).toContain("existing=value");
     expect(calledUrl).toContain("added=new");
   });
