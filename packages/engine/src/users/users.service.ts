@@ -29,7 +29,6 @@ import {
 import { isLastOwnerOfAnyOrg } from "../organizations/members.store.js";
 import { generateToken } from "../crypto/index.js";
 import { isUniqueViolation } from "../utils/db-errors.js";
-import { isPlatformAdminRole } from "../auth/user-role.js";
 
 // RFC 5321 caps an email address at 254 chars. Enforce it before the regex
 // runs so the polynomial-ish backtracking cost of the [^\s@]+ groups can
@@ -42,10 +41,11 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  *
  * `isPlatformAdmin: boolean` is the only value ever WRITTEN. For ONE release
  * this also accepts the deprecated `role` alias — `"platform_admin"` / the
- * pre-rename `"superadmin"` / `"user"` — mapped through `isPlatformAdminRole`,
- * the last surviving call to that two-spelling predicate now that the role
- * itself leaves this store. The alias is never persisted as a role; it is only
- * ever read into the boolean.
+ * pre-rename `"superadmin"` / `"user"` — mapped straight into the boolean. The
+ * two-spelling comparison below is inlined from the now-deleted
+ * `auth/user-role.ts` compatibility shim: this is the LAST place either
+ * spelling is recognised. It is a wire alias in scheduled retirement, never a
+ * persisted fact — nothing here writes `role` back.
  *
  * Returns `undefined` when the caller sent neither field, which the create and
  * update paths interpret differently: create defaults to `false` (an ordinary
@@ -57,10 +57,11 @@ function readPlatformAdminFlag(body: {
 }): boolean | undefined {
   if (body.isPlatformAdmin !== undefined) return body.isPlatformAdmin;
   if (body.role !== undefined) {
-    if (body.role !== "user" && !isPlatformAdminRole(body.role)) {
+    const isPlatformAdminRole = body.role === "platform_admin" || body.role === "superadmin";
+    if (body.role !== "user" && !isPlatformAdminRole) {
       throw new BadRequestException("Invalid role: expected 'platform_admin' or 'user'");
     }
-    return isPlatformAdminRole(body.role);
+    return isPlatformAdminRole;
   }
   return undefined;
 }
