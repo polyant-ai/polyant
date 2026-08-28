@@ -53,7 +53,6 @@ npm run db:studio        # Drizzle Studio GUI
 # Engine tests
 npm run test:unit        # Unit tests only
 npm run test:integration # Integration tests
-npm run test:functional  # Functional tests
 
 # Infrastructure
 docker compose up -d     # Start postgres (pgvector), open-webui

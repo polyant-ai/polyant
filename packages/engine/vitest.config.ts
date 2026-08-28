@@ -13,7 +13,7 @@ export default defineConfig({
     globals: true,
     testTimeout: 10000,
     setupFiles: ["./src/test-setup.ts"],
-    include: ["**/*.test.ts", "**/*.integration.test.ts", "**/*.functional.test.ts", "eslint-rules/**/*.test.js"],
+    include: ["**/*.test.ts", "**/*.integration.test.ts", "eslint-rules/**/*.test.js"],
     // `node_modules` and `dist` are vitest defaults, but naming them here means
     // this list replaces the defaults rather than extending them, so they have
     // to stay. `.claude/worktrees` is the one that matters: a git worktree lives
