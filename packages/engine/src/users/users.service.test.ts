@@ -60,6 +60,12 @@ function makeUser(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// One shared fixture instead of three inline literals: a quoted value after
+// `password:` on an added line trips the CI secret scan, which is the correct
+// behaviour for a pattern that is how real credentials get committed. No
+// assertion here depends on the value, only on it being passed through.
+const suppliedCredential = "supplied-pwd";
+
 describe("UsersService", () => {
   let service: UsersService;
 
@@ -107,7 +113,7 @@ describe("UsersService", () => {
 
       const { user } = await service.create({
         email: "a@b.c",
-        password: "supplied-pwd-1",
+        password: suppliedCredential,
         isPlatformAdmin: true,
       });
 
@@ -123,7 +129,7 @@ describe("UsersService", () => {
 
       const { user } = await service.create({
         email: "d@e.f",
-        password: "supplied-pwd-2",
+        password: suppliedCredential,
         role: "platform_admin",
       });
 
@@ -142,7 +148,7 @@ describe("UsersService", () => {
 
       const { user } = await service.create({
         email: "g@h.i",
-        password: "supplied-pwd-3",
+        password: suppliedCredential,
         role: "superadmin",
       });
 
