@@ -12,7 +12,7 @@ the same reason.
 
 ### 1. This release is NOT a rolling upgrade either — stop, then start
 
-`0075_drop_users_role` reconciles the flag one last time and then drops the
+`0076_drop_users_role` reconciles the flag one last time and then drops the
 column. Both packages break on an overlapping deploy, and one of them less
 obviously than the other:
 
@@ -31,15 +31,15 @@ version of each package serves traffic at a time. Do not use blue/green or a
 rolling update with overlap. The condition is transient — it clears as soon as
 the last old replica drains — and no data is lost either way.
 
-### 2. There is no rollback past `0075`
+### 2. There is no rollback past `0076`
 
-The column is gone and `0075` has no down migration. Restoring it means
+The column is gone and `0076` has no down migration. Restoring it means
 restoring a backup: an older image would find the column missing and fail on
 every read of the users table, and re-adding it by hand would produce an empty
 column that no code writes, so every account would read as an ordinary user.
 
 Take a database backup before upgrading. Treat everything from `0071` onward as
-forward-only, `0075` included.
+forward-only, `0076` included.
 
 ### 3. Nobody has to sign in again — but promotions now land on their own
 

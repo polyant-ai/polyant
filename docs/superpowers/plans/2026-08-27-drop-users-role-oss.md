@@ -19,7 +19,7 @@
 
 - Import relativi in `packages/engine` **devono** terminare in `.js`; in `packages/web` un import di VALORE relativo deve essere **senza estensione**.
 - `@Inject(ClassName)` esplicito su ogni parametro di costruttore NestJS.
-- Migrazioni scritte a mano, journal aggiornato a mano. Su OSS l'ultima è `0074_add_a2a_enabled` con `when: 1781740800000`; la nuova è `0075_drop_users_role` con `when: 1787788800000`. Un file `.sql` senza voce nel journal è **saltato in silenzio** da `db:migrate`, che riporta successo.
+- Migrazioni scritte a mano, journal aggiornato a mano. Su OSS l'ultima è `0074_add_a2a_enabled` con `when: 1781740800000`; la nuova è `0076_drop_users_role` con `when: 1787788800000`. Un file `.sql` senza voce nel journal è **saltato in silenzio** da `db:migrate`, che riporta successo.
 - Le dichiarazioni che soddisfano `PermissionGuard` restano **cinque**, e `route-authorization-guardrail.test.ts` deve accettare esattamente le stesse cinque.
 - Nessuna nuova stringa magica: il nome del permesso/decoratore vive in un solo modulo.
 
@@ -393,7 +393,7 @@ git commit -m "refactor(engine): boot promotion and seed write only is_platform_
 Va **per ultima** fra i cambi engine: finché un lettore di `role` esiste, droppare la colonna rompe un deploy rolling.
 
 **Files:**
-- Create: `packages/engine/src/database/migrations/0075_drop_users_role.sql`
+- Create: `packages/engine/src/database/migrations/0076_drop_users_role.sql`
 - Modify: `packages/engine/src/database/migrations/meta/_journal.json`
 - Modify: `packages/engine/src/auth/users.schema.ts:23-36`
 - Delete: `packages/engine/src/auth/user-role.ts` (+ `user-role.test.ts`)
@@ -409,7 +409,7 @@ Atteso: solo l'alias deprecato in `users.service.ts` (Task 4) e le definizioni i
 - [ ] **Step 2: Scrivere la migrazione**
 
 ```sql
--- packages/engine/src/database/migrations/0075_drop_users_role.sql
+-- packages/engine/src/database/migrations/0076_drop_users_role.sql
 --
 -- `users.role` e `users.is_platform_admin` erano due rappresentazioni dello stesso
 -- fatto: la seconda DERIVATA dalla prima al momento della scrittura, senza alcun
@@ -441,7 +441,7 @@ In coda a `meta/_journal.json` (OSS: l'ultima è `idx: 67`, `0074_add_a2a_enable
       "idx": 68,
       "version": "7",
       "when": 1787788800000,
-      "tag": "0075_drop_users_role",
+      "tag": "0076_drop_users_role",
       "breakpoints": true
     }
 ```
@@ -581,7 +581,7 @@ git -c rerere.enabled=false merge oss/develop
 
 - [ ] **Step 2: Rinumerare la migrazione**
 
-La `0075_drop_users_role.sql` di OSS collide con la numerazione enterprise (ultima: `0095_org_plugin_read_permission`, `when: 1786492800000`). Rinominarla in `0096_drop_users_role.sql`, e nel journal enterprise usare `idx: 93`, `tag: "0096_drop_users_role"`, `when: 1787788800000` (già maggiore del massimo enterprise). Verificare che il file OSS `0075_*` non sopravviva al merge.
+La `0076_drop_users_role.sql` di OSS collide con la numerazione enterprise (ultima: `0095_org_plugin_read_permission`, `when: 1786492800000`). Rinominarla in `0096_drop_users_role.sql`, e nel journal enterprise usare `idx: 93`, `tag: "0096_drop_users_role"`, `when: 1787788800000` (già maggiore del massimo enterprise). Verificare che il file OSS `0076_*` non sopravviva al merge.
 
 - [ ] **Step 3: Convertire i 6 controller enterprise rimasti**
 

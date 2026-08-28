@@ -2,7 +2,7 @@
 
 /**
  * Integration test for the RBAC tenancy schema as the WHOLE migration chain
- * leaves it — 0051 seeds the org, workspaces, roles and bindings, and 0075
+ * leaves it — 0051 seeds the org, workspaces, roles and bindings, and 0076
  * drops `users.role` after reconciling it into `is_platform_admin`. Exercises
  * the live seed, backfill, scope trigger and idempotency against a migrated
  * Postgres.
@@ -103,7 +103,7 @@ describe.skipIf(!DB_AVAILABLE)("RBAC tenancy schema after the full migration cha
   it("leaves is_platform_admin as the only persisted platform-admin standing", async () => {
     // The original assertion — "no user with role IN ('platform_admin',
     // 'superadmin') was left with is_platform_admin = false" — is now
-    // discharged by 0075's reconciliation UPDATE, which runs immediately
+    // discharged by 0076's reconciliation UPDATE, which runs immediately
     // before the DROP. Asserting it again is impossible AND unnecessary: the
     // column it read no longer exists. What is still falsifiable is that the
     // drop happened, so the schema itself is the assertion.

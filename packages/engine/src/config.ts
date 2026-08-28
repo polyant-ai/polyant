@@ -165,7 +165,7 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
      *  nothing else — that flag is the sole authority for platform-admin
      *  standing, read from the database on every request, and the panel renders
      *  the account from the same flag. Idempotent; unset = no promotion
-     *  (migration 0075 reconciles any pre-existing platform-admin user before
+     *  (migration 0076 reconciles any pre-existing platform-admin user before
      *  the old `users.role` column is dropped). */
     platformAdminEmail: z.string().email().optional(),
   }),

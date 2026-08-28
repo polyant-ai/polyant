@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING — `users.role` is dropped.** Migration `0075` reconciles the flag
+- **BREAKING — `users.role` is dropped.** Migration `0076` reconciles the flag
   from the role column one final time — any row promoted by a direct `role`
   update that never touched `is_platform_admin` is brought into agreement
   first — then drops the column, so no account silently loses its standing.
