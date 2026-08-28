@@ -18,6 +18,7 @@ import { auditStore } from "../../audit/audit.store.js";
 import { createTaskTool } from "../tools/task-tool.js";
 import { buildSupervisorSystemPrompt } from "./prompt.js";
 import { pipelineLog } from "../../utils/pipeline-logger.js";
+import { serializeForLog } from "../../utils/serialize-for-log.js";
 import { config, DEFAULT_INSTANCE_ID } from "../../config.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { findInstanceBySlug } from "../../instances/store.js";
@@ -185,15 +186,18 @@ export interface SupervisorStreamOutput {
   completed: Promise<SupervisorOutput>;
 }
 
-/** Safely serialize tool output to a truncated string for audit logs. */
+/**
+ * Serialize tool output for `tool_audit_logs.output` — redacted and capped.
+ *
+ * This used to be a bare `JSON.stringify` with neither, despite the name and the
+ * old docblock claiming truncation. Every tool result therefore landed in the
+ * audit table whole and in the clear, which made that table a second, unencrypted
+ * copy of whatever the tools touched.
+ */
 function safeOutputPreview(output: unknown): string | undefined {
-  try {
-    const raw = JSON.stringify(output);
-    if (!raw || raw === "null" || raw === "undefined") return undefined;
-    return raw;
-  } catch {
-    return undefined;
-  }
+  const raw = serializeForLog(output);
+  if (!raw || raw === "null" || raw === "undefined") return undefined;
+  return raw;
 }
 
 /** Wrap a built tool with audit timing/output capture for the tool phase. */
