@@ -120,7 +120,7 @@ export class UsersService {
   async update(
     id: string,
     body: { name?: string | null; role?: string },
-    actor: { userId: string; role: UserRole },
+    actor: { userId: string },
   ): Promise<PublicUser> {
     const target = await getUserById(id);
     if (!target) throw new NotFoundException(`User ${id} not found`);

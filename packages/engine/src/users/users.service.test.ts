@@ -160,7 +160,7 @@ describe("UsersService", () => {
         service.update(
           "sa",
           { role: "user" },
-          { userId: "other", role: "platform_admin" },
+          { userId: "other" },
         ),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(mocked.updateUserMeta).not.toHaveBeenCalled();
@@ -178,7 +178,7 @@ describe("UsersService", () => {
       await service.update(
         "sa1",
         { role: "user" },
-        { userId: "actor", role: "platform_admin" },
+        { userId: "actor" },
       );
       expect(mocked.updateUserMeta).toHaveBeenCalledWith("sa1", expect.objectContaining({ role: "user" }));
       // Role changed for someone else → DB sessions invalidated.
@@ -188,7 +188,7 @@ describe("UsersService", () => {
     it("returns 404 when the target user does not exist", async () => {
       mocked.getUserById.mockResolvedValueOnce(null);
       await expect(
-        service.update("missing", { name: "X" }, { userId: "actor", role: "platform_admin" }),
+        service.update("missing", { name: "X" }, { userId: "actor" }),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
@@ -204,7 +204,7 @@ describe("UsersService", () => {
       await service.update(
         "self",
         { role: "user" },
-        { userId: "self", role: "platform_admin" },
+        { userId: "self" },
       );
       expect(mocked.deleteSessionsForUser).not.toHaveBeenCalled();
     });

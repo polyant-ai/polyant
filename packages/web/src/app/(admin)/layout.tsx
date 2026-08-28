@@ -22,7 +22,7 @@ export default async function AdminLayout({
         name: sessionUser.name ?? null,
         email: sessionUser.email ?? null,
         image: sessionUser.image ?? null,
-        role: sessionUser.role,
+        isPlatformAdmin: sessionUser.isPlatformAdmin,
       }
     : undefined;
 

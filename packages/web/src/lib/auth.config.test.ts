@@ -4,6 +4,11 @@
  * Tests for the Edge `authorized` callback — specifically that an
  * unauthenticated deep link keeps its query string in `callbackUrl`. That is
  * the path a bookmarked tenant-scoped conversation actually takes.
+ *
+ * Also covers the `jwt` callback's handling of `isPlatformAdmin`: it is set
+ * from the credentials `authorize()` result at sign-in, defaults to `false`
+ * for a Google sign-in (no such field on the user object), and — the most
+ * important case here — can NEVER be elevated by a client `update()` patch.
  */
 
 import { describe, it, expect } from "vitest";
@@ -15,6 +20,22 @@ type AuthorizedFn = (params: {
 }) => unknown;
 
 const authorized = authConfig.callbacks?.authorized as unknown as AuthorizedFn;
+
+interface FakeToken {
+  id?: string;
+  isPlatformAdmin?: boolean;
+  mustChangePassword?: boolean;
+  orgId?: string;
+}
+
+type JwtFn = (params: {
+  token: FakeToken;
+  user?: Record<string, unknown>;
+  trigger?: "signIn" | "signUp" | "update";
+  session?: unknown;
+}) => FakeToken | Promise<FakeToken>;
+
+const jwt = authConfig.callbacks?.jwt as unknown as JwtFn;
 
 function visitAnonymously(url: string): Response {
   const result = authorized({
@@ -56,5 +77,71 @@ describe("authConfig.authorized", () => {
     );
 
     expect(new URL(response.headers.get("location")!).pathname).toBe("/login");
+  });
+});
+
+describe("authConfig.jwt — isPlatformAdmin", () => {
+  it("elevates the token when the credentials user carries the flag", async () => {
+    const token = await jwt({
+      token: {},
+      user: { id: "u1", isPlatformAdmin: true, mustChangePassword: false },
+      trigger: "signIn",
+    });
+
+    expect(token.isPlatformAdmin).toBe(true);
+  });
+
+  it("does not elevate a plain user carrying the flag as false", async () => {
+    const token = await jwt({
+      token: {},
+      user: { id: "u1", isPlatformAdmin: false, mustChangePassword: false },
+      trigger: "signIn",
+    });
+
+    expect(token.isPlatformAdmin).toBe(false);
+  });
+
+  it("defaults to false for a Google sign-in (no isPlatformAdmin on the user object)", async () => {
+    const token = await jwt({
+      token: {},
+      user: { id: "u1", email: "ada@example.com" },
+      trigger: "signIn",
+    });
+
+    expect(token.isPlatformAdmin).toBe(false);
+  });
+
+  // The security-critical case: a client `useSession().update({...})` patch
+  // must never be able to grant platform-admin standing. Trusting a
+  // client-supplied flag here would let any authenticated user become a
+  // platform admin by POSTing {isPlatformAdmin: true} to `/api/auth/session`.
+  it("never elevates isPlatformAdmin from a client update() patch", async () => {
+    const existingToken: FakeToken = { id: "u1", isPlatformAdmin: false };
+
+    const token = await jwt({
+      token: existingToken,
+      trigger: "update",
+      session: { isPlatformAdmin: true },
+    });
+
+    expect(token.isPlatformAdmin).toBe(false);
+  });
+
+  it("lets an update() patch still refresh mustChangePassword", async () => {
+    const existingToken: FakeToken = {
+      id: "u1",
+      isPlatformAdmin: false,
+      mustChangePassword: true,
+    };
+
+    const token = await jwt({
+      token: existingToken,
+      trigger: "update",
+      session: { mustChangePassword: false, isPlatformAdmin: true },
+    });
+
+    expect(token.mustChangePassword).toBe(false);
+    // Same patch, but the isPlatformAdmin half of it must still be ignored.
+    expect(token.isPlatformAdmin).toBe(false);
   });
 });

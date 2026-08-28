@@ -24,12 +24,13 @@ const CHANGELOG_DATA: ChangelogData = {
   ],
 };
 
-function mockSession(role: "platform_admin" | "user" | undefined) {
+function mockSession(isPlatformAdmin: boolean | undefined) {
   mockUseSession.mockReturnValue({
-    data: role
-      ? { user: { id: "1", role, mustChangePassword: false }, expires: "" }
-      : null,
-    status: role ? "authenticated" : "unauthenticated",
+    data:
+      isPlatformAdmin === undefined
+        ? null
+        : { user: { id: "1", isPlatformAdmin, mustChangePassword: false }, expires: "" },
+    status: isPlatformAdmin === undefined ? "unauthenticated" : "authenticated",
     update: vi.fn(),
   } as unknown as ReturnType<typeof useSession>);
 }
@@ -43,7 +44,7 @@ describe("useChangelogCheck", () => {
   });
 
   it("stays disabled for a non-platform-admin user", async () => {
-    mockSession("user");
+    mockSession(false);
     const { result } = renderHook(() => useChangelogCheck());
 
     await waitFor(() => expect(result.current.version).toBe("1.1.0"));
@@ -53,7 +54,7 @@ describe("useChangelogCheck", () => {
   });
 
   it("shows all entries on first visit for a platform admin", async () => {
-    mockSession("platform_admin");
+    mockSession(true);
     const { result } = renderHook(() => useChangelogCheck());
 
     await waitFor(() => expect(result.current.newVersionAvailable).toBe(true));
@@ -62,7 +63,7 @@ describe("useChangelogCheck", () => {
 
   it("shows nothing once the current version has been marked as seen", async () => {
     localStorage.setItem("polyant-last-seen-version", "1.1.0");
-    mockSession("platform_admin");
+    mockSession(true);
     const { result } = renderHook(() => useChangelogCheck());
 
     await waitFor(() => expect(result.current.version).toBe("1.1.0"));
@@ -70,7 +71,7 @@ describe("useChangelogCheck", () => {
   });
 
   it("markAsSeen persists the current version and clears the flag", async () => {
-    mockSession("platform_admin");
+    mockSession(true);
     const { result } = renderHook(() => useChangelogCheck());
 
     await waitFor(() => expect(result.current.newVersionAvailable).toBe(true));

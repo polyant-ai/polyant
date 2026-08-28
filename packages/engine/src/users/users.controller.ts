@@ -67,10 +67,8 @@ export class UsersController {
     @Body() body: { name?: string | null; role?: string },
     @CurrentUser() actor: AuthenticatedUser,
   ) {
-    // RoleGuard (platform admin) on this controller guarantees actor.role is set.
     const user = await this.users.update(id, body, {
       userId: actor.userId,
-      role: actor.role!,
     });
     // Only a role change is privilege-granting — a name-only PATCH is not audited.
     if (body.role !== undefined) {

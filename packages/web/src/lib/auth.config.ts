@@ -1,4 +1,3 @@
-import type { PersistedUserRole } from "./user-role";
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
@@ -61,9 +60,9 @@ function buildProviders(): Provider[] {
           email: user.email,
           name: user.name ?? undefined,
           image: user.image ?? undefined,
-          // Carry role + mustChangePassword in the user object so the jwt
-          // callback below can persist them in the token.
-          role: user.role,
+          // Carry isPlatformAdmin + mustChangePassword in the user object so
+          // the jwt callback below can persist them in the token.
+          isPlatformAdmin: user.isPlatformAdmin,
           mustChangePassword: user.mustChangePassword,
         };
       },
@@ -82,7 +81,7 @@ interface CredentialsUser {
   email: string;
   name: string | null;
   image: string | null;
-  role: PersistedUserRole;
+  isPlatformAdmin: boolean;
   mustChangePassword: boolean;
 }
 
@@ -139,14 +138,14 @@ export const authConfig = {
     // authoritative check; this file intentionally omits it.
     jwt({ token, user, trigger, session }) {
       // `user` is only present on the first call (right after sign-in).
-      // We snapshot id, role, mustChangePassword into the token so subsequent
-      // requests don't need a DB lookup. The token is encrypted (JWE) and
-      // re-issued on every request, so it stays in sync as long as we don't
-      // need immediate revocation (documented JWT trade-off).
+      // We snapshot id, isPlatformAdmin, mustChangePassword into the token so
+      // subsequent requests don't need a DB lookup. The token is encrypted
+      // (JWE) and re-issued on every request, so it stays in sync as long as
+      // we don't need immediate revocation (documented JWT trade-off).
       if (user) {
         token.id = (user as { id?: string }).id ?? token.id;
         const u = user as Partial<CredentialsUser>;
-        if (u.role) token.role = u.role;
+        if (typeof u.isPlatformAdmin === "boolean") token.isPlatformAdmin = u.isPlatformAdmin;
         if (typeof u.mustChangePassword === "boolean") {
           token.mustChangePassword = u.mustChangePassword;
         }
@@ -154,20 +153,21 @@ export const authConfig = {
       // Allow the client to refresh fields after a self-mutation
       // (e.g. /settings/password) via `useSession().update({...})`.
       //
-      // SECURITY: never accept `role` from the client update patch. Role
-      // changes must only land via a DB read on the next sign-in cycle.
-      // Trusting client-supplied roles here let any authenticated user
-      // become a platform admin by POSTing {role: "platform_admin"} to
-      // `/api/auth/session` (which Auth.js v5 exposes by default).
+      // SECURITY: never accept `isPlatformAdmin` from the client update patch.
+      // Platform-admin standing must only land via a DB read on the next
+      // sign-in cycle. Trusting a client-supplied flag here let any
+      // authenticated user become a platform admin by POSTing
+      // {isPlatformAdmin: true} to `/api/auth/session` (which Auth.js v5
+      // exposes by default).
       if (trigger === "update" && session && typeof session === "object") {
         const patch = session as { mustChangePassword?: boolean };
         if (typeof patch.mustChangePassword === "boolean") {
           token.mustChangePassword = patch.mustChangePassword;
         }
       }
-      // For Google logins (no role on the user object) default to "user" —
-      // a platform admin can promote them later from /users.
-      if (!token.role) token.role = "user";
+      // For Google logins (no isPlatformAdmin on the user object) default to
+      // false — a platform admin can promote them later from /users.
+      if (typeof token.isPlatformAdmin !== "boolean") token.isPlatformAdmin = false;
       if (typeof token.mustChangePassword !== "boolean") {
         token.mustChangePassword = false;
       }
@@ -176,9 +176,11 @@ export const authConfig = {
     session({ session, token }) {
       if (session.user) {
         if (token.id) session.user.id = token.id as string;
-        (session.user as { role?: string }).role = (token.role as string) ?? "user";
-        (session.user as { mustChangePassword?: boolean }).mustChangePassword =
-          token.mustChangePassword === true;
+        // PRESENTATION HINT ONLY — see the Session.user.isPlatformAdmin doc
+        // comment in next-auth.d.ts. No server-side authorization decision
+        // may read this; the DB flag is the sole authority.
+        session.user.isPlatformAdmin = token.isPlatformAdmin === true;
+        session.user.mustChangePassword = token.mustChangePassword === true;
         // Surface the resolved org so server components / API proxying can read
         // it. Stamped into the token by the Node-side jwt callback (auth.ts).
         session.user.orgId = token.orgId;

@@ -21,7 +21,6 @@ import { Separator } from "@/components/ui/separator";
 import { ChangelogEntryCard } from "@/components/layout/changelog-entry-card";
 import { useI18n } from "@/lib/i18n/context";
 import { releaseInfo } from "@/lib/release-info";
-import { isPlatformAdminRole } from "@/lib/user-role";
 import type { ChangelogEntry } from "@/lib/changelog-types";
 
 const externalLinkProps = {
@@ -54,7 +53,7 @@ function LinkRow({
 export default function AboutPage() {
   const { t } = useI18n();
   const { data: session } = useSession();
-  const canViewChangelog = isPlatformAdminRole(session?.user?.role);
+  const canViewChangelog = session?.user?.isPlatformAdmin === true;
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
 
   useEffect(() => {

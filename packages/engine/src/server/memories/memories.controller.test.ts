@@ -44,7 +44,6 @@ const ORG_B = "org-b";
 const callerOfOrgA: AuthenticatedUser = {
   userId: "u1",
   email: "u1@example.com",
-  role: "user",
   orgId: ORG_A,
   principalType: "user",
 };
