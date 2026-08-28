@@ -39,7 +39,7 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/lib/i18n/context", () => ({ useI18n: () => ({ t: (k: string) => k }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-import { TriggersWebhooksTab } from "./triggers-webhooks-tab.js";
+import { TriggersWebhooksTab } from "./triggers-webhooks-tab";
 
 /** Shape of a list-endpoint row, deliberately without webhookUrl/webhookToken. */
 const SOURCE = {

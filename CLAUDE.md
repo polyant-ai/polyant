@@ -53,7 +53,6 @@ npm run db:studio        # Drizzle Studio GUI
 # Engine tests
 npm run test:unit        # Unit tests only
 npm run test:integration # Integration tests
-npm run test:functional  # Functional tests
 
 # Infrastructure
 docker compose up -d     # Start postgres (pgvector), open-webui
@@ -161,7 +160,9 @@ and no rationale is a wish, and belongs in neither file.
 - **Instance configuration is DATABASE-first, never the filesystem** — prompts, skills, tool availability, secrets, channels are rows, not files. `packages/engine/workspaces/` is the per-conversation sandbox for the file tools and nothing else
 - **Components ask for a `fast | standard | heavy` tier, never a model name.** The mapping is `ai-gateway/config.ts`; per-`(provider, model)` pricing and capabilities live in one catalog, `ai-gateway/model-catalog.ts`, and every capability gate is a lookup into it. A model-id regex in a provider file is a bug — see `references/ai-gateway.md`
 - **A tool is one `*.tool.ts` default-exporting `defineTool(...)`**; a hook is one `*.hook.ts` default-exporting `defineHook(...)`. The loader finds both at boot; nothing else needs editing. Tool `parameters` must satisfy OpenAI strict mode — no `.optional()`, `.default()`, `.url()`/`.email()`, or unbounded `z.record`. *Enforced* by `agents/tools/strict-mode.test.ts`, which inspects every registered tool: if it fails, fix the schema, never soften the check. See `references/tools-and-hooks.md`
-- **Post-processing is fire-and-forget and commit-on-success**: messages, summary, memory and state are written after the reply, and an aborted turn writes nothing at all
+- **Post-processing is fire-and-forget and commit-on-success**: messages, summary, memory and state are written after the reply, and an abort before `runPipelinePost`'s gate skips all four. It is NOT "an aborted turn writes nothing" — the `conversations` row, the inbound activity event, one `hook_executions` row per pre-LLM hook and one `ai_logs` row per call those hooks made are all written BEFORE the gate and survive. Pre-LLM hooks also re-run on every coordinator restart, so a side-effecting hook fires once per attempt, not once per message
+- **Every web→engine call goes through `request<T>()`** (`packages/web/src/lib/api.ts`). It is the ONLY place `X-Workspace-Slug` is stamped, read from the URL by `workspaceSlugFromPath`. A bare `fetch` in a component sends no workspace, so the engine falls back to the caller's stored preference and the call executes against a DIFFERENT workspace than the URL the reader is looking at — no error, no failing test, a wrong answer. Enforced by nothing; today the only `fetch` outside `lib/` reads a static file
+- **`replyHandled` and `replyText` are RESERVED field names in a tool's return value.** `agents/supervisor/index.ts` reads them off ANY tool's output and uses them to replace what the user sees — no allow-list, no opt-in flag on the definition. `sendOutboundMessage` and `sendWhatsappTemplate` do it deliberately; any other tool returning a field with either name silently authors the assistant's reply
 - **Independent deployment**: each package under `packages/` is deployable as a standalone service
 - **Outbound HTTP with a `dispatcher` goes through `safeFetch` / `pairedFetch` (`utils/safe-http.ts`), never the global `fetch`.** A dispatcher only works with the fetch from the same undici, and Node bundles its own — an undici 8 `Agent` handed to the global fetch dies with `invalid onRequestStart method`, disabling the SSRF DNS pinning. *Enforced* by `utils/safe-http.test.ts`, which does NOT mock undici (the tool tests do, which is why they missed it). `overrides.undici` stays scoped to jsdom + `@ai-sdk/provider-utils` on 7.x
 - **The AI SDK boundary is `ai-gateway/providers/base.ts` and stays there** — it is the only file that calls the SDK. Two v7 traps live in it: `usage` is the CUMULATIVE across-steps total (v6's meaning of `totalUsage`), decided once in `cumulativeUsage` because reading the wrong field mis-bills silently rather than throwing; and a `role: "system"` message inside `messages` is rejected, so the prompt-cache marker rides on `instructions` (typed `string | SystemModelMessage | SystemModelMessage[]`), never `allowSystemInMessages`. The unit suite mocks the SDK and cannot see either — run `scripts/smoke/ai-sdk-7.mjs`, with an invalid key if need be, since request shapes are validated before auth
@@ -170,11 +171,12 @@ and no rationale is a wish, and belongs in neither file.
 ### Data
 
 - **A slug is not a UUID, and the compiler now knows.** `ToolContext.instanceId` is the SLUG. Slug-text tables (conversations, memories, knowledge, traces, logs, scheduled tasks) take `InstanceSlug`; uuid-FK tables (prompts, secrets, channels, instance_skills, instance_tools, room, webhooks) take `InstanceUuid`. The only sanctioned conversion is `resolveInstanceId` / `resolveInstanceSlug`. Passing the wrong one used to mean a silent zero-row query; the brands in `instances/identifiers.ts` make it a type error
+- **A tenancy predicate fails CLOSED on a missing `orgId`.** `if (orgId) conditions.push(filter)` is the bug: with no org the predicate is simply absent and the query returns every tenant's rows. Write the two shapes already in the tree — ``options.orgId ? buildOrgScopedAgentFilter(...) : sql`false` `` (`conversations/store.ts`) and ``if (!orgId) return sql`and false` `` (`authz/scope-filter.ts`). Three sites still fail open and are known debt: `memory/memory-store.ts:256`, `instances/store.ts:175` and `:255`. Enforced by nothing — no test passes `undefined` and asserts zero rows
 - **PostgreSQL FTS uses the `simple` config** (no language stopwords) so search works across languages
 - **Hybrid search fuses pgvector cosine similarity with PostgreSQL FTS via Reciprocal Rank Fusion**
 - **Memory extraction runs only when the instance's `memoryEnabled` is set.** It is fire-and-forget: an LLM extracts facts as JSON, they are embedded and upserted with cosine-similarity dedup at 0.90. Relative dates are converted to absolute, and facts are written in the conversation's language
 - **Skills live in `skills` + `skill_versions`**, assignments in `instance_skills`. Never create a skill file on disk
-- **Sub-agents are ad-hoc and one hop deep**: `spawnTask` composes one on the fly with the parent's tools minus itself (15 steps supervisor, 10 sub-agent). No registry of named sub-agents exists — agent-to-agent goes through the `agent` channel as `ask_<slug>` tools
+- **Sub-agents are ad-hoc and one hop deep**: `spawnTask` (`agents/tools/task-tool.ts`) composes a sub-agent on the fly with the parent's tools minus `spawnTask` itself — 15 steps for the supervisor, 10 for the sub-agent. There is no registry of named, typed sub-agents. Agent-to-agent goes through the `agent` channel instead, as `ask_<slug>` tools
 
 ### Where the rest lives
 
@@ -183,7 +185,7 @@ behind the rules above.
 
 | Topic | Reference |
 |---|---|
-| Model catalog, prompt caching, provider adapters, AI SDK v6 boundary | [`references/ai-gateway.md`](.claude/skills/backend-architecture/references/ai-gateway.md) |
+| Model catalog, prompt caching, provider adapters, AI SDK v7 boundary | [`references/ai-gateway.md`](.claude/skills/backend-architecture/references/ai-gateway.md) |
 | Burst coordination, cancellation, conversation state, debug capture, typed SSE | [`references/pipeline.md`](.claude/skills/backend-architecture/references/pipeline.md) |
 | Embedder independence, the destructive embedder switch, AWS secret namespaces, export/import | [`references/instances.md`](.claude/skills/backend-architecture/references/instances.md) |
 | Channel adapters, GDPR opt-out | [`references/channels.md`](.claude/skills/backend-architecture/references/channels.md) |
@@ -310,8 +312,13 @@ could only ever be a copy that has already drifted.
 Layered helpers under `.claude/`:
 
 - **`rules/`** — enforced constraints, always loaded: coding style, security, testing, git workflow, performance, TypeScript conventions
-- **`hooks/`** — automatic enforcement: pre-commit secret scan, post-edit lint, console.log warning
+- **`hooks/`** — Claude Code hooks, NOT git hooks: pre-commit secret scan, post-edit lint,
+  console.log warning. They fire only when Claude runs the command through its Bash tool.
+  There is no `.husky/`, no `postinstall` that installs anything, and `core.hooksPath` is
+  unset — a human typing `git commit` is checked by none of them
 - **`agents/`** — 8 specialized agents (planner, code-reviewer, architect, tdd-guide, security-reviewer, doc-updater, build-error-resolver, refactor-cleaner)
-- **`contexts/`** — behavioural modes: `dev`, `review`, `research`
+- **`contexts/`** — three reference documents (`dev`, `review`, `research`). NOTHING loads
+  them: no command, no setting and no hook names the directory. Read one deliberately or
+  delete them — they are not a mode the harness switches into
 - **`commands/`** — `/plan`, `/tdd`, `/brainstorming`, `/review`, `/verify`, `/security-scan`
 - **`skills/`** — project knowledge, loaded on demand: `backend-architecture` (and its `references/`), `frontend-design-system`, `plugin-authoring`, and the four release skills

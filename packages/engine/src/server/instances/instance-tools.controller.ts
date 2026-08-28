@@ -139,35 +139,53 @@ export class InstanceToolsController {
     // endpoint answered 200 with the tool still disabled. A name neither side
     // knows is refused, with the message `assertAgentTargetsAreSiblings` uses so
     // "does not exist" stays indistinguishable from "not yours".
+    const idsByName = toAdd.length > 0 ? await resolveCatalogToolIds(toAdd) : new Map<string, string>();
     if (toAdd.length > 0) {
-      const idsByName = await resolveCatalogToolIds(toAdd);
       const unresolved = toAdd.filter((name) => !idsByName.has(name));
       if (unresolved.length > 0) {
         throw new BadRequestException(`Unknown or inaccessible tool "${unresolved[0]}".`);
       }
-
-      await db
-        .insert(instanceTools)
-        .values(
-          toAdd.map((name) => ({
-            instanceId: instance.id,
-            toolId: idsByName.get(name)!,
-            source: "manual" as const,
-          })),
-        )
-        .onConflictDoNothing();
     }
 
-    // Remove manual tools that were disabled
-    if (toRemove.length > 0) {
-      await db
-        .delete(instanceTools)
-        .where(
-          and(
-            eq(instanceTools.instanceId, instance.id),
-            inArray(instanceTools.toolId, toRemove),
-          ),
-        );
+    /*
+      The add and the remove are ONE transaction.
+
+      They were two independent statements with no lock. A failure after the
+      insert left the agent holding both the newly enabled tools and the ones
+      the operator had just switched off — and two concurrent PATCHes (two admin
+      tabs, or the panel plus a script) each read the same `currentRows`, so the
+      second one's delete removed tools the first had just added. What that
+      endpoint controls is precisely what the agent is allowed to do.
+
+      `recomputeInstanceTools`, the same table's sibling, already states the
+      requirement in a comment and uses a transaction. This path was written
+      against `db` directly.
+    */
+    if (toAdd.length > 0 || toRemove.length > 0) {
+      await db.transaction(async (tx) => {
+        if (toAdd.length > 0) {
+          await tx
+            .insert(instanceTools)
+            .values(
+              toAdd.map((name) => ({
+                instanceId: instance.id,
+                toolId: idsByName.get(name)!,
+                source: "manual" as const,
+              })),
+            )
+            .onConflictDoNothing();
+        }
+        if (toRemove.length > 0) {
+          await tx
+            .delete(instanceTools)
+            .where(
+              and(
+                eq(instanceTools.instanceId, instance.id),
+                inArray(instanceTools.toolId, toRemove),
+              ),
+            );
+        }
+      });
     }
 
     // Return updated tool list with source

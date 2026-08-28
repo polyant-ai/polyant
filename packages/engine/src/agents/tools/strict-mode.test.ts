@@ -19,14 +19,17 @@ describe("Tool schemas — OpenAI strict-mode compatibility", () => {
     await loadAllTools();
   });
 
-  // SKIP: when AUTH_SECRET was added to test-setup (so activity-stream emit-helpers
-  // could load config in tests), this guard-rail started exercising tools that had
-  // never been audited end-to-end and surfaced ~12 pre-existing strict-mode
-  // violations (writeFile.overwrite, scheduleTask.*, ghPR.*, ghIssue.*, etc. —
-  // tools using `.optional()` without making the field nullable in the schema).
-  // These are real bugs in the tool definitions, NOT in this guard-rail. They
-  // are out of scope for the activity-stream wire-up commit; re-enable once the
-  // tool schemas are fixed in a dedicated follow-up.
+  // HISTORY: this guard-rail was briefly disabled after AUTH_SECRET landed in
+  // test-setup, because it then reached tools that had never been audited and
+  // surfaced ~12 pre-existing violations (writeFile.overwrite, scheduleTask.*,
+  // ghPR.*, ghIssue.* — `.optional()` without a nullable field). Those schemas
+  // were fixed and the guard has been LIVE and green ever since.
+  //
+  // The note is kept only because the word SKIP sat here long after the skip
+  // did, telling every reader the guard was off and twelve violations were
+  // outstanding — which is an invitation to add a `.skip` to match the comment
+  // the next time an unrelated change makes this red. If it goes red, a tool
+  // schema is wrong: fix the schema.
   it("every registered tool produces a strict-mode-valid JSON schema", () => {
     const violations: string[] = [];
     let checked = 0;

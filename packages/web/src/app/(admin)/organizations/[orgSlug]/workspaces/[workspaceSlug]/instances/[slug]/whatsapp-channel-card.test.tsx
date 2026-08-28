@@ -23,7 +23,7 @@ const { mockToastSuccess, mockToastError } = vi.hoisted(() => ({
 vi.mock("@/lib/i18n/context", () => ({ useI18n: () => ({ t: (k: string) => k }) }));
 vi.mock("sonner", () => ({ toast: { success: mockToastSuccess, error: mockToastError } }));
 
-import { WhatsAppChannelCard } from "./whatsapp-channel-card.js";
+import { WhatsAppChannelCard } from "./whatsapp-channel-card";
 
 /** Opens the (Radix) auth-mode select and picks the given option. */
 async function selectAuthMode(user: ReturnType<typeof userEvent.setup>, optionName: string) {

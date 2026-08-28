@@ -19,15 +19,12 @@ import { RequirePermission, Permission } from "../../authz/index.js";
 import {
   listAllInstances,
   findInstanceBySlug,
-  createInstance,
+  createInstanceWithDefaults,
   updateInstance,
   deleteInstance,
   resolvePrincipalOrgId,
   type Instance,
 } from "../../instances/store.js";
-import { seedInstancePrompts } from "../../instances/prompts.store.js";
-import { seedInstanceTools } from "../../instances/instance-tools.store.js";
-import { seedInstanceSkills } from "../../instances/instance-skills.store.js";
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
 import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
 import {
@@ -245,7 +242,12 @@ export class InstancesController {
       // overridable by a field of the request body. `workspaceSlug` comes from a
       // header, not the body, for the same reason — and it is validated against
       // `orgId` inside the store before it decides anything.
-      instance = await createInstance({
+      // Atomic: the instances row and its prompt / tool / skill seeds land
+      // together or not at all. They used to be four independent statements, so
+      // a failure between any two committed an agent with no prompt sections or
+      // no enabled tools — a state nothing repairs, whose slug is taken, and
+      // whose natural retry returns 409.
+      instance = await createInstanceWithDefaults({
         ...body,
         slug: asInstanceSlug(body.slug),
         orgId,
@@ -264,11 +266,6 @@ export class InstancesController {
       }
       throw err;
     }
-
-    // Seed DB stores for the new instance
-    await seedInstancePrompts(instance.id);
-    await seedInstanceTools(instance.id);
-    await seedInstanceSkills(instance.id);
 
     this.auditLogger.log({
       action: ManagementAuditAction.AgentCreate,

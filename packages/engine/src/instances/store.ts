@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { and, asc, desc, eq, sql, inArray } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { db, type DbExecutor } from "../database/client.js";
+import { seedInstancePrompts } from "./prompts.store.js";
+import { seedInstanceTools } from "./instance-tools.store.js";
+import { seedInstanceSkills } from "./instance-skills.store.js";
 import { DEFAULT_EMBEDDING_DIM, embeddingProviderFor } from "../embeddings-gateway/config.js";
 import type { EmbeddingProvider } from "../embeddings-gateway/types.js";
 import { instances } from "./schema.js";
@@ -184,6 +187,40 @@ export async function findInstanceBySlug(slug: InstanceSlug): Promise<Instance |
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
+/**
+ * Resolve several agent-handoff targets in ONE query: identity plus the
+ * organization that owns them.
+ *
+ * `buildTools` synthesises an `ask_<slug>` tool per `agent:` entry, and it used
+ * to spend three serialized round trips per entry — `findInstanceBySlug`, then
+ * `agentsShareOrganization`, which is itself two `readAgentScope` reads, one of
+ * them for the CALLER and therefore identical on every iteration. That runs on
+ * the request path of every turn, before the model is even called: an
+ * orchestrator wired to twenty sub-agents paid sixty round trips per message,
+ * inside the span the pipeline reports as `toolBuildingMs`.
+ *
+ * The join to `workspaces` is what carries the organization, and it is an INNER
+ * join on purpose: an agent whose workspace row is missing resolves to nothing
+ * and is therefore skipped by the caller — fail-closed, matching `readAgentScope`.
+ */
+export async function findAgentHandoffTargets(
+  slugs: InstanceSlug[],
+): Promise<Map<string, { id: string; slug: string; name: string; description: string | null; organizationId: string }>> {
+  if (slugs.length === 0) return new Map();
+  const rows = await db
+    .select({
+      id: instances.id,
+      slug: instances.slug,
+      name: instances.name,
+      description: instances.description,
+      organizationId: workspaces.organizationId,
+    })
+    .from(instances)
+    .innerJoin(workspaces, eq(instances.workspaceId, workspaces.id))
+    .where(inArray(instances.slug, slugs));
+  return new Map(rows.map((r) => [r.slug, r]));
+}
+
 /** Find an instance by id (UUID). Returns undefined if not found. */
 export async function findInstanceById(id: string): Promise<Instance | undefined> {
   const rows = await db.select().from(instances).where(eq(instances.id, id)).limit(1);
@@ -284,8 +321,8 @@ export async function createInstance(data: {
    * agent under another tenant. Omitted → the organization's default workspace.
    */
   workspaceSlug?: string;
-}): Promise<Instance> {
-  const rows = await db
+}, executor: DbExecutor = db): Promise<Instance> {
+  const rows = await executor
     .insert(instances)
     .values({
       slug: data.slug,
@@ -298,10 +335,38 @@ export async function createInstance(data: {
       // Default the embedder to match the chat provider (bedrock chat → bedrock
       // embeddings, else openai). It is independently changeable afterwards.
       embeddingProvider: embeddingProviderFor(data.provider),
-      workspaceId: await resolveWorkspaceIdForPrincipal(data.orgId, db, data.workspaceSlug),
+      workspaceId: await resolveWorkspaceIdForPrincipal(data.orgId, executor, data.workspaceSlug),
     })
     .returning();
   return toInstance(rows[0]);
+}
+
+/**
+ * Create an agent AND seed its configuration, atomically.
+ *
+ * These were four independent statements: the `instances` row, then prompts,
+ * tools and skills. A crash, a pool timeout or a 500 between any two left a
+ * COMMITTED agent with a partial configuration — no prompt sections, so the
+ * pipeline builds a system prompt from nothing; or no `instance_tools` rows,
+ * which `buildTools` reads as "exactly zero tools" by design and the agent runs
+ * tool-less. Nothing repairs it: there is no reconcile job, the slug is now
+ * taken, and the operator's natural retry returns 409.
+ *
+ * The asymmetry was the tell — `importNewInstance` does the same work plus six
+ * more tables inside a single `db.transaction`, step-numbered, and
+ * `recomputeInstanceTools` wraps its own diff explicitly "to avoid a momentary
+ * empty state". Only the create path, which predates both, was left outside.
+ */
+export async function createInstanceWithDefaults(
+  data: Parameters<typeof createInstance>[0],
+): Promise<Instance> {
+  return db.transaction(async (tx) => {
+    const instance = await createInstance(data, tx);
+    await seedInstancePrompts(instance.id, tx);
+    await seedInstanceTools(instance.id, tx);
+    await seedInstanceSkills(instance.id, tx);
+    return instance;
+  });
 }
 
 /** Fields a caller is allowed to PATCH. `embeddingDim` is deliberately excluded:
@@ -407,17 +472,27 @@ export async function updateInstance(
  */
 export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
   return db.transaction(async (tx) => {
-    // conversation_messages has no instance_id — delete via the instance's conversations.
-    const convRows = await tx
-      .select({ conversationId: conversations.conversationId })
-      .from(conversations)
-      .where(eq(conversations.instanceId, slug));
-    const convIds = convRows.map((r) => r.conversationId);
-    if (convIds.length > 0) {
-      await tx
-        .delete(conversationMessages)
-        .where(inArray(conversationMessages.conversationId, convIds));
-    }
+    /*
+      conversation_messages has no instance_id, so it is deleted through the
+      instance's conversations — as a SUBQUERY, not as a list of ids.
+
+      Reading the ids into Node and binding them all worked until an agent had
+      enough conversations. A channel agent keys one per contact
+      (`slug:channel:identity`), so a WhatsApp or Telegram support agent reaches
+      tens of thousands in ordinary use; past 65 535 the extended query protocol
+      refuses the statement, and because this is one transaction the whole delete
+      rolls back — the agent becomes UNDELETABLE through the API, with no
+      diagnosis beyond a driver error. Same semantics, one bind parameter.
+    */
+    await tx.delete(conversationMessages).where(
+      inArray(
+        conversationMessages.conversationId,
+        tx
+          .select({ conversationId: conversations.conversationId })
+          .from(conversations)
+          .where(eq(conversations.instanceId, slug)),
+      ),
+    );
     await tx.delete(conversations).where(eq(conversations.instanceId, slug));
     await tx.delete(memories).where(eq(memories.instanceId, slug));
     // knowledge_chunks cascade via their document_id FK.

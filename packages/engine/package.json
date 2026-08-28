@@ -27,9 +27,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:unit": "vitest run --exclude '**/*.integration.test.ts' --exclude '**/*.functional.test.ts'",
-    "test:integration": "vitest run --fileParallelism=false 'integration'",
-    "test:functional": "vitest run --fileParallelism=false 'functional'"
+    "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
+    "test:integration": "vitest run --fileParallelism=false 'integration'"
   },
   "dependencies": {
     "@a2a-js/sdk": "^1.0.1",
