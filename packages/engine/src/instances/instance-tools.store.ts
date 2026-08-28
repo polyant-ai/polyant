@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { eq, and, inArray } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { db, type DbExecutor } from "../database/client.js";
 import { instanceTools } from "./instance-tools.schema.js";
 import { instanceSkills } from "./instance-skills.schema.js";
 import { tools } from "../agents/tools/tools.schema.js";
@@ -165,8 +165,11 @@ export async function recomputeInstanceTools(instanceId: InstanceUuid): Promise<
  * Seed instance tools using DEFAULT_TOOL_NAMES.
  * Resolves tool names to IDs, inserts as source='manual'.
  */
-export async function seedInstanceTools(instanceId: InstanceUuid): Promise<void> {
-  const toolRows = await db
+export async function seedInstanceTools(
+  instanceId: InstanceUuid,
+  executor: DbExecutor = db,
+): Promise<void> {
+  const toolRows = await executor
     .select({ id: tools.id, name: tools.name })
     .from(tools)
     .where(inArray(tools.name, DEFAULT_TOOL_NAMES));

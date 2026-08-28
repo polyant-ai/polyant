@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { and, asc, desc, eq, sql, inArray } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { db, type DbExecutor } from "../database/client.js";
+import { seedInstancePrompts } from "./prompts.store.js";
+import { seedInstanceTools } from "./instance-tools.store.js";
+import { seedInstanceSkills } from "./instance-skills.store.js";
 import { DEFAULT_EMBEDDING_DIM, embeddingProviderFor } from "../embeddings-gateway/config.js";
 import type { EmbeddingProvider } from "../embeddings-gateway/types.js";
 import { instances } from "./schema.js";
@@ -318,8 +321,8 @@ export async function createInstance(data: {
    * agent under another tenant. Omitted → the organization's default workspace.
    */
   workspaceSlug?: string;
-}): Promise<Instance> {
-  const rows = await db
+}, executor: DbExecutor = db): Promise<Instance> {
+  const rows = await executor
     .insert(instances)
     .values({
       slug: data.slug,
@@ -332,10 +335,38 @@ export async function createInstance(data: {
       // Default the embedder to match the chat provider (bedrock chat → bedrock
       // embeddings, else openai). It is independently changeable afterwards.
       embeddingProvider: embeddingProviderFor(data.provider),
-      workspaceId: await resolveWorkspaceIdForPrincipal(data.orgId, db, data.workspaceSlug),
+      workspaceId: await resolveWorkspaceIdForPrincipal(data.orgId, executor, data.workspaceSlug),
     })
     .returning();
   return toInstance(rows[0]);
+}
+
+/**
+ * Create an agent AND seed its configuration, atomically.
+ *
+ * These were four independent statements: the `instances` row, then prompts,
+ * tools and skills. A crash, a pool timeout or a 500 between any two left a
+ * COMMITTED agent with a partial configuration — no prompt sections, so the
+ * pipeline builds a system prompt from nothing; or no `instance_tools` rows,
+ * which `buildTools` reads as "exactly zero tools" by design and the agent runs
+ * tool-less. Nothing repairs it: there is no reconcile job, the slug is now
+ * taken, and the operator's natural retry returns 409.
+ *
+ * The asymmetry was the tell — `importNewInstance` does the same work plus six
+ * more tables inside a single `db.transaction`, step-numbered, and
+ * `recomputeInstanceTools` wraps its own diff explicitly "to avoid a momentary
+ * empty state". Only the create path, which predates both, was left outside.
+ */
+export async function createInstanceWithDefaults(
+  data: Parameters<typeof createInstance>[0],
+): Promise<Instance> {
+  return db.transaction(async (tx) => {
+    const instance = await createInstance(data, tx);
+    await seedInstancePrompts(instance.id, tx);
+    await seedInstanceTools(instance.id, tx);
+    await seedInstanceSkills(instance.id, tx);
+    return instance;
+  });
 }
 
 /** Fields a caller is allowed to PATCH. `embeddingDim` is deliberately excluded:
