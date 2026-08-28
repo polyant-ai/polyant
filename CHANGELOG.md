@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING — `users.role` is dropped.** Migration `0075` reconciles the flag
+  from the role column one final time — any row promoted by a direct `role`
+  update that never touched `is_platform_admin` is brought into agreement
+  first — then drops the column, so no account silently loses its standing.
+  **There is no rollback past this migration**: the column is gone, and older
+  code that still selects `role` fails on every read of the users table.
+- **BREAKING — `users.is_platform_admin` is the sole authority for
+  platform-admin standing**, read from the database on every request instead
+  of carried on the session. Promoting or revoking an account now takes
+  effect within the platform-admin cache's five-minute window, without
+  requiring the account to sign out and back in.
+- **BREAKING — `POST`/`PATCH /api/users` take `isPlatformAdmin: boolean`** and
+  no longer return `role`. `role` is still accepted on input for one release,
+  as a deprecated alias for both legacy spellings (`platform_admin` and
+  `superadmin`), and is never persisted or echoed back.
+
 ## [1.1.0] - 2026-08-25
 
 > **Upgrading from 1.0.0 needs operator action** — this release is not a rolling
