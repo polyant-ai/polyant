@@ -28,10 +28,10 @@ const expectedActor = { userId: "admin-1", email: "admin@example.com" };
 function makeController() {
   const users = {
     create: vi.fn().mockResolvedValue({
-      user: { id: "u-9", role: "platform_admin" },
+      user: { id: "u-9", isPlatformAdmin: true },
       generatedPassword: "hunter2hunter2",
     }),
-    update: vi.fn().mockResolvedValue({ id: "u-9", role: "platform_admin" }),
+    update: vi.fn().mockResolvedValue({ id: "u-9", isPlatformAdmin: true }),
     remove: vi.fn().mockResolvedValue(undefined),
     resetPassword: vi
       .fn()
@@ -48,9 +48,9 @@ describe("UsersController management audit", () => {
     ctx = makeController();
   });
 
-  it("audits user.create with the granted role and never the password", async () => {
+  it("audits user.create with the granted standing and never the password", async () => {
     await ctx.controller.create(
-      { email: "new@example.com", role: "platform_admin", password: "s3cret-passw0rd" },
+      { email: "new@example.com", isPlatformAdmin: true, password: "s3cret-passw0rd" },
       actor as never,
     );
 
@@ -59,13 +59,25 @@ describe("UsersController management audit", () => {
       actor: expectedActor,
       targetType: "user",
       targetId: "u-9",
-      metadata: { role: "platform_admin" },
+      metadata: { isPlatformAdmin: true },
     });
     expect(JSON.stringify(mockAuditLog.mock.calls)).not.toContain("s3cret-passw0rd");
     expect(JSON.stringify(mockAuditLog.mock.calls)).not.toContain("hunter2hunter2");
   });
 
-  it("audits user.role_update on a role PATCH", async () => {
+  it("audits user.role_update on an isPlatformAdmin PATCH", async () => {
+    await ctx.controller.update("u-9", { isPlatformAdmin: true }, actor as never);
+
+    expect(mockAuditLog).toHaveBeenCalledWith({
+      action: ManagementAuditAction.UserRoleUpdate,
+      actor: expectedActor,
+      targetType: "user",
+      targetId: "u-9",
+      metadata: { isPlatformAdmin: true },
+    });
+  });
+
+  it("still audits when the deprecated role alias is used on a PATCH", async () => {
     await ctx.controller.update("u-9", { role: "platform_admin" }, actor as never);
 
     expect(mockAuditLog).toHaveBeenCalledWith({
@@ -73,7 +85,7 @@ describe("UsersController management audit", () => {
       actor: expectedActor,
       targetType: "user",
       targetId: "u-9",
-      metadata: { role: "platform_admin" },
+      metadata: { isPlatformAdmin: true },
     });
   });
 

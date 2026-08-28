@@ -99,16 +99,12 @@ function stringifySql(value: unknown): string {
   });
 }
 
-function userRow(role: "platform_admin" | "user", isPlatformAdmin = role === "platform_admin") {
+function userRow(isPlatformAdmin: boolean) {
   return {
     id: USER_ID,
     email: "admin@acme.com",
     name: null,
     image: null,
-    role,
-    // The enforced column. Defaults to agreeing with the role, but the two are
-    // separately settable here because the interesting cases are the ones where
-    // they DISAGREE — that divergence is what the last-admin guard missed.
     isPlatformAdmin,
     mustChangePassword: false,
     passwordHash: "hash",
@@ -123,11 +119,11 @@ describe("users.store platform admin-cache invalidation", () => {
     setResult([]);
   });
 
-  it("should_drop_the_cached_flag_when_updateUserMeta_changes_the_role", async () => {
+  it("should_drop_the_cached_flag_when_updateUserMeta_changes_the_flag", async () => {
     platformAdminCache.set(USER_ID, true);
-    setResult([userRow("user")]);
+    setResult([userRow(false)]);
 
-    await updateUserMeta(USER_ID, { role: "user" });
+    await updateUserMeta(USER_ID, { isPlatformAdmin: false });
 
     // No TTL advance: the demotion must land on the very next guard check.
     expect(platformAdminCache.has(USER_ID)).toBe(false);
@@ -135,7 +131,7 @@ describe("users.store platform admin-cache invalidation", () => {
 
   it("should_keep_the_cached_flag_when_updateUserMeta_touches_only_the_name", async () => {
     platformAdminCache.set(USER_ID, true);
-    setResult([userRow("platform_admin")]);
+    setResult([userRow(true)]);
 
     await updateUserMeta(USER_ID, { name: "New Name" });
 
@@ -143,14 +139,14 @@ describe("users.store platform admin-cache invalidation", () => {
     expect(platformAdminCache.get(USER_ID)).toBe(true);
   });
 
-  it("should_drop_the_cached_flag_when_insertUser_writes_the_role", async () => {
+  it("should_drop_the_cached_flag_when_insertUser_writes_the_flag", async () => {
     platformAdminCache.set(USER_ID, false);
-    setResult([userRow("platform_admin")]);
+    setResult([userRow(true)]);
 
     await insertUser({
       email: "admin@acme.com",
       passwordHash: "hash",
-      role: "platform_admin",
+      isPlatformAdmin: true,
       mustChangePassword: true,
     });
 
@@ -175,7 +171,7 @@ describe("users.store platform admin-cache invalidation", () => {
 
 describe("listUsers is bounded", () => {
   it("should_apply_the_requested_limit_and_offset_and_report_the_total", async () => {
-    setPage([userRow("user")], 137);
+    setPage([userRow(false)], 137);
 
     const page = await listUsers({ limit: 25, offset: 50 });
 
@@ -198,19 +194,19 @@ describe("listUsers is bounded", () => {
     // list. Paginate on the wire without moving the order and page 1 becomes
     // whatever the planner returned.
     //
-    // Asserted on the RENDERED SQL, not on `args.length === 2`. Arity alone
-    // passes for any two order terms — including a version that dropped the
-    // legacy-spelling tolerance, which is the part that actually decides whether
-    // a row still holding `superadmin` sorts in with ordinary users.
+    // Asserted on the RENDERED SQL, not on `args.length === 2`: arity alone
+    // passes for any two order terms, including one that silently dropped the
+    // ordering column and sorted on something else entirely.
     const orderBy = selectCalls.find((c) => c.method === "orderBy");
     expect(orderBy, "listUsers must order server-side").toBeDefined();
     const rendered = stringifySql(orderBy!.args);
-    expect(rendered).toContain("platform_admin");
-    expect(rendered).toContain("superadmin");
+    // The enforced column, not the (now gone) role — ordering must not regress
+    // to sorting on a value the API no longer even accepts.
+    expect(rendered).toContain("is_platform_admin");
   });
 
   it("should_never_leak_the_password_hash_into_a_listing", async () => {
-    setPage([userRow("platform_admin")], 1);
+    setPage([userRow(true)], 1);
 
     const page = await listUsers({ limit: 25, offset: 0 });
 

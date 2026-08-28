@@ -2,25 +2,18 @@
 
 // ── Users ───────────────────────────────────────────────────────────
 
-// Re-exported from the vocabulary module so the panel has ONE spelling of the
-// role, and one place that knows it has had two.
-export type { UserRole } from "./user-role";
-import type { PersistedUserRole } from "./user-role";
-
 export interface AdminUser {
   id: string;
   email: string;
   name: string | null;
   image: string | null;
   /**
-   * `PersistedUserRole`, not `UserRole`: this is what the API RETURNS, and the
-   * column can still hold the legacy spelling during the rename's shim window.
-   * Typing it as the narrower write-side union was a lie the compiler believed,
-   * which is why `setRole(user.role)` in the edit dialog type-checked while
-   * rendering a blank role control. Fold it with `normalizeUserRole` before
-   * putting it in a form.
+   * The deployment-level platform-admin flag. `role` has left this DTO: the
+   * engine's `/api/users` no longer returns it, only accepts it (deprecated,
+   * one-release wire alias on write). See `users.service.ts`'s
+   * `readPlatformAdminFlag`.
    */
-  role: PersistedUserRole;
+  isPlatformAdmin: boolean;
   mustChangePassword: boolean;
   hasPassword: boolean;
   createdAt: string | null;

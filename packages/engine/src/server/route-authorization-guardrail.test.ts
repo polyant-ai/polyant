@@ -22,11 +22,10 @@ import {
   MODULE_METADATA,
 } from "@nestjs/common/constants.js";
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
-import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import { ALLOW_INSTANCE_API_KEY } from "../auth/decorators/allow-instance-api-key.decorator.js";
-import { isPlatformAdminRole } from "../auth/user-role.js";
 import { REQUIRE_PERMISSION_KEY } from "../authz/decorators/require-permission.decorator.js";
 import { AUTHENTICATED_ONLY_KEY } from "../authz/decorators/authenticated-only.decorator.js";
+import { PLATFORM_ADMIN_ONLY_KEY } from "../authz/decorators/platform-admin-only.decorator.js";
 import { ServerModule } from "./server.module.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -114,18 +113,15 @@ function isPublic(controller: ControllerClass, handler: string): boolean {
 }
 
 /**
- * A non-empty `@RequireRole` list naming ONLY platform-admin spellings. That is
- * the single role declaration PermissionGuard accepts as authorization on its
- * own, because it additionally re-checks the DB-backed flag. RoleGuard
- * short-circuits to allow on an empty list, so an empty list declares nothing.
+ * `@PlatformAdminOnly()` is the single role-shaped declaration PermissionGuard
+ * accepts as authorization on its own: it re-checks `users.is_platform_admin`
+ * from the DB on every request rather than trusting a JWT claim.
  */
-function isPlatformAdminOnlyRoleDeclaration(
+function isPlatformAdminOnlyDeclaration(
   controller: ControllerClass,
   handler: string,
 ): boolean {
-  const roles = readMetadata(controller, handler, REQUIRED_ROLES_KEY);
-  if (!Array.isArray(roles) || roles.length === 0) return false;
-  return roles.every((role) => typeof role === "string" && isPlatformAdminRole(role));
+  return readMetadata(controller, handler, PLATFORM_ADMIN_ONLY_KEY) === true;
 }
 
 /**
@@ -141,7 +137,7 @@ function declaresAuthorization(
   if (isPublic(controller, handler)) return true;
   if (readMetadata(controller, handler, REQUIRE_PERMISSION_KEY) !== undefined) return true;
   if (readMetadata(controller, handler, AUTHENTICATED_ONLY_KEY) === true) return true;
-  return isPlatformAdminOnlyRoleDeclaration(controller, handler);
+  return isPlatformAdminOnlyDeclaration(controller, handler);
 }
 
 /** `GET /api/foo/:id`, normalised so two registrations of it compare equal. */
@@ -183,25 +179,6 @@ describe("route authorization guardrail", () => {
       .map(describeHandler);
 
     expect(conflicting).toEqual([]);
-  });
-
-  it("should_not_authorize_a_route_on_a_non_platform_admin_require_role_alone", () => {
-    // `@RequireRole("user")` names the role every authenticated principal
-    // already has. PermissionGuard now denies such a route unless it also
-    // carries @RequirePermission, so a declaration that relies on the role
-    // alone is dead-on-arrival — pin it here rather than shipping a 403.
-    const roleOnly = handlers
-      .filter(
-        ({ controller, handler }) =>
-          !isPublic(controller, handler) &&
-          readMetadata(controller, handler, REQUIRE_PERMISSION_KEY) === undefined &&
-          readMetadata(controller, handler, AUTHENTICATED_ONLY_KEY) !== true &&
-          Array.isArray(readMetadata(controller, handler, REQUIRED_ROLES_KEY)) &&
-          !isPlatformAdminOnlyRoleDeclaration(controller, handler),
-      )
-      .map(describeHandler);
-
-    expect(roleOnly).toEqual([]);
   });
 
   it("should_pin_the_reviewed_allow_instance_api_key_handlers", () => {

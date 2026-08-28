@@ -10,15 +10,14 @@ import {
 import { Reflector } from "@nestjs/core";
 import { createLogger } from "../utils/create-logger.js";
 import { IS_PUBLIC_KEY } from "../auth/decorators/public.decorator.js";
-import { REQUIRED_ROLES_KEY } from "../auth/decorators/require-role.decorator.js";
 import {
   parseWorkspaceSlugHeader,
   WORKSPACE_SLUG_HEADER,
 } from "../auth/decorators/workspace-slug.decorator.js";
-import { isPlatformAdminRole } from "../auth/user-role.js";
 import { REQUIRE_PERMISSION_KEY } from "./decorators/require-permission.decorator.js";
 import { REQUIRES_FEATURE_KEY } from "./decorators/requires-feature.decorator.js";
 import { AUTHENTICATED_ONLY_KEY } from "./decorators/authenticated-only.decorator.js";
+import { PLATFORM_ADMIN_ONLY_KEY } from "./decorators/platform-admin-only.decorator.js";
 import { AuthorizationService } from "./authorization.service.js";
 import {
   ENTITLEMENT_SERVICE,
@@ -82,10 +81,11 @@ function isUserPrincipal(p: Principal): p is UserPrincipal {
  *   1. `@Public()` → allow (the route is intentionally unauthenticated).
  *   2. `@RequiresFeature(f)` and the feature is NOT licensed → deny.
  *   3. No `@RequirePermission()`: `@AuthenticatedOnly()` allows any human user;
- *      a PLATFORM-ADMIN-ONLY `@RequireRole()` defers to RoleGuard (already run)
- *      and additionally verifies the current DB flag. Any other `@RequireRole()`
- *      is not authorization on its own and denies without `@RequirePermission`.
- *      Otherwise the route is undeclared → deny.
+ *      `@PlatformAdminOnly()` allows only a human whose `users.is_platform_admin`
+ *      is true RIGHT NOW, read from the DB — no JWT claim is consulted. This
+ *      replaces the old `@RequireRole("platform_admin")` + RoleGuard pair, which
+ *      decided the same question from a 24-hour JWT claim no promotion or
+ *      revocation ever reached. Otherwise the route is undeclared → deny.
  *   4. ManagementKeyPrincipal (org API key) → allow iff the permission is in
  *      the key's own permission set AND the addressed agent belongs to the
  *      key's organization.
@@ -147,47 +147,8 @@ export class PermissionGuard implements CanActivate {
       if (this.reflector.getAllAndOverride<boolean>(AUTHENTICATED_ONLY_KEY, targets)) {
         return this.handleAuthenticatedOnly(context);
       }
-      // `@RequireRole` IS an authorization declaration — RoleGuard (APP_GUARD
-      // #2b, registered by AuthModule and therefore already run) hard-denies a
-      // role mismatch. Treating it as undeclared made every role-gated route
-      // 403 for everyone, platform admins included: the platform-admin bypass sits
-      // further down, past this branch. RoleGuard intentionally remains a JWT
-      // prefilter, so a platform-admin-only route must additionally verify the
-      // current DB-backed flag here to revoke stale session claims immediately.
-      const requiredRoles = this.reflector.getAllAndOverride<unknown[] | undefined>(
-        REQUIRED_ROLES_KEY,
-        targets,
-      );
-      if (requiredRoles && requiredRoles.length > 0) {
-        const isPlatformAdminOnly = requiredRoles.every(
-          (role) => typeof role === "string" && isPlatformAdminRole(role),
-        );
-        if (!isPlatformAdminOnly) {
-          // `@RequireRole("user")` names the ONLY role every authenticated
-          // principal already has, so honouring it alone made the route an
-          // unscoped authenticated-allow-all with no permission, no org check
-          // and no tenancy scope. A non-platform-admin role declaration is a
-          // filter, never the authorization decision: pair it with
-          // `@RequirePermission` (or use `@AuthenticatedOnly()` when any signed-in
-          // user really is the intended audience).
-          const route = `${context.getClass().name}.${context.getHandler().name}`;
-          logger.warn(
-            LOG_PREFIX,
-            `deny ${route}: @RequireRole(${requiredRoles.join(", ")}) without @RequirePermission`,
-          );
-          throw new ForbiddenException(
-            "Route declares @RequireRole without @RequirePermission",
-          );
-        }
-        const request = context.switchToHttp().getRequest();
-        const principal = request.user as Principal;
-        if (
-          !isUserPrincipal(principal) ||
-          !(await this.authz.isPlatformAdmin(principal.userId))
-        ) {
-          throw new ForbiddenException("Current platform administrator standing required");
-        }
-        return true;
+      if (this.reflector.getAllAndOverride<boolean>(PLATFORM_ADMIN_ONLY_KEY, targets)) {
+        return this.handlePlatformAdminOnly(context);
       }
       return this.handleUndeclared(context);
     }
@@ -251,9 +212,22 @@ export class PermissionGuard implements CanActivate {
   }
 
   /**
+   * @PlatformAdminOnly lane: allow only a human principal whose
+   * `users.is_platform_admin` is true RIGHT NOW. No shadow mode: a
+   * deployment-level route denies unconditionally.
+   */
+  private async handlePlatformAdminOnly(context: ExecutionContext): Promise<boolean> {
+    const principal = context.switchToHttp().getRequest().user as Principal;
+    if (isUserPrincipal(principal) && (await this.authz.isPlatformAdmin(principal.userId))) {
+      return true;
+    }
+    throw new ForbiddenException("Current platform administrator standing required");
+  }
+
+  /**
    * A route with no `@RequirePermission` and no `@AuthenticatedOnly()` /
-   * `@RequireRole(...)` declaration (both handled in `canActivate`) is a genuine
-   * omission and fails closed.
+   * `@PlatformAdminOnly()` declaration (all handled in `canActivate`) is a
+   * genuine omission and fails closed.
    */
   private handleUndeclared(context: ExecutionContext): never {
     const route = `${context.getClass().name}.${context.getHandler().name}`;

@@ -5,14 +5,10 @@
  * path, and the one write of `users.is_platform_admin` that the
  * invalidate-on-every-write sweep missed.
  *
- * It used to set the FLAG alone. Two things followed, both invisible:
- *
- *  - the account became a total permission-guard bypass that `GET /api/users`
- *    renders as an ordinary user, and that `@RequireRole(platform_admin)` locks
- *    out of the users admin page it is supposedly an admin of;
- *  - `role`/flag divergence, which migration 0071's original two-way
- *    reconciliation resolved by REVOKING the flag — silently removing platform
- *    admin from exactly the accounts this function had promoted.
+ * `is_platform_admin` is the single source of platform-admin standing:
+ * `/api/users/*` is gated by `@PlatformAdminOnly()`, which `PermissionGuard`
+ * resolves straight from this column on every request, so there is no second
+ * spelling (a `role` column) left to drift out of sync with it.
  *
  * The real `platformAdminCache` is used rather than a module mock, so these fail
  * if the store stops invalidating for real.
@@ -149,7 +145,6 @@ import {
   bindingCacheKey,
   platformAdminCache,
 } from "../authz/authz.caches.js";
-import { PLATFORM_ADMIN_ROLE } from "../auth/user-role.js";
 
 const USER_ID = "22222222-2222-2222-2222-222222222222";
 
@@ -166,12 +161,10 @@ describe("promotePlatformAdminByEmail", () => {
     setReturning([{ id: USER_ID }]);
   });
 
-  it("sets the ROLE as well as the flag", async () => {
+  it("sets the flag", async () => {
     await promotePlatformAdminByEmail("ops@acme.com");
 
-    // The flag alone is what produced an admin the UI showed as a plain user.
     expect(patch().isPlatformAdmin).toBe(true);
-    expect(patch().role).toBe(PLATFORM_ADMIN_ROLE);
   });
 
   it("drops the cached flag so the promotion is not hidden by a stale false", async () => {
@@ -213,7 +206,6 @@ describe("ensureConfiguredPlatformAdminOwner", () => {
 
     expect(transactionCount()).toBe(1);
     expect(patch().isPlatformAdmin).toBe(true);
-    expect(patch().role).toBe(PLATFORM_ADMIN_ROLE);
     expect(platformAdminCache.has(USER_ID)).toBe(false);
     expect(bindingCache.has(bindingCacheKey(USER_ID, USER_ID))).toBe(false);
   });

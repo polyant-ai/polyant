@@ -7,7 +7,6 @@ import { useSession } from "next-auth/react";
 
 import type { ChangelogData, ChangelogEntry } from "@/lib/changelog-types";
 import { extractUnseenChangelogs } from "@/lib/version-compare";
-import { isPlatformAdminRole } from "@/lib/user-role";
 
 const STORAGE_KEY = "polyant-last-seen-version";
 
@@ -25,7 +24,7 @@ interface UseChangelogCheckReturn {
  */
 export function useChangelogCheck(): UseChangelogCheckReturn {
   const { data: session } = useSession();
-  const canViewChangelog = isPlatformAdminRole(session?.user?.role);
+  const canViewChangelog = session?.user?.isPlatformAdmin === true;
 
   const [data, setData] = useState<ChangelogData | null>(null);
   const [unseenChangelogs, setUnseenChangelogs] = useState<ChangelogEntry[]>([]);

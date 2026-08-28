@@ -3,7 +3,6 @@
 import { config } from "../config.js";
 import { hashPassword } from "./password.util.js";
 import { countUsers, insertUser } from "./users.store.js";
-import { PLATFORM_ADMIN_ROLE } from "../auth/user-role.js";
 
 /**
  * Idempotent: on first boot (users table empty) creates a platform-admin account
@@ -37,7 +36,7 @@ export async function seedInitialAdmin(): Promise<void> {
     email,
     name: "administrator",
     passwordHash,
-    role: PLATFORM_ADMIN_ROLE,
+    isPlatformAdmin: true,
     mustChangePassword: true,
   });
 

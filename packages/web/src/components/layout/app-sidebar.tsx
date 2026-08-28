@@ -45,7 +45,6 @@ import type { TranslationKey } from "@/lib/i18n/types";
 import Link from "next/link";
 import { navHref, resolveNavScope, type NavScope } from "@/lib/tenant/nav-href";
 import { useTenant } from "@/lib/tenant/tenant-context";
-import { isPlatformAdminRole } from "@/lib/user-role";
 
 interface NavItemDef {
   titleKey: TranslationKey;
@@ -83,8 +82,10 @@ const orgManagementDefs: NavItemDef[] = [
 
 // Settings is platform-admin-only: it hosts both general system settings and the
 // users management tab. Nobody else sees this section at all — and unlike
-// Members, `platform_admin` IS the right gate, because `/api/users` is guarded
-// by `@RequireRole(PLATFORM_ADMIN_ROLE)`, the very claim the session carries.
+// Members, the deployment-wide flag IS the right gate here, because `/api/users`
+// is guarded by `@PlatformAdminOnly()`, the same standing the session's
+// `isPlatformAdmin` hint reflects (as presentation only — the engine still
+// resolves the DB flag per request).
 const platformAdminDefs: NavItemDef[] = [
   { titleKey: "nav.settings", path: "/settings", scope: "deployment", icon: Settings },
 ];
@@ -120,7 +121,7 @@ function useNavTransition(destination: Destination | null): {
 
 export function AppSidebar(
   props: React.ComponentProps<typeof Sidebar> & {
-    user?: NavUserProps["user"] & { role?: string };
+    user?: NavUserProps["user"] & { isPlatformAdmin?: boolean };
   },
 ) {
   const { user, ...sidebarProps } = props;
@@ -159,7 +160,7 @@ export function AppSidebar(
   const destination = resolveDestination(pathname);
   const { key: navKey, direction } = useNavTransition(destination);
 
-  const isPlatformAdmin = isPlatformAdminRole(user?.role);
+  const isPlatformAdmin = user?.isPlatformAdmin === true;
   const managementItems = isPlatformAdmin
     ? [...orgManagementDefs, ...platformAdminDefs]
     : orgManagementDefs;

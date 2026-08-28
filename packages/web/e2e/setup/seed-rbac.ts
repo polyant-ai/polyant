@@ -49,8 +49,8 @@ export async function seedRbacUsers(connectionUrl: string = TEST_DATABASE_URL): 
         await tx`DELETE FROM users WHERE email = ${user.email}`;
 
         const [row] = await tx<{ id: string }[]>`
-          INSERT INTO users (email, name, password_hash, role, must_change_password)
-          VALUES (${user.email}, ${user.name}, ${passwordHash}, 'user', false)
+          INSERT INTO users (email, name, password_hash, must_change_password)
+          VALUES (${user.email}, ${user.name}, ${passwordHash}, false)
           RETURNING id
         `;
 

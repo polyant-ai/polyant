@@ -252,7 +252,8 @@ reduced to a no-op. It was deleted rather than re-defaulted.
 - **Three declarations satisfy the guard**, and `route-authorization-guardrail.test.ts`
   accepts exactly the same three — keep them in lockstep, and note the test DERIVES its
   route list from the NestJS module graph rather than a hand-kept array: `@RequirePermission()`,
-  `@RequireRole()` (deployment-level, hard-denies with no shadow mode), `@AuthenticatedOnly()`
+  `@PlatformAdminOnly()` (resolved from `users.is_platform_admin` in the DB per request, not
+  a token claim, so a promotion or revocation lands within the cache TTL), `@AuthenticatedOnly()`
   (the principal must be a HUMAN — API keys are denied; it is deliberately not `@Public()`).
   Anything else fails closed
 - **Never inline a permission string.** `authz/permissions.ts` is the single source shared

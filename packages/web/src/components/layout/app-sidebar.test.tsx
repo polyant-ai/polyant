@@ -54,7 +54,7 @@ describe("AppSidebar", () => {
     const { container } = render(
       <I18nProvider>
         <SidebarProvider>
-          <AppSidebar user={{ name: "Ada Lovelace", email: "ada@example.com", role: "admin" }} />
+          <AppSidebar user={{ name: "Ada Lovelace", email: "ada@example.com", isPlatformAdmin: false }} />
         </SidebarProvider>
       </I18nProvider>,
     );
@@ -84,7 +84,7 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
     render(
       <I18nProvider>
         <SidebarProvider>
-          <AppSidebar user={{ name: "Ada", email: "ada@example.com", role: "admin" }} />
+          <AppSidebar user={{ name: "Ada", email: "ada@example.com", isPlatformAdmin: false }} />
         </SidebarProvider>
       </I18nProvider>,
     );
@@ -116,7 +116,7 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
     render(
       <I18nProvider>
         <SidebarProvider>
-          <AppSidebar user={{ name: "Ada", email: "ada@example.com", role: "admin" }} />
+          <AppSidebar user={{ name: "Ada", email: "ada@example.com", isPlatformAdmin: false }} />
         </SidebarProvider>
       </I18nProvider>,
     );
@@ -133,31 +133,31 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
 // Settings answers to the deployment-wide platform-admin flag, which it does.
 // Gating both on the flag hid Members from the org Owner it is for.
 describe("AppSidebar — Members is org administration, Settings is platform administration", () => {
-  const renderAs = (role: string) =>
+  const renderAs = (isPlatformAdmin: boolean) =>
     render(
       <I18nProvider>
         <SidebarProvider>
-          <AppSidebar user={{ name: "Ada", email: "ada@example.com", role }} />
+          <AppSidebar user={{ name: "Ada", email: "ada@example.com", isPlatformAdmin }} />
         </SidebarProvider>
       </I18nProvider>,
     );
 
   it("offers Members to a non-platform-admin, who may well be the org Owner", () => {
-    renderAs("user");
+    renderAs(false);
 
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     expect(within(content).getByRole("link", { name: /membri/i })).toBeInTheDocument();
   });
 
   it("still keeps Settings to a platform admin", () => {
-    renderAs("user");
+    renderAs(false);
 
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     expect(within(content).queryByRole("link", { name: /impostazioni/i })).not.toBeInTheDocument();
   });
 
   it("shows both to a platform admin", () => {
-    renderAs("platform_admin");
+    renderAs(true);
 
     const content = document.querySelector<HTMLElement>('[data-sidebar="content"]')!;
     expect(within(content).getByRole("link", { name: /membri/i })).toBeInTheDocument();

@@ -8,10 +8,13 @@
  * the guards run in, whether `request.user` is populated before the guard that
  * reads it, and whether a decorator honoured by one guard is treated as a
  * declaration by the next. Those are precisely the seams that broke — a
- * `@RequireRole`-only route was authorized by RoleGuard and then 403'd by
- * PermissionGuard, and nothing in a 2000-test suite noticed.
+ * `@RequireRole`-only route (RoleGuard, now deleted) was authorized by that
+ * guard and then 403'd by PermissionGuard, and nothing in a 2000-test suite
+ * noticed. `@PlatformAdminOnly()` replaces `@RequireRole` + RoleGuard for
+ * exactly that reason: one guard, one DB-backed flag, no JWT prefilter to fall
+ * out of sync with it.
  *
- * So this boots a real Nest application with the real AuthGuard, RoleGuard and
+ * So this boots a real Nest application with the real AuthGuard and
  * PermissionGuard registered as APP_GUARD in the real order, binds it to an
  * ephemeral port, and makes real requests. Only the leaves are stubbed: token
  * validation and the authorization store.
@@ -36,13 +39,16 @@ import "reflect-metadata";
 import { Controller, Get, Module, type INestApplication } from "@nestjs/common";
 import { APP_GUARD, NestFactory, Reflector } from "@nestjs/core";
 import { AuthGuard } from "../auth/auth.guard.js";
-import { RoleGuard } from "../auth/role.guard.js";
 import { Public } from "../auth/decorators/public.decorator.js";
-import { RequireRole } from "../auth/decorators/require-role.decorator.js";
 import { PermissionGuard } from "../authz/permission.guard.js";
 import { AuthorizationService } from "../authz/authorization.service.js";
 import { ENTITLEMENT_SERVICE } from "../authz/entitlement.service.js";
-import { AuthenticatedOnly, Permission, RequirePermission } from "../authz/index.js";
+import {
+  AuthenticatedOnly,
+  Permission,
+  PlatformAdminOnly,
+  RequirePermission,
+} from "../authz/index.js";
 
 const authz = {
   isPlatformAdmin: vi.fn(),
@@ -72,7 +78,7 @@ class ProbeController {
     return { ok: "authenticated-only" };
   }
 
-  @RequireRole("platform_admin")
+  @PlatformAdminOnly()
   @Get("role")
   roleRoute() {
     return { ok: "role" };
@@ -91,15 +97,14 @@ class ProbeController {
   }
 }
 
-// Guard registration order mirrors production: AuthModule (AuthGuard, then
-// RoleGuard) is imported before AuthzModule (PermissionGuard), and the module
-// insertion order IS the global-guard execution order.
+// Guard registration order mirrors production: AuthModule (AuthGuard) is
+// imported before AuthzModule (PermissionGuard), and the module insertion
+// order IS the global-guard execution order.
 @Module({
   controllers: [ProbeController],
   providers: [
     Reflector,
     { provide: APP_GUARD, useClass: AuthGuard },
-    { provide: APP_GUARD, useClass: RoleGuard },
     { provide: APP_GUARD, useClass: PermissionGuard },
     { provide: AuthorizationService, useValue: authz },
     { provide: ENTITLEMENT_SERVICE, useValue: { isAvailable: () => true } },
@@ -208,20 +213,20 @@ describe("global guard chain over HTTP", () => {
     expect(res.status).toBe(403);
   });
 
-  // The regression this whole file exists for: RoleGuard authorizes the route,
-  // PermissionGuard must not then 403 it as "undeclared". Every /api/users
-  // endpoint was dead in production for exactly this reason.
-  it("should_allow_a_role_only_route_for_a_matching_role", async () => {
+  // A `@PlatformAdminOnly()` route with no `@RequirePermission` must still be
+  // recognised as a declaration by PermissionGuard, not treated as
+  // "undeclared" — that gap is exactly how every /api/users endpoint was dead
+  // in production before this decorator existed.
+  it("should_allow_a_platform_admin_only_route_for_a_current_platform_admin", async () => {
     validateSessionToken.mockResolvedValue(asUser({ role: "platform_admin" }));
     authz.isPlatformAdmin.mockResolvedValue(true);
     const res = await get("/probe/role", { authorization: `Bearer ${SESSION}` });
     expect(res.status).toBe(200);
   });
 
-  it("should_403_a_role_only_platform_admin_route_when_the_jwt_role_is_stale", async () => {
-    // RoleGuard is deliberately a JWT prefilter, so this gets past it. The
-    // following PermissionGuard must consult the current DB-backed flag before
-    // granting a platform-admin-only route.
+  it("should_403_a_platform_admin_only_route_when_the_db_flag_is_false", async () => {
+    // The JWT `role` claim says platform_admin, but PermissionGuard never
+    // reads it — only the current `users.is_platform_admin` flag decides.
     validateSessionToken.mockResolvedValue(asUser({ role: "platform_admin" }));
     authz.isPlatformAdmin.mockResolvedValue(false);
 
@@ -231,7 +236,7 @@ describe("global guard chain over HTTP", () => {
     expect(authz.isPlatformAdmin).toHaveBeenCalledWith("u1");
   });
 
-  it("should_403_a_role_only_route_for_a_non_matching_role", async () => {
+  it("should_403_a_platform_admin_only_route_for_a_non_admin_user", async () => {
     validateSessionToken.mockResolvedValue(asUser({ role: "user" }));
     const res = await get("/probe/role", { authorization: `Bearer ${SESSION}` });
     expect(res.status).toBe(403);

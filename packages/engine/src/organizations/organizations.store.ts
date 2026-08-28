@@ -15,7 +15,6 @@ import {
   bindingCacheKey,
   invalidateSuperadminCache,
 } from "../authz/authz.caches.js";
-import { PLATFORM_ADMIN_ROLE } from "../auth/user-role.js";
 
 /** Anything that can run a `select` — the shared `db` or a transaction handle. */
 type Executor = Pick<typeof db, "select">;
@@ -58,12 +57,10 @@ export async function findDefaultOrganization(): Promise<OrganizationIdentity | 
  * Promote a user to Platform Admin by email. No-op when the email is unknown.
  * Returns the number of rows updated (0 or 1).
  *
- * Sets the ROLE as well as the flag. Setting only `is_platform_admin` produced an
- * account that the permission guard grants everything to while `GET /api/users`
- * renders it as an ordinary user — and, because `/api/users/*` is gated by
- * `@RequireRole(platform_admin)`, one that could not open the users admin page it
- * was supposedly an admin of. It also created the `role`/flag divergence that
- * migration 0071 used to "reconcile" by revoking the flag.
+ * Sets only `is_platform_admin` — the single source of platform-admin standing.
+ * `/api/users/*` is gated by `@PlatformAdminOnly()`, which `PermissionGuard`
+ * resolves straight from this column on every request, so there is no second
+ * spelling left to drift out of sync with it.
  *
  * And it invalidates the platform-admin cache. `AuthorizationService` caches the
  * flag per user with a TTL, so a `false` cached moments earlier would otherwise
@@ -74,7 +71,7 @@ export async function findDefaultOrganization(): Promise<OrganizationIdentity | 
 export async function promotePlatformAdminByEmail(email: string): Promise<number> {
   const updated = await db
     .update(users)
-    .set({ isPlatformAdmin: true, role: PLATFORM_ADMIN_ROLE, updatedAt: new Date() })
+    .set({ isPlatformAdmin: true, updatedAt: new Date() })
     .where(eq(users.email, email))
     .returning({ id: users.id });
   for (const row of updated) invalidateSuperadminCache(row.id);
@@ -144,7 +141,6 @@ async function ensureDefaultOwnerForEmail(
         .update(users)
         .set({
           isPlatformAdmin: true,
-          role: PLATFORM_ADMIN_ROLE,
           updatedAt: new Date(),
         })
         .where(eq(users.id, user.id));

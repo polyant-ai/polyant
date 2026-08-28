@@ -9,7 +9,6 @@ import { useSession } from "next-auth/react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/lib/i18n/context";
 import { UsersTab } from "./users-tab";
-import { isPlatformAdminRole } from "@/lib/user-role";
 
 export default function SettingsPage() {
   const { t } = useI18n();
@@ -18,15 +17,16 @@ export default function SettingsPage() {
 
   // Defense-in-depth: hide settings entirely from anyone but a platform admin.
   // The sidebar already omits the entry, the engine already gates /api/users
-  // with @RequireRole, and this client-side redirect catches anyone reaching
-  // the URL directly.
+  // with @PlatformAdminOnly(), and this client-side redirect catches anyone
+  // reaching the URL directly. `isPlatformAdmin` is a presentation hint only —
+  // the engine is the actual authority and would refuse the API calls anyway.
   useEffect(() => {
-    if (status === "authenticated" && !isPlatformAdminRole(session?.user?.role)) {
+    if (status === "authenticated" && session?.user?.isPlatformAdmin !== true) {
       router.replace("/");
     }
   }, [status, session, router]);
 
-  if (status !== "authenticated" || !isPlatformAdminRole(session?.user?.role)) {
+  if (status !== "authenticated" || session?.user?.isPlatformAdmin !== true) {
     return null;
   }
 

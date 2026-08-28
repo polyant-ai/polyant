@@ -12,9 +12,9 @@ vi.mock("next-auth/react", () => ({
 
 const mockUseSession = vi.mocked(useSession);
 
-function mockSession(role: "platform_admin" | "user") {
+function mockSession(isPlatformAdmin: boolean) {
   mockUseSession.mockReturnValue({
-    data: { user: { id: "1", role, mustChangePassword: false }, expires: "" },
+    data: { user: { id: "1", isPlatformAdmin, mustChangePassword: false }, expires: "" },
     status: "authenticated",
     update: vi.fn(),
   } as unknown as ReturnType<typeof useSession>);
@@ -22,7 +22,7 @@ function mockSession(role: "platform_admin" | "user") {
 
 describe("AboutPage", () => {
   beforeEach(() => {
-    mockSession("user");
+    mockSession(false);
     global.fetch = vi.fn().mockResolvedValue({
       json: () => Promise.resolve({ changelog: [] }),
     }) as unknown as typeof fetch;
@@ -66,7 +66,7 @@ describe("AboutPage", () => {
   });
 
   it("shows the changelog history for a platform admin", async () => {
-    mockSession("platform_admin");
+    mockSession(true);
     global.fetch = vi.fn().mockResolvedValue({
       json: () =>
         Promise.resolve({

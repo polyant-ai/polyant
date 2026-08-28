@@ -50,7 +50,6 @@ const usersTable = pgTable("users", {
   emailVerified: timestamp("email_verified", { mode: "date", withTimezone: true }),
   image: text("image"),
   passwordHash: text("password_hash"),
-  role: text("role").notNull().default("user"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
 });
 
@@ -152,12 +151,12 @@ const orgProvisioningPort: OrgProvisioningPort = {
 };
 
 /**
- * The Edge-safe `jwt` callback (from `auth.config.ts`) handles role /
+ * The Edge-safe `jwt` callback (from `auth.config.ts`) handles isPlatformAdmin /
  * mustChangePassword. Here in the Node context we additionally resolve and
  * stamp `orgId` at sign-in, which requires DB access the Edge runtime can't do.
  * `orgId` is resolved only on the first call (when `user` is present) and then
  * persisted on the token for subsequent requests. It is NEVER accepted from a
- * client `update` patch — same hardening rationale as `role`.
+ * client `update` patch — same hardening rationale as `isPlatformAdmin`.
  */
 const baseJwtCallback = authConfig.callbacks?.jwt;
 
