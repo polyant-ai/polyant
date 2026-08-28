@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { ModelMessage } from "ai";
+import type { Instructions, ModelMessage, SystemModelMessage } from "ai";
 
 /**
  * Shared prompt-cache breakpoint injection for providers that require an
@@ -52,7 +52,7 @@ export function withProviderCacheMarker(
 export function injectCacheBreakpoints(
   { system, messages }: { system: string | undefined; messages: ModelMessage[] },
   applyMarker: (message: ModelMessage) => ModelMessage,
-): { system: string | undefined; messages: ModelMessage[] } {
+): { instructions: Instructions | undefined; messages: ModelMessage[] } {
   const out = [...messages];
 
   // Breakpoint 2 — last history message (the current turn is the last element).
@@ -61,13 +61,21 @@ export function injectCacheBreakpoints(
     out[lastHistoryIdx] = applyMarker(out[lastHistoryIdx]);
   }
 
-  // Breakpoint 1 — tools + system, as a leading system message.
+  // Breakpoint 1 — tools + system, as a marked system message.
+  //
+  // This used to be PREPENDED to `messages`, which AI SDK 7 rejects outright
+  // ("System messages are not allowed in the prompt or messages fields").
+  // The marker still needs somewhere to live that the provider will read, and
+  // v7 provides it: `Instructions` is `string | SystemModelMessage |
+  // SystemModelMessage[]`, so the marked message goes to `instructions` and the
+  // cacheControl / cachePoint rides along in its providerOptions exactly as
+  // before. Not `allowSystemInMessages: true` — that only re-enables the
+  // deprecated shape and would leave the same code to migrate later.
   if (system && system.length > 0) {
-    const systemMessage = applyMarker({ role: "system", content: system });
-    return { system: undefined, messages: [systemMessage, ...out] };
+    return { instructions: applyMarker({ role: "system", content: system }) as SystemModelMessage, messages: out };
   }
 
-  return { system, messages: out };
+  return { instructions: system, messages: out };
 }
 
 /** Input the AI SDK `prepareStep` hook passes us (subset we use) plus the model id. */

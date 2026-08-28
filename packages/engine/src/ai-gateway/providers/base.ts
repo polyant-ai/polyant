@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { type LanguageModel, type ModelMessage, stepCountIs } from "ai";
+import { type Instructions, type LanguageModel, type ModelMessage, isStepCount } from "ai";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { config } from "../../config.js";
 import { temperatureSupported } from "../config.js";
@@ -195,10 +195,10 @@ function mapUsage(u: unknown): MappedUsage {
   // ({ noCacheTokens, cacheReadTokens, cacheWriteTokens }); `inputTokens` is the
   // TOTAL (noCache + read + write). We fall back to the deprecated top-level
   // `cachedInputTokens` for cache reads on providers that don't fill the details.
-  // The gateway feeds this `totalUsage` (not the final-step `usage`), so the cache
-  // reads/writes are summed across EVERY step — a multi-step turn's incremental
-  // caching (the `prepareStep` marker) is counted once per step, never lost.
-  // Verified live on OpenAI/Anthropic/Bedrock.
+  // The gateway feeds this the CUMULATIVE usage (see cumulativeUsage), so the
+  // cache reads/writes are summed across EVERY step — a multi-step turn's
+  // incremental caching (the `prepareStep` marker) is counted once per step,
+  // never lost. Verified live on OpenAI/Anthropic/Bedrock.
   const details = (o.inputTokenDetails ?? {}) as Record<string, unknown>;
   return {
     promptTokens: num(o.inputTokens),
@@ -206,6 +206,41 @@ function mapUsage(u: unknown): MappedUsage {
     cachedInputTokens: num(details.cacheReadTokens) ?? num(o.cachedInputTokens),
     cacheCreationInputTokens: num(details.cacheWriteTokens),
   };
+}
+
+/**
+ * The cumulative token usage of a whole turn, across every step.
+ *
+ * AI SDK 7 made `usage` cumulative and deprecated `totalUsage`; in v6 it was
+ * the other way round — `usage` was the final step only. Reading the wrong one
+ * does not throw, it silently bills a multi-step turn as if it were just its
+ * last step, so this decision lives in exactly one place. `totalUsage` remains
+ * as a defensive fallback for a provider that fills only the old field.
+ * Pinned by the "cumulative usage across SDK majors" tests in base.test.ts.
+ */
+function cumulativeUsage(result: unknown): unknown {
+  const r = (result ?? {}) as { usage?: unknown; totalUsage?: unknown };
+  return r.usage ?? r.totalUsage;
+}
+
+/**
+ * Per-turn reasoning blocks. v7 moved the final step's metadata off the top
+ * level onto `finalStep`, deprecating the top-level `reasoning`; both are read
+ * so neither shape silently yields nothing.
+ */
+function finalStepReasoning(result: unknown): unknown[] | undefined {
+  const r = (result ?? {}) as { reasoning?: unknown[]; finalStep?: { reasoning?: unknown[] } };
+  return r.finalStep?.reasoning ?? r.reasoning;
+}
+
+/** Streaming counterpart of {@link finalStepReasoning}: both fields are Promises. */
+async function finalStepReasoningAsync(result: unknown): Promise<unknown[] | undefined> {
+  const r = (result ?? {}) as {
+    reasoning?: Promise<unknown[]>;
+    finalStep?: Promise<{ reasoning?: unknown[] }>;
+  };
+  const final = r.finalStep ? await r.finalStep : undefined;
+  return final?.reasoning ?? (r.reasoning ? await r.reasoning : undefined);
 }
 
 function normalizeSdkSteps(rawSteps: unknown): SdkStep[] {
@@ -451,7 +486,7 @@ export type PrepareMessages = (input: {
   modelId: string;
   /** Cross-turn cache TTL (Anthropic). Undefined → provider default (1h). */
   ttl?: CacheTtl;
-}) => { system: string | undefined; messages: ModelMessage[] };
+}) => { instructions: Instructions | undefined; messages: ModelMessage[] };
 
 export interface ProviderHooks {
   prepareMessages?: PrepareMessages;
@@ -508,11 +543,27 @@ function describeMessages(messages: ModelMessage[]): string {
  * under `DEBUG_LLM_PAYLOAD`; otherwise just its length. Duck-typed, no SDK
  * import.
  */
+/**
+ * Character count of the instructions, whatever shape they arrive in. Since v7
+ * these can be a plain string OR a (cache-marked) system message, so a bare
+ * `.length` would read `undefined` on exactly the caching path — the one where
+ * the log matters most.
+ */
+function describeInstructions(instructions: Instructions | undefined): string {
+  if (!instructions) return "none";
+  const textOf = (v: Instructions): number => {
+    if (typeof v === "string") return v.length;
+    if (Array.isArray(v)) return v.reduce((n, m) => n + String(m.content ?? "").length, 0);
+    return String(v.content ?? "").length;
+  };
+  return `present(${textOf(instructions)})`;
+}
+
 function logProviderError(
   providerName: string,
   modelId: string,
   err: unknown,
-  ctx?: { system: string | undefined; messages: ModelMessage[] },
+  ctx?: { system: Instructions | undefined; messages: ModelMessage[] },
 ): void {
   const e = err as {
     name?: unknown;
@@ -541,7 +592,7 @@ function logProviderError(
   console.error(parts.filter(Boolean).join(" "));
   if (ctx) {
     console.error(
-      `[ai-gateway]   system=${ctx.system ? `present(${ctx.system.length})` : "none"} | roles: ${describeMessages(ctx.messages)}`,
+      `[ai-gateway]   system=${describeInstructions(ctx.system)} | roles: ${describeMessages(ctx.messages)}`,
     );
   }
 }
@@ -555,7 +606,7 @@ function logProviderError(
 async function withProviderErrorLog<T>(
   providerName: string,
   modelId: string,
-  ctx: { system: string | undefined; messages: ModelMessage[] },
+  ctx: { system: Instructions | undefined; messages: ModelMessage[] },
   run: () => T | Promise<T>,
 ): Promise<Awaited<T>> {
   try {
@@ -596,7 +647,7 @@ export function createProvider(
   const prepare = (
     request: ChatRequest,
     modelId: string,
-  ): { system: string | undefined; messages: ModelMessage[] } => {
+  ): { instructions: Instructions | undefined; messages: ModelMessage[] } => {
     const folded = foldSystemMessages(request.system, request.messages);
     // Strict-template providers (Nebius/Bedrock) need a clean user-first alternation;
     // a no-op for well-formed conversations, so the cached prefix is unchanged.
@@ -605,7 +656,9 @@ export function createProvider(
       : folded;
     // cacheConfig.enabled === false → skip ALL markers (no cache write). Undefined
     // = enabled (backward compatible). ttl selects the cross-turn Anthropic TTL.
-    if (request.cacheConfig?.enabled === false || !hooks?.prepareMessages) return prepared;
+    if (request.cacheConfig?.enabled === false || !hooks?.prepareMessages) {
+      return { instructions: prepared.system, messages: prepared.messages };
+    }
     return hooks.prepareMessages({ ...prepared, modelId, ttl: request.cacheConfig?.ttl });
   };
 
@@ -617,15 +670,15 @@ export function createProvider(
 
       logLlmPayload(providerName, modelId, request);
 
-      const { system, messages } = prepare(request, modelId);
+      const { instructions, messages } = prepare(request, modelId);
       const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const result = await withProviderErrorLog(providerName, modelId, { system, messages }, () =>
+      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
         tracedGenerateText({
           model: createModel(modelId, request.apiKeys),
-          system,
+          instructions,
           messages,
           tools: request.tools,
-          stopWhen: stepCountIs(request.maxSteps ?? 1),
+          stopWhen: isStepCount(request.maxSteps ?? 1),
           abortSignal: request.abortSignal,
           ...(prepareStep ? { prepareStep } : {}),
           ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
@@ -635,14 +688,13 @@ export function createProvider(
 
       // v5+: per-turn reasoning blocks are exposed at the top level as `reasoning`
       // (array). Normalised for type safety.
-      const topReasoning = (result as unknown as { reasoning?: unknown[] }).reasoning;
+      const topReasoning = finalStepReasoning(result);
 
       const response = buildChatResponse(
         result.text,
         normalizeSdkSteps((result as unknown as { steps?: unknown }).steps),
         topReasoning,
-        // v5+: `usage` is the final step only; `totalUsage` is the cross-step total.
-        mapUsage((result as unknown as { totalUsage?: unknown }).totalUsage),
+        mapUsage(cumulativeUsage(result)),
         Date.now() - start,
         modelId,
         providerName,
@@ -659,15 +711,15 @@ export function createProvider(
       // wrapAISDK wraps streamText in traceable, making it return a Promise.
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
-      const { system, messages } = prepare(request, modelId);
+      const { instructions, messages } = prepare(request, modelId);
       const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const result = await withProviderErrorLog(providerName, modelId, { system, messages }, () =>
+      const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
         tracedStreamText({
           model: createModel(modelId, request.apiKeys),
-          system,
+          instructions,
           messages,
           tools: request.tools,
-          stopWhen: stepCountIs(request.maxSteps ?? 1),
+          stopWhen: isStepCount(request.maxSteps ?? 1),
           abortSignal: request.abortSignal,
           ...(prepareStep ? { prepareStep } : {}),
           ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
@@ -677,15 +729,16 @@ export function createProvider(
 
       return {
         textStream: result.textStream,
-        fullStream: result.fullStream,
+        // v7 renamed the SDK result's `fullStream` to `stream`; the property on
+        // OUR stream interface keeps its name, so only the read changes here.
+        fullStream: (result as unknown as { stream?: AsyncIterable<unknown> }).stream ?? result.fullStream,
         response: (async () => {
           try {
             const finalText = await result.text;
-            // v5+: totalUsage is the cross-step total (usage = final step only).
-            const finalUsage = await (result as unknown as { totalUsage?: Promise<unknown> }).totalUsage;
+            const finalUsage = await cumulativeUsage(result);
             const steps = await result.steps;
             // v5+: per-turn reasoning blocks live on `reasoning` (Promise<array>).
-            const topReasoning = await (result as unknown as { reasoning?: Promise<unknown[]> }).reasoning;
+            const topReasoning = await finalStepReasoningAsync(result);
             const response = buildChatResponse(
               finalText,
               normalizeSdkSteps(steps),
@@ -699,7 +752,7 @@ export function createProvider(
             return response;
           } catch (err) {
             // Stream-time provider errors surface here (not at the initial await).
-            logProviderError(providerName, modelId, err, { system, messages });
+            logProviderError(providerName, modelId, err, { system: instructions, messages });
             throw err;
           }
         })(),
