@@ -19,7 +19,7 @@ if (!KEY) {
 }
 
 const { initAIGateway, chat, chatStream, shutdown } = await import(DIST + "ai-gateway/index.js");
-const { estimateCost } = await import(DIST + "ai-gateway/config.js");
+const { estimateCostBreakdown } = await import(DIST + "ai-gateway/config.js");
 
 const MODEL = "claude-haiku-4-5-20251001";
 const base = { tier: "fast", provider: "anthropic", model: MODEL, apiKeys: { anthropic: KEY } };
@@ -86,16 +86,25 @@ await section("3. multi-step con tool: usage CUMULATIVO, non dell'ultimo step", 
   }, { callType: "service" });
 
   const steps = r.steps ?? [];
-  const stepPromptSum = steps.reduce((acc, s) => acc + (s.usage?.promptTokens ?? 0), 0);
-  const lastStepPrompt = steps.length ? (steps[steps.length - 1].usage?.promptTokens ?? 0) : 0;
+  // StepDetail (conversations/schema.ts) carries promptTokens FLAT, not nested
+  // under `usage`. Reading the wrong path silently yields 0, which would make
+  // the cumulative assertions below pass against nothing — hence the floor.
+  const stepPrompt = (st) => st?.promptTokens ?? 0;
+  const stepPromptSum = steps.reduce((acc, st) => acc + stepPrompt(st), 0);
+  const lastStepPrompt = steps.length ? stepPrompt(steps[steps.length - 1]) : 0;
 
   check("ha eseguito piu' di uno step", steps.length > 1, `steps=${steps.length}`);
   check("il tool e' stato chiamato", JSON.stringify(r).includes("getSecretNumber"), "");
-  check("usage riportato >= somma degli step (cumulativo)",
+  // Non-vacuity floor: senza questo, per-step a 0 renderebbe vere le due
+  // asserzioni seguenti qualunque cosa faccia il gateway.
+  check("i token per-step sono popolati (l'asserzione non e' vacua)",
+        stepPromptSum > 0 && lastStepPrompt > 0,
+        `sommaStep=${stepPromptSum} ultimoStep=${lastStepPrompt}`);
+  check("usage riportato ~= somma degli step (cumulativo)",
         (r.usage?.promptTokens ?? 0) >= stepPromptSum * 0.9,
-        `riportato=${r.usage?.promptTokens} sommaStep=${stepPromptSum} ultimoStep=${lastStepPrompt}`);
+        `riportato=${r.usage?.promptTokens} sommaStep=${stepPromptSum}`);
   check("usage riportato > solo-ultimo-step (l'inversione e' corretta)",
-        steps.length > 1 ? (r.usage?.promptTokens ?? 0) > lastStepPrompt : true,
+        (r.usage?.promptTokens ?? 0) > lastStepPrompt,
         `riportato=${r.usage?.promptTokens} ultimoStep=${lastStepPrompt}`);
 });
 
@@ -114,11 +123,18 @@ await section("4. prompt caching: write poi read, e il costo li distingue", asyn
   check("prima chiamata: cache WRITE contabilizzata", w1 > 0, `cacheWrite=${w1} usage=${u(first)}`);
   check("seconda chiamata: cache READ contabilizzata", r2 > 0, `cacheRead=${r2} usage=${u(second)}`);
 
-  const c1 = estimateCost("anthropic", MODEL, first.usage);
-  const c2 = estimateCost("anthropic", MODEL, second.usage);
-  const cost = (c) => (typeof c === "number" ? c : c?.total);
+  const costOf = (usage) =>
+    estimateCostBreakdown("anthropic", MODEL, usage.promptTokens, usage.completionTokens, usage);
+  const c1 = costOf(first.usage);
+  const c2 = costOf(second.usage);
+  check("entrambi i costi sono numeri finiti (nessuna firma sbagliata)",
+        Number.isFinite(c1.total) && Number.isFinite(c2.total) && c1.total > 0,
+        `primo=${c1.total} secondo=${c2.total}`);
   check("il costo della seconda e' inferiore alla prima (la cache paga)",
-        cost(c2) < cost(c1), `primo=${cost(c1)} secondo=${cost(c2)}`);
+        c2.total < c1.total, `primo=${c1.total} secondo=${c2.total}`);
+  check("il primo turno paga cacheWrite, il secondo cacheRead",
+        c1.cacheWrite > 0 && c1.cacheRead === 0 && c2.cacheRead > 0 && c2.cacheWrite === 0,
+        `1:{w=${c1.cacheWrite},r=${c1.cacheRead}} 2:{w=${c2.cacheWrite},r=${c2.cacheRead}}`);
   console.log("      breakdown 1:", JSON.stringify(c1), "\n      breakdown 2:", JSON.stringify(c2));
 });
 
