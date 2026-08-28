@@ -77,8 +77,8 @@ await chat({ model: "gpt-4o-mini", messages, system });
 The serialized boundary is the point: only DATA (`inputSchema`) and a FUNCTION (`execute`)
 cross between a tool and the engine, never a live Zod object or a shared singleton. That is
 what lets an external plugin resolve its own copies of the SDK, `zod` and `ai`. The legacy
-`registerTool({ create })` shape still loads (the loader dispatches on the presence of
-`inputSchema`) but nothing new should use it.
+`registerTool({ create })` shape no longer loads at all: the loader recognizes only a default
+export carrying `inputSchema`, and skips anything else with a console warning.
 
 `parameters` must satisfy OpenAI strict mode — see `references/tools-and-hooks.md` for the
 banned Zod constructs and the guard-rail test that enforces them.
