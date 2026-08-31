@@ -8,6 +8,27 @@ import { buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
 
 export type { DateRange };
 
+/**
+ * Every aggregate in this file counts calls that RETURNED.
+ *
+ * `ai_logs` gained an `outcome` column (migration 0077) so a turn that dies at
+ * the provider leaves a row — those rows carry zero tokens, zero cost and the
+ * elapsed time before the failure. Without this predicate they would join the
+ * denominators silently: `COUNT(*)` would become "calls attempted", and
+ * `AVG(duration_ms)` would mix a 300 ms failure into the average of six-second
+ * answers — two hundred failures beside two hundred answers report ~3.1 s where
+ * the answer is 6 s. That average is also `previousPeriod.avgResponseTime`, so a
+ * changed mix of failures between the two compared windows would move it on its
+ * own. How OFTEN calls fail is a different question, and `outcome` is where it
+ * is asked directly.
+ *
+ * `outcome` is `NOT NULL DEFAULT 'ok'`, so every row written before 0077
+ * satisfies this — the historical series does not move.
+ */
+const ANSWERED_CALLS = sql` AND outcome = 'ok'`;
+/** The same predicate where `ai_logs` is aliased (see the per-agent query). */
+const ANSWERED_CALLS_AL = sql` AND al.outcome = 'ok'`;
+
 export interface OverviewStats {
   totalCost: number;
   totalTokens: number;
@@ -123,7 +144,7 @@ async function getOverviewStats(
         COUNT(*)::int AS total_calls
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst}
+        ${instFilter} ${orgInst} ${ANSWERED_CALLS}
     `),
   );
 
@@ -165,7 +186,7 @@ async function getOverviewStats(
         COALESCE(AVG(duration_ms), 0)::float AS avg_duration_ms
       FROM ai_logs
       WHERE created_at >= ${toISO(prevFrom)} AND created_at <= ${toISO(prevTo)}
-        ${instFilter} ${orgInst}
+        ${instFilter} ${orgInst} ${ANSWERED_CALLS}
     `),
   );
 
@@ -236,7 +257,7 @@ async function getDailyTrend(
         COALESCE(SUM(total_tokens), 0)::int AS tokens
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst}
+        ${instFilter} ${orgInst} ${ANSWERED_CALLS}
       GROUP BY DATE(created_at)
       ORDER BY date
     `),
@@ -377,7 +398,7 @@ async function getModelDistribution(
         COALESCE(AVG(duration_ms), 0)::float AS avg_duration
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst}
+        ${instFilter} ${orgInst} ${ANSWERED_CALLS}
       GROUP BY provider, model
       ORDER BY cost DESC
     `),
@@ -410,7 +431,7 @@ async function getTierDistribution(
         COALESCE(SUM(estimated_cost_usd), 0)::float AS cost
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst}
+        ${instFilter} ${orgInst} ${ANSWERED_CALLS}
       GROUP BY tier
       ORDER BY cost DESC
     `),
@@ -478,7 +499,7 @@ async function getInstanceComparison(
       LEFT JOIN instances i ON i.slug = al.instance_id
       WHERE al.created_at >= ${toISO(range.from)} AND al.created_at <= ${toISO(range.to)}
         AND al.instance_id IS NOT NULL
-        ${orgInst}
+        ${orgInst} ${ANSWERED_CALLS_AL}
       GROUP BY al.instance_id, i.name
       ORDER BY cost DESC
     `),
