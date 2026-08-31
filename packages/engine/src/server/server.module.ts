@@ -40,6 +40,7 @@ import { ActivityStreamModule } from "../activity-stream/activity-stream.module.
 import { OptoutsModule } from "./optouts/optouts.module.js";
 import { MembersModule } from "./members/members.module.js";
 import { OrganizationsModule } from "../organizations/organizations.module.js";
+import { throttleTracker } from "./throttle-tracker.js";
 
 @Module({
   imports: [
@@ -52,6 +53,9 @@ import { OrganizationsModule } from "../organizations/organizations.module.js";
       // Bypass throttling entirely (global default + per-route @Throttle) when
       // disabled via THROTTLE_ENABLED=false — see config.ts server.throttle.
       skipIf: () => !config.server.throttle.enabled,
+      // WHO a bucket belongs to. The default is `req.ip`, which behind the
+      // panel's proxy is one address for every user — see throttle-tracker.ts.
+      getTracker: (req) => throttleTracker(req as Parameters<typeof throttleTracker>[0]),
     }),
     OpenAIModule,
     A2aModule,
