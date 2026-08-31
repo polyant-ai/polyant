@@ -6,7 +6,7 @@ import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.
 import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
 import { BedrockProvider, buildBedrockReasoningOptions } from "./providers/bedrock.js";
 import { NebiusProvider } from "./providers/nebius.js";
-import { aiLogger } from "./logger.js";
+import { aiLogger, classifyProviderError } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
 import type { ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "./types.js";
 import { pipelineLog } from "../utils/pipeline-logger.js";
@@ -244,6 +244,56 @@ function logAndRecordUsage(
   );
 }
 
+/**
+ * A turn that dies at the provider used to leave no row at all — "this agent
+ * is erroring" was not a question ai_logs could answer. Logged with zeroed
+ * usage/cost (there is none, the call never returned) and the error's CLASS
+ * only, never its message — the message can quote the request, and the
+ * request is the prompt.
+ *
+ * Skips logging entirely when `request.abortSignal` is already aborted: that
+ * abort is the message coordinator preempting an in-flight turn because a
+ * follow-up message arrived (`message-coordinator.ts`'s cancel-and-restart),
+ * not the provider failing. It is the routine path, not a fault — it happens
+ * every time a user sends a second message before the first reply lands.
+ * Counting every preempted turn as an error would make a later failure RATE
+ * mostly measure how often people type quickly. An aborted turn writes nothing
+ * at all here — it is not a success either, so no third `outcome` value is
+ * invented for it.
+ */
+function logFailedCall(
+  config: { providerName: string; modelId: string },
+  request: ChatRequest,
+  err: unknown,
+  options: ChatCallOptions | undefined,
+  durationMs: number,
+): void {
+  if (request.abortSignal?.aborted) return;
+
+  aiLogger.log(
+    aiLogger.createEntry(
+      config.providerName,
+      config.modelId,
+      request.tier,
+      request.thinking ?? false,
+      0,
+      0,
+      0,
+      0,
+      durationMs,
+      0,
+      0,
+      options?.conversationId,
+      options?.instanceId,
+      options?.callType,
+      0,
+      0,
+      "error",
+      classifyProviderError(err),
+    ),
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Public API                                                         */
 /* ------------------------------------------------------------------ */
@@ -253,12 +303,23 @@ export async function chat(
   options?: ChatCallOptions,
 ): Promise<ChatResponse> {
   const config = resolveCallConfig(request, options);
+  const callStartedAt = Date.now();
 
-  const response = await config.provider.chat({
-    ...request,
-    messages: sanitizeMessagesForModel(request.messages, config.modelId),
-    providerOptions: config.providerOptions,
-  }, config.modelId);
+  let response: ChatResponse;
+  try {
+    response = await config.provider.chat({
+      ...request,
+      messages: sanitizeMessagesForModel(request.messages, config.modelId),
+      providerOptions: config.providerOptions,
+    }, config.modelId);
+  } catch (err) {
+    // Exactly one row per failed call: this is the only place chat() invokes
+    // the provider, and a thrown error here skips the success log below
+    // entirely (no retry loop wraps this — a caller that retries makes a new
+    // chat() call, which is correctly a new event).
+    logFailedCall(config, request, err, options, Date.now() - callStartedAt);
+    throw err;
+  }
 
   logAndRecordUsage(config, request, response, options);
 
@@ -285,21 +346,38 @@ export async function chatStream(
   options?: ChatCallOptions,
 ): Promise<ChatStreamResult> {
   const config = resolveCallConfig(request, options);
+  const callStartedAt = Date.now();
 
   if (!config.provider.chatStream) {
     throw new Error(`Provider "${config.providerName}" does not support streaming`);
   }
 
-  const stream = await config.provider.chatStream({
-    ...request,
-    messages: sanitizeMessagesForModel(request.messages, config.modelId),
-    providerOptions: config.providerOptions,
-  }, config.modelId);
+  let stream: ChatStreamResult;
+  try {
+    stream = await config.provider.chatStream({
+      ...request,
+      messages: sanitizeMessagesForModel(request.messages, config.modelId),
+      providerOptions: config.providerOptions,
+    }, config.modelId);
+  } catch (err) {
+    // Same exactly-once reasoning as chat(): the request-time failure (before
+    // any stream is established) is the only provider call chatStream() makes.
+    logFailedCall(config, request, err, options, Date.now() - callStartedAt);
+    throw err;
+  }
 
-  const wrappedResponse = stream.response.then((response) => {
-    logAndRecordUsage(config, request, response, options);
-    return response;
-  });
+  // stream.response settles ONCE (it is a single promise handed back to the
+  // caller), so success (.then) and mid-stream failure (.catch) are mutually
+  // exclusive — never both, so still exactly one row for this call.
+  const wrappedResponse = stream.response
+    .then((response) => {
+      logAndRecordUsage(config, request, response, options);
+      return response;
+    })
+    .catch((err) => {
+      logFailedCall(config, request, err, options, Date.now() - callStartedAt);
+      throw err;
+    });
 
   // Tap the fullStream so live tool-call / reasoning / step-finish events
   // flow onto the ActivityBus while the original consumer still receives
