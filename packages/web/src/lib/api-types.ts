@@ -344,6 +344,8 @@ export interface ScheduledTask {
   totalRuns: number;
   deleteAfterRun: boolean;
   maxRetries: number;
+  /** Per-run deadline in ms; null → the server default (config.scheduler.defaultMaxRunMs). */
+  maxRunMs: number | null;
   outboundChannel: string | null;
   outboundTarget: string | null;
   keepHistory: boolean;
