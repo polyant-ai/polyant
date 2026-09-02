@@ -188,6 +188,24 @@ const configSchema = z.object({
     retentionDays: z.coerce.number().int().positive().default(90),
   }),
 
+  // Scheduler crash-safety.
+  //
+  //   orphanGraceMs: on startup, rows left in `last_run_status='running'` whose
+  //     `updated_at` is OLDER than this are assumed to belong to a process that is gone
+  //     and are recovered. Rows younger than it are left alone — during a rolling deploy
+  //     the previous process may still be legitimately running them, and stealing a live
+  //     run means executing it twice. Default 15 min: comfortably longer than a normal
+  //     deploy overlap.
+  //   defaultMaxRunMs: per-run deadline when a task declares no `max_run_ms`. Past it,
+  //     the reaper marks the run failed so the row stops blocking the task forever.
+  //     Deliberately generous (30 min): reaping a run that is still alive is the worse
+  //     failure of the two — the row would be re-armed while the old execution keeps
+  //     going — whereas a late reap only prolongs a silence that is already bounded.
+  scheduler: z.object({
+    orphanGraceMs: z.coerce.number().int().positive().default(15 * 60_000),
+    defaultMaxRunMs: z.coerce.number().int().positive().default(30 * 60_000),
+  }),
+
   // Plugin roots. `dirs` are absolute paths (from PLUGIN_DIRS, comma-separated)
   // the tool loader scans for external plugins in addition to the convention
   // dir (src/plugins/*). Primarily local dev / explicit override.
@@ -297,6 +315,10 @@ function loadConfig(): Config {
     },
     analytics: {
       retentionDays: process.env.ANALYTICS_RETENTION_DAYS,
+    },
+    scheduler: {
+      orphanGraceMs: process.env.SCHEDULER_ORPHAN_GRACE_MS,
+      defaultMaxRunMs: process.env.SCHEDULER_DEFAULT_MAX_RUN_MS,
     },
     plugins: {
       // CONVENTION-EXCEPTION: PLUGIN_DIRS is parsed here (split + trim) into the

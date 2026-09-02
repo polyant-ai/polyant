@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { sql } from "drizzle-orm";
 import { pgTable, uuid, varchar, text, timestamp, boolean, integer, jsonb, index } from "drizzle-orm/pg-core";
 
 // --- Schedule config types ---
@@ -43,6 +44,15 @@ export const scheduledTasks = pgTable(
     outboundTarget: text("outbound_target"),
 
     // --- Behavior ---
+    /**
+     * Deadline for a single run, in ms. NULL falls back to
+     * `config.scheduler.defaultMaxRunMs`.
+     *
+     * The reaper uses it to tell a slow-but-alive run from a run whose process is gone:
+     * without a deadline there is no way to distinguish them, and the row would stay
+     * `running` forever (which is exactly the bug this column exists to fix).
+     */
+    maxRunMs: integer("max_run_ms"),
     keepHistory: boolean("keep_history").notNull().default(false),
     deleteAfterRun: boolean("delete_after_run").notNull().default(false),
     maxRetries: integer("max_retries").notNull().default(3),
@@ -55,6 +65,12 @@ export const scheduledTasks = pgTable(
   (table) => [
     index("idx_scheduled_tasks_instance").on(table.instanceId),
     index("idx_scheduled_tasks_next_run").on(table.nextRunAt),
+    // Partial index backing the reaper's per-tick scan for stuck `running` rows.
+    // The WHERE clause is what makes it cheap — the whole point is to index only the
+    // handful of rows that are currently running.
+    index("idx_scheduled_tasks_running")
+      .on(table.updatedAt)
+      .where(sql`${table.lastRunStatus} = 'running'`),
   ],
 );
 
