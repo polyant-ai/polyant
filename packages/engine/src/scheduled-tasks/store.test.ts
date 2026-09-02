@@ -84,8 +84,11 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
   lte: vi.fn((...args: unknown[]) => ({ type: "lte", args })),
+  lt: vi.fn((...args: unknown[]) => ({ type: "lt", args })),
   or: vi.fn((...args: unknown[]) => ({ type: "or", args })),
   isNull: vi.fn((...args: unknown[]) => ({ type: "isNull", args })),
+  inArray: vi.fn((...args: unknown[]) => ({ type: "inArray", args })),
+  count: vi.fn(() => ({ type: "count" })),
   sql: Object.assign(
     (strings: TemplateStringsArray, ...values: unknown[]) => ({
       type: "sql",
@@ -101,7 +104,7 @@ vi.mock("drizzle-orm", () => ({
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
-import { markRunning, markFailed } from "./store.js";
+import { markRunning, markFailed, clearRunningMarker } from "./store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -236,5 +239,37 @@ describe("scheduled-tasks/store", () => {
 
       expect(mockDb.update).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Crash-safety helpers
+// ---------------------------------------------------------------------------
+describe("clearRunningMarker", () => {
+  it("is a no-op on an empty id list, without touching the database", async () => {
+    // The startup path calls it unconditionally; an empty IN () would be both pointless
+    // and, depending on the dialect, a syntax error.
+    const cleared = await clearRunningMarker([]);
+    expect(cleared).toBe(0);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("clears ONLY rows still marked running, and leaves the error counters untouched", async () => {
+    const chain = createChainMock([{ id: "a" }, { id: "b" }]);
+    mockDb.update.mockReturnValue(chain);
+
+    const cleared = await clearRunningMarker(["a", "b"]);
+
+    expect(cleared).toBe(2);
+    // The `running` guard in the WHERE clause is what makes this race-free: a row a live
+    // process completed in the meantime must not be reopened.
+    const whereArg = (chain as unknown as { where: ReturnType<typeof vi.fn> }).where.mock.calls[0]![0];
+    expect(JSON.stringify(whereArg)).toContain("running");
+    // No retry accounting: an interrupted run is not the task's failure.
+    const setArg = (chain as unknown as { set: ReturnType<typeof vi.fn> }).set.mock.calls[0]![0] as Record<string, unknown>;
+    expect(setArg).toHaveProperty("lastRunStatus", null);
+    expect(setArg).not.toHaveProperty("consecutiveErrors");
+    expect(setArg).not.toHaveProperty("nextRunAt");
+    expect(setArg).not.toHaveProperty("enabled");
   });
 });

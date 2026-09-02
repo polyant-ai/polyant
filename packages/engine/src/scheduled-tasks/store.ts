@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, and, lte, or, isNull, sql } from "drizzle-orm";
+import { eq, and, lte, lt, or, isNull, inArray, count, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
 import { scheduledTasks, type ScheduledTask, type ScheduleConfig } from "./schema.js";
@@ -19,6 +19,8 @@ export interface CreateTaskInput {
   outboundChannel?: string | null;
   outboundTarget?: string | null;
   keepHistory?: boolean;
+  /** Per-run deadline in ms; null/undefined → config.scheduler.defaultMaxRunMs. */
+  maxRunMs?: number | null;
 }
 
 export interface UpdateTaskInput {
@@ -32,6 +34,7 @@ export interface UpdateTaskInput {
   outboundChannel?: string | null;
   outboundTarget?: string | null;
   keepHistory?: boolean;
+  maxRunMs?: number | null;
 }
 
 /** Options for `listByInstance`. All fields optional — defaults preserve the
@@ -106,6 +109,7 @@ export async function create(input: CreateTaskInput): Promise<ScheduledTask> {
       outboundChannel: input.outboundChannel ?? null,
       outboundTarget: input.outboundTarget ?? null,
       keepHistory: input.keepHistory ?? false,
+      maxRunMs: input.maxRunMs ?? null,
       nextRunAt,
     })
     .returning();
@@ -126,6 +130,7 @@ export async function update(id: string, input: UpdateTaskInput): Promise<Schedu
   if (input.outboundChannel !== undefined) sets.outboundChannel = input.outboundChannel;
   if (input.outboundTarget !== undefined) sets.outboundTarget = input.outboundTarget;
   if (input.keepHistory !== undefined) sets.keepHistory = input.keepHistory;
+  if (input.maxRunMs !== undefined) sets.maxRunMs = input.maxRunMs;
 
   if (input.schedule !== undefined) {
     sets.schedule = input.schedule;
@@ -265,6 +270,54 @@ export async function markFailed(id: string, error: string): Promise<void> {
       updatedAt: now,
     })
     .where(eq(scheduledTasks.id, id));
+}
+
+/**
+ * Tasks stuck in `running` since before `since`, oldest first.
+ *
+ * `updated_at` is the run's start time while the row is `running`: `markRunning` is the
+ * last write before the run, and `markCompleted`/`markFailed` are the next ones. A write
+ * from elsewhere mid-run (an API edit, say) only pushes the timestamp forward, which
+ * DELAYS recovery — the safe direction to be wrong in, since the opposite would recover a
+ * run that is still alive.
+ */
+export async function findStuckRunning(since: Date): Promise<ScheduledTask[]> {
+  return db
+    .select()
+    .from(scheduledTasks)
+    .where(and(eq(scheduledTasks.lastRunStatus, "running"), lt(scheduledTasks.updatedAt, since)))
+    .orderBy(scheduledTasks.updatedAt);
+}
+
+/** How many rows are currently stuck in `running` since before `since`. For metrics. */
+export async function countStuckRunning(since: Date): Promise<number> {
+  const rows = await db
+    .select({ n: count() })
+    .from(scheduledTasks)
+    .where(and(eq(scheduledTasks.lastRunStatus, "running"), lt(scheduledTasks.updatedAt, since)));
+  return rows[0]?.n ?? 0;
+}
+
+/**
+ * Clear the `running` marker so `getDueTasks` sees the task again, WITHOUT touching the
+ * error counters or `nextRunAt`.
+ *
+ * Used by the startup recovery: a run interrupted by a deploy is not the task's fault, so
+ * it must not consume a retry, count towards `MAX_CONSECUTIVE_ERRORS`, or push the next
+ * run into the future. The interrupted run itself is closed in the run log as an error —
+ * the audit says what happened, the schedule carries on as if the tick had not fired.
+ *
+ * The `running` guard in the WHERE clause keeps this idempotent and race-free: a row that
+ * a live process has meanwhile completed is not touched.
+ */
+export async function clearRunningMarker(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  const rows = await db
+    .update(scheduledTasks)
+    .set({ lastRunStatus: null, updatedAt: new Date() })
+    .where(and(inArray(scheduledTasks.id, ids), eq(scheduledTasks.lastRunStatus, "running")))
+    .returning({ id: scheduledTasks.id });
+  return rows.length;
 }
 
 /** Disable a task */

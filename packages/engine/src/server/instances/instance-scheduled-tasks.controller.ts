@@ -21,6 +21,27 @@ import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
 import type { ScheduleConfig, RunStatus } from "../../scheduled-tasks/schema.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 
+/** Floor for an API-provided run deadline. Below a second no run can complete. */
+const MIN_MAX_RUN_MS = 1_000;
+
+/**
+ * Validate an API-provided `maxRunMs`.
+ *
+ * The value drives the reaper, so a zero or negative deadline would make every run of that
+ * task reapable the instant it starts — a task that can never succeed, failing with
+ * `orphaned` forever. Rejected rather than clamped: a silently corrected deadline is a
+ * deadline nobody can reason about from the outside.
+ */
+function assertMaxRunMs(value: number | null | undefined): number | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (!Number.isInteger(value) || value < MIN_MAX_RUN_MS) {
+    throw new BadRequestException(
+      `Field 'maxRunMs' must be an integer of at least ${MIN_MAX_RUN_MS} ms (or null to use the server default)`,
+    );
+  }
+  return value;
+}
+
 @Controller("api/instances")
 export class InstanceScheduledTasksController {
   @RequirePermission(Permission.TASK_READ)
@@ -68,6 +89,7 @@ export class InstanceScheduledTasksController {
         outboundChannel: t.outboundChannel ?? null,
         outboundTarget: t.outboundTarget ?? null,
         keepHistory: t.keepHistory,
+        maxRunMs: t.maxRunMs ?? null,
         updatedAt: t.updatedAt?.toISOString() ?? null,
       })),
     };
@@ -165,6 +187,7 @@ export class InstanceScheduledTasksController {
       outboundChannel?: string | null;
       outboundTarget?: string | null;
       keepHistory?: boolean;
+      maxRunMs?: number | null;
     },
   ) {
     const instance = await findInstanceOrFail(slug);
@@ -196,6 +219,7 @@ export class InstanceScheduledTasksController {
       keepHistory: body.keepHistory,
       outboundChannel: body.outboundChannel,
       outboundTarget: body.outboundTarget,
+      maxRunMs: assertMaxRunMs(body.maxRunMs),
     });
 
     schedulerService.notify(task.id, "added");
@@ -210,6 +234,7 @@ export class InstanceScheduledTasksController {
         outboundChannel: task.outboundChannel ?? null,
         outboundTarget: task.outboundTarget ?? null,
         keepHistory: task.keepHistory,
+        maxRunMs: task.maxRunMs ?? null,
         nextRunAt: task.nextRunAt?.toISOString() ?? null,
         createdAt: task.createdAt?.toISOString() ?? null,
       },
@@ -233,6 +258,7 @@ export class InstanceScheduledTasksController {
       outboundChannel?: string | null;
       outboundTarget?: string | null;
       keepHistory?: boolean;
+      maxRunMs?: number | null;
     },
   ) {
     const instance = await findInstanceOrFail(slug);
@@ -247,7 +273,10 @@ export class InstanceScheduledTasksController {
       body.schedule.runAt = parseRelativeDuration(body.schedule.runAt).toISOString();
     }
 
-    const updated = await scheduledTaskStore.update(id, body);
+    const updated = await scheduledTaskStore.update(id, {
+      ...body,
+      maxRunMs: assertMaxRunMs(body.maxRunMs),
+    });
     if (!updated) throw new NotFoundException(`Scheduled task "${id}" not found`);
 
     schedulerService.notify(id, "updated");
@@ -264,6 +293,7 @@ export class InstanceScheduledTasksController {
         outboundChannel: updated.outboundChannel ?? null,
         outboundTarget: updated.outboundTarget ?? null,
         keepHistory: updated.keepHistory,
+        maxRunMs: updated.maxRunMs ?? null,
         updatedAt: updated.updatedAt?.toISOString() ?? null,
       },
     };
