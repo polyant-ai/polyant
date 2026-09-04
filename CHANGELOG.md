@@ -7,29 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **BREAKING — `users.role` is dropped.** Migration `0076` reconciles the flag
-  from the role column one final time — any row promoted by a direct `role`
-  update that never touched `is_platform_admin` is brought into agreement
-  first — then drops the column, so no account silently loses its standing.
-  **There is no rollback past this migration**: the column is gone, and older
-  code that still selects `role` fails on every read of the users table.
-- **BREAKING — `users.is_platform_admin` is the sole authority for
-  platform-admin standing**, read from the database on every request instead
-  of carried on the session. Promoting or revoking an account now takes
-  effect within the platform-admin cache's five-minute window, without
-  requiring the account to sign out and back in.
-- **BREAKING — `POST`/`PATCH /api/users` take `isPlatformAdmin: boolean`** and
-  no longer return `role`. `role` is still accepted on input for one release,
-  as a deprecated alias for both legacy spellings (`platform_admin` and
-  `superadmin`), and is never persisted or echoed back.
-
-## [1.1.0] - 2026-08-25
+## [1.1.0] - 2026-09-04
 
 > **Upgrading from 1.0.0 needs operator action** — this release is not a rolling
-> upgrade, is forward-only past migration `0071`, and requires forcing every user
-> to sign in again. See [docs/UPGRADING.md](https://github.com/polyant-ai/polyant/blob/main/docs/UPGRADING.md).
+> upgrade, is forward-only past migrations `0071` and `0076`, and requires forcing
+> every user to sign in again. See
+> [docs/UPGRADING.md](https://github.com/polyant-ai/polyant/blob/main/docs/UPGRADING.md).
 
 ### Added
 
@@ -57,9 +40,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a channel in that mode receives messages on a dedicated webhook URL carrying a
   server-generated secret, revealed and rotatable from the admin panel. First
   released in 1.0.1; included here.
+- **Retention covers every traffic-driven table.** `tool_audit_logs`,
+  `hook_executions`, `scheduled_task_runs` and the completed half of
+  `event_backlog` now age out on the same policy as `ai_logs` and
+  `pipeline_traces`; the four are also what the heaviest analytics
+  aggregations read. Conversation messages, memories and the knowledge tables
+  are deliberately excluded — ageing product data out is an operator's
+  decision, not a housekeeping job's.
+- **A failed provider call is recorded.** A turn that died at the provider
+  used to write no `ai_logs` row at all, so an agent with an expired key looked
+  exactly like an idle one. Migration `0077` adds `outcome` and `error_kind`,
+  classified into a closed set (`auth`, `rate_limit`, `bad_request`,
+  `overloaded`, `timeout`, `unknown`); the provider's own message is never
+  stored, because it can quote the request and the request is the prompt.
+- **The switch that closes an agent's HTTP surface is back in the panel.**
+  `authEnabled` defaults off, so a new agent answers `/v1/chat/completions`
+  with no credential — the Status page reported this correctly, but the control
+  it pointed at had been removed, leaving a hand-written `PATCH` as the only
+  way to close an open agent.
 
 ### Changed
 
+- **BREAKING — `users.role` is dropped.** Migration `0076` reconciles the flag
+  from the role column one final time — any row promoted by a direct `role`
+  update that never touched `is_platform_admin` is brought into agreement
+  first — then drops the column, so no account silently loses its standing.
+  **There is no rollback past this migration**: the column is gone, and older
+  code that still selects `role` fails on every read of the users table.
+- **BREAKING — `users.is_platform_admin` is the sole authority for
+  platform-admin standing**, read from the database on every request instead
+  of carried on the session. Promoting or revoking an account now takes
+  effect within the platform-admin cache's five-minute window, without
+  requiring the account to sign out and back in.
+- **BREAKING — `POST`/`PATCH /api/users` take `isPlatformAdmin: boolean`** and
+  no longer return `role`. `role` is still accepted on input for one release,
+  as a deprecated alias for both legacy spellings (`platform_admin` and
+  `superadmin`), and is never persisted or echoed back.
 - **BREAKING — RBAC is enforced unconditionally.** The `AUTHZ_ENFORCE`
   environment variable is gone; there is no shadow mode. An undeclared route or
   a failed permission check is a 403 with no way to turn it off. Installations
@@ -114,6 +130,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stays the exception, beside the tracing switch that reveals it.
 - Membership grants and revocations, platform-admin bootstrap, and the
   `/api/users` mutations are now recorded in the management write-audit log.
+- **The engine runs on AI SDK 7.** `usage` is now the across-steps cumulative
+  total, which is what feeds cost estimation and the per-model cache rates, and
+  the prompt-cache marker moved onto `instructions` because v7 rejects a
+  `system` message inside `messages`. No configuration changes.
+- **Outbound HTTP that carries the SSRF-pinned dispatcher goes through one
+  place.** The engine moves to undici 8, whose `Agent` Node's bundled fetch
+  refuses outright — the three call sites that passed a dispatcher to the global
+  fetch would have silently lost DNS pinning.
+- The engine lints on ESLint 10; the admin panel stays on 9, which
+  `eslint-config-next` still requires. Relative import extensions are enforced
+  per package rather than by a repo-wide rule that was half wrong.
 
 ### Fixed
 
@@ -176,6 +203,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Destroying a WhatsApp inbound secret is audited, both when a credential-mode
   switch discards it and when the channel is deleted — so the audit trail no
   longer records only the mints and rotations.
+- **A throttled route no longer buckets every caller together.** Buckets were
+  keyed by `req.ip`, and in the standard topology the panel proxies `/api/*` to
+  the engine from one container: five wrong passwords in a minute locked
+  sign-in for the whole deployment, while an attacker shared — and hid in — the
+  same budget. The bucket is now the account for a credential form and the
+  session for an authenticated caller.
+- **A prerelease engine version no longer fails every plugin's engine gate.**
+  SemVer excludes a prerelease from a range that carries none, so the first
+  build tagged with any suffix would have skipped every third-party plugin with
+  a warning — boot green, agent silently without its plugin tools and hooks.
+  The comparison now reads major, minor and patch and ignores the suffix.
+- **`PATCH /api/users/:id` rejects a non-boolean `isPlatformAdmin`** instead of
+  coercing it. `"off"` is truthy in JavaScript and false in PostgreSQL, so the
+  last-platform-admin guard saw no demotion while the database performed one,
+  leaving a deployment with zero platform admins and no way back except SQL.
+- **Creating an agent and patching its tool set are each one transaction.** A
+  failure between the four writes used to commit an agent with no prompt
+  sections or no tool rows — which the runtime reads as "exactly zero tools" —
+  and nothing repaired it, while the taken slug answered the operator's retry
+  with a 409.
+- **Two statements that failed outright above a few hundred agents are gone.**
+  The boot-time tool-catalogue sync and agent deletion each bound one parameter
+  per row and crossed PostgreSQL's 65 535-parameter limit: the first threw
+  inside the boot transaction so the catalogue never synced, the second made a
+  channel agent with tens of thousands of conversations undeletable through the
+  API.
+- The per-turn round trips that built each `ask_<slug>` tool are batched, the
+  dashboard aggregation is capped, and migration `0075` indexes conversations by
+  `updated_at` so the organization-wide list stops sorting every row the tenant
+  owns to return twenty.
+
+### Security
+
+- **Untrusted text is fenced wherever it enters a prompt.** Nonce-tagged
+  delimiters existed in one file; the webhook engine's substituted values and
+  the channel display name went in plain. A display name carrying a newline and
+  a forged closing tag injected instructions at *higher* trust than the user's
+  own message, and in the webhook case they persisted into every later turn.
+- **A sensitive skill environment variable never reaches the model.**
+  `readSkill` — one of two tools enabled by default on every agent —
+  interpolated the decrypted value into its result, so the credential entered
+  the model's context, the persisted conversation and `tool_audit_logs`. It now
+  emits a placeholder that resolves inside the tool call, and the plaintext
+  exists nowhere else.
+- **One log serializer, and it no longer writes what the policy forbids.** The
+  file logger serialized errors with `JSON.stringify`, which drops the
+  non-enumerable `message` and `stack` and keeps the custom fields — where pg,
+  the AWS SDK and fetch put connection strings, request configs and
+  authorization headers. A single provider 401 wrote the upstream bearer token
+  and the folded prompt into a log file. Authorization, API-key, token, secret,
+  password, credential, connection-string, cookie and private-key fields are now
+  redacted at any depth, and tool output is capped rather than copied whole into
+  the audit table.
 
 ## [1.0.2] - 2026-08-26
 
