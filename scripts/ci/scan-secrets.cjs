@@ -14,7 +14,7 @@
  * would need installing by every clone. A CI job is neither.
  */
 
-const { execSync } = require("child_process");
+const { execFileSync } = require("child_process");
 const patterns = require("./secret-patterns.cjs");
 
 const base = process.argv[2];
@@ -24,8 +24,10 @@ if (!base) {
 }
 
 let diff;
+// execFileSync, not execSync: `base` is a command-line argument, and passing it
+// through a shell makes the ref a shell injection vector.
 try {
-  diff = execSync(`git diff --unified=0 ${base}...HEAD`, {
+  diff = execFileSync("git", ["diff", "--unified=0", `${base}...HEAD`], {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
   });
