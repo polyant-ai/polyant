@@ -74,7 +74,6 @@ describe("validateSessionToken", () => {
         userId: "user-uuid-123",
         email: "alice@example.com",
         name: "Paolo",
-        role: "user",
         mustChangePassword: false,
         principalType: "user",
         orgId: "org-uuid-1",
@@ -93,7 +92,6 @@ describe("validateSessionToken", () => {
         userId: "user-uuid-123",
         email: "alice@example.com",
         name: "Paolo",
-        role: "user",
         mustChangePassword: false,
         principalType: "user",
         orgId: "org-uuid-1",
@@ -112,16 +110,15 @@ describe("validateSessionToken", () => {
         userId: "id-fallback-456",
         email: "test@example.com",
         name: undefined,
-        role: "user",
         mustChangePassword: false,
         principalType: "user",
         orgId: "org-uuid-1",
       });
     });
 
-    it("should propagate role and mustChangePassword from the JWT", async () => {
+    it("should propagate mustChangePassword from the JWT", async () => {
       const token = await createJweToken(
-        { ...userPayload, role: "superadmin", mustChangePassword: true, orgId: "org-uuid-1" },
+        { ...userPayload, mustChangePassword: true, orgId: "org-uuid-1" },
         TEST_SECRET,
         HTTP_SALT,
       );
@@ -131,11 +128,24 @@ describe("validateSessionToken", () => {
         userId: "user-uuid-123",
         email: "alice@example.com",
         name: "Paolo",
-        role: "superadmin",
         mustChangePassword: true,
         principalType: "user",
         orgId: "org-uuid-1",
       });
+    });
+
+    it("should ignore a role claim on the token entirely", async () => {
+      // The principal no longer carries platform-admin standing at all — a
+      // token minted with (or without) a `role` claim must produce the same
+      // shape either way, since nothing downstream reads it any more.
+      const token = await createJweToken(
+        { ...userPayload, role: "platform_admin", orgId: "org-uuid-1" },
+        TEST_SECRET,
+        HTTP_SALT,
+      );
+      const result = await validateSessionToken(token);
+
+      expect(result).not.toHaveProperty("role");
     });
   });
 
@@ -204,7 +214,6 @@ describe("validateSessionToken", () => {
         userId: "user-uuid-123",
         email: "alice@example.com",
         name: "Paolo",
-        role: "user",
         mustChangePassword: false,
         principalType: "user",
         orgId: undefined,
@@ -229,7 +238,6 @@ describe("validateSessionToken", () => {
         userId: "user-uuid-123",
         email: "alice@example.com",
         name: "Paolo",
-        role: "user",
         mustChangePassword: false,
         principalType: "user",
         orgId: undefined,

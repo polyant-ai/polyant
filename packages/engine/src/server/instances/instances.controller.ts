@@ -19,14 +19,12 @@ import { RequirePermission, Permission } from "../../authz/index.js";
 import {
   listAllInstances,
   findInstanceBySlug,
-  createInstance,
+  createInstanceWithDefaults,
   updateInstance,
   deleteInstance,
+  resolvePrincipalOrgId,
   type Instance,
 } from "../../instances/store.js";
-import { seedInstancePrompts } from "../../instances/prompts.store.js";
-import { seedInstanceTools } from "../../instances/instance-tools.store.js";
-import { seedInstanceSkills } from "../../instances/instance-skills.store.js";
 import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
 import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
 import {
@@ -36,7 +34,7 @@ import {
 } from "../../embeddings-gateway/embedding-reset.service.js";
 import { countMemories } from "../../memory/index.js";
 import { countDocuments } from "../../knowledge/index.js";
-import { computeMemoryStatusFromInstance } from "../memories/memory-status.js";
+import { computeMemoryStatusFromInstance, computeEmbedderStatus } from "../memories/memory-status.js";
 import { providerConfigs, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
 import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
@@ -44,7 +42,9 @@ import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { sanitizeForLog } from "../../utils/create-logger.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import { WorkspaceSlug } from "../../auth/decorators/workspace-slug.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import {
   createManagementAuditLogger,
@@ -82,6 +82,7 @@ function toInstanceDto(instance: Instance) {
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl,
+    a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     optoutEnabled: instance.optoutEnabled,
@@ -114,11 +115,24 @@ function parseDataUri(dataUri: string): { contentType: string; body: Buffer } | 
 export class InstancesController {
   private readonly auditLogger = createManagementAuditLogger();
 
-  // GET /api/instances — list all instances
+  // GET /api/instances — list the caller organization's instances
   @RequirePermission(Permission.AGENT_READ)
   @Get()
-  async list() {
-    const all = await listAllInstances();
+  async list(
+    @CurrentUser() user?: AuthenticatedUser,
+    @WorkspaceSlug() workspaceSlug?: string,
+  ) {
+    // Agents are org-owned, and this route carries no `:slug` for the guard to
+    // scope on — so the org filter is applied here. An unresolvable organization
+    // yields an empty list (fail closed), never the whole deployment.
+    const orgId = await resolvePrincipalOrgId(user?.orgId);
+    if (!orgId) return { instances: [] };
+    // Narrowed to the addressed workspace when the caller is inside one. Without
+    // this, `/workspaces/sandbox/instances` listed every agent in the ORG,
+    // including other workspaces' — so the page advertised an isolation that did
+    // not exist. Still org-filtered underneath: the workspace narrows, it never
+    // widens, and a foreign slug matches nothing.
+    const all = await listAllInstances(orgId, workspaceSlug);
     return { instances: all.map(toInstanceDto) };
   }
 
@@ -175,6 +189,7 @@ export class InstancesController {
       instance: {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
+        embedder: await computeEmbedderStatus(instance),
       },
     };
   }
@@ -205,25 +220,52 @@ export class InstancesController {
   async create(
     @Body() body: { slug: string; name: string; description?: string; provider?: string; model?: string },
     @CurrentUser() user?: AuthenticatedUser,
+    @WorkspaceSlug() workspaceSlug?: string,
   ) {
     this.validateSlug(body.slug);
     this.validateModelConfig(body.provider, body.model);
+    // Resolve the owning organization up front: the store fails closed on an
+    // unresolvable one, and that is a caller-side condition (a principal with no
+    // org claim on a multi-org deployment), not a server fault — surface it as a
+    // 400 rather than letting the throw escape as a 500.
+    const orgId = await resolvePrincipalOrgId(user?.orgId);
+    if (!orgId) {
+      throw new BadRequestException(
+        "Cannot resolve the caller's organization — the agent has no workspace to be created in.",
+      );
+    }
     // Rely on the DB unique constraint as the authoritative duplicate check.
     // A pre-select + insert would introduce a TOCTOU race window.
     let instance: Instance;
     try {
-      instance = await createInstance({ ...body, slug: asInstanceSlug(body.slug) });
+      // `orgId` last: it comes from the authenticated principal and must never be
+      // overridable by a field of the request body. `workspaceSlug` comes from a
+      // header, not the body, for the same reason — and it is validated against
+      // `orgId` inside the store before it decides anything.
+      // Atomic: the instances row and its prompt / tool / skill seeds land
+      // together or not at all. They used to be four independent statements, so
+      // a failure between any two committed an agent with no prompt sections or
+      // no enabled tools — a state nothing repairs, whose slug is taken, and
+      // whose natural retry returns 409.
+      instance = await createInstanceWithDefaults({
+        ...body,
+        slug: asInstanceSlug(body.slug),
+        orgId,
+        workspaceSlug,
+      });
     } catch (err: unknown) {
       if (isUniqueViolation(err)) {
         throw new ConflictException(`Slug "${body.slug}" already exists`);
       }
+      // An addressed workspace that is not the caller's own is a caller-side
+      // condition, not a server fault: the agent is deliberately NOT filed under
+      // the organization default, because creating it somewhere other than the
+      // address bar says is the bug this path exists to prevent.
+      if (err instanceof Error && err.message.includes("does not belong to the caller")) {
+        throw new BadRequestException(err.message);
+      }
       throw err;
     }
-
-    // Seed DB stores for the new instance
-    await seedInstancePrompts(instance.id);
-    await seedInstanceTools(instance.id);
-    await seedInstanceSkills(instance.id);
 
     this.auditLogger.log({
       action: ManagementAuditAction.AgentCreate,
@@ -260,6 +302,7 @@ export class InstancesController {
       datetimeInjectionEnabled?: boolean;
       cacheEnabled?: boolean;
       cacheTtl?: string;
+      a2aEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
       sttProvider?: "openai" | "aws" | "deepgram" | "disabled";
@@ -334,6 +377,7 @@ export class InstancesController {
       instance: {
         ...toInstanceDto(instance),
         memory: await computeMemoryStatusFromInstance(instance),
+        embedder: await computeEmbedderStatus(instance),
       },
       wiped,
     };
@@ -354,7 +398,7 @@ export class InstancesController {
       // Best-effort: a stuck adapter must not block the delete.
       // Pass the user-controlled slug as a separate argument so it is never
       // treated as part of the format string (CodeQL js/tainted-format-string).
-      console.error("[instances] failed to stop channels for instance:", slug, err);
+      console.error("[instances] failed to stop channels for instance:", sanitizeForLog(slug), err);
     }
     const deleted = await deleteInstance(asInstanceSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);

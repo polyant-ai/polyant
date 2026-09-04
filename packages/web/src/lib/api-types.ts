@@ -2,14 +2,18 @@
 
 // ── Users ───────────────────────────────────────────────────────────
 
-export type UserRole = "superadmin" | "user";
-
 export interface AdminUser {
   id: string;
   email: string;
   name: string | null;
   image: string | null;
-  role: UserRole;
+  /**
+   * The deployment-level platform-admin flag. `role` has left this DTO: the
+   * engine's `/api/users` no longer returns it, only accepts it (deprecated,
+   * one-release wire alias on write). See `users.service.ts`'s
+   * `readPlatformAdminFlag`.
+   */
+  isPlatformAdmin: boolean;
   mustChangePassword: boolean;
   hasPassword: boolean;
   createdAt: string | null;
@@ -87,6 +91,8 @@ export interface Instance {
   cacheEnabled: boolean;
   /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
   cacheTtl: string;
+  /** When true, the instance is exposed over the inbound A2A (Agent2Agent) protocol. */
+  a2aEnabled: boolean;
   /** When true, prior-turn tool results are replayed (truncated) into the model's history. */
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload is persisted per turn (debug/analysis). */
@@ -123,6 +129,18 @@ export interface Instance {
   memory?: {
     needsOpenAIKey: boolean;
     canEnable: boolean;
+  };
+  /**
+   * Embedder readiness, NOT gated on any feature flag — unlike `memory`, which
+   * reports all-false whenever memory is off and therefore cannot speak for an
+   * agent that uses only knowledge.
+   *
+   * Computed by the engine because the browser cannot see the `AWS_REGION` env
+   * fallback: a client-side copy of this rule reports a false "AWS credentials
+   * needed" for a bedrock agent whose embeddings actually work.
+   */
+  embedder?: {
+    needsCredentials: boolean;
   };
   createdAt: string | null;
   updatedAt: string | null;
@@ -698,13 +716,16 @@ export interface EventDefinition {
   enabled: boolean;
 }
 
+/**
+ * The list endpoint (ROOM_READ) deliberately omits `webhookUrl`/`webhookToken`
+ * — the token is bearer-equivalent, so a read-only caller must not receive
+ * it. Fetch it on demand via `api.eventSources.webhookUrl` (ROOM_WRITE).
+ */
 export interface EventSource {
   id: string;
   name: string;
   sourceType: string;
   enabled: boolean;
-  webhookUrl: string;
-  webhookToken: string;
   /** Non-secret config; string values are masked (••••last4) by the API. */
   config?: Record<string, unknown>;
   definitions: EventDefinition[];
@@ -779,4 +800,44 @@ export interface OptoutContact {
   status: "opted_out" | "opted_in";
   source: string;
   updatedAt: string | null;
+}
+
+// ── MCP Servers ───────────────────────────────────────────────────────
+
+export type McpAuthMode = "none" | "static" | "oauth";
+
+export interface McpServer {
+  id: string;
+  slug: string;
+  name: string;
+  url: string;
+  authMode: McpAuthMode;
+  enabled: boolean;
+  /** Secret fields (token / clientSecret) are masked (`••••1234`) — see mcp-config-mask.ts on the engine. */
+  config: Record<string, unknown>;
+}
+
+export interface McpTestResult {
+  ok: boolean;
+  tools?: string[];
+  requiresOAuth?: boolean;
+  error?: string;
+}
+
+// ── Tenancy (GET /api/me) ───────────────────────────────────────────
+
+/** A workspace as the frontend addresses it in a tenant-scoped URL. */
+export interface TenantWorkspace {
+  slug: string;
+  name: string;
+  isDefault: boolean;
+}
+
+/**
+ * The caller's own tenancy. `organization: null` is a valid response — a JWT
+ * minted before RBAC carries no orgId — and means "sign in again", not "error".
+ */
+export interface TenantContextPayload {
+  organization: { slug: string; name: string } | null;
+  workspaces: TenantWorkspace[];
 }

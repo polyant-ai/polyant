@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, sql, inArray } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { and, asc, desc, eq, sql, inArray } from "drizzle-orm";
+import { db, type DbExecutor } from "../database/client.js";
+import { seedInstancePrompts } from "./prompts.store.js";
+import { seedInstanceTools } from "./instance-tools.store.js";
+import { seedInstanceSkills } from "./instance-skills.store.js";
 import { DEFAULT_EMBEDDING_DIM, embeddingProviderFor } from "../embeddings-gateway/config.js";
 import type { EmbeddingProvider } from "../embeddings-gateway/types.js";
 import { instances } from "./schema.js";
@@ -10,12 +13,93 @@ import { principalSecrets } from "../conversations/principal-secrets.schema.js";
 import { memories } from "../memory/schema.js";
 import { knowledgeDocuments } from "../knowledge/schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
+import { organizations, workspaces } from "../organizations/organization.schema.js";
 import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
+import { buildOrgScopedAgentFilter } from "../authz/scope-filter.js";
 import { asInstanceSlug, asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
 
-// Every instance must belong to a workspace. Until per-workspace creation
-// lands, new instances land in the default workspace — the same place the
-// migration backfilled pre-existing rows, so behaviour is unchanged.
+// Every agent belongs to exactly one workspace, and a workspace to exactly one
+// organization. Which workspace a NEW agent lands in is decided by the caller's
+// organization (`resolveWorkspaceIdForPrincipal`), never by the deployment-wide
+// default workspace — that single `is_default` row belongs to the organization
+// seeded by migration 0051, so using it for an org-B caller is a cross-tenant
+// write. Only system paths with no principal (boot seeding) may use it.
+
+/** Anything that can run a `select` — the shared `db` or a transaction handle. */
+type Executor = Pick<typeof db, "select">;
+
+/**
+ * The organization a caller acts within: its own `orgId` claim, or — when the
+ * principal carries none (legacy JWT minted before the claim existed,
+ * gateway-forwarded identity) — the deployment's only organization, where the
+ * answer is unambiguous.
+ *
+ * Returns null when it cannot be decided (no claim AND several organizations);
+ * callers MUST fail closed on null instead of picking the seed organization.
+ */
+export async function resolvePrincipalOrgId(
+  orgId: string | undefined,
+  executor: Executor = db,
+): Promise<string | null> {
+  if (orgId) return orgId;
+  // limit(2) — we only need to know whether the deployment is single-org.
+  const rows = await executor.select({ id: organizations.id }).from(organizations).limit(2);
+  return rows.length === 1 ? rows[0].id : null;
+}
+
+/**
+ * The workspace an agent created by this caller must land in: the caller
+ * organization's default workspace, else its oldest one.
+ *
+ * Throws when the organization (or a workspace inside it) cannot be resolved —
+ * a create/import must fail rather than silently file the agent under another
+ * tenant.
+ */
+export async function resolveWorkspaceIdForPrincipal(
+  orgId: string | undefined,
+  executor: Executor = db,
+  workspaceSlug?: string,
+): Promise<string> {
+  const organizationId = await resolvePrincipalOrgId(orgId, executor);
+  if (!organizationId) {
+    throw new Error(
+      "Cannot resolve the caller's organization — refusing to create the agent in another tenant's workspace.",
+    );
+  }
+
+  // An addressed workspace wins, but ONLY inside the caller's own organization —
+  // the slug arrives from the URL the browser is on, so it is caller-controlled
+  // input and a match on slug alone would let one tenant file an agent under
+  // another's workspace. Unknown-or-foreign is a hard failure rather than a
+  // silent fall back to the default, because filing the agent somewhere other
+  // than the address bar says is the bug this exists to fix.
+  if (workspaceSlug) {
+    const [addressed] = await executor
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(
+        and(eq(workspaces.organizationId, organizationId), eq(workspaces.slug, workspaceSlug)),
+      )
+      .limit(1);
+    if (!addressed) {
+      throw new Error(
+        `Workspace "${workspaceSlug}" does not belong to the caller's organization.`,
+      );
+    }
+    return addressed.id;
+  }
+
+  const [row] = await executor
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.organizationId, organizationId))
+    .orderBy(desc(workspaces.isDefault), asc(workspaces.createdAt))
+    .limit(1);
+  if (!row) {
+    throw new Error(`Organization "${organizationId}" owns no workspace to create the agent in.`);
+  }
+  return row.id;
+}
 
 export interface Instance {
   id: InstanceUuid;
@@ -50,6 +134,8 @@ export interface Instance {
   cacheEnabled: boolean;
   /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */
   cacheTtl: string;
+  /** Gates A2A (Agent2Agent) server exposure for this instance. Default false — opt-in. */
+  a2aEnabled: boolean;
   /** When true, prior-turn tool calls + results are reconstructed into the model's cross-turn history. */
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
@@ -76,9 +162,23 @@ function toInstance(row: typeof instances.$inferSelect): Instance {
   return { ...row, id: asInstanceUuid(row.id), slug: asInstanceSlug(row.slug) } as Instance;
 }
 
-/** Return all active instances. */
-export async function listActiveInstances(): Promise<Instance[]> {
-  return db.select().from(instances).where(eq(instances.status, "active")).then((rows) => rows.map(toInstance));
+/**
+ * Return all active instances. Pass the caller's resolved `orgId` to restrict
+ * the list to that organization's agents (reuses the RBAC org-scoping predicate
+ * so "which agents belong to org X" stays defined in exactly one place).
+ * Omitting it returns every agent — reserved for system paths with no principal.
+ */
+export async function listActiveInstances(orgId?: string): Promise<Instance[]> {
+  return db
+    .select()
+    .from(instances)
+    .where(
+      and(
+        eq(instances.status, "active"),
+        orgId ? buildOrgScopedAgentFilter(orgId, "slug") : undefined,
+      ),
+    )
+    .then((rows) => rows.map(toInstance));
 }
 
 /** Find an instance by slug. Returns undefined if not found. */
@@ -87,13 +187,48 @@ export async function findInstanceBySlug(slug: InstanceSlug): Promise<Instance |
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
+/**
+ * Resolve several agent-handoff targets in ONE query: identity plus the
+ * organization that owns them.
+ *
+ * `buildTools` synthesises an `ask_<slug>` tool per `agent:` entry, and it used
+ * to spend three serialized round trips per entry — `findInstanceBySlug`, then
+ * `agentsShareOrganization`, which is itself two `readAgentScope` reads, one of
+ * them for the CALLER and therefore identical on every iteration. That runs on
+ * the request path of every turn, before the model is even called: an
+ * orchestrator wired to twenty sub-agents paid sixty round trips per message,
+ * inside the span the pipeline reports as `toolBuildingMs`.
+ *
+ * The join to `workspaces` is what carries the organization, and it is an INNER
+ * join on purpose: an agent whose workspace row is missing resolves to nothing
+ * and is therefore skipped by the caller — fail-closed, matching `readAgentScope`.
+ */
+export async function findAgentHandoffTargets(
+  slugs: InstanceSlug[],
+): Promise<Map<string, { id: string; slug: string; name: string; description: string | null; organizationId: string }>> {
+  if (slugs.length === 0) return new Map();
+  const rows = await db
+    .select({
+      id: instances.id,
+      slug: instances.slug,
+      name: instances.name,
+      description: instances.description,
+      organizationId: workspaces.organizationId,
+    })
+    .from(instances)
+    .innerJoin(workspaces, eq(instances.workspaceId, workspaces.id))
+    .where(inArray(instances.slug, slugs));
+  return new Map(rows.map((r) => [r.slug, r]));
+}
+
 /** Find an instance by id (UUID). Returns undefined if not found. */
 export async function findInstanceById(id: string): Promise<Instance | undefined> {
   const rows = await db.select().from(instances).where(eq(instances.id, id)).limit(1);
   return rows[0] ? toInstance(rows[0]) : undefined;
 }
 
-/** Insert an instance if the slug doesn't already exist. */
+/** Insert an instance if the slug doesn't already exist. Boot seeding only —
+ *  a system path with no principal, hence the deployment default workspace. */
 export async function ensureInstance(data: {
   slug: InstanceSlug;
   name: string;
@@ -126,9 +261,49 @@ export async function seedInstances(): Promise<void> {
   console.log("Instances seeded (default, creative)");
 }
 
-/** Return all instances (any status), ordered by name (case-insensitive). */
-export async function listAllInstances(): Promise<Instance[]> {
-  return db.select().from(instances).orderBy(sql`LOWER(${instances.name})`).then((rows) => rows.map(toInstance));
+/**
+ * Return all instances (any status), ordered by name (case-insensitive). Pass
+ * the caller's resolved `orgId` to restrict the list to that organization's
+ * agents; omitting it returns every agent — reserved for system paths with no
+ * principal (boot channel startup).
+ *
+ * `workspaceSlug` narrows further to one workspace of that organization. It only
+ * ever narrows: the org filter is ANDed underneath, so a slug belonging to
+ * another tenant matches nothing rather than reaching across.
+ *
+ * A workspace slug is NOT globally unique, so it is meaningless — and, without
+ * the org filter beside it, cross-tenant — on its own. The overloads make that
+ * unrepresentable: the unconstrained system listing takes no arguments, and a
+ * `workspaceSlug` can only be supplied alongside an `orgId`. The runtime guard
+ * below fails closed for a JS caller that evades the overloads.
+ */
+export async function listAllInstances(): Promise<Instance[]>;
+export async function listAllInstances(
+  orgId: string,
+  workspaceSlug?: string,
+): Promise<Instance[]>;
+export async function listAllInstances(
+  orgId?: string,
+  workspaceSlug?: string,
+): Promise<Instance[]> {
+  if (workspaceSlug && !orgId) {
+    throw new Error("listAllInstances: workspaceSlug requires an orgId");
+  }
+  const orgFilter = orgId ? buildOrgScopedAgentFilter(orgId, "slug") : undefined;
+  const workspaceFilter = workspaceSlug
+    ? sql`${instances.workspaceId} in (
+        select w.id from workspaces w where w.slug = ${workspaceSlug}
+      )`
+    : undefined;
+  return db
+    .select()
+    .from(instances)
+    // Explicit rather than leaning on `and(undefined, undefined)` collapsing to
+    // `undefined`: an unconstrained listing is the system-caller path, and it
+    // should not depend on a library edge case to stay unconstrained.
+    .where(orgFilter || workspaceFilter ? and(orgFilter, workspaceFilter) : undefined)
+    .orderBy(sql`LOWER(${instances.name})`)
+    .then((rows) => rows.map(toInstance));
 }
 
 /** Create a new instance and return it. */
@@ -138,8 +313,16 @@ export async function createInstance(data: {
   description?: string;
   provider?: string;
   model?: string;
-}): Promise<Instance> {
-  const rows = await db
+  /** Caller's organization — decides the owning workspace. Never client-supplied. */
+  orgId?: string;
+  /**
+   * The workspace the caller is addressing, from the URL they are on. Validated
+   * against `orgId` before use, so a foreign slug fails rather than filing the
+   * agent under another tenant. Omitted → the organization's default workspace.
+   */
+  workspaceSlug?: string;
+}, executor: DbExecutor = db): Promise<Instance> {
+  const rows = await executor
     .insert(instances)
     .values({
       slug: data.slug,
@@ -152,10 +335,38 @@ export async function createInstance(data: {
       // Default the embedder to match the chat provider (bedrock chat → bedrock
       // embeddings, else openai). It is independently changeable afterwards.
       embeddingProvider: embeddingProviderFor(data.provider),
-      workspaceId: await findDefaultWorkspaceId(),
+      workspaceId: await resolveWorkspaceIdForPrincipal(data.orgId, executor, data.workspaceSlug),
     })
     .returning();
   return toInstance(rows[0]);
+}
+
+/**
+ * Create an agent AND seed its configuration, atomically.
+ *
+ * These were four independent statements: the `instances` row, then prompts,
+ * tools and skills. A crash, a pool timeout or a 500 between any two left a
+ * COMMITTED agent with a partial configuration — no prompt sections, so the
+ * pipeline builds a system prompt from nothing; or no `instance_tools` rows,
+ * which `buildTools` reads as "exactly zero tools" by design and the agent runs
+ * tool-less. Nothing repairs it: there is no reconcile job, the slug is now
+ * taken, and the operator's natural retry returns 409.
+ *
+ * The asymmetry was the tell — `importNewInstance` does the same work plus six
+ * more tables inside a single `db.transaction`, step-numbered, and
+ * `recomputeInstanceTools` wraps its own diff explicitly "to avoid a momentary
+ * empty state". Only the create path, which predates both, was left outside.
+ */
+export async function createInstanceWithDefaults(
+  data: Parameters<typeof createInstance>[0],
+): Promise<Instance> {
+  return db.transaction(async (tx) => {
+    const instance = await createInstance(data, tx);
+    await seedInstancePrompts(instance.id, tx);
+    await seedInstanceTools(instance.id, tx);
+    await seedInstanceSkills(instance.id, tx);
+    return instance;
+  });
 }
 
 /** Fields a caller is allowed to PATCH. `embeddingDim` is deliberately excluded:
@@ -179,6 +390,7 @@ type UpdatableInstanceFields = {
   datetimeInjectionEnabled?: boolean;
   cacheEnabled?: boolean;
   cacheTtl?: string;
+  a2aEnabled?: boolean;
   toolResultsInHistoryEnabled?: boolean;
   debugEnabled?: boolean;
   icon?: string | null;
@@ -211,6 +423,7 @@ const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
   "datetimeInjectionEnabled",
   "cacheEnabled",
   "cacheTtl",
+  "a2aEnabled",
   "toolResultsInHistoryEnabled",
   "debugEnabled",
   "icon",
@@ -259,17 +472,27 @@ export async function updateInstance(
  */
 export async function deleteInstance(slug: InstanceSlug): Promise<boolean> {
   return db.transaction(async (tx) => {
-    // conversation_messages has no instance_id — delete via the instance's conversations.
-    const convRows = await tx
-      .select({ conversationId: conversations.conversationId })
-      .from(conversations)
-      .where(eq(conversations.instanceId, slug));
-    const convIds = convRows.map((r) => r.conversationId);
-    if (convIds.length > 0) {
-      await tx
-        .delete(conversationMessages)
-        .where(inArray(conversationMessages.conversationId, convIds));
-    }
+    /*
+      conversation_messages has no instance_id, so it is deleted through the
+      instance's conversations — as a SUBQUERY, not as a list of ids.
+
+      Reading the ids into Node and binding them all worked until an agent had
+      enough conversations. A channel agent keys one per contact
+      (`slug:channel:identity`), so a WhatsApp or Telegram support agent reaches
+      tens of thousands in ordinary use; past 65 535 the extended query protocol
+      refuses the statement, and because this is one transaction the whole delete
+      rolls back — the agent becomes UNDELETABLE through the API, with no
+      diagnosis beyond a driver error. Same semantics, one bind parameter.
+    */
+    await tx.delete(conversationMessages).where(
+      inArray(
+        conversationMessages.conversationId,
+        tx
+          .select({ conversationId: conversations.conversationId })
+          .from(conversations)
+          .where(eq(conversations.instanceId, slug)),
+      ),
+    );
     await tx.delete(conversations).where(eq(conversations.instanceId, slug));
     await tx.delete(memories).where(eq(memories.instanceId, slug));
     // knowledge_chunks cascade via their document_id FK.

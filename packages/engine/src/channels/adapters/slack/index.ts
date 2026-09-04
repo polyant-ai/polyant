@@ -6,6 +6,7 @@ import { CHANNEL_MAX_LENGTH, METADATA_CONVERSATION_ID_OVERRIDE } from "../../typ
 import { toSlackMrkdwn } from "./slack-mrkdwn.js";
 import { splitMessage } from "../../split-message.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
+import { sanitizeForLog } from "../../../utils/create-logger.js";
 
 export interface SlackConfig {
   botToken: string;
@@ -122,7 +123,7 @@ export class SlackAdapter implements ChannelAdapter {
     });
 
     await this.app.start();
-    console.log(`Slack bot started for instance "${this.instanceId}" (socket mode, botUserId=${this.botUserId})`);
+    console.log(`Slack bot started for instance "${sanitizeForLog(this.instanceId)}" (socket mode, botUserId=${this.botUserId})`);
   }
 
   async sendMessage(channelId: string, msg: OutgoingMessage): Promise<void> {

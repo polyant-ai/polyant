@@ -13,16 +13,23 @@ const {
   mockGetEnabledToolNames,
   mockFindInstanceBySlug,
   mockGetToolRegistry,
+  mockFindAgentHandoffTargets,
+  mockReadAgentScope,
+  mockBuildAgentInvokeTool,
   mockBuildTool,
   mockCreateTaskTool,
   mockBuildPrompt,
   mockPipelineLog,
+  mockBuildMcpTools,
 } = vi.hoisted(() => ({
   mockChat: vi.fn(),
   mockChatStream: vi.fn(),
   mockGetEnabledToolNames: vi.fn(),
   mockFindInstanceBySlug: vi.fn(),
   mockGetToolRegistry: vi.fn(),
+  mockFindAgentHandoffTargets: vi.fn(),
+  mockReadAgentScope: vi.fn(),
+  mockBuildAgentInvokeTool: vi.fn(),
   mockBuildTool: vi.fn(),
   mockCreateTaskTool: vi.fn(),
   mockBuildPrompt: vi.fn(),
@@ -31,6 +38,10 @@ const {
     supervisorStart: vi.fn(),
     supervisorDone: vi.fn(),
   },
+  // MCP wiring (Task 8): these pre-existing tests don't exercise MCP tools —
+  // default to an empty result so `prepareSupervisor` doesn't hit the real
+  // (unmocked-here) mcp-servers store.
+  mockBuildMcpTools: vi.fn(),
 }));
 
 vi.mock("../../ai-gateway/index.js", () => ({
@@ -82,12 +93,14 @@ vi.mock("../../instances/instance-tools.store.js", () => ({
 
 vi.mock("../../instances/store.js", () => ({
   findInstanceBySlug: mockFindInstanceBySlug,
+  findAgentHandoffTargets: mockFindAgentHandoffTargets,
 }));
 
 // Mocks for the new agent-to-agent imports. The supervisor reaches into
 // channelManager.getAdapter() to synthesise `ask_{slug}` tools — return
-// undefined here so the loop short-circuits and no agent tools are added
-// during supervisor tests.
+// undefined by default so the loop short-circuits and no agent tools are added
+// during the other supervisor tests. The handoff-tenancy block below re-points
+// it for the cases that do exercise the branch.
 vi.mock("../../channels/channel-manager.js", () => ({
   channelManager: {
     getAdapter: vi.fn().mockReturnValue(undefined),
@@ -95,14 +108,32 @@ vi.mock("../../channels/channel-manager.js", () => ({
 }));
 
 vi.mock("../tools/agent-invoke.helpers.js", () => ({
-  buildAgentInvokeTool: vi.fn(),
+  buildAgentInvokeTool: mockBuildAgentInvokeTool,
+}));
+
+// `agentToolTarget` stays REAL: it is the `agent:{slug}` naming convention, and
+// the supervisor parses entries through it instead of two inline literals —
+// mocking it would take the convention out from under test at the enforcement
+// point. Only the database reads are stubbed.
+//
+// The tenancy comparison used to be a stubbed predicate
+// (`agentsShareOrganization`); the supervisor now does the comparison itself
+// against one batched read, so the STUBS are the two reads and the comparison is
+// under test rather than mocked away.
+vi.mock("../../authz/authz.store.js", () => ({
+  readAgentScope: mockReadAgentScope,
 }));
 
 vi.mock("../../channels/adapters/agent.adapter.js", () => ({}));
 
+vi.mock("../tools/mcp/mcp-tools.js", () => ({
+  buildMcpTools: mockBuildMcpTools,
+}));
+
 import { buildUserContent, supervise, superviseStream } from "./index.js";
 import type { SupervisorInput } from "./index.js";
 import type { Attachment } from "../../channels/types.js";
+import { channelManager } from "../../channels/channel-manager.js";
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -133,6 +164,68 @@ beforeEach(() => {
   mockCreateTaskTool.mockReturnValue({ _type: "task-tool" });
   mockBuildPrompt.mockResolvedValue({ system: "System prompt content", turnContext: "" });
   mockChat.mockResolvedValue(defaultChatResponse);
+  mockBuildMcpTools.mockResolvedValue({ tools: {}, close: vi.fn().mockResolvedValue(undefined) });
+  // Same-tenant by default; the handoff-tenancy block flips it per test.
+  mockReadAgentScope.mockResolvedValue({ agentId: "uuid-caller", workspaceId: "ws", organizationId: "org-a" });
+  mockFindAgentHandoffTargets.mockResolvedValue(new Map());
+  mockBuildAgentInvokeTool.mockReturnValue({
+    name: "ask_helper_bot",
+    description: "Ask the helper",
+    inputSchema: {},
+    execute: vi.fn(),
+  });
+});
+
+// =========================================================================
+// agent-to-agent handoff: tenancy backstop
+// =========================================================================
+
+/**
+ * An `agent:{slug}` entry makes the supervisor synthesise an `ask_` tool that
+ * runs the TARGET's whole pipeline. These tests pin the boundary that keeps
+ * that capability inside one organization, independently of how the row got
+ * into `instance_tools` — the tools API gates writes, this gates execution.
+ */
+describe("supervise — agent handoff tenancy", () => {
+  const enableAgentEntry = () => {
+    mockGetEnabledToolNames.mockResolvedValue(new Set(["agent:helper-bot"]));
+    mockFindAgentHandoffTargets.mockResolvedValue(
+      new Map([
+        ["helper-bot", {
+          id: "uuid-target",
+          slug: "helper-bot",
+          name: "Helper",
+          description: "A helper agent",
+          organizationId: "org-a",
+        }],
+      ]),
+    );
+    vi.mocked(channelManager.getAdapter).mockReturnValue({
+      dispatch: vi.fn(),
+    } as never);
+  };
+
+  const toolsFromLastChat = () =>
+    (mockChat.mock.calls[0][0] as { tools?: Record<string, unknown> }).tools ?? {};
+
+  it("should_synthesise_the_ask_tool_when_the_target_is_a_tenant_sibling", async () => {
+    enableAgentEntry();
+    mockReadAgentScope.mockResolvedValue({ agentId: "uuid-caller", workspaceId: "ws", organizationId: "org-a" });
+
+    await supervise({ message: "hi", instanceId: asInstanceSlug("caller-agent") });
+
+    expect(toolsFromLastChat()).toHaveProperty("ask_helper_bot");
+  });
+
+  it("should_skip_the_ask_tool_when_the_target_belongs_to_another_organization", async () => {
+    enableAgentEntry();
+    mockReadAgentScope.mockResolvedValue({ agentId: "uuid-caller", workspaceId: "ws", organizationId: "org-B" });
+
+    await supervise({ message: "hi", instanceId: asInstanceSlug("caller-agent") });
+
+    expect(toolsFromLastChat()).not.toHaveProperty("ask_helper_bot");
+    expect(mockBuildAgentInvokeTool).not.toHaveBeenCalled();
+  });
 });
 
 // =========================================================================
@@ -443,15 +536,17 @@ describe("supervise", () => {
       expect(mockCreateTaskTool).not.toHaveBeenCalled();
     });
 
-    it("empty enabled names (size=0) enables all tools including spawnTask", async () => {
-      mockGetEnabledToolNames.mockResolvedValue(new Set()); // empty = all enabled
+    it("empty enabled names (size=0) grants no tools at all, not every tool", async () => {
+      mockGetEnabledToolNames.mockResolvedValue(new Set());
 
       await supervise({ message: "hi" });
 
-      // All tools from registry should be built
-      expect(mockBuildTool).toHaveBeenCalledTimes(3); // read, write, saveMemory
-      // spawnTask is also added
-      expect(mockCreateTaskTool).toHaveBeenCalled();
+      // An empty set used to mean "enable everything", which made the least
+      // privileged configuration produce the most privileged agent: disabling
+      // every tool in the panel handed over the whole registry. No rows now
+      // means no tools.
+      expect(mockBuildTool).not.toHaveBeenCalled();
+      expect(mockCreateTaskTool).not.toHaveBeenCalled();
     });
 
     it("excludes harness tools when includeHarness is not provided", async () => {

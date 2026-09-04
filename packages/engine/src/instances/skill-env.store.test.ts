@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Hoisted mocks (vi.mock factories are hoisted above imports) ──────────────
@@ -209,11 +210,28 @@ describe("skill-env.store", () => {
   // ── deleteSkillEnv ───────────────────────────────────────────────────────
 
   describe("deleteSkillEnv", () => {
-    it("calls db.delete with correct where clause", async () => {
+    it("deletes scoped to instance AND skill AND key", async () => {
       await deleteSkillEnv(asInstanceUuid("inst-1"), "weather", "API_KEY");
 
+      /*
+        This file does not mock drizzle, so render the real SQL instead of
+        inspecting a mock's shape — the strongest form available and the one
+        `authz/scope-filter.test.ts` uses.
+
+        The old assertion was `expect(deleteWhereMock).toHaveBeenCalled()` under
+        the title "calls db.delete with correct where clause", and it never read
+        the arguments. Losing the key predicate deletes every env var of that
+        skill; losing the instance one reaches every tenant's copy.
+      */
       expect(deleteMock).toHaveBeenCalled();
-      expect(deleteWhereMock).toHaveBeenCalled();
+      const { sql: text, params } = new PgDialect().sqlToQuery(
+        deleteWhereMock.mock.calls[0][0],
+      );
+      expect(text.match(/=/g)).toHaveLength(3);
+      expect(text).toContain("instance_id");
+      expect(text).toContain("skill_slug");
+      expect(text).toContain("key");
+      expect(params).toEqual(["inst-1", "weather", "API_KEY"]);
     });
   });
 });

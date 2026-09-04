@@ -11,6 +11,11 @@ const APP_REVISION = process.env.NEXT_PUBLIC_APP_REVISION ?? process.env.GITHUB_
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Next 16.3 makes `next dev` write its own AGENTS.md + CLAUDE.md into this
+  // package. This repo curates those files itself (root CLAUDE.md / AGENTS.md),
+  // so the generated pair would be untracked noise on every dev run and would
+  // inject instructions nobody reviewed. Opt out and keep ours authoritative.
+  agentRules: false,
   env: {
     NEXT_PUBLIC_APP_VERSION: APP_VERSION,
     NEXT_PUBLIC_APP_REVISION: APP_REVISION,
@@ -42,10 +47,18 @@ const nextConfig: NextConfig = {
       { source: "/api/audit-logs/:path*", destination: `${ENGINE_URL}/api/audit-logs/:path*` },
       { source: "/api/users/:path*", destination: `${ENGINE_URL}/api/users/:path*` },
       { source: "/api/users", destination: `${ENGINE_URL}/api/users` },
+      { source: "/api/me", destination: `${ENGINE_URL}/api/me` },
       { source: "/api/me/:path*", destination: `${ENGINE_URL}/api/me/:path*` },
       { source: "/api/activity-stream/:path*", destination: `${ENGINE_URL}/api/activity-stream/:path*` },
       { source: "/memories/:path*", destination: `${ENGINE_URL}/memories/:path*` },
       { source: "/health", destination: `${ENGINE_URL}/health` },
+      // Unauthenticated proxy canary for deploy health checks (e.g. Render
+      // healthCheckPath). /api/* is excluded from the auth middleware matcher,
+      // and the engine's /health is @Public, so this returns 200 only when the
+      // rewrite layer actually reaches the engine — a broken proxy (empty
+      // ENGINE_URL) self-rewrites to a 404 and fails the deploy. /health above
+      // cannot serve this purpose: the auth middleware 302s it to /login.
+      { source: "/api/health", destination: `${ENGINE_URL}/health` },
       { source: "/v1/:path*", destination: `${ENGINE_URL}/v1/:path*` },
     ];
   },

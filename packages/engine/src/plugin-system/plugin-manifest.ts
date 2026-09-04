@@ -2,7 +2,7 @@
 
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { satisfies, valid, validRange } from "semver";
+import { parse, satisfies, validRange } from "semver";
 import { z } from "zod";
 
 /**
@@ -75,8 +75,18 @@ export function readPluginManifest(root: string): PluginManifest | null {
  * True when `engineVersion` satisfies the plugin's declared `engine` range.
  * Fail-closed: an unparseable range or version returns false (skip the plugin)
  * rather than wrongly loading an incompatible one.
+ *
+ * The comparison uses only MAJOR.MINOR.PATCH, deliberately. A prerelease tag is
+ * excluded from a semver range that carries none — `1.1.0-beta.1` satisfies
+ * neither `>=0.1.0` nor `^1.1.0` — so the moment this package ships a version
+ * with any suffix, EVERY third-party plugin fails this gate and is skipped with
+ * a `console.warn`. Boot still succeeds and the deploy still goes green; the
+ * agent simply has no plugin tools or hooks. A build marker is not a
+ * compatibility statement, and the version numbers already are one.
  */
 export function engineSatisfies(manifest: PluginManifest, engineVersion: string): boolean {
-  if (!valid(engineVersion) || !validRange(manifest.engine)) return false;
-  return satisfies(engineVersion, manifest.engine);
+  if (!validRange(manifest.engine)) return false;
+  const parsed = parse(engineVersion);
+  if (!parsed) return false;
+  return satisfies(`${parsed.major}.${parsed.minor}.${parsed.patch}`, manifest.engine);
 }

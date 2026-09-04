@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const mockAssertSafeUrl = vi.hoisted(() => vi.fn());
-const mockPinnedLookup = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.stubGlobal("fetch", mockFetch);
-vi.mock("../../utils/url-safety.js", () => ({
-  assertSafeUrl: mockAssertSafeUrl,
-  pinnedLookup: mockPinnedLookup,
-}));
-// Agent is used as a constructor: `new Agent({...})`
-vi.mock("undici", () => ({
-  Agent: class MockAgent { constructor() { /* noop */ } },
+// The tool's HTTP seam is `safeFetch`, which owns the SSRF check, the pinned
+// dispatcher and the undici-paired fetch. Asserting on it therefore also
+// asserts "no request was attempted at all" — stronger than the previous
+// combination of a stubbed global fetch and a mocked undici Agent, and it
+// cannot drift out of sync with undici. The real HTTP mechanics are covered
+// without mocks in utils/safe-http.test.ts.
+vi.mock("../../utils/safe-http.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../utils/safe-http.js")>()),
+  safeFetch: mockFetch,
 }));
 vi.mock("../../utils/error.js", () => ({
   errMsg: (err: unknown) => err instanceof Error ? err.message : String(err),
@@ -44,8 +43,6 @@ function mockResponse(body: unknown, status = 200): Response {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockAssertSafeUrl.mockResolvedValue("1.2.3.4");
-  mockPinnedLookup.mockReturnValue(vi.fn());
 });
 
 describe("httpRequest tool", () => {
@@ -75,9 +72,10 @@ describe("httpRequest tool", () => {
       authStyle: "bearer",
     });
 
-    expect(mockAssertSafeUrl).toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalled();
+    expect(String(mockFetch.mock.calls[0]![0])).toBe("https://api.example.com/webhook");
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.example.com/webhook",
+      expect.any(URL),
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
@@ -103,7 +101,7 @@ describe("httpRequest tool", () => {
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
+      expect.any(URL),
       expect.objectContaining({ method: "PUT" }),
     );
     expect(result).toMatchObject({ status: 200 });
@@ -122,7 +120,7 @@ describe("httpRequest tool", () => {
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
+      expect.any(URL),
       expect.objectContaining({
         method: "PATCH",
         headers: expect.objectContaining({ "X-API-Key": "test-api-key-123" }),
@@ -144,7 +142,7 @@ describe("httpRequest tool", () => {
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
+      expect.any(URL),
       expect.objectContaining({ method: "DELETE" }),
     );
     expect(result).toMatchObject({ status: 204 });
@@ -235,7 +233,7 @@ describe("httpRequest tool", () => {
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
+      expect.any(URL),
       expect.objectContaining({
         headers: expect.objectContaining({
           "X-API-Key": "test-api-key-123",
@@ -258,8 +256,8 @@ describe("httpRequest tool", () => {
 
     expect(result.error).toContain("http://");
     expect(result.error).toContain("https://");
-    // Validation happens BEFORE SSRF check and before fetch.
-    expect(mockAssertSafeUrl).not.toHaveBeenCalled();
+    // Validation happens BEFORE the SSRF check and before any request:
+    // safeFetch is never reached, so nothing is resolved and no socket opens.
     expect(mockFetch).not.toHaveBeenCalled();
     // No audit log on pre-flight schema rejection (mirrors Zod parse failure).
     expect(audit.log).not.toHaveBeenCalled();
@@ -283,7 +281,8 @@ describe("httpRequest tool", () => {
 
   // SSRF blocked
   it("returns error when URL is SSRF-blocked", async () => {
-    mockAssertSafeUrl.mockRejectedValue(new Error("Private IP blocked"));
+    // safeFetch rejects from its SSRF guard before opening a socket.
+    mockFetch.mockRejectedValue(new Error("Private IP blocked"));
     const { execute } = buildTool();
 
     const result = await execute({

@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { ServerModule } from "./server.module.js";
 import { OpenAIService } from "./openai/openai.service.js";
+import { A2aHandlerRegistry } from "./a2a/a2a-handler.registry.js";
 import { GlobalExceptionFilter } from "./filters/http-exception.filter.js";
 import { config } from "../config.js";
 import type { MessageHandler, StreamMessageHandler } from "../channels/types.js";
@@ -69,9 +70,15 @@ export async function startServer(
 ): Promise<INestApplication> {
   const app = await NestFactory.create(ServerModule, { logger: getLogLevels() });
 
-  // Express `trust proxy`: when unset (default 0) we ignore X-Forwarded-* so
-  // attackers can't spoof Host/Proto to bypass the Twilio HMAC. Operators
-  // behind a reverse proxy must opt in explicitly via TRUST_PROXY.
+  // Express `trust proxy`: governs Express's OWN `req.protocol`/`req.hostname`/
+  // `req.ip` getters — used by rate limiting and anything else that reads
+  // those. It does NOT protect the Twilio HMAC input: `getFullUrl` in
+  // twilio-webhook.controller.ts reads `x-forwarded-proto`/`x-forwarded-host`
+  // straight from `req.headers`, bypassing this setting entirely in either
+  // direction (set or unset). That input is instead hardened at the source —
+  // the forwarded scheme is clamped to http/https and a mismatched signature
+  // simply fails closed. Operators behind a reverse proxy still need
+  // TRUST_PROXY for the Express-level getters above to reflect it.
   const httpAdapter = app.getHttpAdapter();
   const instance = httpAdapter.getInstance() as { set?: (k: string, v: unknown) => void };
   instance.set?.("trust proxy", config.server.trustProxy);
@@ -89,6 +96,10 @@ export async function startServer(
   const openaiService = app.get(OpenAIService);
   openaiService.setMessageHandler(messageHandler);
   openaiService.setStreamMessageHandler(streamMessageHandler);
+
+  // Inject the stream message handler into the A2A registry (same pattern as OpenAIService)
+  const a2aRegistry = app.get(A2aHandlerRegistry);
+  a2aRegistry.setStreamMessageHandler(streamMessageHandler);
 
   // CORS: in production we fail closed unless an explicit allowlist is configured.
   app.enableCors(getCorsOptions());

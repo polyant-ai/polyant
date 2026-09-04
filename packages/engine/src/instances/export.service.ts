@@ -14,25 +14,16 @@ import { instanceTools } from "./instance-tools.schema.js";
 import { tools } from "../agents/tools/tools.schema.js";
 import { instanceSecrets } from "./secrets.schema.js";
 import { instanceChannels } from "./channels.schema.js";
+import { stripSensitiveKeys } from "./channel-config-sanitize.js";
 import { instanceSkillEnv } from "./skill-env.schema.js";
 import { decrypt } from "../crypto/index.js";
 import { getRoomByInstanceId } from "../room/room.store.js";
 import { listEventSourcesWithDefinitions } from "../webhooks/webhook-sources.store.js";
 import { listByInstance as listScheduledTasks } from "../scheduled-tasks/store.js";
 import { listHooks } from "../hooks/hooks.store.js";
+import { listMcpServers, type McpAuthMode } from "./mcp-servers.store.js";
+import { MCP_SECRET_PATHS, MCP_SECRET_SUBTREES } from "../server/instances/mcp-config-mask.js";
 import { INSTANCE_BUNDLE_VERSION, type InstanceBundle, type ExportInstanceData } from "./export.schema.js";
-
-// Credential-like config keys, stripped from channel config before export so a
-// bundle never carries secrets at rest. Mirrors the masking rule used by the
-// management API (instance-helpers.ts) — kept local to avoid a server→domain dep.
-const SENSITIVE_KEY_PATTERN = /(?:token|secret|password|key|credential)/i;
-
-/** Return a copy of `config` with credential-like keys removed. */
-export function stripSensitiveKeys(config: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(config).filter(([key]) => !SENSITIVE_KEY_PATTERN.test(key)),
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Export instance
@@ -69,6 +60,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     roomConfig,
     eventSourcesWithDefs,
     tasks,
+    mcpServers,
   ] = await Promise.all([
     exportPrompts(instance.id),
     exportSkillAssignments(instance.id),
@@ -84,6 +76,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     // schedule-task tool) reads/writes it as the slug. The export must
     // match or it would always return an empty array.
     listScheduledTasks(instance.slug),
+    exportMcpServers(instance.id),
   ]);
 
   return {
@@ -105,6 +98,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl === "5m" ? "5m" : "1h",
+    a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
     sttProvider: instance.sttProvider,
@@ -160,6 +154,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
       maxRetries: t.maxRetries,
       createdBy: t.createdBy ?? null,
     })),
+    mcpServers,
   };
 }
 
@@ -263,5 +258,58 @@ async function exportHooks(instanceId: InstanceUuid) {
     enabled: h.enabled,
     position: h.position,
     timeoutMs: h.timeoutMs,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// MCP servers
+// ---------------------------------------------------------------------------
+
+// stripSensitiveKeys (channel-config-sanitize.ts) is FLAT (top-level key-name matching) — MCP
+// secrets are NESTED (config.auth.token, config.staticClient.clientSecret,
+// config.dcrClient.client_secret), so a flat strip would miss them entirely.
+// The leaf paths themselves come from the SAME MCP_SECRET_PATHS const that
+// server/instances/mcp-config-mask.ts uses to MASK those fields for API
+// responses — a single source of truth, so a future secret field added to
+// one and missed in the other can't silently leak. Here we DELETE the field
+// (rather than mask it) — a bundle must never carry a token/secret at rest.
+// authServerInfo is left untouched — it only carries the authorization
+// server's public URLs.
+function deleteAtPath(obj: Record<string, unknown>, path: string[]): void {
+  let cur: Record<string, unknown> = obj;
+  for (let i = 0; i < path.length - 1; i++) {
+    const next = cur[path[i]];
+    if (typeof next !== "object" || next === null) return;
+    cur = next as Record<string, unknown>;
+  }
+  delete cur[path[path.length - 1]];
+}
+
+export function stripMcpSecrets(authMode: McpAuthMode, config: Record<string, unknown>): Record<string, unknown> {
+  const copy = structuredClone(config);
+  for (const path of MCP_SECRET_PATHS[authMode]) {
+    deleteAtPath(copy, path);
+  }
+  // Credential-bearing SUBTREES (today: `dcrClient`) are dropped ENTIRELY — a
+  // DCR registration response also carries a registration_access_token and a
+  // registration_client_uri, so no leaf list can be complete. The subtree list
+  // is shared with the response mask (which redacts every leaf of the same
+  // subtrees) so the two can never drift; an export has no use for a DCR
+  // client anyway — a fresh connect flow re-registers it.
+  for (const path of MCP_SECRET_SUBTREES[authMode]) {
+    deleteAtPath(copy, path);
+  }
+  return copy;
+}
+
+export async function exportMcpServers(instanceId: InstanceUuid) {
+  const rows = await listMcpServers(instanceId);
+  return rows.map((r) => ({
+    slug: r.slug,
+    name: r.name,
+    url: r.url,
+    authMode: r.authMode,
+    enabled: r.enabled,
+    config: stripMcpSecrets(r.authMode, r.config as Record<string, unknown>),
   }));
 }

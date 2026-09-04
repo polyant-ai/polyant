@@ -7,7 +7,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import {
-  countSuperadmins,
+  countPlatformAdmins,
   deleteSessionsForUser,
   deleteUserById,
   getUserByEmail,
@@ -18,6 +18,8 @@ import {
   updateUserMeta,
   updateUserPassword,
   type UserRow,
+  type ListUsersQuery,
+  type UserList,
 } from "./users.store.js";
 import {
   hashPassword,
@@ -25,7 +27,6 @@ import {
   verifyPassword,
 } from "./password.util.js";
 import { isLastOwnerOfAnyOrg } from "../organizations/members.store.js";
-import type { UserRole } from "../auth/users.schema.js";
 import { generateToken } from "../crypto/index.js";
 import { isUniqueViolation } from "../utils/db-errors.js";
 
@@ -35,9 +36,42 @@ import { isUniqueViolation } from "../utils/db-errors.js";
 const EMAIL_MAX_LEN = 254;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function validRole(value: unknown): UserRole {
-  if (value === "superadmin" || value === "user") return value;
-  throw new BadRequestException("Invalid role: expected 'superadmin' or 'user'");
+/**
+ * Read the platform-admin flag out of a request body.
+ *
+ * `isPlatformAdmin: boolean` is the only value ever WRITTEN. For ONE release
+ * this also accepts the deprecated `role` alias — `"platform_admin"` / the
+ * pre-rename `"superadmin"` / `"user"` — mapped straight into the boolean. The
+ * two-spelling comparison below is inlined from the now-deleted
+ * `auth/user-role.ts` compatibility shim: this is the LAST place either
+ * spelling is recognised. It is a wire alias in scheduled retirement, never a
+ * persisted fact — nothing here writes `role` back.
+ *
+ * Returns `undefined` when the caller sent neither field, which the create and
+ * update paths interpret differently: create defaults to `false` (an ordinary
+ * user), update treats it as "leave the flag untouched".
+ */
+function readPlatformAdminFlag(body: {
+  isPlatformAdmin?: boolean;
+  role?: string;
+}): boolean | undefined {
+  if (typeof body.isPlatformAdmin === "boolean") return body.isPlatformAdmin;
+  if (body.isPlatformAdmin !== undefined) {
+    // There is no DTO validation on this route — NestJS erases the controller's
+    // parameter type at runtime — so a non-boolean would flow straight through
+    // to Postgres. `"off"` is truthy here and false there: the
+    // last-platform-admin guard would see no demotion and the DB would perform
+    // one, leaving the deployment with zero platform admins.
+    throw new BadRequestException("isPlatformAdmin must be a boolean");
+  }
+  if (body.role !== undefined) {
+    const isPlatformAdminRole = body.role === "platform_admin" || body.role === "superadmin";
+    if (body.role !== "user" && !isPlatformAdminRole) {
+      throw new BadRequestException("Invalid role: expected 'platform_admin' or 'user'");
+    }
+    return isPlatformAdminRole;
+  }
+  return undefined;
 }
 
 export type PublicUser = UserRow;
@@ -55,8 +89,8 @@ export interface ResetPasswordResult {
 
 @Injectable()
 export class UsersService {
-  async list(): Promise<PublicUser[]> {
-    return listUsers();
+  async list(query: ListUsersQuery): Promise<UserList> {
+    return listUsers(query);
   }
 
   async get(id: string): Promise<PublicUser> {
@@ -68,14 +102,16 @@ export class UsersService {
   async create(body: {
     email?: string;
     name?: string;
+    /** @deprecated wire alias for `isPlatformAdmin`, scheduled for retirement — see readPlatformAdminFlag */
     role?: string;
+    isPlatformAdmin?: boolean;
     password?: string;
   }): Promise<CreateUserResult> {
     const email = (body.email ?? "").trim().toLowerCase();
     if (email.length > EMAIL_MAX_LEN || !EMAIL_RE.test(email)) {
       throw new BadRequestException("Invalid email");
     }
-    const role = validRole(body.role ?? "user");
+    const isPlatformAdmin = readPlatformAdminFlag(body) ?? false;
 
     let plain = body.password?.trim();
     let generated: string | undefined;
@@ -95,7 +131,7 @@ export class UsersService {
         email,
         name: body.name?.trim() || null,
         passwordHash,
-        role,
+        isPlatformAdmin,
         mustChangePassword: true,
       });
       return { user: stripSecret(created), generatedPassword: generated };
@@ -109,21 +145,22 @@ export class UsersService {
 
   async update(
     id: string,
-    body: { name?: string | null; role?: string },
-    actor: { userId: string; role: UserRole },
+    body: { name?: string | null; role?: string; isPlatformAdmin?: boolean },
+    actor: { userId: string },
   ): Promise<PublicUser> {
     const target = await getUserById(id);
     if (!target) throw new NotFoundException(`User ${id} not found`);
 
-    let nextRole: UserRole | undefined;
-    if (body.role !== undefined) {
-      nextRole = validRole(body.role);
-      // Prevent removing the last superadmin (also blocks self-demotion if you're the only one).
-      if (target.role === "superadmin" && nextRole !== "superadmin") {
-        const count = await countSuperadmins();
+    const nextFlag = readPlatformAdminFlag(body);
+    if (nextFlag !== undefined) {
+      // Prevent removing the last platform admin (also blocks self-demotion if
+      // you're the only one). `target.isPlatformAdmin` IS the standing now —
+      // there is no second, role-derived source to fall back on.
+      if (target.isPlatformAdmin && !nextFlag) {
+        const count = await countPlatformAdmins();
         if (count <= 1) {
           throw new ConflictException(
-            "Cannot remove the last superadmin: promote another user first.",
+            "Cannot remove the last platform admin: promote another user first.",
           );
         }
       }
@@ -131,13 +168,13 @@ export class UsersService {
 
     const updated = await updateUserMeta(id, {
       name: body.name === undefined ? undefined : body.name,
-      role: nextRole,
+      isPlatformAdmin: nextFlag,
     });
     if (!updated) throw new NotFoundException(`User ${id} not found`);
 
-    // If the role changed for someone else, invalidate their DB sessions.
+    // If the standing changed for someone else, invalidate their DB sessions.
     // (JWE stays valid until expiry — known trade-off.)
-    if (nextRole && nextRole !== target.role && actor.userId !== id) {
+    if (nextFlag !== undefined && nextFlag !== target.isPlatformAdmin && actor.userId !== id) {
       await deleteSessionsForUser(id);
     }
 
@@ -151,10 +188,11 @@ export class UsersService {
     const target = await getUserById(id);
     if (!target) throw new NotFoundException(`User ${id} not found`);
 
-    if (target.role === "superadmin") {
-      const count = await countSuperadmins();
+    // Same standing test as `update`: the enforced flag, and only the flag.
+    if (target.isPlatformAdmin) {
+      const count = await countPlatformAdmins();
       if (count <= 1) {
-        throw new ConflictException("Cannot delete the last superadmin");
+        throw new ConflictException("Cannot delete the last platform admin");
       }
     }
 

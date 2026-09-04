@@ -17,6 +17,7 @@
  *                   `Retry-After: 60` header so clients can back off.
  *   - Server-side `?instance=<slug>` filter — events for other instances are
  *     never emitted on this socket (no client-side trust).
+ *   - Server-side ORGANIZATION filter — see `resolveVisibleSlugs`.
  */
 
 import { Controller, Get, Query, Req, Res } from "@nestjs/common";
@@ -28,6 +29,7 @@ import { config } from "../config.js";
 import { CurrentUser } from "../auth/index.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { RequirePermission, Permission } from "../authz/index.js";
+import { listAllInstances, resolvePrincipalOrgId } from "../instances/store.js";
 
 /**
  * Per-client backpressure cap. If a slow client accumulates more than this
@@ -42,18 +44,47 @@ let activeConnections = 0;
 /** Per-user SSE connection counters (module-scoped). */
 const perUserConnections = new Map<string, number>();
 
+/**
+ * The agent slugs this caller is allowed to see events for, resolved ONCE per
+ * connection.
+ *
+ * `activityBus` is process-global and its events carry an agent slug, a tool
+ * summary, a channel type with its chat id and sender name, and up to 600
+ * characters of handoff prompt. The only filter used to be the client-supplied
+ * `?instance=`, so a caller holding `analytics:read` — which Viewer holds — could
+ * open this socket and watch every tenant's traffic in real time.
+ *
+ * Resolved at connect time into a Set rather than per event on purpose: the
+ * handler is synchronous and runs on every event on the bus, so a lookup there
+ * would put a query on the hot path. The trade-off is that an agent created
+ * DURING a connection is not visible until the client reconnects — which matches
+ * what this endpoint already promises ("a client that connects after a turn has
+ * started will only see events from that point onward").
+ *
+ * No platform-admin bypass, deliberately: the sibling org-scoped read paths
+ * (conversations, analytics, audit) do not grant one either.
+ */
+async function resolveVisibleSlugs(user: AuthenticatedUser | undefined): Promise<Set<string>> {
+  const orgId = await resolvePrincipalOrgId(user?.orgId);
+  // No resolvable organization → nothing is provably visible. Fail closed.
+  if (!orgId) return new Set();
+
+  const instances = await listAllInstances(orgId);
+  return new Set(instances.map((i) => i.slug));
+}
+
 @SkipThrottle()
 @Controller("api/activity-stream")
 export class ActivityStreamController {
   // Org-scoped read observability; the route has no `:slug` scope.
   @RequirePermission(Permission.ANALYTICS_READ)
   @Get("live")
-  live(
+  async live(
     @Req() req: Request,
     @Res() res: Response,
     @CurrentUser() user: AuthenticatedUser | undefined,
     @Query("instance") instance?: string,
-  ): void {
+  ): Promise<void> {
     const maxConnections = config.activityStream.maxConnections;
     const maxPerUser = config.activityStream.maxPerUser;
 
@@ -66,6 +97,10 @@ export class ActivityStreamController {
       });
       return;
     }
+
+    // Resolved BEFORE any connection counter is incremented or a header is sent,
+    // so a failure here cannot leak a slot or a half-open stream.
+    const visibleSlugs = await resolveVisibleSlugs(user);
 
     // Per-user cap. Unauthenticated requests are blocked by the global AuthGuard,
     // but we guard defensively in case the route is ever marked @Public.
@@ -118,9 +153,14 @@ export class ActivityStreamController {
 
     const handler = (evt: FeedEvent) => {
       if (closed) return;
+      // Tenancy filter FIRST, and independent of any client input: the bus is
+      // process-global, so without this the socket carries every organization's
+      // agent slugs, tool summaries, channel senders and handoff prompts.
+      // An event with no agent cannot be attributed, so it is not forwarded.
+      if (!evt.instance?.slug || !visibleSlugs.has(evt.instance.slug)) return;
       // Server-side filter: when the client passed `?instance=<slug>` only
       // forward events scoped to that instance.
-      if (instance && evt.instance?.slug !== instance) return;
+      if (instance && evt.instance.slug !== instance) return;
       queue.push(evt);
       if (queue.length > MAX_PENDING_PER_CLIENT) {
         // Backpressure: drop oldest events; preserve the most recent.
@@ -154,20 +194,32 @@ export class ActivityStreamController {
       }
     };
 
+    /**
+     * Release EVERY resource on EVERY path, idempotently (express can fire
+     * `close` and `error`, so this runs more than once).
+     *
+     * `closed` may already be true because a write failed inside `flush()` or the
+     * heartbeat. That path still owes the interval and the bus subscription:
+     * returning early there leaked a 25 s timer plus a live subscription (holding
+     * `visibleSlugs` and `res`) for the process lifetime, and made the bus invoke
+     * one dead handler per abruptly-dropped client on every event.
+     *
+     * `clearInterval` and the unsubscribe (`emitter.off`) are both no-ops when
+     * already applied, so repeated calls are safe.
+     */
     const teardown = () => {
-      if (closed) {
-        // Even if `closed` was flipped by a write failure inside flush/heartbeat,
-        // we may still owe a counter decrement.
-        decrementCounters();
-        return;
-      }
+      const wasOpen = !closed;
       closed = true;
       clearInterval(heartbeat);
       unsubscribe();
-      try {
-        res.end();
-      } catch {
-        // ignored
+      // Only end a response that was still considered open — ending twice is
+      // harmless but pointless, and the write already failed on the closed path.
+      if (wasOpen) {
+        try {
+          res.end();
+        } catch {
+          // ignored
+        }
       }
       decrementCounters();
     };

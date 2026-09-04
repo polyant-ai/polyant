@@ -9,22 +9,14 @@
  */
 
 const { execSync } = require("child_process");
+const path = require("path");
 
-const SECRET_PATTERNS = [
-  { pattern: /sk-[a-zA-Z0-9]{20,}/, label: "OpenAI API Key" },
-  { pattern: /sk_live_[a-zA-Z0-9]+/, label: "Stripe Live Key" },
-  { pattern: /AKIA[A-Z0-9]{16}/, label: "AWS Access Key" },
-  { pattern: /ghp_[a-zA-Z0-9]{36}/, label: "GitHub Personal Access Token" },
-  { pattern: /xox[baprs]-[a-zA-Z0-9-]+/, label: "Slack Token" },
-  {
-    pattern: /-----BEGIN (RSA |EC )?PRIVATE KEY-----/,
-    label: "Private Key",
-  },
-  {
-    pattern: /password\s*[:=]\s*["'][^"']{8,}["']/i,
-    label: "Hardcoded Password",
-  },
-];
+// The patterns live in ONE place, shared with the CI job that is the real
+// enforcement — this hook only fires when CLAUDE runs the commit. See the
+// docblock in that file.
+const SECRET_PATTERNS = require(
+  path.join(__dirname, "..", "..", "scripts", "ci", "secret-patterns.cjs"),
+);
 
 async function main() {
   let input = "";

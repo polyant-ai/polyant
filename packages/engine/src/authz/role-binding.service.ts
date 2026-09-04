@@ -9,11 +9,13 @@ import {
 } from "@nestjs/common";
 import {
   countOwnerBindings,
-  deleteOrgScopeBinding,
+  deleteOrganizationMember,
   getOrgScopeRoleKey,
   getSystemRoleByKey,
-  upsertOrgScopeBinding,
+  upsertOrganizationMemberRole,
+  withOrganizationMemberLock,
 } from "../organizations/members.store.js";
+import type { DbExecutor } from "../database/client.js";
 import { AuthorizationService } from "./authorization.service.js";
 import { SYSTEM_ROLE_KEYS, roleLevel, type SystemRoleKey } from "./permissions.js";
 
@@ -58,39 +60,47 @@ export class RoleBindingService {
     private readonly authz: AuthorizationService,
   ) {}
 
-  /** Set a user's org-scope role. Idempotent (replaces any existing binding). */
-  async assignRole(input: AssignRoleInput): Promise<void> {
+  /** Add a member or replace their org-scope role. */
+  async assignMemberRole(input: AssignRoleInput): Promise<void> {
     const { organizationId, userId, roleKey, actorId } = input;
     if (!isSystemRoleKey(roleKey)) {
       throw new BadRequestException(`Unknown role: ${roleKey}`);
     }
 
-    const role = await getSystemRoleByKey(roleKey);
-    if (!role) {
-      throw new BadRequestException(`Role not provisioned: ${roleKey}`);
-    }
+    await withOrganizationMemberLock(organizationId, async (transaction) => {
+      const role = await getSystemRoleByKey(roleKey, transaction);
+      if (!role) {
+        throw new BadRequestException(`Role not provisioned: ${roleKey}`);
+      }
 
-    // No self-escalation: the actor may not grant a role above its own level,
-    // nor touch a member who already outranks it.
-    await this.assertActorOutranks(organizationId, actorId, userId, roleKey);
+      await this.assertActorOutranks(
+        organizationId,
+        actorId,
+        userId,
+        roleKey,
+        transaction,
+      );
 
-    // Demoting the only Owner would orphan the organization.
-    if (roleKey !== OWNER_ROLE_KEY) {
-      await this.assertNotLastOwner(organizationId, userId);
-    }
+      if (roleKey !== OWNER_ROLE_KEY) {
+        await this.assertNotLastOwner(organizationId, userId, transaction);
+      }
 
-    await upsertOrgScopeBinding({ organizationId, userId, roleId: role.id, actorId });
+      await upsertOrganizationMemberRole(
+        { organizationId, userId, roleId: role.id, actorId },
+        transaction,
+      );
+    });
     this.authz.invalidateBindingCache(userId, organizationId);
   }
 
-  /** Remove a user's org-scope binding from an organization. */
-  async removeBinding(input: RemoveBindingInput): Promise<void> {
+  /** Remove a member and every role binding they hold in an organization. */
+  async removeMember(input: RemoveBindingInput): Promise<void> {
     const { organizationId, userId, actorId } = input;
-    // An actor may not remove a member who outranks it (e.g. admin → owner).
-    await this.assertActorOutranks(organizationId, actorId, userId);
-    await this.assertNotLastOwner(organizationId, userId);
-
-    await deleteOrgScopeBinding(organizationId, userId);
+    await withOrganizationMemberLock(organizationId, async (transaction) => {
+      await this.assertActorOutranks(organizationId, actorId, userId, undefined, transaction);
+      await this.assertNotLastOwner(organizationId, userId, transaction);
+      await deleteOrganizationMember(organizationId, userId, transaction);
+    });
     this.authz.invalidateBindingCache(userId, organizationId);
   }
 
@@ -100,19 +110,28 @@ export class RoleBindingService {
    * target whose current role is at or below its own `level`. Blocks the
    * admin → owner self-escalation and protects an owner from an admin.
    *
-   * ponytail: gated on `actorId` — the only production caller (MembersService)
-   * always supplies it, so every HTTP path is enforced; an actor-less call
+   * Gated on `actorId` — the only production caller (MembersService) always
+   * supplies it, so every HTTP path is enforced; an actor-less call
    * (system/bootstrap) intentionally skips the check.
+   *
+   * A platform admin RANKS ABOVE EVERY ROLE (rank infinity). It holds no
+   * org-scope binding by design — `MembersService.resolveAndAuthorize` exempts
+   * it from org membership one layer above — so `levelOf` reads 0 for it, below
+   * even `viewer` (10), and every assignment it attempted was rejected here.
+   * That defeated the exemption granted above and left the deployment with no
+   * actor able to bootstrap an Owner.
    */
   private async assertActorOutranks(
     organizationId: string,
     actorId: string | undefined,
     targetUserId: string,
     assignedRoleKey?: SystemRoleKey,
+    executor?: DbExecutor,
   ): Promise<void> {
     if (!actorId) return;
+    if (await this.authz.isPlatformAdmin(actorId)) return;
 
-    const actorLevel = await this.levelOf(organizationId, actorId);
+    const actorLevel = await this.levelOf(organizationId, actorId, executor);
 
     // Cannot grant a role above your own level.
     if (assignedRoleKey && roleLevel(assignedRoleKey) > actorLevel) {
@@ -120,7 +139,7 @@ export class RoleBindingService {
     }
 
     // Cannot demote/remove a member who outranks you.
-    const targetLevel = await this.levelOf(organizationId, targetUserId);
+    const targetLevel = await this.levelOf(organizationId, targetUserId, executor);
     if (targetLevel > actorLevel) {
       throw new ForbiddenException(
         "Cannot modify a member whose role is higher than your own.",
@@ -129,8 +148,12 @@ export class RoleBindingService {
   }
 
   /** Current org-scope role level of a user; 0 when they hold no known role. */
-  private async levelOf(organizationId: string, userId: string): Promise<number> {
-    const roleKey = await getOrgScopeRoleKey(organizationId, userId);
+  private async levelOf(
+    organizationId: string,
+    userId: string,
+    executor?: DbExecutor,
+  ): Promise<number> {
+    const roleKey = await getOrgScopeRoleKey(organizationId, userId, executor);
     return roleKey && isSystemRoleKey(roleKey) ? roleLevel(roleKey) : 0;
   }
 
@@ -141,11 +164,12 @@ export class RoleBindingService {
   private async assertNotLastOwner(
     organizationId: string,
     userId: string,
+    executor?: DbExecutor,
   ): Promise<void> {
-    const currentRole = await getOrgScopeRoleKey(organizationId, userId);
+    const currentRole = await getOrgScopeRoleKey(organizationId, userId, executor);
     if (currentRole !== OWNER_ROLE_KEY) return;
 
-    const owners = await countOwnerBindings(organizationId);
+    const owners = await countOwnerBindings(organizationId, executor);
     if (owners <= 1) {
       throw new ConflictException(
         "Cannot remove the last Owner of the organization: assign another Owner first.",

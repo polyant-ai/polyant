@@ -15,6 +15,12 @@ import { MembersService } from "./members.service.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import {
+  createManagementAuditLogger,
+  ManagementAuditAction,
+  ManagementAuditTarget,
+  toManagementAuditActor,
+} from "../../management-audit/management-audit-logger.js";
 
 /** Assign-role request body. */
 interface AssignRoleBody {
@@ -38,6 +44,8 @@ export class MembersController {
     private readonly members: MembersService,
   ) {}
 
+  private readonly auditLogger = createManagementAuditLogger();
+
   @RequirePermission(Permission.MEMBER_MANAGE)
   @Get()
   async list(
@@ -60,6 +68,16 @@ export class MembersController {
       throw new BadRequestException("roleKey is required");
     }
     await this.members.assign(orgSlug, userId, roleKey, user);
+    // A role grant can escalate a member all the way to Owner, and the upsert is
+    // delete-then-insert — so `role_bindings.created_by` is destroyed by the next
+    // assignment. This row is the only durable trace of the grant.
+    this.auditLogger.log({
+      action: ManagementAuditAction.MemberRoleAssign,
+      actor: toManagementAuditActor(user),
+      targetType: ManagementAuditTarget.Member,
+      targetId: userId,
+      metadata: { orgSlug, roleKey },
+    });
     return { assigned: true };
   }
 
@@ -71,6 +89,13 @@ export class MembersController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     await this.members.remove(orgSlug, userId, user);
+    this.auditLogger.log({
+      action: ManagementAuditAction.MemberRemove,
+      actor: toManagementAuditActor(user),
+      targetType: ManagementAuditTarget.Member,
+      targetId: userId,
+      metadata: { orgSlug },
+    });
     return { removed: true };
   }
 }

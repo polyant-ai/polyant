@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { workspaceSlugFromPath } from "@/lib/tenant/paths";
+
 // Re-export all types for backward compatibility
 export type {
   AdminUser,
-  UserRole,
   CreateUserResponse,
   ResetPasswordResponse,
   MemberRole,
@@ -68,6 +69,9 @@ export type {
   ActivityLogEntry,
   OptoutContact,
   EmbeddingWipeResult,
+  McpAuthMode,
+  McpServer,
+  McpTestResult,
 } from "./api-types";
 
 // Re-export value-level constants (the `export type` block above only carries types).
@@ -116,16 +120,13 @@ import type {
   OptoutContact,
   EmbeddingWipeResult,
   OrganizationMember,
+  McpAuthMode,
+  McpServer,
+  McpTestResult,
+  TenantContextPayload,
 } from "./api-types";
 
 // ── HTTP Client ─────────────────────────────────────────────────────
-
-/**
- * The single OSS organization slug. The OSS build is single-org (the migration
- * seeds one default org); the management plane addresses it by this slug. When
- * multi-org lands (Phase 2) this becomes a route param instead of a constant.
- */
-export const DEFAULT_ORG_SLUG = "default";
 
 // API calls go through Next.js rewrites (which proxy to engine and forward cookies)
 // In client components, relative paths are resolved against the browser origin (the Next.js app)
@@ -143,8 +144,20 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const { headers, signal, ...rest } = options ?? {};
+  // The workspace comes from the URL being rendered — the one thing the user can
+  // see, share and bookmark. Reading it here rather than from a cookie is what
+  // makes the URL segment authoritative: there is no second, invisible notion of
+  // "the active workspace" that a link could disagree with. A path outside a
+  // workspace (org- or deployment-level) sends no header and is resolved by the
+  // caller's stored preference server-side.
+  const workspaceSlug =
+    typeof window !== "undefined" ? workspaceSlugFromPath(window.location.pathname) : null;
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(workspaceSlug ? { "X-Workspace-Slug": workspaceSlug } : {}),
+      ...headers,
+    },
     signal: signal ?? AbortSignal.timeout(30_000),
     ...rest,
   });
@@ -155,6 +168,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   return res.json();
+}
+
+/**
+ * Whether a rejection is the engine refusing on AUTHORIZATION grounds.
+ *
+ * The panel holds no read-model of the caller's permissions — the session
+ * carries the DEPLOYMENT-level `isPlatformAdmin` flag and nothing about their
+ * role in the organization, which is where RBAC is decided. So a surface cannot
+ * ask "may I?" before rendering; it learns from the refusal. This predicate is
+ * that seam, and it exists as one function rather than an inline
+ * `status === 403` per call site so the check reads as an authorization
+ * concept instead of a magic number.
+ *
+ * The message is deliberately NOT surfaced to the user with it: `PermissionGuard`
+ * throws `Missing permission: audit_log:read`, an internal key that means nothing
+ * to a reader and leaks vocabulary. Callers render their own explanation.
+ */
+export function isForbidden(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 403;
 }
 
 /**
@@ -180,13 +212,24 @@ export function getUserErrorMessage(err: unknown, fallback: string): string {
 
 export const api = {
   users: {
-    list: () => request<{ users: AdminUser[] }>("/api/users"),
-    create: (data: { email: string; name?: string; role?: "superadmin" | "user"; password?: string }) =>
+    /**
+     * One page of installation accounts. `total` is what makes the page
+     * navigable — the engine bounds the response, so the caller cannot infer the
+     * end of the table from a short page.
+     */
+    list: (params: { limit?: number; offset?: number } = {}) => {
+      const qs = new URLSearchParams();
+      if (params.limit !== undefined) qs.set("limit", String(params.limit));
+      if (params.offset !== undefined) qs.set("offset", String(params.offset));
+      const suffix = qs.toString() ? `?${qs}` : "";
+      return request<{ users: AdminUser[]; total: number }>(`/api/users${suffix}`);
+    },
+    create: (data: { email: string; name?: string; isPlatformAdmin?: boolean; password?: string }) =>
       request<CreateUserResponse>("/api/users", {
         method: "POST",
         body: JSON.stringify(data),
       }),
-    update: (id: string, data: { name?: string | null; role?: "superadmin" | "user" }) =>
+    update: (id: string, data: { name?: string | null; isPlatformAdmin?: boolean }) =>
       request<{ user: AdminUser }>(`/api/users/${encodeURIComponent(id)}`, {
         method: "PATCH",
         body: JSON.stringify(data),
@@ -201,6 +244,7 @@ export const api = {
       }),
   },
   me: {
+    get: () => request<TenantContextPayload>("/api/me"),
     changePassword: (data: { currentPassword?: string; newPassword: string }) =>
       request<{ ok: boolean }>("/api/me/password", {
         method: "POST",
@@ -208,16 +252,16 @@ export const api = {
       }),
   },
   members: {
-    list: (orgSlug: string = DEFAULT_ORG_SLUG) =>
+    list: (orgSlug: string) =>
       request<{ members: OrganizationMember[] }>(
         `/api/organizations/${encodeURIComponent(orgSlug)}/members`,
       ),
-    assign: (userId: string, roleKey: string, orgSlug: string = DEFAULT_ORG_SLUG) =>
+    assign: (userId: string, roleKey: string, orgSlug: string) =>
       request<{ assigned: boolean }>(
         `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
         { method: "PUT", body: JSON.stringify({ roleKey }) },
       ),
-    remove: (userId: string, orgSlug: string = DEFAULT_ORG_SLUG) =>
+    remove: (userId: string, orgSlug: string) =>
       request<{ removed: boolean }>(
         `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
         { method: "DELETE" },
@@ -253,6 +297,7 @@ export const api = {
         datetimeInjectionEnabled?: boolean;
         cacheEnabled?: boolean;
         cacheTtl?: string;
+        a2aEnabled?: boolean;
         toolResultsInHistoryEnabled?: boolean;
         debugEnabled?: boolean;
         sttProvider?: "openai" | "aws" | "deepgram" | "disabled";
@@ -380,6 +425,32 @@ export const api = {
         `/api/instances/${encodeURIComponent(slug)}/channels/whatsapp/rotate-webhook-secret`,
         { method: "POST" },
       ),
+  },
+  mcpServers: {
+    list: (slug: string) =>
+      request<McpServer[]>(`/api/instances/${encodeURIComponent(slug)}/mcp-servers`),
+    set: (
+      slug: string,
+      serverSlug: string,
+      body: { name: string; url: string; authMode: McpAuthMode; enabled: boolean; config: Record<string, unknown> },
+    ) =>
+      request<{ ok: boolean }>(
+        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}`,
+        { method: "PUT", body: JSON.stringify(body) },
+      ),
+    delete: (slug: string, serverSlug: string) =>
+      request<{ deleted: boolean }>(
+        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}`,
+        { method: "DELETE" },
+      ),
+    test: (
+      slug: string,
+      body: { slug?: string; name: string; url: string; authMode: McpAuthMode; enabled: boolean; config: Record<string, unknown> },
+    ) =>
+      request<McpTestResult>(`/api/instances/${encodeURIComponent(slug)}/mcp-servers/test`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
   knowledge: {
     list: (slug: string) =>
@@ -837,6 +908,12 @@ export const api = {
       request(`/api/instances/${encodeURIComponent(slug)}/event-sources/${id}`, { method: "DELETE" }),
     rotateToken: (slug: string, id: string) =>
       request<{ webhookToken: string; webhookUrl: string }>(`/api/instances/${encodeURIComponent(slug)}/event-sources/${id}/rotate-token`, { method: "POST" }),
+    // ROOM_WRITE only — the list endpoint above deliberately omits this
+    // bearer-equivalent URL, so the caller fetches it on demand per source.
+    webhookUrl: (slug: string, id: string) =>
+      request<{ webhookUrl: string }>(
+        `/api/instances/${encodeURIComponent(slug)}/event-sources/${id}/webhook-url`,
+      ),
     listDefinitions: (slug: string, sourceId: string) =>
       request<EventDefinition[]>(`/api/instances/${encodeURIComponent(slug)}/event-sources/${sourceId}/definitions`),
     createDefinition: (slug: string, sourceId: string, data: { name: string; matchingPrompt: string; interpretationPrompt: string; enabled?: boolean }) =>

@@ -5,6 +5,8 @@ import { db } from "../database/client.js";
 import { users } from "../auth/users.schema.js";
 import { instances } from "../instances/schema.js";
 import { workspaces } from "../organizations/organization.schema.js";
+import { TtlCache } from "../utils/ttl-cache.js";
+import { BINDING_CACHE_TTL_MS } from "./authz.caches.js";
 import { roleBindings, type ScopeType } from "./role-binding.schema.js";
 import { rolePermissions } from "./role.schema.js";
 import type { PermissionKey } from "./permissions.js";
@@ -58,6 +60,62 @@ export async function readAgentScope(agentSlug: string): Promise<AgentScope | nu
     .where(eq(instances.slug, agentSlug))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * `${organizationId}:${workspaceSlug}` → the workspace id, or `null` when the
+ * slug names no workspace in that organization. Negative results are cached too:
+ * a bogus `X-Workspace-Slug` header is exactly the input an attacker can repeat,
+ * and re-querying for each attempt buys nothing.
+ *
+ * The web client sends `X-Workspace-Slug` on every agent-addressed request, so
+ * `PermissionGuard.assertAddressedWorkspace` resolved this on the hot path while
+ * its two neighbours (bindings, platform-admin) were cached. TTL matches the
+ * binding cache — the shorter of the two — so a stale entry self-heals within
+ * the same window authorization already tolerates.
+ */
+const workspaceIdCache = new TtlCache<string, string | null>({
+  maxSize: 1_000,
+  ttlMs: BINDING_CACHE_TTL_MS,
+});
+
+/**
+ * Drop the cached workspace-id lookups. Workspaces have no mutation path in the
+ * application today (they are created by migration/seed, and `organizations.store`
+ * only reads them), so there is nowhere to call this from — it exists so that
+ * whoever adds a workspace rename/delete has the invalidation seam in hand
+ * instead of a silent 60 s inconsistency.
+ */
+export function invalidateWorkspaceIdCache(): void {
+  workspaceIdCache.clear();
+}
+
+/**
+ * Resolve an addressed workspace only within the supplied organization. The
+ * workspace slug is not globally unique, so omitting the organization here
+ * would let a URL for one tenant validate against another tenant's workspace.
+ */
+export async function readWorkspaceId(
+  organizationId: string,
+  workspaceSlug: string,
+): Promise<string | null> {
+  const cacheKey = `${organizationId}:${workspaceSlug}`;
+  const cached = workspaceIdCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const [row] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(
+      and(
+        eq(workspaces.organizationId, organizationId),
+        eq(workspaces.slug, workspaceSlug),
+      ),
+    )
+    .limit(1);
+  const workspaceId = row?.id ?? null;
+  workspaceIdCache.set(cacheKey, workspaceId);
+  return workspaceId;
 }
 
 /**

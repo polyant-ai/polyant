@@ -7,6 +7,7 @@ import { toTelegramMarkdownV2 } from "./markdown-v2.js";
 import { splitMessage } from "../../split-message.js";
 import { transcribeAudio } from "../../audio-transcription.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
+import { sanitizeForLog } from "../../../utils/create-logger.js";
 
 export interface TelegramConfig {
   botToken: string;
@@ -143,9 +144,9 @@ export class TelegramAdapter implements ChannelAdapter {
     // bot.start() enters an infinite polling loop that never resolves — run fire-and-forget.
     await this.bot.init();
     this.bot.start().catch((err) =>
-      console.error('Telegram polling error for instance "%s":', this.instanceId, err),
+      console.error('Telegram polling error for instance "%s":', sanitizeForLog(this.instanceId), err),
     );
-    console.log(`Telegram bot started for instance "${this.instanceId}" (polling)`);
+    console.log(`Telegram bot started for instance "${sanitizeForLog(this.instanceId)}" (polling)`);
   }
 
   async sendMessage(channelId: string, msg: OutgoingMessage): Promise<void> {

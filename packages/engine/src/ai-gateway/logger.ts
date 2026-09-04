@@ -27,6 +27,12 @@ export const aiLogs = pgTable(
     instanceId: text("instance_id"),
     callType: text("call_type").notNull().default("conversation"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    // A turn that dies at the provider used to leave no row at all. Default 'ok'
+    // keeps every historical row meaningful — they are all calls that returned.
+    outcome: text("outcome").notNull().default("ok"),
+    // The CLASS of the failure (see classifyProviderError below), never the
+    // message: the message can quote the request, and the request is the prompt.
+    errorKind: text("error_kind"),
   },
   (table) => [
     index("idx_ai_logs_instance_id").on(table.instanceId),
@@ -34,8 +40,34 @@ export const aiLogs = pgTable(
     index("idx_ai_logs_instance_created").on(table.instanceId, table.createdAt),
     // Conversation-list token/cost LATERAL aggregation filters by conversation_id.
     index("idx_ai_logs_conversation_id").on(table.conversationId),
+    // Error-rate-by-agent queries filter on instance_id + outcome, ordered by time.
+    index("idx_ai_logs_instance_outcome").on(table.instanceId, table.outcome, table.createdAt),
   ],
 );
+
+/**
+ * The CLASS of a provider failure, never its message.
+ *
+ * The message can quote the request, and the request is the prompt — so what gets
+ * stored (and later shown in the panel) is one of a closed set. An unrecognised
+ * shape is `unknown`, not the raw text.
+ *
+ * Verified against the real shape @ai-sdk/provider throws: `APICallError` carries
+ * `statusCode` directly on the instance (not nested under a `response` object), so
+ * the flat read below is what actually fires for OpenAI/Anthropic/Bedrock/Nebius
+ * calls made through this gateway. A bare DOMException from `AbortSignal.timeout()`
+ * carries `name === "TimeoutError"` and IS an `instanceof Error` in Node — the
+ * second branch covers that shape too.
+ */
+export function classifyProviderError(err: unknown): string {
+  const status = (err as { statusCode?: number })?.statusCode;
+  if (status === 401 || status === 403) return "auth";
+  if (status === 429) return "rate_limit";
+  if (status === 400) return "bad_request";
+  if (status === 529 || status === 503) return "overloaded";
+  if (err instanceof Error && err.name === "TimeoutError") return "timeout";
+  return "unknown";
+}
 
 /** Minimal DB interface for insert operations. */
 interface InsertableDb {
@@ -97,6 +129,8 @@ export class AILogger {
     callType?: "conversation" | "service",
     cachedInputTokens?: number,
     cacheCreationInputTokens?: number,
+    outcome: "ok" | "error" = "ok",
+    errorKind: string | null = null,
   ): AILogEntry {
     // Sanitize numeric values — AI SDK may return undefined in some edge cases
     const safeInt = (v: number) => (Number.isFinite(v) ? Math.round(v) : 0);
@@ -118,6 +152,8 @@ export class AILogger {
       conversationId,
       instanceId,
       callType: callType ?? "conversation",
+      outcome,
+      errorKind,
     };
   }
 

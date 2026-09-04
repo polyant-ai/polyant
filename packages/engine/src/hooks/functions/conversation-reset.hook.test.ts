@@ -2,7 +2,10 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const SYSTEM_SCOPE = vi.hoisted(() => Symbol("conversation-store:system-scope"));
+
 vi.mock("../../conversations/index.js", () => ({
+  SYSTEM_SCOPE,
   conversationStore: {
     renameConversation: vi.fn(async () => true),
     getConversation: vi.fn(async () => null),
@@ -64,6 +67,32 @@ describe("conversation-reset hook", () => {
     expect(result).toEqual({
       halt: { message: expect.stringMatching(/^RESET → #\d{5}$/), persist: false },
     });
+  });
+
+  it("looks the candidate up with the explicit system scope, so the collision check is live", async () => {
+    // Without a scope the store's org filter fails closed (`and false`), so the
+    // lookup would ALWAYS return null and the collision check below would be dead.
+    await resetHook.handler(ctx("RESET"));
+
+    expect(conversationStore.getConversation).toHaveBeenCalledWith(
+      expect.stringMatching(/#\d{5}$/),
+      SYSTEM_SCOPE,
+    );
+  });
+
+  it("detects an existing conversation and does not reuse its id", async () => {
+    const taken = `${CONV_ID}#11111`;
+    vi.mocked(conversationStore.getConversation).mockImplementation(
+      async (id: string) => (id === taken ? ({ conversationId: id } as never) : null),
+    );
+    // Force the first candidate onto the taken id, the second onto a free one.
+    const random = vi.spyOn(Math, "random").mockReturnValueOnce(1111 / 90000).mockReturnValue(0.5);
+
+    await resetHook.handler(ctx("RESET"));
+
+    expect(conversationStore.getConversation).toHaveBeenCalledTimes(2);
+    expect(renamedTo()).not.toBe(taken);
+    random.mockRestore();
   });
 
   it("picks another id when the first candidate is taken", async () => {

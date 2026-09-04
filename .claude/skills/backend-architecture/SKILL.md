@@ -7,7 +7,7 @@ description: Use when building, modifying, or adding any backend feature in pack
 
 ## Overview
 
-Hybrid architecture: **functional pipeline** for AI runtime + **NestJS** as HTTP bridge only. Vercel AI SDK v4 for LLM orchestration, Drizzle ORM + pgvector for persistence, Zod for validation.
+Hybrid architecture: **functional pipeline** for AI runtime + **NestJS** as HTTP bridge only. Vercel AI SDK v6 for LLM orchestration, Drizzle ORM + pgvector for persistence, Zod for validation.
 
 **Core principle:** Pipeline is functional with module-level singletons. NestJS DI is confined to `server/`. Never introduce DI or decorators outside the `server/` directory.
 
@@ -62,14 +62,26 @@ await chat({ model: "gpt-4o-mini", messages, system });
 
 **Embeddings always use OpenAI** (`@ai-sdk/openai`) — the per-instance `openai_api_key` secret is required regardless of the instance's AI provider. Anthropic has no embedding API. Model: `text-embedding-3-small` (1536 dims).
 
-## Tool System (Self-Registration)
+## Tool System (Serialized Definitions)
 
-Tools self-register via side-effect imports. **To add a new tool:**
+**To add a new tool:**
 
 1. Create `packages/engine/src/agents/tools/<name>.tool.ts`
-2. Call `registerTool({ name, description, category, requiredEnv?, create })` at module level
-3. The `tools` DB table is synced automatically at boot — no manual DB inserts needed
+2. `export default defineTool({ name, description, parameters, execute })` from
+   `@polyant-ai/plugin-sdk`. `parameters` is a **static** Zod schema — it must not read
+   `ctx`; `defineTool` serializes it to JSON Schema at module load, in the tool's own realm
+3. The loader (`loadAllTools()`) collects the default export at boot and syncs the `tools`
+   DB table — no manual inserts
 4. No other files need modification
+
+The serialized boundary is the point: only DATA (`inputSchema`) and a FUNCTION (`execute`)
+cross between a tool and the engine, never a live Zod object or a shared singleton. That is
+what lets an external plugin resolve its own copies of the SDK, `zod` and `ai`. The legacy
+`registerTool({ create })` shape no longer loads at all: the loader recognizes only a default
+export carrying `inputSchema`, and skips anything else with a console warning.
+
+`parameters` must satisfy OpenAI strict mode — see `references/tools-and-hooks.md` for the
+banned Zod constructs and the guard-rail test that enforces them.
 
 **Key types:**
 
@@ -266,3 +278,18 @@ export const config = loadConfig();
 | Creating skills/prompts on filesystem | All config in PostgreSQL — use DB stores and Management API |
 | Centralizing schemas in `database/` | Co-locate schema with its domain module |
 | Adding connection pool config | Use postgres.js defaults |
+
+## Reference files
+
+Loaded on demand — the reasoning and failure modes behind the rules in `CLAUDE.md`.
+
+| File | Covers |
+|---|---|
+| `references/ai-gateway.md` | Model catalog, prompt caching, provider adapters, the AI SDK v6 boundary |
+| `references/pipeline.md` | Burst coordination, cancellation, conversation state, debug capture, typed SSE |
+| `references/instances.md` | Embedder independence, the destructive embedder switch, AWS secret namespaces, export/import |
+| `references/channels.md` | Channel adapters, GDPR opt-out |
+| `references/tools-and-hooks.md` | Tool registry, lifecycle hooks, plugins, MCP |
+| `references/operations.md` | Logging, audit, room, webhooks, scheduling, workspace credentials |
+| `references/auth-and-rbac.md` | Why authentication, tenancy and RBAC are shaped the way they are |
+| `references/first-party-tools.md` | Behaviour of individual shipped tools |

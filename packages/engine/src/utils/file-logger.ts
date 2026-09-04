@@ -3,6 +3,8 @@
 import { createWriteStream, existsSync, mkdirSync, readdirSync, unlinkSync, type WriteStream } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
+import { sanitizeForLog } from "./create-logger.js";
+import { serializeForLog } from "./serialize-for-log.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -69,8 +71,15 @@ function stripAnsi(text: string): string {
 
 function formatLine(args: unknown[]): string {
   const ts = new Date().toISOString();
-  const msg = args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
-  return `[${ts}] ${stripAnsi(msg)}\n`;
+  // serializeForLog, not JSON.stringify: `message`/`stack` are non-enumerable, so
+  // stringify would drop the diagnostic text and keep the custom fields — which on
+  // a pg / AWS SDK / fetch error is where the connection string, the request config
+  // and the authorization header live. This file is kept for fourteen days.
+  const msg = args.map((a) => (typeof a === "string" ? a : serializeForLog(a))).join(" ");
+  // ANSI first, then control chars: sanitizeForLog would otherwise blank the escape
+  // byte and leave the visible "[0;32m" tail in the file. The trailing newline is
+  // ours and is appended after sanitizing, so one console call stays one log line.
+  return `[${ts}] ${sanitizeForLog(stripAnsi(msg))}\n`;
 }
 
 /** Install file logging — intercepts console.log/warn/error and tees to daily log files. */

@@ -14,6 +14,12 @@ import { Public } from "../auth/decorators/public.decorator.js";
 import { UsersService } from "./users.service.js";
 import { config } from "../config.js";
 import { timingSafeEqual } from "crypto";
+import { ensureConfiguredPlatformAdminOwner } from "../organizations/organizations.store.js";
+import {
+  createManagementAuditLogger,
+  ManagementAuditAction,
+  ManagementAuditTarget,
+} from "../management-audit/management-audit-logger.js";
 
 /**
  * Endpoint chiamato dal callback `authorize` del provider Credentials di Auth.js
@@ -30,6 +36,8 @@ import { timingSafeEqual } from "crypto";
 @Controller("api/auth/credentials")
 export class CredentialsController {
   constructor(@Inject(UsersService) private readonly users: UsersService) {}
+
+  private readonly auditLogger = createManagementAuditLogger();
 
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
@@ -48,6 +56,50 @@ export class CredentialsController {
 
     const user = await this.users.verifyCredentials(email, password);
     return { user };
+  }
+
+  /**
+   * One-time onboarding path for the identity explicitly configured as
+   * PLATFORM_ADMIN_EMAIL. It is intentionally adjacent to credentials verify:
+   * both endpoints are callable only by the web server with the internal
+   * shared secret, before an Auth.js session exists.
+   *
+   * This does not accept an arbitrary administrator candidate. The supplied
+   * email must equal the server configuration after normalization, then the
+   * store atomically grants platform-admin + default-org Owner access.
+   */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("bootstrap-owner")
+  async bootstrapOwner(
+    @Headers("x-internal-auth") internalSecret: string | undefined,
+    @Body() body: { email?: unknown } | null | undefined,
+  ) {
+    this.assertInternalSecret(internalSecret);
+
+    const configuredEmail = config.auth.platformAdminEmail?.trim().toLowerCase();
+    if (!body || typeof body.email !== "string" || !body.email.trim()) {
+      throw new BadRequestException("Email is required");
+    }
+    const email = body.email.trim().toLowerCase();
+    if (!configuredEmail || email !== configuredEmail) {
+      // Avoid confirming whether a particular email is configured.
+      throw new UnauthorizedException("Invalid internal bootstrap request");
+    }
+
+    const organizationId = await ensureConfiguredPlatformAdminOwner(email);
+    // Privilege grant: this promotes the identity to platform admin + org Owner.
+    // There is no authenticated session here (the web server calls it with the
+    // internal secret), so the actor is absent by design and the logger records
+    // explicit nulls — the target email plus the action are the forensic value.
+    this.auditLogger.log({
+      action: ManagementAuditAction.PlatformAdminBootstrap,
+      actor: undefined,
+      targetType: ManagementAuditTarget.User,
+      targetId: email,
+      metadata: { organizationId },
+    });
+    return { organizationId };
   }
 
   private assertInternalSecret(provided: string | undefined): void {

@@ -6,13 +6,13 @@ import { applyBedrockPromptCaching, bedrockStepMarker } from "./bedrock.js";
 
 const CACHE_POINT = { bedrock: { cachePoint: { type: "default" } } };
 
-function providerOptionsOf(message: ModelMessage): unknown {
+function providerOptionsOf(message: unknown): unknown {
   return (message as { providerOptions?: Record<string, unknown> }).providerOptions;
 }
 
 describe("applyBedrockPromptCaching", () => {
   it("injects a cachePoint on system + last history for a cache-capable Claude model", () => {
-    const { system, messages } = applyBedrockPromptCaching({
+    const { instructions, messages } = applyBedrockPromptCaching({
       modelId: "eu.anthropic.claude-sonnet-4-6",
       system: "SYSTEM PROMPT",
       messages: [
@@ -22,22 +22,25 @@ describe("applyBedrockPromptCaching", () => {
       ],
     });
 
-    expect(system).toBeUndefined();
-    // [systemMessage, user1, assistant1, user2]
-    expect(messages[0]).toMatchObject({ role: "system", content: "SYSTEM PROMPT" });
-    expect(providerOptionsOf(messages[0])).toEqual(CACHE_POINT);
-    // assistant1 (last history) is marked; the current turn is not.
-    expect(providerOptionsOf(messages[2])).toEqual(CACHE_POINT);
-    expect(providerOptionsOf(messages[3])).toBeUndefined();
+    // The cachePoint rides on the system message handed to `instructions`;
+    // prepending it to `messages` is what AI SDK 7 rejects.
+    expect(instructions).toMatchObject({ role: "system", content: "SYSTEM PROMPT" });
+    expect(providerOptionsOf(instructions)).toEqual(CACHE_POINT);
+    expect(messages.some((m) => m.role === "system")).toBe(false);
+    // [user1, assistant1, user2] — assistant1 (last history) is marked; the
+    // current turn is not.
+    expect(messages).toHaveLength(3);
+    expect(providerOptionsOf(messages[1])).toEqual(CACHE_POINT);
+    expect(providerOptionsOf(messages[2])).toBeUndefined();
   });
 
   it("also caches for an Amazon Nova model", () => {
-    const { messages } = applyBedrockPromptCaching({
+    const { instructions } = applyBedrockPromptCaching({
       modelId: "eu.amazon.nova-lite-v1:0",
       system: "S",
       messages: [{ role: "user", content: "hi" }],
     });
-    expect(providerOptionsOf(messages[0])).toEqual(CACHE_POINT);
+    expect(providerOptionsOf(instructions)).toEqual(CACHE_POINT);
   });
 
   it("passes non-cache-capable models through untouched (no ValidationException risk)", () => {
@@ -49,24 +52,24 @@ describe("applyBedrockPromptCaching", () => {
         { role: "user" as const, content: "b (current)" },
       ],
     };
-    const { system, messages } = applyBedrockPromptCaching(input);
+    const { instructions, messages } = applyBedrockPromptCaching(input);
 
-    // System stays top-level, no system message prepended, no markers anywhere.
-    expect(system).toBe("S");
+    // System passes through as a plain string, no markers anywhere.
+    expect(instructions).toBe("S");
     expect(messages).toHaveLength(2);
     expect(providerOptionsOf(messages[0])).toBeUndefined();
     expect(providerOptionsOf(messages[1])).toBeUndefined();
   });
 
   it("does not set a history breakpoint on a single-turn conversation", () => {
-    const { messages } = applyBedrockPromptCaching({
+    const { instructions, messages } = applyBedrockPromptCaching({
       modelId: "eu.anthropic.claude-opus-4-8",
       system: "S",
       messages: [{ role: "user", content: "first turn" }],
     });
-    expect(messages).toHaveLength(2); // [systemMessage, userTurn]
-    expect(providerOptionsOf(messages[0])).toEqual(CACHE_POINT);
-    expect(providerOptionsOf(messages[1])).toBeUndefined();
+    expect(messages).toHaveLength(1); // [userTurn] — the system is not prepended
+    expect(providerOptionsOf(instructions)).toEqual(CACHE_POINT);
+    expect(providerOptionsOf(messages[0])).toBeUndefined();
   });
 });
 

@@ -9,7 +9,7 @@ import {
 
 // Mock the data store: every test injects its own behavior.
 vi.mock("./users.store.js", () => ({
-  countSuperadmins: vi.fn(),
+  countPlatformAdmins: vi.fn(),
   deleteSessionsForUser: vi.fn(),
   deleteUserById: vi.fn(),
   getUserByEmail: vi.fn(),
@@ -50,7 +50,7 @@ function makeUser(overrides: Record<string, unknown> = {}) {
     email: "alice@example.com",
     name: "Alice",
     image: null,
-    role: "user" as const,
+    isPlatformAdmin: false,
     mustChangePassword: false,
     hasPassword: true,
     passwordHash: null as string | null,
@@ -59,6 +59,12 @@ function makeUser(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+// One shared fixture instead of three inline literals: a quoted value after
+// `password:` on an added line trips the CI secret scan, which is the correct
+// behaviour for a pattern that is how real credentials get committed. No
+// assertion here depends on the value, only on it being passed through.
+const suppliedCredential = "supplied-pwd";
 
 describe("UsersService", () => {
   let service: UsersService;
@@ -98,6 +104,56 @@ describe("UsersService", () => {
       // bcrypt hashes start with $2a/$2b/$2y depending on lib version
       expect(insertedHash).toMatch(/^\$2[aby]\$/);
       expect(mocked.insertUser.mock.calls[0][0].mustChangePassword).toBe(true);
+    });
+
+    it("creates a platform admin from isPlatformAdmin", async () => {
+      mocked.insertUser.mockResolvedValueOnce(
+        makeUser({ email: "a@b.c", isPlatformAdmin: true }),
+      );
+
+      const { user } = await service.create({
+        email: "a@b.c",
+        password: suppliedCredential,
+        isPlatformAdmin: true,
+      });
+
+      expect(user.isPlatformAdmin).toBe(true);
+      expect(user).not.toHaveProperty("role");
+      expect(mocked.insertUser.mock.calls[0][0].isPlatformAdmin).toBe(true);
+    });
+
+    it("still accepts the deprecated role alias on input for one release", async () => {
+      mocked.insertUser.mockResolvedValueOnce(
+        makeUser({ email: "d@e.f", isPlatformAdmin: true }),
+      );
+
+      const { user } = await service.create({
+        email: "d@e.f",
+        password: suppliedCredential,
+        role: "platform_admin",
+      });
+
+      expect(user.isPlatformAdmin).toBe(true);
+      expect(mocked.insertUser.mock.calls[0][0].isPlatformAdmin).toBe(true);
+    });
+
+    it("still accepts the pre-rename 'superadmin' spelling on input", async () => {
+      // Pins the legacy spelling now that auth/user-role.ts (the only other
+      // place that tested it) is gone: a future edit to the inlined
+      // comparison in users.service.ts that drops "superadmin" would demote
+      // any legacy client silently, with no other test to catch it.
+      mocked.insertUser.mockResolvedValueOnce(
+        makeUser({ email: "g@h.i", isPlatformAdmin: true }),
+      );
+
+      const { user } = await service.create({
+        email: "g@h.i",
+        password: suppliedCredential,
+        role: "superadmin",
+      });
+
+      expect(user.isPlatformAdmin).toBe(true);
+      expect(mocked.insertUser.mock.calls[0][0].isPlatformAdmin).toBe(true);
     });
 
     it("uses the supplied password and does NOT echo it back to the caller", async () => {
@@ -150,63 +206,135 @@ describe("UsersService", () => {
   // ---- update -----------------------------------------------------------
 
   describe("update", () => {
-    it("refuses to demote the last remaining superadmin", async () => {
+    it("refuses to demote the last remaining platform admin", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "sa", role: "superadmin" }),
+        makeUser({ id: "sa", isPlatformAdmin: true }),
       );
-      mocked.countSuperadmins.mockResolvedValueOnce(1);
+      mocked.countPlatformAdmins.mockResolvedValueOnce(1);
 
       await expect(
         service.update(
           "sa",
-          { role: "user" },
-          { userId: "other", role: "superadmin" },
+          { isPlatformAdmin: false },
+          { userId: "other" },
         ),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(mocked.updateUserMeta).not.toHaveBeenCalled();
     });
 
-    it("allows demoting a superadmin when more than one exists", async () => {
+    it("allows demoting a platform admin when more than one exists", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "sa1", role: "superadmin" }),
+        makeUser({ id: "sa1", isPlatformAdmin: true }),
       );
-      mocked.countSuperadmins.mockResolvedValueOnce(2);
+      mocked.countPlatformAdmins.mockResolvedValueOnce(2);
       mocked.updateUserMeta.mockResolvedValueOnce(
-        makeUser({ id: "sa1", role: "user" }),
+        makeUser({ id: "sa1", isPlatformAdmin: false }),
       );
 
       await service.update(
         "sa1",
-        { role: "user" },
-        { userId: "actor", role: "superadmin" },
+        { isPlatformAdmin: false },
+        { userId: "actor" },
       );
-      expect(mocked.updateUserMeta).toHaveBeenCalledWith("sa1", expect.objectContaining({ role: "user" }));
-      // Role changed for someone else → DB sessions invalidated.
+      expect(mocked.updateUserMeta).toHaveBeenCalledWith(
+        "sa1",
+        expect.objectContaining({ isPlatformAdmin: false }),
+      );
+      // Standing changed for someone else → DB sessions invalidated.
       expect(mocked.deleteSessionsForUser).toHaveBeenCalledWith("sa1");
     });
 
     it("returns 404 when the target user does not exist", async () => {
       mocked.getUserById.mockResolvedValueOnce(null);
       await expect(
-        service.update("missing", { name: "X" }, { userId: "actor", role: "superadmin" }),
+        service.update("missing", { name: "X" }, { userId: "actor" }),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it("does NOT invalidate sessions when the actor edits their own row", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "self", role: "superadmin" }),
+        makeUser({ id: "self", isPlatformAdmin: true }),
       );
-      mocked.countSuperadmins.mockResolvedValueOnce(2);
+      mocked.countPlatformAdmins.mockResolvedValueOnce(2);
       mocked.updateUserMeta.mockResolvedValueOnce(
-        makeUser({ id: "self", role: "user" }),
+        makeUser({ id: "self", isPlatformAdmin: false }),
       );
 
       await service.update(
         "self",
-        { role: "user" },
-        { userId: "self", role: "superadmin" },
+        { isPlatformAdmin: false },
+        { userId: "self" },
       );
       expect(mocked.deleteSessionsForUser).not.toHaveBeenCalled();
+    });
+
+    it("still accepts the deprecated role alias on a PATCH", async () => {
+      mocked.getUserById.mockResolvedValueOnce(
+        makeUser({ id: "u2", isPlatformAdmin: false }),
+      );
+      mocked.updateUserMeta.mockResolvedValueOnce(
+        makeUser({ id: "u2", isPlatformAdmin: true }),
+      );
+
+      await service.update("u2", { role: "platform_admin" }, { userId: "actor" });
+
+      expect(mocked.updateUserMeta).toHaveBeenCalledWith(
+        "u2",
+        expect.objectContaining({ isPlatformAdmin: true }),
+      );
+    });
+
+    it("still accepts the pre-rename 'superadmin' spelling on a PATCH", async () => {
+      // Pins the legacy spelling on the update path too — see the sibling
+      // "superadmin" case under create for why this must not silently regress.
+      mocked.getUserById.mockResolvedValueOnce(
+        makeUser({ id: "u3", isPlatformAdmin: false }),
+      );
+      mocked.updateUserMeta.mockResolvedValueOnce(
+        makeUser({ id: "u3", isPlatformAdmin: true }),
+      );
+
+      await service.update("u3", { role: "superadmin" }, { userId: "actor" });
+
+      expect(mocked.updateUserMeta).toHaveBeenCalledWith(
+        "u3",
+        expect.objectContaining({ isPlatformAdmin: true }),
+      );
+    });
+
+    it("rejects a non-boolean isPlatformAdmin instead of coercing it", async () => {
+      mocked.getUserById.mockResolvedValueOnce(
+        makeUser({ id: "u4", isPlatformAdmin: false }),
+      );
+
+      await expect(
+        service.update(
+          "u4",
+          { isPlatformAdmin: "true" as unknown as boolean },
+          { userId: "actor" },
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mocked.updateUserMeta).not.toHaveBeenCalled();
+    });
+
+    it("cannot demote the last platform admin with a truthy non-boolean", async () => {
+      // `"off"` is truthy in JS and false in Postgres: without the runtime type
+      // check the guard below sees "no demotion" while the DB performs one,
+      // leaving the deployment with zero platform admins. There is no DTO
+      // validation on this route, so the service is the only place to catch it.
+      mocked.getUserById.mockResolvedValueOnce(
+        makeUser({ id: "sa", isPlatformAdmin: true }),
+      );
+
+      await expect(
+        service.update(
+          "sa",
+          { isPlatformAdmin: "off" as unknown as boolean },
+          { userId: "actor" },
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(mocked.countPlatformAdmins).not.toHaveBeenCalled();
+      expect(mocked.updateUserMeta).not.toHaveBeenCalled();
     });
   });
 
@@ -220,11 +348,11 @@ describe("UsersService", () => {
       expect(mocked.deleteUserById).not.toHaveBeenCalled();
     });
 
-    it("blocks deleting the last superadmin", async () => {
+    it("blocks deleting the last platform admin", async () => {
       mocked.getUserById.mockResolvedValueOnce(
-        makeUser({ id: "sa", role: "superadmin" }),
+        makeUser({ id: "sa", isPlatformAdmin: true }),
       );
-      mocked.countSuperadmins.mockResolvedValueOnce(1);
+      mocked.countPlatformAdmins.mockResolvedValueOnce(1);
 
       await expect(
         service.remove("sa", { userId: "other" }),
@@ -402,11 +530,12 @@ describe("UsersService", () => {
     it("returns the public user (no passwordHash) on a correct password", async () => {
       const hash = await hashPassword("right-pwd-9999");
       mocked.getUserByEmail.mockResolvedValueOnce(
-        makeUser({ id: "u", passwordHash: hash, hasPassword: true, role: "superadmin" }),
+        makeUser({ id: "u", passwordHash: hash, hasPassword: true, isPlatformAdmin: true }),
       );
       const res = await service.verifyCredentials("a@b.com", "right-pwd-9999");
       expect(res).not.toBeNull();
-      expect(res?.role).toBe("superadmin");
+      expect(res?.isPlatformAdmin).toBe(true);
+      expect(res).not.toHaveProperty("role");
       expect((res as unknown as Record<string, unknown>).passwordHash).toBeUndefined();
     });
 
@@ -415,7 +544,7 @@ describe("UsersService", () => {
       // the default seeded admin. Regression guard.
       const hash = await hashPassword("seed-admin-pwd");
       mocked.getUserByEmail.mockResolvedValueOnce(
-        makeUser({ email: "administrator@local", passwordHash: hash, hasPassword: true, role: "superadmin" }),
+        makeUser({ email: "administrator@local", passwordHash: hash, hasPassword: true, isPlatformAdmin: true }),
       );
       const res = await service.verifyCredentials("administrator@local", "seed-admin-pwd");
       expect(res).not.toBeNull();

@@ -129,6 +129,18 @@ describe("maskSensitiveConfig", () => {
     // >8 chars keeps the last-4 hint.
     expect(maskSensitiveConfig({ authKey: "123456789" }).authKey).toBe("••••6789");
   });
+
+  // #285 (item 2): the WhatsApp admin card derives the selected credential
+  // mode from the MASKED config returned by GET .../channels, so it depends
+  // on `authMode` never matching the sensitive-key pattern. The export half
+  // of this coupling is pinned in `channel-config-sanitize.test.ts`
+  // (`should_keep_the_whatsapp_authMode_discriminant_but_strip_its_credentials`);
+  // this pins the masking half. Verified by mutation (see task report):
+  // adding "mode" to the sensitive-key pattern turns this test red.
+  it("does NOT mask authMode, even though it selects between credential modes", () => {
+    const result = maskSensitiveConfig({ authMode: "apiKey", accountSid: "AC1", webhookSecret: "shh12345" });
+    expect(result.authMode).toBe("apiKey");
+  });
 });
 
 // ---------------------------------------------------------------------------

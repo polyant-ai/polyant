@@ -62,7 +62,6 @@ If you run Polyant in production, please review:
 - [ ] Strong randomly-generated `AUTH_SECRET` — rotating this invalidates all existing sessions
 - [ ] Strong randomly-generated `AUTH_INTERNAL_SECRET`, identical in engine and web
 - [ ] `INITIAL_ADMIN_PASSWORD` changed after the first sign-in, and removed from the deployed environment
-- [ ] `AUTHZ_ENFORCE=true` — RBAC ships in shadow mode, where denials are logged but never applied
 - [ ] `AUTH_TRUST_HOST=true` only when behind a trusted reverse proxy
 - [ ] `AUTH_ALLOWED_DOMAIN` set to restrict sign-in to your organization's domain (legacy `AUTH_ALLOWED_DOMAINS` still honoured)
 - [ ] PostgreSQL not exposed to the public internet

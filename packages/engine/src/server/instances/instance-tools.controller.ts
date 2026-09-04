@@ -3,6 +3,7 @@
 import { Controller, Get, Patch, Param, Body, BadRequestException } from "@nestjs/common";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { listAvailableTools } from "../../agents/tools/registry.js";
+import { resolveCatalogToolIds } from "../../agents/tools/tools-sync.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { getAllSecretsById } from "../../instances/secrets.store.js";
 import { db } from "../../database/client.js";
@@ -17,6 +18,26 @@ import {
 import { listHooks } from "../../hooks/hooks.store.js";
 import { getHookRegistry } from "../../hooks/hook-registry.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { agentsShareOrganization, agentToolTarget } from "../../authz/agent-tenancy.js";
+
+/**
+ * Reject any `agent:{slug}` entry whose target lives in another organization.
+ * The message is deliberately identical for "does not exist" and "belongs to
+ * someone else" so the endpoint is not an existence oracle for other tenants'
+ * agent slugs.
+ */
+export async function assertAgentTargetsAreSiblings(
+  instanceSlug: string,
+  requestedToolNames: readonly string[],
+): Promise<void> {
+  for (const name of requestedToolNames) {
+    const targetSlug = agentToolTarget(name);
+    if (!targetSlug) continue;
+    if (!(await agentsShareOrganization(instanceSlug, targetSlug))) {
+      throw new BadRequestException(`Unknown or inaccessible tool "${name}".`);
+    }
+  }
+}
 
 @Controller("api/instances")
 export class InstanceToolsController {
@@ -89,6 +110,13 @@ export class InstanceToolsController {
       }
     }
 
+    // An `agent:{slug}` entry hands this agent a live channel into the target's
+    // pipeline, so the target must be a tenant sibling. The `tools` catalog is
+    // deployment-global and holds one such row per agent that enabled its
+    // `agent` channel — resolving a requested name against it unscoped would
+    // let any org wire itself an `ask_` handoff into any other org's agent.
+    await assertAgentTargetsAreSiblings(instance.slug, toAdd);
+
     // Tools to remove (currently manual but not in requested set)
     const toRemove: string[] = [];
     for (const row of currentRows) {
@@ -103,31 +131,61 @@ export class InstanceToolsController {
       }
     }
 
-    // Insert new manual tools
+    // Insert new manual tools.
+    //
+    // `resolveCatalogToolIds` repairs a catalog row the registry still holds, so
+    // a mirror that drifted from the registry cannot make this a silent no-op —
+    // which is what it was: an unresolved name simply inserted nothing, and the
+    // endpoint answered 200 with the tool still disabled. A name neither side
+    // knows is refused, with the message `assertAgentTargetsAreSiblings` uses so
+    // "does not exist" stays indistinguishable from "not yours".
+    const idsByName = toAdd.length > 0 ? await resolveCatalogToolIds(toAdd) : new Map<string, string>();
     if (toAdd.length > 0) {
-      const toolRows = await db
-        .select({ id: tools.id })
-        .from(tools)
-        .where(inArray(tools.name, toAdd));
-
-      if (toolRows.length > 0) {
-        await db
-          .insert(instanceTools)
-          .values(toolRows.map((t) => ({ instanceId: instance.id, toolId: t.id, source: "manual" as const })))
-          .onConflictDoNothing();
+      const unresolved = toAdd.filter((name) => !idsByName.has(name));
+      if (unresolved.length > 0) {
+        throw new BadRequestException(`Unknown or inaccessible tool "${unresolved[0]}".`);
       }
     }
 
-    // Remove manual tools that were disabled
-    if (toRemove.length > 0) {
-      await db
-        .delete(instanceTools)
-        .where(
-          and(
-            eq(instanceTools.instanceId, instance.id),
-            inArray(instanceTools.toolId, toRemove),
-          ),
-        );
+    /*
+      The add and the remove are ONE transaction.
+
+      They were two independent statements with no lock. A failure after the
+      insert left the agent holding both the newly enabled tools and the ones
+      the operator had just switched off — and two concurrent PATCHes (two admin
+      tabs, or the panel plus a script) each read the same `currentRows`, so the
+      second one's delete removed tools the first had just added. What that
+      endpoint controls is precisely what the agent is allowed to do.
+
+      `recomputeInstanceTools`, the same table's sibling, already states the
+      requirement in a comment and uses a transaction. This path was written
+      against `db` directly.
+    */
+    if (toAdd.length > 0 || toRemove.length > 0) {
+      await db.transaction(async (tx) => {
+        if (toAdd.length > 0) {
+          await tx
+            .insert(instanceTools)
+            .values(
+              toAdd.map((name) => ({
+                instanceId: instance.id,
+                toolId: idsByName.get(name)!,
+                source: "manual" as const,
+              })),
+            )
+            .onConflictDoNothing();
+        }
+        if (toRemove.length > 0) {
+          await tx
+            .delete(instanceTools)
+            .where(
+              and(
+                eq(instanceTools.instanceId, instance.id),
+                inArray(instanceTools.toolId, toRemove),
+              ),
+            );
+        }
+      });
     }
 
     // Return updated tool list with source

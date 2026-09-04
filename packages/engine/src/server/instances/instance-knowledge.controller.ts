@@ -29,6 +29,7 @@ import { processDocument } from "../../knowledge/ingestion.js";
 import { resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
 import { config } from "../../config.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { sanitizeForLog } from "../../utils/create-logger.js";
 
 /** Maximum allowed document size in bytes (5 MB). */
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -192,7 +193,7 @@ export class InstanceKnowledgeController {
     // Ingest asynchronously
     processDocument(doc.id, instance.slug, content).catch((err) => {
       console.error(
-        `[Knowledge] Ingestion failed for doc ${doc.id}: ${err instanceof Error ? err.message : String(err)}`,
+        `[Knowledge] Ingestion failed for doc ${doc.id}: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`,
       );
     });
 
@@ -281,7 +282,7 @@ export class InstanceKnowledgeController {
       // Re-embed with the instance's current embedder (fire-and-forget, like upload).
       processDocument(created.id, instance.slug, doc.content).catch((err) => {
         console.error(
-          `[Knowledge] Import ingestion failed for doc ${created.id}: ${err instanceof Error ? err.message : String(err)}`,
+          `[Knowledge] Import ingestion failed for doc ${created.id}: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`,
         );
       });
 

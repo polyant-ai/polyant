@@ -22,16 +22,64 @@ if (existsSync(packageEnv)) {
   dotenv.config();
 }
 
-const configSchema = z.object({
+/**
+ * `VAR=` in a `.env` file arrives as `""`, never `undefined` — and Zod's
+ * `.optional()` accepts only `undefined`, while `.default()` fires only on
+ * `undefined`. So an input the sample documents as skippable ("Leave empty for
+ * no promotion") was either rejected outright or silently coerced to a wrong
+ * value: `Number("")` is `0`, so `MESSAGE_SOFT_DEBOUNCE_MS=` meant 0ms, and
+ * `DATETIME_TIMEZONE=` made `Intl` throw on every LLM turn.
+ *
+ * Mapping `""` → `undefined` across the WHOLE input is the fix, not a per-field
+ * whitelist: a whitelist has to be extended by whoever adds the next optional
+ * var, and that is precisely the person who does not know the trap exists.
+ *
+ * Arrays pass through untouched — `plugins.dirs` is already split and filtered
+ * before it reaches here, and an empty entry there is a different question.
+ */
+function stripEmptyStrings(value: unknown): unknown {
+  if (value === "") return undefined;
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key,
+        stripEmptyStrings(entry),
+      ]),
+    );
+  }
+  return value;
+}
+
+const configSchema = z.preprocess(stripEmptyStrings, z.object({
   // Database
   postgres: z.object({
     host: z.string().default("localhost"),
     port: z.coerce.number().default(5432),
     database: z.string().default("polyant"),
     user: z.string().default("polyant"),
-    password: z.string(),
+    // Defaulted, not required: a local Postgres on `trust` auth has no password,
+    // and `POSTGRES_PASSWORD=` is how an operator says so. Without the default,
+    // `stripEmptyStrings` would turn that into a boot failure.
+    password: z.string().default(""),
     databaseUrl: z.string(),
-    ssl: z.coerce.boolean().default(false),
+    /**
+     * TLS to Postgres. Only the literal `"true"` enables it.
+     *
+     * NOT `z.coerce.boolean()`, which is `Boolean(value)` and so treats
+     * `"false"`, `"0"` and `"no"` as TRUE — the natural way to switch this off
+     * used to switch it on, contradicting `.env.example`. The `trustProxy`
+     * comment below already documents the same trap.
+     *
+     * CAVEAT: enabling this gives TLS WITHOUT certificate verification
+     * (`database/client.ts` passes `rejectUnauthorized: false`), so it defeats a
+     * passive listener but not an active MITM. Noted in `.env.example`;
+     * verifying the chain needs a CA bundle this config does not take yet.
+     */
+    ssl: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v): boolean => v === "true"),
   }),
 
   // Memory (pgvector)
@@ -102,30 +150,35 @@ const configSchema = z.object({
     internalSecret: z.string().min(16).optional(),
     /** Auth source: "session" (Auth.js JWT) or "alb-oidc" (trust ALB x-amzn-oidc-data header).
      *  Use "alb-oidc" when deployed behind an AWS ALB with OIDC authentication — the ALB
-     *  has already authenticated the user, so the engine trusts the forwarded claims. */
+     *  has already authenticated the user, so the engine trusts the forwarded claims.
+     *
+     *  "alb-oidc" is currently REFUSED at boot rather than accepted: since RBAC
+     *  became unconditional, a gateway-forwarded principal carries no `orgId` and
+     *  holds no role bindings, so it is denied on every `@RequirePermission`
+     *  route (see `authz/permission.guard.ts`). Accepting the value would boot a
+     *  panel that looks healthy and 403s on every management call; refusing it
+     *  names the problem while the operator can still act on it. Restore the
+     *  value here once the gateway identity is mapped onto a local user. */
     mode: z.enum(["session", "alb-oidc"]).default("session"),
-    /** RBAC: the user with this email is promoted to Platform Superadmin
-     *  (is_platform_admin=true) by the OrganizationsModule bootstrap on boot.
-     *  Idempotent; unset = no promotion (the migration already promotes
-     *  pre-existing role='superadmin' users). */
+    /** RBAC: the user with this email is promoted to Platform Admin on boot by
+     *  the OrganizationsModule bootstrap. It sets `is_platform_admin = true` and
+     *  nothing else — that flag is the sole authority for platform-admin
+     *  standing, read from the database on every request, and the panel renders
+     *  the account from the same flag. Idempotent; unset = no promotion
+     *  (migration 0076 reconciles any pre-existing platform-admin user before
+     *  the old `users.role` column is dropped). */
     platformAdminEmail: z.string().email().optional(),
   }),
 
-  // RBAC authorization (Stream 3). Ships in SHADOW mode by default: the
-  // PermissionGuard resolves scope and logs decisions but never denies unless
-  // `enforce` is true. Flip `AUTHZ_ENFORCE=true` to fail-closed on undeclared
-  // routes and denied permissions. Any value other than the literal "true"
-  // (including unset and "false") keeps shadow mode — no behaviour change.
-  authz: z.object({
-    enforce: z
-      .enum(["true", "false"])
-      .default("false")
-      .transform((v): boolean => v === "true"),
-  }),
+  // NOTE: there is no `authz.enforce`. RBAC is enforced unconditionally — see the
+  // class docblock in `authz/permission.guard.ts` for why the `AUTHZ_ENFORCE`
+  // escape hatch was deleted rather than defaulted.
 
   // Initial admin user — created on first boot if the users table is empty.
-  // Both fields optional: defaults are administrator@local + a random password
-  // logged once at first boot.
+  // INITIAL_ADMIN_PASSWORD is REQUIRED to seed: `users/seed.ts` skips seeding
+  // when it is absent rather than auto-generating a password, because boot logs
+  // are tee'd to disk by `utils/file-logger.ts` and a printed secret is a
+  // persisted secret. Only the email defaults (administrator@local).
   initialAdmin: z.object({
     email: z.string().email().optional(),
     password: z.string().optional(),
@@ -194,7 +247,16 @@ const configSchema = z.object({
   plugins: z.object({
     dirs: z.array(z.string()).default([]),
   }),
-});
+
+  // External MCP (Model Context Protocol) client servers (instance-configured,
+  // consumed via @ai-sdk/mcp).
+  //   connectTimeoutMs: bounds the per-server createMCPClient()+tools() round
+  //     trip so one hung/slow server can't stall every turn. On expiry the
+  //     server is treated exactly like a dead server (log warn + skip).
+  mcp: z.object({
+    connectTimeoutMs: z.coerce.number().int().positive().default(10000),
+  }),
+}));
 
 export type Config = z.infer<typeof configSchema>;
 
@@ -264,9 +326,6 @@ function loadConfig(): Config {
       mode: process.env.AUTH_MODE,
       platformAdminEmail: process.env.PLATFORM_ADMIN_EMAIL,
     },
-    authz: {
-      enforce: process.env.AUTHZ_ENFORCE,
-    },
     initialAdmin: {
       email: process.env.INITIAL_ADMIN_EMAIL,
       password: process.env.INITIAL_ADMIN_PASSWORD,
@@ -306,10 +365,27 @@ function loadConfig(): Config {
         .map((s) => s.trim())
         .filter((s) => s.length > 0),
     },
+    mcp: {
+      connectTimeoutMs: process.env.MCP_CONNECT_TIMEOUT_MS,
+    },
   });
 
   if (!result.success) {
     console.error("Configuration error:", result.error.format());
+    process.exit(1);
+  }
+
+  // Checked here rather than as a schema refinement so `auth.mode` keeps its full
+  // union type: the gateway branch in `auth/auth.guard.ts` is dormant, not deleted,
+  // and narrowing the type to "session" would make it unreachable code the compiler
+  // rejects — leaving the eventual fix with nothing to switch back on.
+  if (result.data.auth.mode === "alb-oidc") {
+    console.error(
+      "Configuration error: AUTH_MODE=alb-oidc is not supported in this release. " +
+        "Since RBAC became unconditional, a gateway-forwarded principal resolves no organization " +
+        "and is denied on every management route — the panel would load and 403 on every call. " +
+        "Use AUTH_MODE=session (see docs/UPGRADING.md).",
+    );
     process.exit(1);
   }
 

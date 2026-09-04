@@ -1,6 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { getUserErrorMessage, ApiError, api, API_BASE } from "./api";
+import { getUserErrorMessage, isForbidden, ApiError, api, API_BASE } from "./api";
+
+describe("isForbidden", () => {
+  it("recognises the engine refusing on authorization grounds", () => {
+    expect(isForbidden(new ApiError(403, "Missing permission: audit_log:read"))).toBe(true);
+  });
+
+  // 401 is "who are you", and its remedy differs — sign in again, which
+  // `TenantUnavailable` already offers. Conflating the two would tell someone
+  // whose session merely expired to go ask an administrator for a role.
+  it("does not treat an expired session as a permission problem", () => {
+    expect(isForbidden(new ApiError(401, "Authentication required"))).toBe(false);
+  });
+
+  it("is false for other API failures and for non-API errors", () => {
+    expect(isForbidden(new ApiError(500, "boom"))).toBe(false);
+    expect(isForbidden(new Error("network"))).toBe(false);
+    expect(isForbidden(undefined)).toBe(false);
+  });
+});
 
 describe("getUserErrorMessage", () => {
   it("returns short, clean ApiError messages", () => {
@@ -62,6 +81,81 @@ function mockFetch(response: Response) {
   global.fetch = fn;
   return fn;
 }
+
+// ── the workspace header ───────────────────────────────────────────────
+
+/**
+ * `request()` derives the workspace from the URL being rendered and sends it as
+ * `X-Workspace-Slug`. That single line is what makes the URL segment
+ * authoritative instead of decorative, and the alternative it replaced (a
+ * cookie) failed precisely by disagreeing with the address bar — so it is worth
+ * pinning here rather than only end to end.
+ */
+describe("request() — workspace scoping", () => {
+  const realLocation = window.location;
+
+  function at(pathname: string) {
+    Object.defineProperty(window, "location", {
+      value: { ...realLocation, pathname },
+      writable: true,
+      configurable: true,
+    });
+  }
+
+  afterEach(() => {
+    Object.defineProperty(window, "location", {
+      value: realLocation,
+      writable: true,
+      configurable: true,
+    });
+    vi.restoreAllMocks();
+  });
+
+  function headerFrom(fetchFn: ReturnType<typeof mockFetch>): string | undefined {
+    const init = fetchFn.mock.calls[0][1];
+    return (init?.headers as Record<string, string> | undefined)?.["X-Workspace-Slug"];
+  }
+
+  it("sends the workspace the URL addresses", async () => {
+    at("/organizations/acme/workspaces/sales/instances");
+    const fetchFn = mockFetch(mockResponse({ instances: [] }));
+
+    await api.instances.list();
+
+    expect(headerFrom(fetchFn)).toBe("sales");
+  });
+
+  it("sends no workspace header from an org-level page", async () => {
+    // The caller's stored preference resolves it server-side; sending a stale
+    // workspace here is exactly the divergence this mechanism removes.
+    at("/organizations/acme/members");
+    const fetchFn = mockFetch(mockResponse({ members: [] }));
+
+    await api.members.list("acme");
+
+    expect(headerFrom(fetchFn)).toBeUndefined();
+  });
+
+  it("sends no workspace header from a deployment-level page", async () => {
+    at("/settings");
+    const fetchFn = mockFetch(mockResponse({ organization: null, workspaces: [] }));
+
+    await api.me.get();
+
+    expect(headerFrom(fetchFn)).toBeUndefined();
+  });
+
+  it("decodes the segment — the header carries the raw slug", async () => {
+    at("/organizations/acme/workspaces/a%20b/memory");
+    const fetchFn = mockFetch(mockResponse({ memories: [] }));
+
+    await api.instances.list();
+
+    expect(headerFrom(fetchFn)).toBe("a b");
+  });
+});
+
+// ── request() (tested via api methods) ─────────────────────────────────
 
 // ── request() (tested via api methods) ─────────────────────────────────
 
@@ -377,6 +471,31 @@ describe("api.analytics", () => {
   });
 });
 
+// ── api.me ─────────────────────────────────────────────────────────────
+
+describe("api.me", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Every tenant-scoped URL in the panel is built from this response, so the
+  // path it is fetched from is load-bearing.
+  it("get() targets the tenancy endpoint", async () => {
+    const fetchFn = mockFetch(mockResponse({ organization: null, workspaces: [] }));
+    await api.me.get();
+    const [url] = fetchFn.mock.calls[0];
+    expect(new URL(url as string, "http://localhost").pathname).toBe("/api/me");
+  });
+
+  it("changePassword() POSTs to the password endpoint", async () => {
+    const fetchFn = mockFetch(mockResponse({ ok: true }));
+    await api.me.changePassword({ newPassword: "s3cret-enough" });
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(new URL(url as string, "http://localhost").pathname).toBe("/api/me/password");
+    expect(init?.method).toBe("POST");
+  });
+});
+
 // ── api.members ────────────────────────────────────────────────────────
 
 describe("api.members", () => {
@@ -384,30 +503,34 @@ describe("api.members", () => {
     vi.restoreAllMocks();
   });
 
-  it("list() targets the default org members endpoint", async () => {
+  // These deliberately avoid the slug "default": it is the value the deleted
+  // DEFAULT_ORG_SLUG constant used to hardcode, so asserting it cannot tell
+  // "uses the argument" from "still hardcodes the default" — which is exactly
+  // the behaviour that changed when the URLs became tenant-scoped.
+  it("list() targets the given org's members endpoint", async () => {
     const fetchFn = mockFetch(mockResponse({ members: [] }));
-    await api.members.list();
+    await api.members.list("acme");
     const [url] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/organizations/default/members");
+    expect(parsed.pathname).toBe("/api/organizations/acme/members");
   });
 
   it("assign() PUTs the role to the member endpoint", async () => {
     const fetchFn = mockFetch(mockResponse({ assigned: true }));
-    await api.members.assign("user-1", "admin");
+    await api.members.assign("user-1", "admin", "acme");
     const [url, init] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/organizations/default/members/user-1");
+    expect(parsed.pathname).toBe("/api/organizations/acme/members/user-1");
     expect(init?.method).toBe("PUT");
     expect(JSON.parse(init?.body as string)).toEqual({ roleKey: "admin" });
   });
 
   it("remove() DELETEs the member endpoint", async () => {
     const fetchFn = mockFetch(mockResponse({ removed: true }));
-    await api.members.remove("user-1");
+    await api.members.remove("user-1", "acme");
     const [url, init] = fetchFn.mock.calls[0];
     const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/organizations/default/members/user-1");
+    expect(parsed.pathname).toBe("/api/organizations/acme/members/user-1");
     expect(init?.method).toBe("DELETE");
   });
 

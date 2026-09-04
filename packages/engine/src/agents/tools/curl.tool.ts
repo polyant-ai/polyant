@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { createSafeDispatcher, truncateBody, pickHeaders } from "../../utils/safe-http.js";
+import { safeFetch, truncateBody, pickHeaders } from "../../utils/safe-http.js";
 import { errMsg } from "../../utils/error.js";
 
 const DEFAULT_MAX_BODY_SIZE = 16_384;
@@ -85,15 +85,11 @@ export default defineTool({
           Object.entries(headers ?? {}).filter(([k]) => !FORBIDDEN_HEADERS.has(k.toLowerCase())),
         );
 
-        // SSRF protection: block private/internal IPs, pin DNS
-        const { dispatcher } = await createSafeDispatcher(targetUrl);
-
-        const response = await fetch(targetUrl.toString(), {
+        // SSRF protection (block private/internal IPs, pin DNS) is applied by safeFetch.
+        const response = await safeFetch(targetUrl, {
           method: "GET",
           headers: safeHeaders,
           signal: AbortSignal.timeout(timeout),
-          // @ts-expect-error -- Node 22 fetch supports undici dispatcher option
-          dispatcher,
         });
 
         const rawBody = await response.text();

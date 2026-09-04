@@ -3,9 +3,11 @@
 import { cookies } from "next/headers";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
+import { ChangelogUpdateModal } from "@/components/layout/changelog-update-modal";
 import { Header } from "@/components/layout/header";
 import { ActivityStreamProvider } from "@/lib/activity-stream/provider";
 import { auth } from "@/lib/auth";
+import { TenantProvider } from "@/lib/tenant/tenant-context";
 
 export default async function AdminLayout({
   children,
@@ -20,19 +22,22 @@ export default async function AdminLayout({
         name: sessionUser.name ?? null,
         email: sessionUser.email ?? null,
         image: sessionUser.image ?? null,
-        role: sessionUser.role,
+        isPlatformAdmin: sessionUser.isPlatformAdmin,
       }
     : undefined;
 
   return (
-    <ActivityStreamProvider>
-      <SidebarProvider defaultOpen={defaultOpen}>
-        <AppSidebar user={user} />
-        <SidebarInset>
-          <Header />
-          <div className="flex-1 p-6">{children}</div>
-        </SidebarInset>
-      </SidebarProvider>
-    </ActivityStreamProvider>
+    <TenantProvider>
+      <ActivityStreamProvider>
+        <SidebarProvider defaultOpen={defaultOpen}>
+          <AppSidebar user={user} />
+          <SidebarInset>
+            <Header />
+            <div className="flex-1 p-6">{children}</div>
+          </SidebarInset>
+        </SidebarProvider>
+      </ActivityStreamProvider>
+      <ChangelogUpdateModal />
+    </TenantProvider>
   );
 }

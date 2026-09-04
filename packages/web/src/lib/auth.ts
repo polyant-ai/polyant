@@ -10,7 +10,7 @@ import type { JWT } from "next-auth/jwt";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -23,7 +23,6 @@ import {
 } from "drizzle-orm/pg-core";
 import { authConfig } from "./auth.config";
 import {
-  provisionUserDefaultOrg,
   resolveSignInOrgId,
   type OrgProvisioningPort,
 } from "./org-provisioning";
@@ -51,7 +50,6 @@ const usersTable = pgTable("users", {
   emailVerified: timestamp("email_verified", { mode: "date", withTimezone: true }),
   image: text("image"),
   passwordHash: text("password_hash"),
-  role: text("role").notNull().default("user"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
 });
 
@@ -92,53 +90,31 @@ const verificationTokensTable = pgTable(
 );
 
 /**
- * RBAC tenancy tables (subset) matching engine's organization.schema.ts /
- * authz schemas. Defined here so the Node-side Auth.js callbacks can resolve a
- * user's organization at sign-in without reaching into the engine package.
+ * RBAC tenancy tables (subset). The Node-side Auth.js callback resolves a
+ * user's organization at sign-in. The sole write-capable exception is delegated
+ * back to the engine over its authenticated internal endpoint for the exact
+ * `PLATFORM_ADMIN_EMAIL`; the web process does not mirror role bindings.
+ *
+ * The `organizations`, `roles` and `role_bindings` mirrors are gone with the
+ * auto-provisioning that needed them — sign-in no longer looks up the default
+ * organization, the Owner role, or writes a binding.
  */
-const organizationsTable = pgTable("organizations", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  slug: varchar("slug", { length: 100 }).notNull().unique(),
-  name: varchar("name", { length: 255 }).notNull(),
-  isDefault: boolean("is_default").notNull().default(false),
-});
-
 const organizationMembershipsTable = pgTable("organization_memberships", {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id").notNull(),
   userId: uuid("user_id").notNull(),
 });
 
-const rolesTable = pgTable("roles", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id"),
-  key: varchar("key", { length: 50 }).notNull(),
-  isSystem: boolean("is_system").notNull().default(false),
-});
-
-const roleBindingsTable = pgTable("role_bindings", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").notNull(),
-  roleId: uuid("role_id").notNull(),
-  scopeType: varchar("scope_type", { length: 20 }).notNull(),
-  scopeId: uuid("scope_id").notNull(),
-  organizationId: uuid("organization_id").notNull(),
-});
-
 /**
  * Concrete {@link OrgProvisioningPort} backed by the postgres-js Drizzle client.
  * The pure orchestration lives in `org-provisioning.ts` (unit tested); this is
- * the thin SQL adapter, mirroring the engine store's idempotent upserts.
+ * the thin SQL adapter.
+ *
+ * Membership is granted deliberately through the members API, not as a side
+ * effect of authenticating. The configured platform-admin exception is executed
+ * in the engine transaction so this adapter retains no arbitrary write access.
  */
 const orgProvisioningPort: OrgProvisioningPort = {
-  async findDefaultOrgId() {
-    const [row] = await db
-      .select({ id: organizationsTable.id })
-      .from(organizationsTable)
-      .where(eq(organizationsTable.isDefault, true))
-      .limit(1);
-    return row?.id ?? null;
-  },
   async findUserOrgId(userId) {
     const [row] = await db
       .select({ id: organizationMembershipsTable.organizationId })
@@ -147,57 +123,40 @@ const orgProvisioningPort: OrgProvisioningPort = {
       .limit(1);
     return row?.id ?? null;
   },
-  async findOwnerRoleId() {
-    const [row] = await db
-      .select({ id: rolesTable.id })
-      .from(rolesTable)
-      .where(and(eq(rolesTable.key, "owner"), eq(rolesTable.isSystem, true)))
-      .limit(1);
-    return row?.id ?? null;
-  },
-  async ensureMembership(organizationId, userId) {
-    await db
-      .insert(organizationMembershipsTable)
-      .values({ organizationId, userId })
-      .onConflictDoNothing({
-        target: [
-          organizationMembershipsTable.organizationId,
-          organizationMembershipsTable.userId,
-        ],
-      });
-  },
-  async ensureOwnerBinding(organizationId, userId, ownerRoleId) {
-    const existing = await db
-      .select({ id: roleBindingsTable.id })
-      .from(roleBindingsTable)
-      .where(
-        and(
-          eq(roleBindingsTable.userId, userId),
-          eq(roleBindingsTable.organizationId, organizationId),
-          eq(roleBindingsTable.scopeType, "organization"),
-          eq(roleBindingsTable.roleId, ownerRoleId),
-        ),
-      )
-      .limit(1);
-    if (existing.length > 0) return;
+  async ensureConfiguredPlatformAdminOwner(email) {
+    const internalSecret = process.env.AUTH_INTERNAL_SECRET;
+    if (!internalSecret) return null;
 
-    await db.insert(roleBindingsTable).values({
-      userId,
-      roleId: ownerRoleId,
-      scopeType: "organization",
-      scopeId: organizationId,
-      organizationId,
-    });
+    try {
+      const response = await fetch(
+        `${process.env.INTERNAL_ENGINE_URL ?? "http://localhost:4000"}/api/auth/credentials/bootstrap-owner`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-internal-auth": internalSecret,
+          },
+          body: JSON.stringify({ email }),
+        },
+      );
+      if (!response.ok) return null;
+
+      const body = (await response.json()) as { organizationId?: unknown };
+      return typeof body.organizationId === "string" ? body.organizationId : null;
+    } catch (err) {
+      console.error("[auth] configured admin bootstrap failed", err);
+      return null;
+    }
   },
 };
 
 /**
- * The Edge-safe `jwt` callback (from `auth.config.ts`) handles role /
+ * The Edge-safe `jwt` callback (from `auth.config.ts`) handles isPlatformAdmin /
  * mustChangePassword. Here in the Node context we additionally resolve and
  * stamp `orgId` at sign-in, which requires DB access the Edge runtime can't do.
  * `orgId` is resolved only on the first call (when `user` is present) and then
  * persisted on the token for subsequent requests. It is NEVER accepted from a
- * client `update` patch — same hardening rationale as `role`.
+ * client `update` patch — same hardening rationale as `isPlatformAdmin`.
  */
 const baseJwtCallback = authConfig.callbacks?.jwt;
 
@@ -213,11 +172,19 @@ async function jwtWithOrg(params: Parameters<NonNullable<typeof baseJwtCallback>
       ((user as { id?: string }).id ?? (token.id as string | undefined)) ?? undefined;
     if (userId) {
       try {
-        const orgId = await resolveSignInOrgId(orgProvisioningPort, userId);
+        const orgId = await resolveSignInOrgId(orgProvisioningPort, {
+          userId,
+          email:
+            (user as { email?: string | null }).email ??
+            (typeof token.email === "string" ? token.email : undefined),
+          platformAdminEmail: process.env.PLATFORM_ADMIN_EMAIL,
+        });
         if (orgId) token.orgId = orgId;
       } catch (err) {
-        // Never block sign-in on org resolution; the engine treats a missing
-        // orgId as "legacy token" and the next sign-in will retry.
+        // Never block sign-in on org resolution. A missing orgId is not an error
+        // state to recover from by signing in again — a user who holds no
+        // membership genuinely belongs to no organization until an admin adds
+        // them, and the panel says exactly that.
         console.error("[auth] failed to resolve orgId at sign-in", err);
       }
     }
@@ -259,21 +226,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return true;
     },
   },
-  events: {
-    /**
-     * Fired once when the DrizzleAdapter creates a brand-new user (OAuth first
-     * sign-in). Provision the default-org membership + Owner binding eagerly so
-     * the user is fully set up even before the jwt callback resolves orgId —
-     * closing the first-registrant race the migration backfill can't cover.
-     */
-    async createUser({ user }) {
-      if (!user.id) return;
-      try {
-        await provisionUserDefaultOrg(orgProvisioningPort, user.id);
-      } catch (err) {
-        console.error("[auth] failed to provision default org for new user", err);
-      }
-    },
-  },
+  // No `events.createUser`. It used to provision the default-org membership and
+  // the OWNER binding the moment the adapter created a user, so a first OAuth
+  // sign-in made you an Owner of the organization — the highest role in the
+  // product, granted for having an address that passes the domain allowlist.
+  //
+  // A new user is now created and left with no membership. Someone holding
+  // `org.member:manage` adds them through
+  // `PUT /api/organizations/:orgSlug/members/:userId`, which writes the membership
+  // and the role binding together and therefore decides what role they get.
   adapter: drizzleAuthAdapter,
 });

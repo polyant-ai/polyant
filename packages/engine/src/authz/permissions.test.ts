@@ -18,8 +18,8 @@ const EXPECTED_MATRIX: Record<PermissionKey, Record<string, boolean>> = {
   "agent:read": { owner: true, admin: true, member: true, viewer: true },
   "agent:write": { owner: true, admin: true, member: true, viewer: false },
   "agent:delete": { owner: true, admin: true, member: false, viewer: false },
-  "agent.secret:read": { owner: true, admin: true, member: false, viewer: false },
-  "agent.secret:write": { owner: true, admin: true, member: false, viewer: false },
+  "agent.secret:read": { owner: true, admin: true, member: true, viewer: false },
+  "agent.secret:write": { owner: true, admin: true, member: true, viewer: false },
   "agent.channel:read": { owner: true, admin: true, member: true, viewer: true },
   "agent.channel:write": { owner: true, admin: true, member: true, viewer: false },
   "agent.skill:read": { owner: true, admin: true, member: true, viewer: true },
@@ -36,7 +36,7 @@ const EXPECTED_MATRIX: Record<PermissionKey, Record<string, boolean>> = {
   "agent.knowledge:write": { owner: true, admin: true, member: true, viewer: false },
   "agent.governance:read": { owner: true, admin: true, member: true, viewer: true },
   "agent.governance:write": { owner: true, admin: true, member: false, viewer: false },
-  "agent.export:read": { owner: true, admin: true, member: false, viewer: false },
+  "agent.export:read": { owner: true, admin: true, member: true, viewer: false },
   "conversation:read": { owner: true, admin: true, member: true, viewer: true },
   "conversation:delete": { owner: true, admin: true, member: false, viewer: false },
   "memory:read": { owner: true, admin: true, member: true, viewer: true },
@@ -67,6 +67,14 @@ describe("RBAC permission catalog", () => {
         ).toBe(byRole[roleKey]);
       }
     }
+  });
+
+it("transcribes every catalog key, so a new permission cannot skip review", () => {
+    // The mirror of the assertion below, and the one that was missing: without it
+    // a key added to `Permission` but not to EXPECTED_MATRIX is simply not
+    // checked, and the matrix silently stops being the independent transcription
+    // it exists to be.
+    expect(Object.keys(EXPECTED_MATRIX).sort()).toEqual(Object.values(Permission).sort());
   });
 
   it("grants no permission outside the declared catalog", () => {

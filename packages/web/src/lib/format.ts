@@ -19,7 +19,11 @@ export function parseUTC(dateStr: string): Date {
   return new Date(dateStr + "Z");
 }
 
-export function formatRelativeTime(dateStr: string | null, t: TranslateFn): string {
+export function formatRelativeTime(
+  dateStr: string | null,
+  t: TranslateFn,
+  locale?: string,
+): string {
   if (!dateStr) return "\u2014";
   const date = parseUTC(dateStr);
   const now = new Date();
@@ -31,7 +35,7 @@ export function formatRelativeTime(dateStr: string | null, t: TranslateFn): stri
   if (diffHours < 24) return t("instances.time.hoursAgo", { count: diffHours });
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 30) return t("instances.time.daysAgo", { count: diffDays });
-  return date.toLocaleDateString();
+  return date.toLocaleDateString(locale);
 }
 
 export function truncate(text: string, maxLen: number): string {
@@ -39,10 +43,22 @@ export function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen) + "...";
 }
 
-export function formatDate(iso: string | null | undefined): string {
+/**
+ * Every date the panel prints goes through one of these, and each takes the UI's
+ * locale.
+ *
+ * `undefined` as the locale \u2014 what these passed before \u2014 is the BROWSER's locale,
+ * which is a different answer from the one the user picked in the language toggle.
+ * An Italian panel on a US-English browser printed `7/14/2026, 11:39:09 AM` in a
+ * page whose every other word was Italian, and a date range read as inverted
+ * because `08/07` and `07/08` swap meaning between the two. The locale is the UI's
+ * choice, so it has to be threaded in: `useFormat()` (lib/use-format.ts) binds
+ * these to it, and components use that rather than calling `toLocaleString`.
+ */
+export function formatDate(iso: string | null | undefined, locale?: string): string {
   if (!iso) return "\u2014";
   try {
-    return parseUTC(iso).toLocaleDateString(undefined, {
+    return parseUTC(iso).toLocaleDateString(locale, {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -61,10 +77,10 @@ export function formatDuration(ms: number | null | undefined): string {
   return `${mins}m ${secs}s`;
 }
 
-export function formatDateTime(iso: string | null | undefined): string {
+export function formatDateTime(iso: string | null | undefined, locale?: string): string {
   if (!iso) return "\u2014";
   try {
-    return parseUTC(iso).toLocaleString(undefined, {
+    return parseUTC(iso).toLocaleString(locale, {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -74,4 +90,37 @@ export function formatDateTime(iso: string | null | undefined): string {
   } catch {
     return iso;
   }
+}
+
+/** Wall-clock only — for a transcript, where the day is a separator above. */
+export function formatTime(iso: string | null | undefined, locale?: string): string {
+  if (!iso) return "\u2014";
+  try {
+    return parseUTC(iso).toLocaleTimeString(locale, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** Thousands separators in the UI's locale — 1.234 in Italian, 1,234 in English. */
+export function formatNumber(value: number, locale?: string): string {
+  return value.toLocaleString(locale);
+}
+
+/**
+ * Shared by every analytics comparison table (instance, organization): more
+ * decimal places under $1 so a sub-cent cost does not round to "$0.00".
+ */
+export function formatCost(value: number): string {
+  return value < 1 ? `$${value.toFixed(4)}` : `$${value.toFixed(2)}`;
+}
+
+/** Shared by every analytics comparison table - abbreviates large token counts. */
+export function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return String(value);
 }

@@ -46,8 +46,8 @@ Edit `.env` and set at minimum:
 | `ENCRYPTION_KEY` | 32-byte hex key for instance secrets — generate with `openssl rand -hex 32` |
 | `AUTH_SECRET` | Auth.js JWE encryption secret — generate with `openssl rand -hex 32` |
 | `AUTH_INTERNAL_SECRET` | Shared secret for web→engine internal calls — generate with `openssl rand -hex 32` |
-| `INITIAL_ADMIN_EMAIL` | Email of the first admin account, seeded at boot |
-| `INITIAL_ADMIN_PASSWORD` | Password for that account |
+| `INITIAL_ADMIN_PASSWORD` | Seeds the first admin account at boot — without it no admin is created |
+| `INITIAL_ADMIN_EMAIL` | Email of that account (optional, defaults to `administrator@local`) |
 
 Next.js does not read the monorepo root `.env`, so mirror the web-facing values into
 `packages/web/.env.local`:
@@ -239,7 +239,6 @@ Skills live in the database. Use the management API or admin panel to create the
 ```bash
 npm run test:unit          # fast, no DB required
 npm run test:integration   # requires a running PostgreSQL instance
-npm run test:functional    # end-to-end scenario tests
 ```
 
 ## Reporting Security Issues

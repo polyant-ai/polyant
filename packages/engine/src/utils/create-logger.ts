@@ -99,7 +99,9 @@ export interface Logger {
 export function createLogger(defaultColor: string = COLORS.cyan): Logger {
   function fmt(level: "info" | "warn" | "error", prefix: string, msg: string): string {
     const color = level === "error" ? COLORS.red : level === "warn" ? COLORS.yellow : defaultColor;
-    return `${COLORS.dim}${ts()}${COLORS.reset} ${color}[${prefix}]${COLORS.reset} ${msg}`;
+    // Sanitize the caller-supplied parts only; the colour codes in the template
+    // around them are ours and must survive.
+    return `${COLORS.dim}${ts()}${COLORS.reset} ${color}[${sanitizeForLog(prefix)}]${COLORS.reset} ${sanitizeForLog(msg)}`;
   }
 
   return {
@@ -113,7 +115,7 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
     },
     error(prefix: string, msg: string, err?: unknown): void {
       if (!shouldLog("error")) return;
-      const errMsg = err instanceof Error ? err.message : String(err ?? "");
+      const errMsg = sanitizeForLog(err instanceof Error ? err.message : String(err ?? ""));
       const full = errMsg ? `${msg} — ${errMsg}` : msg;
       process.stderr.write(fmt("error", prefix, full) + "\n");
     },

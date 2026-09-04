@@ -161,6 +161,22 @@ export async function rotateWebhookToken(id: string, instanceId: InstanceUuid): 
   return newToken;
 }
 
+/**
+ * The current webhook token for one source, scoped to its owning instance so
+ * a caller can never reveal a token belonging to another instance by id
+ * alone. Returns `null` when the source does not exist or does not belong to
+ * this instance — the controller maps that to a 404, same shape as every
+ * other id-scoped lookup here.
+ */
+export async function getEventSourceWebhookToken(id: string, instanceId: InstanceUuid): Promise<string | null> {
+  const rows = await db
+    .select({ webhookToken: eventSources.webhookToken })
+    .from(eventSources)
+    .where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)))
+    .limit(1);
+  return rows[0]?.webhookToken ?? null;
+}
+
 export async function findByWebhookToken(
   token: string,
 ): Promise<{ source: EventSource; instanceId: InstanceUuid; configReadable: boolean } | null> {
@@ -270,6 +286,28 @@ export async function updateDefinition(
   data: UpdateDefinitionData,
 ): Promise<void> {
   if (!(await verifyEventSourceOwnership(eventSourceId, instanceId))) return;
+
+  // updateDefinitionSchema deliberately allows a patch to touch only one of
+  // outboundChannel/outboundTarget, deferring coherence to the row as it will
+  // exist after the merge. Fetch-merge-validate that merged state here, before
+  // writing: a raw partial `set()` could otherwise persist e.g. a channel with
+  // no target, which the webhook engine then silently refuses to fire on
+  // forever (webhook-engine.ts), with no error ever surfaced to this caller.
+  if (data.outboundChannel !== undefined || data.outboundTarget !== undefined) {
+    const rows = await db
+      .select({ outboundChannel: eventDefinitions.outboundChannel, outboundTarget: eventDefinitions.outboundTarget })
+      .from(eventDefinitions)
+      .where(and(eq(eventDefinitions.id, id), eq(eventDefinitions.eventSourceId, eventSourceId)))
+      .limit(1);
+    const current = rows[0];
+    if (!current) return;
+
+    const mergedChannel = data.outboundChannel !== undefined ? data.outboundChannel : current.outboundChannel;
+    const mergedTarget = data.outboundTarget !== undefined ? data.outboundTarget : current.outboundTarget;
+    if (!!mergedChannel !== !!mergedTarget) {
+      throw new Error("outboundChannel and outboundTarget must both be set or both be empty after this update");
+    }
+  }
 
   await db.update(eventDefinitions).set({ ...data, updatedAt: new Date() }).where(and(eq(eventDefinitions.id, id), eq(eventDefinitions.eventSourceId, eventSourceId)));
 }

@@ -16,15 +16,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n/context";
-import { api, getUserErrorMessage, type AdminUser, type UserRole } from "@/lib/api";
+import { api, getUserErrorMessage, type AdminUser } from "@/lib/api";
 
 interface Props {
   user: AdminUser | null;
@@ -35,13 +29,13 @@ interface Props {
 export function EditUserDialog({ user, onClose, onSaved }: Props) {
   const { t } = useI18n();
   const [name, setName] = useState("");
-  const [role, setRole] = useState<UserRole>("user");
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (user) {
       setName(user.name ?? "");
-      setRole(user.role);
+      setIsPlatformAdmin(user.isPlatformAdmin);
     }
   }, [user]);
 
@@ -52,7 +46,7 @@ export function EditUserDialog({ user, onClose, onSaved }: Props) {
     try {
       await api.users.update(user.id, {
         name: name.trim() || null,
-        role,
+        isPlatformAdmin,
       });
       toast.success(t("users.edit.saved"));
       await onSaved();
@@ -80,19 +74,18 @@ export function EditUserDialog({ user, onClose, onSaved }: Props) {
               onChange={(e) => setName(e.target.value)}
             />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="eu-role">{t("users.create.roleLabel")}</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as UserRole)}>
-              <SelectTrigger id="eu-role">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="user">{t("users.role.user")}</SelectItem>
-                <SelectItem value="superadmin">
-                  {t("users.role.superadmin")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <div>
+              <Label htmlFor="eu-platform-admin">{t("users.role.platformAdmin")}</Label>
+              <p className="text-sm text-muted-foreground">
+                {t("users.edit.platformAdminHint")}
+              </p>
+            </div>
+            <Switch
+              id="eu-platform-admin"
+              checked={isPlatformAdmin}
+              onCheckedChange={setIsPlatformAdmin}
+            />
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={onClose}>

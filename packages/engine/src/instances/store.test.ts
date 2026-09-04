@@ -44,6 +44,17 @@ const { mockDb } = vi.hoisted(() => {
 
 vi.mock("../database/client.js", () => ({ db: mockDb }));
 
+// The three seeds are stubbed so the transaction test can assert they received
+// the SAME executor the row was written with — which is the whole property.
+const { mockSeedPrompts, mockSeedTools, mockSeedSkills } = vi.hoisted(() => ({
+  mockSeedPrompts: vi.fn(),
+  mockSeedTools: vi.fn(),
+  mockSeedSkills: vi.fn(),
+}));
+vi.mock("./prompts.store.js", () => ({ seedInstancePrompts: mockSeedPrompts }));
+vi.mock("./instance-tools.store.js", () => ({ seedInstanceTools: mockSeedTools }));
+vi.mock("./instance-skills.store.js", () => ({ seedInstanceSkills: mockSeedSkills }));
+
 vi.mock("./schema.js", () => ({
   instances: {
     id: "id",
@@ -81,7 +92,34 @@ vi.mock("../scheduled-tasks/schema.js", () => ({
   scheduledTasks: { instanceId: "instance_id" },
 }));
 
+vi.mock("../organizations/organization.schema.js", () => ({
+  organizations: { id: "id", isDefault: "is_default" },
+  workspaces: {
+    id: "id",
+    organizationId: "organization_id",
+    isDefault: "is_default",
+    createdAt: "created_at",
+  },
+}));
+
+// Sentinel instead of real SQL — the predicate itself is covered by
+// authz/scope-filter.test.ts; here we only assert it is applied.
+const { mockBuildOrgScopedAgentFilter } = vi.hoisted(() => ({
+  mockBuildOrgScopedAgentFilter: vi.fn((orgId: string, column: string) => ({
+    type: "orgFilter",
+    orgId,
+    column,
+  })),
+}));
+
+vi.mock("../authz/scope-filter.js", () => ({
+  buildOrgScopedAgentFilter: mockBuildOrgScopedAgentFilter,
+}));
+
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn((...args: unknown[]) => ({ type: "and", args: args.filter(Boolean) })),
+  asc: vi.fn((col: unknown) => ({ type: "asc", col })),
+  desc: vi.fn((col: unknown) => ({ type: "desc", col })),
   eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
   inArray: vi.fn((col: unknown, values: unknown[]) => ({ type: "inArray", col, values })),
   sql: Object.assign(vi.fn(), { raw: vi.fn() }),
@@ -90,6 +128,9 @@ vi.mock("drizzle-orm", () => ({
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
+// The MOCKED `sql` tag — imported so a test can assert what was bound into a
+// template predicate, which the marker-object mocks cannot express.
+import { sql } from "drizzle-orm";
 import {
   listActiveInstances,
   findInstanceBySlug,
@@ -98,8 +139,18 @@ import {
   updateInstance,
   deleteInstance,
   listAllInstances,
+  resolveWorkspaceIdForPrincipal,
+  createInstanceWithDefaults,
 } from "./store.js";
 import { asInstanceSlug } from "./identifiers.js";
+// The table objects themselves, so the cascade test can assert WHICH tables are
+// deleted and in what order rather than how many times `delete` was called.
+import { instances } from "./schema.js";
+import { conversations, conversationMessages, conversationState } from "../conversations/schema.js";
+import { memories } from "../memory/schema.js";
+import { knowledgeDocuments } from "../knowledge/schema.js";
+import { scheduledTasks } from "../scheduled-tasks/schema.js";
+import { principalSecrets } from "../conversations/principal-secrets.schema.js";
 import { DEFAULT_EMBEDDING_DIM } from "../embeddings-gateway/config.js";
 
 // ---------------------------------------------------------------------------
@@ -283,6 +334,96 @@ describe("instances/store", () => {
         workspaceId: "ws-default",
       });
     });
+
+    it("should_insert_into_the_caller_org_workspace_when_an_orgId_is_given", async () => {
+      mockDb.select.mockReturnValue(createChainMock([{ id: "ws-org-b" }]) as any);
+      const chain = createChainMock([{ ...fakeInstance, workspaceId: "ws-org-b" }]);
+      mockDb.insert.mockReturnValue(chain as any);
+
+      await createInstance({ slug: asInstanceSlug("b-agent"), name: "B", orgId: "org-b" });
+
+      expect(chain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ workspaceId: "ws-org-b" }),
+      );
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // resolveWorkspaceIdForPrincipal — a new agent must land in the CALLER's
+  // workspace, never in the seed organization's default one.
+  // -----------------------------------------------------------------------
+  describe("resolveWorkspaceIdForPrincipal", () => {
+    it("should_pick_a_workspace_of_the_caller_org_when_the_principal_carries_an_org", async () => {
+      const chain = createChainMock([{ id: "ws-org-b" }]);
+      mockDb.select.mockReturnValue(chain as any);
+
+      const result = await resolveWorkspaceIdForPrincipal("org-b");
+
+      expect(result).toBe("ws-org-b");
+      // Constrained to org B's workspaces — not the deployment-wide is_default row.
+      expect(chain.where).toHaveBeenCalledWith({
+        type: "eq",
+        args: ["organization_id", "org-b"],
+      });
+      // The org claim is authoritative: no organizations lookup is needed.
+      expect(mockDb.select).toHaveBeenCalledTimes(1);
+    });
+
+    it("should_throw_when_the_caller_org_owns_no_workspace", async () => {
+      mockDb.select.mockReturnValue(createChainMock([]) as any);
+
+      await expect(resolveWorkspaceIdForPrincipal("org-b")).rejects.toThrow(/no workspace/i);
+    });
+
+    it("should_throw_when_the_principal_has_no_org_and_several_orgs_exist", async () => {
+      mockDb.select.mockReturnValue(
+        createChainMock([{ id: "org-1" }, { id: "org-2" }]) as any,
+      );
+
+      // Fail closed — picking the seeded default here is the cross-tenant write.
+      await expect(resolveWorkspaceIdForPrincipal(undefined)).rejects.toThrow(
+        /organization/i,
+      );
+    });
+
+    it("should_use_the_only_organization_when_the_principal_carries_none", async () => {
+      mockDb.select
+        .mockReturnValueOnce(createChainMock([{ id: "org-only" }]) as any)
+        .mockReturnValueOnce(createChainMock([{ id: "ws-only" }]) as any);
+
+      await expect(resolveWorkspaceIdForPrincipal(undefined)).resolves.toBe("ws-only");
+    });
+
+    // The ADDRESSED workspace — the segment in the URL the caller is on, arriving
+    // as `X-Workspace-Slug`. It used to be ignored entirely, so an agent created
+    // from `/workspaces/sandbox/instances` landed in the org's DEFAULT workspace
+    // while the browser was pushed to a `sandbox` URL that misattributed it.
+    it("should_use_the_addressed_workspace_when_it_belongs_to_the_caller_org", async () => {
+      const chain = createChainMock([{ id: "ws-sandbox" }]);
+      mockDb.select.mockReturnValue(chain as any);
+
+      const result = await resolveWorkspaceIdForPrincipal("org-b", undefined, "sandbox");
+
+      expect(result).toBe("ws-sandbox");
+      // Constrained on BOTH the organization and the slug: matching the slug alone
+      // would let one tenant file an agent under another's workspace, since the
+      // slug is caller-controlled input.
+      expect(chain.where).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "and" }),
+      );
+    });
+
+    it("should_throw_when_the_addressed_workspace_is_not_the_caller_org's", async () => {
+      // Nothing matches org + slug together — the workspace exists elsewhere, or
+      // not at all. Both are refusals, and deliberately NOT a silent fall back to
+      // the organization default: filing the agent somewhere other than the
+      // address bar says is the bug this path exists to prevent.
+      mockDb.select.mockReturnValue(createChainMock([]) as any);
+
+      await expect(
+        resolveWorkspaceIdForPrincipal("org-b", undefined, "someone-elses"),
+      ).rejects.toThrow(/does not belong to the caller/i);
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -314,11 +455,61 @@ describe("instances/store", () => {
   });
 
   // -----------------------------------------------------------------------
+  // createInstanceWithDefaults
+  // -----------------------------------------------------------------------
+  describe("createInstanceWithDefaults", () => {
+    /*
+      The agent row and its three seeds must land together or not at all. As four
+      independent statements, a failure between any two committed an agent with
+      no prompt sections (the pipeline then builds a system prompt from nothing)
+      or no instance_tools rows (buildTools reads that as "exactly zero tools",
+      by design). Nothing repairs it and the slug is taken, so the operator's
+      retry returns 409.
+    */
+    it("seeds prompts, tools and skills inside the same transaction as the row", async () => {
+      mockDb.insert.mockReturnValue(
+        createChainMock([{ ...fakeInstance, id: "uuid-new" }]) as any,
+      );
+      mockDb.select.mockReturnValue(createChainMock([{ id: "ws-1" }]) as any);
+
+      await createInstanceWithDefaults({ slug: asInstanceSlug("fresh"), name: "Fresh", orgId: "org-1" });
+
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+      expect(mockSeedPrompts).toHaveBeenCalledWith("uuid-new", mockDb);
+      expect(mockSeedTools).toHaveBeenCalledWith("uuid-new", mockDb);
+      expect(mockSeedSkills).toHaveBeenCalledWith("uuid-new", mockDb);
+    });
+
+    it("does not seed when the row insert fails", async () => {
+      mockDb.insert.mockImplementation(() => {
+        throw new Error("duplicate key");
+      });
+      mockDb.select.mockReturnValue(createChainMock([{ id: "ws-1" }]) as any);
+
+      await expect(
+        createInstanceWithDefaults({ slug: asInstanceSlug("dup"), name: "Dup", orgId: "org-1" }),
+      ).rejects.toThrow("duplicate key");
+
+      expect(mockSeedPrompts).not.toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // deleteInstance
   // -----------------------------------------------------------------------
   describe("deleteInstance", () => {
-    it("runs in a transaction and returns true when the instance row is deleted", async () => {
-      // No conversations for this instance → the conversation_messages delete is skipped.
+    /*
+      Assert WHICH tables, and in what ORDER — not how many times `delete` was
+      called. A count passes when one table is dropped from the cascade and
+      another is deleted twice, which is exactly the mistake worth catching; and
+      the order is not cosmetic, it is the foreign-key order (children first).
+
+      conversation_messages is now deleted unconditionally, through a subquery
+      over the instance's conversations instead of a list of ids read into Node —
+      so there is no longer a "no conversations" branch to test separately. An
+      empty set is handled by SQL.
+    */
+    it("deletes every slug-keyed table, children first, inside one transaction", async () => {
       mockDb.select.mockReturnValue(createChainMock([]) as any);
       mockDb.delete.mockReturnValue(createChainMock([fakeInstance]) as any);
 
@@ -326,21 +517,16 @@ describe("instances/store", () => {
 
       expect(result).toBe(true);
       expect(mockDb.transaction).toHaveBeenCalled();
-      // conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + principal_secrets + instances
-      expect(mockDb.delete).toHaveBeenCalledTimes(7);
-    });
-
-    it("also deletes conversation_messages when the instance has conversations", async () => {
-      mockDb.select.mockReturnValue(
-        createChainMock([{ conversationId: "c1" }, { conversationId: "c2" }]) as any,
-      );
-      mockDb.delete.mockReturnValue(createChainMock([fakeInstance]) as any);
-
-      const result = await deleteInstance(asInstanceSlug("default"));
-
-      expect(result).toBe(true);
-      // conversation_messages + conversations + memories + knowledge_documents + scheduled_tasks + conversation_state + principal_secrets + instances
-      expect(mockDb.delete).toHaveBeenCalledTimes(8);
+      expect(mockDb.delete.mock.calls.map((c) => c[0])).toEqual([
+        conversationMessages,
+        conversations,
+        memories,
+        knowledgeDocuments,
+        scheduledTasks,
+        conversationState,
+        principalSecrets,
+        instances,
+      ]);
     });
 
     it("returns false when no instance row is deleted", async () => {
@@ -377,6 +563,92 @@ describe("instances/store", () => {
       const result = await listAllInstances();
 
       expect(result).toEqual([]);
+    });
+
+    it("should_constrain_the_listing_to_the_caller_org_when_an_orgId_is_given", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.select.mockReturnValue(chain as any);
+
+      await listAllInstances("org-a");
+
+      expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-a", "slug");
+      // Combined through `and` now that a workspace filter can join it; with no
+      // workspace addressed the org filter is the only term.
+      expect(chain.where).toHaveBeenCalledWith({
+        type: "and",
+        args: [{ type: "orgFilter", orgId: "org-a", column: "slug" }],
+      });
+    });
+
+    // The workspace NARROWS, it never widens: the org filter stays ANDed
+    // underneath, so a slug belonging to another tenant matches nothing rather
+    // than reaching across. Before this the URL's workspace was decorative and
+    // `/workspaces/sandbox/instances` listed every agent in the organization.
+    it("should_narrow_the_listing_to_the_addressed_workspace", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.select.mockReturnValue(chain as any);
+      vi.mocked(sql).mockClear();
+
+      await listAllInstances("org-a", "sandbox");
+
+      // The workspace predicate is a `sql` template, and the mocked `sql` returns
+      // a marker-free value — so assert it was BUILT with the slug bound, which is
+      // the part that matters. The org filter is asserted separately above.
+      const boundSlug = vi
+        .mocked(sql)
+        .mock.calls.some((args) => args.slice(1).includes("sandbox"));
+      expect(boundSlug, "the workspace slug must be bound into the predicate").toBe(true);
+      expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-a", "slug");
+    });
+
+    it("should_not_build_a_workspace_predicate_when_none_is_addressed", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.select.mockReturnValue(chain as any);
+      vi.mocked(sql).mockClear();
+
+      await listAllInstances("org-a");
+
+      // No workspace term. Asserted on the SQL TEXT rather than on "some string
+      // was bound", because the ORDER BY template binds a column too.
+      const builtWorkspaceTerm = vi
+        .mocked(sql)
+        .mock.calls.some((args) =>
+          (args[0] as unknown as string[] | undefined)?.some?.((chunk) =>
+            chunk.includes("workspaces"),
+          ),
+        );
+      expect(builtWorkspaceTerm).toBe(false);
+    });
+
+    it("should_not_constrain_the_listing_when_no_orgId_is_given_by_a_system_caller", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.select.mockReturnValue(chain as any);
+
+      await listAllInstances();
+
+      expect(mockBuildOrgScopedAgentFilter).not.toHaveBeenCalled();
+      expect(chain.where).toHaveBeenCalledWith(undefined);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // listActiveInstances — org scoping (feeds GET /v1/models)
+  // -----------------------------------------------------------------------
+  describe("listActiveInstances — organization scoping", () => {
+    it("should_and_the_org_filter_with_the_active_status_when_an_orgId_is_given", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.select.mockReturnValue(chain as any);
+
+      await listActiveInstances("org-a");
+
+      expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-a", "slug");
+      expect(chain.where).toHaveBeenCalledWith({
+        type: "and",
+        args: [
+          { type: "eq", args: ["status", "active"] },
+          { type: "orgFilter", orgId: "org-a", column: "slug" },
+        ],
+      });
     });
   });
 });

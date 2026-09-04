@@ -15,17 +15,18 @@ export default function SettingsPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
 
-  // Defense-in-depth: hide settings entirely from non-superadmin users.
+  // Defense-in-depth: hide settings entirely from anyone but a platform admin.
   // The sidebar already omits the entry, the engine already gates /api/users
-  // with @RequireRole, and this client-side redirect catches anyone reaching
-  // the URL directly.
+  // with @PlatformAdminOnly(), and this client-side redirect catches anyone
+  // reaching the URL directly. `isPlatformAdmin` is a presentation hint only —
+  // the engine is the actual authority and would refuse the API calls anyway.
   useEffect(() => {
-    if (status === "authenticated" && session?.user?.role !== "superadmin") {
+    if (status === "authenticated" && session?.user?.isPlatformAdmin !== true) {
       router.replace("/");
     }
   }, [status, session, router]);
 
-  if (status !== "authenticated" || session?.user?.role !== "superadmin") {
+  if (status !== "authenticated" || session?.user?.isPlatformAdmin !== true) {
     return null;
   }
 

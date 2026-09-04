@@ -1,40 +1,85 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { createSafeDispatcher } from "../../../utils/safe-http.js";
+import { createSafeDispatcher, pairedFetch, type PairedFetch } from "../../../utils/safe-http.js";
+import { sanitizeForLog } from "../../../utils/create-logger.js";
 
 const MAX_REDIRECTS = 3;
 const TIMEOUT_MS = 30_000;
 
+/** Twilio's global Media resource host. */
+const TWILIO_GLOBAL_MEDIA_HOST = "api.twilio.com";
 /**
- * Iniettabili SOLO per testabilità (default params): in produzione usa `fetch` globale,
- * `createSafeDispatcher` e un timeout reale.
+ * Suffix (leading dot included) shared by Twilio's regional API hosts, used by
+ * accounts with data residency: `api.dublin.ie1.twilio.com`,
+ * `api.sydney.au1.twilio.com`, and so on. An inbound `MediaUrl` on such an
+ * account names the regional host, so allowlisting only the global host would
+ * silently drop every attachment for those accounts.
+ */
+const TWILIO_API_HOST_SUFFIX = ".twilio.com";
+const TWILIO_API_HOST_PREFIX = "api.";
+
+/**
+ * Is this host one Twilio serves the Media resource from?
+ *
+ * The rule is "starts with `api.` AND ends with `.twilio.com`", which accepts
+ * the global host and every regional variant while rejecting the look-alikes
+ * this check exists for:
+ *   - `evil-twilio.com`        — does not end with the DOTTED suffix
+ *   - `api.twilio.com.evil.test` — ends with `.evil.test`
+ *   - `apifoo.twilio.com`      — does not start with the DOTTED prefix
+ *
+ * Anything that satisfies both ends is under Twilio's own registrable domain,
+ * so it cannot be pointed at an attacker-controlled host.
+ */
+function isTwilioMediaHost(host: string): boolean {
+  if (host === TWILIO_GLOBAL_MEDIA_HOST) return true;
+  return host.startsWith(TWILIO_API_HOST_PREFIX) && host.endsWith(TWILIO_API_HOST_SUFFIX);
+}
+
+/**
+ * Injectable ONLY for testability (default params): production uses the global
+ * `fetch`, `createSafeDispatcher`, and a real timeout.
  */
 export interface MediaFetchDeps {
-  fetchFn?: typeof fetch;
+  fetchFn?: PairedFetch;
   makeDispatcher?: (url: URL) => Promise<{ dispatcher: unknown }>;
   signal?: AbortSignal;
 }
 
 /**
- * Scarica una media Twilio seguendo i redirect **manualmente**, mantenendo la protezione
- * SSRF su OGNI hop: ciascun URL viene ri-validato e il DNS ri-pinnato con
- * `createSafeDispatcher`. Necessario perché le URL `api.twilio.com/.../Media/…` fanno un
- * 302 verso un host diverso (CDN/S3): un dispatcher pinnato al solo host iniziale non
- * seguirebbe il redirect cross-host (si connetterebbe all'IP sbagliato → fetch fallito).
+ * Downloads a Twilio media file following redirects **manually**, keeping SSRF
+ * protection on EVERY hop: each URL is re-validated and DNS re-pinned via
+ * `createSafeDispatcher`. This is necessary because `api.twilio.com/.../Media/…`
+ * URLs issue a 302 to a different host (CDN/S3): a dispatcher pinned to only the
+ * initial host would not follow the cross-host redirect (it would connect to the
+ * wrong IP → fetch failure).
  *
- * L'header `Authorization` Basic è inviato SOLO all'host originale e droppato al cambio
- * host: l'URL del redirect è già firmato e inoltrare le credenziali Twilio a un CDN/S3
- * sarebbe un leak.
+ * The first hop's host MUST be a Twilio API host (`isTwilioMediaHost`) before
+ * the Basic `Authorization` header is ever sent — an inbound `MediaUrl0` is
+ * attacker-reachable (anyone able to deliver one inbound webhook controls it),
+ * so without this check a URL pointed at `https://attacker.example/x` would
+ * hand the Twilio account credentials to an arbitrary host on the first hop.
+ * A first hop that fails the check is refused outright (no request is sent,
+ * credentialed or not) — a non-Twilio media URL in a Twilio webhook is a
+ * signal, not a normal case, so failing open by fetching without the
+ * credential is not an improvement.
  *
- * Ritorna la Response finale, oppure null se un hop fallisce il check SSRF, l'URL non è
- * valido, o si supera il numero massimo di redirect.
+ * The `Authorization` header is sent ONLY to the original host and dropped on
+ * any host change: the redirect URL is already signed, and forwarding the
+ * Twilio credentials to a CDN/S3 would be a leak.
+ *
+ * Returns the final Response, or null if the first hop is not an allowlisted
+ * Twilio host, a hop fails the SSRF check, the URL is invalid, or the redirect
+ * limit is exceeded.
  */
 export async function fetchMediaFollowingRedirects(
   rawUrl: string,
   basicAuth: string,
   deps: MediaFetchDeps = {},
 ): Promise<Response | null> {
-  const fetchFn = deps.fetchFn ?? fetch;
+  // NOT the global fetch: it bundles its own undici and cannot accept the
+  // dispatcher createSafeDispatcher builds. See pairedFetch.
+  const fetchFn = deps.fetchFn ?? pairedFetch;
   const makeDispatcher = deps.makeDispatcher ?? createSafeDispatcher;
   const signal = deps.signal ?? AbortSignal.timeout(TIMEOUT_MS);
 
@@ -46,10 +91,19 @@ export async function fetchMediaFollowingRedirects(
     try {
       target = new URL(currentUrl);
     } catch {
-      console.warn("[whatsapp] Media URL is not a valid URL, skipping: %s", currentUrl);
+      console.warn("[whatsapp] Media URL is not a valid URL, skipping: %s", sanitizeForLog(currentUrl));
       return null;
     }
-    if (originHost === null) originHost = target.host;
+    if (originHost === null) {
+      if (!isTwilioMediaHost(target.host)) {
+        console.warn(
+          "[whatsapp] Media URL host is not an allowlisted Twilio host, refusing to fetch: %s",
+          sanitizeForLog(currentUrl),
+        );
+        return null;
+      }
+      originHost = target.host;
+    }
 
     let dispatcher: unknown;
     try {
@@ -57,13 +111,13 @@ export async function fetchMediaFollowingRedirects(
     } catch (err) {
       console.warn(
         "[whatsapp] Media URL failed SSRF check, skipping (%s): %s",
-        currentUrl,
+        sanitizeForLog(currentUrl),
         err instanceof Error ? err.message : String(err),
       );
       return null;
     }
 
-    // Auth solo verso l'host originale (Twilio). Droppata al cambio host.
+    // Credential sent ONLY to the original (Twilio) host. Dropped on host change.
     const headers: Record<string, string> =
       target.host === originHost ? { Authorization: `Basic ${basicAuth}` } : {};
 
@@ -71,19 +125,22 @@ export async function fetchMediaFollowingRedirects(
       headers,
       redirect: "manual",
       signal,
-      // @ts-expect-error -- Node 22 fetch supports the undici dispatcher option
       dispatcher,
     });
 
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");
-      if (!location) return res; // 3xx senza Location: lascia decidere al chiamante (res.ok = false)
+      if (!location) return res; // 3xx with no Location: let the caller decide (res.ok = false)
       currentUrl = new URL(location, target).toString();
       continue;
     }
     return res;
   }
 
-  console.warn("[whatsapp] Media download exceeded %d redirects, skipping: %s", MAX_REDIRECTS, rawUrl);
+  console.warn(
+    "[whatsapp] Media download exceeded %d redirects, skipping: %s",
+    MAX_REDIRECTS,
+    sanitizeForLog(rawUrl),
+  );
   return null;
 }
