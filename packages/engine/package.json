@@ -39,7 +39,7 @@
     "@ai-sdk/openai-compatible": "^3.0.39",
     "@aws-sdk/client-s3": "^3.1052.0",
     "@aws-sdk/client-transcribe-streaming": "^3.1052.0",
-    "@aws-sdk/credential-providers": "^3.1052.0",
+    "@aws-sdk/credential-providers": "^3.1126.0",
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
     "@nestjs/platform-express": "^11.1.28",
