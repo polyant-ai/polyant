@@ -297,6 +297,12 @@ export class InstanceChannelsController {
     @Param("type") channelType: string,
     @CurrentUser() user?: AuthenticatedUser,
   ) {
+    // Validated exactly like `setChannel` above. Deleting an invalid type
+    // matches no row and is harmless today, but the asymmetry is how the next
+    // reader concludes the segment is validated everywhere it is cast.
+    if (!CHANNEL_TYPES.includes(channelType as ChannelType)) {
+      throw new BadRequestException(`Invalid channel type "${channelType}". Valid: ${CHANNEL_TYPES.join(", ")}`);
+    }
     const instance = await findInstanceOrFail(slug);
     const existing = await getChannelConfig(asInstanceSlug(slug), channelType as ChannelType);
 

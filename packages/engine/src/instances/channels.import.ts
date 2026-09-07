@@ -1,17 +1,40 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { instanceChannels } from "./channels.schema.js";
-import { channelConfigSchemas, type ChannelType } from "./channels.store.js";
+import { CHANNEL_TYPES, channelConfigSchemas, type ChannelType } from "./channels.store.js";
 import { stripSensitiveKeys } from "./channel-config-sanitize.js";
 import { encrypt } from "../crypto/index.js";
 import type { ExportInstanceData } from "./export.schema.js";
 import type { ImportWarning, TxClient } from "./import.types.js";
+
+// exportChannelSchema.channelType is z.string() (export must round-trip
+// whatever a future or foreign version wrote), so the bundle schema rejects
+// nothing. Guard it here, before the config lookup below: an ordinary unknown
+// type ("discord") would otherwise be INSERTED, giving `instance_channels` a
+// `channel_type` no runtime recognizes (there is no DB CHECK on the column),
+// and a prototype key ("constructor", "toString", "__proto__") would make the
+// object-literal lookup return something truthy whose `.safeParse` is
+// undefined — a TypeError, i.e. a 500 out of the importer instead of a
+// validation outcome. Skip the channel rather than persist garbage or fail the
+// whole bundle: an agent exported from an edition that has channels this one
+// does not must still import, minus those channels. Mirrors
+// mcpAuthModeWarning in mcp-servers.import.ts.
+function channelTypeWarning(channelType: string): ImportWarning | null {
+  if (CHANNEL_TYPES.includes(channelType as ChannelType)) return null;
+  return {
+    type: "channel_invalid",
+    message: `Channel "${channelType}" has an unknown type — skipped`,
+  };
+}
 
 async function importOneChannel(
   tx: TxClient,
   instanceId: string,
   ch: ExportInstanceData["channels"][number],
 ): Promise<ImportWarning | null> {
+  const invalid = channelTypeWarning(ch.channelType);
+  if (invalid) return invalid;
+
   // Strip credential-like keys BEFORE validation/persistence — never trust
   // the exporter to have done it. A hand-crafted bundle (as opposed to one
   // this codebase produced) could carry a caller-chosen `webhookSecret` for

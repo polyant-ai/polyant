@@ -13,6 +13,7 @@ export interface ImportWarning {
     | "missing_tool"
     | "secret_required"
     | "channel_credentials"
+    | "channel_invalid"
     | "skill_env_required"
     | "event_source_credentials"
     | "mcp_server_credentials"
