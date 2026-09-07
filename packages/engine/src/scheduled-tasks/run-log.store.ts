@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, and, desc, sql, count } from "drizzle-orm";
+import { eq, and, desc, inArray, sql, count } from "drizzle-orm";
 import { db } from "../database/client.js";
 import {
   scheduledTaskRuns,
@@ -78,6 +78,24 @@ export async function failRun(runId: string, error: string): Promise<void> {
       error,
     })
     .where(eq(scheduledTaskRuns.id, runId));
+}
+
+/**
+ * Close every run of these tasks that is still `running`, as an error.
+ *
+ * A process killed mid-run leaves BOTH a `scheduled_tasks` row marked `running` and a
+ * `scheduled_task_runs` row in the same state. Recovering only the task row would leave
+ * the run log claiming, forever, that a run is in progress — and the run log is what an
+ * operator reads to find out what happened. Returns the number of rows closed.
+ */
+export async function failDanglingRuns(taskIds: string[], error: string): Promise<number> {
+  if (taskIds.length === 0) return 0;
+  const rows = await db
+    .update(scheduledTaskRuns)
+    .set({ ...completionSet("error"), error })
+    .where(and(inArray(scheduledTaskRuns.taskId, taskIds), eq(scheduledTaskRuns.status, "running")))
+    .returning({ id: scheduledTaskRuns.id });
+  return rows.length;
 }
 
 /** List runs for an instance, with optional filters. Returns paginated results + total count. */

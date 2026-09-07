@@ -498,6 +498,13 @@
       "when": 1787875200000,
       "tag": "0077_ai_log_outcome",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1788739200000,
+      "tag": "0078_scheduler_crash_safety",
+      "breakpoints": true
     }
   ]
 }
