@@ -143,8 +143,23 @@ describe("conversations/principal-secrets.store", () => {
 
       await deletePrincipalSecret(CONVERSATION_ID, "github_oauth_token");
 
+    /*
+      Assert the PREDICATE, not that `.where()` was called.
+
+      The chain mock is a Proxy whose every property returns itself, so any chain
+      shape resolves and `expect(chain.where).toHaveBeenCalled()` passes for a
+      delete with no condition at all. Dropping the key predicate wipes every
+      secret of that agent; dropping the instance predicate wipes that key for
+      EVERY tenant. Both kept the old assertion green.
+    */
       expect(mockDb.delete).toHaveBeenCalled();
-      expect(chain.where).toHaveBeenCalled();
+      const where = chain.where.mock.calls[0][0] as { type: string; args: unknown[] };
+      expect(where.type).toBe("and");
+      // Three predicates: scope, scopeKey, key. Losing the scopeKey one deletes
+      // this token for every conversation.
+      expect(where.args).toHaveLength(3);
+      expect(where.args).toContainEqual({ type: "eq", args: ["scope_key", CONVERSATION_ID] });
+      expect(where.args).toContainEqual({ type: "eq", args: ["key", "github_oauth_token"] });
     });
   });
 

@@ -27,11 +27,14 @@ describe("collectEnabledToolSecrets", () => {
     expect(out.find((s) => s.key === "z_key")!.sensitive).toBe(true);
   });
 
-  it("treats an empty enabledNames set as all-enabled", () => {
+  // An agent with every tool disabled must be asked for NOTHING. This asserted
+  // the opposite once ("empty set = all enabled"), which is what made the panel
+  // show every tool's keys to an agent that runs no tool at all.
+  it("requires nothing when no tool is enabled", () => {
     const tools = [
       { name: "a", requiredSecrets: [{ key: "k", type: "text" as const, sensitive: true }] },
     ];
-    expect(collectEnabledToolSecrets(tools, new Set())).toHaveLength(1);
+    expect(collectEnabledToolSecrets(tools, new Set())).toEqual([]);
   });
 
   it("skips disabled tools", () => {
@@ -71,6 +74,15 @@ describe("collectInstanceRequiredSecrets", () => {
     const out = collectInstanceRequiredSecrets(tools, new Set(["t1"]), hooks);
     expect(out).toHaveLength(1);
     expect(out[0].sensitive).toBe(false);
+  });
+
+  // The hooks' keys are not collateral of the tools': an agent with no tool
+  // enabled but a hook that demands a key must be asked for that key only.
+  it("returns only hook secrets when no tool is enabled", () => {
+    const tools = [{ name: "t1", requiredSecrets: [toolKey] }];
+    const hooks = [{ name: "h1", requiredSecrets: [hookKey] }];
+    const out = collectInstanceRequiredSecrets(tools, new Set(), hooks);
+    expect(out.map((s) => s.key)).toEqual(["hook_key"]);
   });
 
   it("returns only tool secrets when there are no enabled hooks", () => {

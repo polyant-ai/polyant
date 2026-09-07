@@ -9,33 +9,35 @@ const EPHEMERAL = { anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } 
 // see EPHEMERAL_STEP_CACHE_CONTROL in anthropic.ts.
 const STEP_EPHEMERAL = { anthropic: { cacheControl: { type: "ephemeral" } } };
 
-function cacheControlOf(message: ModelMessage): unknown {
+function cacheControlOf(message: unknown): unknown {
   return (message as { providerOptions?: Record<string, unknown> }).providerOptions;
 }
 
 describe("applyAnthropicPromptCaching", () => {
-  it("moves system into a leading system message carrying the ephemeral breakpoint", () => {
-    const { system, messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6",
+  it("returns the system as marked instructions, never as a message", () => {
+    const { instructions, messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6",
       system: "SYSTEM PROMPT",
       messages: [{ role: "user", content: "hi" }],
     });
 
-    // Top-level system is cleared — it now lives as the first message.
-    expect(system).toBeUndefined();
-    expect(messages[0]).toMatchObject({ role: "system", content: "SYSTEM PROMPT" });
-    expect(cacheControlOf(messages[0])).toEqual(EPHEMERAL);
+    // The breakpoint rides on the system message handed to `instructions`.
+    // Prepending it to `messages` is what AI SDK 7 rejects outright, so this
+    // assertion is what keeps the cache marker and the call both working.
+    expect(instructions).toMatchObject({ role: "system", content: "SYSTEM PROMPT" });
+    expect(cacheControlOf(instructions)).toEqual(EPHEMERAL);
+    expect(messages.some((m) => m.role === "system")).toBe(false);
   });
 
   it("does not set a history breakpoint on a single-turn conversation", () => {
-    const { messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6",
+    const { instructions, messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6",
       system: "S",
       messages: [{ role: "user", content: "first turn" }],
     });
 
-    // [systemMessage, userTurn] — only the system carries a breakpoint.
-    expect(messages).toHaveLength(2);
-    expect(cacheControlOf(messages[0])).toEqual(EPHEMERAL);
-    expect(cacheControlOf(messages[1])).toBeUndefined();
+    // Only the instructions carry a breakpoint; the lone user turn does not.
+    expect(messages).toHaveLength(1);
+    expect(cacheControlOf(instructions)).toEqual(EPHEMERAL);
+    expect(cacheControlOf(messages[0])).toBeUndefined();
   });
 
   it("sets a breakpoint on the last history message from the 2nd turn onward", () => {
@@ -46,18 +48,18 @@ describe("applyAnthropicPromptCaching", () => {
     ];
     const { messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6", system: "S", messages: history });
 
-    // messages = [systemMessage, user1, assistant1, user2]
-    expect(messages).toHaveLength(4);
+    // messages = [user1, assistant1, user2] — the system is no longer prepended.
+    expect(messages).toHaveLength(3);
     // assistant1 (the last history message) is marked; the current user turn is not.
-    const assistant1 = messages[2];
-    const currentTurn = messages[3];
+    const assistant1 = messages[1];
+    const currentTurn = messages[2];
     expect(assistant1).toMatchObject({ role: "assistant", content: "reply 1" });
     expect(cacheControlOf(assistant1)).toEqual(EPHEMERAL);
     expect(cacheControlOf(currentTurn)).toBeUndefined();
   });
 
   it("still applies the history breakpoint when there is no system prompt", () => {
-    const { system, messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6",
+    const { instructions, messages } = applyAnthropicPromptCaching({ modelId: "claude-sonnet-4-6",
       system: undefined,
       messages: [
         { role: "user", content: "a" },
@@ -65,7 +67,7 @@ describe("applyAnthropicPromptCaching", () => {
       ],
     });
 
-    expect(system).toBeUndefined();
+    expect(instructions).toBeUndefined();
     // No system message prepended; breakpoint on the first (last-history) message.
     expect(messages).toHaveLength(2);
     expect(cacheControlOf(messages[0])).toEqual(EPHEMERAL);
@@ -101,22 +103,22 @@ describe("applyAnthropicPromptCaching", () => {
   });
 
   it("defaults the cross-turn breakpoint to the 1h TTL when ttl is omitted", () => {
-    const { messages } = applyAnthropicPromptCaching({
+    const { instructions } = applyAnthropicPromptCaching({
       modelId: "claude-sonnet-4-6",
       system: "SYS",
       messages: [{ role: "user", content: "hi" }],
     });
-    expect(cacheControlOf(messages[0])).toEqual(EPHEMERAL); // 1h
+    expect(cacheControlOf(instructions)).toEqual(EPHEMERAL); // 1h
   });
 
   it("uses the 5m TTL on the cross-turn breakpoint when ttl='5m'", () => {
-    const { messages } = applyAnthropicPromptCaching({
+    const { instructions } = applyAnthropicPromptCaching({
       modelId: "claude-sonnet-4-6",
       system: "SYS",
       messages: [{ role: "user", content: "hi" }],
       ttl: "5m",
     });
-    expect(cacheControlOf(messages[0])).toEqual(STEP_EPHEMERAL); // 5m, no ttl field
+    expect(cacheControlOf(instructions)).toEqual(STEP_EPHEMERAL); // 5m, no ttl field
   });
 });
 

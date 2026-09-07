@@ -5,6 +5,7 @@
  * migrated Postgres; self-skips otherwise so a bare `npm test` stays green.
  */
 
+import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
@@ -18,19 +19,8 @@ import { asInstanceSlug } from "../instances/identifiers.js";
 const CID = "itest:hook-executions:conv";
 const HOOK_ID = "00000000-0000-4000-8000-000000000001";
 
-async function dbReachable(): Promise<boolean> {
-  try {
-    await Promise.race([
-      listHookExecutions("__itest_probe__"),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("db probe timeout")), 3000)),
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
-const DB_AVAILABLE = await dbReachable();
+const DB_AVAILABLE = await resolveDatabaseAvailability();
 
 describe("hook executions store (integration)", () => {
   beforeAll(async () => {

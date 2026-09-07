@@ -23,10 +23,9 @@ import { PermissionGuard } from "./permission.guard.js";
  *   2. AuthGuard       — AuthModule (authenticate, populate request.user)
  *   3. PermissionGuard — here (authorize the authenticated principal)
  *
- * RoleGuard (also AuthModule) sits between Auth and Permission for the legacy
- * `@RequireRole()` endpoints. The PermissionGuard relies on `request.user`
- * already being populated, so it MUST stay after AuthGuard — guaranteed by
- * importing AuthzModule after AuthModule in ServerModule.
+ * The PermissionGuard relies on `request.user` already being populated, so it
+ * MUST stay after AuthGuard — guaranteed by importing AuthzModule after
+ * AuthModule in ServerModule.
  *
  * The strategy + entitlement bindings are factory/class providers so the EE
  * build can swap them without a dynamic import in the hot path.

@@ -171,6 +171,10 @@ export interface AILogEntry {
   instanceId?: InstanceSlug;
   callType?: "conversation" | "service";
   createdAt?: Date;
+  /** Whether the provider call returned ("ok") or died before returning ("error"). */
+  outcome?: "ok" | "error";
+  /** The CLASS of a provider failure (never its message — see classifyProviderError). Null when outcome is "ok". */
+  errorKind?: string | null;
 }
 
 /** Result of a streaming chat call */

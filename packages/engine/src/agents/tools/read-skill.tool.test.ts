@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const { mockResolveInstanceId, mockGetSkillEnv, mockDbSelect } = vi.hoisted(() => ({
+const { mockResolveInstanceId, mockGetSkillEnvEntries, mockDbSelect } = vi.hoisted(() => ({
   mockResolveInstanceId: vi.fn(),
-  mockGetSkillEnv: vi.fn(),
+  mockGetSkillEnvEntries: vi.fn(),
   mockDbSelect: vi.fn(),
 }));
 
@@ -10,7 +10,7 @@ vi.mock("../../instances/resolve-instance-id.js", () => ({
   resolveInstanceId: mockResolveInstanceId,
 }));
 vi.mock("../../instances/skill-env.store.js", () => ({
-  getSkillEnv: mockGetSkillEnv,
+  getSkillEnvEntries: mockGetSkillEnvEntries,
 }));
 
 // Chain-able mock for drizzle select queries
@@ -87,7 +87,9 @@ describe("readSkill tool", () => {
       version: "0.1.0",
     }]);
     mockDbSelect.mockReturnValue(chain);
-    mockGetSkillEnv.mockResolvedValue({ API_KEY: "test-key" });
+    mockGetSkillEnvEntries.mockResolvedValue([
+      { key: "REGION", value: "eu-west-1", sensitive: false },
+    ]);
 
     const execute = buildReadSkillTool();
     const result = await execute({ name: "booking" }) as any;
@@ -96,7 +98,40 @@ describe("readSkill tool", () => {
     expect(result.name).toBe("booking");
     expect(result.version).toBe("0.1.0");
     expect(result.content).toContain("# Booking Skill");
-    expect(result.content).toContain('<var name="API_KEY">test-key</var>');
+    expect(result.content).toContain('<var name="REGION">eu-west-1</var>');
+  });
+
+  /*
+    The property this tool exists to protect: a value the operator marked
+    sensitive is encrypted at rest, so it must not arrive in the model's context
+    — from which it would reach the conversation history and, through
+    `safeOutputPreview`, `tool_audit_logs` in cleartext. The model gets an opaque
+    placeholder that `buildTool` resolves between validation and execute.
+
+    Asserted as "the plaintext does not appear", not "the placeholder does",
+    because absence of the secret is the guarantee.
+  */
+  it("should_emit_a_placeholder_and_never_the_value_for_a_sensitive_var", async () => {
+    mockResolveInstanceId.mockResolvedValue("uuid-123");
+    const chain = mockSelectChain([{
+      enabled: true,
+      content: "# CRM Sync",
+      version: "1.0.0",
+    }]);
+    mockDbSelect.mockReturnValue(chain);
+    mockGetSkillEnvEntries.mockResolvedValue([
+      { key: "CRM_TOKEN", value: "sk-live-a91f", sensitive: true },
+      { key: "REGION", value: "eu-west-1", sensitive: false },
+    ]);
+
+    const execute = buildReadSkillTool();
+    const result = await execute({ name: "crm-sync" }) as any;
+
+    expect(result.content).not.toContain("sk-live-a91f");
+    expect(result.content).toContain(
+      '<var name="CRM_TOKEN" value="{{skill_env.crm-sync.CRM_TOKEN}}" sensitive />',
+    );
+    expect(result.content).toContain('<var name="REGION">eu-west-1</var>');
   });
 
   it("does not inject env block when no env vars exist", async () => {
@@ -107,7 +142,7 @@ describe("readSkill tool", () => {
       version: "0.2.0",
     }]);
     mockDbSelect.mockReturnValue(chain);
-    mockGetSkillEnv.mockResolvedValue({});
+    mockGetSkillEnvEntries.mockResolvedValue([]);
 
     const execute = buildReadSkillTool();
     const result = await execute({ name: "simple" }) as any;

@@ -18,9 +18,10 @@ import { auditStore } from "../../audit/audit.store.js";
 import { createTaskTool } from "../tools/task-tool.js";
 import { buildSupervisorSystemPrompt } from "./prompt.js";
 import { pipelineLog } from "../../utils/pipeline-logger.js";
+import { serializeForLog } from "../../utils/serialize-for-log.js";
 import { config, DEFAULT_INSTANCE_ID } from "../../config.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
-import { findInstanceBySlug } from "../../instances/store.js";
+import { findInstanceBySlug, findAgentHandoffTargets } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import type { ChatRequest, CostBreakdown } from "../../ai-gateway/types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
@@ -31,6 +32,9 @@ import type { ToolCallTrace } from "../../analytics/traces.schema.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { AgentChannelAdapter } from "../../channels/adapters/agent.adapter.js";
 import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
+import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
+import { agentToolTarget } from "../../authz/agent-tenancy.js";
+import { readAgentScope } from "../../authz/authz.store.js";
 
 export interface SupervisorInput {
   message: string;
@@ -112,6 +116,16 @@ export interface SupervisorInput {
   abortSignal?: AbortSignal;
   /** Per-run shared conversation state buffer; its `.api()` is exposed to tools as `ctx.state`. */
   stateBuffer?: ConversationStateBuffer;
+  /**
+   * Whether an MCP oauth server may be attempted this turn (authorize link handed
+   * out + tokens/PKCE verifier persisted against `conversationId`). Set true ONLY
+   * by the conversational entry point, where a real user sits behind a stable,
+   * reused conversationId. Room/webhook are "supervise-direct" and mint a FRESH
+   * conversationId every cycle (design spec §8.3) — leave this unset (defaults to
+   * false in buildMcpTools) there, or oauth servers get attempted with no one to
+   * authorize and leak an unreused oauth_states/principal_secrets row every cycle.
+   */
+  allowOAuth?: boolean;
 }
 
 export interface SupervisorOutput {
@@ -173,15 +187,18 @@ export interface SupervisorStreamOutput {
   completed: Promise<SupervisorOutput>;
 }
 
-/** Safely serialize tool output to a truncated string for audit logs. */
+/**
+ * Serialize tool output for `tool_audit_logs.output` — redacted and capped.
+ *
+ * This used to be a bare `JSON.stringify` with neither, despite the name and the
+ * old docblock claiming truncation. Every tool result therefore landed in the
+ * audit table whole and in the clear, which made that table a second, unencrypted
+ * copy of whatever the tools touched.
+ */
 function safeOutputPreview(output: unknown): string | undefined {
-  try {
-    const raw = JSON.stringify(output);
-    if (!raw || raw === "null" || raw === "undefined") return undefined;
-    return raw;
-  } catch {
-    return undefined;
-  }
+  const raw = serializeForLog(output);
+  if (!raw || raw === "null" || raw === "undefined") return undefined;
+  return raw;
 }
 
 /** Wrap a built tool with audit timing/output capture for the tool phase. */
@@ -255,15 +272,19 @@ interface BuildToolsOptions {
 /** Build the tool set scoped to an instance, filtered by DB-stored enabled tool names. */
 async function buildTools(opts: BuildToolsOptions) {
   const { instanceId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth, stateBuffer } = opts;
+  // No rows means no tools. This used to mean "enable everything", which made
+  // the empty tool set indistinguishable from the full one: disabling every
+  // tool in the panel granted the agent the entire registry instead of none of
+  // it, and an instance seeded before the tool catalog synced started life with
+  // full access. An agent's tool set is now always exactly what is stored.
   const enabledNames = await getEnabledToolNames(instanceUuid);
-  const allEnabled = enabledNames.size === 0; // empty = no rows, enable all (backward compat)
 
   const tools: Record<string, Tool> = {};
   for (const [name, def] of getToolRegistry()) {
     if (def.metaTool) continue; // Meta-tools are built separately below
     // Harness tools bypass instance_tools enablement — they are injected by the engine when includeHarness matches
     const isHarnessIncluded = def.harness && includeHarness?.has(def.category ?? "general");
-    if (isHarnessIncluded || allEnabled || enabledNames.has(name)) {
+    if (isHarnessIncluded || enabledNames.has(name)) {
       // Skip memory-category tools when memory is disabled for this instance
       if (memoryEnabled === false && def.category === "memory") continue;
       // Skip knowledge-category tools when knowledge is disabled for this instance
@@ -321,14 +342,48 @@ async function buildTools(opts: BuildToolsOptions) {
   // The catalog row is managed by agent-tool-sync when the callee enables/disables
   // its `agent` channel; here we look up the target instance + its running
   // AgentChannelAdapter and wrap a `buildAgentInvokeTool` into an aiTool.
-  const agentEntries = [...enabledNames].filter((n) => n.startsWith("agent:"));
+  // Through `agentToolTarget`, not two inline `"agent:"` literals: the write-side
+  // gate (the tools API) already uses the shared helper, so a hand-rolled copy
+  // HERE — the enforcement point — is a fail-open drift waiting to happen. Change
+  // the prefix and the backstop stops matching while the write gate keeps working.
+  const agentEntries = [...enabledNames].filter((n) => agentToolTarget(n) !== null);
   if (agentEntries.length > 0) {
     const currentDepth = agentCallDepth ?? 0;
+
+    /*
+      Two queries for the whole set, not three per entry.
+
+      This loop used to call `findInstanceBySlug` and then
+      `agentsShareOrganization` — itself two `readAgentScope` reads, one of them
+      for the CALLER and so identical on every iteration — which is three
+      serialized round trips per sub-agent, on the request path of every turn,
+      before the model is called. Twenty sub-agents meant sixty.
+
+      The caller's own scope is read once; the targets come back in a single
+      keyed read that carries their organization with them.
+    */
+    const callerScope = await readAgentScope(instanceId);
+    const targets = await findAgentHandoffTargets(
+      agentEntries.map((n) => asInstanceSlug(agentToolTarget(n)!)),
+    );
+
     for (const entryName of agentEntries) {
-      const targetSlug = entryName.slice("agent:".length);
-      const target = await findInstanceBySlug(asInstanceSlug(targetSlug));
+      const targetSlug = agentToolTarget(entryName)!;
+      const target = targets.get(targetSlug);
       if (!target) {
         console.warn(`[supervisor] agent tool '${entryName}': target instance not found`);
+        continue;
+      }
+      // Tenancy backstop, independent of how the row got into instance_tools:
+      // an `ask_` handoff runs the target's whole pipeline, so it must never
+      // cross an organization boundary. The tools API rejects such an entry at
+      // write time; this also neutralises rows written before that gate existed.
+      // Fail-closed on an unresolvable caller, exactly as agentsShareOrganization did.
+      const sameOrg =
+        targetSlug === instanceId ||
+        (callerScope !== null && callerScope.organizationId === target.organizationId);
+      if (!sameOrg) {
+        console.warn(`[supervisor] agent tool '${entryName}': target is in another organization — skipped`);
         continue;
       }
       const adapter = channelManager.getAdapter(target.slug, "agent") as AgentChannelAdapter | undefined;
@@ -358,12 +413,20 @@ async function buildTools(opts: BuildToolsOptions) {
     }
   }
 
-  // spawnTask: meta-tool built last so the sub-agent's tool set is a
-  // point-in-time snapshot of everything else (including ask_* handoffs).
-  // Passing `{ ...tools }` ensures the sub-agent cannot see spawnTask
-  // inserted on the next line — the factory itself also strips spawnTask
-  // defensively (no self-recursion).
-  if (allEnabled || enabledNames.has("spawnTask")) {
+  // spawnTask: meta-tool built last so the sub-agent's tool set is a snapshot of
+  // everything `buildTools` has assembled by this point — core/plugin tools plus
+  // the ask_* agent handoffs. Passing `{ ...tools }` ensures the sub-agent cannot
+  // see spawnTask inserted on the next line — the factory itself also strips
+  // spawnTask defensively (no self-recursion).
+  //
+  // NOT included: MCP tools. They are merged into the tool set by the CALLER,
+  // after `buildTools` returns, so this snapshot never contains them. That is
+  // intentional, not an oversight: MCP servers are untrusted third-party code
+  // configured per agent, and a sub-agent runs unattended with no user in the loop
+  // to notice a misbehaving external tool. Keeping them on the supervisor's turn
+  // only bounds their blast radius. Moving the merge before this point would
+  // silently hand every MCP tool to every sub-agent.
+  if (enabledNames.has("spawnTask")) {
     const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId);
     tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);
   }
@@ -383,6 +446,8 @@ interface SupervisorContext {
   toolBuildingMs: number;
   toolCallTraces: ToolCallTrace[];
   signals: SupervisorSignals;
+  /** Closes every MCP client opened for this turn. Always await it, win or lose. */
+  mcpClose: () => Promise<void>;
 }
 
 /**
@@ -471,31 +536,63 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   });
   const toolBuildingMs = Date.now() - toolBuildStart;
 
-  const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
-    tools,
-    instanceId: instanceUuid,
+  // MCP tools are additive: merge them in after core tools so an MCP server
+  // can never clobber a core/plugin tool name (warn instead of overwrite —
+  // core tools are DB-governed, MCP servers are instance-configured and less trusted).
+  const mcp = await buildMcpTools({
+    instanceUuid,
     instanceSlug,
-    memoryEnabled: input.memoryEnabled,
-    conversationSummary: input.conversationSummary,
-    contextPrompt: input.contextPrompt,
-    channelIdentity: input.channelIdentity,
-    conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
-    datetimeInjectionEnabled: input.datetimeInjectionEnabled,
-    optoutHint: input.optoutHint,
+    conversationId: input.conversationId,
+    abortSignal: input.abortSignal,
+    allowOAuth: input.allowOAuth ?? false,
   });
 
-  pipelineLog.systemPrompt(instanceSlug, systemPrompt);
-  pipelineLog.supervisorStart(instanceSlug, Object.keys(tools).length);
+  // Everything below opens no new resources, but it DOES await (DB calls in
+  // buildSupervisorSystemPrompt) and can throw before `ctx` (carrying
+  // `mcpClose`) reaches the caller. If that happens, close the just-opened
+  // MCP clients here — otherwise they leak (the caller never gets `mcpClose`).
+  try {
+    for (const [name, mcpTool] of Object.entries(mcp.tools)) {
+      if (name in tools) {
+        console.warn(`MCP tool name collision: "${name}" already equipped by a core/plugin tool — skipping`);
+        continue;
+      }
+      // MCP tools bypass buildTools' per-tool ctx (they're pre-built by the SDK),
+      // but still go through the same audit wrapper as every other tool so a
+      // call records a toolCallTraces entry + tool-error log, keyed by the
+      // tool's already-namespaced model name (mcp__<slug>__<tool>).
+      tools[name] = wrapToolWithAudit(name, mcpTool, instanceSlug, input.conversationId, toolCallTraces, signals);
+    }
 
-  // Build user message — multimodal when attachments are present. The per-turn
-  // volatile context rides the tail of this message (see buildUserContent).
-  const userContent = buildUserContent(input.message, turnContext, input.attachments);
-  const messages: ModelMessage[] = [
-    ...(input.conversationHistory ?? []),
-    { role: "user", content: userContent },
-  ];
+    const { system: systemPrompt, turnContext } = await buildSupervisorSystemPrompt({
+      tools,
+      instanceId: instanceUuid,
+      instanceSlug,
+      memoryEnabled: input.memoryEnabled,
+      conversationSummary: input.conversationSummary,
+      contextPrompt: input.contextPrompt,
+      channelIdentity: input.channelIdentity,
+      conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
+      datetimeInjectionEnabled: input.datetimeInjectionEnabled,
+      optoutHint: input.optoutHint,
+    });
 
-  return { instanceId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals };
+    pipelineLog.systemPrompt(instanceSlug, systemPrompt);
+    pipelineLog.supervisorStart(instanceSlug, Object.keys(tools).length);
+
+    // Build user message — multimodal when attachments are present. The per-turn
+    // volatile context rides the tail of this message (see buildUserContent).
+    const userContent = buildUserContent(input.message, turnContext, input.attachments);
+    const messages: ModelMessage[] = [
+      ...(input.conversationHistory ?? []),
+      { role: "user", content: userContent },
+    ];
+
+    return { instanceId: instanceSlug, tools, systemPrompt, messages, toolBuildingMs, toolCallTraces, signals, mcpClose: mcp.close };
+  } catch (err) {
+    await mcp.close().catch(() => { /* best-effort */ });
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -505,30 +602,40 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
 export async function superviseStream(input: SupervisorInput): Promise<SupervisorStreamOutput> {
   const ctx = await prepareSupervisor(input);
 
-  const stream = await chatStream(
-    {
-      tier: "standard",
-      provider: input.provider,
-      model: input.model,
-      thinking: input.thinkingEnabled ?? false,
-      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-      ...(input.temperature != null ? { temperature: input.temperature } : {}),
-      apiKeys: input.apiKeys,
-      langsmith: input.langsmith,
-      system: ctx.systemPrompt,
-      messages: ctx.messages,
-      tools: ctx.tools,
-      maxSteps: 15,
-      abortSignal: input.abortSignal,
-      captureDebug: input.debugEnabled ?? false,
-      cacheConfig: input.cacheConfig,
-    },
-    {
-      conversationId: input.conversationId,
-      instanceId: ctx.instanceId,
-      agentCallMetadata: input.agentCallMetadata,
-    }
-  );
+  // chatStream() can throw synchronously (unsupported streaming config,
+  // resolveCallConfig failure) before any stream/`completed` object exists —
+  // in that case the `.finally(() => ctx.mcpClose())` below never gets a
+  // chance to attach, so close here instead.
+  let stream: Awaited<ReturnType<typeof chatStream>>;
+  try {
+    stream = await chatStream(
+      {
+        tier: "standard",
+        provider: input.provider,
+        model: input.model,
+        thinking: input.thinkingEnabled ?? false,
+        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+        ...(input.temperature != null ? { temperature: input.temperature } : {}),
+        apiKeys: input.apiKeys,
+        langsmith: input.langsmith,
+        system: ctx.systemPrompt,
+        messages: ctx.messages,
+        tools: ctx.tools,
+        maxSteps: 15,
+        abortSignal: input.abortSignal,
+        captureDebug: input.debugEnabled ?? false,
+        cacheConfig: input.cacheConfig,
+      },
+      {
+        conversationId: input.conversationId,
+        instanceId: ctx.instanceId,
+        agentCallMetadata: input.agentCallMetadata,
+      }
+    );
+  } catch (err) {
+    await ctx.mcpClose().catch(() => { /* best-effort */ });
+    throw err;
+  }
 
   // Wrap textStream to capture TTFB (time to first token)
   let ttfbMs: number | undefined;
@@ -540,10 +647,11 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
     }
   })();
 
-  return {
-    textStream: ttfbTextStream,
-    fullStream: stream.fullStream,
-    completed: stream.response.then((response) => {
+  // The stream outlives this function's return, so MCP clients can't close
+  // synchronously here — tear them down once `completed` settles (success or
+  // error), via `.finally` on the mapped promise below.
+  const completed = stream.response
+    .then((response) => {
       pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
       return {
         text: response.text,
@@ -563,55 +671,67 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
         replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
         ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
       };
-    }),
+    })
+    .finally(() => ctx.mcpClose());
+
+  return {
+    textStream: ttfbTextStream,
+    fullStream: stream.fullStream,
+    completed,
   };
 }
 
 export async function supervise(input: SupervisorInput): Promise<SupervisorOutput> {
   const ctx = await prepareSupervisor(input);
 
-  const response = await chat(
-    {
-      tier: "standard",
-      provider: input.provider,
-      model: input.model,
-      thinking: input.thinkingEnabled ?? false,
-      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-      ...(input.temperature != null ? { temperature: input.temperature } : {}),
-      apiKeys: input.apiKeys,
-      langsmith: input.langsmith,
-      system: ctx.systemPrompt,
-      messages: ctx.messages,
-      tools: ctx.tools,
-      maxSteps: 15,
-      abortSignal: input.abortSignal,
-      captureDebug: input.debugEnabled ?? false,
-      cacheConfig: input.cacheConfig,
-    },
-    {
-      conversationId: input.conversationId,
-      instanceId: ctx.instanceId,
-      agentCallMetadata: input.agentCallMetadata,
-    }
-  );
+  try {
+    const response = await chat(
+      {
+        tier: "standard",
+        provider: input.provider,
+        model: input.model,
+        thinking: input.thinkingEnabled ?? false,
+        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+        ...(input.temperature != null ? { temperature: input.temperature } : {}),
+        apiKeys: input.apiKeys,
+        langsmith: input.langsmith,
+        system: ctx.systemPrompt,
+        messages: ctx.messages,
+        tools: ctx.tools,
+        maxSteps: 15,
+        abortSignal: input.abortSignal,
+        captureDebug: input.debugEnabled ?? false,
+        cacheConfig: input.cacheConfig,
+      },
+      {
+        conversationId: input.conversationId,
+        instanceId: ctx.instanceId,
+        agentCallMetadata: input.agentCallMetadata,
+      }
+    );
 
-  pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
+    pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
 
-  return {
-    text: response.text,
-    steps: response.steps,
-    ...(response.reasoning ? { reasoning: response.reasoning } : {}),
-    usage: response.usage,
-    model: response.model,
-    provider: response.provider,
-    ...(response.cost ? { cost: response.cost } : {}),
-    thinking: response.thinking,
-    temperature: response.temperature,
-    durationMs: response.durationMs,
-    toolBuildingMs: ctx.toolBuildingMs,
-    toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
-    replyHandled: ctx.signals.replyHandled || undefined,
-    replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
-    ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
-  };
+    return {
+      text: response.text,
+      steps: response.steps,
+      ...(response.reasoning ? { reasoning: response.reasoning } : {}),
+      usage: response.usage,
+      model: response.model,
+      provider: response.provider,
+      ...(response.cost ? { cost: response.cost } : {}),
+      thinking: response.thinking,
+      temperature: response.temperature,
+      durationMs: response.durationMs,
+      toolBuildingMs: ctx.toolBuildingMs,
+      toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
+      replyHandled: ctx.signals.replyHandled || undefined,
+      replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
+      ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
+    };
+  } finally {
+    // Non-streamed: the turn is fully done by the time we get here (success or
+    // throw) — safe to tear down MCP clients synchronously.
+    await ctx.mcpClose();
+  }
 }

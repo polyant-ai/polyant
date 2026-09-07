@@ -1,32 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Integration test for migration 0051 (RBAC tenancy schema). Exercises the live
- * seed, backfill, scope trigger and idempotency against a migrated Postgres.
+ * Integration test for the RBAC tenancy schema as the WHOLE migration chain
+ * leaves it — 0051 seeds the org, workspaces, roles and bindings, and 0076
+ * drops `users.role` after reconciling it into `is_platform_admin`. Exercises
+ * the live seed, backfill, scope trigger and idempotency against a migrated
+ * Postgres.
+ *
+ * Every query here must be valid against the schema AFTER the last migration,
+ * not after the one it is named for: CI migrates first and then runs this
+ * suite, so a column an intermediate migration dropped raises 42703 rather
+ * than failing an assertion. That is what a reader of `users.role` did here.
  *
  * Self-skips when no migrated database is reachable (so a bare `npm test`
  * without a DB stays green). Run it for real with a database up:
  *   docker compose up -d postgres && npm run db:migrate && npm run test:integration
  */
 
+import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, afterEach } from "vitest";
-import { sql } from "drizzle-orm";
-import { db, queryClient } from "../database/client.js";
+import { queryClient } from "../database/client.js";
 import { SYSTEM_ROLE_PERMISSIONS, SYSTEM_ROLE_KEYS } from "../authz/permissions.js";
 
-async function dbReachable(): Promise<boolean> {
-  try {
-    await Promise.race([
-      db.execute(sql`select 1`),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("db probe timeout")), 3000)),
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
-const DB_AVAILABLE = await dbReachable();
+const DB_AVAILABLE = await resolveDatabaseAvailability();
 
 /** UUID of the seeded default org (assumed present from the migration). */
 async function defaultOrgId(): Promise<string> {
@@ -47,7 +44,7 @@ async function ownerRoleId(): Promise<string> {
   return rows[0].id;
 }
 
-describe.skipIf(!DB_AVAILABLE)("migration 0051 — RBAC tenancy schema", () => {
+describe.skipIf(!DB_AVAILABLE)("RBAC tenancy schema after the full migration chain", () => {
   it("seeds exactly one default organization and one default workspace", async () => {
     const orgs = await queryClient<{ n: number }[]>`
       SELECT count(*)::int AS n FROM organizations WHERE is_default = true`;
@@ -68,7 +65,18 @@ describe.skipIf(!DB_AVAILABLE)("migration 0051 — RBAC tenancy schema", () => {
       FROM roles r JOIN role_permissions rp ON rp.role_id = r.id
       WHERE r.is_system = true GROUP BY r.key`;
     const byKey = Object.fromEntries(counts.map((c) => [c.key, c.n]));
-    expect(byKey).toEqual({ owner: 33, admin: 32, member: 23, viewer: 14 });
+
+    // DERIVED from `permissions.ts`, never re-typed here. The literal
+    // `{ owner: 33, admin: 32, member: 23, viewer: 14 }` broke the build the
+    // moment migration 0072 granted Member three more permissions — a number in
+    // a test that nobody updates in the same commit as the migration. That is
+    // also what `permissions.ts` means when its own docblock says the matrix "is
+    // the single source of truth shared by the migration seed and the tests, so
+    // the matrix is never duplicated as magic strings".
+    const expected = Object.fromEntries(
+      SYSTEM_ROLE_KEYS.map((key) => [key, SYSTEM_ROLE_PERMISSIONS[key].length]),
+    );
+    expect(byKey).toEqual(expected);
   });
 
   it("seeds the exact permission STRINGS that SYSTEM_ROLE_PERMISSIONS declares", async () => {
@@ -92,11 +100,39 @@ describe.skipIf(!DB_AVAILABLE)("migration 0051 — RBAC tenancy schema", () => {
     expect(nulls[0].n).toBe(0);
   });
 
-  it("promotes pre-existing superadmins to is_platform_admin", async () => {
-    const mismatched = await queryClient<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM users
-      WHERE role = 'superadmin' AND is_platform_admin = false`;
-    expect(mismatched[0].n).toBe(0);
+  it("leaves is_platform_admin as the only persisted platform-admin standing", async () => {
+    // The original assertion — "no user with role IN ('platform_admin',
+    // 'superadmin') was left with is_platform_admin = false" — is now
+    // discharged by 0076's reconciliation UPDATE, which runs immediately
+    // before the DROP. Asserting it again is impossible AND unnecessary: the
+    // column it read no longer exists. What is still falsifiable is that the
+    // drop happened, so the schema itself is the assertion.
+    const column = await queryClient<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'users' AND column_name = 'role'`;
+    expect(column[0].n).toBe(0);
+
+    // And that the column standing MOVED to survived the chain intact: still
+    // there, still boolean, still NOT NULL, so a row can never carry an
+    // undecided standing. Deliberately NOT "at least one is_platform_admin =
+    // true row exists": no migration seeds a user and the boot seeder does not
+    // run in this suite, so CI's freshly migrated database has an empty `users`
+    // table and such an assertion would fail there — the very class of
+    // DB-only failure this test was rewritten to stop producing.
+    const flag = await queryClient<{ data_type: string; is_nullable: string }[]>`
+      SELECT data_type, is_nullable FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'users' AND column_name = 'is_platform_admin'`;
+    expect(flag).toHaveLength(1);
+    expect(flag[0].data_type).toBe("boolean");
+    expect(flag[0].is_nullable).toBe("NO");
+
+    // Whatever rows the database does hold, none of them lost their standing to
+    // an unset flag while `role` was being dropped.
+    const undecided = await queryClient<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM users WHERE is_platform_admin IS NULL`;
+    expect(undecided[0].n).toBe(0);
   });
 
   it("backfilled exactly one membership + one Owner binding per pre-existing user", async () => {

@@ -203,4 +203,44 @@ describe("redactWebhookPath", () => {
 
     expect(result).toBe(`http://localhost:4000/webhooks/twilio/acme-support/whatsapp/${REDACTED_PLACEHOLDER}`);
   });
+
+  it("masks a percent-encoded 'webhooks' prefix segment via the fail-safe, decoded as a last resort (issue #284)", () => {
+    // "web%68ooks" decodes to "webhooks" ("%68" = "h"). The raw literal match
+    // misses this entirely — including the fail-safe, which needs a literal
+    // `webhooks/` segment — so this only gets masked because a decoded pass
+    // is tried as a LAST resort. It lands in the fail-safe branch (every
+    // segment masked individually), not the more specific Twilio-secret
+    // shape, by the same design as the existing `whats%61pp` case below.
+    const result = redactWebhookPath("/web%68ooks/twilio/acme-support/whatsapp/mysecretvalue");
+
+    expect(result).not.toContain("mysecretvalue");
+    expect(result).toBe(
+      `/webhooks/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}/${REDACTED_PLACEHOLDER}`,
+    );
+  });
+
+  it("masks a percent-encoded 'webhooks' prefix segment via the generic token route (issue #284)", () => {
+    const result = redactWebhookPath("/web%68ooks/8f3a9c2b7e1d4f6a9b0c5d2e7f1a3b6c");
+
+    expect(result).not.toContain("8f3a9c2b7e1d4f6a9b0c5d2e7f1a3b6c");
+    expect(result).toBe(`/webhooks/${REDACTED_PLACEHOLDER}`);
+  });
+
+  it("does not throw when the encoded 'webhooks' prefix contains a malformed escape (%zz)", () => {
+    // decodeURIComponent throws a URIError on "%zz". This function feeds the
+    // global exception filter, so a throw here must never propagate — the
+    // decode pass is wrapped in try/catch and falls back to the raw string.
+    const url = "/web%zzooks/twilio/acme-support/whatsapp/mysecretvalue";
+
+    expect(() => redactWebhookPath(url)).not.toThrow();
+  });
+
+  it("still returns a normal, already-correct webhook path unchanged (raw match takes priority over decoding)", () => {
+    // Guards against "decode-only" implementations: this path needs no
+    // decoding at all, and re-running everything through decodeURIComponent
+    // first could reinterpret it (e.g. a literal "%2F" in the secret).
+    const result = redactWebhookPath("/webhooks/twilio/acme-support/whatsapp/plainsecret");
+
+    expect(result).toBe(`/webhooks/twilio/acme-support/whatsapp/${REDACTED_PLACEHOLDER}`);
+  });
 });

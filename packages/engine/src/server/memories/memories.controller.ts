@@ -7,6 +7,8 @@ import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.j
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { callerMayAccessAgent } from "../../authz/agent-tenancy.js";
+import { resolvePrincipalOrgId } from "../../instances/store.js";
 
 function requireInstanceId(instanceId: string | undefined): InstanceSlug {
   const trimmed = instanceId?.trim();
@@ -30,7 +32,8 @@ export class MemoriesController {
     const limit = Math.min(Math.max(limitStr ? Number(limitStr) || 20 : 20, 1), 100);
     const offset = Math.max(offsetStr ? Number(offsetStr) || 0 : 0, 0);
 
-    const result = await searchMemories(uid, { search, category, limit, offset, orgId: user?.orgId });
+    const orgId = (await resolvePrincipalOrgId(user?.orgId)) ?? undefined;
+    const result = await searchMemories(uid, { search, category, limit, offset, orgId });
     return {
       total: result.total,
       limit,
@@ -48,14 +51,30 @@ export class MemoriesController {
     };
   }
 
+  /**
+   * The agent is named in the BODY, not in `params.slug`, so PermissionGuard
+   * authorizes this at the caller's own org level and cannot tie `instanceId` to
+   * the caller's tenancy. Without the explicit check below, a member of one
+   * organization could write into any other organization's agent — and a memory
+   * is injected into that agent's supervisor prompt on its next matching turn,
+   * so this was durable cross-tenant prompt injection, not merely a stray row.
+   *
+   * `listAll`/`remove`/`removeAll` were already scoped (they pass `orgId` into
+   * the store); `create` was the one write that read no caller at all.
+   */
   @RequirePermission(Permission.MEMORY_WRITE)
   @Post()
   async create(
     @Body() body: { instanceId?: string; content: string; category?: string; importance?: number },
+    @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(body.instanceId);
     if (!body.content?.trim()) {
       throw new BadRequestException("content is required");
+    }
+    // 404, not 403: a caller of another organization must not learn it exists.
+    if (!(await callerMayAccessAgent(uid, user))) {
+      throw new NotFoundException(`Agent "${uid}" not found`);
     }
 
     const embCtx = await resolveEmbeddingContext(uid).catch((err: unknown) => {
@@ -83,7 +102,7 @@ export class MemoriesController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
-    const deleted = await deleteMemoryForInstance(id, uid, user?.orgId);
+    const deleted = await deleteMemoryForInstance(id, uid, (await resolvePrincipalOrgId(user?.orgId)) ?? undefined);
     if (!deleted) throw new NotFoundException(`Memory "${id}" not found`);
     return { deleted: true };
   }
@@ -95,7 +114,7 @@ export class MemoriesController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
-    await deleteAllMemories(uid, user?.orgId);
+    await deleteAllMemories(uid, (await resolvePrincipalOrgId(user?.orgId)) ?? undefined);
     return { deleted: true };
   }
 }

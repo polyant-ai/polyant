@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
 import type { ConversationMessage, ReasoningDetail } from "@/lib/api";
+import { useFormat } from "@/lib/use-format";
 
 // Per-category icon colour. Colour = kind of information, never the value.
 const CATEGORY = {
@@ -88,6 +89,7 @@ function Pill({
 
 export function MessageMetadataPills({ message }: { message: ConversationMessage }) {
   const { t } = useI18n();
+  const fmt = useFormat();
 
   if (message.role !== "assistant") return null;
 
@@ -133,26 +135,26 @@ export function MessageMetadataPills({ message }: { message: ConversationMessage
       )}
 
       <Pill iconColor={CATEGORY.cost} icon={ArrowDown} title={t("conversations.detail.pills.input")}>
-        {regularInput.toLocaleString()}
+        {fmt.number(regularInput)}
         {hasCost && sub(formatCost(cost.input))}
       </Pill>
 
       {cacheRead > 0 && (
         <Pill iconColor={CATEGORY.cost} icon={Zap} title={t("conversations.detail.pills.cacheRead")}>
-          {cacheRead.toLocaleString()}
+          {fmt.number(cacheRead)}
           {hasCost && cost.cacheRead != null && sub(formatCost(cost.cacheRead))}
         </Pill>
       )}
 
       {cacheWrite > 0 && (
         <Pill iconColor={CATEGORY.cost} icon={Database} title={t("conversations.detail.pills.cacheWrite")}>
-          {cacheWrite.toLocaleString()}
+          {fmt.number(cacheWrite)}
           {hasCost && cost.cacheWrite != null && sub(formatCost(cost.cacheWrite))}
         </Pill>
       )}
 
       <Pill iconColor={CATEGORY.cost} icon={ArrowUp} title={t("conversations.detail.pills.output")}>
-        {completionTokens.toLocaleString()}
+        {fmt.number(completionTokens)}
         {hasCost && sub(formatCost(cost.output))}
       </Pill>
 
@@ -191,7 +193,7 @@ export function MessageMetadataPills({ message }: { message: ConversationMessage
 
       {reasoningLen > 0 && (
         <Pill iconColor={CATEGORY.processing} icon={Brain} title={t("conversations.detail.pills.reasoning")}>
-          {reasoningLen.toLocaleString()}
+          {fmt.number(reasoningLen)}
         </Pill>
       )}
 

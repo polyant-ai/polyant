@@ -1,96 +1,123 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+/**
+ * Sign-in org resolution is a LOOKUP for everyone except the one exact address
+ * configured as the platform administrator.
+ *
+ * It used to provision: a user with no membership got the default-org membership
+ * plus the OWNER binding, so passing the sign-in domain allowlist made you an
+ * Owner of the organization. On a deployment whose allowlist is a company domain,
+ * that was every employee. Membership is now granted deliberately through
+ * `PUT /api/organizations/:orgSlug/members/:userId`.
+ */
+
 import { describe, it, expect, vi } from "vitest";
 import {
   resolveSignInOrgId,
-  provisionUserDefaultOrg,
   type OrgProvisioningPort,
 } from "./org-provisioning";
 
-/** Build a port whose methods are vi.fn()s with sensible defaults overridden per test. */
 function buildPort(overrides: Partial<OrgProvisioningPort> = {}): OrgProvisioningPort {
   return {
-    findDefaultOrgId: vi.fn(async () => "org-default"),
     findUserOrgId: vi.fn(async () => "org-default"),
-    findOwnerRoleId: vi.fn(async () => "role-owner"),
-    ensureMembership: vi.fn(async () => undefined),
-    ensureOwnerBinding: vi.fn(async () => undefined),
+    ensureConfiguredPlatformAdminOwner: vi.fn(async () => "org-default"),
     ...overrides,
   };
 }
 
-describe("provisionUserDefaultOrg", () => {
-  it("ensures membership then Owner binding on the default org", async () => {
-    const port = buildPort();
-
-    const orgId = await provisionUserDefaultOrg(port, "user-1");
-
-    expect(orgId).toBe("org-default");
-    expect(port.ensureMembership).toHaveBeenCalledWith("org-default", "user-1");
-    expect(port.ensureOwnerBinding).toHaveBeenCalledWith(
-      "org-default",
-      "user-1",
-      "role-owner",
-    );
-  });
-
-  it("skips the Owner binding when no system Owner role exists", async () => {
-    const port = buildPort({ findOwnerRoleId: vi.fn(async () => null) });
-
-    const orgId = await provisionUserDefaultOrg(port, "user-1");
-
-    expect(orgId).toBe("org-default");
-    expect(port.ensureMembership).toHaveBeenCalledWith("org-default", "user-1");
-    expect(port.ensureOwnerBinding).not.toHaveBeenCalled();
-  });
-
-  it("returns null and provisions nothing when there is no default org", async () => {
-    const port = buildPort({ findDefaultOrgId: vi.fn(async () => null) });
-
-    const orgId = await provisionUserDefaultOrg(port, "user-1");
-
-    expect(orgId).toBeNull();
-    expect(port.ensureMembership).not.toHaveBeenCalled();
-    expect(port.ensureOwnerBinding).not.toHaveBeenCalled();
-  });
-});
-
 describe("resolveSignInOrgId", () => {
-  it("returns the user's existing org membership when present", async () => {
+  it("returns the user's existing org membership", async () => {
     const port = buildPort({ findUserOrgId: vi.fn(async () => "org-existing") });
 
-    const orgId = await resolveSignInOrgId(port, "user-1");
-
-    expect(orgId).toBe("org-existing");
-    // No provisioning needed when membership already resolves.
-    expect(port.ensureMembership).not.toHaveBeenCalled();
+    await expect(
+      resolveSignInOrgId(port, {
+        userId: "user-1",
+        email: "member@example.com",
+      }),
+    ).resolves.toBe("org-existing");
   });
 
-  it("provisions the default org when the user has no membership yet (race-safe)", async () => {
+  it("returns null for a user with no membership, and provisions nothing", async () => {
+    const port = buildPort({ findUserOrgId: vi.fn(async () => null) });
+
+    await expect(
+      resolveSignInOrgId(port, {
+        userId: "user-1",
+        email: "member@example.com",
+      }),
+    ).resolves.toBeNull();
+    // The whole point: no membership is a valid answer, not a condition to fix by
+    // granting one. `null` reaches the engine as `organization: null` and the
+    // panel tells the user to ask an administrator.
+    expect(port.findUserOrgId).toHaveBeenCalledWith("user-1");
+    expect(port.ensureConfiguredPlatformAdminOwner).not.toHaveBeenCalled();
+  });
+
+  it("bootstraps only the exact configured platform-admin email at first sign-in", async () => {
     const port = buildPort({
       findUserOrgId: vi.fn(async () => null),
-      findDefaultOrgId: vi.fn(async () => "org-default"),
+      ensureConfiguredPlatformAdminOwner: vi.fn(async () => "org-default"),
     });
 
-    const orgId = await resolveSignInOrgId(port, "user-1");
+    await expect(
+      resolveSignInOrgId(port, {
+        userId: "user-1",
+        email: "Boss@Example.com",
+        platformAdminEmail: " boss@example.com ",
+      }),
+    ).resolves.toBe("org-default");
 
-    expect(orgId).toBe("org-default");
-    expect(port.ensureMembership).toHaveBeenCalledWith("org-default", "user-1");
-    expect(port.ensureOwnerBinding).toHaveBeenCalledWith(
-      "org-default",
-      "user-1",
-      "role-owner",
+    expect(port.ensureConfiguredPlatformAdminOwner).toHaveBeenCalledWith(
+      "boss@example.com",
     );
+    expect(port.findUserOrgId).toHaveBeenCalledWith("user-1");
   });
 
-  it("returns null when neither membership nor a default org can be resolved", async () => {
+  it("keeps an existing configured admin membership without calling bootstrap", async () => {
     const port = buildPort({
-      findUserOrgId: vi.fn(async () => null),
-      findDefaultOrgId: vi.fn(async () => null),
+      findUserOrgId: vi.fn(async () => "org-existing"),
     });
 
-    const orgId = await resolveSignInOrgId(port, "user-1");
+    await expect(
+      resolveSignInOrgId(port, {
+        userId: "user-1",
+        email: "boss@example.com",
+        platformAdminEmail: "boss@example.com",
+      }),
+    ).resolves.toBe("org-existing");
 
-    expect(orgId).toBeNull();
+    expect(port.ensureConfiguredPlatformAdminOwner).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a membership that appears while configured-admin bootstrap is unavailable", async () => {
+    const port = buildPort({
+      findUserOrgId: vi
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce("org-existing"),
+      ensureConfiguredPlatformAdminOwner: vi.fn(async () => null),
+    });
+
+    await expect(
+      resolveSignInOrgId(port, {
+        userId: "user-1",
+        email: "boss@example.com",
+        platformAdminEmail: "boss@example.com",
+      }),
+    ).resolves.toBe("org-existing");
+
+    expect(port.ensureConfiguredPlatformAdminOwner).toHaveBeenCalledWith(
+      "boss@example.com",
+    );
+    expect(port.findUserOrgId).toHaveBeenCalledTimes(2);
+  });
+
+  it("exposes only lookup plus the narrow configured-admin bootstrap capability", () => {
+    const port = buildPort();
+
+    expect(Object.keys(port)).toEqual([
+      "findUserOrgId",
+      "ensureConfiguredPlatformAdminOwner",
+    ]);
   });
 });

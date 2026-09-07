@@ -45,14 +45,21 @@ vi.mock("./providers/bedrock.js", async (importActual) => {
   };
 });
 
-vi.mock("./logger.js", () => ({
-  aiLogger: {
-    log: vi.fn(),
-    createEntry: vi.fn().mockReturnValue({ provider: "openai", model: "gpt-4o" }),
-    initialize: vi.fn(),
-    shutdown: vi.fn(),
-  },
-}));
+vi.mock("./logger.js", async (importActual) => {
+  // `classifyProviderError` stays REAL: the point of the failure tests below is
+  // that the class written to ai_logs is derived from the actual error shape.
+  // Stubbing it would assert only that the gateway passes something along.
+  const actual = await importActual<typeof import("./logger.js")>();
+  return {
+    classifyProviderError: actual.classifyProviderError,
+    aiLogger: {
+      log: vi.fn(),
+      createEntry: vi.fn().mockReturnValue({ provider: "openai", model: "gpt-4o" }),
+      initialize: vi.fn(),
+      shutdown: vi.fn(),
+    },
+  };
+});
 
 vi.mock("./langsmith.js", () => ({
   buildLangSmithProviderOptions: vi.fn().mockReturnValue({ traced: true }),
@@ -467,4 +474,118 @@ describe("AI Gateway", () => {
       expect(() => initAIGateway()).not.toThrow();
     });
   });
+
+  describe("a provider call that never returns", () => {
+    /** The shape @ai-sdk/provider actually throws: statusCode flat on the error. */
+    function apiError(statusCode: number): Error & { statusCode: number } {
+      return Object.assign(new Error("provider said no"), { statusCode });
+    }
+    /** The entry the gateway handed the logger, by argument position. */
+    function loggedEntry() {
+      const call = vi.mocked(aiLogger.createEntry).mock.calls.at(-1)!;
+      return { outcome: call[16], errorKind: call[17], promptTokens: call[4], costUsd: call[7] };
+    }
+
+    it("writes a row for a failed chat() and re-throws the original error", async () => {
+      const err = apiError(401);
+      mockProviderChat.mockRejectedValue(err);
+
+      await expect(chat(makeRequest())).rejects.toBe(err);
+
+      expect(aiLogger.log).toHaveBeenCalledTimes(1);
+      expect(loggedEntry().outcome).toBe("error");
+    });
+
+    it("records the CLASS of the failure, never the provider's message", async () => {
+      // The message can quote the request, and the request is the prompt.
+      mockProviderChat.mockRejectedValue(apiError(429));
+      await expect(chat(makeRequest())).rejects.toThrow();
+
+      const entry = loggedEntry();
+      expect(entry.errorKind).toBe("rate_limit");
+      expect(JSON.stringify(vi.mocked(aiLogger.createEntry).mock.calls.at(-1)))
+        .not.toContain("provider said no");
+    });
+
+    it.each([
+      [401, "auth"],
+      [403, "auth"],
+      [429, "rate_limit"],
+      [400, "bad_request"],
+      [503, "overloaded"],
+      [529, "overloaded"],
+      [418, "unknown"],
+    ])("classifies HTTP %i as %s", async (status, kind) => {
+      mockProviderChat.mockRejectedValue(apiError(status));
+      await expect(chat(makeRequest())).rejects.toThrow();
+      expect(loggedEntry().errorKind).toBe(kind);
+    });
+
+    it("classifies an AbortSignal.timeout() rejection as a timeout", async () => {
+      const timeout = Object.assign(new Error("timed out"), { name: "TimeoutError" });
+      mockProviderChat.mockRejectedValue(timeout);
+      await expect(chat(makeRequest())).rejects.toThrow();
+      expect(loggedEntry().errorKind).toBe("timeout");
+    });
+
+    it("logs zero tokens and zero cost — the call never returned any", async () => {
+      mockProviderChat.mockRejectedValue(apiError(500));
+      await expect(chat(makeRequest())).rejects.toThrow();
+
+      const entry = loggedEntry();
+      expect(entry.promptTokens).toBe(0);
+      expect(entry.costUsd).toBe(0);
+    });
+
+    it("writes NOTHING when the turn was preempted by the message coordinator", async () => {
+      // cancel-and-restart is the routine path — it fires whenever a user sends a
+      // second message before the first reply lands. Counting it as a provider
+      // failure would make a failure rate mostly measure how fast people type.
+      const controller = new AbortController();
+      controller.abort();
+      mockProviderChat.mockRejectedValue(new Error("aborted"));
+
+      await expect(chat(makeRequest({ abortSignal: controller.signal }))).rejects.toThrow();
+
+      expect(aiLogger.log).not.toHaveBeenCalled();
+    });
+
+    it("writes exactly one row when a stream fails after being established", async () => {
+      const err = apiError(529);
+      mockProviderChatStream.mockResolvedValue({
+        textStream: (async function* () { /* no chunks */ })(),
+        fullStream: (async function* () { /* no chunks */ })(),
+        response: Promise.reject(err),
+      });
+
+      const stream = await chatStream(makeRequest());
+      await expect(stream.response).rejects.toBe(err);
+
+      expect(aiLogger.log).toHaveBeenCalledTimes(1);
+      expect(loggedEntry().outcome).toBe("error");
+    });
+
+    it("writes a row when the stream cannot be established at all", async () => {
+      mockProviderChatStream.mockRejectedValue(apiError(401));
+      await expect(chatStream(makeRequest())).rejects.toThrow();
+
+      expect(aiLogger.log).toHaveBeenCalledTimes(1);
+      expect(loggedEntry().errorKind).toBe("auth");
+    });
+
+    it("does not mark a SUCCESSFUL call as failed, so the assertions above are not vacuous", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse());
+      await chat(makeRequest());
+      await flushMicrotasks();
+
+      // The success path passes no outcome/errorKind at all and relies on
+      // createEntry's defaults — which `logger.test.ts` pins. What matters here
+      // is that it never reaches the failure branch.
+      const entry = loggedEntry();
+      expect(entry.outcome).not.toBe("error");
+      expect(entry.errorKind).toBeFalsy();
+      expect(entry.promptTokens).toBe(100);
+    });
+  });
+
 });

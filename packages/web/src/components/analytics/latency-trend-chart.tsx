@@ -33,7 +33,7 @@ interface LatencyTrendChartProps {
 }
 
 export function LatencyTrendChart({ data }: LatencyTrendChartProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   return (
     <Card>
@@ -72,7 +72,7 @@ export function LatencyTrendChart({ data }: LatencyTrendChartProps) {
                 <ChartTooltipContent
                   labelFormatter={(v) => {
                     const d = new Date(v);
-                    return d.toLocaleDateString();
+                    return d.toLocaleDateString(locale);
                   }}
                 />
               }

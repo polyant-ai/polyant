@@ -88,7 +88,9 @@ export function reasoningAlwaysOnFallback(modelId: string): boolean {
 export function temperatureRejectedFallback(provider: string, modelId: string): boolean {
   switch (provider) {
     case "openai":
-      return /^o[134]\b|gpt-5\.6/.test(modelId);
+      // Both alternatives are anchored: `^` binds only to the first branch of a
+      // top-level `|`, so without the group `my-gpt-5.6-tune` would match too.
+      return /^(?:o[134]\b|gpt-5\.6)/.test(modelId);
     case "anthropic":
       return /^claude-(opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
     case "bedrock":

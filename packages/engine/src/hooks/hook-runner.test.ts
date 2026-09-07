@@ -107,6 +107,52 @@ describe("runHooks", () => {
     expect(auditLogMock.mock.calls[0][0].error).toMatch(/timed out/);
   });
 
+  it("should_abort_the_signal_handed_to_a_timed_out_hook", async () => {
+    getEnabledHooksMock.mockResolvedValue([hook("slow", { timeoutMs: 1000 })]);
+    vi.useFakeTimers();
+    let seen: AbortSignal | undefined;
+    executeMock.mockImplementation((_h, _p, ctx: HookRunContext) => {
+      seen = ctx.abortSignal;
+      return new Promise<void>(() => {});
+    });
+    const run = runHooks("message_received", payload, baseCtx);
+    await vi.advanceTimersByTimeAsync(1001);
+    await run;
+    vi.useRealTimers();
+    // The rejection unblocks the runner; the signal is what tells the hook.
+    expect(seen?.aborted).toBe(true);
+  });
+
+  it("should_ignore_a_state_write_from_a_hook_that_already_timed_out", async () => {
+    const set = vi.fn();
+    const state = { get: () => undefined, set, getAll: () => ({}), delete: vi.fn(), channel: undefined };
+    getEnabledHooksMock.mockResolvedValue([hook("slow", { timeoutMs: 1000 })]);
+    vi.useFakeTimers();
+    let lateWrite: (() => void) | undefined;
+    executeMock.mockImplementation((_h, _p, ctx: HookRunContext) => {
+      lateWrite = () => ctx.state!.set("k", "v");
+      return new Promise<void>(() => {});
+    });
+    const run = runHooks("message_received", payload, { ...baseCtx, state });
+    await vi.advanceTimersByTimeAsync(1001);
+    await run;
+    vi.useRealTimers();
+    // The abandoned hook finally gets around to writing — into a fenced view.
+    lateWrite!();
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("should_still_allow_state_writes_while_the_hook_is_within_its_deadline", async () => {
+    const set = vi.fn();
+    const state = { get: () => undefined, set, getAll: () => ({}), delete: vi.fn(), channel: undefined };
+    getEnabledHooksMock.mockResolvedValue([hook("a")]);
+    executeMock.mockImplementation(async (_h, _p, ctx: HookRunContext) => {
+      ctx.state!.set("k", "v");
+    });
+    await runHooks("message_received", payload, { ...baseCtx, state });
+    expect(set).toHaveBeenCalledWith("k", "v");
+  });
+
   it("should_skip_remaining_hooks_when_aborted", async () => {
     const controller = new AbortController();
     getEnabledHooksMock.mockResolvedValue([hook("a"), hook("b")]);

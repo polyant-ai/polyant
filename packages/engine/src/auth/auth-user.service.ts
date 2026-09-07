@@ -58,7 +58,6 @@ export async function validateSessionToken(
 
       if (!payload.sub && !payload.email) return null;
 
-      const role = payload.role === "superadmin" ? "superadmin" : "user";
       const mustChangePassword = payload.mustChangePassword === true;
       // Only trust a string `orgId` claim; anything else is treated as absent so
       // a malformed token never leaks a non-string value downstream.
@@ -68,7 +67,6 @@ export async function validateSessionToken(
         userId: (payload.sub ?? payload.id) as string,
         email: payload.email as string,
         name: (payload.name as string) ?? undefined,
-        role,
         mustChangePassword,
         principalType: "user",
         orgId,

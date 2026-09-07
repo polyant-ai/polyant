@@ -1,17 +1,35 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+// `vi` is imported ahead of the `vi.hoisted` calls below purely so it is
+// declared before use — imports hoist either way, so the runtime order that
+// vitest needs (hoisted factories before the `vi.mock` registrations) is
+// unchanged.
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { constants } from "node:fs";
+
+// The tool stats and reads through a single file handle (TOCTOU-safe), so
+// `readFile`/`stat` are the HANDLE's methods here, not the module's.
 const mockReadFile = vi.hoisted(() => vi.fn());
 const mockStat = vi.hoisted(() => vi.fn());
+const mockClose = vi.hoisted(() => vi.fn());
+const mockOpen = vi.hoisted(() => vi.fn());
 const mockRealpath = vi.hoisted(() => vi.fn(async (p: string) => p));
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+/**
+ * The open must be non-blocking: the type gate runs after the open (TOCTOU-safe),
+ * so a FIFO in the workspace would otherwise hang the tool. See
+ * `read-file.tool.fifo.test.ts` for the real-filesystem proof.
+ */
+const OPEN_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK;
 
 vi.mock("fs/promises", () => ({
+  open: mockOpen,
   readFile: mockReadFile,
   stat: mockStat,
   realpath: mockRealpath,
 }));
 vi.mock("node:fs/promises", () => ({
+  open: mockOpen,
   readFile: mockReadFile,
   stat: mockStat,
   realpath: mockRealpath,
@@ -39,6 +57,11 @@ function buildTool(opts: { conversationId?: string | undefined } = { conversatio
 beforeEach(() => {
   vi.clearAllMocks();
   mockRealpath.mockImplementation(async (p: string) => p);
+  mockOpen.mockImplementation(async () => ({
+    stat: mockStat,
+    readFile: mockReadFile,
+    close: mockClose,
+  }));
 });
 
 const WORKSPACE_DIR = `${OA_WORKSPACES_ROOT}/test-instance/conversations/conv-1`;
@@ -58,7 +81,7 @@ describe("readFile tool", () => {
 
     const result = await execute({ path: "notes.md", tail: null }) as { content: string; sizeBytes: number };
 
-    expect(mockReadFile).toHaveBeenCalledWith(`${WORKSPACE_DIR}/notes.md`, "utf-8");
+    expect(mockOpen).toHaveBeenCalledWith(`${WORKSPACE_DIR}/notes.md`, OPEN_FLAGS);
     expect(result.content).toBe("# Hello\n\nThis is a readme.");
     expect(result.sizeBytes).toBe(100);
   });
@@ -70,7 +93,7 @@ describe("readFile tool", () => {
 
     const result = await execute({ path: ".repos/owner/repo-abc123/README.md", tail: null }) as { content: string };
 
-    expect(mockReadFile).toHaveBeenCalledWith(`${WORKSPACE_DIR}/.repos/owner/repo-abc123/README.md`, "utf-8");
+    expect(mockOpen).toHaveBeenCalledWith(`${WORKSPACE_DIR}/.repos/owner/repo-abc123/README.md`, OPEN_FLAGS);
     expect(result.content).toBe("readme content");
   });
 
@@ -104,7 +127,7 @@ describe("readFile tool", () => {
 
     const result = await execute({ path: absPath, tail: null }) as { content: string };
 
-    expect(mockReadFile).toHaveBeenCalledWith(absPath, "utf-8");
+    expect(mockOpen).toHaveBeenCalledWith(absPath, OPEN_FLAGS);
     expect(result.content).toBe("cloned");
   });
 
@@ -144,6 +167,19 @@ describe("readFile tool", () => {
     const result = await execute({ path: "huge.bin", tail: null }) as { error: string };
 
     expect(result.error).toContain("File too large");
+  });
+
+  it("stats and reads the same handle, and closes it on the rejection path too", async () => {
+    // The size/type gates must apply to the bytes actually returned: re-resolving the
+    // path for the read would let it point at a different file (TOCTOU).
+    mockStat.mockResolvedValue({ isFile: () => true, size: 600 * 1024 });
+    const { execute } = buildTool();
+
+    await execute({ path: "huge.bin", tail: null });
+
+    expect(mockOpen).toHaveBeenCalledTimes(1);
+    expect(mockReadFile).not.toHaveBeenCalled();
+    expect(mockClose).toHaveBeenCalledTimes(1);
   });
 
   it("returns error for directories", async () => {

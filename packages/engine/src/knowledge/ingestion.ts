@@ -9,6 +9,7 @@ import {
 } from "./store.js";
 import { embedMany, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
+import { sanitizeForLog } from "../utils/create-logger.js";
 
 /**
  * Process a document: chunk the text, generate embeddings, store chunks.
@@ -85,7 +86,7 @@ export async function processDocument(
     return { chunkCount: inserted };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[Knowledge] Failed to process doc ${docId}: ${message}`);
+    console.error(`[Knowledge] Failed to process doc ${docId}: ${sanitizeForLog(message)}`);
     await updateDocumentStatus(docId, "error", { errorMessage: message });
     throw err;
   }

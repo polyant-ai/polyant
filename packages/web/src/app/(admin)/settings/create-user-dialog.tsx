@@ -17,15 +17,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n/context";
-import { api, getUserErrorMessage, type UserRole } from "@/lib/api";
+import { api, getUserErrorMessage } from "@/lib/api";
 
 interface Props {
   open: boolean;
@@ -37,7 +31,7 @@ export function CreateUserDialog({ open, onOpenChange, onCreated }: Props) {
   const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<UserRole>("user");
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [generated, setGenerated] = useState<string | null>(null);
@@ -45,7 +39,7 @@ export function CreateUserDialog({ open, onOpenChange, onCreated }: Props) {
   function reset() {
     setEmail("");
     setName("");
-    setRole("user");
+    setIsPlatformAdmin(false);
     setPassword("");
     setGenerated(null);
   }
@@ -63,7 +57,7 @@ export function CreateUserDialog({ open, onOpenChange, onCreated }: Props) {
       const res = await api.users.create({
         email: email.trim(),
         name: name.trim() || undefined,
-        role,
+        isPlatformAdmin,
         password: password.trim() || undefined,
       });
       toast.success(t("users.create.created"));
@@ -133,19 +127,18 @@ export function CreateUserDialog({ open, onOpenChange, onCreated }: Props) {
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="cu-role">{t("users.create.roleLabel")}</Label>
-              <Select value={role} onValueChange={(v) => setRole(v as UserRole)}>
-                <SelectTrigger id="cu-role">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="user">{t("users.role.user")}</SelectItem>
-                  <SelectItem value="superadmin">
-                    {t("users.role.superadmin")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div>
+                <Label htmlFor="cu-platform-admin">{t("users.role.platformAdmin")}</Label>
+                <p className="text-sm text-muted-foreground">
+                  {t("users.create.platformAdminHint")}
+                </p>
+              </div>
+              <Switch
+                id="cu-platform-admin"
+                checked={isPlatformAdmin}
+                onCheckedChange={setIsPlatformAdmin}
+              />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="cu-password">{t("users.create.passwordLabel")}</Label>

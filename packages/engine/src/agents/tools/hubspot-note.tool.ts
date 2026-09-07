@@ -321,7 +321,6 @@ async function searchNotes(
         results: Array<{ toObjectId: string }>;
       };
       noteIds = assocData.results.map((r) => r.toObjectId);
-      total = noteIds.length;
 
       if (noteIds.length === 0) {
         return { found: 0, notes: [] };

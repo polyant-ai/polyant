@@ -16,6 +16,8 @@ import { importNewInstance, importOverwriteInstance } from "../../instances/impo
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { errMsg } from "./instance-helpers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
+import type { AuthenticatedUser } from "../../auth/auth.types.js";
 
 @Controller("api/instances")
 export class InstanceExportController {
@@ -42,9 +44,11 @@ export class InstanceExportController {
 
   @RequirePermission(Permission.AGENT_WRITE)
   @Post("import")
-  async importNew(@Body() body: unknown) {
+  async importNew(@Body() body: unknown, @CurrentUser() user?: AuthenticatedUser) {
     try {
-      const result = await importNewInstance(body);
+      // The imported agent lands in the CALLER's organization — never in the
+      // deployment's seed workspace.
+      const result = await importNewInstance(body, user?.orgId);
       return result;
     } catch (err) {
       const message = errMsg(err);

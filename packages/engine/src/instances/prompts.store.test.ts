@@ -55,6 +55,31 @@ describe("seedInstancePrompts (#95)", () => {
     expect(onConflictSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("seeds every section with empty content, except the skills placeholder", async () => {
+    const valuesSpy = vi.fn().mockReturnValue({
+      onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
+    });
+    mockInsert.mockReturnValue({ values: valuesSpy });
+
+    await seedInstancePrompts(asInstanceUuid("inst-empty"));
+
+    const rows = valuesSpy.mock.calls[0][0] as { sectionKey: string; content: string }[];
+    const bySection = new Map(rows.map((r) => [r.sectionKey, r.content]));
+
+    // A new agent must inherit no prose: default content made every instance
+    // behave according to text its author had never read, and made the same
+    // agent differ across engine versions.
+    for (const [sectionKey, content] of bySection) {
+      if (sectionKey === "05-skills") continue;
+      expect(content, `${sectionKey} must be seeded empty`).toBe("");
+    }
+
+    // The one exception, and it is mechanical rather than editorial:
+    // {{skillsList}} is the only channel through which an instance's assigned
+    // skills reach its prompt. Without it they are silently inert.
+    expect(bySection.get("05-skills")).toBe("{{skillsList}}");
+  });
+
   it("is idempotent: second call hits the same path (not a pre-select + insert)", async () => {
     const onConflictSpy = vi.fn().mockResolvedValue(undefined);
     const valuesSpy = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictSpy });

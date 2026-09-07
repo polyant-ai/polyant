@@ -19,6 +19,9 @@ vi.mock("../../instances/channels.store.js", () => ({
   // Keep in sync with the real tuple in instances/channels.store.ts —
   // any new API-configurable channel type must be added here.
   CHANNEL_TYPES: ["telegram", "slack", "whatsapp", "agent"],
+  WHATSAPP_CHANNEL_TYPE: "whatsapp",
+  WHATSAPP_AUTH_MODE_TOKEN: "authToken",
+  WHATSAPP_AUTH_MODE_API_KEY: "apiKey",
   resolveWhatsAppAuthMode: (cfg: Record<string, unknown>) =>
     cfg.authMode === "apiKey" ? "apiKey" : "authToken",
 }));

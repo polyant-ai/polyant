@@ -31,7 +31,7 @@ const markBedrock = (message: ModelMessage): ModelMessage =>
  */
 export const applyBedrockPromptCaching: PrepareMessages = (input) => {
   if (!cacheSupported("bedrock", input.modelId)) {
-    return { system: input.system, messages: input.messages };
+    return { instructions: input.system, messages: input.messages };
   }
   return injectCacheBreakpoints(input, markBedrock);
 };

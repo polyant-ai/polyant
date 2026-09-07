@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { getSkillEnv } from "../../instances/skill-env.store.js";
+import { getSkillEnvEntries } from "../../instances/skill-env.store.js";
 import { db } from "../../database/client.js";
 import { instanceSkills } from "../../instances/instance-skills.schema.js";
 import { skills, skillVersions } from "../../skills/schema.js";
@@ -62,13 +62,33 @@ export default defineTool({
 
     let finalContent = row.content;
 
-    // Inject skill env vars
-    const envVars = await getSkillEnv(ctx.instanceId, identifier);
-    if (Object.keys(envVars).length > 0) {
-      const envBlock = Object.entries(envVars)
-        .map(([k, value]) => `  <var name="${k}">${value}</var>`)
+    /*
+      Skill env, with the sensitive half kept OUT of the model's context.
+
+      A value the operator marked sensitive is encrypted at rest. Interpolating
+      it here put the plaintext in the conversation, in the persisted history and
+      — through `safeOutputPreview` — in `tool_audit_logs`, which made the audit
+      table a second, cleartext copy of the thing the encryption protects. No
+      attack was needed: the prompt tells the model to call this tool.
+
+      So a sensitive var is emitted as an opaque placeholder, which `buildTool`
+      resolves between validation and `execute`. The plaintext then exists only
+      inside the tool call. Non-sensitive vars are plain settings and stay inline.
+    */
+    const envVars = await getSkillEnvEntries(ctx.instanceId, identifier);
+    if (envVars.length > 0) {
+      const envBlock = envVars
+        .map(({ key, value, sensitive }) =>
+          sensitive
+            ? `  <var name="${key}" value="{{skill_env.${identifier}.${key}}}" sensitive />`
+            : `  <var name="${key}">${value}</var>`,
+        )
         .join("\n");
-      finalContent += `\n\n<skill_env>\n${envBlock}\n</skill_env>`;
+      const note = envVars.some((v) => v.sensitive)
+        ? "\nA `value=\"{{...}}\"` placeholder is a secret you cannot read. Pass it through" +
+          " verbatim as a tool argument and it will be resolved; do not try to look it up."
+        : "";
+      finalContent += `\n\n<skill_env>\n${envBlock}\n</skill_env>${note}`;
     }
 
     ctx.audit.log({

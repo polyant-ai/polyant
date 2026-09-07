@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { eq, and, sql } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { db, type DbExecutor } from "../database/client.js";
 import { instancePrompts } from "./prompts.schema.js";
 import { DEFAULT_PROMPTS } from "./defaults.js";
 import { TtlCache } from "../utils/ttl-cache.js";
@@ -100,8 +100,11 @@ export async function upsertPrompt(
  * Idempotent: uses ON CONFLICT DO NOTHING on the (instanceId, sectionKey) unique constraint
  * so concurrent calls cannot produce duplicates (no count+insert TOCTOU).
  */
-export async function seedInstancePrompts(instanceId: InstanceUuid): Promise<void> {
-  await db
+export async function seedInstancePrompts(
+  instanceId: InstanceUuid,
+  executor: DbExecutor = db,
+): Promise<void> {
+  await executor
     .insert(instancePrompts)
     .values(
       DEFAULT_PROMPTS.map((p) => ({

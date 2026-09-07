@@ -2,6 +2,7 @@
 
 import { Module, type OnModuleInit } from "@nestjs/common";
 import { bootstrapOrganizations } from "./bootstrap.js";
+import { TenantService } from "./tenant.service.js";
 
 /**
  * Owns the first-boot RBAC bootstrap (design §8). The migration (0051) creates
@@ -9,13 +10,16 @@ import { bootstrapOrganizations } from "./bootstrap.js";
  * idempotent runtime bootstrap (Platform Superadmin promotion, fresh-install
  * no-op) once the NestJS app initializes.
  */
-@Module({})
+@Module({
+  providers: [TenantService],
+  exports: [TenantService],
+})
 export class OrganizationsModule implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     try {
       await bootstrapOrganizations();
     } catch (err) {
-      // Never block boot — mirror the existing superadmin seed behaviour.
+      // Never block boot — mirror the existing platform-admin seed behaviour.
       console.error("[organizations] Bootstrap failed:", err);
     }
   }

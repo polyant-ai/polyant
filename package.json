@@ -1,8 +1,8 @@
 {
   "name": "polyant",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "private": true,
-  "description": "Polyant — open-source platform for building AI assistants with long-term memory and multi-channel support",
+  "description": "Polyant \u2014 open-source platform for building AI assistants with long-term memory and multi-channel support",
   "license": "AGPL-3.0-or-later",
   "author": "Exelab S.r.l.",
   "homepage": "https://github.com/polyant-ai/polyant",
@@ -32,15 +32,22 @@
     "test": "npm run test --workspaces --if-present",
     "test:unit": "npm run test:unit -w @polyant/engine",
     "test:integration": "npm run test:integration -w @polyant/engine",
-    "test:functional": "npm run test:functional -w @polyant/engine",
+    "release:prepare": "node scripts/release/prepare.mjs",
+    "release:audit": "node scripts/release/audit.mjs",
     "release:verify": "node scripts/ci/verify-release-metadata.mjs",
     "licenses": "npx --yes license-checker --excludePackages \"@polyant/engine;@polyant/web;polyant\" --excludePrivatePackages --markdown | grep -v '^\\[@polyant/'"
   },
   "overrides": {
     "path-to-regexp": "^8.4.1",
-    "next": "^16.2.10",
+    "next": "^16.3.0",
     "axios": "^1.15.0",
-    "langsmith": "^0.7.3"
+    "langsmith": "^0.7.3",
+    "jsdom": {
+      "undici": "^7.29.0"
+    },
+    "@ai-sdk/provider-utils": {
+      "undici": "^7.29.0"
+    }
   },
   "dependencies": {
     "axios": "^1.15.0",

@@ -10,11 +10,21 @@
 
 import "reflect-metadata";
 import { describe, it, expect, beforeEach, vi } from "vitest";
+
+const { mockAuditLog } = vi.hoisted(() => ({ mockAuditLog: vi.fn() }));
+
+vi.mock("../../management-audit/management-audit-logger.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../management-audit/management-audit-logger.js")>();
+  return { ...actual, createManagementAuditLogger: () => ({ log: mockAuditLog }) };
+});
+
 import { REQUIRE_PERMISSION_KEY } from "../../authz/decorators/require-permission.decorator.js";
 import { Permission } from "../../authz/permissions.js";
 import { MembersController } from "./members.controller.js";
+import { ManagementAuditAction } from "../../management-audit/management-audit-logger.js";
 
-const caller = { userId: "actor-1", orgId: "org-1" };
+const caller = { userId: "actor-1", orgId: "org-1", email: "admin@example.com" };
 
 function makeController() {
   const members = {
@@ -35,6 +45,7 @@ describe("MembersController", () => {
   let ctx: ReturnType<typeof makeController>;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     ctx = makeController();
   });
 
@@ -66,5 +77,36 @@ describe("MembersController", () => {
   it("remove delegates with slug, target user and caller", async () => {
     await ctx.controller.remove("default", "u2", caller as never);
     expect(ctx.members.remove).toHaveBeenCalledWith("default", "u2", caller);
+  });
+
+  it("audits the role grant with the granted role key", async () => {
+    await ctx.controller.assign("default", "u2", { roleKey: "owner" }, caller as never);
+
+    expect(mockAuditLog).toHaveBeenCalledWith({
+      action: ManagementAuditAction.MemberRoleAssign,
+      actor: { userId: "actor-1", email: "admin@example.com" },
+      targetType: "member",
+      targetId: "u2",
+      metadata: { orgSlug: "default", roleKey: "owner" },
+    });
+  });
+
+  it("does not audit a rejected grant (missing roleKey)", async () => {
+    await expect(
+      ctx.controller.assign("default", "u2", {}, caller as never),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(mockAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("audits the member revoke", async () => {
+    await ctx.controller.remove("default", "u2", caller as never);
+
+    expect(mockAuditLog).toHaveBeenCalledWith({
+      action: ManagementAuditAction.MemberRemove,
+      actor: { userId: "actor-1", email: "admin@example.com" },
+      targetType: "member",
+      targetId: "u2",
+      metadata: { orgSlug: "default" },
+    });
   });
 });

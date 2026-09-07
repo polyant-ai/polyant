@@ -8,11 +8,11 @@
  * Render injects env vars directly into the container; dotenv loading is a no-op there.
  */
 import { drizzle } from "drizzle-orm/postgres-js";
-import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { config } from "../config.js";
+import { runMigrationsLocked } from "./run-migrations.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,7 +26,7 @@ const migrationsFolder = resolve(__dirname, "../../migrations");
 
 console.log(`Running migrations from ${migrationsFolder}...`);
 
-await migrate(db, { migrationsFolder });
+await runMigrationsLocked(sql, db, migrationsFolder);
 
 console.log("Migrations applied successfully.");
 await sql.end();

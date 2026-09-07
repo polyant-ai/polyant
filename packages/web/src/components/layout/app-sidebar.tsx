@@ -2,6 +2,8 @@
 
 "use client";
 
+import { useCallback, useState } from "react";
+import { useParams, usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Bot,
@@ -28,49 +30,140 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { NavMain, type NavItem } from "@/components/layout/nav-main";
+import { NavDestination } from "@/components/layout/nav-destination";
+import {
+  navTransitionDepth,
+  navTransitionKey,
+  resolveDestination,
+  type Destination,
+} from "@/lib/nav/destination";
+import { cn } from "@/lib/utils";
 import { NavUser, type NavUserProps } from "@/components/layout/nav-user";
 import { useI18n } from "@/lib/i18n/context";
 import { releaseInfo } from "@/lib/release-info";
 import type { TranslationKey } from "@/lib/i18n/types";
 import Link from "next/link";
+import { navHref, resolveNavScope, type NavScope } from "@/lib/tenant/nav-href";
+import { useTenant } from "@/lib/tenant/tenant-context";
 
 interface NavItemDef {
   titleKey: TranslationKey;
-  url: string;
+  /** Path suffix within its scope — "" is the scope root. */
+  path: string;
+  scope: NavScope;
   icon: LucideIcon;
+  exact?: boolean;
 }
 
 const overviewDefs: NavItemDef[] = [
-  { titleKey: "nav.dashboard", url: "/", icon: LayoutDashboard },
-  { titleKey: "nav.instances", url: "/instances", icon: Bot },
-  { titleKey: "nav.conversations", url: "/conversations", icon: MessageSquare },
-  { titleKey: "nav.playground", url: "/playground", icon: MessageSquareCode },
-  { titleKey: "nav.activity", url: "/activity", icon: Activity },
-  { titleKey: "nav.memory", url: "/memory", icon: Brain },
-  { titleKey: "nav.skills", url: "/skills", icon: Zap },
-  { titleKey: "nav.auditLogs", url: "/audit-logs", icon: ScrollText },
+  { titleKey: "nav.dashboard", path: "", scope: "org", exact: true, icon: LayoutDashboard },
+  { titleKey: "nav.instances", path: "/instances", scope: "workspace", icon: Bot },
+  { titleKey: "nav.conversations", path: "/conversations", scope: "workspace", icon: MessageSquare },
+  { titleKey: "nav.playground", path: "/playground", scope: "workspace", icon: MessageSquareCode },
+  { titleKey: "nav.activity", path: "/activity", scope: "workspace", icon: Activity },
+  { titleKey: "nav.memory", path: "/memory", scope: "workspace", icon: Brain },
+  // The skill catalog is global — it is NOT workspace-scoped yet, so its URL
+  // must not pretend otherwise. See the workspace-scoped-skills spec.
+  { titleKey: "nav.skills", path: "/skills", scope: "deployment", icon: Zap },
+  { titleKey: "nav.auditLogs", path: "/audit-logs", scope: "org", icon: ScrollText },
 ];
 
-// Settings is superadmin-only: it hosts both general system settings and the
-// users management tab. Non-superadmins don't see this section at all.
-const superadminDefs: NavItemDef[] = [
-  { titleKey: "nav.members", url: "/members", icon: Users },
-  { titleKey: "nav.settings", url: "/settings", icon: Settings },
+// Members administers the ORGANIZATION's people. Its route is gated by
+// `org.member:manage` — admin and owner — which the engine decides from the
+// caller's role binding, NOT by the deployment-wide platform-admin flag the
+// session carries. Sitting in `platformAdminDefs` therefore hid it from exactly
+// the org Owner it exists for, while a platform admin who happened to hold no
+// binding saw it. The panel has no permission read-model to gate it correctly
+// (see `isForbidden`), so it is offered to everyone and the page explains the
+// refusal — visible-then-explained beats correct-for-one-role-by-accident.
+const orgManagementDefs: NavItemDef[] = [
+  { titleKey: "nav.members", path: "/members", scope: "org", icon: Users },
 ];
+
+// Settings is platform-admin-only: it hosts both general system settings and the
+// users management tab. Nobody else sees this section at all — and unlike
+// Members, the deployment-wide flag IS the right gate here, because `/api/users`
+// is guarded by `@PlatformAdminOnly()`, the same standing the session's
+// `isPlatformAdmin` hint reflects (as presentation only — the engine still
+// resolves the DB flag per request).
+const platformAdminDefs: NavItemDef[] = [
+  { titleKey: "nav.settings", path: "/settings", scope: "deployment", icon: Settings },
+];
+
+/**
+ * Which pane the sidebar is showing, and which way it should arrive.
+ *
+ * `in` when you nest INTO a destination, `out` when you come back out of one — the
+ * drill-down convention. Only the ARRIVING pane animates; the one you left is
+ * unmounted the moment the route changes, and the direction reads correctly from
+ * the incoming half alone, so keeping both mounted for a true cross-slide would be
+ * machinery for no gain.
+ *
+ * State is adjusted during render (React's documented "derive state from a changing
+ * prop" pattern) rather than in an effect: an effect would apply the class one
+ * render late, which is exactly one frame of the wrong direction.
+ */
+function useNavTransition(destination: Destination | null): {
+  key: string;
+  direction: "in" | "out";
+} {
+  const key = navTransitionKey(destination);
+  const [previous, setPrevious] = useState(key);
+  const [direction, setDirection] = useState<"in" | "out">("in");
+
+  if (previous !== key) {
+    setDirection(navTransitionDepth(key) >= navTransitionDepth(previous) ? "in" : "out");
+    setPrevious(key);
+  }
+
+  return { key, direction };
+}
 
 export function AppSidebar(
   props: React.ComponentProps<typeof Sidebar> & {
-    user?: NavUserProps["user"] & { role?: string };
+    user?: NavUserProps["user"] & { isPlatformAdmin?: boolean };
   },
 ) {
   const { user, ...sidebarProps } = props;
   const { t } = useI18n();
 
-  const toNavItems = (defs: NavItemDef[]): NavItem[] =>
-    defs.map((d) => ({ title: t(d.titleKey), url: d.url, icon: d.icon }));
+  const tenant = useTenant();
+  const params = useParams<{ orgSlug?: string; workspaceSlug?: string }>();
 
-  const isSuperadmin = user?.role === "superadmin";
-  const managementItems = isSuperadmin ? superadminDefs : [];
+  // The organization always comes from the verified tenancy (never the URL —
+  // see resolveNavScope's doc comment); the workspace is honoured from the URL
+  // only when it names a workspace the caller actually holds. Both slugs are
+  // plain strings, NOT a wrapper object: an object literal is a new reference
+  // every render, so exhaustive-deps would reject it as a dependency (and
+  // memoising it would only move the problem).
+  const { orgSlug, workspaceSlug } = resolveNavScope(tenant, params);
+
+  const toNavItems = useCallback(
+    (defs: NavItemDef[]): NavItem[] =>
+      defs.map((d) => ({
+        title: t(d.titleKey),
+        url: navHref(d.scope, d.path, { orgSlug, workspaceSlug }),
+        icon: d.icon,
+        exact: d.exact,
+        // Deployment items need no tenancy; org/workspace items are disabled
+        // until the slug their own scope requires has resolved, so a click
+        // during the loading window cannot misnavigate to the dashboard.
+        disabled:
+          d.scope !== "deployment" && (d.scope === "org" ? !orgSlug : !workspaceSlug),
+      })),
+    [t, orgSlug, workspaceSlug],
+  );
+
+  // Inside an agent the sidebar shows THAT agent, not the daily work — one column
+  // of navigation at a time.
+  const pathname = usePathname();
+  const destination = resolveDestination(pathname);
+  const { key: navKey, direction } = useNavTransition(destination);
+
+  const isPlatformAdmin = user?.isPlatformAdmin === true;
+  const managementItems = isPlatformAdmin
+    ? [...orgManagementDefs, ...platformAdminDefs]
+    : orgManagementDefs;
 
   return (
     <Sidebar collapsible="icon" {...sidebarProps}>
@@ -86,10 +179,27 @@ export function AppSidebar(
       </SidebarHeader>
 
       <SidebarContent>
-        <NavMain label={t("nav.overview")} items={toNavItems(overviewDefs)} />
-        {managementItems.length > 0 && (
-          <NavMain label={t("nav.management")} items={toNavItems(managementItems)} />
-        )}
+        {/* Keyed by destination so React remounts on a change and the CSS animation
+            replays; `overflow-x-hidden` because the incoming pane starts offset and
+            `SidebarContent` scrolls. */}
+        <div
+          key={navKey}
+          className={cn(
+            "flex min-w-0 flex-col gap-2 overflow-x-hidden",
+            direction === "in" ? "animate-nav-in" : "animate-nav-out",
+          )}
+        >
+          {destination ? (
+            <NavDestination destination={destination} />
+          ) : (
+            <>
+              <NavMain label={t("nav.overview")} items={toNavItems(overviewDefs)} />
+              {managementItems.length > 0 && (
+                <NavMain label={t("nav.management")} items={toNavItems(managementItems)} />
+              )}
+            </>
+          )}
+        </div>
       </SidebarContent>
 
       <SidebarFooter>

@@ -40,6 +40,7 @@ function toJsonValue(key: string, value: unknown): unknown {
   } catch (err) {
     throw new Error(
       `conversation state: value for "${key}" is not JSON-serializable: ${(err as Error).message}`,
+      { cause: err },
     );
   }
   if (serialized === undefined) {

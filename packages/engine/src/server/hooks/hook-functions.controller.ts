@@ -7,7 +7,10 @@ import { RequirePermission, Permission } from "../../authz/index.js";
 /** Read-only catalog of registered hook functions (mirrors GET /api/tools). */
 @Controller("api/hook-functions")
 export class HookFunctionsController {
-  @RequirePermission(Permission.TOOL_READ)
+  // ORG_READ, not TOOL_READ: `agent.tool:read` names a capability over ONE
+  // agent's tool selection, and this is the deployment-wide REGISTRY. An
+  // agent-scoped key on an agent-less route is a claim the route cannot honour.
+  @RequirePermission(Permission.ORG_READ)
   @Get()
   list() {
     return {

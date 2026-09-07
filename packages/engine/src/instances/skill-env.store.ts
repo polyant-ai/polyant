@@ -54,6 +54,35 @@ export async function getSkillEnv(
 }
 
 /**
+ * Get a skill's env vars WITH the sensitivity flag the operator set.
+ *
+ * `getSkillEnv` flattens to `Record<string, string>` and drops `encrypted`, so a
+ * caller cannot tell a public setting from a credential. Anything that decides
+ * where a value may travel needs that distinction: `readSkill` uses it to emit a
+ * placeholder instead of the plaintext for sensitive keys, so the value never
+ * enters the model's context — and therefore never reaches the conversation
+ * history or `tool_audit_logs`.
+ */
+export async function getSkillEnvEntries(
+  instanceSlug: InstanceSlug,
+  skillSlug: string,
+): Promise<Array<{ key: string; value: string; sensitive: boolean }>> {
+  const instanceId = await resolveInstanceId(instanceSlug);
+  if (!instanceId) return [];
+
+  const rows = await db
+    .select({ key: instanceSkillEnv.key, value: instanceSkillEnv.value, encrypted: instanceSkillEnv.encrypted })
+    .from(instanceSkillEnv)
+    .where(and(eq(instanceSkillEnv.instanceId, instanceId), eq(instanceSkillEnv.skillSlug, skillSlug)));
+
+  return rows.map((row) => ({
+    key: row.key,
+    value: row.encrypted ? decrypt(row.value) : row.value,
+    sensitive: row.encrypted,
+  }));
+}
+
+/**
  * Check if all required env keys exist for a skill.
  * Accepts instance slug (e.g. "default"), resolves to UUID internally.
  */

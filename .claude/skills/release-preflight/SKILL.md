@@ -40,6 +40,7 @@ Return a concise, evidence-backed preflight report containing:
 - CI and `release:verify` outcomes;
 - a changelog/release-note evidence inventory: user-visible features, fixes, breaking changes, dependencies, authors/PRs when available, and items that need human editorial review;
 - version consistency across root/package manifests, lockfiles, Docker/runtime metadata, frontend display, README, CHANGELOG, and release-note source;
+- a documentation review of root `README.md` and `ROADMAP.md`: inspect both against the release scope and record either the required update or an evidence-backed "no change required" decision for each;
 - migration, configuration, deployment, security, and rollback considerations;
 - public-contract impact: documented OpenAI-compatible API, Plugin SDK/manifests, config/migrations, and any SemVer compatibility risk;
 - a clear recommendation: ready to prepare, or blocked with the exact owner/action.

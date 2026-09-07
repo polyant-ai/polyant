@@ -65,7 +65,7 @@ describe("seedInitialAdmin", () => {
     log.mockRestore();
   });
 
-  it("uses INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD when set, and does NOT print the password", async () => {
+  it("uses INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD without logging either secret or PII", async () => {
     mockedStore.countUsers.mockResolvedValueOnce(0);
     mockedStore.insertUser.mockResolvedValueOnce({});
     mutableConfig.initialAdmin = {
@@ -82,7 +82,8 @@ describe("seedInitialAdmin", () => {
     expect(warn).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledTimes(1);
     const logged = log.mock.calls[0][0] as string;
-    expect(logged).toContain("boss@example.com");
+    expect(logged).toContain("Seeded initial admin");
+    expect(logged).not.toContain("boss@example.com");
     expect(logged).not.toContain("supplied-by-env");
 
     warn.mockRestore();

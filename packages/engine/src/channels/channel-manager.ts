@@ -13,6 +13,7 @@ import { emitOutbound } from "../activity-stream/emitters/emit-outbound.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import { getOptoutStatus } from "../optout/index.js";
+import { sanitizeForLog } from "../utils/create-logger.js";
 
 /**
  * Channel types that should NOT produce `category: "outbound"` events:
@@ -126,12 +127,12 @@ export class ChannelManager {
       }
       instanceMap.set(channelType, adapter);
 
-      console.log(`Channel started: ${channelType} for instance "${instanceSlug}"`);
+      console.log(`Channel started: ${sanitizeForLog(channelType)} for instance "${sanitizeForLog(instanceSlug)}"`);
     } catch (err) {
-      console.error('Failed to start channel %s for instance "%s":', channelType, instanceSlug, err);
+      console.error('Failed to start channel %s for instance "%s":', sanitizeForLog(channelType), sanitizeForLog(instanceSlug), err);
       // Auto-disable the channel in DB to prevent crash loops on restart
       this.autoDisableChannel(instanceSlug, channelType).catch((disableErr) =>
-        console.error('Failed to auto-disable %s for "%s":', channelType, instanceSlug, disableErr),
+        console.error('Failed to auto-disable %s for "%s":', sanitizeForLog(channelType), sanitizeForLog(instanceSlug), disableErr),
       );
     }
   }
@@ -147,7 +148,7 @@ export class ChannelManager {
     try {
       await adapter.shutdown();
     } catch (err) {
-      console.error('Error shutting down %s for instance "%s":', channelType, instanceSlug, err);
+      console.error('Error shutting down %s for instance "%s":', sanitizeForLog(channelType), sanitizeForLog(instanceSlug), err);
     }
     instanceMap.delete(channelType);
 
@@ -174,7 +175,7 @@ export class ChannelManager {
       try {
         await adapter.shutdown();
       } catch (err) {
-        console.error('Error shutting down %s for instance "%s":', type, instanceSlug, err);
+        console.error('Error shutting down %s for instance "%s":', sanitizeForLog(type), sanitizeForLog(instanceSlug), err);
       }
     });
     await Promise.all(promises);
@@ -222,7 +223,7 @@ export class ChannelManager {
     if (!adapter) throw new Error(`Channel "${channelType}" not active for instance "${instanceSlug}"`);
 
     if (!opts?.skipOptoutCheck && (await this.isOptoutSuppressed(instanceSlug, channelType, channelId))) {
-      console.log(`[channel-manager] outbound suppressed (opt-out): ${instanceSlug} ${channelType}:${channelId}`);
+      console.log(`[channel-manager] outbound suppressed (opt-out): ${sanitizeForLog(instanceSlug)} ${sanitizeForLog(channelType)}:${sanitizeForLog(channelId)}`);
       return;
     }
 
@@ -277,7 +278,7 @@ export class ChannelManager {
     if (!adapter) throw new Error(`Channel "${channelType}" not active for instance "${instanceSlug}"`);
 
     if (await this.isOptoutSuppressed(instanceSlug, channelType, channelId)) {
-      console.log(`[channel-manager] template suppressed (opt-out): ${instanceSlug} ${channelType}:${channelId}`);
+      console.log(`[channel-manager] template suppressed (opt-out): ${sanitizeForLog(instanceSlug)} ${sanitizeForLog(channelType)}:${sanitizeForLog(channelId)}`);
       throw new Error(`Outbound suppressed: contact ${channelType}:${channelId} has opted out`);
     }
 
@@ -327,7 +328,7 @@ export class ChannelManager {
   /** Auto-disable a channel in DB after adapter initialization failure. */
   private async autoDisableChannel(instanceSlug: string, channelType: string): Promise<void> {
     await disableChannel(asInstanceSlug(instanceSlug), channelType);
-    console.warn(`Channel auto-disabled: ${channelType} for instance "${instanceSlug}" — re-enable from admin panel after fixing credentials`);
+    console.warn(`Channel auto-disabled: ${sanitizeForLog(channelType)} for instance "${sanitizeForLog(instanceSlug)}" — re-enable from admin panel after fixing credentials`);
   }
 
   /** Create the appropriate adapter based on channel type. */
@@ -344,7 +345,7 @@ export class ChannelManager {
         // agent: virtual in-process, dispatched directly via adapter.dispatch()
         return new AgentChannelAdapter();
       default:
-        console.warn(`Unknown channel type: ${channelType}`);
+        console.warn(`Unknown channel type: ${sanitizeForLog(channelType)}`);
         return null;
     }
   }

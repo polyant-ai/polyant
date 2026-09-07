@@ -5,7 +5,7 @@ import { hashPassword } from "./password.util.js";
 import { countUsers, insertUser } from "./users.store.js";
 
 /**
- * Idempotent: on first boot (users table empty) creates a `superadmin` account
+ * Idempotent: on first boot (users table empty) creates a platform-admin account
  * using the password supplied via INITIAL_ADMIN_PASSWORD. If the env var is
  * absent, seeding is skipped with a loud warning — we never auto-generate and
  * print credentials, because the boot logs are tee'd to engine-YYYY-MM-DD.log
@@ -36,12 +36,11 @@ export async function seedInitialAdmin(): Promise<void> {
     email,
     name: "administrator",
     passwordHash,
-    role: "superadmin",
+    isPlatformAdmin: true,
     mustChangePassword: true,
   });
 
-  // Confirm seeding with the email only — never the password.
-  console.log(
-    `[users/seed] Seeded admin "${email}" with provided password (INITIAL_ADMIN_PASSWORD)`,
-  );
+  // Boot logs are persisted by the file logger: never include the account email
+  // (PII) or the configured password.
+  console.log("[users/seed] Seeded initial admin with configured credentials.");
 }

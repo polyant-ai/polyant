@@ -21,9 +21,9 @@ If any input is unknown, stale, or contradicted by the repository, stop and hand
 
 ## Preparation workflow
 
-After confirmation, inspect the source range and draft human-readable CHANGELOG and release notes from the commits and public-contract changes. Update the canonical version and every declared mirror, including package manifests/lockfiles, runtime metadata, README, and frontend About/version display. Keep the release-note source in the repository.
+After confirmation, inspect the source range and draft human-readable CHANGELOG and release notes from the commits and public-contract changes. Review root `README.md` and `ROADMAP.md` against the release scope; update each where needed, or record the preflight's evidence-backed "no change required" decision. Update the canonical version and every declared mirror, including package manifests/lockfiles, runtime metadata, README, and frontend About/version display. Keep the release-note source in the repository.
 
-Run the metadata verifier and relevant tests. Present the editorial draft and evidence for human review. Before creating a preparation commit or PR, obtain **explicit human editorial approval** of the release claims, tone, migration guidance, and links; action confirmation alone is insufficient. Apply the approved editorial changes, then create the preparation commit and open a release-preparation PR targeting `develop` only after explicit confirmation for those repository/remote actions.
+Run the metadata verifier and relevant tests. Present the editorial draft and evidence for human review, including the README and roadmap decisions. Before creating a preparation commit or PR, obtain **explicit human editorial approval** of the release claims, tone, migration guidance, links, and documentation decisions; action confirmation alone is insufficient. Apply the approved editorial changes, then create the preparation commit and open a release-preparation PR targeting `develop` only after explicit confirmation for those repository/remote actions.
 
 ## Non-negotiable boundary
 

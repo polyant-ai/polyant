@@ -95,7 +95,9 @@ export async function assertSafeUrl(url: URL): Promise<ResolvedAddress> {
     return { address: first.address, family: first.family as 4 | 6 };
   } catch (err) {
     if (err instanceof Error && err.message.startsWith("Blocked:")) throw err;
-    throw new Error(`Blocked: unable to resolve hostname "${url.hostname}"`);
+    // The message stays deliberately generic (it must not leak resolver
+    // internals to a caller), but `cause` keeps the real reason for the logs.
+    throw new Error(`Blocked: unable to resolve hostname "${url.hostname}"`, { cause: err });
   }
 }
 

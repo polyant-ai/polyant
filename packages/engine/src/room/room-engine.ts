@@ -15,6 +15,7 @@ import type { RoomConfig } from "./room.store.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { setRoomConversationId } from "./room.store.js";
 import { generateConversationTitle } from "../utils/title-generator.js";
+import { makeDelimiter, scrubClosing } from "../utils/untrusted-text.js";
 import { roomLog } from "./room-logger.js";
 import { config } from "../config.js";
 import { eventDefinitions } from "../webhooks/webhooks.schema.js";
@@ -26,19 +27,10 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-/**
- * Build untrusted-data delimiters with a per-cycle random nonce so that an attacker
- * embedding `</webhook_payload>` (or similar) inside the payload cannot break out
- * of the boundary.  The closing tag is also scrubbed from the content as defence
- * in depth.  See #84.
- */
-function makeDelimiter(tag: string, nonce: string): { open: string; close: string } {
-  return { open: `<${tag}_${nonce}>`, close: `</${tag}_${nonce}>` };
-}
-
-function scrubClosing(input: string, close: string): string {
-  return input.split(close).join("[CLOSING-TAG-REMOVED]");
-}
+// The delimiters live in `utils/untrusted-text.ts` now. They were written here
+// (see #84) and stayed private, so every later place that put somebody else's
+// text into a prompt did it plainly — the webhook engine and <channel_identity>
+// among them. Same functions, same behaviour, one importable home.
 
 export async function executeRoomCycle(
   room: RoomConfig,
@@ -198,6 +190,10 @@ export async function executeRoomCycle(
         cacheConfig: instanceConfig.cacheConfig,
         includeHarness: new Set(["room"]),
         stateBuffer,
+        // Room mints a FRESH conversationId every cycle — no stable per-turn
+        // storage and no browser to authorize. Leave MCP oauth servers off
+        // (design spec §8.3); see SupervisorInput.allowOAuth.
+        allowOAuth: false,
       });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);

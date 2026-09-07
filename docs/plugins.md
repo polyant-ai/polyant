@@ -151,10 +151,13 @@ is the compatibility contract; bump it deliberately and update the ref.
    assertions become the normalized specs; ex-`inputSchema.parse` tests call
    `execute` directly.
 
-**Legacy path status:** `registerTool` / the `create`-factory shape still work
-(the loader + `buildTool` accept both, dispatching on the presence of
-`inputSchema`) so migration can be incremental. The legacy path stays until every
-tool is converted, then it can be removed.
+**Legacy path status:** the `registerTool` / `create`-factory shape **no longer
+loads**. `importRoot` (`registry.ts`) recognizes only a default export carrying
+`inputSchema` — the `defineTool` shape — and skips anything else with a
+`console.warn`. A tool left on the old shape is absent from the registry, from the
+`tools` table and from the panel, with a boot-log warning as the only symptom: no
+build error, no failing test. There is no compatibility path left; convert it with
+the steps above.
 
 ## Reference
 - SDK repo + authoring guide: `github.com/polyant-ai/polyant-sdk` (its `README.md`).

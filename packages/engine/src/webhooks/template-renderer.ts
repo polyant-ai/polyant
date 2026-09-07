@@ -40,18 +40,33 @@ function stringify(value: unknown): string {
   return String(value);
 }
 
+/**
+ * `transform` is applied to every SUBSTITUTED value, never to the template.
+ *
+ * That split is the point. The template is written by an operator and is
+ * trusted; the values come from whoever POSTed the webhook and are not. A caller
+ * that puts the result into a prompt uses this to fence the outside text, so the
+ * model can see where the operator's instruction ends — without the operator's
+ * own words being labelled untrusted.
+ */
+export interface RenderOptions {
+  transform?: (value: string) => string;
+}
+
 export function renderTemplate(
   template: string,
   payload: Record<string, unknown>,
+  opts?: RenderOptions,
 ): string {
+  const transform = opts?.transform ?? ((v: string) => v);
   return template.replace(TEMPLATE_RE, (_match, path: string | undefined) => {
     // {{payload}} — full payload
     if (path === undefined) {
-      return JSON.stringify(payload, null, 2);
+      return transform(JSON.stringify(payload, null, 2));
     }
 
     // {{payload.some.path}} — resolve nested value
     const value = resolvePathValue(payload, path);
-    return stringify(value);
+    return transform(stringify(value));
   });
 }

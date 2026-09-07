@@ -1,0 +1,158 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { render, screen, waitFor } from "@testing-library/react";
+
+// ── Mocks ────────────────────────────────────────────────────────────
+
+const mockInstancesList = vi.fn();
+const mockMemoriesList = vi.fn();
+const mockMemoriesDelete = vi.fn();
+
+vi.mock("@/lib/api", () => ({
+  api: {
+    instances: { list: (...args: unknown[]) => mockInstancesList(...args) },
+    memories: {
+      list: (...args: unknown[]) => mockMemoriesList(...args),
+      delete: (...args: unknown[]) => mockMemoriesDelete(...args),
+    },
+  },
+  getUserErrorMessage: vi.fn((_err: unknown, fallback: string) => fallback),
+}));
+
+// Stable identity — the source uses `t` in useCallback dependency arrays, so a
+// freshly-created object per call would trigger an infinite re-render loop.
+const i18nMock = {
+  t: (key: string) => key,
+  locale: "en",
+  setLocale: vi.fn(),
+};
+vi.mock("@/lib/i18n/context", () => ({
+  useI18n: () => i18nMock,
+}));
+
+vi.mock("@/lib/format", () => ({
+  formatRelativeTime: vi.fn(() => "2 hours ago"),
+}));
+
+const mockPaginationFns = vi.hoisted(() => ({
+  setPage: vi.fn(),
+  setSearch: vi.fn(),
+  setTotal: vi.fn(),
+  reset: vi.fn(),
+}));
+
+vi.mock("@/hooks/use-pagination", () => ({
+  usePagination: vi.fn(() => ({
+    page: 1,
+    setPage: mockPaginationFns.setPage,
+    search: "",
+    setSearch: mockPaginationFns.setSearch,
+    debouncedSearch: "",
+    totalPages: 1,
+    setTotal: mockPaginationFns.setTotal,
+    offset: 0,
+    reset: mockPaginationFns.reset,
+  })),
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+// Mock the CreateMemoryDialog to avoid pulling in its dependencies
+vi.mock("@/components/memory/create-memory-dialog", () => ({
+  CreateMemoryDialog: () => <div data-testid="create-memory-dialog" />,
+}));
+
+// The workspace now comes from the URL, so a component test that does not
+// exercise workspace switching only needs the hook to answer something.
+vi.mock("@/lib/tenant/use-workspace-slug", () => ({
+  useWorkspaceSlug: () => "general",
+}));
+
+import { MemoryView as MemoryPage } from "@/components/memory/memory-view";
+
+// ── Tests ────────────────────────────────────────────────────────────
+
+describe("MemoryPage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockInstancesList.mockResolvedValue({ instances: [] });
+    mockMemoriesList.mockResolvedValue({
+      memories: [],
+      total: 0,
+      limit: 20,
+      offset: 0,
+    });
+  });
+
+  /**
+   * The title belongs to the PAGE, not to the list: the list is shared with the
+   * agent's Attività section, which titles itself from the section registry. What
+   * the shared view must still own is the agent picker — the thing the agent
+   * section drops.
+   */
+  it("offers the agent picker when no agent is fixed", () => {
+    render(<MemoryPage />);
+
+    expect(screen.getByText("memory.selectInstance")).toBeInTheDocument();
+  });
+
+  it("drops the agent picker when an agent is fixed", () => {
+    render(<MemoryPage lockedInstanceId="a1" />);
+
+    expect(screen.queryByText("memory.selectInstance")).not.toBeInTheDocument();
+  });
+
+  it("renders the 'Add Memory' button", () => {
+    render(<MemoryPage />);
+
+    expect(screen.getByText("memory.addMemory")).toBeInTheDocument();
+  });
+
+  it("shows 'select instance' prompt when no instance is selected", async () => {
+    render(<MemoryPage />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("memory.selectInstancePrompt"),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("does NOT call memories.list when no instance filter is set", async () => {
+    render(<MemoryPage />);
+
+    // Wait for effects to flush
+    await waitFor(() => {
+      expect(screen.getByText("memory.selectInstancePrompt")).toBeInTheDocument();
+    });
+
+    expect(mockMemoriesList).not.toHaveBeenCalled();
+  });
+
+  it("fetches instances on mount for the filter dropdown", async () => {
+    render(<MemoryPage />);
+
+    await waitFor(() => {
+      expect(mockInstancesList).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("shows the search input", () => {
+    render(<MemoryPage />);
+
+    expect(
+      screen.getByPlaceholderText("memory.searchPlaceholder"),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the CreateMemoryDialog component", () => {
+    render(<MemoryPage />);
+
+    expect(screen.getByTestId("create-memory-dialog")).toBeInTheDocument();
+  });
+});

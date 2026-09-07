@@ -39,6 +39,9 @@ export const ORG_SCOPED_AGENT_COLUMNS = [
   "instance_id",
   "c.instance_id",
   "al.instance_id",
+  // The agents table itself (`instances.slug`), so the agent LIST endpoints scope
+  // with the same membership definition instead of a second hand-rolled join.
+  "slug",
 ] as const;
 
 export type OrgScopedAgentColumn = (typeof ORG_SCOPED_AGENT_COLUMNS)[number];
@@ -84,20 +87,28 @@ export function buildOrgScopedAgentFilter(
 }
 
 /**
- * Raw-SQL convenience: the same predicate prefixed with `AND`, or an empty
- * fragment when `orgId` is absent. Mirrors `instanceFilter` so the existing
- * raw-SQL stores (conversations, analytics, audit) can append it next to the
- * other `AND ...` fragments without branching.
+ * Raw-SQL convenience: the same predicate prefixed with `AND`. Mirrors
+ * `instanceFilter` so the raw-SQL stores (conversations, analytics, audit) can
+ * append it next to their other `AND ...` fragments without branching.
  *
- * `orgId` is optional because legacy JWTs minted before the claim existed (and
- * gateway-forwarded identities) carry none — in single-org OSS that degrades to
- * "no extra constraint", preserving today's behavior. Multi-org callers always
- * pass an `orgId`, so the cross-org gate is enforced.
+ * FAILS CLOSED when `orgId` is absent. This used to return an EMPTY fragment —
+ * i.e. no constraint at all — justified as "in single-org OSS that degrades to
+ * no extra constraint, preserving today's behavior". The problem with a
+ * fail-open default in a tenancy filter is not what it does today, it is what it
+ * does the day something reaches it: a principal with no `orgId` claim (a legacy
+ * JWT, or any gateway-forwarded identity, which never carries one) would read
+ * analytics, conversations, audit logs and memories across every organization.
+ * Only `PermissionGuard` denying an unresolved scope stood between that and a
+ * request — one `@AuthenticatedOnly()` away from mattering.
+ *
+ * `and false` is the honest translation of "this caller has no organization, so
+ * no agent belongs to it". Callers that must serve an org-less principal have to
+ * say so explicitly rather than inheriting it from a missing argument.
  */
 export function buildOrgScopedAgentFilterFragment(
   orgId: string | undefined,
   columnName: OrgScopedAgentColumn = "instance_id",
 ): SQL {
-  if (!orgId) return sql``;
+  if (!orgId) return sql`and false`;
   return sql`and ${buildOrgScopedAgentFilter(orgId, columnName)}`;
 }

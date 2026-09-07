@@ -44,8 +44,8 @@ export const REPO_ROOT = findRepoRoot();
 export const WEB_PACKAGE_ROOT = resolve(REPO_ROOT, "packages", "web");
 
 /** Dedicated ports so the harness never collides with a running dev stack. */
-export const ENGINE_PORT = 4100;
-export const WEB_PORT = 3100;
+export const ENGINE_PORT = Number(process.env.E2E_ENGINE_PORT ?? 4100);
+export const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 3100);
 export const ENGINE_URL = `http://127.0.0.1:${ENGINE_PORT}`;
 export const WEB_URL = `http://127.0.0.1:${WEB_PORT}`;
 
@@ -157,9 +157,11 @@ function definedEnv(): Record<string, string> {
 
 /**
  * Environment for the engine child process: test DB, dedicated port, shared
- * secrets, and crucially `AUTHZ_ENFORCE=true` — without it the PermissionGuard
- * runs in shadow mode and every would-be 403 silently passes, making RBAC
- * assertions meaningless.
+ * secrets.
+ *
+ * No `AUTHZ_ENFORCE` — RBAC is enforced unconditionally, so there is nothing to
+ * switch on here and no shadow mode that could make a would-be 403 pass
+ * silently. The specs' RBAC assertions are meaningful by construction.
  */
 export function buildEngineEnv(): Record<string, string> {
   return {
@@ -170,8 +172,13 @@ export function buildEngineEnv(): Record<string, string> {
     AUTH_SECRET,
     AUTH_INTERNAL_SECRET,
     ENCRYPTION_KEY,
-    AUTHZ_ENFORCE: "true",
     LOG_LEVEL: "warn",
+    // /api/auth/credentials/verify is hardcoded to 5 req/60s
+    // (credentials.controller.ts, independent of THROTTLE_LIMIT/THROTTLE_TTL_MS).
+    // Specs log in per-test with no shared storageState, so a login-heavy spec
+    // (e.g. tenant-urls.spec.ts's 7 tests) trips it deterministically. Disabling
+    // throttling only in this dedicated test engine — never in dev/prod.
+    THROTTLE_ENABLED: "false",
   };
 }
 

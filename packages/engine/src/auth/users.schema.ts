@@ -15,12 +15,10 @@ import {
 /**
  * Auth.js v5 compatible tables (via @auth/drizzle-adapter).
  * Column names follow Auth.js conventions exactly. The credentials columns
- * (password_hash, role, must_change_password) are extensions that Auth.js
+ * (password_hash, must_change_password) are extensions that Auth.js
  * ignores but that we use for the email/password provider and the admin
  * users management UI.
  */
-
-export type UserRole = "superadmin" | "user";
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -29,13 +27,13 @@ export const users = pgTable("users", {
   emailVerified: timestamp("email_verified", { withTimezone: true }),
   image: text("image"),
   passwordHash: text("password_hash"),
-  role: text("role").$type<UserRole>().notNull().default("user"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   /**
-   * Platform Superadmin flag (RBAC). Acts at the Deployment level, above every
+   * Platform Admin flag (RBAC). Acts at the Deployment level, above every
    * organization, and bypasses all RBAC checks. Deliberately NOT carried in the
    * JWT (revocation must be near-immediate) — it is read from the DB per request.
-   * Backfilled to `true` for `role='superadmin'` users by migration 0051.
+   * This column is the SOLE authority on platform-admin status: there is no
+   * `role` column to derive it from, or to drift out of sync with it.
    */
   isPlatformAdmin: boolean("is_platform_admin").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

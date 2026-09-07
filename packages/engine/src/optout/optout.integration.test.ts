@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
@@ -13,20 +14,23 @@ const SLUG = asInstanceSlug("optout-itest");
 let instanceId: ReturnType<typeof asInstanceUuid>;
 let workspaceId: string;
 
-beforeAll(async () => {
-  workspaceId = await findDefaultWorkspaceId();
-  const [row] = await db
-    .insert(instances)
-    .values({ slug: SLUG, name: "Optout ITest", workspaceId })
-    .returning();
-  instanceId = asInstanceUuid(row.id);
-});
 
-afterAll(async () => {
-  await db.delete(instances).where(eq(instances.slug, SLUG)); // cascade drops contact_optouts
-});
+const DB_AVAILABLE = await resolveDatabaseAvailability();
 
-describe("contact opt-out lifecycle (integration)", () => {
+describe.skipIf(!DB_AVAILABLE)("contact opt-out lifecycle (integration)", () => {
+  beforeAll(async () => {
+    workspaceId = await findDefaultWorkspaceId();
+    const [row] = await db
+      .insert(instances)
+      .values({ slug: SLUG, name: "Optout ITest", workspaceId })
+      .returning();
+    instanceId = asInstanceUuid(row.id);
+  });
+
+  afterAll(async () => {
+    await db.delete(instances).where(eq(instances.slug, SLUG)); // cascade drops contact_optouts
+  });
+
   it("defaults to opted_in when no row exists", async () => {
     expect(await getOptoutStatus(SLUG, "whatsapp", "+39999")).toBe("opted_in");
   });

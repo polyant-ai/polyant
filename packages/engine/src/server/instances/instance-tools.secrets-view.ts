@@ -13,19 +13,22 @@ interface ToolWithSecrets {
 
 /**
  * Pure: collect the deduped, key-sorted secret specs across the instance's
- * enabled tools. First-seen wins on key collisions. An empty `enabledNames`
- * means "all tools enabled" (preserves the original endpoint semantics).
+ * enabled tools. First-seen wins on key collisions.
+ *
+ * An empty `enabledNames` means NO tool is enabled, so nothing is required. It
+ * used to mean the opposite — "all tools enabled" — which had the panel ask for
+ * the entire registry's credentials from an agent that may run none of it. That
+ * is the same conflation `buildTools` removed on the runtime side, where no rows
+ * now means no tools; the empty tool set must not be indistinguishable from the
+ * full one on either side.
  */
 export function collectEnabledToolSecrets(
   allTools: ToolWithSecrets[],
   enabledNames: Set<string>,
 ): RequiredSecretSpec[] {
   const specsByKey = new Map<string, RequiredSecretSpec>();
-  // An empty set means "no enablement filter" → all tools count as enabled.
-  const allEnabled = enabledNames.size === 0;
   for (const t of allTools) {
-    const isEnabled = allEnabled || enabledNames.has(t.name);
-    if (isEnabled && t.requiredSecrets) {
+    if (enabledNames.has(t.name) && t.requiredSecrets) {
       for (const spec of t.requiredSecrets) {
         if (!specsByKey.has(spec.key)) {
           specsByKey.set(spec.key, spec);
@@ -40,8 +43,8 @@ export function collectEnabledToolSecrets(
  * Pure: the deduped, key-sorted required-secret specs an instance needs — the
  * union of its enabled TOOLS and enabled HOOKS. Tool specs win on key collisions
  * (first-seen). `enabledHooks` is passed already filtered to the instance's
- * enabled hooks, so every entry counts (kept separate from the tool call to
- * preserve the tools' legacy "empty set = all tools" semantics).
+ * enabled hooks, so every entry counts — hence the set built from their own
+ * names.
  */
 export function collectInstanceRequiredSecrets(
   allTools: ToolWithSecrets[],

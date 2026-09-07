@@ -22,6 +22,22 @@ function warnReplaceUndeclared(mutatesResponse: boolean | undefined, functionNam
 }
 
 /**
+ * Upper bound on a hook-authored reply (halt / replaceResponse). These become a
+ * persisted assistant message AND an outbound channel send, so an unbounded one
+ * — a handler bug that concatenates the whole history is enough — writes an
+ * arbitrarily large row and then fails opaquely against the channel's own payload
+ * limit. Generous compared with `injectContext`'s 4000: this is a user-visible
+ * reply, not prompt scaffolding.
+ */
+const MAX_HOOK_MESSAGE_CHARS = 16_000;
+
+function capMessage(message: string): string {
+  if (message.length <= MAX_HOOK_MESSAGE_CHARS) return message;
+  console.warn(`[hooks] hook-authored message truncated to ${MAX_HOOK_MESSAGE_CHARS} chars (was ${message.length}).`);
+  return message.slice(0, MAX_HOOK_MESSAGE_CHARS);
+}
+
+/**
  * `function` action: run a registered hook function and map its control return
  * onto the runner's `capture`. Throws on misconfiguration (missing/unknown
  * function) — the runner catches, audits, and continues.
@@ -59,16 +75,24 @@ export const functionActionExecutor: HookActionExecutor = {
 
     const result = await def.handler(hookCtx);
     if (!result) return;
+    // A handler that returned only after its deadline (or after the pipeline was
+    // cancelled) has no say over a turn the runner already moved past. Dropping
+    // the control return here keeps a late halt/replace from reaching a reply
+    // that has, by then, been delivered.
+    if (scopedCtx.abortSignal?.aborted) {
+      console.warn(`[hooks] "${functionName}" returned after it was abandoned — control return ignored.`);
+      return;
+    }
 
     if (result.halt?.message?.trim()) {
       // `persist` rides along untouched: the pipeline resolves the default (true).
-      capture({ halt: { message: result.halt.message, persist: result.halt.persist } });
+      capture({ halt: { message: capMessage(result.halt.message), persist: result.halt.persist } });
     }
     if (result.replaceResponse?.message?.trim()) {
       // Runtime enforcement of replaceResponse ⇒ mutatesResponse (can't be static —
       // it's a handler return). Never a silent no-op: warn when the flag is missing.
       warnReplaceUndeclared(def.mutatesResponse, functionName);
-      capture({ replaceResponse: { message: result.replaceResponse.message } });
+      capture({ replaceResponse: { message: capMessage(result.replaceResponse.message) } });
     }
     if (result.regenerate) {
       // regenerate replays the ENTIRE turn (system prompt + tools) up to MAX_REGENERATIONS×

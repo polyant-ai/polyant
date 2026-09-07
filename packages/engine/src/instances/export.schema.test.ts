@@ -2,7 +2,6 @@
 
 import { describe, it, expect } from "vitest";
 import { instanceBundleSchema, INSTANCE_BUNDLE_VERSION } from "./export.schema.js";
-import { stripSensitiveKeys } from "./export.service.js";
 
 // A minimal legacy 1.0 bundle: only the fields the original format carried.
 // New fields are absent — the schema must default them so old exports still
@@ -107,6 +106,41 @@ describe("instanceBundleSchema back-compat", () => {
     expect(() => instanceBundleSchema.parse(bundle)).toThrow();
   });
 
+  it("should_accept_the_1.2_version_literal", () => {
+    const bundle = legacyV1Bundle();
+    (bundle as { version: string }).version = "1.2";
+    expect(() => instanceBundleSchema.parse(bundle)).not.toThrow();
+  });
+
+  it("should_default_mcpServers_to_empty_for_legacy_bundles", () => {
+    const parsed = instanceBundleSchema.parse(legacyV1Bundle());
+    expect(parsed.instance.mcpServers).toEqual([]);
+  });
+
+  it("should_round_trip_an_mcp_server_entry_on_a_1.2_bundle", () => {
+    const bundle = legacyV1Bundle();
+    (bundle as { version: string }).version = "1.2";
+    (bundle.instance as Record<string, unknown>).mcpServers = [
+      {
+        slug: "github",
+        name: "GitHub",
+        url: "https://mcp.example.com",
+        authMode: "static",
+        enabled: false,
+        config: { auth: { type: "bearer" } },
+      },
+    ];
+
+    const parsed = instanceBundleSchema.parse(bundle);
+    expect(parsed.instance.mcpServers[0]).toMatchObject({
+      slug: "github",
+      name: "GitHub",
+      url: "https://mcp.example.com",
+      authMode: "static",
+      enabled: false,
+    });
+  });
+
   it("should_round_trip_hooks_and_channel_config_on_a_1.1_bundle", () => {
     const bundle = legacyV1Bundle();
     bundle.version = INSTANCE_BUNDLE_VERSION;
@@ -130,55 +164,5 @@ describe("instanceBundleSchema back-compat", () => {
   });
 });
 
-describe("stripSensitiveKeys", () => {
-  it("should_remove_credential_like_keys_case_insensitively", () => {
-    const stripped = stripSensitiveKeys({
-      botToken: "123:secret",
-      appToken: "xapp-1",
-      signingSecret: "shh",
-      apiKey: "k",
-      password: "p",
-      myCredential: "c",
-      allowedUserIds: "1,2,3",
-      whatsappNumber: "+14155238886",
-    });
-
-    // Secret-bearing keys are gone.
-    expect(stripped).not.toHaveProperty("botToken");
-    expect(stripped).not.toHaveProperty("appToken");
-    expect(stripped).not.toHaveProperty("signingSecret");
-    expect(stripped).not.toHaveProperty("apiKey");
-    expect(stripped).not.toHaveProperty("password");
-    expect(stripped).not.toHaveProperty("myCredential");
-
-    // Non-secret settings survive.
-    expect(stripped).toEqual({
-      allowedUserIds: "1,2,3",
-      whatsappNumber: "+14155238886",
-    });
-  });
-
-  it("should_return_an_empty_object_for_the_credential_less_agent_config", () => {
-    expect(stripSensitiveKeys({})).toEqual({});
-  });
-
-  it("should_keep_the_whatsapp_authMode_discriminant_but_strip_its_credentials", () => {
-    const stripped = stripSensitiveKeys({
-      authMode: "apiKey",
-      accountSid: "AC00000000000000000000000000000001",
-      apiKeySid: "SK00000000000000000000000000000002",
-      apiKeySecret: "sec",
-      webhookSecret: "deadbeef",
-      whatsappNumber: "+14155238886",
-    });
-
-    // The discriminant must survive: a bundle that loses it silently reimports
-    // as an authToken channel. This is why the field is not called
-    // "credentialMode" — that would match the sensitive-key pattern.
-    expect(stripped).toEqual({
-      authMode: "apiKey",
-      accountSid: "AC00000000000000000000000000000001",
-      whatsappNumber: "+14155238886",
-    });
-  });
-});
+// stripSensitiveKeys now has its own module + test file: see
+// channel-config-sanitize.ts / channel-config-sanitize.test.ts.

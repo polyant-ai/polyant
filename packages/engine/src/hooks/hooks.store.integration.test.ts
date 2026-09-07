@@ -4,6 +4,16 @@
  * Integration test for the instance_hooks store. Requires a migrated Postgres
  * (docker compose up -d postgres && npm run db:migrate); self-skips otherwise
  * so a bare `npm test` stays green.
+ *
+ * It used to skip by returning early INSIDE each test body, which vitest counts
+ * as PASSED, not skipped — so with no database this file reported two green
+ * ticks and the `↓` marker that makes an absent tier visible never appeared. And
+ * the setup swallowed every error in a bare `catch`, so a renamed column, a
+ * missing default workspace or a new NOT NULL produced the same two green ticks.
+ *
+ * Now: `describe.skipIf` reports honestly, the shared probe decides (and fails
+ * loudly under CI_REQUIRE_DB), and setup errors are NOT caught — when there is a
+ * database, a failure there is a real defect and must say so.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -20,12 +30,14 @@ import {
   invalidateHooksCache,
 } from "./hooks.store.js";
 import { asInstanceSlug, asInstanceUuid, type InstanceUuid } from "../instances/identifiers.js";
+import { resolveDatabaseAvailability } from "../database/test-db.js";
+
+const DB_AVAILABLE = await resolveDatabaseAvailability();
 
 const SLUG = "itest-hooks-store";
 let instanceUuid: InstanceUuid | undefined;
 
-async function setupInstance(): Promise<InstanceUuid | undefined> {
-  try {
+async function setupInstance(): Promise<InstanceUuid> {
     const [ws] = await Promise.race([
       db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.isDefault, true)).limit(1),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("db timeout")), 3000)),
@@ -44,13 +56,14 @@ async function setupInstance(): Promise<InstanceUuid | undefined> {
       .from(instances)
       .where(eq(instances.slug, SLUG))
       .limit(1);
-    return existing[0] ? asInstanceUuid(existing[0].id) : undefined;
-  } catch {
-    return undefined;
-  }
+    if (!existing[0]) {
+      throw new Error(`could not create or find the test instance "${SLUG}"`);
+    }
+    return asInstanceUuid(existing[0].id);
 }
 
 beforeAll(async () => {
+  if (!DB_AVAILABLE) return;
   instanceUuid = await setupInstance();
 });
 
@@ -59,10 +72,9 @@ afterAll(async () => {
   await db.delete(instances).where(eq(instances.id, instanceUuid)); // cascades to hooks
 });
 
-describe("hooks store (integration)", () => {
-  it("should_crud_and_order_hooks_when_db_available", { timeout: 15000 }, async () => {
-    if (!instanceUuid) return; // no DB — skip silently
-    const uuid = instanceUuid;
+describe.skipIf(!DB_AVAILABLE)("hooks store (integration)", () => {
+  it("should_crud_and_order_hooks", { timeout: 15000 }, async () => {
+    const uuid = instanceUuid!;
 
     // create two hooks on the same event, out-of-order positions
     const second = await createHook(uuid, {
@@ -112,7 +124,6 @@ describe("hooks store (integration)", () => {
   });
 
   it("should_return_empty_when_slug_unknown", async () => {
-    if (!instanceUuid) return;
     expect(await getEnabledHooks(asInstanceSlug("itest-hooks-nope"), "message_received")).toEqual([]);
   });
 });

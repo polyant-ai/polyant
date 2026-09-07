@@ -9,20 +9,31 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from "@nestjs/common";
 import { UsersService } from "./users.service.js";
-import { RequireRole } from "../auth/decorators/require-role.decorator.js";
 import { CurrentUser } from "../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
+import { parsePagination } from "../server/utils/parse-pagination.js";
+import {
+  createManagementAuditLogger,
+  ManagementAuditAction,
+  ManagementAuditTarget,
+  toManagementAuditActor,
+} from "../management-audit/management-audit-logger.js";
+import { PlatformAdminOnly } from "../authz/index.js";
 
 @Controller("api/users")
-@RequireRole("superadmin")
+@PlatformAdminOnly()
 export class UsersController {
   constructor(@Inject(UsersService) private readonly users: UsersService) {}
 
+  private readonly auditLogger = createManagementAuditLogger();
+
+  /** One page of accounts, plus the total, so the caller can navigate. */
   @Get()
-  async list() {
-    return { users: await this.users.list() };
+  async list(@Query("limit") limitStr?: string, @Query("offset") offsetStr?: string) {
+    return this.users.list(parsePagination(limitStr, offsetStr));
   }
 
   @Get(":id")
@@ -33,19 +44,57 @@ export class UsersController {
   @Post()
   async create(
     @Body()
-    body: { email?: string; name?: string; role?: string; password?: string },
+    body: {
+      email?: string;
+      name?: string;
+      /** @deprecated wire alias for isPlatformAdmin, scheduled for retirement */
+      role?: string;
+      isPlatformAdmin?: boolean;
+      password?: string;
+    },
+    @CurrentUser() actor: AuthenticatedUser,
   ) {
-    return this.users.create(body);
+    const created = await this.users.create(body);
+    // Account creation can mint a platform admin outright, so the granted
+    // standing is part of the forensic record. The password (supplied or
+    // generated) is NEVER audited.
+    this.auditLogger.log({
+      action: ManagementAuditAction.UserCreate,
+      actor: toManagementAuditActor(actor),
+      targetType: ManagementAuditTarget.User,
+      targetId: created.user.id,
+      metadata: { isPlatformAdmin: created.user.isPlatformAdmin },
+    });
+    return created;
   }
 
   @Patch(":id")
   async update(
     @Param("id") id: string,
-    @Body() body: { name?: string | null; role?: string },
+    @Body()
+    body: {
+      name?: string | null;
+      /** @deprecated wire alias for isPlatformAdmin, scheduled for retirement */
+      role?: string;
+      isPlatformAdmin?: boolean;
+    },
     @CurrentUser() actor: AuthenticatedUser,
   ) {
-    // RoleGuard ("superadmin") on this controller guarantees actor.role is set.
-    return { user: await this.users.update(id, body, { userId: actor.userId, role: actor.role! }) };
+    const user = await this.users.update(id, body, {
+      userId: actor.userId,
+    });
+    // Only a standing change is privilege-granting — a name-only PATCH is not audited.
+    if (body.isPlatformAdmin !== undefined || body.role !== undefined) {
+      this.auditLogger.log({
+        action: ManagementAuditAction.UserRoleUpdate,
+        actor: toManagementAuditActor(actor),
+        targetType: ManagementAuditTarget.User,
+        targetId: id,
+        // The service resolves the deprecated alias, so record the persisted value.
+        metadata: { isPlatformAdmin: user.isPlatformAdmin },
+      });
+    }
+    return { user };
   }
 
   @Delete(":id")
@@ -54,11 +103,29 @@ export class UsersController {
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     await this.users.remove(id, actor);
+    this.auditLogger.log({
+      action: ManagementAuditAction.UserDelete,
+      actor: toManagementAuditActor(actor),
+      targetType: ManagementAuditTarget.User,
+      targetId: id,
+    });
     return { deleted: true };
   }
 
   @Post(":id/reset-password")
-  async resetPassword(@Param("id") id: string) {
-    return this.users.resetPassword(id);
+  async resetPassword(
+    @Param("id") id: string,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    const result = await this.users.resetPassword(id);
+    // An admin-forced reset is an account takeover primitive. The generated
+    // password is NEVER audited.
+    this.auditLogger.log({
+      action: ManagementAuditAction.UserPasswordReset,
+      actor: toManagementAuditActor(actor),
+      targetType: ManagementAuditTarget.User,
+      targetId: id,
+    });
+    return result;
   }
 }

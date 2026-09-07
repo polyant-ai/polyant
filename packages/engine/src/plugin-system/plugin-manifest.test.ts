@@ -38,6 +38,22 @@ describe("engineSatisfies", () => {
     expect(engineSatisfies(mk("not-a-range"), "0.1.0")).toBe(false);
     expect(engineSatisfies(mk(">=0.1.0"), "garbage")).toBe(false);
   });
+
+  it("ignores a prerelease tag on the ENGINE version", () => {
+    // semver excludes a prerelease from a range that carries none, so these
+    // were all false: one suffixed release would have silently skipped every
+    // third-party plugin at boot, leaving the agent tool-less with a warning
+    // nobody reads and a green deploy.
+    expect(engineSatisfies(mk(">=0.1.0"), "1.1.0-beta.1")).toBe(true);
+    expect(engineSatisfies(mk("^1.1.0"), "1.1.0-rc1")).toBe(true);
+    expect(engineSatisfies(mk("^1.0.0"), "1.1.0-ee")).toBe(true);
+  });
+
+  it("still refuses a prerelease version whose NUMBERS are outside the range", () => {
+    // The suffix is ignored, not the version: this must not become a bypass.
+    expect(engineSatisfies(mk(">=99.0.0"), "1.1.0-beta.1")).toBe(false);
+    expect(engineSatisfies(mk("^2.0.0"), "1.9.9-rc1")).toBe(false);
+  });
 });
 
 describe("oauthProviders in manifest", () => {

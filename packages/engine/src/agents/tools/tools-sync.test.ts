@@ -8,9 +8,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const {
   mockGetToolRegistry,
-} = vi.hoisted(() => ({
-  mockGetToolRegistry: vi.fn(),
-}));
+  mockDbSelectWhere,
+  mockDbInsertConflict,
+  mockDbInsertValues,
+} = vi.hoisted(() => {
+  // Top-level `db.select(...)`/`db.insert(...)` — used by resolveCatalogToolIds,
+  // which runs outside the boot transaction. Hoisted with the registry mock: a
+  // vi.mock factory is lifted above every plain const in this file.
+  const mockDbSelectWhere = vi.fn();
+  const mockDbInsertConflict = vi.fn();
+  return {
+    mockGetToolRegistry: vi.fn(),
+    mockDbSelectWhere,
+    mockDbInsertConflict,
+    mockDbInsertValues: vi.fn().mockReturnValue({ onConflictDoNothing: mockDbInsertConflict }),
+  };
+});
 
 vi.mock("./registry.js", () => ({
   getToolRegistry: mockGetToolRegistry,
@@ -24,18 +37,23 @@ vi.mock("./registry.js", () => ({
 const mockOnConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
 const mockValues = vi.fn().mockReturnValue({ onConflictDoUpdate: mockOnConflictDoUpdate });
 const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
-// `tx.select({...}).from(instanceTools)` — enabled tool ids. Default: none enabled.
+// `tx.selectDistinct({...}).from(instanceTools)` — enabled tool ids. Default: none enabled.
 const mockSelectFrom = vi.fn().mockResolvedValue([]);
 
 const mockTx = {
   insert: vi.fn().mockReturnValue({ values: mockValues }),
   delete: vi.fn().mockReturnValue({ where: mockDeleteWhere }),
   select: vi.fn().mockReturnValue({ from: mockSelectFrom }),
+  // selectDistinct: the enabled-tool-id read is DISTINCT so the parameter list
+  // is bounded by the registry size, not by agents × tools.
+  selectDistinct: vi.fn().mockReturnValue({ from: mockSelectFrom }),
 };
 
 vi.mock("../../database/client.js", () => ({
   db: {
     transaction: vi.fn(async (fn: (tx: typeof mockTx) => Promise<void>) => fn(mockTx)),
+    select: vi.fn().mockReturnValue({ from: () => ({ where: mockDbSelectWhere }) }),
+    insert: vi.fn().mockReturnValue({ values: mockDbInsertValues }),
   },
 }));
 
@@ -54,10 +72,11 @@ vi.mock("drizzle-orm", () => ({
   or: vi.fn((...args: unknown[]) => ({ type: "or", args })),
   not: vi.fn((...args: unknown[]) => ({ type: "not", args })),
   like: vi.fn((...args: unknown[]) => ({ type: "like", args })),
+  inArray: vi.fn((...args: unknown[]) => ({ type: "inArray", args })),
 }));
 
 import { like } from "drizzle-orm";
-import { syncToolsToDb } from "./tools-sync.js";
+import { syncToolsToDb, resolveCatalogToolIds } from "./tools-sync.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -69,6 +88,10 @@ beforeEach(() => {
   mockTx.delete.mockReturnValue({ where: mockDeleteWhere });
   mockSelectFrom.mockResolvedValue([]);
   mockTx.select.mockReturnValue({ from: mockSelectFrom });
+  mockTx.selectDistinct.mockReturnValue({ from: mockSelectFrom });
+  mockDbSelectWhere.mockResolvedValue([]);
+  mockDbInsertConflict.mockResolvedValue(undefined);
+  mockDbInsertValues.mockReturnValue({ onConflictDoNothing: mockDbInsertConflict });
 });
 
 // Helper: build a minimal ToolDefinition
@@ -170,7 +193,7 @@ describe("syncToolsToDb", () => {
     await syncToolsToDb();
 
     // The enabled-anywhere guard (instance_tools read) must run before the delete.
-    expect(mockTx.select).toHaveBeenCalledTimes(1);
+    expect(mockTx.selectDistinct).toHaveBeenCalledTimes(1);
     expect(mockSelectFrom).toHaveBeenCalledTimes(1);
   });
 
@@ -264,5 +287,54 @@ describe("syncToolsToDb", () => {
         category: "general",
       }),
     );
+  });
+});
+
+// =========================================================================
+// resolveCatalogToolIds — the write path's name → id resolution
+// =========================================================================
+
+describe("resolveCatalogToolIds", () => {
+  it("returns the ids already in the catalog without writing anything", async () => {
+    mockGetToolRegistry.mockReturnValue(new Map([["toolA", toolDef("toolA")]]));
+    mockDbSelectWhere.mockResolvedValueOnce([{ id: "id-a", name: "toolA" }]);
+
+    const out = await resolveCatalogToolIds(["toolA"]);
+
+    expect(out.get("toolA")).toBe("id-a");
+    expect(mockDbInsertValues).not.toHaveBeenCalled();
+  });
+
+  // The defect this exists for: the panel offers what the REGISTRY holds, the
+  // write resolves through the CATALOG. A missing mirror row used to insert
+  // nothing and report success, so every tool came back disabled.
+  it("materializes a catalog row the registry holds but the catalog is missing", async () => {
+    mockGetToolRegistry.mockReturnValue(new Map([["toolA", toolDef("toolA")]]));
+    mockDbSelectWhere
+      .mockResolvedValueOnce([]) // first lookup: catalog has no row
+      .mockResolvedValueOnce([{ id: "id-a", name: "toolA" }]); // after the repair
+
+    const out = await resolveCatalogToolIds(["toolA"]);
+
+    expect(mockDbInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "toolA", description: "Description for toolA" }),
+    );
+    expect(out.get("toolA")).toBe("id-a");
+  });
+
+  it("leaves a name neither the catalog nor the registry holds unresolved", async () => {
+    mockGetToolRegistry.mockReturnValue(new Map());
+    mockDbSelectWhere.mockResolvedValueOnce([]);
+
+    const out = await resolveCatalogToolIds(["ghost"]);
+
+    expect(out.has("ghost")).toBe(false);
+    expect(mockDbInsertValues).not.toHaveBeenCalled();
+  });
+
+  it("does not query for an empty name list", async () => {
+    const out = await resolveCatalogToolIds([]);
+    expect(out.size).toBe(0);
+    expect(mockDbSelectWhere).not.toHaveBeenCalled();
   });
 });

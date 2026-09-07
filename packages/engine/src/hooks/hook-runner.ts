@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { ConversationStateApi } from "@polyant-ai/plugin-sdk";
 import { errMsg } from "../utils/error.js";
 import { createAuditLogger } from "../audit/audit-logger.js";
 import { getEnabledHooks } from "./hooks.store.js";
@@ -65,17 +66,51 @@ export function collectInjectContext(summaries: HookExecutionSummary[]): string[
   return summaries.map((s) => s.injectContext).filter((c): c is string => !!c);
 }
 
-function withTimeout(promise: Promise<void>, ms: number, label: string): Promise<void> {
+/**
+ * Reject after `ms`, and tell the hook it is over by aborting `onExpiry`.
+ *
+ * The rejection alone only unblocks the RUNNER — the handler's promise keeps
+ * running. A hook that outlives its timeout and then writes (state, an outbound
+ * call) lands its effect after the turn has already moved on, which breaks the
+ * "timed-out hook leaves no trace" contract the state buffer relies on. The
+ * signal is the cooperative half of the fix; {@link fenceState} is the half that
+ * does not need the hook's cooperation.
+ */
+function withTimeout(promise: Promise<void>, ms: number, label: string, onExpiry: AbortController): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`hook ${label} timed out after ${ms}ms`)),
-      ms,
-    );
+    const timer = setTimeout(() => {
+      onExpiry.abort();
+      reject(new Error(`hook ${label} timed out after ${ms}ms`));
+    }, ms);
     promise.then(
       () => { clearTimeout(timer); resolve(); },
       (err) => { clearTimeout(timer); reject(err); },
     );
   });
+}
+
+/**
+ * A conversation-state view whose WRITES stop working once `signal` aborts.
+ * Reads stay live (harmless, and a late read that informs a log line is fine).
+ *
+ * Without this, a hook that ignores its abort signal — third-party plugin code,
+ * or anything blocked in a fetch with no signal wired — can still mutate the
+ * shared per-run buffer after the runner gave up on it, so a discarded hook's
+ * writes ride the commit-on-success flush of a turn it was never part of.
+ */
+function fenceState(state: ConversationStateApi, signal: AbortSignal, label: string): ConversationStateApi {
+  const refuse = (op: string): boolean => {
+    if (!signal.aborted) return false;
+    console.warn(`[hooks] ${label}: ignoring state.${op} — the hook was already abandoned (timeout or pipeline abort).`);
+    return true;
+  };
+  return {
+    ...state,
+    get: (key) => state.get(key),
+    getAll: () => state.getAll(),
+    set: (key, value) => { if (!refuse("set")) state.set(key, value); },
+    delete: (key) => { if (!refuse("delete")) state.delete(key); },
+  };
 }
 
 /**
@@ -118,8 +153,18 @@ export async function runHooks(
     // the tool runs, so they survive failures and timeouts.
     const captured: HookExecutionCapture = {};
     const capture = (data: HookExecutionCapture) => Object.assign(captured, data);
+    // Per-hook deadline, folded together with the pipeline's own signal so a
+    // hook sees ONE signal that means "stop, nobody is reading your result".
+    const expiry = new AbortController();
+    const label = `${event}/${toolName}`;
+    const signal = ctx.abortSignal ? AbortSignal.any([ctx.abortSignal, expiry.signal]) : expiry.signal;
+    const hookCtx: HookRunContext = {
+      ...ctx,
+      abortSignal: signal,
+      state: ctx.state ? fenceState(ctx.state, signal, label) : ctx.state,
+    };
     try {
-      await withTimeout(executor.execute(hook, payload, ctx, capture), hook.timeoutMs, `${event}/${toolName}`);
+      await withTimeout(executor.execute(hook, payload, hookCtx, capture), hook.timeoutMs, label, expiry);
     } catch (err) {
       success = false;
       error = errMsg(err);

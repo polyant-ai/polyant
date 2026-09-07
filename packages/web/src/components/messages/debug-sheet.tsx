@@ -37,6 +37,7 @@ import {
   AccordionContent,
 } from "@/components/ui/accordion";
 import { MessageExtras } from "./message-extras";
+import { useFormat } from "@/lib/use-format";
 
 export interface DebugSheetTarget {
   conversationId: string;
@@ -88,6 +89,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 /** Model + token/cost breakdown for the turn. Rendered from the target metadata. */
 function UsageSection({ target }: { target: DebugSheetTarget }) {
   const { t } = useI18n();
+  const fmt = useFormat();
   const prompt = target.promptTokens ?? 0;
   const completion = target.completionTokens ?? 0;
   const cacheRead = target.cachedInputTokens ?? 0;
@@ -134,13 +136,13 @@ function UsageSection({ target }: { target: DebugSheetTarget }) {
           {rows.map((r) => (
             <tr key={r.label} className="border-t">
               <td className="py-1.5 text-muted-foreground">{r.label}</td>
-              <td className="py-1.5 text-right">{r.tokens.toLocaleString()}</td>
+              <td className="py-1.5 text-right">{fmt.number(r.tokens)}</td>
               <td className="py-1.5 text-right">{fmtCost(r.cost)}</td>
             </tr>
           ))}
           <tr className="border-t font-medium">
             <td className="py-1.5">{t("message.debug.usageTotal")}</td>
-            <td className="py-1.5 text-right">{(prompt + completion).toLocaleString()}</td>
+            <td className="py-1.5 text-right">{fmt.number(prompt + completion)}</td>
             <td className="py-1.5 text-right">{fmtCost(cost?.total)}</td>
           </tr>
         </tbody>

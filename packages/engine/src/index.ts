@@ -100,7 +100,7 @@ function formatDbTarget(databaseUrl: string): string {
 async function main() {
   console.log("Polyant starting...");
 
-  // 0. Seed initial superadmin if the users table is empty (idempotent).
+  // 0. Seed the initial platform admin if the users table is empty (idempotent).
   // Runs before the rest of the boot so the system is "ready for first
   // access" the moment the server is up.
   try {
@@ -277,6 +277,9 @@ async function main() {
       datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
       cacheConfig: ctx.instanceConfig.cacheConfig,
       debugEnabled: ctx.instanceConfig.debugEnabled,
+      // Conversational entry point: a real user behind a stable, reused
+      // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
+      allowOAuth: true,
       optoutHint:
         ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
           ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
@@ -460,6 +463,9 @@ async function main() {
         datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
         cacheConfig: ctx.instanceConfig.cacheConfig,
         debugEnabled: ctx.instanceConfig.debugEnabled,
+        // Conversational entry point: a real user behind a stable, reused
+        // conversationId — safe to attempt MCP oauth servers (see SupervisorInput.allowOAuth).
+        allowOAuth: true,
         optoutHint:
           ctx.instanceConfig.optout.enabled && ctx.instanceConfig.optout.injectPromptHint
             ? { stopKeywords: ctx.instanceConfig.optout.stopKeywords, resumeKeywords: ctx.instanceConfig.optout.resumeKeywords }
@@ -579,12 +585,19 @@ async function main() {
   process.on("SIGTERM", shutdown);
 }
 
+// Log an error's message + stack but NOT its custom fields: driver-level errors
+// (pg, AWS SDK, fetch) routinely carry the connection string, config or headers on
+// the error object, and these two handlers log whatever reaches the top of the process.
+function fatalDetail(err: unknown): string {
+  return err instanceof Error ? (err.stack ?? err.message) : String(err);
+}
+
 // Prevent unhandled rejections from crashing the process (e.g. async adapter failures)
 process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled rejection (non-fatal):", reason);
+  console.error("Unhandled rejection (non-fatal):", fatalDetail(reason));
 });
 
 main().catch((err) => {
-  console.error("Fatal error:", err);
+  console.error("Fatal error:", fatalDetail(err));
   process.exit(1);
 });

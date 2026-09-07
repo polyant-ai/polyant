@@ -5,13 +5,19 @@ import { Controller, Post, Param, Headers, Body, Req, HttpCode, NotFoundExceptio
 import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { Public } from "../../auth/decorators/public.decorator.js";
-import { getChannelConfig, resolveWhatsAppAuthMode } from "../../instances/channels.store.js";
+import {
+  getChannelConfig,
+  resolveWhatsAppAuthMode,
+  WHATSAPP_CHANNEL_TYPE,
+  WHATSAPP_AUTH_MODE_TOKEN,
+  WHATSAPP_AUTH_MODE_API_KEY,
+} from "../../instances/channels.store.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import type { WhatsAppAdapter } from "../../channels/adapters/whatsapp/index.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
-import { redactWebhookPath } from "../filters/redact-webhook-path.js";
 import { sanitizeForLog } from "../../utils/create-logger.js";
+import { redactWebhookPath } from "../filters/redact-webhook-path.js";
 
 interface TwilioWebhookBody {
   MessageSid: string;
@@ -96,7 +102,7 @@ export class TwilioWebhookController {
     // A channel authenticated by path secret must not be reachable here: an
     // identical 404 keeps the credential mode of a slug from leaking to an
     // unauthenticated caller (see WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE).
-    if (resolveWhatsAppAuthMode(config) !== "authToken") {
+    if (resolveWhatsAppAuthMode(config) !== WHATSAPP_AUTH_MODE_TOKEN) {
       logWebhookUnavailable("wrong auth mode, expected authToken", instanceSlug);
       throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
@@ -139,7 +145,7 @@ export class TwilioWebhookController {
   ): Promise<string> {
     const { config, adapter } = await this.resolveActiveChannel(instanceSlug);
 
-    if (resolveWhatsAppAuthMode(config) !== "apiKey") {
+    if (resolveWhatsAppAuthMode(config) !== WHATSAPP_AUTH_MODE_API_KEY) {
       logWebhookUnavailable("wrong auth mode, expected apiKey", instanceSlug);
       throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
@@ -170,7 +176,7 @@ export class TwilioWebhookController {
       throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
 
-    const channelConfig = await getChannelConfig(asInstanceSlug(instanceSlug), "whatsapp");
+    const channelConfig = await getChannelConfig(asInstanceSlug(instanceSlug), WHATSAPP_CHANNEL_TYPE);
     if (!channelConfig || !channelConfig.enabled) {
       logWebhookUnavailable("channel not configured or disabled", instanceSlug);
       throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
@@ -223,8 +229,27 @@ export class TwilioWebhookController {
   /** Reconstruct the full URL as seen by the external caller (Twilio).
    *  Honors X-Forwarded-Proto / X-Forwarded-Host set by reverse proxies (ngrok, Render, etc). */
   private getFullUrl(req: Request): string {
-    const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol;
+    const proto = this.resolveForwardedProto(req);
     const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "localhost";
     return `${proto}://${host}${req.originalUrl}`;
+  }
+
+  /**
+   * Clamp `X-Forwarded-Proto` to exactly `http` or `https`, falling back to
+   * the connection-level `req.protocol` for anything else. A successive-proxy
+   * chain sends a comma-separated list (closest hop first), so only the first
+   * token is considered. Without this clamp a crafted value like
+   * `user:pass@https` would be echoed straight into the URL this function
+   * builds — which is both what the Twilio signature is verified against
+   * (silently corrupting it, so the signature just fails to match) and what
+   * gets logged on that failure (where it broke `redactWebhookPath`'s
+   * userinfo-stripping branch, since the string no longer starts with a bare
+   * `scheme://`).
+   */
+  private resolveForwardedProto(req: Request): string {
+    const header = req.headers["x-forwarded-proto"];
+    const raw = Array.isArray(header) ? header[0] : header;
+    const firstHop = raw?.split(",")[0]?.trim().toLowerCase();
+    return firstHop === "http" || firstHop === "https" ? firstHop : req.protocol;
   }
 }

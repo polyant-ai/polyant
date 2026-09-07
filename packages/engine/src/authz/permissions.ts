@@ -90,7 +90,21 @@ const VIEWER_PERMISSIONS: readonly PermissionKey[] = [
   Permission.ORG_READ,
 ];
 
-/** Member adds write on the assistant's behaviour (not secrets/channels-creds). */
+/**
+ * Member CONFIGURES AN AGENT END TO END, credentials included. Requiring `admin`
+ * to attach a channel or set an API key would mean granting `admin` to everyone
+ * who ships an agent, which is not a role boundary at all.
+ *
+ * The exposure is narrower than the key names suggest: `GET
+ * /api/instances/:slug/secrets` returns key NAMES only (`listSecretKeys`), so a
+ * secret is write-only through the API. `EXPORT_READ` rides along for the same
+ * reason — it was raised to admin solely because the bundle enumerates secret key
+ * names, a premise `SECRET_READ` at member dissolves; the bundle carries no values
+ * and strips credential-like channel config.
+ *
+ * (The old comment here claimed member held no channel credentials while the list
+ * already granted `CHANNEL_WRITE`, which writes the bot token. The list was right.)
+ */
 const MEMBER_PERMISSIONS: readonly PermissionKey[] = [
   ...VIEWER_PERMISSIONS,
   Permission.AGENT_WRITE,
@@ -102,17 +116,19 @@ const MEMBER_PERMISSIONS: readonly PermissionKey[] = [
   Permission.TASK_WRITE,
   Permission.KNOWLEDGE_WRITE,
   Permission.MEMORY_WRITE,
+  Permission.SECRET_READ,
+  Permission.SECRET_WRITE,
+  Permission.EXPORT_READ,
 ];
 
-/** Admin adds credentials, deletes, governance writes, catalog and members. */
+/**
+ * Admin adds DESTRUCTION, GOVERNANCE and FORENSICS — the member/admin line is
+ * drawn there rather than at configuration: member builds, admin destroys, governs
+ * and audits.
+ */
 const ADMIN_PERMISSIONS: readonly PermissionKey[] = [
   ...MEMBER_PERMISSIONS,
   Permission.AGENT_DELETE,
-  // A full-config export enumerates secret key names, so it is admin-grade
-  // like SECRET_READ (issue #145).
-  Permission.EXPORT_READ,
-  Permission.SECRET_READ,
-  Permission.SECRET_WRITE,
   Permission.GOVERNANCE_WRITE,
   Permission.CONVERSATION_DELETE,
   Permission.SKILL_CATALOG_WRITE,

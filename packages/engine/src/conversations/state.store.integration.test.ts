@@ -11,26 +11,14 @@
  *   docker compose up -d postgres && npm run db:migrate && npm run test:integration
  */
 
+import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, afterAll } from "vitest";
 import { loadConversationState, flushConversationState } from "./state.store.js";
 
 const CID = "itest:state-store:merge";
 
-/** Probe the DB once (bounded), so the suite skips instead of hanging/failing
- *  when there is no migrated Postgres reachable. */
-async function dbReachable(): Promise<boolean> {
-  try {
-    await Promise.race([
-      loadConversationState("__itest_probe__"),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("db probe timeout")), 3000)),
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
-const DB_AVAILABLE = await dbReachable();
+const DB_AVAILABLE = await resolveDatabaseAvailability();
 
 describe("conversation state store (integration)", () => {
   afterAll(async () => {

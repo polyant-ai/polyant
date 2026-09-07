@@ -328,6 +328,90 @@ const baseRequest: import("../types.js").ChatRequest = {
   messages: [{ role: "user", content: "hi" }],
 };
 
+/**
+ * AI SDK 7 inverts the meaning of the two usage fields: `usage` becomes the
+ * cumulative total across every step and `totalUsage` is deprecated, where in
+ * v6 `usage` was the final step only and `totalUsage` held the total.
+ *
+ * This matters more than a rename because these numbers feed `estimateCost`
+ * and the per-model cache rates. Reading the wrong one does not throw — it
+ * silently mis-bills, and undercounts a multi-step turn to whatever the last
+ * step happened to use. So the gateway must report the CUMULATIVE figure
+ * whichever shape the installed SDK hands it.
+ */
+describe("createProvider – cumulative usage across SDK majors", () => {
+  const V7_CUMULATIVE = {
+    inputTokens: 900,
+    outputTokens: 120,
+    inputTokenDetails: { cacheReadTokens: 700, cacheWriteTokens: 50 },
+  };
+  const V6_FINAL_STEP_ONLY = { inputTokens: 300, outputTokens: 40 };
+
+  it("chat: reads the cumulative total from `usage` (v7 shape, no totalUsage)", async () => {
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    spy.mockResolvedValueOnce({
+      text: "hello",
+      steps: [],
+      finalStep: { usage: V6_FINAL_STEP_ONLY },
+      usage: V7_CUMULATIVE,
+    } as any);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    const res = await adapter.chat({ ...baseRequest }, "claude-sonnet-4-6");
+
+    expect(res.usage).toMatchObject({
+      promptTokens: 900,
+      completionTokens: 120,
+      cachedInputTokens: 700,
+      cacheCreationInputTokens: 50,
+    });
+  });
+
+  it("chat: falls back to `totalUsage` when `usage` is absent", async () => {
+    // Defensive only: v7 is what package.json pins, so `usage` is always
+    // there. The fallback exists so a provider that fills only the deprecated
+    // field still gets billed rather than silently counted as zero.
+    const spy = vi.mocked(tracedGenerateText);
+    spy.mockClear();
+    spy.mockResolvedValueOnce({
+      text: "hello",
+      steps: [],
+      totalUsage: V7_CUMULATIVE,
+    } as any);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    const res = await adapter.chat({ ...baseRequest }, "claude-sonnet-4-6");
+
+    expect(res.usage).toMatchObject({ promptTokens: 900, completionTokens: 120, cachedInputTokens: 700 });
+  });
+
+  it("chatStream: reads the cumulative total from `usage` (v7 shape, no totalUsage)", async () => {
+    const spy = vi.mocked(tracedStreamText);
+    spy.mockClear();
+    spy.mockResolvedValueOnce({
+      textStream: (async function* () {})(),
+      stream: (async function* () {})(),
+      fullStream: (async function* () {})(),
+      text: Promise.resolve("hello"),
+      usage: Promise.resolve(V7_CUMULATIVE),
+      steps: Promise.resolve([]),
+      finalStep: Promise.resolve({ usage: V6_FINAL_STEP_ONLY }),
+    } as any);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    const stream = await adapter.chatStream!({ ...baseRequest }, "claude-sonnet-4-6");
+    const res = await stream.response;
+
+    expect(res.usage).toMatchObject({
+      promptTokens: 900,
+      completionTokens: 120,
+      cachedInputTokens: 700,
+      cacheCreationInputTokens: 50,
+    });
+  });
+});
+
 describe("createProvider – temperature forwarding", () => {
   it("passes temperature to generateText when set", async () => {
     const generateTextSpy = vi.mocked(tracedGenerateText);
@@ -446,6 +530,10 @@ describe("createProvider – cache gating (cacheConfig)", () => {
   });
 });
 
+// `request.system` stays our own field name; only the option handed to the SDK
+// became `instructions` in v7. Folding an inline system message into that
+// option (and stripping it from `messages`) is also what makes us compliant
+// with v7 rejecting `role: "system"` inside `messages` by default.
 describe("createProvider – system message folding", () => {
   it("folds a mid-array system message into the top-level system and strips it from messages", async () => {
     const generateTextSpy = vi.mocked(tracedGenerateText);
@@ -467,7 +555,7 @@ describe("createProvider – system message folding", () => {
     );
 
     const call = generateTextSpy.mock.calls[0][0];
-    expect(call.system).toBe("A\n\nB");
+    expect(call.instructions).toBe("A\n\nB");
     expect((call.messages as any[]).every((m) => m.role !== "system")).toBe(true);
     expect(call.messages).toHaveLength(2);
   });
@@ -481,7 +569,7 @@ describe("createProvider – system message folding", () => {
     await adapter.chat({ ...baseRequest, system: "A" }, "gpt-4o");
 
     const call = generateTextSpy.mock.calls[0][0];
-    expect(call.system).toBe("A");
+    expect(call.instructions).toBe("A");
     expect(call.messages).toHaveLength(1);
   });
 
@@ -503,7 +591,7 @@ describe("createProvider – system message folding", () => {
     );
 
     const call = streamTextSpy.mock.calls[0][0];
-    expect(call.system).toBe("ctx");
+    expect(call.instructions).toBe("ctx");
     expect((call.messages as any[]).every((m) => m.role !== "system")).toBe(true);
   });
 });

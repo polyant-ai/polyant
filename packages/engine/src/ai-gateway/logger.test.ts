@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { AILogger, aiLogs } from "./logger.js";
+import { AILogger, aiLogs, classifyProviderError } from "./logger.js";
 import type { AILogEntry } from "./types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
@@ -60,6 +60,11 @@ describe("AILogger", () => {
         conversationId: "conv-1",
         instanceId: "user-1",
         callType: "conversation",
+        // Defaults: an entry built without an explicit outcome describes a call
+        // that RETURNED. Every row written before the column existed means the
+        // same thing, which is why the DB default matches.
+        outcome: "ok",
+        errorKind: null,
       });
     });
 
@@ -261,4 +266,56 @@ describe("AILogger", () => {
       expect(valuesFn).toHaveBeenCalled();
     });
   });
+
+  describe("outcome", () => {
+    it("defaults to a returned call, with no error class", () => {
+      const entry = logger.createEntry(
+        "openai", "gpt-4o", "standard", false,
+        100, 50, 150, 0.0075, 500, 0, 0,
+      );
+      expect(entry.outcome).toBe("ok");
+      expect(entry.errorKind).toBeNull();
+    });
+
+    it("carries the failure class when one is given", () => {
+      const entry = logger.createEntry(
+        "openai", "gpt-4o", "standard", false,
+        0, 0, 0, 0, 120, 0, 0,
+        undefined, undefined, undefined, 0, 0,
+        "error", "rate_limit",
+      );
+      expect(entry.outcome).toBe("error");
+      expect(entry.errorKind).toBe("rate_limit");
+    });
+  });
+
+  describe("classifyProviderError", () => {
+    const withStatus = (statusCode: number) => Object.assign(new Error("boom"), { statusCode });
+
+    it.each([
+      [401, "auth"],
+      [403, "auth"],
+      [429, "rate_limit"],
+      [400, "bad_request"],
+      [503, "overloaded"],
+      [529, "overloaded"],
+    ])("maps HTTP %i to %s", (status, kind) => {
+      expect(classifyProviderError(withStatus(status))).toBe(kind);
+    });
+
+    it("maps a TimeoutError (what AbortSignal.timeout rejects with) to timeout", () => {
+      expect(classifyProviderError(Object.assign(new Error("t"), { name: "TimeoutError" }))).toBe("timeout");
+    });
+
+    it("falls back to `unknown` rather than leaking an unrecognised shape", () => {
+      // The message can quote the request, and the request is the prompt — an
+      // unrecognised error must not put it in the database.
+      expect(classifyProviderError(new Error("Prompt was: my secret question"))).toBe("unknown");
+      expect(classifyProviderError(withStatus(418))).toBe("unknown");
+      expect(classifyProviderError(null)).toBe("unknown");
+      expect(classifyProviderError(undefined)).toBe("unknown");
+      expect(classifyProviderError("a bare string")).toBe("unknown");
+    });
+  });
+
 });

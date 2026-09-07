@@ -81,4 +81,18 @@ describe("parseDateRange", () => {
       parseDateRange(undefined, ["2026-02-22"] as unknown as string),
     ).toThrow(BadRequestException);
   });
+
+  /*
+    The analytics aggregates behind this have no rollup: two of them unnest the
+    jsonb `steps` of every message in the window, which no index can serve. An
+    unbounded range therefore turns one HTTP request into a full-history scan,
+    on routes held by `analytics:read` — a permission every system role has.
+  */
+  it("should_reject_a_range_wider_than_a_year", () => {
+    expect(() => parseDateRange("1970-01-01", "2026-01-01")).toThrow(/must not exceed 366 days/);
+  });
+
+  it("should_accept_a_range_at_the_limit", () => {
+    expect(() => parseDateRange("2025-01-01", "2025-12-31")).not.toThrow();
+  });
 });

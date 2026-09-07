@@ -12,9 +12,9 @@ secrets, channels), never from code branches, so one deployment hosts unrelated 
 commands, layout, the agent pipeline, tool and hook authoring, tenancy and RBAC, and the
 traps that are not inferable from the code. This file exists because `AGENTS.md` is a
 convention several coding agents look for — it is a pointer, not a second description. It
-held a full description once, and it drifted several major versions behind: it described
-Vercel AI SDK v4, prompts and a tool catalogue as files on disk, and tools that no longer
-exist. A fact recorded in two places is a fact that will disagree with itself.
+held one once, and it drifted several major versions behind: it described Vercel AI SDK v4,
+prompts and a tool catalogue as files on disk, and tools that no longer exist. A fact
+recorded in two places is a fact that will disagree with itself.
 
 Further reference, in the order you are likely to need it:
 
@@ -22,8 +22,9 @@ Further reference, in the order you are likely to need it:
 |---|---|
 | Rules, conventions, traps | [CLAUDE.md](CLAUDE.md) |
 | Domain vocabulary | [GLOSSARY.md](GLOSSARY.md) |
-| Backend patterns, design system | `.claude/skills/backend-architecture/`, `.claude/skills/frontend-design-system/` |
+| Why a rule is the way it is | `.claude/skills/backend-architecture/references/` |
 | Authoring a tool or a hook, loading a plugin | [docs/plugins.md](docs/plugins.md), `.claude/skills/plugin-authoring/` |
+| Backend patterns, design system | `.claude/skills/backend-architecture/`, `.claude/skills/frontend-design-system/` |
 | Design records for individual features | `docs/superpowers/specs/`, `docs/superpowers/plans/` |
 | Architecture decisions | [docs/adr/](docs/adr/) |
 | Contributing, security policy | [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) |

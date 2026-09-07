@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from "crypto";
-import { COLORS, shouldLog, ts as timestamp } from "./create-logger.js";
+import { COLORS, sanitizeForLog, shouldLog, ts as timestamp } from "./create-logger.js";
 
 function truncate(text: string, maxLen = 80): string {
   const oneLine = text.replace(/\n/g, " ").trim();
@@ -19,7 +19,9 @@ function truncate(text: string, maxLen = 80): string {
 
 function fmtInstance(instanceId?: string): string {
   if (!instanceId) return "";
-  return `[${instanceId}] `;
+  // The slug reaches here from request paths and channel payloads — strip control
+  // chars so it cannot forge a log line. Sibling helpers get this from truncate().
+  return `[${sanitizeForLog(instanceId)}] `;
 }
 
 export const pipelineLog = {

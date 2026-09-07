@@ -19,7 +19,7 @@
 
 ## Release status
 
-Polyant v1.0.2 is the current stable release, a patch on the first public stable release v1.0.0. Review the [changelog](CHANGELOG.md), the [release notes](docs/releases/v1.0.2.md), and the [GitHub release](https://github.com/polyant-ai/polyant/releases/tag/v1.0.2). In a running admin installation, version and release details are available at `/about`.
+Polyant v1.1.0 is the current stable release. Review the [changelog](CHANGELOG.md), the [release notes](docs/releases/v1.1.0.md), and the [GitHub release](https://github.com/polyant-ai/polyant/releases/tag/v1.1.0). Upgrading from 1.0.0 needs operator action — read the [upgrade guide](docs/UPGRADING.md) first. In a running admin installation, version and release details are available at `/about`.
 
 > The name comes from Hofstadter's *Gödel, Escher, Bach* — specifically the "Ant Fugue" dialogue and the character of Aunt Hillary, an ant colony understood as the archetype of emergent intelligence: individual agents, each one limited, that produce — by coordinating — a collective intelligent behaviour that exceeds the sum of its parts. It is, literally, the thesis we are pitching: fleets of specialised agents that, when orchestrated, generate performance impossible for any single agent. *Poly-* (classical Greek, "many") makes the key concept explicit: coordinated multiplicity.
 >
@@ -40,25 +40,27 @@ Read the long version in **[Why Polyant](docs/why-polyant.md)**.
 - **Supervisor Agent** — Central orchestrator with tool use, up to 15 reasoning steps per request (Vercel AI SDK)
 - **Long-term Memory** — Automatic fact extraction via LLM; hybrid search with pgvector cosine similarity + PostgreSQL FTS fused via Reciprocal Rank Fusion
 - **Multi-channel** — Telegram, Slack, WhatsApp, and an OpenAI-compatible HTTP API (with file attachment support)
-- **Provider-agnostic** — Switch between OpenAI, Anthropic, Amazon Bedrock, and Nebius Token Factory per instance from the admin panel; the embedding provider is chosen independently of the chat provider. A tier abstraction (`fast | standard | heavy`) decouples code from model names, and a model catalog carries per-model pricing, vision, reasoning, and prompt-caching capabilities
+- **Provider-agnostic** — Switch between OpenAI, Anthropic, Amazon Bedrock, and Nebius Token Factory per agent from the admin panel; the embedding provider is chosen independently of the chat provider. A tier abstraction (`fast | standard | heavy`) decouples code from model names, and a model catalog carries per-model pricing, vision, reasoning, and prompt-caching capabilities
 - **Tools & Plugins** — Author a tool as `export default defineTool(...)` from `@polyant-ai/plugin-sdk`; the engine loader collects it at boot with no wiring. Tools live in-engine or in external **plugin** repos loaded via `PLUGIN_DIRS` — see [Plugins & the SDK](#plugins--the-sdk)
+- **MCP Client** — Equip an agent with tools from external **Model Context Protocol** servers, configured per agent. Three auth modes (`none` for public or network-isolated servers, `static` for a bearer token or custom header, `oauth` for OAuth 2.1 including Dynamic Client Registration); credentials are stored AES-256-GCM encrypted and never returned by the API. A slow or dead server is skipped for the turn rather than stalling it (`MCP_CONNECT_TIMEOUT_MS`)
+- **A2A Server** — Expose an agent to other agents over the **Agent2Agent** protocol: an Agent Card at `GET /a2a/:slug/.well-known/agent-card.json` and JSON-RPC at `POST /a2a/:slug/jsonrpc`. Opt-in per agent (`a2a_enabled`, default off) and authenticated with the agent's own API key
 - **Skill System** — Markdown-based skill definitions stored in the database; per-instance encrypted env vars for skills that need API keys
 - **Multi-instance** — Independent configuration of prompts, skills, tool availability, and identity per instance; instances exposed as selectable "models" via the OpenAI-compatible API
 - **Per-instance Secrets** — API keys, channel config, and LangSmith settings stored AES-256-GCM encrypted per instance
+- **RBAC** — `Organization → Workspace → Agent` tenancy with four system roles (Owner / Admin / Member / Viewer) and a `resource:action` permission matrix, enforced unconditionally (no shadow mode, no opt-out); membership is granted deliberately by an administrator, never by signing in
 - **Admin Panel** — Next.js 16 frontend for managing instances, conversations, memories, skills, tools, channels, and analytics
 - **Event-driven Room** — Proactive agent workspace that processes webhook events on a 30-second tick and can push outbound messages
 - **Conversation Tracking** — Full message history with summaries and full-text search in PostgreSQL
 - **Analytics** — Token usage, cost tracking, and pipeline latency per instance
 - **Cost Monitoring** — Every LLM call logged with token counts and estimated USD cost
 - **File Attachments** — Photos and PDFs from WhatsApp/Telegram stored in S3, passed as multimodal content to the LLM
-- **Voice Messages** — Inbound audio transcribed per instance via OpenAI Whisper, Amazon Transcribe, or Deepgram — or turned off explicitly
-- **Knowledge Base** — Per-instance documents chunked and retrieved with pgvector, editable from the panel and portable as a JSON bundle
+- **Voice Messages** — Inbound audio transcribed per agent via OpenAI Whisper, Amazon Transcribe, or Deepgram — or turned off explicitly
+- **Knowledge Base** — Per-agent documents chunked and retrieved with pgvector, editable from the panel and portable as a JSON bundle
 - **Lifecycle Hooks** — Typed code hooks at four fixed pipeline points that can inject context, halt a turn and answer, or replace the generated reply
-- **Scheduled Tasks** — Cron-style prompts an instance runs on its own, with a per-run log
-- **Agent-to-Agent** — An instance can call another instance in-process as an `ask_<slug>` tool, bounded to one hop
-- **RBAC & Tenancy** — `Organization → Workspace → Instance` with four system roles (Owner / Admin / Member / Viewer) over a `resource:action` permission matrix. In v1.0.x the guard ships in **shadow mode**: decisions are resolved and logged but never denied until you set `AUTHZ_ENFORCE=true`
+- **Scheduled Tasks** — Cron-style prompts an agent runs on its own, with a per-run log
+- **Agent-to-Agent (in-process)** — Beyond the A2A protocol above, an agent in the same deployment can be called as an `ask_<slug>` tool, bounded to one hop
 - **GDPR Opt-out** — Deterministic STOP/START keyword gate per contact, enforced in code rather than by the model, blocking inbound and proactive outbound alike
-- **Export & Import** — A full instance configuration (prompts, skills, tools, channels, hooks, Room, tasks) travels as a JSON bundle; secrets are never exported
+- **Export & Import** — A full agent configuration (prompts, skills, tools, channels, hooks, MCP servers, Room, tasks) travels as a JSON bundle; secrets are never exported
 
 ## Documentation
 
@@ -73,6 +75,7 @@ The full documentation lives at **[docs.polyant.ai](https://docs.polyant.ai)** (
 ### Operate
 
 - **[Deployment](https://docs.polyant.ai/operations/deployment)** — Docker Compose, Render, Fly.io, Kubernetes
+- **[Upgrading](docs/UPGRADING.md)** — version-to-version upgrade steps that need an operator decision
 
 ### Understand
 

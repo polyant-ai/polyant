@@ -56,13 +56,18 @@ class RoomScheduler {
         );
       }
 
-      // Analytics retention: delete `ai_logs` + `pipeline_traces` older than
-      // ANALYTICS_RETENTION_DAYS. Fire-and-forget; failures are logged.
+      // Retention for every traffic-driven table: ai_logs, pipeline_traces,
+      // tool_audit_logs, hook_executions, scheduled_task_runs and the COMPLETED
+      // half of event_backlog, older than ANALYTICS_RETENTION_DAYS.
+      // Fire-and-forget; failures are logged.
       runAnalyticsCleanup(config.analytics.retentionDays)
         .then((result) => {
           roomLog.info(
             "Scheduler",
-            `analytics cleanup: deleted ${result.aiLogsDeleted} ai_logs + ${result.pipelineTracesDeleted} pipeline_traces older than ${result.cutoff.toISOString()}`,
+            `retention cleanup (older than ${result.cutoff.toISOString()}): ` +
+              `${result.aiLogsDeleted} ai_logs, ${result.pipelineTracesDeleted} pipeline_traces, ` +
+              `${result.toolAuditLogsDeleted} tool_audit_logs, ${result.hookExecutionsDeleted} hook_executions, ` +
+              `${result.scheduledTaskRunsDeleted} scheduled_task_runs, ${result.eventBacklogDeleted} event_backlog`,
           );
         })
         .catch((err) => roomLog.error("Scheduler", "analytics cleanup failed", err));

@@ -35,7 +35,7 @@ interface CostTrendChartProps {
 }
 
 export function CostTrendChart({ data }: CostTrendChartProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   return (
     <Card>
@@ -75,7 +75,7 @@ export function CostTrendChart({ data }: CostTrendChartProps) {
                 <ChartTooltipContent
                   labelFormatter={(v) => {
                     const d = new Date(v);
-                    return d.toLocaleDateString();
+                    return d.toLocaleDateString(locale);
                   }}
                 />
               }

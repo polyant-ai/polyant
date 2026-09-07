@@ -1,13 +1,15 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import { releaseFacts, releaseNoteHeading } from "../release/release-facts.mjs";
+
 const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-const manifestPaths = [
-  "package.json",
-  "packages/engine/package.json",
-  "packages/web/package.json",
-  "infra/package.json",
-];
+// The manifest list, the product name and the edition suffix are the only
+// things this check knows about the product, and all three come from
+// release-facts.mjs — the module the Enterprise build overrides wholesale. This
+// file used to carry them as literals and diverged between the two repositories
+// in three places, each re-resolved by hand on every merge.
+const manifestPaths = releaseFacts.manifests;
 
 async function readManifest(rootDir, relativePath) {
   const manifestPath = path.join(rootDir, relativePath);
@@ -37,6 +39,12 @@ export async function validateReleaseMetadata(rootDir) {
 
   if (typeof rootVersion !== "string" || !semverPattern.test(rootVersion)) {
     throw new Error("package.json must define a valid SemVer version.");
+  }
+
+  if (releaseFacts.versionSuffix && !rootVersion.endsWith(releaseFacts.versionSuffix)) {
+    throw new Error(
+      `package.json must define a ${releaseFacts.productName} release version ending in ${releaseFacts.versionSuffix}.`,
+    );
   }
 
   for (const { relativePath, manifest } of manifests.slice(1)) {
@@ -69,9 +77,10 @@ export async function validateReleaseMetadata(rootDir) {
     path.join(rootDir, "docs", "releases", `v${rootVersion}.md`),
     `docs/releases/v${rootVersion}.md release note`,
   );
-  if (releaseNote.split(/\r?\n/, 1)[0] !== `# Polyant v${rootVersion}`) {
+  const heading = releaseNoteHeading(rootVersion);
+  if (releaseNote.split(/\r?\n/, 1)[0] !== heading) {
     throw new Error(
-      `CHANGELOG metadata is incomplete: docs/releases/v${rootVersion}.md must begin with the exact H1 # Polyant v${rootVersion}.`,
+      `CHANGELOG metadata is incomplete: docs/releases/v${rootVersion}.md must begin with the exact H1 ${heading}.`,
     );
   }
 

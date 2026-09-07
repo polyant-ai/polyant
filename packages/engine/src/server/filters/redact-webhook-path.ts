@@ -41,6 +41,20 @@ const WEBHOOKS_SEGMENT = /(^|\/)webhooks\//i;
 const ORIGIN_PREFIX = /^[a-z][a-z0-9+.-]*:\/\/[^/]*/i;
 
 /**
+ * Best-effort percent-decode. `decodeURIComponent` throws a `URIError` on a
+ * malformed escape (e.g. `%zz`), and this function feeds the global
+ * exception filter, so a throw here must never propagate — a malformed
+ * pathname simply has no decoded fallback to try.
+ */
+function tryDecode(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Strip a `user:pass@` (or bare `user@`) userinfo prefix from an origin's
  * authority before it is echoed into a log line. `getFullUrl` builds the
  * origin from the attacker-controlled `X-Forwarded-Host` header, so a
@@ -123,6 +137,19 @@ export function redactWebhookPath(url: string): string {
 
   if (WEBHOOKS_SEGMENT.test(pathname)) {
     return `${origin}${maskSegmentsAfterWebhooksPrefix(pathname)}`;
+  }
+
+  // Only reached when the RAW pathname matched none of the shapes above —
+  // including the fail-safe, which needs a literal `webhooks/` segment. A
+  // percent-encoded character INSIDE that segment itself (e.g.
+  // `/web%68ooks/...`) is exactly such a miss, so a decoded pass is tried as
+  // a LAST resort here, never earlier: running it before the specific
+  // patterns above would let an already-correct-but-differently-encoded
+  // segment (e.g. `whats%61pp`, which has its own dedicated fail-safe test)
+  // match a more specific pattern than intended.
+  const decodedPathname = tryDecode(pathname);
+  if (decodedPathname !== null && WEBHOOKS_SEGMENT.test(decodedPathname)) {
+    return `${origin}${maskSegmentsAfterWebhooksPrefix(decodedPathname)}`;
   }
 
   return `${origin}${pathname}`;

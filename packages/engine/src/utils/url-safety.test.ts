@@ -222,6 +222,20 @@ describe("DNS failure", () => {
     );
   });
 
+  it("keeps the underlying DNS error as `cause` on the Blocked error", async () => {
+    // The caller sees a deliberately generic "Blocked:" message (it must not
+    // leak resolver internals), but the operator needs the real reason in the
+    // logs. Without a `cause` the original error is lost at the throw site.
+    const dnsError = new Error("getaddrinfo EAI_AGAIN slow-dns.example.com");
+    (dnsError as NodeJS.ErrnoException).code = "EAI_AGAIN";
+    mockLookup.mockRejectedValue(dnsError);
+
+    await expect(assertSafeUrl(new URL("https://slow-dns.example.com/"))).rejects.toMatchObject({
+      message: 'Blocked: unable to resolve hostname "slow-dns.example.com"',
+      cause: dnsError,
+    });
+  });
+
   it("re-throws Blocked errors even within DNS catch block", async () => {
     // Simulate: the hostname itself is fine, but after DNS lookup we detect
     // a private IP. The "Blocked:" error should propagate, not be swallowed.

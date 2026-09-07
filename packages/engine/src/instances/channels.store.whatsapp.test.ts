@@ -47,6 +47,7 @@ const { mockDb, mockEncrypt, mockDecrypt, mockGenerateToken } = vi.hoisted(() =>
     update: vi.fn(),
     insert: vi.fn(),
     delete: vi.fn(),
+    transaction: vi.fn(),
   };
   const mockEncrypt = vi.fn((v: string) => `encrypted:${v}`);
   const mockDecrypt = vi.fn((v: string) => v.replace("encrypted:", ""));
@@ -126,6 +127,10 @@ beforeEach(() => {
     chain.onConflictDoUpdate = vi.fn(() => chain);
     return chain;
   });
+  // Real `db.transaction` hands the callback a tx client; the fake here hands
+  // it the SAME `mockDb` so `select`/`insert` inside the callback are the
+  // exact spies these tests already assert on.
+  mockDb.transaction.mockImplementation(async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb));
 });
 
 describe("instances/channels.store — WhatsApp credential modes", () => {
@@ -338,7 +343,9 @@ describe("instances/channels.store — WhatsApp credential modes", () => {
     });
   });
 
-  // Pure schema/helper coverage (`channelConfigSchemas.whatsapp`,
-  // `pruneWhatsAppCredentials`, `resolveWhatsAppAuthMode`) lives in
-  // `channels.store.whatsapp-schema.test.ts` to keep this file ≤400 lines.
+  // Read-then-write transactionality of the carry-forward path (#279) lives
+  // in `channels.store.whatsapp-transaction.test.ts`, and pure schema/helper
+  // coverage (`channelConfigSchemas.whatsapp`, `pruneWhatsAppCredentials`,
+  // `resolveWhatsAppAuthMode`) in `channels.store.whatsapp-schema.test.ts` —
+  // both split out to keep this file ≤400 lines.
 });

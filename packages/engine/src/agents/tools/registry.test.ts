@@ -25,6 +25,20 @@ vi.mock("fs", () => ({
   readFileSync: vi.fn(() => JSON.stringify({ version: "0.1.0" })),
 }));
 
+// Skill env (for placeholder substitution) and the pipeline logger, so a test
+// can assert WHAT each of them saw — the log must keep the placeholder while
+// execute gets the resolved value.
+const { mockGetSkillEnvEntries, mockToolCall } = vi.hoisted(() => ({
+  mockGetSkillEnvEntries: vi.fn(),
+  mockToolCall: vi.fn(),
+}));
+vi.mock("../../instances/skill-env.store.js", () => ({
+  getSkillEnvEntries: (...a: unknown[]) => mockGetSkillEnvEntries(...a),
+}));
+vi.mock("../../utils/pipeline-logger.js", () => ({
+  pipelineLog: { toolCall: (...a: unknown[]) => mockToolCall(...a), toolResult: vi.fn() },
+}));
+
 import { tool as aiTool } from "ai";
 import { readdirSync } from "fs";
 import { defineTool } from "@polyant-ai/plugin-sdk";
@@ -206,6 +220,42 @@ describe("registry", () => {
 
       expect(execute).toHaveBeenCalledWith({ q: "hi" }, mockCtx);
       expect(out).toEqual({ got: "hi" });
+    });
+
+    /*
+      The point of the placeholder indirection: `execute` gets the real secret,
+      and the argument that was LOGGED keeps the placeholder. If the log were
+      written after substitution, the leak this mechanism closes would simply
+      move from the tool result into the pipeline log.
+    */
+    it("should_resolve_a_skill_env_placeholder_for_execute_but_not_for_the_log", async () => {
+      mockGetSkillEnvEntries.mockResolvedValue([
+        { key: "CRM_TOKEN", value: "sk-live-a91f", sensitive: true },
+      ]);
+      const execute = vi.fn(async (input: any) => ({ seen: input.q }));
+      const def = makeDef({ name: uid("build-ph"), parameters: z.object({ q: z.string() }), execute });
+
+      buildTool(def, mockCtx);
+      const call = vi.mocked(aiTool).mock.calls.at(-1)![0] as any;
+      const out = await call.execute({ q: "Bearer {{skill_env.crm-sync.CRM_TOKEN}}" });
+
+      expect(execute).toHaveBeenCalledWith({ q: "Bearer sk-live-a91f" }, mockCtx);
+      expect(out).toEqual({ seen: "Bearer sk-live-a91f" });
+
+      const logged = mockToolCall.mock.calls.at(-1)![2] as Record<string, unknown>;
+      expect(logged.q).toBe("Bearer {{skill_env.crm-sync.CRM_TOKEN}}");
+    });
+
+    it("should_not_query_skill_env_when_the_input_holds_no_placeholder", async () => {
+      const execute = vi.fn(async (input: any) => input);
+      const def = makeDef({ name: uid("build-noph"), parameters: z.object({ q: z.string() }), execute });
+
+      buildTool(def, mockCtx);
+      const call = vi.mocked(aiTool).mock.calls.at(-1)![0] as any;
+      await call.execute({ q: "plain" });
+
+      expect(mockGetSkillEnvEntries).not.toHaveBeenCalled();
+      expect(execute).toHaveBeenCalledWith({ q: "plain" }, mockCtx);
     });
 
     it("appends inputExamples to the description (raw, no validation)", () => {

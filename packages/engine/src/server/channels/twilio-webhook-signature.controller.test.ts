@@ -19,6 +19,9 @@ vi.mock("../../instances/channels.store.js", () => ({
   // Keep in sync with the real tuple in instances/channels.store.ts —
   // any new API-configurable channel type must be added here.
   CHANNEL_TYPES: ["telegram", "slack", "whatsapp", "agent"],
+  WHATSAPP_CHANNEL_TYPE: "whatsapp",
+  WHATSAPP_AUTH_MODE_TOKEN: "authToken",
+  WHATSAPP_AUTH_MODE_API_KEY: "apiKey",
   resolveWhatsAppAuthMode: (cfg: Record<string, unknown>) =>
     cfg.authMode === "apiKey" ? "apiKey" : "authToken",
 }));
@@ -116,6 +119,61 @@ describe("TwilioWebhookController (signature route)", () => {
     );
   });
 
+  it("clamps NumMedia so an absurd count cannot spin the media loop", async () => {
+    // NumMedia arrives on the request body. Without the clamp this would iterate
+    // a billion times looking up MediaUrl<i> keys that do not exist.
+    await controller.handleWhatsAppWebhook(
+      "test-instance",
+      "valid-sig",
+      { ...validBody, NumMedia: "999999999", MediaUrl0: "https://api.twilio.com/m0", MediaContentType0: "image/jpeg" },
+      mockReq(),
+    );
+
+    const [payload] = mockAdapter.handleInbound.mock.calls[0];
+    // Only the one attachment that actually exists is collected.
+    expect(payload.media).toEqual([{ url: "https://api.twilio.com/m0", contentType: "image/jpeg" }]);
+  });
+
+  /**
+   * The key is KEPT, and that is the fix rather than a weaker version of it.
+   *
+   * An earlier denylist dropped `__proto__` before hashing, which is the wrong
+   * answer here: Twilio signs EVERY parameter it sends and adds new ones over
+   * time, so a webhook carrying a field we silently discard fails validation
+   * outright. The finding (js/remote-property-injection) is that remote input
+   * chooses which property gets WRITTEN — and `Object.fromEntries` answers it by
+   * defining own data properties, so the entry lands as a flat key exactly as
+   * Twilio hashed it instead of retargeting the prototype chain.
+   *
+   * The prototype assertion is therefore the one carrying the security property.
+   */
+  it("keeps a __proto__ key as a flat own property, never on the prototype", async () => {
+    // JSON.parse is how such a body actually arrives, and it yields a real OWN
+    // enumerable "__proto__" property that Object.entries will hand back — an object
+    // literal cannot express that (it would just set the prototype).
+    const pollutedBody = Object.assign(
+      JSON.parse('{"__proto__": "polluted"}'),
+      validBody,
+    );
+
+    await controller.handleWhatsAppWebhook(
+      "test-instance",
+      "valid-sig",
+      pollutedBody,
+      mockReq(),
+    );
+
+    const [, , params] = mockAdapter.validateSignature.mock.calls[0];
+    // Hashed with the others, as Twilio signed it — and as DATA, so nothing the
+    // body named can reach the prototype chain of the object we build.
+    expect(Object.hasOwn(params, "__proto__")).toBe(true);
+    expect(params["__proto__" as keyof typeof params]).toBe("polluted");
+    expect(Object.getPrototypeOf(params)).toBe(Object.prototype);
+    // Sanity: the body really did carry it as an own property, so this exercised
+    // the path it was written for.
+    expect(Object.hasOwn(pollutedBody, "__proto__")).toBe(true);
+  });
+
   it("uses X-Forwarded-Proto and X-Forwarded-Host when behind proxy", async () => {
     const req = mockReq({
       protocol: "http",
@@ -132,6 +190,48 @@ describe("TwilioWebhookController (signature route)", () => {
     expect(mockAdapter.validateSignature).toHaveBeenCalledWith(
       "valid-sig",
       "https://my-app.ngrok-free.dev/webhooks/twilio/test-instance/whatsapp",
+      expect.any(Object),
+    );
+  });
+
+  it("takes only the first hop of a comma-separated X-Forwarded-Proto", async () => {
+    const req = mockReq({
+      protocol: "http",
+      headers: {
+        host: "localhost:4000",
+        "x-forwarded-proto": "https, http",
+      },
+    });
+
+    await controller.handleWhatsAppWebhook("test-instance", "valid-sig", validBody, req);
+
+    expect(mockAdapter.validateSignature).toHaveBeenCalledWith(
+      "valid-sig",
+      "https://example.ngrok-free.dev/webhooks/twilio/test-instance/whatsapp",
+      expect.any(Object),
+    );
+  });
+
+  it("clamps a poisoned X-Forwarded-Proto to req.protocol instead of echoing it into the reconstructed URL", async () => {
+    // A value like "user:pass@https" no longer matches the `scheme://` shape
+    // once echoed raw, which broke redactWebhookPath's userinfo-stripping
+    // branch and let the attacker's own string reach the log unmasked. It
+    // also silently corrupts the URL the Twilio signature is verified
+    // against. Clamping to http/https (falling back to req.protocol for
+    // anything else) fixes both.
+    const req = mockReq({
+      protocol: "https",
+      headers: {
+        host: "example.ngrok-free.dev",
+        "x-forwarded-proto": "user:pass@https",
+      },
+    });
+
+    await controller.handleWhatsAppWebhook("test-instance", "valid-sig", validBody, req);
+
+    expect(mockAdapter.validateSignature).toHaveBeenCalledWith(
+      "valid-sig",
+      "https://example.ngrok-free.dev/webhooks/twilio/test-instance/whatsapp",
       expect.any(Object),
     );
   });

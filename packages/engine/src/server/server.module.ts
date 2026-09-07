@@ -15,6 +15,7 @@ import { InstanceToolsController } from "./instances/instance-tools.controller.j
 import { InstanceSkillsController } from "./instances/instance-skills.controller.js";
 import { InstanceSecretsController } from "./instances/instance-secrets.controller.js";
 import { InstanceChannelsController } from "./instances/instance-channels.controller.js";
+import { McpServersController } from "./instances/mcp-servers.controller.js";
 import { ConversationsController } from "./conversations/conversations.controller.js";
 import { AnalyticsController } from "./analytics/analytics.controller.js";
 import { ToolsController } from "./tools/tools.controller.js";
@@ -31,12 +32,15 @@ import { AuditController } from "./audit/audit.controller.js";
 import { InstanceExportController } from "./instances/instance-export.controller.js";
 import { AttachmentsController } from "./attachments/attachments.controller.js";
 import { OAuthCallbackController } from "./oauth/oauth-callback.controller.js";
+import { McpOAuthCallbackController } from "./oauth/mcp-oauth-callback.controller.js";
+import { A2aModule } from "./a2a/a2a.module.js";
 import { SkillsModule } from "../skills/skills.module.js";
 import { UsersModule } from "../users/users.module.js";
 import { ActivityStreamModule } from "../activity-stream/activity-stream.module.js";
 import { OptoutsModule } from "./optouts/optouts.module.js";
 import { MembersModule } from "./members/members.module.js";
 import { OrganizationsModule } from "../organizations/organizations.module.js";
+import { throttleTracker } from "./throttle-tracker.js";
 
 @Module({
   imports: [
@@ -49,8 +53,12 @@ import { OrganizationsModule } from "../organizations/organizations.module.js";
       // Bypass throttling entirely (global default + per-route @Throttle) when
       // disabled via THROTTLE_ENABLED=false — see config.ts server.throttle.
       skipIf: () => !config.server.throttle.enabled,
+      // WHO a bucket belongs to. The default is `req.ip`, which behind the
+      // panel's proxy is one address for every user — see throttle-tracker.ts.
+      getTracker: (req) => throttleTracker(req as Parameters<typeof throttleTracker>[0]),
     }),
     OpenAIModule,
+    A2aModule,
     SkillsModule,
     UsersModule,
     AuthModule,
@@ -75,6 +83,7 @@ import { OrganizationsModule } from "../organizations/organizations.module.js";
     InstanceSkillsController,
     InstanceSecretsController,
     InstanceChannelsController,
+    McpServersController,
     ConversationsController,
     AnalyticsController,
     ToolsController,
@@ -91,6 +100,7 @@ import { OrganizationsModule } from "../organizations/organizations.module.js";
     InstanceExportController,
     AttachmentsController,
     OAuthCallbackController,
+    McpOAuthCallbackController,
   ],
 })
 export class ServerModule {}
