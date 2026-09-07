@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { sanitizeForLog } from "../utils/create-logger.js";
 import type { IncomingMessage, OutgoingMessage } from "./types.js";
 
 /**
@@ -209,7 +210,8 @@ export class MessageCoordinator {
       )
       .catch((err) =>
         console.error(
-          `[coordinator] sendTyping failed for ${state.seed.channelType}:${state.seed.channelId}:`,
+          "[coordinator] sendTyping failed for",
+          sanitizeForLog(`${state.seed.channelType}:${state.seed.channelId}`),
           err,
         ),
       );
@@ -241,7 +243,7 @@ export class MessageCoordinator {
     state.flushChain = state.flushChain
       .then(() => this.doFlush(key, state, combined, signal, fragments, burstAttachments))
       .catch((err) => {
-        console.error(`[coordinator] flushChain unhandled error for ${key}:`, err);
+        console.error("[coordinator] flushChain unhandled error for", sanitizeForLog(key), err);
       });
   }
 
@@ -262,7 +264,8 @@ export class MessageCoordinator {
         return;
       }
       console.error(
-        `[coordinator] handler error for ${combined.channelType}:${combined.channelId}:`,
+        "[coordinator] handler error for",
+        sanitizeForLog(`${combined.channelType}:${combined.channelId}`),
         err,
       );
       this.finalizePipeline(key, state, signal);
@@ -285,7 +288,8 @@ export class MessageCoordinator {
         );
       } catch (err) {
         console.error(
-          `[coordinator] sendOutbound failed for ${combined.channelType}:${combined.channelId}:`,
+          "[coordinator] sendOutbound failed for",
+          sanitizeForLog(`${combined.channelType}:${combined.channelId}`),
           err,
         );
       }

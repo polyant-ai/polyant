@@ -472,6 +472,24 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
     });
   });
 
+  // The PUT validated the `:type` segment and the DELETE did not, so the two
+  // routes disagreed about whether the segment is a ChannelType. Deleting an
+  // invalid type matched no row, but the asymmetry is what makes the next
+  // reader conclude the cast is checked everywhere.
+  describe("channel type validation on delete", () => {
+    it("should_reject_an_unknown_channel_type_without_touching_the_store", async () => {
+      await expect(controller.removeChannel("acme", "discord", USER)).rejects.toThrow(BadRequestException);
+
+      expect(mockDeleteChannelConfig).not.toHaveBeenCalled();
+    });
+
+    it("should_reject_a_prototype_key_as_a_channel_type", async () => {
+      await expect(controller.removeChannel("acme", "constructor", USER)).rejects.toThrow(BadRequestException);
+
+      expect(mockDeleteChannelConfig).not.toHaveBeenCalled();
+    });
+  });
+
   describe("validation error translation", () => {
     it("should_translate_a_ZodError_from_the_store_into_a_BadRequestException", async () => {
       mockSetChannelConfig.mockRejectedValue(new ZodError([]));

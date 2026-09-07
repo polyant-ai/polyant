@@ -89,3 +89,41 @@ describe("importChannels — credential-key stripping (#278)", () => {
     expect(warnings).toEqual([]);
   });
 });
+
+describe("importChannels — unknown channel type", () => {
+  it.each(["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"])(
+    "skips the prototype key %s instead of throwing a TypeError out of the importer",
+    async (channelType) => {
+      const { tx, inserted } = makeFakeTx();
+
+      const warnings = await importChannels(tx, "instance-1", [{ channelType, enabled: true, config: {} }]);
+
+      expect(inserted).toEqual([]);
+      expect(warnings).toEqual([{ type: "channel_invalid", message: expect.stringContaining(channelType) }]);
+    },
+  );
+
+  it("skips an ordinary unknown type rather than inserting a row the runtime cannot serve", async () => {
+    const { tx, inserted } = makeFakeTx();
+
+    const warnings = await importChannels(tx, "instance-1", [
+      { channelType: "discord", enabled: true, config: { botToken: "x" } },
+    ]);
+
+    expect(inserted).toEqual([]);
+    expect(warnings).toEqual([{ type: "channel_invalid", message: expect.stringContaining("discord") }]);
+  });
+
+  it("imports the known channels of a bundle whose other channels are unknown", async () => {
+    const { tx, inserted } = makeFakeTx();
+
+    const warnings = await importChannels(tx, "instance-1", [
+      { channelType: "matrix", enabled: true, config: {} },
+      { channelType: "agent", enabled: true, config: {} },
+    ]);
+
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({ channelType: "agent", enabled: true });
+    expect(warnings).toEqual([{ type: "channel_invalid", message: expect.stringContaining("matrix") }]);
+  });
+});
