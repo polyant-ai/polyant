@@ -29,6 +29,30 @@ describe("model catalog integrity", () => {
     }
   });
 
+  it("no bedrock tier defaults to an Anthropic model", () => {
+    // Claude on Bedrock sits behind a per-account use-case form. A tier pointing
+    // there fails closed for accounts without the grant, and the service jobs
+    // (title, memory, governance) have no per-instance override to escape it.
+    for (const [tier, modelId] of Object.entries(providerConfigs.bedrock.tiers)) {
+      expect(modelId, `bedrock ${tier} tier`).not.toMatch(/anthropic/);
+    }
+  });
+
+  it("the bedrock standard tier supports caching and vision", () => {
+    // The supervisor turn resends a long system prompt every turn and may carry
+    // an inbound image; a model missing either degrades silently, not loudly.
+    const standard = providerConfigs.bedrock.models[providerConfigs.bedrock.tiers.standard];
+    expect(standard.cache, "bedrock standard tier cache").toBe(true);
+    expect(standard.vision, "bedrock standard tier vision").toBe(true);
+  });
+
+  it("the bedrock heavy tier is reasoning-capable", () => {
+    // Its only consumer is the prompt-injection gate, which a non-reasoning
+    // model misses (see governance/governance-ai.ts).
+    const heavy = providerConfigs.bedrock.models[providerConfigs.bedrock.tiers.heavy];
+    expect(heavy.reasoning, "bedrock heavy tier reasoning").toBe(true);
+  });
+
   it("no model is priced without capability fields", () => {
     for (const [provider, modelId, caps] of ALL) {
       const where = `${provider}/${modelId}`;

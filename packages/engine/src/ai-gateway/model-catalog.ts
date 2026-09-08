@@ -163,10 +163,20 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     // (raw model IDs fail with "Invocation ... with on-demand throughput isn't supported").
     // This catalog is EU-only: every entry is an eu.* / global. profile invocable
     // from EU endpoints (verified against list-inference-profiles in eu-south-1).
+    // Tier defaults deliberately avoid Anthropic: on Bedrock the Claude families
+    // sit behind a per-account use-case form, so an account that has not been
+    // granted them fails EVERY tier at once — including the service jobs (title,
+    // memory, governance) an operator cannot redirect, since `instances.model`
+    // overrides only the supervisor turn. Nova is Amazon first-party and is the
+    // only non-Anthropic family here with BOTH prompt caching and vision
+    // (`cacheCapableFallback` limits Bedrock caching to anthropic|nova), which is
+    // what the multi-turn `standard` tier actually needs. `heavy` has one
+    // consumer, the prompt-injection gate, which needs real reasoning and sends a
+    // short one-shot prompt — so gpt-oss's lack of caching costs nothing there.
     tiers: {
       fast: "eu.amazon.nova-lite-v1:0",
-      standard: "eu.anthropic.claude-sonnet-4-6",
-      heavy: "eu.anthropic.claude-opus-4-8",
+      standard: "eu.amazon.nova-pro-v1:0",
+      heavy: "openai.gpt-oss-120b-1:0",
     },
     models: {
       // Amazon Nova — EU inference profiles (the `fast` tier targets
