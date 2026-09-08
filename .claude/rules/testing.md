@@ -1,6 +1,6 @@
 ---
 description: "Enforce testing standards: coverage, classification, and structure"
-globs: ["**/*.test.*", "**/*.spec.*", "**/test_*.py", "**/*_test.py", "**/*_test.go"]
+globs: ["**/*.test.*", "**/*.spec.*"]
 alwaysApply: true
 ---
 

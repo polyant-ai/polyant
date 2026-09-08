@@ -19,7 +19,10 @@ alwaysApply: true
   checked either direction: the engine's 1 928 compliant imports were compliant by habit,
   and the "no exceptions" wording this replaces is what put two `.js` imports into web
   test files, where they survive only because `next build` never compiles tests.
-- Never use default exports. ALWAYS named exports for refactoring and tree-shaking.
+- Named exports as the rule: they help refactoring and tree-shaking. The ONE exception is
+  mandatory: `*.tool.ts` and `*.hook.ts`, which the loader recognises ONLY by the default
+  export (`export default defineTool(...)` / `defineHook(...)`). A named export there makes
+  the tool invisible at boot, with no error.
 - Import order: 1) node built-ins, 2) external packages, 3) internal modules, 4) relative
 
 ### File Naming

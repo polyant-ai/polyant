@@ -1,6 +1,6 @@
 ---
 description: "Enforce performance standards: queries, caching, bundle optimization"
-globs: ["**/*.ts", "**/*.tsx", "**/*.py", "**/*.js", "**/*.jsx"]
+globs: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
 alwaysApply: true
 ---
 
@@ -9,7 +9,7 @@ alwaysApply: true
 ## MUST (violations block PR)
 
 ### Database
-- Never write N+1 queries: load relations in batch (`joinedload`, `selectinload`, `include`, `with`)
+- Never write N+1 queries: load relations in batch (Drizzle's `with` / a join), never one query per row
 - Queries inside loops → refactor into a single query with `WHERE IN`
 - Every foreign key MUST have an index
 - Pagination is mandatory for endpoints returning lists (never `SELECT *` without LIMIT)

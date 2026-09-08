@@ -1,6 +1,6 @@
 ---
 description: "Enforce OWASP Top 10 security practices across all projects"
-globs: ["**/*.ts", "**/*.tsx", "**/*.py", "**/*.js", "**/*.jsx"]
+globs: ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
 alwaysApply: true
 ---
 
@@ -11,7 +11,7 @@ alwaysApply: true
 ### Input Validation
 - ALL user input MUST be validated and sanitized before use
 - Never trust client-side data: always validate on the server
-- Use schema validation (Zod, Pydantic) — never manual `if`-based validation
+- Use Zod schema validation — never manual `if`-based validation
 
 ### Injection Prevention
 - SQL: ALWAYS parametrized queries or ORM. Never string concatenation for queries.
