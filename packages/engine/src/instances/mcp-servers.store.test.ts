@@ -51,6 +51,61 @@ describe("mcp-servers.store", () => {
     expect(rows[0].config).not.toContain("secret-token");
   });
 
+  /*
+    `server.url` gets the SSRF guard; `authServerInfo` and `dcrClient` steer the
+    same OAuth client and got none, while `dcrClient` was an open record — so a
+    crafted import bundle (or a hand-written PUT) could point the flow at an
+    internal host, and `clientInformation()` prefers `dcrClient` over
+    `staticClient`. The metadata the SDK writes back goes through this schema
+    too, so the check is production-only: a developer's localhost MCP server
+    must stay configurable.
+  */
+  describe("oauth endpoints that the flow will request", () => {
+    it("should_reject_an_authServerInfo_pointing_at_a_private_host_in_production", () => {
+      vi.stubEnv("NODE_ENV", "production");
+      expect(() =>
+        mcpServerConfigSchema("oauth", {
+          authServerInfo: {
+            authorizationServerUrl: "https://169.254.169.254/authorize",
+            tokenEndpoint: "https://auth.example.com/token",
+          },
+        }),
+      ).toThrow();
+      vi.unstubAllEnvs();
+    });
+
+    it("should_reject_a_dcrClient_endpoint_pointing_at_a_metadata_host_in_production", () => {
+      vi.stubEnv("NODE_ENV", "production");
+      expect(() =>
+        mcpServerConfigSchema("oauth", {
+          dcrClient: { client_id: "abc", token_endpoint: "https://metadata.google.internal/token" },
+        }),
+      ).toThrow();
+      vi.unstubAllEnvs();
+    });
+
+    it("should_accept_public_oauth_endpoints_and_strip_unknown_dcrClient_keys", () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const parsed = mcpServerConfigSchema("oauth", {
+        authServerInfo: {
+          authorizationServerUrl: "https://auth.example.com/authorize",
+          tokenEndpoint: "https://auth.example.com/token",
+        },
+        dcrClient: { client_id: "abc", client_secret: "s3cret", redirect_uris: ["https://evil.example/cb"] },
+      });
+      expect(parsed).toMatchObject({
+        authServerInfo: { tokenEndpoint: "https://auth.example.com/token" },
+        dcrClient: { client_id: "abc", client_secret: "s3cret" },
+      });
+      expect((parsed as { dcrClient: Record<string, unknown> }).dcrClient).not.toHaveProperty("redirect_uris");
+      vi.unstubAllEnvs();
+    });
+
+    it("should_reject_a_dcrClient_without_a_client_id", () => {
+      expect(() => mcpServerConfigSchema("oauth", { dcrClient: { client_secret: "s3cret" } })).toThrow();
+    });
+  });
+
   it("should_strip_stray_token_key_from_oauth_config_before_persisting", async () => {
     await setMcpServer(IID, {
       slug: "oauth-server", name: "OAuth Server", url: "https://mcp.example.com", authMode: "oauth", enabled: true,
