@@ -198,4 +198,39 @@ describe("createPolyantExecutor.execute", () => {
     expect(final.status?.state).toBe(TaskState.TASK_STATE_CANCELED);
     expect(isFinished()).toBe(true);
   });
+
+  /*
+    The handler holding the executor lives in a 30s TTL cache, and an LLM turn
+    regularly outlives that. With the abort map in this function's closure, the
+    rebuilt executor had an empty one: `tasks/cancel` aborted nothing and still
+    answered success. The registry now owns the map and passes it in, which is
+    what this pins.
+  */
+  it("should_still_cancel_an_in_flight_task_through_a_REBUILT_executor", async () => {
+    const aborts = new Map<string, AbortController>();
+    let capturedSignal: AbortSignal | undefined;
+    const handler: StreamMessageHandler = async (_msg, signal) => {
+      capturedSignal = signal;
+      return {
+        textStream: (async function* () {})(),
+        // eslint-disable-next-line require-yield -- deliberately never yields, to hang the loop until cancelTask aborts
+        fullStream: (async function* () {
+          await new Promise(() => {});
+        })(),
+        completed: new Promise(() => {}),
+      };
+    };
+
+    const first = createPolyantExecutor(asInstanceSlug("acme"), handler, aborts);
+    const { bus } = fakeBus();
+    const running = first.execute(fakeContext(), bus);
+    await new Promise((r) => setTimeout(r, 5));
+
+    // The cache expired and the registry built a new handler over the same map.
+    const rebuilt = createPolyantExecutor(asInstanceSlug("acme"), handler, aborts);
+    await rebuilt.cancelTask("t1", bus);
+
+    expect(capturedSignal?.aborted).toBe(true);
+    void running;
+  });
 });

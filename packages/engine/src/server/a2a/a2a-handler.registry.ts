@@ -33,6 +33,14 @@ export class A2aHandlerRegistry {
   private streamHandler?: StreamMessageHandler;
   private readonly taskStore = new BoundedTaskStore();
   private readonly cache = new TtlCache<string, DefaultRequestHandler>({ maxSize: 200, ttlMs: 30_000 });
+  /**
+   * taskId -> the AbortController of its in-flight turn, OUTSIDE the handler
+   * cache on purpose. Held in the executor's closure it died with the cached
+   * handler after 30s, so `tasks/cancel` on any longer-running task aborted
+   * nothing and still answered success. Each `execute` deletes its own entry
+   * when it finishes.
+   */
+  private readonly aborts = new Map<string, AbortController>();
 
   setStreamMessageHandler(handler: StreamMessageHandler): void {
     this.streamHandler = handler;
@@ -48,7 +56,7 @@ export class A2aHandlerRegistry {
 
     const baseUrl = config.server.baseUrl ?? `http://localhost:${config.server.port}`;
     const card = buildAgentCard(instance, baseUrl);
-    const executor = createPolyantExecutor(slug, this.streamHandler);
+    const executor = createPolyantExecutor(slug, this.streamHandler, this.aborts);
     const handler = new DefaultRequestHandler(card, this.taskStore.viewFor(slug), executor);
 
     this.cache.set(slug, handler);

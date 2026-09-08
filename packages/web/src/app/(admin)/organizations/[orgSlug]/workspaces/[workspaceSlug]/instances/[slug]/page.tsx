@@ -58,7 +58,9 @@ function HeaderSaveButton() {
   return (
     <Button
       size="sm"
-      onClick={() => saveAction.onSave()}
+      // `void`: the registered handler reports its own failures with a toast,
+      // and an unhandled rejection here would be the only sign of one.
+      onClick={() => void saveAction.onSave()}
       disabled={!saveAction.isDirty || saveAction.saving}
     >
       {saveAction.saving ? t("common.saving") : t("common.save")}

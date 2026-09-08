@@ -10,11 +10,17 @@ import { assertSafeUrl, pinnedLookup, type ResolvedAddress } from "./url-safety.
 /**
  * Validate URL for SSRF and return an undici Agent with pinned DNS lookup.
  * Callers pass the returned dispatcher to fetch() to prevent DNS rebinding.
+ *
+ * `allowH2` is pinned off here for the same reason `safeFetch` pins it: undici
+ * 8 flipped the default to true, and this dispatcher serves the WhatsApp media
+ * fetch and the http tools — the protocol they speak is not something a
+ * dependency upgrade gets to change on its own.
  */
 export async function createSafeDispatcher(url: URL): Promise<{ dispatcher: unknown }> {
   const resolved = await assertSafeUrl(url);
   const { Agent } = await import("undici");
   const dispatcher = new Agent({
+    allowH2: false,
     connect: { lookup: pinnedLookup(resolved) as never },
   });
   return { dispatcher };

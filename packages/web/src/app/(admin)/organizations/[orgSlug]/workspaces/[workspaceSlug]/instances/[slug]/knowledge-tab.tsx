@@ -226,14 +226,20 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
 
   // Poll for processing documents (max 60 attempts = ~3 minutes)
   const pollCountRef = useRef(0);
-  const documentsRef = useRef(documents);
-  documentsRef.current = documents;
   const MAX_POLL_ATTEMPTS = 60;
 
+  /*
+    Derived from `documents` rather than read off a ref, because it has to be a
+    DEPENDENCY. The effect used to read `documentsRef.current` and declare only
+    `[load, t]`, both stable: it ran once at mount, when `documents` was still
+    empty, so the interval never started. A document left in `processing` never
+    refreshed and the timeout toast never fired.
+  */
+  const hasProcessing = documents.some(
+    (d) => d.status === "processing" || d.status === "uploading",
+  );
+
   useEffect(() => {
-    const hasProcessing = documentsRef.current.some(
-      (d) => d.status === "processing" || d.status === "uploading",
-    );
     if (!hasProcessing) {
       pollCountRef.current = 0;
       return;
@@ -256,7 +262,7 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
       load();
     }, 3000);
     return () => clearInterval(interval);
-  }, [load, t]);
+  }, [hasProcessing, load, t]);
 
   const handleUpload = async () => {
     if (!filename.trim() || !content.trim()) return;

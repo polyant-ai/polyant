@@ -110,12 +110,18 @@ async function publishArtifactChunks(
  * collapses the published event stream into a Task for the non-streaming call.
  * Tasks are ephemeral — the pipeline is synchronous single-turn.
  *
- * A module-closure `Map<taskId, AbortController>` lets `cancelTask` interrupt
- * an in-flight `execute` call for the same task.
+ * `aborts` maps a taskId to the AbortController of its in-flight `execute`, so
+ * `cancelTask` can interrupt it. It is passed IN rather than owned here: the
+ * handler that holds this executor lives in a 30s TTL cache, and a closure map
+ * would go with it — `tasks/cancel` on a task older than that found an empty
+ * map and answered success while the turn kept running, which an LLM turn
+ * regularly outlives.
  */
-export function createPolyantExecutor(slug: InstanceSlug, streamHandler: StreamMessageHandler): AgentExecutor {
-  const aborts = new Map<string, AbortController>();
-
+export function createPolyantExecutor(
+  slug: InstanceSlug,
+  streamHandler: StreamMessageHandler,
+  aborts: Map<string, AbortController> = new Map(),
+): AgentExecutor {
   return {
     async execute(ctx: RequestContext, bus: ExecutionEventBus): Promise<void> {
       const abort = new AbortController();
