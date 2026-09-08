@@ -78,4 +78,58 @@ describe("mergeMaskedMcpSecrets", () => {
     const merged = mergeMaskedMcpSecrets("oauth", { dcrClient: { client_id: "new" } }, { dcrClient: { client_id: "old" } });
     expect(merged.dcrClient).toEqual({ client_id: "new" });
   });
+
+  /*
+    The write contract is "absent OR masked", and only the masked half worked:
+    the panel omits `auth.token` when the field is blank, so editing a server's
+    name alone submitted `{auth:{type:"bearer"}}` — a 400 `auth: Invalid input`
+    from `staticConfigSchema` — and in oauth mode `staticClient.clientSecret`
+    was dropped with no error at all. `handleToggle` was unaffected because it
+    echoes the masked config back, which is the only shape this file covered.
+  */
+  describe("a leaf secret the client OMITTED", () => {
+    it("restores an omitted static token, leaving the rest of the submission alone", () => {
+      const merged = mergeMaskedMcpSecrets(
+        "static",
+        { auth: { type: "bearer" }, allowList: ["search"] },
+        { auth: { type: "bearer", token: "abcdef123456" } },
+      );
+      expect(merged).toEqual({
+        auth: { type: "bearer", token: "abcdef123456" },
+        allowList: ["search"],
+      });
+    });
+
+    it("restores an omitted header-mode token", () => {
+      const merged = mergeMaskedMcpSecrets(
+        "static",
+        { auth: { type: "header", headerName: "X-Api-Key" } },
+        { auth: { type: "header", headerName: "X-Api-Key", token: "abcdef123456" } },
+      );
+      expect(merged).toEqual({ auth: { type: "header", headerName: "X-Api-Key", token: "abcdef123456" } });
+    });
+
+    it("restores an omitted oauth staticClient.clientSecret", () => {
+      const merged = mergeMaskedMcpSecrets(
+        "oauth",
+        { staticClient: { clientId: "cid" } },
+        { staticClient: { clientId: "cid", clientSecret: "s3cret" } },
+      );
+      expect(merged).toEqual({ staticClient: { clientId: "cid", clientSecret: "s3cret" } });
+    });
+
+    it("does not fabricate a secret the existing config never had", () => {
+      const merged = mergeMaskedMcpSecrets("static", { auth: { type: "bearer" } }, undefined);
+      expect(merged).toEqual({ auth: { type: "bearer" } });
+    });
+
+    it("keeps a genuinely new token the client typed", () => {
+      const merged = mergeMaskedMcpSecrets(
+        "static",
+        { auth: { type: "bearer", token: "fresh-token" } },
+        { auth: { type: "bearer", token: "old-token" } },
+      );
+      expect(merged).toEqual({ auth: { type: "bearer", token: "fresh-token" } });
+    });
+  });
 });
