@@ -53,6 +53,15 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
   const isDirty = authEnabled !== instance.authEnabled || apiKey.dirty;
 
   const handleSave = async () => {
+    // Turning auth ON with no key — neither stored nor typed — saves a state the
+    // engine answers with 401 "Auth enabled but no API key configured" to every
+    // `/v1` and `/chat/stream` caller. `apiKey.save()` is a no-op when nothing
+    // was typed, so nothing else stops it.
+    if (authEnabled && !apiKey.configured && !apiKey.value.trim()) {
+      toast.error(t("channels.tab.webAuthKeyRequired"));
+      return;
+    }
+
     setSaving(true);
     try {
       // The key first: a failure here must never leave the switch on with nothing
