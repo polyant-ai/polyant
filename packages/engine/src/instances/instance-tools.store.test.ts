@@ -348,4 +348,57 @@ describe("instance-tools.store", () => {
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Caller-transaction propagation
+  //
+  // `createInstanceWithDefaults` seeds inside `db.transaction`, so a write
+  // issued on the module `db` takes a SECOND pooled connection and blocks on
+  // the uncommitted `instances` row lock held by the very transaction that
+  // called it: POST /api/instances hangs until the pool times out. These tests
+  // assert the writes land on the executor they were handed.
+  // -----------------------------------------------------------------------
+  describe("caller-transaction propagation", () => {
+    it("seedInstanceTools inserts on the caller executor, not on the module db", async () => {
+      const selectChain = createChainMock([
+        { id: "tool-create", name: "createSkill" },
+      ]);
+      const insertChain = createChainMock(undefined);
+      const executor = {
+        select: vi.fn(() => selectChain),
+        insert: vi.fn(() => insertChain),
+      };
+
+      await seedInstanceTools(INSTANCE_UUID, executor as never);
+
+      expect(executor.insert).toHaveBeenCalledTimes(1);
+      expect(insertChain.values).toHaveBeenCalledWith([
+        { instanceId: INSTANCE_UUID, toolId: "tool-create", source: "manual" },
+      ]);
+      expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+
+    it("recomputeInstanceTools reuses the caller executor and opens no second transaction", async () => {
+      const insertChain = createChainMock(undefined);
+      const executor = {
+        select: vi
+          .fn()
+          .mockReturnValueOnce(createChainMock([])) // enabled skills
+          .mockReturnValueOnce(createChainMock([{ id: "tool-global-1" }])) // globals
+          .mockReturnValueOnce(createChainMock([])) // manual rows
+          .mockReturnValueOnce(createChainMock([])), // current rows, inside the diff
+        insert: vi.fn(() => insertChain),
+        delete: vi.fn(() => createChainMock(undefined)),
+      };
+
+      await recomputeInstanceTools(INSTANCE_UUID, executor as never);
+
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+      expect(mockDb.select).not.toHaveBeenCalled();
+      expect(executor.insert).toHaveBeenCalledTimes(1);
+      expect(insertChain.values).toHaveBeenCalledWith([
+        { instanceId: INSTANCE_UUID, toolId: "tool-global-1", source: "global" },
+      ]);
+    });
+  });
 });

@@ -50,9 +50,17 @@ export async function getEnabledToolNames(instanceId: InstanceUuid): Promise<Set
  * 3. Gather manually-added tools
  * 4. Replace all rows in a transaction
  */
-export async function recomputeInstanceTools(instanceId: InstanceUuid): Promise<void> {
+export async function recomputeInstanceTools(
+  instanceId: InstanceUuid,
+  executor?: DbExecutor,
+): Promise<void> {
+  // Reads and the final diff must run on the CALLER's transaction when there is
+  // one: an insert on a second pooled connection waits for the uncommitted
+  // `instances` row lock held by that very transaction.
+  const exec = executor ?? db;
+
   // 1. Get enabled skills with their PINNED version metadata
-  const enabledSkills = await db
+  const enabledSkills = await exec
     .select({
       skillVersionId: instanceSkills.skillVersionId,
       metadata: skillVersions.metadata,
@@ -80,20 +88,20 @@ export async function recomputeInstanceTools(instanceId: InstanceUuid): Promise<
   // 3. Resolve tool IDs for skill-required tools
   let skillToolIds: { id: string; name: string }[] = [];
   if (skillRequiredToolNames.size > 0) {
-    skillToolIds = await db
+    skillToolIds = await exec
       .select({ id: tools.id, name: tools.name })
       .from(tools)
       .where(inArray(tools.name, [...skillRequiredToolNames]));
   }
 
   // 4. Get global tool IDs
-  const globalToolRows = await db
+  const globalToolRows = await exec
     .select({ id: tools.id })
     .from(tools)
     .where(eq(tools.isGlobal, true));
 
   // 5. Get manual tool rows (preserve them)
-  const manualRows = await db
+  const manualRows = await exec
     .select({ toolId: instanceTools.toolId })
     .from(instanceTools)
     .where(
@@ -128,33 +136,49 @@ export async function recomputeInstanceTools(instanceId: InstanceUuid): Promise<
     }
   }
 
-  // 7. Diff-based update in transaction (avoids momentary empty state)
+  // 7. Diff-based update in transaction (avoids momentary empty state). Inside
+  // a caller transaction the atomicity is already the caller's, so reuse it
+  // rather than opening a second connection.
+  if (executor) {
+    await applyToolRowDiff(executor, instanceId, desiredRows);
+    return;
+  }
+
   await db.transaction(async (tx) => {
-    const current = await tx
-      .select({ toolId: instanceTools.toolId, source: instanceTools.source })
-      .from(instanceTools)
-      .where(eq(instanceTools.instanceId, instanceId));
-
-    const currentSet = new Set(current.map((r) => `${r.toolId}:${r.source}`));
-    const desiredSet = new Set(desiredRows.map((r) => `${r.toolId}:${r.source}`));
-
-    // Only delete rows not in the desired set
-    const toDelete = current.filter((r) => !desiredSet.has(`${r.toolId}:${r.source}`));
-    if (toDelete.length > 0) {
-      await tx.delete(instanceTools).where(
-        and(
-          eq(instanceTools.instanceId, instanceId),
-          inArray(instanceTools.toolId, toDelete.map((r) => r.toolId)),
-        ),
-      );
-    }
-
-    // Only insert rows not in the current set
-    const toInsert = desiredRows.filter((r) => !currentSet.has(`${r.toolId}:${r.source}`));
-    if (toInsert.length > 0) {
-      await tx.insert(instanceTools).values(toInsert);
-    }
+    await applyToolRowDiff(tx, instanceId, desiredRows);
   });
+}
+
+/** Replace an instance's tool rows with `desiredRows`, deleting and inserting only the difference. */
+async function applyToolRowDiff(
+  tx: DbExecutor,
+  instanceId: InstanceUuid,
+  desiredRows: { instanceId: string; toolId: string; source: string }[],
+): Promise<void> {
+  const current = await tx
+    .select({ toolId: instanceTools.toolId, source: instanceTools.source })
+    .from(instanceTools)
+    .where(eq(instanceTools.instanceId, instanceId));
+
+  const currentSet = new Set(current.map((r) => `${r.toolId}:${r.source}`));
+  const desiredSet = new Set(desiredRows.map((r) => `${r.toolId}:${r.source}`));
+
+  // Only delete rows not in the desired set
+  const toDelete = current.filter((r) => !desiredSet.has(`${r.toolId}:${r.source}`));
+  if (toDelete.length > 0) {
+    await tx.delete(instanceTools).where(
+      and(
+        eq(instanceTools.instanceId, instanceId),
+        inArray(instanceTools.toolId, toDelete.map((r) => r.toolId)),
+      ),
+    );
+  }
+
+  // Only insert rows not in the current set
+  const toInsert = desiredRows.filter((r) => !currentSet.has(`${r.toolId}:${r.source}`));
+  if (toInsert.length > 0) {
+    await tx.insert(instanceTools).values(toInsert);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +206,7 @@ export async function seedInstanceTools(
     source: "manual" as const,
   }));
 
-  await db
+  await executor
     .insert(instanceTools)
     .values(values)
     .onConflictDoNothing();

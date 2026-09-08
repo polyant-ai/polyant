@@ -274,11 +274,16 @@ export async function setAutoLoad(
  */
 export async function seedInstanceSkills(
   instanceId: InstanceUuid,
-  executor: DbExecutor = db,
+  executor?: DbExecutor,
 ): Promise<void> {
   if (DEFAULT_SKILL_SLUGS.length === 0) return;
 
-  const defaultSkills = await executor
+  // Every write here must stay on the caller's transaction: an insert issued on
+  // a second pooled connection waits for the uncommitted `instances` row lock
+  // that same transaction is holding.
+  const exec = executor ?? db;
+
+  const defaultSkills = await exec
     .select({ id: skills.id, slug: skills.slug, currentVersionId: skills.currentVersionId })
     .from(skills)
     .where(inArray(skills.slug, DEFAULT_SKILL_SLUGS));
@@ -286,7 +291,7 @@ export async function seedInstanceSkills(
   for (const skill of defaultSkills) {
     if (!skill.currentVersionId) continue;
 
-    await db
+    await exec
       .insert(instanceSkills)
       .values({
         instanceId,
@@ -300,5 +305,5 @@ export async function seedInstanceSkills(
       });
   }
 
-  await recomputeInstanceTools(instanceId);
+  await recomputeInstanceTools(instanceId, executor);
 }
