@@ -162,7 +162,7 @@ and no rationale is a wish, and belongs in neither file.
 - **A tool is one `*.tool.ts` default-exporting `defineTool(...)`**; a hook is one `*.hook.ts` default-exporting `defineHook(...)`. The loader finds both at boot; nothing else needs editing. Tool `parameters` must satisfy OpenAI strict mode — no `.optional()`, `.default()`, `.url()`/`.email()`, or unbounded `z.record`. *Enforced* by `agents/tools/strict-mode.test.ts`, which inspects every registered tool: if it fails, fix the schema, never soften the check. See `references/tools-and-hooks.md`
 - **Post-processing is fire-and-forget and commit-on-success**: messages, summary, memory and state are written after the reply, and an abort before `runPipelinePost`'s gate skips all four. It is NOT "an aborted turn writes nothing" — the `conversations` row, the inbound activity event, one `hook_executions` row per pre-LLM hook and one `ai_logs` row per call those hooks made are all written BEFORE the gate and survive. Pre-LLM hooks also re-run on every coordinator restart, so a side-effecting hook fires once per attempt, not once per message
 - **Every web→engine call goes through `request<T>()`** (`packages/web/src/lib/api.ts`). It is the ONLY place `X-Workspace-Slug` is stamped, read from the URL by `workspaceSlugFromPath`. A bare `fetch` in a component sends no workspace, so the engine falls back to the caller's stored preference and the call executes against a DIFFERENT workspace than the URL the reader is looking at — no error, no failing test, a wrong answer. Enforced by nothing; today the only `fetch` outside `lib/` reads a static file
-- **`replyHandled` and `replyText` are RESERVED field names in a tool's return value.** `agents/supervisor/index.ts` reads them off ANY tool's output and uses them to replace what the user sees — no allow-list, no opt-in flag on the definition. `sendOutboundMessage` and `sendWhatsappTemplate` do it deliberately; any other tool returning a field with either name silently authors the assistant's reply
+- **`replyHandled` and `replyText` are RESERVED field names in a tool's return value.** `agents/supervisor/index.ts` reads them off ANY tool's output and uses them to replace what the user sees — no allow-list, no opt-in flag on the definition. `send_outbound_message` and `send_whatsapp_template` do it deliberately; any other tool returning a field with either name silently authors the assistant's reply
 - **A scheduled task that dies mid-run must not go silent, and `MAX_CONCURRENT = 3` is process-wide.** `markRunning` sets `last_run_status='running'` and `getDueTasks` EXCLUDES those rows, so a killed process (deploy, OOM, crash) used to leave the row `running` forever: no exception, task still `enabled`, `/health` still `ok` — the failure mode is the ABSENCE of success, which no error-based alerting sees. Two mechanisms, deliberately asymmetric: `recoverOrphanedRuns` (startup) clears rows older than `config.scheduler.orphanGraceMs` WITHOUT counting a failure — an interrupted run is the deploy's fault, and counting it would burn a retry and eventually disable the task — and closes the dangling `scheduled_task_runs` row; `reapOverrunningRuns` (per tick) fails runs past `scheduled_tasks.max_run_ms` (migration 0078, NULL → `config.scheduler.defaultMaxRunMs`) and DOES count it. Rows YOUNGER than the grace are left alone on purpose: during a rolling deploy the outgoing process may still be running them, and stealing a live run executes the task twice. The reaper checks EVERY `running` row against its OWN deadline — bounding the scan by the default would silently ignore a stricter per-task value — and since it frees the row without cancelling the execution, `executeTask` carries an in-process `this.running` guard. Because the concurrency cap is a field of the scheduler SINGLETON, three wedged runs stop the scheduled tasks of EVERY instance in the deployment: `GET /health/scheduler` reports `freeSlots` and `stuckRunning` as counts only, the endpoint being unauthenticated
 - **Independent deployment**: each package under `packages/` is deployable as a standalone service
 - **Outbound HTTP with a `dispatcher` goes through `safeFetch` / `pairedFetch` (`utils/safe-http.ts`), never the global `fetch`.** A dispatcher only works with the fetch from the same undici, and Node bundles its own — an undici 8 `Agent` handed to the global fetch dies with `invalid onRequestStart method`, disabling the SSRF DNS pinning. *Enforced* by `utils/safe-http.test.ts`, which does NOT mock undici (the tool tests do, which is why they missed it). `overrides.undici` stays scoped to jsdom + `@ai-sdk/provider-utils` on 7.x
@@ -200,8 +200,11 @@ Per-feature design records — the decision, the alternatives, the trade-offs �
 
 ### Before starting important features
 
-- Use `/brainstorming` to explore intent, requirements, and design before writing code
-- For multi-step features, write an **openspec** (spec document) before implementation to align on scope and approach
+- On a multi-step feature, agree what "done" means before writing code, and record the
+  decision and its alternatives as a design document under `docs/superpowers/specs/`.
+  A one-file change needs neither. There was a `/brainstorming` command here and a rule
+  to "write the openspec": the command is deleted and no `openspec` directory, skill or
+  tool ever existed in this repository
 
 ### After completing a feature
 
@@ -209,6 +212,11 @@ Per-feature design records — the decision, the alternatives, the trade-offs �
 - **Typecheck + lint**: run `npm run typecheck` and `npm run lint` before considering the feature done
 - **DB migrations**: if Drizzle schema was modified, run `npm run db:generate` and review the generated migration before applying
 - **Config sync**: if new env vars were added, ensure they are in `packages/engine/src/config.ts` (Zod schema) and documented in `.env` / `docker-compose.yml` as needed
+- **Sign-off**: every commit needs `Signed-off-by` (`git commit -s`). The DCO check fails
+  the whole PR on a single unsigned commit, and adding it afterwards rewrites the range
+- **Agent context**: a new always-loaded instruction (CLAUDE.md, `.claude/rules/`) is paid
+  for on every turn and must compress or replace something. *Enforced* by
+  `agent-context-budget.guardrail.test.ts`
 
 ### After completing a feature (knowledge capture)
 
@@ -227,7 +235,10 @@ this file was 87 KB once — around 22k tokens on every request — because entr
 PR summaries and none ever left. Model instruction-following degrades as input grows, so
 past a few hundred lines the rules stop being read, and the ones that stop being read first
 are the sharp specific ones you most wanted followed. If an entry has become a story about
-how something was fixed, rewrite it as the invariant and move the story.
+how something was fixed, rewrite it as the invariant and move the story. *Enforced* by
+`agent-context-budget.guardrail.test.ts`, which caps CLAUDE.md plus `.claude/rules/*.md` —
+everything paid for on every turn — at 50 KB. Hitting the cap means moving reasoning into a
+reference, never raising the cap.
 
 ## Authentication & Authorization
 
@@ -318,9 +329,14 @@ Layered helpers under `.claude/`:
   console.log warning. They fire only when Claude runs the command through its Bash tool.
   There is no `.husky/`, no `postinstall` that installs anything, and `core.hooksPath` is
   unset — a human typing `git commit` is checked by none of them
-- **`agents/`** — 8 specialized agents (planner, code-reviewer, architect, tdd-guide, security-reviewer, doc-updater, build-error-resolver, refactor-cleaner)
-- **`contexts/`** — three reference documents (`dev`, `review`, `research`). NOTHING loads
-  them: no command, no setting and no hook names the directory. Read one deliberately or
-  delete them — they are not a mode the harness switches into
-- **`commands/`** — `/plan`, `/tdd`, `/brainstorming`, `/review`, `/verify`, `/security-scan`
 - **`skills/`** — project knowledge, loaded on demand: `backend-architecture` (and its `references/`), `frontend-design-system`, `plugin-authoring`, and the four release skills
+
+There are deliberately no `.claude/agents/`, `.claude/commands/` or `.claude/contexts/`
+directories any more. The first two were generic, project-agnostic boilerplate imported in
+May 2026 and never touched again — one commit in six months, against eighteen on
+`.claude/skills/` — with Python and Go examples, paths this repository does not have, and a
+`code-reviewer` that opened with `git diff` while declaring no Bash tool; the built-in
+review, planning and search agents do the same job with nothing to keep in sync. The three
+`contexts/` documents were already documented here as loaded by nothing: no command, no
+setting and no hook named the directory, and "read one deliberately" is not a mechanism.
+
