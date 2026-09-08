@@ -32,8 +32,17 @@ export function resolveModel(provider: string, tier: string): string {
  * that every catalogued row matches its heuristic (behaviour-preserving migration).
  */
 
+/**
+ * The Bedrock Nova family, as the cache fallbacks recognise it. Named once
+ * because two gates ask about it and they must agree: an id that counted as
+ * Nova for "can cache" but not for "can cache on a tool message" would be told
+ * to place a `cachePoint` that Nova 400s on — the exact failure the tool-message
+ * gate exists to prevent, on the path where no catalog row can correct it.
+ */
+const BEDROCK_NOVA = /nova/;
+
 /** Bedrock families that support Converse prompt caching (`cachePoint`). */
-const BEDROCK_CACHE_CAPABLE = /anthropic|nova/;
+const BEDROCK_CACHE_CAPABLE = new RegExp(`anthropic|${BEDROCK_NOVA.source}`);
 
 /** Reasoning-capability fallback — the historical per-provider heuristic. */
 export function reasoningCapableFallback(provider: string, modelId: string): boolean {
@@ -153,7 +162,7 @@ export function cacheCapableFallback(provider: string, model: string): boolean {
  * family accepts one anywhere.
  */
 export function cacheOnToolMessagesFallback(provider: string, model: string): boolean {
-  return !(provider === "bedrock" && /amazon\.nova/.test(model));
+  return !(provider === "bedrock" && BEDROCK_NOVA.test(model));
 }
 
 /** One-shot warning (deduped per gate+provider+model) when a regex fallback fires. */

@@ -9,6 +9,7 @@ import {
   reasoningLevelsFallback,
   temperatureRejectedFallback,
   cacheCapableFallback,
+  cacheOnToolMessagesFallback,
 } from "./config.js";
 import { visionCapableFallback } from "./vision.js";
 
@@ -47,8 +48,9 @@ describe("model catalog integrity", () => {
   });
 
   it("the bedrock heavy tier is reasoning-capable", () => {
-    // Its only consumer is the prompt-injection gate, which a non-reasoning
-    // model misses (see governance/governance-ai.ts).
+    // Its consumers are the semantic governance gates (prompt-injection, PII,
+    // topic guardrail), each of which parses a JSON verdict and fails OPEN — so
+    // a non-reasoning model there does not error, it silently stops gating.
     const heavy = providerConfigs.bedrock.models[providerConfigs.bedrock.tiers.heavy];
     expect(heavy.reasoning, "bedrock heavy tier reasoning").toBe(true);
   });
@@ -102,6 +104,32 @@ describe("catalog capabilities match the regex fallback (migration guard)", () =
     expect(caps.reasoningLevels ?? []).toEqual(reasoningLevelsFallback(provider, modelId));
     expect(caps.temperature).toBe(!temperatureRejectedFallback(provider, modelId));
     expect(caps.cache).toBe(cacheCapableFallback(provider, modelId));
+    expect(caps.cacheOnToolMessages ?? true).toBe(cacheOnToolMessagesFallback(provider, modelId));
     expect(caps.vision).toBe(visionCapableFallback(modelId));
+  });
+});
+
+describe("the two Bedrock cache fallbacks agree on what Nova is", () => {
+  // They are consulted for ids with no catalog row, and a disagreement there is
+  // not a style issue: an id counted as cache-capable but not as Nova is told to
+  // place a `cachePoint` on a tool message, which is exactly the 400 the
+  // tool-message gate exists to prevent — with no catalog row to correct it.
+  it.each([
+    "eu.amazon.nova-3-pro-v1:0",
+    "us.amazon.nova-lite-v1:0",
+    "amazon.nova-micro-v1:0",
+    "nova-something-unprefixed",
+  ])("%s is Nova to both gates", (modelId) => {
+    expect(cacheCapableFallback("bedrock", modelId), `${modelId} cache-capable`).toBe(true);
+    expect(cacheOnToolMessagesFallback("bedrock", modelId), `${modelId} tool-message cache`).toBe(false);
+  });
+
+  it("a cache-capable non-Anthropic Bedrock id is never allowed a tool-message marker", () => {
+    for (const [provider, modelId] of ALL.map(([p, m]) => [p, m] as const)) {
+      if (provider !== "bedrock") continue;
+      if (!cacheCapableFallback(provider, modelId)) continue;
+      if (/anthropic/.test(modelId)) continue;
+      expect(cacheOnToolMessagesFallback(provider, modelId), modelId).toBe(false);
+    }
   });
 });
