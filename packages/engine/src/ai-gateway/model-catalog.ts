@@ -80,6 +80,16 @@ export interface ModelCapabilities {
    * `cacheSupported` and the Bedrock runtime marker gate.
    */
   cache: boolean;
+  /**
+   * Whether a cache marker may ride on a message that carries TOOL content (a
+   * tool call or a tool result). Defaults to true — Anthropic accepts one
+   * anywhere. LIVE-VERIFIED false for Amazon Nova on Bedrock: `cachePoint` is
+   * accepted in `system` and in a text-only message, but a message holding a
+   * `toolUse`/`toolResult` block 400s with "extraneous key [cachePoint] is not
+   * permitted", which kills the whole turn the moment the agent uses a tool.
+   * Drives `cacheOnToolMessagesSupported` and the Bedrock marker gate.
+   */
+  cacheOnToolMessages?: boolean;
 }
 
 export interface ProviderConfig {
@@ -183,10 +193,10 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // eu.amazon.nova-lite-v1:0). Raw model IDs are omitted: they are not
       // invocable on-demand from EU regions, only via these eu.* profiles.
       // Nova is not reasoning-capable; nova-micro is text-only (no vision).
-      "eu.amazon.nova-micro-v1:0": { input: 0.035, output: 0.14, cacheRead: 0.0035, cacheWrite: 0.04375, reasoning: false, vision: false, temperature: true, cache: true },
-      "eu.amazon.nova-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true },
-      "eu.amazon.nova-2-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true },
-      "eu.amazon.nova-pro-v1:0": { input: 0.80, output: 3.20, cacheRead: 0.08, cacheWrite: 1.00, reasoning: false, vision: true, temperature: true, cache: true },
+      "eu.amazon.nova-micro-v1:0": { input: 0.035, output: 0.14, cacheRead: 0.0035, cacheWrite: 0.04375, reasoning: false, vision: false, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-2-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-pro-v1:0": { input: 0.80, output: 3.20, cacheRead: 0.08, cacheWrite: 1.00, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
       // Anthropic via Bedrock — EU inference profiles. Bedrock caches at 5m only →
       // cache read 0.1× input, cache WRITE 1.25× input (absolute rates below).
       // Token rates match Anthropic first-party; cross-Region profiles are billed

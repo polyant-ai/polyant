@@ -96,19 +96,21 @@ export type StepMarkerInput = { stepNumber: number; messages: ModelMessage[]; mo
  * last message is a stable within-turn tool-result/assistant message — never the
  * volatile user turn — so this is independent of where the volatile block lives.
  *
- * `applyMarker` is the provider-specific decorator; `isCacheCapable` gates
- * providers (Bedrock) where marking a non-cache-capable model errors the call.
+ * `applyMarker` is the provider-specific decorator; it receives the model id
+ * because whether a marker may ride on THIS message can depend on the model
+ * (Amazon Nova refuses one on tool content). `isCacheCapable` gates providers
+ * (Bedrock) where marking a non-cache-capable model errors the call.
  * Pure function — never mutates the input array.
  */
 export function makeStepMarker(
-  applyMarker: (message: ModelMessage) => ModelMessage,
+  applyMarker: (message: ModelMessage, modelId: string) => ModelMessage,
   isCacheCapable?: (modelId: string) => boolean,
 ): (input: StepMarkerInput) => { messages?: ModelMessage[] } {
   return ({ stepNumber, messages, modelId }) => {
     if (stepNumber < 1 || messages.length === 0) return {};
     if (isCacheCapable && !isCacheCapable(modelId)) return {};
     const out = [...messages];
-    out[out.length - 1] = applyMarker(out[out.length - 1]);
+    out[out.length - 1] = applyMarker(out[out.length - 1], modelId);
     return { messages: out };
   };
 }

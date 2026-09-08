@@ -146,6 +146,16 @@ export function cacheCapableFallback(provider: string, model: string): boolean {
   }
 }
 
+/**
+ * Tool-message cache-marker fallback for un-catalogued ids: Amazon Nova on
+ * Bedrock rejects a `cachePoint` on a message carrying tool content (400,
+ * "extraneous key [cachePoint] is not permitted"); every other cache-capable
+ * family accepts one anywhere.
+ */
+export function cacheOnToolMessagesFallback(provider: string, model: string): boolean {
+  return !(provider === "bedrock" && /amazon\.nova/.test(model));
+}
+
 /** One-shot warning (deduped per gate+provider+model) when a regex fallback fires. */
 const catalogFallbackWarned = new Set<string>();
 export function warnCatalogFallback(gate: string, provider: string, modelId: string): void {
@@ -415,4 +425,18 @@ export function cacheSupported(provider: string, model: string): boolean {
   if (entry) return entry.cache;
   warnCatalogFallback("cacheSupported", provider, model);
   return cacheCapableFallback(provider, model);
+}
+
+/**
+ * Whether a cache marker may ride on a message carrying TOOL content. Separate
+ * from {@link cacheSupported} because the two answers genuinely differ: Nova
+ * caches its system prefix happily and 400s only once a tool call enters the
+ * transcript, so collapsing them would cost the whole cache to fix the tool
+ * turn. Absent field → true (the Anthropic behaviour every other row has).
+ */
+export function cacheOnToolMessagesSupported(provider: string, model: string): boolean {
+  const entry = getModelCapabilities(provider, model);
+  if (entry) return entry.cacheOnToolMessages ?? true;
+  warnCatalogFallback("cacheOnToolMessagesSupported", provider, model);
+  return cacheOnToolMessagesFallback(provider, model);
 }
