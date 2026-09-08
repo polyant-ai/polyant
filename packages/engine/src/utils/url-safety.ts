@@ -33,8 +33,10 @@ const PRIVATE_IP_RANGES = [
   /^(24[0-9]|25[0-5])\./,
   // IPv6
   /^::$/,                                                             // Unspecified
+  /^0:0:0:0:0:0:0:0$/,                                                // Unspecified, long form
   /^::1$/,                                                            // Loopback
-  /^fd[0-9a-f]{2}:/i,                                                 // Unique local (fd::/8) — includes fd00:ec2::254 (AWS/Azure IPv6 IMDS)
+  /^0:0:0:0:0:0:0:1$/,                                                // Loopback, long form
+  /^f[cd][0-9a-f]{2}:/i,                                              // Unique local fc00::/7 (fc00–fdff) — includes fd00:ec2::254 (AWS/Azure IPv6 IMDS)
   /^fe80:/i,                                                          // Link-local
   // IPv4-mapped IPv6 — block the same IPv4 ranges when expressed as ::ffff:a.b.c.d
   /^::ffff:(?:127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|192\.0\.[02]\.|198\.51\.100\.|203\.0\.113\.)/,
@@ -47,6 +49,46 @@ function isPrivateIP(ip: string): boolean {
 function normalizeIpLiteral(value: string): string {
   return value.replace(/^\[/, "").replace(/\]$/, "");
 }
+
+/**
+ * The embedded IPv4 address of an IPv4-mapped IPv6 host, in the dotted form
+ * (`::ffff:a.b.c.d`) or the hex form `new URL().hostname` normalizes it to
+ * (`::ffff:7f00:1`). Null when `host` is not IPv4-mapped.
+ */
+function extractIPv4MappedAddress(host: string): string | null {
+  const dotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(host);
+  if (dotted) return dotted[1]!;
+
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  if (!hex) return null;
+  const hi = parseInt(hex[1]!, 16);
+  const lo = parseInt(hex[2]!, 16);
+  return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+}
+
+/**
+ * The ONE denylist: a hostname or address we refuse to reach, whether it came
+ * from a config field or from a DNS answer.
+ *
+ * It lives here rather than beside each caller because a second copy is a
+ * WEAKER copy — the MCP URL guard had its own and was missing the cloud
+ * metadata hostnames, CGNAT, 192.0.0.0/24, TEST-NET and 240.0.0.0/4, so a URL
+ * that `httpRequest`/`curl` rejected was accepted there and then contacted on
+ * every turn.
+ */
+export function isBlockedHost(host: string): boolean {
+  const normalized = normalizeIpLiteral(host).replace(/\.$/, "").toLowerCase();
+
+  // Unwrap an IPv4-mapped IPv6 host and re-check it as IPv4, so
+  // "[::ffff:169.254.169.254]" and its hex-normalized twin meet the same rules
+  // as a bare "169.254.169.254".
+  const mapped = extractIPv4MappedAddress(normalized);
+  if (mapped) return isBlockedHost(mapped);
+
+  if (BLOCKED_HOSTNAMES.has(normalized)) return true;
+  return isPrivateIP(normalized);
+}
+
 
 export interface ResolvedAddress {
   address: string;
@@ -70,7 +112,7 @@ export async function assertSafeUrl(url: URL): Promise<ResolvedAddress> {
   }
 
   // Check if hostname is a literal private IP
-  if (isPrivateIP(normalizeIpLiteral(hostname))) {
+  if (isBlockedHost(hostname)) {
     throw new Error(`Blocked: private/reserved IP "${url.hostname}"`);
   }
 
@@ -85,7 +127,7 @@ export async function assertSafeUrl(url: URL): Promise<ResolvedAddress> {
     }
 
     for (const { address } of addresses) {
-      if (isPrivateIP(normalizeIpLiteral(address))) {
+      if (isBlockedHost(address)) {
         throw new Error(`Blocked: "${url.hostname}" resolves to private IP ${address}`);
       }
     }

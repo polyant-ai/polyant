@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { getSkillEnvEntries } from "../../../instances/skill-env.store.js";
+import { filterServedSkillSlugs } from "../../../instances/instance-skills.store.js";
+import { resolveInstanceId } from "../../../instances/resolve-instance-id.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
 
 /**
@@ -67,12 +69,17 @@ function replaceIn(value: unknown, resolve: (skill: string, key: string) => stri
  * Replace every `{{skill_env.<skill>.<KEY>}}` naming a SENSITIVE var of an
  * enabled skill with its decrypted value.
  *
- * Two deliberate non-actions. An unknown key is left verbatim rather than
+ * Three deliberate non-actions. An unknown key is left verbatim rather than
  * emptied: `Authorization: Bearer ` produces a confusing 401, while the
- * untouched placeholder is a failure the model can read and report. And a
+ * untouched placeholder is a failure the model can read and report. A
  * NON-sensitive key is left verbatim too — those are emitted inline by
  * `readSkill`, so a placeholder naming one is a model invention, and honouring
- * it would turn this function into an oracle for which keys exist.
+ * it would turn this function into an oracle for which keys exist. And a skill
+ * that is no longer SERVED to this agent is left verbatim as well: the env rows
+ * survive a disable so a re-enable restores the configuration, so their
+ * existence is not authority — without this check a disabled skill kept
+ * injecting its decrypted credential into tool arguments, and the resolved
+ * placeholder stayed in the persisted conversation.
  */
 export async function substituteSkillEnv(
   value: unknown,
@@ -82,10 +89,16 @@ export async function substituteSkillEnv(
   collectSkills(value, slugs);
   if (slugs.size === 0) return value;
 
+  // A placeholder resolves only while its skill is served to this agent.
+  const instanceUuid = await resolveInstanceId(instanceId);
+  if (!instanceUuid) return value;
+  const served = await filterServedSkillSlugs(instanceUuid, [...slugs]);
+  if (served.size === 0) return value;
+
   // One query per SKILL, not per placeholder.
   const bySkill = new Map<string, Map<string, string>>();
   await Promise.all(
-    [...slugs].map(async (slug) => {
+    [...served].map(async (slug) => {
       const entries = await getSkillEnvEntries(instanceId, slug);
       const sensitive = new Map<string, string>();
       for (const e of entries) if (e.sensitive) sensitive.set(e.key, e.value);

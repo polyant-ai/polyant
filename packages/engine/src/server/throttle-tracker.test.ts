@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect } from "vitest";
-import { throttleTracker } from "./throttle-tracker.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { throttleTracker, resetThrottleTrackerState } from "./throttle-tracker.js";
 
 /** One shared address, which is what the panel's proxy actually produces. */
 const PROXY_IP = "10.0.0.7";
 
 describe("throttleTracker", () => {
+  beforeEach(() => {
+    resetThrottleTrackerState();
+  });
+
   describe("the bug this exists for", () => {
     it("gives two sign-in attempts for DIFFERENT accounts DIFFERENT buckets, from one address", () => {
       // Before: both were `ip:10.0.0.7`, so five wrong passwords for one account
@@ -81,6 +85,56 @@ describe("throttleTracker", () => {
     it("accepts the __Secure- session cookie too", () => {
       const secure = throttleTracker({ ip: PROXY_IP, cookies: { "__Secure-authjs.session-token": "tok" } });
       expect(secure.startsWith("session:")).toBe(true);
+    });
+  });
+
+  describe("an unverified machine credential cannot mint unlimited buckets", () => {
+    it("collapses a rotating Bearer to the address once the cardinality cap is passed", () => {
+      const buckets = new Set<string>();
+      for (let i = 0; i < 60; i += 1) {
+        buckets.add(throttleTracker({ ip: PROXY_IP, headers: { authorization: `Bearer rand-${i}` } }));
+      }
+
+      // Before: 60 distinct, empty buckets — one per request, so the 20/min
+      // limit on /v1 never bit and each value held a store record for its TTL.
+      expect(buckets.has(`ip:${PROXY_IP}`)).toBe(true);
+      expect(buckets.size).toBeLessThanOrEqual(21);
+    });
+
+    it("still gives a real caller its own bucket, and keeps it stable across requests", () => {
+      const first = throttleTracker({ ip: PROXY_IP, headers: { authorization: "Bearer real-key" } });
+      const second = throttleTracker({ ip: PROXY_IP, headers: { authorization: "Bearer real-key" } });
+
+      expect(first).toBe(second);
+      expect(first.startsWith("session:")).toBe(true);
+    });
+
+    it("keeps a known credential's bucket even after the address has been capped", () => {
+      const known = throttleTracker({ ip: PROXY_IP, headers: { "x-polyant-key": "key-real" } });
+      for (let i = 0; i < 60; i += 1) {
+        throttleTracker({ ip: PROXY_IP, headers: { "x-polyant-key": `rand-${i}` } });
+      }
+
+      expect(throttleTracker({ ip: PROXY_IP, headers: { "x-polyant-key": "key-real" } })).toBe(known);
+    });
+
+    it("caps per address, so one rotator does not push another address off its own bucket", () => {
+      for (let i = 0; i < 60; i += 1) {
+        throttleTracker({ ip: PROXY_IP, headers: { authorization: `Bearer rand-${i}` } });
+      }
+
+      const other = throttleTracker({ ip: "203.0.113.9", headers: { authorization: "Bearer other-key" } });
+      expect(other.startsWith("session:")).toBe(true);
+    });
+
+    it("does NOT cap the session cookie: many sessions per address is the panel proxy's normal shape", () => {
+      const buckets = new Set<string>();
+      for (let i = 0; i < 60; i += 1) {
+        buckets.add(throttleTracker({ ip: PROXY_IP, cookies: { "authjs.session-token": `sess-${i}` } }));
+      }
+
+      expect(buckets.size).toBe(60);
+      expect(buckets.has(`ip:${PROXY_IP}`)).toBe(false);
     });
   });
 

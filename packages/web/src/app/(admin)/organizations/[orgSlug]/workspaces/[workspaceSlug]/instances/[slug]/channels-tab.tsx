@@ -130,6 +130,10 @@ export function ChannelsTab({
     try {
       const { instance: updated } = await api.instances.update(slug, { a2aEnabled });
       onInstanceUpdate(updated);
+    } catch (err) {
+      // Without this the rejection was unhandled and nothing on screen said so:
+      // the switch kept showing a value the server never stored.
+      toast.error(getUserErrorMessage(err, t("channels.tab.saveFailed")));
     } finally {
       setSavingA2a(false);
     }

@@ -22,16 +22,22 @@ import { db } from "./client.js";
 const PROBE_TIMEOUT_MS = 3000;
 
 export async function probeDatabase(): Promise<boolean> {
+  // The timer is cleared in `finally`: left running, every integration file
+  // that imports `resolveDatabaseAvailability` held the event loop open for
+  // PROBE_TIMEOUT_MS after the probe had already answered.
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
       db.execute(sql`select 1`),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("db probe timeout")), PROBE_TIMEOUT_MS),
-      ),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("db probe timeout")), PROBE_TIMEOUT_MS);
+      }),
     ]);
     return true;
   } catch {
     return false;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

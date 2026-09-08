@@ -45,21 +45,26 @@ export function TriggersRunsTab({ slug, block }: Props) {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // Both, always: with the type filter gone there is no case where one of the
-      // two is skipped, so the conditional `Promise.resolve` placeholders it used
-      // to need are gone with it.
+      // Only the half this instance renders. `block` narrows the component to
+      // one section, and the Log page mounts it TWICE — so loading both
+      // datasets regardless meant four requests to render two tables, two of
+      // them for rows nobody ever sees.
+      const wantsScheduled = !block || block === "scheduled";
+      const wantsWebhook = !block || block === "webhook";
       const [tasksRes, convRes] = await Promise.all([
-        api.scheduledTasks.list(slug),
-        api.conversations.list({ instanceId: slug, source: "webhook", limit: 50 }),
+        wantsScheduled ? api.scheduledTasks.list(slug) : Promise.resolve(undefined),
+        wantsWebhook
+          ? api.conversations.list({ instanceId: slug, source: "webhook", limit: 50 })
+          : Promise.resolve(undefined),
       ]);
-      setTasks(tasksRes.tasks ?? []);
-      setWebhookConversations(convRes.conversations ?? []);
+      if (tasksRes) setTasks(tasksRes.tasks ?? []);
+      if (convRes) setWebhookConversations(convRes.conversations ?? []);
     } catch (err) {
       toast.error(getUserErrorMessage(err, "Failed to load trigger runs"));
     } finally {
       setLoading(false);
     }
-  }, [slug]);
+  }, [slug, block]);
 
   useEffect(() => { loadData(); }, [loadData]);
 

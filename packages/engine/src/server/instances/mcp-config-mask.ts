@@ -88,17 +88,30 @@ function containsMasked(value: unknown): boolean {
 }
 
 /**
- * Like `setPath` but assigns the leaf even when absent (ancestors must still
- * exist). Used when restoring a whole secret subtree the client omitted.
+ * Like `setPath` but for RESTORING: it assigns the leaf even when absent, and
+ * creates the intervening objects it needs.
+ *
+ * That is what the documented write contract asks for — a secret may arrive
+ * "absent OR masked" — and `setPath`'s `if (!(lastKey in cur)) return` silently
+ * failed the absent half: the panel omits `auth.token` when the field is blank,
+ * so editing only a server's name produced `{auth:{type:"bearer"}}`, which
+ * `staticConfigSchema` rejects with 400 `auth: Invalid input`, and in oauth mode
+ * `staticClient.clientSecret` was dropped with no error at all.
  */
 function setPathForce(obj: Record<string, unknown>, path: string[], value: unknown): void {
   let cur: Record<string, unknown> = obj;
   for (let i = 0; i < path.length - 1; i++) {
-    const next = cur[path[i]];
-    if (typeof next !== "object" || next === null) return;
+    const key = path[i]!;
+    const next = cur[key];
+    if (typeof next !== "object" || next === null) {
+      const created: Record<string, unknown> = {};
+      cur[key] = created;
+      cur = created;
+      continue;
+    }
     cur = next as Record<string, unknown>;
   }
-  cur[path[path.length - 1]] = value;
+  cur[path[path.length - 1]!] = value;
 }
 
 /** Deep-copy of config with every secret field redacted to MASK+last4 (for API responses). */
@@ -134,7 +147,7 @@ export function mergeMaskedMcpSecrets(
     const isMasked = incomingValue === undefined || (typeof incomingValue === "string" && incomingValue.startsWith(MASK));
     if (!isMasked) continue;
     const existingValue = existing ? getPath(existing, path) : undefined;
-    if (existingValue !== undefined) setPath(copy, path, existingValue);
+    if (existingValue !== undefined) setPathForce(copy, path, existingValue);
   }
   // Subtrees are restored WHOLESALE: the response path redacts every leaf, so a
   // client echoing one back would otherwise persist a tree of masks.

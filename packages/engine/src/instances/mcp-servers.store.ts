@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "../database/client.js";
 import { instanceMcpServers } from "./mcp-servers.schema.js";
 import { encrypt, decrypt } from "../crypto/index.js";
+import { isSafeMcpUrl } from "../agents/tools/mcp/mcp-url-guard.js";
 import { type InstanceUuid } from "./identifiers.js";
 
 /**
@@ -32,11 +33,49 @@ const staticConfigSchema = z.object({
   allowList: z.array(z.string()).optional(),
 });
 
+/**
+ * An endpoint the OAuth flow will REQUEST. `server.url` gets the SSRF guard, so
+ * these have to as well: they steer the very same client, and a config field is
+ * written once and read on every turn. The check is literal-only (no DNS) —
+ * `assertSafeMcpUrlResolved` is the connection path's job.
+ */
+const safeOAuthEndpoint = z
+  .string()
+  .refine(isSafeMcpUrl, "must be an http(s) URL that is not a private, loopback or metadata host");
+
+/**
+ * The DCR (RFC 7591) registration response, written back by the SDK through
+ * `saveClientInformation`. Spelled out rather than `z.record(z.unknown())`: an
+ * open record made the schema a pass-through, so an import bundle could seed a
+ * fabricated `dcrClient` — which `clientInformation()` PREFERS over
+ * `staticClient` — and point its three endpoint fields anywhere. Unknown keys
+ * are stripped (zod's default), which is what the comment in
+ * `mcp-servers.import.ts` promises.
+ */
+const dcrClientSchema = z.object({
+  client_id: z.string().min(1),
+  client_secret: z.string().optional(),
+  client_id_issued_at: z.number().optional(),
+  client_secret_expires_at: z.number().optional(),
+  issuer: safeOAuthEndpoint.optional(),
+  authorization_server: safeOAuthEndpoint.optional(),
+  token_endpoint: safeOAuthEndpoint.optional(),
+});
+
+/** The authorization-server metadata the SDK caches through `saveAuthorizationServerInformation`. */
+const authServerInfoSchema = z.object({
+  // `issuer` is an identifier, not something we request — validated as a
+  // non-empty string, not as a reachable endpoint.
+  issuer: z.string().min(1).optional(),
+  authorizationServerUrl: safeOAuthEndpoint,
+  tokenEndpoint: safeOAuthEndpoint,
+});
+
 const oauthConfigSchema = z.object({
   scopes: z.array(z.string()).optional(),
   staticClient: z.object({ clientId: z.string().min(1), clientSecret: z.string().optional() }).optional(),
-  dcrClient: z.record(z.unknown()).optional(),
-  authServerInfo: z.object({ authorizationServerUrl: z.string(), tokenEndpoint: z.string() }).optional(),
+  dcrClient: dcrClientSchema.optional(),
+  authServerInfo: authServerInfoSchema.optional(),
   allowList: z.array(z.string()).optional(),
 });
 

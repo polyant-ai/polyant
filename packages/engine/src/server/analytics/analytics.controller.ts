@@ -33,6 +33,12 @@ import { RequirePermission, Permission } from "../../authz/index.js";
  * without making the dashboard feel stale.
  */
 const ANALYTICS_CACHE_CONTROL = "private, max-age=30";
+/**
+ * The tenancy of these responses is decided by a HEADER, not by the URL, so two
+ * workspaces answer different bodies at the same address. A cache that does not
+ * know that would serve one workspace's figures for the other.
+ */
+const ANALYTICS_CACHE_VARY = "X-Workspace-Slug, X-Org-Slug";
 
 @Controller("api")
 export class AnalyticsController {
@@ -52,6 +58,7 @@ export class AnalyticsController {
       getLatencyAnalytics(range, undefined, orgId),
     ]);
     res?.setHeader("Cache-Control", ANALYTICS_CACHE_CONTROL);
+    res?.setHeader("Vary", ANALYTICS_CACHE_VARY);
     return { ...analytics, latency };
   }
 
@@ -77,6 +84,7 @@ export class AnalyticsController {
       getLatencyAnalytics(range, instance.slug, orgId),
     ]);
     res?.setHeader("Cache-Control", ANALYTICS_CACHE_CONTROL);
+    res?.setHeader("Vary", ANALYTICS_CACHE_VARY);
     return { ...analytics, latency };
   }
 }

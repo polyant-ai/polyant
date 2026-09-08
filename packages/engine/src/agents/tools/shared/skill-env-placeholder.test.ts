@@ -3,9 +3,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { asInstanceSlug } from "../../../instances/identifiers.js";
 
-const { mockEntries } = vi.hoisted(() => ({ mockEntries: vi.fn() }));
+const { mockEntries, mockServed, mockResolve } = vi.hoisted(() => ({
+  mockEntries: vi.fn(),
+  mockServed: vi.fn(),
+  mockResolve: vi.fn(),
+}));
 vi.mock("../../../instances/skill-env.store.js", () => ({
   getSkillEnvEntries: (...a: unknown[]) => mockEntries(...a),
+}));
+vi.mock("../../../instances/instance-skills.store.js", () => ({
+  filterServedSkillSlugs: (...a: unknown[]) => mockServed(...a),
+}));
+vi.mock("../../../instances/resolve-instance-id.js", () => ({
+  resolveInstanceId: (...a: unknown[]) => mockResolve(...a),
 }));
 
 import { hasPlaceholder, substituteSkillEnv } from "./skill-env-placeholder.js";
@@ -15,6 +25,9 @@ const INSTANCE = asInstanceSlug("acme");
 beforeEach(() => {
   vi.clearAllMocks();
   mockEntries.mockResolvedValue([]);
+  mockResolve.mockResolvedValue("uuid-acme");
+  // Default: every skill named in a placeholder is served to this agent.
+  mockServed.mockImplementation(async (_instance: unknown, slugs: string[]) => new Set(slugs));
 });
 
 describe("hasPlaceholder", () => {
@@ -92,6 +105,58 @@ describe("substituteSkillEnv", () => {
   it("should_pass_a_tree_with_no_placeholder_through_unchanged", async () => {
     const input = { a: 1, b: ["x", null], c: { d: true } };
     expect(await substituteSkillEnv(input, INSTANCE)).toEqual(input);
+    expect(mockEntries).not.toHaveBeenCalled();
+  });
+});
+
+/*
+  A skill's env rows survive a disable on purpose, so a re-enable restores the
+  configuration exactly. That makes their existence NOT authority: without a
+  served check, a skill revoked from the agent kept injecting its decrypted
+  credential into tool arguments, and the resolved value stayed in the
+  persisted conversation.
+*/
+describe("substituteSkillEnv and a skill that is no longer served", () => {
+  it("should_leave_the_placeholder_untouched_when_the_skill_is_disabled", async () => {
+    mockEntries.mockResolvedValue([{ key: "CRM_TOKEN", value: "sk-live-a91f", sensitive: true }]);
+    mockServed.mockResolvedValue(new Set<string>());
+
+    const out = await substituteSkillEnv(
+      { headers: { Authorization: "Bearer {{skill_env.crm-sync.CRM_TOKEN}}" } },
+      INSTANCE,
+    );
+
+    expect(out).toEqual({ headers: { Authorization: "Bearer {{skill_env.crm-sync.CRM_TOKEN}}" } });
+    expect(mockEntries).not.toHaveBeenCalled();
+  });
+
+  it("should_resolve_only_the_served_skill_when_two_are_named", async () => {
+    mockServed.mockResolvedValue(new Set(["crm-sync"]));
+    mockEntries.mockImplementation(async (_instance: unknown, slug: string) =>
+      slug === "crm-sync" ? [{ key: "TOKEN", value: "sk-live-a91f", sensitive: true }] : [],
+    );
+
+    const out = await substituteSkillEnv(
+      {
+        served: "{{skill_env.crm-sync.TOKEN}}",
+        revoked: "{{skill_env.billing.TOKEN}}",
+      },
+      INSTANCE,
+    );
+
+    expect(out).toEqual({
+      served: "sk-live-a91f",
+      revoked: "{{skill_env.billing.TOKEN}}",
+    });
+  });
+
+  it("should_leave_everything_untouched_when_the_instance_slug_resolves_to_nothing", async () => {
+    mockResolve.mockResolvedValue(null);
+    mockEntries.mockResolvedValue([{ key: "TOKEN", value: "sk-live-a91f", sensitive: true }]);
+
+    expect(await substituteSkillEnv("{{skill_env.crm-sync.TOKEN}}", INSTANCE)).toBe(
+      "{{skill_env.crm-sync.TOKEN}}",
+    );
     expect(mockEntries).not.toHaveBeenCalled();
   });
 });
