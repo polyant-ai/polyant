@@ -5,7 +5,7 @@ import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { createProvider, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
-import { cacheSupported } from "../config.js";
+import { cacheSupported, cacheOnToolMessagesSupported } from "../config.js";
 
 /**
  * Bedrock Converse cache breakpoint. Bedrock uses a `cachePoint` block (via
@@ -16,9 +16,37 @@ import { cacheSupported } from "../config.js";
  */
 const BEDROCK_CACHE_POINT = { cachePoint: { type: "default" as const } };
 
-/** Decorate a message with Bedrock's `cachePoint` marker — shared by both breakpoint paths. */
-const markBedrock = (message: ModelMessage): ModelMessage =>
-  withProviderCacheMarker(message, "bedrock", BEDROCK_CACHE_POINT);
+/**
+ * True when the message carries tool content — a tool result (`role: "tool"`) or
+ * an assistant tool call. Amazon Nova rejects a `cachePoint` on either
+ * (LIVE-VERIFIED: 400 "extraneous key [cachePoint] is not permitted"), and the
+ * marker that lands there is the moving within-turn one, so the failure appears
+ * only once an agent actually uses a tool — the first turn of every probe passes.
+ */
+function carriesToolContent(message: ModelMessage): boolean {
+  if (message.role === "tool") return true;
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    const type = (part as { type?: unknown }).type;
+    return type === "tool-call" || type === "tool-result";
+  });
+}
+
+/**
+ * Decorate a message with Bedrock's `cachePoint` marker — shared by both
+ * breakpoint paths. Returns the message untouched where the model refuses a
+ * marker on tool content: the cost is one lost breakpoint, against a 400 that
+ * kills the whole turn.
+ */
+const markBedrockFor =
+  (modelId: string) =>
+  (message: ModelMessage): ModelMessage => {
+    if (carriesToolContent(message) && !cacheOnToolMessagesSupported("bedrock", modelId)) {
+      return message;
+    }
+    return withProviderCacheMarker(message, "bedrock", BEDROCK_CACHE_POINT);
+  };
 
 /**
  * Inject Bedrock `cachePoint` breakpoints (tools+system and history) for
@@ -33,7 +61,7 @@ export const applyBedrockPromptCaching: PrepareMessages = (input) => {
   if (!cacheSupported("bedrock", input.modelId)) {
     return { instructions: input.system, messages: input.messages };
   }
-  return injectCacheBreakpoints(input, markBedrock);
+  return injectCacheBreakpoints(input, markBedrockFor(input.modelId));
 };
 
 /**
@@ -45,7 +73,7 @@ export const applyBedrockPromptCaching: PrepareMessages = (input) => {
  * `createProvider`'s `stepMarker` hook.
  */
 export const bedrockStepMarker = makeStepMarker(
-  markBedrock,
+  (message, modelId) => markBedrockFor(modelId)(message),
   (modelId) => cacheSupported("bedrock", modelId),
 );
 

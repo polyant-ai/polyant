@@ -32,8 +32,17 @@ export function resolveModel(provider: string, tier: string): string {
  * that every catalogued row matches its heuristic (behaviour-preserving migration).
  */
 
+/**
+ * The Bedrock Nova family, as the cache fallbacks recognise it. Named once
+ * because two gates ask about it and they must agree: an id that counted as
+ * Nova for "can cache" but not for "can cache on a tool message" would be told
+ * to place a `cachePoint` that Nova 400s on — the exact failure the tool-message
+ * gate exists to prevent, on the path where no catalog row can correct it.
+ */
+const BEDROCK_NOVA = /nova/;
+
 /** Bedrock families that support Converse prompt caching (`cachePoint`). */
-const BEDROCK_CACHE_CAPABLE = /anthropic|nova/;
+const BEDROCK_CACHE_CAPABLE = new RegExp(`anthropic|${BEDROCK_NOVA.source}`);
 
 /** Reasoning-capability fallback — the historical per-provider heuristic. */
 export function reasoningCapableFallback(provider: string, modelId: string): boolean {
@@ -144,6 +153,16 @@ export function cacheCapableFallback(provider: string, model: string): boolean {
     default:
       return true;
   }
+}
+
+/**
+ * Tool-message cache-marker fallback for un-catalogued ids: Amazon Nova on
+ * Bedrock rejects a `cachePoint` on a message carrying tool content (400,
+ * "extraneous key [cachePoint] is not permitted"); every other cache-capable
+ * family accepts one anywhere.
+ */
+export function cacheOnToolMessagesFallback(provider: string, model: string): boolean {
+  return !(provider === "bedrock" && BEDROCK_NOVA.test(model));
 }
 
 /** One-shot warning (deduped per gate+provider+model) when a regex fallback fires. */
@@ -415,4 +434,18 @@ export function cacheSupported(provider: string, model: string): boolean {
   if (entry) return entry.cache;
   warnCatalogFallback("cacheSupported", provider, model);
   return cacheCapableFallback(provider, model);
+}
+
+/**
+ * Whether a cache marker may ride on a message carrying TOOL content. Separate
+ * from {@link cacheSupported} because the two answers genuinely differ: Nova
+ * caches its system prefix happily and 400s only once a tool call enters the
+ * transcript, so collapsing them would cost the whole cache to fix the tool
+ * turn. Absent field → true (the Anthropic behaviour every other row has).
+ */
+export function cacheOnToolMessagesSupported(provider: string, model: string): boolean {
+  const entry = getModelCapabilities(provider, model);
+  if (entry) return entry.cacheOnToolMessages ?? true;
+  warnCatalogFallback("cacheOnToolMessagesSupported", provider, model);
+  return cacheOnToolMessagesFallback(provider, model);
 }

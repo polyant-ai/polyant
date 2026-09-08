@@ -98,4 +98,56 @@ describe("bedrockStepMarker (multi-step prepareStep)", () => {
       bedrockStepMarker({ stepNumber: 2, messages, modelId: "qwen.qwen3-32b-v1:0" }).messages,
     ).toBeUndefined();
   });
+
+  // Nova is cache-capable, so the gate above lets it through — the refusal is
+  // narrower: LIVE-VERIFIED 400 "extraneous key [cachePoint] is not permitted"
+  // on a message carrying tool content. That is exactly the message this moving
+  // marker lands on, so a Nova agent broke on its FIRST tool call while every
+  // tool-less turn cached fine.
+  const toolMessages: ModelMessage[] = [
+    { role: "user", content: "turn" },
+    {
+      role: "assistant",
+      content: [{ type: "tool-call", toolCallId: "t1", toolName: "writeFile", input: {} }],
+    },
+    {
+      role: "tool",
+      content: [
+        { type: "tool-result", toolCallId: "t1", toolName: "writeFile", output: { type: "text", value: "ok" } },
+      ],
+    },
+  ];
+
+  it("leaves a tool-result message unmarked on Nova, and still marks it on Claude", () => {
+    const nova = bedrockStepMarker({ stepNumber: 1, messages: toolMessages, modelId: "eu.amazon.nova-pro-v1:0" }).messages;
+    expect(providerOptionsOf(nova![nova!.length - 1])).toBeUndefined();
+
+    const claude = bedrockStepMarker({ stepNumber: 1, messages: toolMessages, modelId: "eu.anthropic.claude-sonnet-4-6" }).messages;
+    expect(providerOptionsOf(claude![claude!.length - 1])).toEqual(CACHE_POINT);
+  });
+
+  it("still marks a text-only message on Nova — the system prefix keeps caching", () => {
+    const out = bedrockStepMarker({ stepNumber: 1, messages, modelId: "eu.amazon.nova-pro-v1:0" }).messages;
+    expect(providerOptionsOf(out![out!.length - 1])).toEqual(CACHE_POINT);
+  });
+});
+
+describe("applyBedrockPromptCaching on Nova", () => {
+  it("marks the system prompt but skips a tool-call message in history", () => {
+    const { instructions, messages } = applyBedrockPromptCaching({
+      modelId: "eu.amazon.nova-pro-v1:0",
+      system: "SYSTEM PROMPT",
+      messages: [
+        { role: "user", content: "turn 1" },
+        {
+          role: "assistant",
+          content: [{ type: "tool-call", toolCallId: "t1", toolName: "writeFile", input: {} }],
+        },
+        { role: "user", content: "turn 2 (current)" },
+      ],
+    });
+
+    expect(providerOptionsOf(instructions)).toEqual(CACHE_POINT);
+    expect(providerOptionsOf(messages[1])).toBeUndefined();
+  });
 });

@@ -80,6 +80,16 @@ export interface ModelCapabilities {
    * `cacheSupported` and the Bedrock runtime marker gate.
    */
   cache: boolean;
+  /**
+   * Whether a cache marker may ride on a message that carries TOOL content (a
+   * tool call or a tool result). Defaults to true — Anthropic accepts one
+   * anywhere. LIVE-VERIFIED false for Amazon Nova on Bedrock: `cachePoint` is
+   * accepted in `system` and in a text-only message, but a message holding a
+   * `toolUse`/`toolResult` block 400s with "extraneous key [cachePoint] is not
+   * permitted", which kills the whole turn the moment the agent uses a tool.
+   * Drives `cacheOnToolMessagesSupported` and the Bedrock marker gate.
+   */
+  cacheOnToolMessages?: boolean;
 }
 
 export interface ProviderConfig {
@@ -163,20 +173,47 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     // (raw model IDs fail with "Invocation ... with on-demand throughput isn't supported").
     // This catalog is EU-only: every entry is an eu.* / global. profile invocable
     // from EU endpoints (verified against list-inference-profiles in eu-south-1).
+    // Tier defaults deliberately avoid Anthropic: on Bedrock the Claude families
+    // sit behind a per-account use-case form, so an account that has not been
+    // granted them fails EVERY tier at once — including the service jobs (title,
+    // memory, the semantic governance gates) an operator cannot redirect, since
+    // `instances.model` overrides only the supervisor turn.
+    //
+    // `standard` is Nova Pro: the only non-Anthropic family here with BOTH prompt
+    // caching and vision (`cacheCapableFallback` limits Bedrock caching to
+    // anthropic|nova), which is what a multi-turn supervisor needs. The cost is
+    // real and silent — Nova is `reasoning: false`, so an agent with thinking
+    // enabled and no explicit `instances.model` loses reasoning on the supervisor
+    // turn and on every `spawnTask`, with no error anywhere (ai-gateway/index.ts
+    // gates thinking on the capability). No non-Anthropic Bedrock family offers
+    // caching, vision AND reasoning together, so this is a choice between them.
+    //
+    // `heavy` is gpt-oss-120b for its reasoning: its consumers are the semantic
+    // governance gates (prompt-injection, PII, topic guardrail in the builds that
+    // ship them), which send a short one-shot prompt — so the missing cache costs
+    // nothing — and parse a JSON verdict, FAILING OPEN when it does not arrive.
+    // CAVEAT, and it is the sharp one: this is a raw on-demand id, not an eu.*/
+    // global. inference profile, so its availability is PER-REGION and verified
+    // only in eu-south-1. In a region that does not serve it — the us-east-1
+    // default included, when no `bedrock_region` is set — fast and standard keep
+    // working through the Nova profiles while heavy raises a ValidationException
+    // its only callers swallow: the gates then block nothing, and the deployment
+    // sees one warn line per call. Deploying elsewhere means re-pointing `heavy`
+    // at a model that region actually serves.
     tiers: {
       fast: "eu.amazon.nova-lite-v1:0",
-      standard: "eu.anthropic.claude-sonnet-4-6",
-      heavy: "eu.anthropic.claude-opus-4-8",
+      standard: "eu.amazon.nova-pro-v1:0",
+      heavy: "openai.gpt-oss-120b-1:0",
     },
     models: {
       // Amazon Nova — EU inference profiles (the `fast` tier targets
       // eu.amazon.nova-lite-v1:0). Raw model IDs are omitted: they are not
       // invocable on-demand from EU regions, only via these eu.* profiles.
       // Nova is not reasoning-capable; nova-micro is text-only (no vision).
-      "eu.amazon.nova-micro-v1:0": { input: 0.035, output: 0.14, cacheRead: 0.0035, cacheWrite: 0.04375, reasoning: false, vision: false, temperature: true, cache: true },
-      "eu.amazon.nova-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true },
-      "eu.amazon.nova-2-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true },
-      "eu.amazon.nova-pro-v1:0": { input: 0.80, output: 3.20, cacheRead: 0.08, cacheWrite: 1.00, reasoning: false, vision: true, temperature: true, cache: true },
+      "eu.amazon.nova-micro-v1:0": { input: 0.035, output: 0.14, cacheRead: 0.0035, cacheWrite: 0.04375, reasoning: false, vision: false, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-2-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-pro-v1:0": { input: 0.80, output: 3.20, cacheRead: 0.08, cacheWrite: 1.00, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
       // Anthropic via Bedrock — EU inference profiles. Bedrock caches at 5m only →
       // cache read 0.1× input, cache WRITE 1.25× input (absolute rates below).
       // Token rates match Anthropic first-party; cross-Region profiles are billed
