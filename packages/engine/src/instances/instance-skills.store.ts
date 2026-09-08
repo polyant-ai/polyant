@@ -36,6 +36,37 @@ export interface InstanceSkillRow {
 // Reads
 // ---------------------------------------------------------------------------
 
+/**
+ * Narrow `slugs` to the ones this agent is actually SERVED right now — enabled
+ * in `instance_skills`.
+ *
+ * A revoke must stop the thing being served, not merely the thing being listed,
+ * and `instance_skills` rows deliberately survive one so a re-grant restores
+ * the configuration. Any path that hands out something belonging to a skill —
+ * its content, its script, its credentials — has to ask this rather than infer
+ * it from a row's existence.
+ */
+export async function filterServedSkillSlugs(
+  instanceId: InstanceUuid,
+  slugs: string[],
+): Promise<Set<string>> {
+  if (slugs.length === 0) return new Set();
+
+  const rows = await db
+    .select({ slug: skills.slug })
+    .from(instanceSkills)
+    .innerJoin(skills, eq(instanceSkills.skillId, skills.id))
+    .where(
+      and(
+        eq(instanceSkills.instanceId, instanceId),
+        eq(instanceSkills.enabled, true),
+        inArray(skills.slug, slugs),
+      ),
+    );
+
+  return new Set(rows.map((r) => r.slug));
+}
+
 /** Get all skills for an instance with version info and upgrade availability. */
 export async function getInstanceSkills(instanceId: InstanceUuid): Promise<InstanceSkillRow[]> {
   // Alias for pinned version
