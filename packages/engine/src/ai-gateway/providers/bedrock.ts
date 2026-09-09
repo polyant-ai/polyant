@@ -83,6 +83,12 @@ export const BedrockProvider = createProvider(
     const apiKey = apiKeys?.bedrock_api_key?.trim();
     const accessKeyId = apiKeys?.bedrock_access_key_id?.trim();
     const secretAccessKey = apiKeys?.bedrock_secret_access_key?.trim();
+    // CONVENTION-EXCEPTION: process.env.AWS_REGION read directly. It is the
+    // deployment's own region, resolved per CALL after the per-instance secret
+    // and before the hardcoded fallback — config.ts is loaded once at boot and
+    // would freeze a value the instance is allowed to override. This is the read
+    // that embeddings-gateway/provider-resolver.ts and
+    // server/memories/memory-status.ts name as the original.
     const region = apiKeys?.bedrock_region?.trim() || process.env.AWS_REGION?.trim() || "us-east-1";
 
     // Per-instance Bedrock API key (bearer token) is the primary auth path and

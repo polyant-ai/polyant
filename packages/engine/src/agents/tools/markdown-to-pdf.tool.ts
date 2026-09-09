@@ -79,6 +79,11 @@ async function getBrowser(): Promise<Browser> {
     // skip Puppeteer's bundled download. PUPPETEER_EXECUTABLE_PATH points at
     // the system binary. In dev (no env var) Puppeteer launches the Chromium
     // it downloaded into node_modules.
+    // CONVENTION-EXCEPTION: process.env.PUPPETEER_EXECUTABLE_PATH read
+    // directly. It is a property of the IMAGE, not of the product — puppeteer's
+    // own variable, set by the same Dockerfile that installs the browser — and
+    // giving it a config.ts entry would invite an operator to set it in a
+    // deployment where the path does not exist.
     const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
     browserPromise = puppeteer
       .launch({
