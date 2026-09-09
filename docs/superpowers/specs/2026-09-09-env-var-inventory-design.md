@@ -1,7 +1,8 @@
 # The environment-variable inventory, and which of them are product settings — design
 
 Date: 2026-09-09
-Status: inventory complete; the migrations to settings are not started
+Status: inventory complete; nine variables removed; the migrations to settings
+are not started
 
 ## Problem
 
@@ -145,6 +146,45 @@ per tenant hands a tenant the lever to exhaust an installation-wide resource.
 this build. `AUTH_ALLOWED_DOMAIN` / `AUTH_ALLOWED_DOMAINS` exist here and stay
 the deployment floor; the per-organization list above them is enterprise
 (`organization_sso_domains`, migration 0108).
+
+## What was removed after the inventory (2026-09-09)
+
+The inventory's first use was not a migration to a setting but a cull: nine of
+the 61 were a second name for something the code already had, or a knob whose
+only legal value was the default. **61 → 52.**
+
+| Removed | Why it could go |
+|---|---|
+| `DEFAULT_INSTANCE_ID` | Its five call sites were all dead. `IncomingMessage.instanceId` is required, all three `supervise()` callers pass it, `hybridSearch`'s one caller passes it, and the OpenAI-compatible route validates `model` against a slug regex and answers 400 — so the fallback could not fire. `SupervisorInput.instanceId` and `hybridSearch`'s parameter are now required, which is what makes it stay gone |
+| `AUTH_ALLOWED_DOMAIN`, `AUTH_ALLOWED_DOMAINS` | The same list twice: the parser joined both with a comma and split, so the singular already accepted a list. One list for a whole installation cannot answer for a second tenant, and it was a security control an operator had no way to see. `isEmailDomainAllowed` — the exact-match rule, with its look-alike tests — stays; the list moves to the organization tier |
+| `AUTH_MODE` | One legal value. `alb-oidc` was refused at boot, so the variable's whole range was the default. Removing it means deleting the mode: `auth/alb-oidc.service.ts`, the guard's gateway branch, and the `AUTH_MODE` the CDK emitted for a stack that could not boot. ADR-0001 is marked reverted rather than edited — the trade-offs it records are the ones a future gateway mode faces again |
+| `AWS_REGION` | The region is per-AGENT (`aws_provider_region`). Worse than redundant: the chat path fell back to a hardcoded `us-east-1` while the embedder refused on the same input, and `us-east-1` does not serve the `eu.*` inference profiles this catalog's Bedrock tiers use — so a misconfigured agent got a per-call ValidationException instead of a message naming the setting. Both halves now refuse |
+| `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_TRACING` | Read by nothing. Kept in `.env.example` as a signpost, which is a job a comment does without three names that look settable |
+| `PUPPETEER_EXECUTABLE_PATH` (our read) | Puppeteer reads it itself (`getConfiguration.ts`), verified at runtime: `puppeteer.executablePath()` returns the variable's value. Our `executablePath` argument only duplicated puppeteer's own default. `Dockerfile.engine` still sets it; it is no longer OUR variable |
+
+`WORKSPACES_ROOT` survived, for a reason the inventory had missed: it is the
+seam `read-file.tool.fifo.test.ts` uses to move the sandbox into a tmpdir, which
+that test needs because a FIFO wants a real filesystem. It is documented as a
+test seam and removed from `.env.example` — the answer to "why would an operator
+change this" is that they would not.
+
+### Two unifications in the same pass
+
+- **The connection string was assembled three times.** Two in `config.ts`
+  (complementary: one parses `DATABASE_URL`, one builds it) and a third in
+  `web/lib/auth.ts`, inline at its call site, with a different scheme
+  (`postgres://` vs `postgresql://`). Both `POSTGRES_*` and `DATABASE_URL` stay:
+  the CDK wires each `POSTGRES_*` from a separate field of the Aurora secret and
+  cannot read a secret's value at synth to build a URL, while a managed provider
+  hands you the URL. The panel imports nothing from the engine, so one copy per
+  package is the floor — each now written once and pinned by a suite asserting
+  the SAME answers. Both also **percent-encode the credentials**, which
+  `parseDatabaseUrl` already assumed by decoding them: interpolated raw, a
+  password containing `@` or `/` produced a URL that parses as a different host.
+- **`BASE_URL` is resolved once.** Four callers each wrote
+  ``baseUrl ?? `http://localhost:${port}` `` — four chances to disagree about
+  what unset means. A transform on the `server` object fills it after `port`
+  defaults, so `config.server.baseUrl` is a `string`.
 
 ## The pattern each migration follows
 

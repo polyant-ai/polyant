@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import { installFileLogger, shutdownFileLogger } from "./utils/file-logger.js";
 installFileLogger();
 
-import { config, DEFAULT_INSTANCE_ID } from "./config.js";
+import { config } from "./config.js";
 import { db } from "./database/client.js";
 import { initAIGateway, shutdown as shutdownGateway } from "./ai-gateway/index.js";
 import { initMemory } from "./memory/index.js";
@@ -177,7 +177,7 @@ async function main() {
       return { text: optoutGate.reply };
     }
 
-    const effectiveInstanceId = msg.instanceId || DEFAULT_INSTANCE_ID;
+    const effectiveInstanceId = msg.instanceId;
 
     // Check if this is a reply to an active webhook-triggered conversation.
     // Active triggers take priority over Room interception.
@@ -198,7 +198,7 @@ async function main() {
     // Check if this message is a reply to a scheduled task's outbound channel.
     // Resolved internally — never read the override from msg.metadata (untrusted channel data).
     const taskMatch = await getCachedTaskOutbound(
-      msg.instanceId || DEFAULT_INSTANCE_ID,
+      msg.instanceId,
       msg.channelType,
       msg.channelId,
     );

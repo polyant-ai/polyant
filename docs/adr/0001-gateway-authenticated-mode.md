@@ -1,9 +1,22 @@
 # ADR-0001: Gateway-Authenticated Mode
 
-- **Status**: Accepted
+- **Status**: Reverted (2026-09-09) — the mechanism below is no longer in the code
 - **Date**: 2026-04-27
 - **Deciders**: @freegenie, @paolovalletta-exelab
 - **Related**: PR #92 (initial implementation), issue #115 (JWT signature verification follow-up)
+
+> **Reverted.** `AUTH_MODE`, `auth/alb-oidc.service.ts` and the gateway branch of
+> `auth.guard.ts` are deleted. The mode had already been unusable since RBAC
+> became unconditional — a gateway-forwarded identity has no local user row, so
+> it resolves no organization, holds no role bindings, and is denied on every
+> `@RequirePermission` route — and the engine refused to boot on it, which left an
+> `AUTH_MODE` whose only legal value was the default.
+>
+> What survives is the requirement, not the implementation: a future gateway mode
+> must map the forwarded identity onto a LOCAL user before the guard trusts it,
+> and needs its own ADR. The record below is kept because the trade-offs it names
+> — network isolation as the only enforcement, no revocation through the
+> application — are the ones that decision will face again.
 
 ## Context
 

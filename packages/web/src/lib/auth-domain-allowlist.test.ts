@@ -1,53 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isEmailDomainAllowed, parseAllowedDomains } from "./auth-domain-allowlist";
-
-const ENV_KEYS = ["AUTH_ALLOWED_DOMAIN", "AUTH_ALLOWED_DOMAINS"] as const;
-
-describe("parseAllowedDomains", () => {
-  let saved: Record<string, string | undefined>;
-
-  beforeEach(() => {
-    saved = {};
-    for (const key of ENV_KEYS) {
-      saved[key] = process.env[key];
-      delete process.env[key];
-    }
-  });
-
-  afterEach(() => {
-    for (const key of ENV_KEYS) {
-      if (saved[key] === undefined) delete process.env[key];
-      else process.env[key] = saved[key];
-    }
-  });
-
-  it("should_return_empty_list_when_no_env_set", () => {
-    expect(parseAllowedDomains()).toEqual([]);
-  });
-
-  it("should_parse_singular_AUTH_ALLOWED_DOMAIN", () => {
-    process.env.AUTH_ALLOWED_DOMAIN = "acme.com";
-    expect(parseAllowedDomains()).toEqual(["acme.com"]);
-  });
-
-  it("should_parse_plural_comma_separated_AUTH_ALLOWED_DOMAINS", () => {
-    process.env.AUTH_ALLOWED_DOMAINS = "acme.com, partner.io";
-    expect(parseAllowedDomains()).toEqual(["acme.com", "partner.io"]);
-  });
-
-  it("should_merge_and_dedupe_both_env_vars_lowercased", () => {
-    process.env.AUTH_ALLOWED_DOMAIN = "Acme.com";
-    process.env.AUTH_ALLOWED_DOMAINS = "acme.com,Partner.io";
-    expect(parseAllowedDomains()).toEqual(["acme.com", "partner.io"]);
-  });
-
-  it("should_ignore_blank_entries", () => {
-    process.env.AUTH_ALLOWED_DOMAINS = " , ,acme.com, ";
-    expect(parseAllowedDomains()).toEqual(["acme.com"]);
-  });
-});
+import { describe, expect, it } from "vitest";
+import { isEmailDomainAllowed } from "./auth-domain-allowlist";
 
 describe("isEmailDomainAllowed", () => {
   it("should_allow_any_email_when_allowlist_empty", () => {

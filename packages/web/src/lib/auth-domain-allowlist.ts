@@ -1,37 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Per-org sign-in domain allowlist (RBAC Stream 8 — OSS path).
+ * The matching rule for a sign-in domain allowlist.
  *
- * OSS supports a single configurable allowed domain per deployment via the
- * `AUTH_ALLOWED_DOMAIN` env var (one domain = one org in the single-org OSS
- * model). The legacy plural `AUTH_ALLOWED_DOMAINS` (comma-separated) is still
- * honoured and merged in, so existing deployments keep working. When neither
- * is set the allowlist is empty and every domain is allowed (open OSS default).
- *
- * EE layers a per-org allowlist table + UI on top of this; that is out of scope
- * for the OSS path. There is intentionally NO hardcoded domain here — every
- * tenant is configured purely through env, so any customer can onboard.
+ * It used to be fed by `AUTH_ALLOWED_DOMAIN` / `AUTH_ALLOWED_DOMAINS`, two env
+ * vars that were the same thing twice — the parser concatenated them and split
+ * on commas, so the singular already accepted a list. Both are gone: which
+ * domains may sign in is per-ORGANIZATION configuration, not a property of the
+ * deployment, and one list for a whole installation cannot answer it for a
+ * second tenant. This module keeps the comparison and nothing else, so the tier
+ * that owns the list decides where the list comes from.
  */
-
-/**
- * Collect the configured allowed domains from env, lowercased and de-duplicated.
- * Reads both the singular `AUTH_ALLOWED_DOMAIN` (OSS, 1 domain/org) and the
- * legacy plural `AUTH_ALLOWED_DOMAINS` (comma-separated).
- */
-export function parseAllowedDomains(): string[] {
-  const raw = [
-    process.env.AUTH_ALLOWED_DOMAIN ?? "",
-    process.env.AUTH_ALLOWED_DOMAINS ?? "",
-  ].join(",");
-
-  const seen = new Set<string>();
-  for (const entry of raw.split(",")) {
-    const domain = entry.trim().toLowerCase();
-    if (domain) seen.add(domain);
-  }
-  return [...seen];
-}
 
 /**
  * Decide whether an email's domain is permitted to sign in.

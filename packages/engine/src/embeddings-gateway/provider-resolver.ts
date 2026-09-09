@@ -49,12 +49,11 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
 
   let ctx: EmbeddingContext;
   if (provider === "bedrock") {
-    // Per-instance secret wins; otherwise fall back to AWS_REGION on the engine.
-    // CONVENTION-EXCEPTION: process.env.AWS_REGION read directly (mirrors ai-gateway/providers/bedrock.ts).
-    const region = secrets[SECRET_KEYS.AWS_PROVIDER_REGION] ?? process.env.AWS_REGION;
+    // Per-agent only: there is no deployment-wide region to fall back to.
+    const region = secrets[SECRET_KEYS.AWS_PROVIDER_REGION];
     if (!region) {
       throw new Error(
-        `AWS region is required for Bedrock embeddings on instance "${instance.slug}". Set AWS_REGION on the engine, or configure the AWS provider region in Settings → AI Provider.`,
+        `AWS region is required for Bedrock embeddings on instance "${instance.slug}". Configure the AWS provider region in Settings → AI Provider.`,
       );
     }
     ctx = {

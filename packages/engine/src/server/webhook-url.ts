@@ -8,7 +8,7 @@ import { config } from "../config.js";
  * a usable URL instead of an empty prefix.
  */
 export function engineBaseUrl(): string {
-  return config.server.baseUrl ?? `http://localhost:${config.server.port}`;
+  return config.server.baseUrl;
 }
 
 /** Ingestion URL of a Room event source. */

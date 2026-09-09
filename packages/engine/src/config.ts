@@ -5,7 +5,6 @@ import { existsSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
-import { asInstanceSlug } from "./instances/identifiers.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -90,6 +89,14 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
   // HTTP Server (NestJS)
   server: z.object({
     port: z.coerce.number().default(4000),
+    /**
+     * Public origin of the engine. `BASE_URL` when set; otherwise resolved to
+     * `http://localhost:<port>` by the transform below, so consumers read a
+     * string and never a fallback. The four callers that build a public URL from
+     * it (webhook callbacks, the two OAuth redirect builders, the A2A agent card)
+     * each used to write that fallback themselves — four chances to disagree
+     * about what an unset BASE_URL means.
+     */
     baseUrl: z.string().optional(),
     /**
      * Express `trust proxy` setting. Controls whether `X-Forwarded-*` headers
@@ -123,7 +130,10 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
       ttlMs: z.coerce.number().int().positive().default(60_000),
       limit: z.coerce.number().int().positive().default(30),
     }),
-  }),
+  }).transform((server) => ({
+    ...server,
+    baseUrl: server.baseUrl ?? `http://localhost:${server.port}`,
+  })),
 
   // Encryption (AES-256-GCM requires a 32-byte key = 64 hex characters)
   encryption: z.object({
@@ -148,18 +158,6 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
     /** Shared secret between web and engine for the internal credentials endpoint.
      *  When unset, /api/auth/credentials/verify is disabled (only Google login works). */
     internalSecret: z.string().min(16).optional(),
-    /** Auth source: "session" (Auth.js JWT) or "alb-oidc" (trust ALB x-amzn-oidc-data header).
-     *  Use "alb-oidc" when deployed behind an AWS ALB with OIDC authentication — the ALB
-     *  has already authenticated the user, so the engine trusts the forwarded claims.
-     *
-     *  "alb-oidc" is currently REFUSED at boot rather than accepted: since RBAC
-     *  became unconditional, a gateway-forwarded principal carries no `orgId` and
-     *  holds no role bindings, so it is denied on every `@RequirePermission`
-     *  route (see `authz/permission.guard.ts`). Accepting the value would boot a
-     *  panel that looks healthy and 403s on every management call; refusing it
-     *  names the problem while the operator can still act on it. Restore the
-     *  value here once the gateway identity is mapped onto a local user. */
-    mode: z.enum(["session", "alb-oidc"]).default("session"),
     /** RBAC: the user with this email is promoted to Platform Admin on boot by
      *  the OrganizationsModule bootstrap. It sets `is_platform_admin = true` and
      *  nothing else — that flag is the sole authority for platform-admin
@@ -296,13 +294,24 @@ function parseDatabaseUrl(): { user: string; password: string; host: string; por
   }
 }
 
-function buildDatabaseUrl(): string {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-  const user = process.env.POSTGRES_USER ?? "polyant";
-  const password = process.env.POSTGRES_PASSWORD ?? "";
-  const host = process.env.POSTGRES_HOST ?? "localhost";
-  const port = process.env.POSTGRES_PORT ?? "5432";
-  const database = process.env.POSTGRES_DB ?? "polyant";
+/**
+ * Assemble the connection string from whichever form the deployment provides.
+ * Both are first-class: `DATABASE_URL` is what a managed provider hands you,
+ * while the individual `POSTGRES_*` are what a deployment gets — the CDK wires
+ * each one from a separate field of the Aurora secret and cannot read a secret's
+ * value at synth time to build a URL.
+ *
+ * The credentials are percent-encoded, which `parseDatabaseUrl` above already
+ * assumed by decoding them. Interpolated raw, a password containing `@`, `/` or
+ * `:` produced a URL that parses as a different host.
+ */
+export function buildDatabaseUrl(env: Record<string, string | undefined> = process.env): string {
+  if (env.DATABASE_URL) return env.DATABASE_URL;
+  const user = encodeURIComponent(env.POSTGRES_USER ?? "polyant");
+  const password = encodeURIComponent(env.POSTGRES_PASSWORD ?? "");
+  const host = env.POSTGRES_HOST ?? "localhost";
+  const port = env.POSTGRES_PORT ?? "5432";
+  const database = env.POSTGRES_DB ?? "polyant";
   return `postgresql://${user}:${password}@${host}:${port}/${database}`;
 }
 
@@ -341,7 +350,6 @@ function loadConfig(): Config {
     auth: {
       secret: process.env.AUTH_SECRET,
       internalSecret: process.env.AUTH_INTERNAL_SECRET,
-      mode: process.env.AUTH_MODE,
       platformAdminEmail: process.env.PLATFORM_ADMIN_EMAIL,
     },
     initialAdmin: {
@@ -397,25 +405,7 @@ function loadConfig(): Config {
     process.exit(1);
   }
 
-  // Checked here rather than as a schema refinement so `auth.mode` keeps its full
-  // union type: the gateway branch in `auth/auth.guard.ts` is dormant, not deleted,
-  // and narrowing the type to "session" would make it unreachable code the compiler
-  // rejects — leaving the eventual fix with nothing to switch back on.
-  if (result.data.auth.mode === "alb-oidc") {
-    console.error(
-      "Configuration error: AUTH_MODE=alb-oidc is not supported in this release. " +
-        "Since RBAC became unconditional, a gateway-forwarded principal resolves no organization " +
-        "and is denied on every management route — the panel would load and 403 on every call. " +
-        "Use AUTH_MODE=session (see docs/UPGRADING.md).",
-    );
-    process.exit(1);
-  }
-
   return result.data;
 }
 
 export const config = loadConfig();
-
-/** Default instance for mono-instance system. Override via DEFAULT_INSTANCE_ID env var. */
-// CONVENTION-EXCEPTION: reads process.env directly — documented exception in CLAUDE.md (DEFAULT_INSTANCE_ID).
-export const DEFAULT_INSTANCE_ID = asInstanceSlug(process.env.DEFAULT_INSTANCE_ID ?? "default");

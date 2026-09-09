@@ -17,7 +17,7 @@ import type { McpServerConfig } from "../../../instances/mcp-servers.store.js";
 
 /** `<baseUrl>/mcp/oauth/callback` — the single redirect URI registered for every MCP server. */
 export function mcpRedirectUrl(): string {
-  const base = config.server.baseUrl ?? `http://localhost:${config.server.port}`;
+  const base = config.server.baseUrl;
   return `${base.replace(/\/+$/, "")}/mcp/oauth/callback`;
 }
 

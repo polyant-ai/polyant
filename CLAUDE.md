@@ -148,7 +148,7 @@ and no rationale is a wish, and belongs in neither file.
 - **ESM only** (`"type": "module"` in package.json, `.js` extensions in imports)
 - **npm workspaces**: always run `npm install` from the monorepo root. Use `-w <package>` to target a specific workspace
 - **Single `.env` at monorepo root**: shared by engine and docker-compose. Engine finds it via `import.meta.url`-based path resolution (searches package root, then monorepo root)
-- **Config via Zod**: all env vars parsed and validated in `packages/engine/src/config.ts`. Never read `process.env` directly elsewhere (documented exceptions: `DEFAULT_INSTANCE_ID`, `WORKSPACES_ROOT`, `LOG_LEVEL`). Other deliberate reads (subprocess env filters, default params for testability, tool-registry `requiredEnv` discovery) carry a `// CONVENTION-EXCEPTION:` comment and must stay confined to those patterns
+- **Config via Zod**: all env vars parsed and validated in `packages/engine/src/config.ts`. Never read `process.env` directly elsewhere (documented exceptions: `LOG_LEVEL`, and `WORKSPACES_ROOT` which is a TEST SEAM, not deployment configuration, and is absent from `.env.example`). Other deliberate reads (subprocess env filters, default params for testability, tool-registry `requiredEnv` discovery) carry a `// CONVENTION-EXCEPTION:` comment and must stay confined to those patterns
 - **tsx does not support `emitDecoratorMetadata`**, so every NestJS constructor parameter needs an explicit `@Inject(ClassName)` — implicit type-based injection silently resolves to `undefined`. *Enforced* by the custom ESLint rule `polyant/require-inject-in-nest-classes`; plain classes instantiated with `new` (the channel adapters) are exempt by design
 - **Migrations are written by hand and the journal is updated by hand.** `drizzle-kit generate` only works through `npm run db:generate` (an ESM workaround), and with no snapshot files it emits a full-schema migration every time. A `00NN_*.sql` file with no matching entry in `meta/_journal.json` is **silently skipped** by `db:migrate` — which reports success. The `tag` must equal the filename without `.sql`, and `when` must be greater than every entry already applied to the target database, or the same silent no-op occurs
 - **Next.js loads `.env` only from `packages/web/`**, never the monorepo root: auth vars (`AUTH_SECRET`, `DATABASE_URL`, `GOOGLE_*`) belong in `packages/web/.env.local`
@@ -283,11 +283,24 @@ reduced to a no-op. It was deleted rather than re-defaulted.
 - **EE seams**: `AuthorizationStrategy` and `EntitlementService`. In OSS builds
   `isAvailable()` is always `false`, so `@RequiresFeature()` routes fail closed
 
-**`AUTH_MODE=alb-oidc` is UNUSABLE — do not deploy it.** A gateway principal has no local
-`users` row to map its Cognito `sub` onto, so it carries no `orgId` and no bindings, and
-under unconditional enforcement it is denied on every permission route. The missing piece is
-the gateway-identity → local-user mapping, not a patch at the guard. Use `AUTH_MODE=session`.
-See [ADR-0001](docs/adr/0001-gateway-authenticated-mode.md).
+**There is ONE way in and no `AUTH_MODE`.** Gateway-authenticated mode (`alb-oidc`) is
+deleted, not dormant: a gateway principal has no local `users` row to map its Cognito `sub`
+onto, so it carried no `orgId` and no bindings and was denied on every permission route.
+Reintroducing any gateway mode means mapping the forwarded identity onto a local user
+FIRST, and its own ADR — [ADR-0001](docs/adr/0001-gateway-authenticated-mode.md) is reverted
+and records the trade-offs that decision faces again.
+
+**Which domains may sign in is per-ORGANIZATION data, never an env var.**
+`AUTH_ALLOWED_DOMAIN` / `AUTH_ALLOWED_DOMAINS` are gone — they were the same list twice
+(the parser concatenated them), one list for a whole installation could not answer for a
+second tenant, and it was a security control an operator had no way to see. The comparison
+survives in `web/src/lib/auth-domain-allowlist.ts`; the list belongs to the tier above it.
+
+**Every AWS region is per-AGENT** (`aws_provider_region`, surfaced to the chat provider as
+`bedrock_region`). `AWS_REGION` is gone and so is the `us-east-1` default behind it: that
+default was silently wrong for a catalog whose Bedrock tiers are `eu.*` inference profiles,
+so a misconfigured agent raised a per-call ValidationException instead of naming the missing
+setting. Chat and embeddings now refuse identically.
 
 The reasoning behind all of the above — the reversed decisions especially, since those are
 the ones most likely to be reinvented — is in

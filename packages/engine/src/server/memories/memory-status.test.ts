@@ -116,15 +116,17 @@ describe("computeMemoryStatusFromInstance", () => {
     expect(status.canEnable).toBe(false);
   });
 
-  it("enables Bedrock memory via the engine-level AWS_REGION fallback when no per-instance region is set", async () => {
-    // Mirrors resolveEmbeddingContext: a region on the engine env is sufficient.
+  it("refuses Bedrock memory with no per-instance region, even with AWS_REGION on the engine", async () => {
+    // The engine-level fallback is gone on purpose: the region is per-agent, and
+    // an env var here must NOT rescue an agent that declares none. Mirrors
+    // resolveEmbeddingContext, which refuses on the same input.
     mockGetAllSecretsById.mockResolvedValue({});
     const instance = makeInstance({ provider: "bedrock", embeddingProvider: "bedrock" });
     const prev = process.env.AWS_REGION;
     process.env.AWS_REGION = "us-east-1";
     try {
       const status = await computeMemoryStatusFromInstance(instance);
-      expect(status).toEqual({ needsOpenAIKey: false, canEnable: true });
+      expect(status.canEnable).toBe(false);
     } finally {
       if (prev === undefined) delete process.env.AWS_REGION;
       else process.env.AWS_REGION = prev;

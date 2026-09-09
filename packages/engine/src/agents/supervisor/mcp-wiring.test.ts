@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 
 const {
   mockChat,
@@ -93,6 +94,8 @@ vi.mock("../tools/mcp/mcp-tools.js", () => ({
 
 import { supervise, superviseStream } from "./index.js";
 
+const TEST_INSTANCE = asInstanceSlug("default");
+
 const defaultChatResponse = {
   text: "Hello from supervisor",
   steps: [],
@@ -124,14 +127,14 @@ beforeEach(() => {
 
 describe("supervise + MCP tools", () => {
   it("merges MCP tools into the tools passed to chat", async () => {
-    await supervise({ message: "hi" });
+    await supervise({ instanceId: TEST_INSTANCE, message: "hi" });
 
     const toolsArg = mockChat.mock.calls[0][0].tools;
     expect(toolsArg).toHaveProperty("mcp__gh__x", mcpTool);
   });
 
   it("passes instanceUuid + instanceSlug + conversationId + allowOAuth to buildMcpTools", async () => {
-    await supervise({ message: "hi", conversationId: "conv-1" });
+    await supervise({ instanceId: TEST_INSTANCE, message: "hi", conversationId: "conv-1" });
 
     expect(mockBuildMcpTools).toHaveBeenCalledWith({
       instanceUuid: "uuid-123",
@@ -142,13 +145,13 @@ describe("supervise + MCP tools", () => {
   });
 
   it("defaults allowOAuth to false when the caller does not opt in (room/webhook safe default)", async () => {
-    await supervise({ message: "hi", conversationId: "room:inst:123" });
+    await supervise({ instanceId: TEST_INSTANCE, message: "hi", conversationId: "room:inst:123" });
 
     expect(mockBuildMcpTools).toHaveBeenCalledWith(expect.objectContaining({ allowOAuth: false }));
   });
 
   it("forwards allowOAuth: true when the conversational caller opts in", async () => {
-    await supervise({ message: "hi", conversationId: "conv-1", allowOAuth: true });
+    await supervise({ instanceId: TEST_INSTANCE, message: "hi", conversationId: "conv-1", allowOAuth: true });
 
     expect(mockBuildMcpTools).toHaveBeenCalledWith(expect.objectContaining({ allowOAuth: true }));
   });
@@ -157,7 +160,7 @@ describe("supervise + MCP tools", () => {
     const close = vi.fn().mockResolvedValue(undefined);
     mockBuildMcpTools.mockResolvedValue({ tools: { mcp__gh__x: mcpTool }, close });
 
-    await supervise({ message: "hi" });
+    await supervise({ instanceId: TEST_INSTANCE, message: "hi" });
 
     expect(close).toHaveBeenCalledTimes(1);
   });
@@ -167,7 +170,7 @@ describe("supervise + MCP tools", () => {
     mockBuildMcpTools.mockResolvedValue({ tools: { mcp__gh__x: mcpTool }, close });
     mockChat.mockRejectedValue(new Error("boom"));
 
-    await expect(supervise({ message: "hi" })).rejects.toThrow("boom");
+    await expect(supervise({ instanceId: TEST_INSTANCE, message: "hi" })).rejects.toThrow("boom");
 
     expect(close).toHaveBeenCalledTimes(1);
   });
@@ -177,7 +180,7 @@ describe("supervise + MCP tools", () => {
     mockBuildMcpTools.mockResolvedValue({ tools: { mcp__gh__x: mcpTool }, close });
     mockBuildPrompt.mockRejectedValue(new Error("prompt boom"));
 
-    await expect(supervise({ message: "hi" })).rejects.toThrow("prompt boom");
+    await expect(supervise({ instanceId: TEST_INSTANCE, message: "hi" })).rejects.toThrow("prompt boom");
 
     expect(close).toHaveBeenCalledTimes(1);
   });
@@ -190,7 +193,7 @@ describe("supervise + MCP tools", () => {
     mockBuildMcpTools.mockResolvedValue({ tools: { search: mcpTool }, close: vi.fn().mockResolvedValue(undefined) });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
-    await supervise({ message: "hi" });
+    await supervise({ instanceId: TEST_INSTANCE, message: "hi" });
 
     const toolsArg = mockChat.mock.calls[0][0].tools;
     expect(toolsArg.search).not.toBe(mcpTool);
@@ -215,7 +218,7 @@ describe("supervise + MCP tools", () => {
       return defaultChatResponse;
     });
 
-    const result = await supervise({ message: "hi" });
+    const result = await supervise({ instanceId: TEST_INSTANCE, message: "hi" });
 
     expect(mcpToolWithExecute.execute).toHaveBeenCalledOnce();
     expect(result.toolCallTraces).toEqual([
@@ -238,7 +241,7 @@ describe("superviseStream + MCP tools", () => {
   });
 
   it("merges MCP tools into the tools passed to chatStream", async () => {
-    await superviseStream({ message: "hi" });
+    await superviseStream({ instanceId: TEST_INSTANCE, message: "hi" });
 
     const toolsArg = mockChatStream.mock.calls[0][0].tools;
     expect(toolsArg).toHaveProperty("mcp__gh__x", mcpTool);
@@ -248,7 +251,7 @@ describe("superviseStream + MCP tools", () => {
     const close = vi.fn().mockResolvedValue(undefined);
     mockBuildMcpTools.mockResolvedValue({ tools: { mcp__gh__x: mcpTool }, close });
 
-    await superviseStream({ message: "hi" });
+    await superviseStream({ instanceId: TEST_INSTANCE, message: "hi" });
 
     expect(close).not.toHaveBeenCalled();
   });
@@ -257,7 +260,7 @@ describe("superviseStream + MCP tools", () => {
     const close = vi.fn().mockResolvedValue(undefined);
     mockBuildMcpTools.mockResolvedValue({ tools: { mcp__gh__x: mcpTool }, close });
 
-    const result = await superviseStream({ message: "hi" });
+    const result = await superviseStream({ instanceId: TEST_INSTANCE, message: "hi" });
     await result.completed;
 
     expect(close).toHaveBeenCalledTimes(1);
@@ -272,7 +275,7 @@ describe("superviseStream + MCP tools", () => {
       response: Promise.reject(new Error("stream boom")),
     });
 
-    const result = await superviseStream({ message: "hi" });
+    const result = await superviseStream({ instanceId: TEST_INSTANCE, message: "hi" });
     await expect(result.completed).rejects.toThrow("stream boom");
 
     expect(close).toHaveBeenCalledTimes(1);
@@ -285,7 +288,7 @@ describe("superviseStream + MCP tools", () => {
       throw new Error("chatStream boom");
     });
 
-    await expect(superviseStream({ message: "hi" })).rejects.toThrow("chatStream boom");
+    await expect(superviseStream({ instanceId: TEST_INSTANCE, message: "hi" })).rejects.toThrow("chatStream boom");
 
     expect(close).toHaveBeenCalledTimes(1);
   });

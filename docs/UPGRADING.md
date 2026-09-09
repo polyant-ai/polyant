@@ -3,6 +3,26 @@
 This guide covers upgrades that need an operator decision. For the full list of
 changes see the [changelog](../CHANGELOG.md).
 
+## Upgrading to the next release
+
+### Environment variables that are gone
+
+Each of these was configuration of the PRODUCT wearing the clothes of
+configuration of the deployment, or a second name for something the code already
+had. Remove them from your environment; none of them needs a replacement value.
+
+| Removed | What to do instead |
+| --- | --- |
+| `AUTH_MODE` | Nothing. `session` was the only value that booted, and gateway mode is deleted — see [ADR-0001](adr/0001-gateway-authenticated-mode.md). A stack whose CDK config sets `auth:` no longer receives this variable; it was already refused at startup |
+| `AUTH_ALLOWED_DOMAIN`, `AUTH_ALLOWED_DOMAINS` | Federated sign-in is no longer restricted by a deployment-wide domain list. The two variables were one list twice (the parser concatenated them), and the restriction belongs to the organization |
+| `AWS_REGION` | Set the AWS provider region on each agent (Settings → AI Provider). There is no deployment-wide fallback and no `us-east-1` default: a Bedrock agent with no region configured is now refused with a message naming the setting, on chat as well as on embeddings |
+| `DEFAULT_INSTANCE_ID` | Nothing. Every caller already names its agent — the OpenAI-compatible route validates `model` and answers 400 without it — so the fallback could not fire |
+| `WORKSPACES_ROOT` | Nothing. The per-conversation sandbox stays under `packages/engine/workspaces`; the variable survives only as a test seam and is no longer documented as deployment configuration |
+| `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_TRACING` | Nothing. They were read by no code at all; tracing is configured per agent |
+
+`BASE_URL` is unchanged, but it is now resolved once: unset still means
+`http://localhost:<API_PORT>`, decided in `config.ts` instead of by each caller.
+
 ## Upgrading from 1.0.0 to 1.1.0
 
 This release changes authorization, the persisted record of platform-admin

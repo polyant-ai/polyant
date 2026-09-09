@@ -194,12 +194,11 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     // nothing — and parse a JSON verdict, FAILING OPEN when it does not arrive.
     // CAVEAT, and it is the sharp one: this is a raw on-demand id, not an eu.*/
     // global. inference profile, so its availability is PER-REGION and verified
-    // only in eu-south-1. In a region that does not serve it — the us-east-1
-    // default included, when no `bedrock_region` is set — fast and standard keep
-    // working through the Nova profiles while heavy raises a ValidationException
-    // its only callers swallow: the gates then block nothing, and the deployment
-    // sees one warn line per call. Deploying elsewhere means re-pointing `heavy`
-    // at a model that region actually serves.
+    // only in eu-south-1. In a region that does not serve it, fast and standard
+    // keep working through the Nova profiles while heavy raises a
+    // ValidationException its only callers swallow: the gates then block nothing,
+    // and the deployment sees one warn line per call. Deploying elsewhere means
+    // re-pointing `heavy` at a model that region actually serves.
     tiers: {
       fast: "eu.amazon.nova-lite-v1:0",
       standard: "eu.amazon.nova-pro-v1:0",
