@@ -80,6 +80,12 @@ function toInstanceDto(instance: Instance) {
     temperature: instance.temperature,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
+    datetimeTimezone: instance.datetimeTimezone,
+    datetimeLocale: instance.datetimeLocale,
+    dedupSimilarityThreshold: instance.dedupSimilarityThreshold,
+    messageSoftDebounceMs: instance.messageSoftDebounceMs,
+    messageTypingDelayMs: instance.messageTypingDelayMs,
+    messageMaxRestarts: instance.messageMaxRestarts,
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl,
     a2aEnabled: instance.a2aEnabled,
@@ -300,6 +306,18 @@ export class InstancesController {
       temperature?: number | null;
       stateInPromptEnabled?: boolean;
       datetimeInjectionEnabled?: boolean;
+      /**
+       * The six behaviours that used to be deployment configuration. `null`
+       * CLEARS one back to the deployment default, which is why they are
+       * nullable rather than merely optional: omitting a field leaves it alone,
+       * and sending null is a decision.
+       */
+      datetimeTimezone?: string | null;
+      datetimeLocale?: string | null;
+      dedupSimilarityThreshold?: number | null;
+      messageSoftDebounceMs?: number | null;
+      messageTypingDelayMs?: number | null;
+      messageMaxRestarts?: number | null;
       cacheEnabled?: boolean;
       cacheTtl?: string;
       a2aEnabled?: boolean;
@@ -329,6 +347,7 @@ export class InstancesController {
     if (body.temperature !== undefined) {
       body.temperature = clampTemperature(body.temperature);
     }
+    this.validateAgentSettings(body);
     // Accept the full effort union; the ai-gateway clamps to the chosen model's
     // catalog reasoningLevels at call time (so xhigh/max never reach a model that
     // rejects them), and the FE only offers the model's actual subset.
@@ -472,6 +491,54 @@ export class InstancesController {
   }
 
   /** Validate the embedder provider. Only OpenAI and Bedrock embed (Anthropic has no embeddings API). */
+  /**
+   * The six per-agent settings, refused at the edge rather than by the database.
+   * The migration's CHECK constraints say the same thing, but a 400 naming the
+   * field is a better answer than a driver error, and the panel shows it.
+   *
+   * A timezone or a locale is validated by ASKING Intl, not by a regex: the
+   * accepted set is the runtime's, and a value it rejects would throw on every
+   * turn that formats a date — far from here, and only for that agent.
+   */
+  private validateAgentSettings(body: {
+    datetimeTimezone?: string | null;
+    datetimeLocale?: string | null;
+    dedupSimilarityThreshold?: number | null;
+    messageSoftDebounceMs?: number | null;
+    messageTypingDelayMs?: number | null;
+    messageMaxRestarts?: number | null;
+  }): void {
+    if (body.datetimeTimezone) {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: body.datetimeTimezone });
+      } catch {
+        throw new BadRequestException(`datetimeTimezone "${body.datetimeTimezone}" is not a known IANA time zone`);
+      }
+    }
+    if (body.datetimeLocale) {
+      try {
+        new Intl.DateTimeFormat(body.datetimeLocale);
+      } catch {
+        throw new BadRequestException(`datetimeLocale "${body.datetimeLocale}" is not a valid BCP 47 locale`);
+      }
+    }
+    const threshold = body.dedupSimilarityThreshold;
+    if (threshold !== undefined && threshold !== null && (threshold < 0 || threshold > 1)) {
+      throw new BadRequestException("dedupSimilarityThreshold must be between 0 and 1");
+    }
+    // Zero is legitimate for all three — no debounce, no typing delay, no
+    // restart — so the floor is non-negative rather than positive.
+    for (const [field, value] of [
+      ["messageSoftDebounceMs", body.messageSoftDebounceMs],
+      ["messageTypingDelayMs", body.messageTypingDelayMs],
+      ["messageMaxRestarts", body.messageMaxRestarts],
+    ] as const) {
+      if (value !== undefined && value !== null && (!Number.isInteger(value) || value < 0)) {
+        throw new BadRequestException(`${field} must be a non-negative integer`);
+      }
+    }
+  }
+
   private validateEmbeddingProvider(embeddingProvider?: string) {
     if (embeddingProvider !== undefined && embeddingProvider !== "openai" && embeddingProvider !== "bedrock") {
       throw new BadRequestException(

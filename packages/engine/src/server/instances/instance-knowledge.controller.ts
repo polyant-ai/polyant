@@ -27,9 +27,9 @@ import {
 } from "../../knowledge/index.js";
 import { processDocument } from "../../knowledge/ingestion.js";
 import { resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
-import { config } from "../../config.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { sanitizeForLog } from "../../utils/create-logger.js";
+import { resolveKnowledgeDocCap } from "../../knowledge/doc-cap.js";
 
 /** Maximum allowed document size in bytes (5 MB). */
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -145,8 +145,10 @@ export class InstanceKnowledgeController {
     if (!body.filename?.trim()) throw new BadRequestException("filename is required");
     if (!body.content?.trim()) throw new BadRequestException("content is required");
 
-    // Enforce per-instance document cap before doing anything else.
-    const maxDocs = config.knowledge.maxDocsPerInstance;
+    // Enforce the per-agent document cap before doing anything else. The cap is
+    // the organization's entitlement, resolved in one place, with the env var as
+    // the default for an organization that declares none.
+    const maxDocs = await resolveKnowledgeDocCap(instance.slug);
     const existingCount = await countDocuments(instance.slug);
     if (existingCount >= maxDocs) {
       throw new BadRequestException(
@@ -254,8 +256,8 @@ export class InstanceKnowledgeController {
       return { requestedName: sanitized, content, sizeBytes };
     });
 
-    // Enforce the per-instance document cap across the whole batch.
-    const maxDocs = config.knowledge.maxDocsPerInstance;
+    // The same cap, across the whole batch.
+    const maxDocs = await resolveKnowledgeDocCap(instance.slug);
     const existing = await listDocumentFilenames(instance.slug);
     if (existing.length + prepared.length > maxDocs) {
       throw new BadRequestException(

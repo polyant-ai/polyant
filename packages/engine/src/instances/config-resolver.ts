@@ -8,6 +8,14 @@ import { TtlCache } from "../utils/ttl-cache.js";
 import { isThinkingCapable, resolveModel, clampTemperature, temperatureSupported } from "../ai-gateway/config.js";
 import type { CacheTtl, ModelTier } from "../ai-gateway/types.js";
 import type { STTCredentials, InstanceSttSetting } from "../stt-gateway/types.js";
+import {
+  resolveDatetimeSettings,
+  resolveDedupSimilarityThreshold,
+  resolveMessageTimings,
+  UNSET_AGENT_SETTINGS,
+  type DatetimeSettings,
+  type MessageTimingSettings,
+} from "./agent-settings.js";
 
 export interface InstanceConfig {
   provider: string | undefined;
@@ -49,6 +57,17 @@ export interface InstanceConfig {
   stateInPromptEnabled: boolean;
   /** When true, inject the current date/time into every turn (volatile tail). */
   datetimeInjectionEnabled: boolean;
+  /**
+   * The six per-agent behaviours that used to be deployment configuration,
+   * already resolved: the agent's own value where it set one, the deployment
+   * default where it did not. `instances/agent-settings.ts` owns that fallback,
+   * and resolving here means every consumer reads a number rather than deciding
+   * again — the pipeline, the supervisor, the summariser, the room engine and
+   * the message coordinator all carry this bundle already.
+   */
+  datetime: DatetimeSettings;
+  dedupSimilarityThreshold: number;
+  messageTimings: MessageTimingSettings;
   /** Per-instance prompt-cache control, forwarded verbatim to the ai-gateway ChatRequest. */
   cacheConfig: { enabled: boolean; ttl: CacheTtl };
   /** Gates A2A (Agent2Agent) server exposure for this instance. Default false — opt-in. */
@@ -128,6 +147,9 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       temperature: null,
       stateInPromptEnabled: false,
       datetimeInjectionEnabled: true,
+      datetime: resolveDatetimeSettings(UNSET_AGENT_SETTINGS),
+      dedupSimilarityThreshold: resolveDedupSimilarityThreshold(UNSET_AGENT_SETTINGS),
+      messageTimings: resolveMessageTimings(UNSET_AGENT_SETTINGS),
       cacheConfig: { enabled: true, ttl: "1h" },
       a2aEnabled: false,
       toolResultsInHistoryEnabled: false,
@@ -208,6 +230,9 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       : null,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
+    datetime: resolveDatetimeSettings(instance),
+    dedupSimilarityThreshold: resolveDedupSimilarityThreshold(instance),
+    messageTimings: resolveMessageTimings(instance),
     cacheConfig: {
       enabled: instance.cacheEnabled,
       ttl: instance.cacheTtl === "5m" ? "5m" : "1h",

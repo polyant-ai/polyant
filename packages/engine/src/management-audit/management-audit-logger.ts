@@ -28,6 +28,13 @@ export const ManagementAuditAction = {
   UserRoleUpdate: "user.role_update",
   UserDelete: "user.delete",
   UserPasswordReset: "user.password_reset",
+  /**
+   * A change to the installation's own policies. Audited because one of them —
+   * the analytics retention window — DELETES data when shortened, and the row is
+   * the only durable record of who shortened it: `platform_settings` keeps the
+   * current value and `updated_by`, both overwritten by the next change.
+   */
+  PlatformSettingsUpdate: "platform_settings.update",
 } as const;
 
 export type ManagementAuditActionValue =
@@ -41,6 +48,8 @@ export const ManagementAuditTarget = {
   McpServer: "mcp_server",
   /** A platform-level account (the `/api/users` surface). */
   User: "user",
+  /** The installation itself — the single `platform_settings` row. */
+  PlatformSettings: "platform_settings",
 } as const;
 
 export type ManagementAuditTargetValue =

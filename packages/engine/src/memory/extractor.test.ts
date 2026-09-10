@@ -31,6 +31,12 @@ vi.mock("../conversations/index.js", () => ({
 
 import { extractMemories } from "./extractor.js";
 
+// The dedup threshold is the agent's, resolved ONCE per extraction from its
+// row. Mocked so the suite stays about extraction rather than the lookup.
+vi.mock("../instances/store.js", () => ({
+  findInstanceBySlug: async () => ({ dedupSimilarityThreshold: null }),
+}));
+
 describe("extractMemories", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -84,6 +90,10 @@ describe("extractMemories", () => {
       embedding: [0.1, 0.2, 0.3],
       dimensions: 1024,
       provider: "openai",
+      // Resolved, not passed through: the agent's row says null, so the resolver
+      // answers with the deployment default. The store's own fallback is for the
+      // two callers that have no agent config to resolve from.
+      dedupSimilarityThreshold: 0.9,
     });
     expect(results).toHaveLength(1);
     expect(results[0]).toEqual({

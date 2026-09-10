@@ -129,6 +129,18 @@ export const exportInstanceDataSchema = z.object({
   temperature: z.number().nullable().default(null),
   stateInPromptEnabled: z.boolean().default(false),
   datetimeInjectionEnabled: z.boolean().default(true),
+  /**
+   * The six behaviours that moved off the environment. Nullable and
+   * default-null: an export from a build that predates them restores an agent
+   * that declares none, which is the deployment default — the same behaviour it
+   * had when it was exported.
+   */
+  datetimeTimezone: z.string().nullable().default(null),
+  datetimeLocale: z.string().nullable().default(null),
+  dedupSimilarityThreshold: z.number().min(0).max(1).nullable().default(null),
+  messageSoftDebounceMs: z.number().int().min(0).nullable().default(null),
+  messageTypingDelayMs: z.number().int().min(0).nullable().default(null),
+  messageMaxRestarts: z.number().int().min(0).nullable().default(null),
   cacheEnabled: z.boolean().default(true),
   cacheTtl: z.enum(["5m", "1h"]).default("1h"),
   a2aEnabled: z.boolean().default(false),

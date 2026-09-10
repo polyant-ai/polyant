@@ -87,6 +87,17 @@ export interface Instance {
   stateInPromptEnabled: boolean;
   /** When true, the current date/time is injected into every turn. */
   datetimeInjectionEnabled: boolean;
+  /**
+   * Six behaviours that used to be deployment configuration. `null` means the
+   * agent declares none and the deployment default applies — so the panel must
+   * keep null visible as an empty field, never fill it in with the default.
+   */
+  datetimeTimezone: string | null;
+  datetimeLocale: string | null;
+  dedupSimilarityThreshold: number | null;
+  messageSoftDebounceMs: number | null;
+  messageTypingDelayMs: number | null;
+  messageMaxRestarts: number | null;
   /** Per-instance prompt-cache switch (off skips cache markers → no cache write). */
   cacheEnabled: boolean;
   /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */

@@ -5,6 +5,7 @@ import {
   uuid,
   varchar,
   boolean,
+  integer,
   timestamp,
   index,
   uniqueIndex,
@@ -27,6 +28,16 @@ export const organizations = pgTable("organizations", {
   name: varchar("name", { length: 255 }).notNull(),
   // true = implicit OSS organization seeded by the migration.
   isDefault: boolean("is_default").notNull().default(false),
+  /**
+   * How many knowledge documents ONE of this organization's agents may hold.
+   *
+   * NULL means the organization has none of its own and falls back to
+   * `KNOWLEDGE_MAX_DOCS_PER_INSTANCE`, which stays as the deployment default.
+   * The fallback is a DEFAULT and not a ceiling: an entitlement that could only
+   * ever be lowered from a value baked into the environment would still need a
+   * redeploy to sell. `knowledge/doc-cap.ts` is the only place it is resolved.
+   */
+  knowledgeMaxDocsPerAgent: integer("knowledge_max_docs_per_agent"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

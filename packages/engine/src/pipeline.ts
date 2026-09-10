@@ -8,7 +8,6 @@
 // ---------------------------------------------------------------------------
 
 import type { ModelMessage } from "ai";
-import { config } from "./config.js";
 import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
 import type { CostBreakdown } from "./ai-gateway/types.js";
@@ -33,6 +32,7 @@ import type { HookEventPayload, HookExecutionSummary, HookRunContext } from "./h
 import { getEnabledHooks } from "./hooks/hooks.store.js";
 import { getHookRegistry } from "./hooks/hook-registry.js";
 import type { ResponseGeneratedOutcome } from "./hooks/response-replay.js";
+import { resolveDatetimeSettings, UNSET_AGENT_SETTINGS } from "./instances/agent-settings.js";
 
 /**
  * Channel types that should NOT produce `category: "inbound"` events:
@@ -396,6 +396,8 @@ export interface AfterResponseOptions {
   /** Messages that fell outside the retained window (to be summarized). */
   droppedMessages?: ModelMessage[];
   memoryEnabled?: boolean;
+  /** The agent's resolved datetime formatting, for the summary's "as of" stamp. */
+  datetime?: InstanceConfig["datetime"];
   provider?: string;
   apiKeys?: InstanceConfig["apiKeys"];
   langsmith?: { apiKey: string; project: string };
@@ -506,8 +508,9 @@ export function afterResponse(opts: AfterResponseOptions): void {
         })
         .join("\n");
       try {
-        const now = new Date().toLocaleString(config.datetime.locale, {
-          timeZone: config.datetime.timezone,
+        const datetime = opts.datetime ?? resolveDatetimeSettings(UNSET_AGENT_SETTINGS);
+        const now = new Date().toLocaleString(datetime.locale, {
+          timeZone: datetime.timezone,
           dateStyle: "full",
           timeStyle: "short",
         });
@@ -760,6 +763,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       needsSummaryUpdate: ctx.hasOverflow,
       droppedMessages: ctx.droppedMessages,
       memoryEnabled: ctx.instanceConfig.memoryEnabled,
+      datetime: ctx.instanceConfig.datetime,
       provider: ctx.instanceConfig.provider,
       apiKeys: ctx.instanceConfig.apiKeys,
       langsmith: ctx.langsmith,

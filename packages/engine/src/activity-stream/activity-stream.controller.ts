@@ -30,6 +30,7 @@ import { CurrentUser } from "../auth/index.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { RequirePermission, Permission } from "../authz/index.js";
 import { listAllInstances, resolvePrincipalOrgId } from "../instances/store.js";
+import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 
 /**
  * Per-client backpressure cap. If a slow client accumulates more than this
@@ -85,8 +86,12 @@ export class ActivityStreamController {
     @CurrentUser() user: AuthenticatedUser | undefined,
     @Query("instance") instance?: string,
   ): Promise<void> {
+    // The global cap protects the PROCESS and stays deployment configuration.
+    // The per-user cap is the installation's policy, so it is resolved from
+    // `platform_settings` — a read per connect, which is rare, behind a short
+    // cache in the store.
     const maxConnections = config.activityStream.maxConnections;
-    const maxPerUser = config.activityStream.maxPerUser;
+    const { sseMaxConnectionsPerUser: maxPerUser } = await resolvePlatformSettings();
 
     // Global cap.
     if (activeConnections >= maxConnections) {

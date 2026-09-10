@@ -134,6 +134,17 @@ export interface Instance {
   stateInPromptEnabled: boolean;
   /** When true, inject the current date/time into every turn (volatile tail). */
   datetimeInjectionEnabled: boolean;
+  /**
+   * The six behaviours that used to be deployment configuration. NULL on any of
+   * them means "not set here" and falls back to the environment default;
+   * `instances/agent-settings.ts` is the only place that fallback is applied.
+   */
+  datetimeTimezone: string | null;
+  datetimeLocale: string | null;
+  dedupSimilarityThreshold: number | null;
+  messageSoftDebounceMs: number | null;
+  messageTypingDelayMs: number | null;
+  messageMaxRestarts: number | null;
   /** Per-instance prompt-cache switch (off = skip all cache markers, no cache write). */
   cacheEnabled: boolean;
   /** Cross-turn Anthropic cache TTL ("5m" | "1h"). */

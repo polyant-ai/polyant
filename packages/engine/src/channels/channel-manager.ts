@@ -14,6 +14,8 @@ import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import { getOptoutStatus } from "../optout/index.js";
 import { sanitizeForLog } from "../utils/create-logger.js";
+import { findInstanceBySlug } from "../instances/store.js";
+import { resolveMessageTimings, UNSET_AGENT_SETTINGS } from "../instances/agent-settings.js";
 
 /**
  * Channel types that should NOT produce `category: "outbound"` events:
@@ -68,9 +70,13 @@ export class ChannelManager {
     // otherwise each channel restart would create an orphan state map.
     if (!this.coordinator) {
       this.coordinator = new MessageCoordinator({
-        softDebounceMs: config.coordinator.softDebounceMs,
-        typingDelayMs: config.coordinator.typingDelayMs,
-        maxRestarts: config.coordinator.maxRestarts,
+        // Per burst, from the agent the message names: the coordinator is a
+        // singleton across every channel and agent, so the timings cannot be
+        // captured here the way they used to be.
+        resolveTimings: async (msg) => {
+          const agent = await findInstanceBySlug(msg.instanceId);
+          return resolveMessageTimings(agent ?? UNSET_AGENT_SETTINGS);
+        },
         handler: (msg, signal) => loggedPipeline(msg, signal),
         sendOutbound: (slug, channelType, channelId, text) =>
           this.sendOutbound(slug, channelType, channelId, text, { skipOptoutCheck: true }),
@@ -78,7 +84,10 @@ export class ChannelManager {
           this.dispatchSendTyping(slug, channelType, channelId, messageSid),
       });
       console.log(
-        `[channel-manager] MessageCoordinator enabled: softDebounce=${config.coordinator.softDebounceMs}ms, typingDelay=${config.coordinator.typingDelayMs}ms, maxRestarts=${config.coordinator.maxRestarts}, channels=${[...DEBOUNCED_CHANNELS].join(",")}`,
+        `[channel-manager] MessageCoordinator enabled: timings resolved per agent ` +
+          `(deployment defaults softDebounce=${config.coordinator.softDebounceMs}ms, ` +
+          `typingDelay=${config.coordinator.typingDelayMs}ms, maxRestarts=${config.coordinator.maxRestarts}), ` +
+          `channels=${[...DEBOUNCED_CHANNELS].join(",")}`,
       );
     }
     const coordinator = this.coordinator;

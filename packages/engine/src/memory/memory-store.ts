@@ -34,6 +34,14 @@ export interface InsertMemoryInput {
   dimensions: EmbeddingDim;
   /** Provider that produced the embedding. Stored as `embedding_provider`. */
   provider: EmbeddingProvider;
+  /**
+   * Cosine similarity above which an existing memory is the SAME fact. Absent
+   * means the deployment default: this is a property of an agent's memory, so
+   * the caller that knows the agent resolves it (`instances/agent-settings.ts`)
+   * and the callers that do not — the save-memory tool, the panel's manual
+   * write — get the default.
+   */
+  dedupSimilarityThreshold?: number;
 }
 
 export type MemoryEvent = "ADD" | "UPDATE";
@@ -58,10 +66,8 @@ function activeEmbeddingColumn(dim: EmbeddingDim) {
 
 // ---- Constants ----
 
-/** Cosine similarity threshold for deduplication, sourced from Zod-validated
- *  config (env var `DEDUP_SIMILARITY_THRESHOLD`, default 0.90). If an existing
- *  memory has similarity > this value, treat as duplicate and update. */
-const DEDUP_SIMILARITY_THRESHOLD = config.memory.dedupSimilarityThreshold;
+/** The deployment default, for an input that names no threshold of its own. */
+const DEFAULT_DEDUP_SIMILARITY_THRESHOLD = config.memory.dedupSimilarityThreshold;
 
 // ---- Store functions ----
 
@@ -103,7 +109,10 @@ async function runUpsertMemoryTx(input: InsertMemoryInput): Promise<UpsertResult
       .from(memories)
       .where(and(
         eq(memories.instanceId, input.instanceId),
-        gt(sql<number>`1 - (${distance})`, DEDUP_SIMILARITY_THRESHOLD),
+        gt(
+          sql<number>`1 - (${distance})`,
+          input.dedupSimilarityThreshold ?? DEFAULT_DEDUP_SIMILARITY_THRESHOLD,
+        ),
       ))
       .orderBy(distance)
       .limit(1);
