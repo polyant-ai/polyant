@@ -47,7 +47,7 @@
     "@panva/hkdf": "^1.2.1",
     "@polyant-ai/plugin-sdk": "github:polyant-ai/polyant-sdk#v1.6.0",
     "@slack/bolt": "^4.7.3",
-    "@tavily/core": "^0.7.5",
+    "@tavily/core": "^0.7.9",
     "ai": "^7.0.83",
     "ajv": "^6.12.6",
     "bcryptjs": "^3.0.3",
