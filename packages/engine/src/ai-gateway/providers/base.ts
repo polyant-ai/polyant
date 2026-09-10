@@ -2,7 +2,6 @@
 
 import { type Instructions, type LanguageModel, type ModelMessage, isStepCount } from "ai";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { config } from "../../config.js";
 import { temperatureSupported } from "../config.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 import { stripReasoningTags } from "../strip-reasoning-tags.js";
@@ -10,66 +9,6 @@ import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAda
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
 
 type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => LanguageModel;
-
-const C = { reset: "\x1b[0m", cyan: "\x1b[36m", dim: "\x1b[2m" };
-
-/**
- * Verbose dev toggle that logs the full system prompt + every message sent to
- * the provider on every call. Useful for diagnosing prompt drift in dev; a
- * **leak vector in production** (system prompts often contain customer-specific
- * data, names, contact details).
- *
- * Hard guard: forced off when `NODE_ENV === "production"`, even if the env var
- * is set. Emits a stderr warning at module load so operators see the override.
- * If you genuinely need this in prod (e.g. to debug a one-off incident on a
- * staging-like environment), set `NODE_ENV` to something other than
- * "production" for that engine pod.
- */
-// CONVENTION-EXCEPTION: DEBUG_LLM_PAYLOAD and NODE_ENV read directly, at module
-// load. Deliberately absent from config.ts: a development-only switch that leaks
-// customer data when on does not belong in the schema a production deployment
-// fills in, and the NODE_ENV refusal below has to be able to override it
-// regardless of what that schema validated.
-const DEBUG_LLM_PAYLOAD = (() => {
-  const requested = process.env.DEBUG_LLM_PAYLOAD === "1";
-  if (!requested) return false;
-  if (process.env.NODE_ENV === "production") {
-    // eslint-disable-next-line no-console -- intentional startup warning to stderr
-    console.warn(
-      "[ai-gateway] DEBUG_LLM_PAYLOAD=1 is set but NODE_ENV=production — " +
-        "ignoring (verbose prompt logging would leak customer data via stdout). " +
-        "Unset NODE_ENV or change it from 'production' to re-enable.",
-    );
-    return false;
-  }
-  return true;
-})();
-
-function logLlmPayload(providerName: string, modelId: string, request: ChatRequest) {
-  if (!DEBUG_LLM_PAYLOAD) return;
-
-  const ts = new Date().toLocaleTimeString(config.datetime.locale, { hour12: false });
-  const sys = request.system ?? "";
-  const toolNames = request.tools ? Object.keys(request.tools) : [];
-
-  console.log(
-    `${C.cyan}[${ts}] 🔍 LLM REQUEST PAYLOAD [${providerName}/${modelId}]${C.reset}`
-  );
-  console.log(`${C.dim}${JSON.stringify({
-    systemPromptLength: sys.length,
-    systemPrompt: sys,
-    messageCount: request.messages.length,
-    messages: request.messages.map(m => ({
-      role: m.role,
-      content: typeof m.content === "string"
-        ? m.content.slice(0, 200) + (m.content.length > 200 ? "..." : "")
-        : `[${Array.isArray(m.content) ? m.content.length + " parts" : typeof m.content}]`,
-    })),
-    tools: toolNames,
-    toolCount: toolNames.length,
-    maxSteps: request.maxSteps ?? 1,
-  }, null, 2)}${C.reset}`);
-}
 
 /**
  * Serialize the tool definitions sent to the model for debug capture.
@@ -544,9 +483,9 @@ function describeMessages(messages: ModelMessage[]): string {
  * reason (`responseBody`) discarded. `ctx` is the folded request actually sent
  * to the SDK — dumped structurally (never raw) so role-alternation /
  * message-shape bugs are visible. `responseBody` can echo request/message text
- * back (e.g. a content-policy 400), so like `ctx` it is only logged in full
- * under `DEBUG_LLM_PAYLOAD`; otherwise just its length. Duck-typed, no SDK
- * import.
+ * back (e.g. a content-policy 400), so it is NEVER logged raw: only its length
+ * plus the machine-readable error type/code, extracted by `errorBodyReason`.
+ * Duck-typed, no SDK import.
  */
 /**
  * Character count of the instructions, whatever shape they arrive in. Since v7
@@ -562,6 +501,28 @@ function describeInstructions(instructions: Instructions | undefined): string {
     return String(v.content ?? "").length;
   };
   return `present(${textOf(instructions)})`;
+}
+
+/**
+ * The error type/code out of a provider's JSON error body, and nothing else.
+ * Every provider nests it differently and some answer plain text, so this is
+ * best-effort by design: a miss returns `null` and the caller logs the length
+ * alone. Deliberately does NOT read `message` — that is the field that quotes
+ * the offending content back.
+ */
+function errorBodyReason(body: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (!parsed || typeof parsed !== "object") return null;
+    const root = parsed as Record<string, unknown>;
+    const nested = (root.error && typeof root.error === "object" ? root.error : {}) as Record<string, unknown>;
+    for (const candidate of [nested.type, nested.code, root.__type, root.type, root.code]) {
+      if (typeof candidate === "string" && candidate.trim()) return candidate.trim().slice(0, 120);
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function logProviderError(
@@ -587,11 +548,16 @@ function logProviderError(
     // A provider error body commonly echoes the offending request/message text
     // back (e.g. a content-policy 400 quoting the flagged content), so it is
     // exactly as sensitive as `ctx.messages` above — which is why that side is
-    // never logged raw, only via `describeMessages`'s structural summary. Mirror
-    // that here: full body only under the same prod-guarded DEBUG_LLM_PAYLOAD
-    // toggle used for request logging; otherwise just its length.
+    // never logged raw, only via `describeMessages`'s structural summary. Same
+    // here: the length, plus the error TYPE/CODE, which is the half that names
+    // the reason (`ValidationException`, `invalid_request_error`) and carries no
+    // free text. This used to log 2000 raw characters under DEBUG_LLM_PAYLOAD;
+    // that toggle is gone, and the per-instance `debug_enabled` capture is where
+    // a full request is inspected.
     const body = String(e.responseBody);
-    parts.push(DEBUG_LLM_PAYLOAD ? `body=${body.slice(0, 2000)}` : `body_length=${body.length}`);
+    parts.push(`body_length=${body.length}`);
+    const reason = errorBodyReason(body);
+    if (reason) parts.push(`body_reason=${reason}`);
   }
   if (typeof e?.url === "string") parts.push(`url=${e.url}`);
   console.error(parts.filter(Boolean).join(" "));
@@ -673,8 +639,6 @@ export function createProvider(
     async chat(request: ChatRequest, modelId: string): Promise<ChatResponse> {
       const start = Date.now();
 
-      logLlmPayload(providerName, modelId, request);
-
       const { instructions, messages } = prepare(request, modelId);
       const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
@@ -710,8 +674,6 @@ export function createProvider(
 
     async chatStream(request: ChatRequest, modelId: string): Promise<ChatStreamResult> {
       const start = Date.now();
-
-      logLlmPayload(providerName, modelId, request);
 
       // wrapAISDK wraps streamText in traceable, making it return a Promise.
       // The await resolves immediately (before streaming completes) because

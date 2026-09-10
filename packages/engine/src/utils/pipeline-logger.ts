@@ -86,7 +86,7 @@ export const pipelineLog = {
    * Concise system-prompt signal (just before LLM call): only the length, to
    * catch prompt bloat. The full prompt body is intentionally NOT logged —
    * use the per-instance `debug_enabled` flag (persists `{system, messages,
-   * tools}`) or the `DEBUG_LLM_PAYLOAD` env for full-payload inspection.
+   * tools}`) for full-payload inspection.
    */
   systemPrompt(instanceId: string, prompt: string) {
     if (!shouldLog("debug")) return;
