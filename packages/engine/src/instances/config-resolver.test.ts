@@ -46,6 +46,7 @@ import {
   invalidateAllInstanceConfigCache,
 } from "./config-resolver.js";
 import { asInstanceSlug } from "./identifiers.js";
+import { config as deployment } from "../config.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -128,6 +129,18 @@ describe("instances/config-resolver", () => {
         temperature: null,
         stateInPromptEnabled: false,
         datetimeInjectionEnabled: true,
+        // The six behaviours that moved off the environment. Resolved, so the
+        // config carries values rather than nulls; the row declares none here,
+        // so each is the DEPLOYMENT default — asserted against the deployment's
+        // own config rather than a literal, because the datetime defaults come
+        // from the runtime's zone and locale.
+        datetime: { timezone: deployment.datetime.timezone, locale: deployment.datetime.locale },
+        dedupSimilarityThreshold: deployment.memory.dedupSimilarityThreshold,
+        messageTimings: {
+          softDebounceMs: deployment.coordinator.softDebounceMs,
+          typingDelayMs: deployment.coordinator.typingDelayMs,
+          maxRestarts: deployment.coordinator.maxRestarts,
+        },
         cacheConfig: { enabled: true, ttl: "1h" },
         a2aEnabled: false,
         toolResultsInHistoryEnabled: false,
@@ -187,6 +200,16 @@ describe("instances/config-resolver", () => {
         // but gpt-4o supports temperature so the gate passes; null means "use provider default".
         temperature: null,
         stateInPromptEnabled: false,
+        // Same three as above: the fixture row declares none of the six, so each
+        // resolves to the deployment default.
+        datetimeInjectionEnabled: undefined,
+        datetime: { timezone: deployment.datetime.timezone, locale: deployment.datetime.locale },
+        dedupSimilarityThreshold: deployment.memory.dedupSimilarityThreshold,
+        messageTimings: {
+          softDebounceMs: deployment.coordinator.softDebounceMs,
+          typingDelayMs: deployment.coordinator.typingDelayMs,
+          maxRestarts: deployment.coordinator.maxRestarts,
+        },
         cacheConfig: { enabled: true, ttl: "1h" },
         a2aEnabled: true,
         toolResultsInHistoryEnabled: false,

@@ -3,7 +3,6 @@
 import type { Tool } from "ai";
 import { singleLineValue, scrubClosing } from "../../utils/untrusted-text.js";
 import { eq, and, asc } from "drizzle-orm";
-import { config } from "../../config.js";
 import { db } from "../../database/client.js";
 import { getPrompts, invalidatePromptsCache } from "../../instances/prompts.store.js";
 import { instanceSkills } from "../../instances/instance-skills.schema.js";
@@ -11,6 +10,7 @@ import { skills, skillVersions } from "../../skills/schema.js";
 import { hasAllRequiredEnvBatch } from "../../instances/skill-env.store.js";
 import { normalizeRequiredEnv } from "../../utils/frontmatter.js";
 import { type InstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
+import { resolveDatetimeSettings, UNSET_AGENT_SETTINGS, type DatetimeSettings } from "../../instances/agent-settings.js";
 import {
   isMcpModelToolName,
   sanitizeRemoteToolDescription,
@@ -53,6 +53,11 @@ export interface PromptOptions {
   conversationState?: Record<string, unknown>;
   /** When true, inject a <current_datetime> tag into the per-turn volatile tail. */
   datetimeInjectionEnabled?: boolean;
+  /**
+   * The agent's resolved datetime formatting. Absent means the deployment
+   * default, which is what a caller with no agent config in hand gets.
+   */
+  datetime?: DatetimeSettings;
   /**
    * When set, render an informational opt-out section so the agent can tell users
    * how to stop/resume messages. The agent NEVER enforces this — handled by the
@@ -366,13 +371,14 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
   // Per-turn volatile block — injected at the tail of the messages, never in system.
   const turnSections: string[] = [];
   if (options.datetimeInjectionEnabled) {
-    const datetime = new Date().toLocaleString(config.datetime.locale, {
-      timeZone: config.datetime.timezone,
+    const settings = options.datetime ?? resolveDatetimeSettings(UNSET_AGENT_SETTINGS);
+    const datetime = new Date().toLocaleString(settings.locale, {
+      timeZone: settings.timezone,
       dateStyle: "full",
       timeStyle: "short",
     });
     turnSections.push(
-      `<current_datetime>\nThe current date and time is ${datetime} (${config.datetime.timezone}). Treat this as the present moment.\n</current_datetime>`,
+      `<current_datetime>\nThe current date and time is ${datetime} (${settings.timezone}). Treat this as the present moment.\n</current_datetime>`,
     );
   }
 

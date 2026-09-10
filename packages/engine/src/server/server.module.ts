@@ -41,6 +41,7 @@ import { OptoutsModule } from "./optouts/optouts.module.js";
 import { MembersModule } from "./members/members.module.js";
 import { OrganizationsModule } from "../organizations/organizations.module.js";
 import { throttleTracker } from "./throttle-tracker.js";
+import { PlatformSettingsController } from "./platform-settings/platform-settings.controller.js";
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { throttleTracker } from "./throttle-tracker.js";
   ],
   controllers: [
     HealthController,
+    PlatformSettingsController,
     MemoriesController,
     InstancesController,
     InstancePromptsController,

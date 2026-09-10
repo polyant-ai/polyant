@@ -9,6 +9,7 @@ import { useSession } from "next-auth/react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/lib/i18n/context";
 import { UsersTab } from "./users-tab";
+import { PlatformTab } from "./platform-tab";
 
 export default function SettingsPage() {
   const { t } = useI18n();
@@ -48,9 +49,7 @@ export default function SettingsPage() {
           <UsersTab />
         </TabsContent>
         <TabsContent value="general" className="pt-4">
-          <p className="text-sm text-muted-foreground">
-            {t("settings.tab.generalEmpty")}
-          </p>
+          <PlatformTab />
         </TabsContent>
       </Tabs>
     </div>

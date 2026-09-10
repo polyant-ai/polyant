@@ -17,7 +17,6 @@ import { setRoomConversationId } from "./room.store.js";
 import { generateConversationTitle } from "../utils/title-generator.js";
 import { makeDelimiter, scrubClosing } from "../utils/untrusted-text.js";
 import { roomLog } from "./room-logger.js";
-import { config } from "../config.js";
 import { eventDefinitions } from "../webhooks/webhooks.schema.js";
 import { db } from "../database/client.js";
 import { inArray } from "drizzle-orm";
@@ -187,6 +186,7 @@ export async function executeRoomCycle(
         thinkingEnabled: instanceConfig.thinkingEnabled,
         debugEnabled: instanceConfig.debugEnabled,
         datetimeInjectionEnabled: instanceConfig.datetimeInjectionEnabled,
+        datetime: instanceConfig.datetime,
         cacheConfig: instanceConfig.cacheConfig,
         includeHarness: new Set(["room"]),
         stateBuffer,
@@ -208,7 +208,7 @@ export async function executeRoomCycle(
 
       // Write error to activity log so it's visible in the admin panel
       const errNow = new Date();
-      const errTimestamp = errNow.toLocaleTimeString(config.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: config.datetime.timezone });
+      const errTimestamp = errNow.toLocaleTimeString(instanceConfig.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: instanceConfig.datetime.timezone });
       const errTriggers: string[] = [];
       if (pendingEvents.length > 0) errTriggers.push(`${pendingEvents.length} event(s)`);
       if (humanMessage) errTriggers.push("human message");
@@ -290,7 +290,7 @@ export async function executeRoomCycle(
   postProcess().catch((err) => roomLog.error("PostProcess", "post-processing error", err));
 
   const now = new Date();
-  const timestamp = now.toLocaleTimeString(config.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: config.datetime.timezone });
+  const timestamp = now.toLocaleTimeString(instanceConfig.datetime.locale, { hour: "2-digit", minute: "2-digit", timeZone: instanceConfig.datetime.timezone });
   const triggers: string[] = [];
   if (pendingEvents.length > 0) triggers.push(`${pendingEvents.length} event(s)`);
   if (humanMessage) triggers.push("human message");

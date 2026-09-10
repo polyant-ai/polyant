@@ -142,6 +142,19 @@ function humanizeSecretKey(key: string): string {
     .join(" ");
 }
 
+/**
+ * An empty field means "no value here" and must reach the API as null, which is
+ * what clears the column. A field the user is mid-way through typing (`"1."`,
+ * `"-"`) is not a number yet: treated as empty rather than as NaN, which the
+ * API would refuse with a 400 the user has not finished causing.
+ */
+function numberOrNull(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : null;
+}
+
 export function SettingsTab({ instance, onUpdate, section }: Props) {
   const { t } = useI18n();
   const [secrets, setSecrets] = useState<SecretStatus[]>([]);
@@ -184,6 +197,23 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
 
   // Inject the current date/time into every turn (default on).
   const [datetimeInjectionEnabled, setDatetimeInjectionEnabled] = useState(instance.datetimeInjectionEnabled);
+
+  /**
+   * The six behaviours that used to be deployment configuration. Held as
+   * STRINGS, empty for "declares none": an empty input has to stay empty rather
+   * than showing the default as if the agent had chosen it, and the save maps
+   * empty back to `null`, which is what clears the column.
+   */
+  const [overrides, setOverrides] = useState({
+    datetimeTimezone: instance.datetimeTimezone ?? "",
+    datetimeLocale: instance.datetimeLocale ?? "",
+    dedupSimilarityThreshold: instance.dedupSimilarityThreshold?.toString() ?? "",
+    messageSoftDebounceMs: instance.messageSoftDebounceMs?.toString() ?? "",
+    messageTypingDelayMs: instance.messageTypingDelayMs?.toString() ?? "",
+    messageMaxRestarts: instance.messageMaxRestarts?.toString() ?? "",
+  });
+  const setOverride = (key: keyof typeof overrides, value: string) =>
+    setOverrides((prev) => ({ ...prev, [key]: value }));
 
   // Prompt-cache control (default on, 1h). OpenAI = automatic (locked on); Nebius = none.
   const [cacheEnabled, setCacheEnabled] = useState(instance.cacheEnabled);
@@ -447,9 +477,21 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
     cacheTtl !== instance.cacheTtl ||
     sttProvider !== ((instance.sttProvider as STTProvider | null) ?? "openai");
 
+  // An override is dirty when its string differs from the stored value rendered
+  // the same way — so clearing a field to empty counts, which is how a value is
+  // handed back to the deployment default.
+  const overridesDirty =
+    overrides.datetimeTimezone !== (instance.datetimeTimezone ?? "") ||
+    overrides.datetimeLocale !== (instance.datetimeLocale ?? "") ||
+    overrides.dedupSimilarityThreshold !== (instance.dedupSimilarityThreshold?.toString() ?? "") ||
+    overrides.messageSoftDebounceMs !== (instance.messageSoftDebounceMs?.toString() ?? "") ||
+    overrides.messageTypingDelayMs !== (instance.messageTypingDelayMs?.toString() ?? "") ||
+    overrides.messageMaxRestarts !== (instance.messageMaxRestarts?.toString() ?? "");
+
   const paramsDirty =
     stateInPromptEnabled !== instance.stateInPromptEnabled ||
     datetimeInjectionEnabled !== instance.datetimeInjectionEnabled ||
+    overridesDirty ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
     debugEnabled !== (instance.debugEnabled ?? false);
 
@@ -513,6 +555,15 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
                 datetimeInjectionEnabled,
                 toolResultsInHistoryEnabled,
                 debugEnabled,
+                // Empty means "hand this back to the deployment default", which
+                // the API spells as an explicit null — not as an omitted field,
+                // which would leave the column as it is.
+                datetimeTimezone: overrides.datetimeTimezone.trim() || null,
+                datetimeLocale: overrides.datetimeLocale.trim() || null,
+                dedupSimilarityThreshold: numberOrNull(overrides.dedupSimilarityThreshold),
+                messageSoftDebounceMs: numberOrNull(overrides.messageSoftDebounceMs),
+                messageTypingDelayMs: numberOrNull(overrides.messageTypingDelayMs),
+                messageMaxRestarts: numberOrNull(overrides.messageMaxRestarts),
               },
         );
         onUpdate(updated);
@@ -794,6 +845,111 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
               checked={datetimeInjectionEnabled}
               onCheckedChange={setDatetimeInjectionEnabled}
             />
+          </div>
+
+          {/*
+            The six behaviours that used to be set for the whole installation.
+            An empty field is not "zero": it means this agent declares nothing
+            and the deployment default applies, which is why the placeholder
+            shows that default rather than the input being pre-filled with it.
+          */}
+          <div className="space-y-4 border-t pt-4">
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">{t("settings.tab.agentOverrides")}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.agentOverridesHelp")}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="agent-datetime-timezone" className="text-sm font-medium">
+                {t("settings.tab.datetimeTimezone")}
+              </Label>
+              <Input
+                id="agent-datetime-timezone"
+                type="text"
+                value={overrides.datetimeTimezone}
+                placeholder="Europe/Rome"
+                onChange={(e) => setOverride("datetimeTimezone", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.datetimeTimezoneHelp")}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="agent-datetime-locale" className="text-sm font-medium">
+                {t("settings.tab.datetimeLocale")}
+              </Label>
+              <Input
+                id="agent-datetime-locale"
+                type="text"
+                value={overrides.datetimeLocale}
+                placeholder="it-IT"
+                onChange={(e) => setOverride("datetimeLocale", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.datetimeLocaleHelp")}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="agent-dedup-threshold" className="text-sm font-medium">
+                {t("settings.tab.dedupSimilarityThreshold")}
+              </Label>
+              <Input
+                id="agent-dedup-threshold"
+                type="number"
+                value={overrides.dedupSimilarityThreshold}
+                placeholder="0.90"
+                onChange={(e) => setOverride("dedupSimilarityThreshold", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.dedupSimilarityThresholdHelp")}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="agent-message-debounce" className="text-sm font-medium">
+                {t("settings.tab.messageSoftDebounceMs")}
+              </Label>
+              <Input
+                id="agent-message-debounce"
+                type="number"
+                value={overrides.messageSoftDebounceMs}
+                placeholder="2000"
+                onChange={(e) => setOverride("messageSoftDebounceMs", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.messageSoftDebounceMsHelp")}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="agent-message-typing" className="text-sm font-medium">
+                {t("settings.tab.messageTypingDelayMs")}
+              </Label>
+              <Input
+                id="agent-message-typing"
+                type="number"
+                value={overrides.messageTypingDelayMs}
+                placeholder="1500"
+                onChange={(e) => setOverride("messageTypingDelayMs", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.messageTypingDelayMsHelp")}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="agent-message-restarts" className="text-sm font-medium">
+                {t("settings.tab.messageMaxRestarts")}
+              </Label>
+              <Input
+                id="agent-message-restarts"
+                type="number"
+                value={overrides.messageMaxRestarts}
+                placeholder="3"
+                onChange={(e) => setOverride("messageMaxRestarts", e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("settings.tab.messageMaxRestartsHelp")}
+              </p>
+            </div>
           </div>
 
           {/*

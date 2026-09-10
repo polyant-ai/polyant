@@ -35,6 +35,7 @@ import { buildAgentInvokeTool } from "../tools/agent-invoke.helpers.js";
 import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
 import { agentToolTarget } from "../../authz/agent-tenancy.js";
 import { readAgentScope } from "../../authz/authz.store.js";
+import type { DatetimeSettings } from "../../instances/agent-settings.js";
 
 export interface SupervisorInput {
   message: string;
@@ -71,6 +72,8 @@ export interface SupervisorInput {
   stateInPromptEnabled?: boolean;
   /** When true, inject the current date/time into every turn (resolved from instance config). */
   datetimeInjectionEnabled?: boolean;
+  /** The agent's resolved datetime formatting; absent = the deployment default. */
+  datetime?: DatetimeSettings;
   /** Per-instance prompt-cache control, forwarded to the ai-gateway ChatRequest. */
   cacheConfig?: { enabled: boolean; ttl: "5m" | "1h" };
   /** Informational opt-out hint to render into the prompt (set when the instance enables it). */
@@ -575,6 +578,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
       channelIdentity: input.channelIdentity,
       conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
       datetimeInjectionEnabled: input.datetimeInjectionEnabled,
+      datetime: input.datetime,
       optoutHint: input.optoutHint,
     });
 

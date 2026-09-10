@@ -210,7 +210,31 @@ export function getUserErrorMessage(err: unknown, fallback: string): string {
 
 // ── API Methods ─────────────────────────────────────────────────────
 
+export interface PlatformSettings {
+  analyticsRetentionDays: number | null;
+  sseMaxConnectionsPerUser: number | null;
+}
+
+/**
+ * Both shapes come back from the engine on purpose: `settings` is what is
+ * STORED (null = unset) and `effective` is what is in FORCE. The form needs
+ * both — an empty field must stay empty, and its placeholder is what that empty
+ * field will actually do.
+ */
+export interface PlatformSettingsResponse {
+  settings: PlatformSettings;
+  effective: { analyticsRetentionDays: number; sseMaxConnectionsPerUser: number };
+}
+
 export const api = {
+  platform: {
+    settings: () => request<PlatformSettingsResponse>("/api/platform/settings"),
+    updateSettings: (body: Partial<PlatformSettings>) =>
+      request<PlatformSettingsResponse>("/api/platform/settings", {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+  },
   users: {
     /**
      * One page of installation accounts. `total` is what makes the page
@@ -295,6 +319,14 @@ export const api = {
         temperature?: number | null;
         stateInPromptEnabled?: boolean;
         datetimeInjectionEnabled?: boolean;
+        // Nullable, not merely optional: null CLEARS the override back to the
+        // deployment default, while omitting the field leaves it alone.
+        datetimeTimezone?: string | null;
+        datetimeLocale?: string | null;
+        dedupSimilarityThreshold?: number | null;
+        messageSoftDebounceMs?: number | null;
+        messageTypingDelayMs?: number | null;
+        messageMaxRestarts?: number | null;
         cacheEnabled?: boolean;
         cacheTtl?: string;
         a2aEnabled?: boolean;

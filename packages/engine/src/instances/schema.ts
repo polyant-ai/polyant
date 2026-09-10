@@ -35,6 +35,35 @@ export const instances = pgTable("instances", {
    */
   datetimeInjectionEnabled: boolean("datetime_injection_enabled").notNull().default(true),
   /**
+   * How this agent formats the date and time it injects, and how it decides two
+   * memories are the same fact. NULL on any of them means "not set here" and
+   * falls back to the deployment default (`DATETIME_TIMEZONE`,
+   * `DATETIME_LOCALE`, `DEDUP_SIMILARITY_THRESHOLD`) — see
+   * `instances/agent-settings.ts`, the one place they are resolved.
+   *
+   * They are per-agent because two agents on one installation legitimately
+   * differ: one serving Italian customers and one serving German customers want
+   * different formatting, and the dedup threshold is a property of an agent's
+   * memory rather than of the host.
+   */
+  datetimeTimezone: text("datetime_timezone"),
+  datetimeLocale: text("datetime_locale"),
+  dedupSimilarityThreshold: real("dedup_similarity_threshold"),
+  /**
+   * How this agent collapses a burst of inbound fragments: the coalescing
+   * window, the delay before the typing indicator, and the cap on
+   * cancel-and-restart cycles. NULL falls back to `MESSAGE_SOFT_DEBOUNCE_MS` /
+   * `MESSAGE_TYPING_DELAY_MS` / `MESSAGE_MAX_RESTARTS`.
+   *
+   * These shape conversational UX, not capacity: a support agent and a booking
+   * agent want different windows. Zero is a legitimate value for all three (no
+   * debounce, no typing delay, no restart), which is why the constraint is
+   * non-negative rather than positive.
+   */
+  messageSoftDebounceMs: integer("message_soft_debounce_ms"),
+  messageTypingDelayMs: integer("message_typing_delay_ms"),
+  messageMaxRestarts: integer("message_max_restarts"),
+  /**
    * Per-instance prompt-cache switch. Off skips ALL cache markers (Anthropic
    * `cacheControl` / Bedrock `cachePoint`) so the provider never pays a cache
    * write; on caches at `cacheTtl`. Default on = prior behaviour. No effect on

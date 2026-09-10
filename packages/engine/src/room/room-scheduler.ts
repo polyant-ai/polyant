@@ -7,8 +7,8 @@ import { executeRoomCycle } from "./room-engine.js";
 import { resolveInstanceSlug } from "../instances/resolve-instance-id.js";
 import { roomLog } from "./room-logger.js";
 import { runAnalyticsCleanup } from "../analytics/cleanup.js";
-import { config } from "../config.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
+import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 
 const TICK_INTERVAL_MS = 30_000;
 const HOUSEKEEPING_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -58,9 +58,12 @@ class RoomScheduler {
 
       // Retention for every traffic-driven table: ai_logs, pipeline_traces,
       // tool_audit_logs, hook_executions, scheduled_task_runs and the COMPLETED
-      // half of event_backlog, older than ANALYTICS_RETENTION_DAYS.
+      // half of event_backlog. The window is the installation's own policy,
+      // resolved per run — once a day, so the read costs nothing and an
+      // administrator who shortens it does not wait for a restart.
       // Fire-and-forget; failures are logged.
-      runAnalyticsCleanup(config.analytics.retentionDays)
+      resolvePlatformSettings()
+        .then(({ analyticsRetentionDays }) => runAnalyticsCleanup(analyticsRetentionDays))
         .then((result) => {
           roomLog.info(
             "Scheduler",

@@ -11,6 +11,8 @@ import { memoryLog } from "./memory-logger.js";
 import { emitMemory } from "../activity-stream/emitters/emit-memory.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
+import { findInstanceBySlug } from "../instances/store.js";
+import { resolveDedupSimilarityThreshold, UNSET_AGENT_SETTINGS } from "../instances/agent-settings.js";
 
 function buildExtractionPrompt(): string {
   const now = new Date();
@@ -113,6 +115,11 @@ export async function extractMemories(
   //    path that doesn't block the user-facing response, in exchange for zero
   //    intra-batch conflicts. Cross-conversation conflicts on the same instance
   //    are still possible and handled by the retry loop in `upsertMemory`.
+  // Resolved ONCE per extraction, not per fact: it is a property of the agent,
+  // and the facts of one run all belong to the same one.
+  const agent = await findInstanceBySlug(instanceId);
+  const dedupSimilarityThreshold = resolveDedupSimilarityThreshold(agent ?? UNSET_AGENT_SETTINGS);
+
   const results: UpsertResult[] = [];
   for (let i = 0; i < facts.length; i++) {
     const fact = facts[i];
@@ -124,6 +131,7 @@ export async function extractMemories(
       sourceConversationId: conversationId,
       embedding: embeddings[i],
       dimensions: ctx.dimensions,
+      dedupSimilarityThreshold,
       provider: ctx.credentials.provider,
     });
     results.push(result);

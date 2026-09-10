@@ -86,6 +86,13 @@ function dataEvents(written: string[]): string[] {
   return written.filter((w) => w.startsWith("data: "));
 }
 
+// The per-user cap is the installation's policy now, read from
+// `platform_settings`. Mocked so this suite stays about the guard's arithmetic
+// rather than standing up a database to learn one number.
+vi.mock("../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: async () => ({ analyticsRetentionDays: 90, sseMaxConnectionsPerUser: 5 }),
+}));
+
 describe("GET /api/activity-stream/live — organization scoping", () => {
   let controller: ActivityStreamController;
   const openConnections: Array<() => void> = [];

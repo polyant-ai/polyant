@@ -2,6 +2,7 @@
 
 import { sanitizeForLog } from "../utils/create-logger.js";
 import type { IncomingMessage, OutgoingMessage } from "./types.js";
+import type { MessageTimingSettings } from "../instances/agent-settings.js";
 
 /**
  * Per-conversation coordinator for inbound messaging channels that tend to
@@ -28,12 +29,20 @@ import type { IncomingMessage, OutgoingMessage } from "./types.js";
  */
 
 export interface MessageCoordinatorOptions {
-  /** Pre-pipeline coalescing window (ms). Burst fragments within this window collapse into one call. */
-  softDebounceMs: number;
-  /** Delay (ms) before sending the typing indicator. 0 = immediate. */
-  typingDelayMs: number;
-  /** Cap on consecutive cancel-and-restart cycles before degrading to sequential flushes. */
-  maxRestarts: number;
+  /**
+   * The three timings for the agent this message belongs to: the coalescing
+   * window, the typing-indicator delay, and the cap on cancel-and-restart
+   * cycles. They were three fixed numbers, taken once at construction from
+   * `MESSAGE_SOFT_DEBOUNCE_MS` / `MESSAGE_TYPING_DELAY_MS` /
+   * `MESSAGE_MAX_RESTARTS` — one answer for every agent on the installation,
+   * for a question a support agent and a booking agent answer differently.
+   *
+   * Resolved ONCE per burst, when the state is created, and held on it: a burst
+   * belongs to one conversation and therefore to one agent, so re-resolving per
+   * fragment would ask the same question of the same agent several times and
+   * could change the window mid-burst.
+   */
+  resolveTimings: (msg: IncomingMessage) => Promise<MessageTimingSettings>;
   /** The real message handler (pipeline). Invoked once per flush with the concatenated text. */
   handler: (msg: IncomingMessage, signal: AbortSignal) => Promise<OutgoingMessage>;
   /** Channel send callback used after a flush to deliver the response. */
@@ -59,6 +68,8 @@ export interface MessageCoordinatorOptions {
 }
 
 interface ConversationState {
+  /** The agent's timings, resolved when the burst started and stable for it. */
+  timings: MessageTimingSettings;
   /** Ordered list of fragment texts awaiting pipeline dispatch. */
   buffer: string[];
   /** The seed IncomingMessage of the current burst (preserves metadata). */
@@ -98,30 +109,28 @@ function isAbortError(err: unknown): boolean {
 export class MessageCoordinator {
   private readonly states = new Map<string, ConversationState>();
 
-  constructor(private readonly opts: MessageCoordinatorOptions) {
-    if (opts.softDebounceMs < 0) {
-      throw new Error("MessageCoordinator: softDebounceMs must be >= 0");
-    }
-    if (opts.typingDelayMs < 0) {
-      throw new Error("MessageCoordinator: typingDelayMs must be >= 0");
-    }
-    if (opts.maxRestarts < 0) {
-      throw new Error("MessageCoordinator: maxRestarts must be >= 0");
-    }
-  }
+  // No constructor validation of the timings any more: they no longer arrive
+  // here as numbers. Both sources that produce them are already constrained —
+  // Zod refuses a negative env var at boot, and the migration's CHECK refuses a
+  // negative column — so a guard here would only ever catch a test's own
+  // resolver.
+  constructor(private readonly opts: MessageCoordinatorOptions) {}
 
   /**
    * Entry point called on every inbound message. Returns synchronously with
    * `{ text: "" }` — the channel adapter must NOT treat the empty text as the
    * reply. The real response is delivered later via `sendOutbound`.
    */
-  onMessage(msg: IncomingMessage): Promise<OutgoingMessage> {
+  async onMessage(msg: IncomingMessage): Promise<OutgoingMessage> {
     const key = (this.opts.conversationKey ?? defaultKey)(msg);
     const state = this.states.get(key);
 
     if (!state) {
-      this.startBurst(key, msg);
-      return Promise.resolve({ text: "" });
+      // Awaited, not fired and forgotten: the adapter is already awaiting this
+      // call, and resolving the timings before the first timer is armed is what
+      // keeps a burst from starting on one window and continuing on another.
+      await this.startBurst(key, msg);
+      return { text: "" };
     }
 
     // Append fragment to the burst
@@ -132,7 +141,7 @@ export class MessageCoordinator {
 
     if (state.currentAbort) {
       // Pipeline in flight — decide whether to abort and restart, or accumulate.
-      if (state.restartCount < this.opts.maxRestarts) {
+      if (state.restartCount < state.timings.maxRestarts) {
         state.currentAbort.abort();
         state.currentAbort = null;
         state.restartCount++;
@@ -148,7 +157,7 @@ export class MessageCoordinator {
       if (!state.typingSent) this.armTypingTimer(key);
     }
 
-    return Promise.resolve({ text: "" });
+    return { text: "" };
   }
 
   /** Shut down: clear all timers, abort in-flight pipelines, drop buffered state. */
@@ -163,8 +172,10 @@ export class MessageCoordinator {
 
   // -- internals -------------------------------------------------------------
 
-  private startBurst(key: string, msg: IncomingMessage): void {
+  private async startBurst(key: string, msg: IncomingMessage): Promise<void> {
+    const timings = await this.opts.resolveTimings(msg);
     const state: ConversationState = {
+      timings,
       buffer: [msg.text],
       seed: msg,
       lastSid: extractMessageSid(msg),
@@ -185,14 +196,14 @@ export class MessageCoordinator {
     const state = this.states.get(key);
     if (!state) return;
     if (state.pipelineTimer) clearTimeout(state.pipelineTimer);
-    state.pipelineTimer = setTimeout(() => this.onPipelineTimer(key), this.opts.softDebounceMs);
+    state.pipelineTimer = setTimeout(() => this.onPipelineTimer(key), state.timings.softDebounceMs);
   }
 
   private armTypingTimer(key: string): void {
     const state = this.states.get(key);
     if (!state) return;
     if (state.typingTimer) clearTimeout(state.typingTimer);
-    state.typingTimer = setTimeout(() => this.onTypingTimer(key), this.opts.typingDelayMs);
+    state.typingTimer = setTimeout(() => this.onTypingTimer(key), state.timings.typingDelayMs);
   }
 
   private onTypingTimer(key: string): void {
@@ -325,7 +336,7 @@ export class MessageCoordinator {
 
     if (state.buffer.length > 0) {
       this.armPipelineTimer(key);
-      if (this.opts.typingDelayMs > 0) this.armTypingTimer(key);
+      if (state.timings.typingDelayMs > 0) this.armTypingTimer(key);
     } else {
       if (state.typingTimer) clearTimeout(state.typingTimer);
       if (state.pipelineTimer) clearTimeout(state.pipelineTimer);

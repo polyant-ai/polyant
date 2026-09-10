@@ -275,6 +275,7 @@ async function main() {
       stateBuffer: ctx.stateBuffer,
       stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
       datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
+      datetime: ctx.instanceConfig.datetime,
       cacheConfig: ctx.instanceConfig.cacheConfig,
       debugEnabled: ctx.instanceConfig.debugEnabled,
       // Conversational entry point: a real user behind a stable, reused
@@ -461,6 +462,7 @@ async function main() {
         stateBuffer: ctx.stateBuffer,
         stateInPromptEnabled: ctx.instanceConfig.stateInPromptEnabled,
         datetimeInjectionEnabled: ctx.instanceConfig.datetimeInjectionEnabled,
+        datetime: ctx.instanceConfig.datetime,
         cacheConfig: ctx.instanceConfig.cacheConfig,
         debugEnabled: ctx.instanceConfig.debugEnabled,
         // Conversational entry point: a real user behind a stable, reused
