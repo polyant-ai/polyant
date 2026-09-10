@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { ForbiddenException } from "@nestjs/common";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 
 const mockResolveEmbeddingContext = vi.fn();
@@ -195,11 +196,15 @@ describe("MemoriesController.create — cross-tenant write gate", () => {
 });
 
 /**
- * The read/delete paths pass the RESOLVED org, not the raw claim. The store's
- * filter now fails closed on a missing orgId, so forwarding `user?.orgId`
- * verbatim would return an empty list to any caller whose JWT predates the
- * claim — on an ordinary single-org deployment, where `resolvePrincipalOrgId`
- * can answer perfectly well.
+ * The read/delete paths pass a `TenantScope` built from the RESOLVED
+ * organization, not the raw claim: forwarding `user?.orgId` verbatim would
+ * return an empty list to any caller whose JWT predates the claim — on an
+ * ordinary single-org deployment, where `resolvePrincipalOrgId` can answer
+ * perfectly well.
+ *
+ * The scope is required, so an unresolvable caller no longer gets an empty
+ * 200 from the store's fail-closed branch: `callerTenantScope` refuses, which
+ * is the answer `PermissionGuard` already gives an unresolved scope.
  */
 describe("MemoriesController — read/delete resolve the caller's organization", () => {
   let controller: MemoriesController;
@@ -222,24 +227,24 @@ describe("MemoriesController — read/delete resolve the caller's organization",
     expect(mockResolvePrincipalOrgId).toHaveBeenCalledWith(undefined);
     expect(searchMemories).toHaveBeenCalledWith(
       asInstanceSlug("agent-a"),
-      expect.objectContaining({ orgId: ORG_A }),
+      expect.objectContaining({ scope: { organizationId: ORG_A } }),
     );
   });
 
-  it("forwards undefined — not null — when the organization is unresolvable", async () => {
+  it("refuses, and never reaches the store, when the organization is unresolvable", async () => {
     mockResolvePrincipalOrgId.mockResolvedValue(null);
 
-    await controller.listAll("agent-a", undefined, undefined, undefined, undefined, {
-      ...callerOfOrgA,
-      orgId: undefined,
-    } as never);
+    // Was: forward `undefined` and let the store's fail-closed branch answer an
+    // empty list. There is no absent scope left to forward, and an empty 200 was
+    // a second, weaker copy of the guard's unresolved-scope deny.
+    await expect(
+      controller.listAll("agent-a", undefined, undefined, undefined, undefined, {
+        ...callerOfOrgA,
+        orgId: undefined,
+      } as never),
+    ).rejects.toThrow(ForbiddenException);
 
-    // `undefined` is what the store's fail-closed branch keys on; a `null`
-    // leaking through would take a different, untested path.
-    expect(searchMemories).toHaveBeenCalledWith(
-      asInstanceSlug("agent-a"),
-      expect.objectContaining({ orgId: undefined }),
-    );
+    expect(searchMemories).not.toHaveBeenCalled();
   });
 
   it("scopes a single-memory delete to the resolved organization", async () => {
@@ -247,6 +252,8 @@ describe("MemoriesController — read/delete resolve the caller's organization",
 
     await controller.remove("m1", "agent-a", callerOfOrgA);
 
-    expect(deleteMemoryForInstance).toHaveBeenCalledWith("m1", asInstanceSlug("agent-a"), ORG_A);
+    expect(deleteMemoryForInstance).toHaveBeenCalledWith("m1", asInstanceSlug("agent-a"), {
+      organizationId: ORG_A,
+    });
   });
 });

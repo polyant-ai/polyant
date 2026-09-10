@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { orgScope } from "../authz/scope-filter.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
 // Chain mock: each chained method returns the chain itself, with the final
@@ -319,7 +320,7 @@ describe("memory-store", () => {
       const delChain = createChainMock([{ id: "mem-123" }]);
       mockDb.delete.mockReturnValue(delChain as any);
 
-      const result = await deleteMemoryForInstance("mem-123", asInstanceSlug("inst-1"));
+      const result = await deleteMemoryForInstance("mem-123", asInstanceSlug("inst-1"), orgScope("org-test"));
 
       expect(result).toBe(true);
       expect(mockDb.delete).toHaveBeenCalled();
@@ -329,7 +330,7 @@ describe("memory-store", () => {
       const delChain = createChainMock([]);
       mockDb.delete.mockReturnValue(delChain as any);
 
-      const result = await deleteMemoryForInstance("mem-999", asInstanceSlug("inst-1"));
+      const result = await deleteMemoryForInstance("mem-999", asInstanceSlug("inst-1"), orgScope("org-test"));
 
       expect(result).toBe(false);
     });
@@ -340,7 +341,7 @@ describe("memory-store", () => {
       const delChain = createChainMock([{ id: "m1" }, { id: "m2" }]);
       mockDb.delete.mockReturnValue(delChain as any);
 
-      const count = await deleteAllMemories(asInstanceSlug("user-1"));
+      const count = await deleteAllMemories(asInstanceSlug("user-1"), orgScope("org-test"));
 
       expect(mockDb.delete).toHaveBeenCalled();
       expect(count).toBe(2);

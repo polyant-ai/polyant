@@ -190,7 +190,12 @@ describe("hybridSearch", () => {
       20,
       1024,
     );
-    expect(mockSearchByKeyword).toHaveBeenCalledWith("test query", "user-1", 20);
+    expect(mockSearchByKeyword).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: expect.stringContaining("hybrid search") }),
+      "test query",
+      "user-1",
+      20,
+    );
 
     vi.clearAllMocks();
     mockEmbed.mockResolvedValue([0.1, 0.2, 0.3]);
@@ -208,6 +213,11 @@ describe("hybridSearch", () => {
       30,
       1024,
     );
-    expect(mockSearchByKeyword).toHaveBeenCalledWith("test query", "user-1", 30);
+    expect(mockSearchByKeyword).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: expect.stringContaining("hybrid search") }),
+      "test query",
+      "user-1",
+      30,
+    );
   });
 });

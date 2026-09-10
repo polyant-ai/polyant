@@ -11,7 +11,8 @@ import {
 import type { Response } from "express";
 import { getAnalytics } from "../../analytics/analytics.store.js";
 import { getLatencyAnalytics } from "../../analytics/latency.store.js";
-import { findInstanceBySlug, resolvePrincipalOrgId } from "../../instances/store.js";
+import { findInstanceBySlug } from "../../instances/store.js";
+import { callerTenantScope } from "../utils/caller-tenant-scope.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { parseDateRange } from "../utils/parse-date-range.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
@@ -52,10 +53,10 @@ export class AnalyticsController {
     @Res({ passthrough: true }) res?: Response,
   ) {
     const range = parseDateRange(from, to);
-    const orgId = (await resolvePrincipalOrgId(user?.orgId)) ?? undefined;
+    const scope = await callerTenantScope(user);
     const [analytics, latency] = await Promise.all([
-      getAnalytics(range, undefined, true, orgId),
-      getLatencyAnalytics(range, undefined, orgId),
+      getAnalytics(scope, range, undefined, true),
+      getLatencyAnalytics(scope, range),
     ]);
     res?.setHeader("Cache-Control", ANALYTICS_CACHE_CONTROL);
     res?.setHeader("Vary", ANALYTICS_CACHE_VARY);
@@ -76,12 +77,12 @@ export class AnalyticsController {
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
 
     const range = parseDateRange(from, to);
-    const orgId = (await resolvePrincipalOrgId(user?.orgId)) ?? undefined;
-    // orgId is ANDed in the store: a foreign-org slug yields empty analytics
+    const scope = await callerTenantScope(user);
+    // The scope is ANDed in the store: a foreign-org slug yields empty analytics
     // (param-IDOR closed at the store layer, not by an extra ownership check).
     const [analytics, latency] = await Promise.all([
-      getAnalytics(range, instance.slug, false, orgId),
-      getLatencyAnalytics(range, instance.slug, orgId),
+      getAnalytics(scope, range, instance.slug),
+      getLatencyAnalytics(scope, range, instance.slug),
     ]);
     res?.setHeader("Cache-Control", ANALYTICS_CACHE_CONTROL);
     res?.setHeader("Vary", ANALYTICS_CACHE_VARY);

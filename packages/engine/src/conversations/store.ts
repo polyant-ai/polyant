@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, and, desc, asc, sql, count, inArray, type SQL } from "drizzle-orm";
+import { eq, and, desc, asc, sql, count, inArray } from "drizzle-orm";
 import type { ModelMessage } from "ai";
-import { db } from "../database/client.js";
+import { db, type DbTransaction } from "../database/client.js";
 import { conversations, conversationMessages, conversationState, type AttachmentMeta, type LlmDebugPayload, type ReasoningDetail, type StepDetail } from "./schema.js";
 import { pipelineTraces } from "../analytics/traces.schema.js";
 import type { CostBreakdown } from "../ai-gateway/types.js";
@@ -12,33 +12,11 @@ import { hookExecutions } from "../hooks/hooks.schema.js";
 import { memories } from "../memory/schema.js";
 import { principalSecrets } from "./principal-secrets.schema.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
-import { buildOrgScopedAgentFilter, buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
-
-/**
- * Explicit opt-out of the org-scoping filter, for INTERNAL/system callers that
- * run outside any request and therefore have no organization to scope to (e.g.
- * the `conversation-reset` hook checking whether an archive id is already taken).
- *
- * It is a `Symbol` on purpose: `buildOrgScopedAgentFilterFragment` fails closed
- * (`and false`) when no `orgId` is given, so an internal caller passing nothing
- * silently got zero rows. Handing those callers a system scope has to be
- * unmistakable AND unreachable from a request — a symbol can never be produced by
- * JSON body/query parsing, so no HTTP input can ever widen the tenancy filter.
- */
-export const SYSTEM_SCOPE = Symbol("conversation-store:system-scope");
-
-/** Either a caller organization id, or the explicit internal system scope. */
-export type ConversationScope = string | typeof SYSTEM_SCOPE | undefined;
-
-/**
- * Org-filter fragment for a `ConversationScope`: an empty (unconstrained)
- * fragment ONLY for the explicit system scope, otherwise the fail-closed
- * org-scoped predicate.
- */
-function scopeFilterFragment(scope: ConversationScope, columnName: "c.instance_id"): SQL {
-  if (scope === SYSTEM_SCOPE) return sql``;
-  return buildOrgScopedAgentFilterFragment(scope, columnName);
-}
+import {
+  buildOrgScopedAgentFilterFragment,
+  tenantScopedAgentCondition,
+  type TenantScope,
+} from "../authz/scope-filter.js";
 
 export interface MessageRow {
   role: string;
@@ -314,7 +292,7 @@ export class ConversationStore {
    */
   async ensureConversation(
     conversationId: string,
-    instanceId?: InstanceSlug,
+    instanceId: InstanceSlug,
     options?: { channel?: string; userIdentifier?: string; source?: string; contextPrompt?: string },
   ): Promise<{ created: boolean }> {
     const channel = options?.channel ?? "web";
@@ -326,7 +304,7 @@ export class ConversationStore {
       .insert(conversations)
       .values({
         conversationId,
-        instanceId: instanceId ?? null,
+        instanceId,
         channel,
         source,
         userIdentifier,
@@ -471,10 +449,17 @@ export class ConversationStore {
     }));
   }
 
-  /** Full-text search across all conversation messages for an instance. */
+  /**
+   * Full-text search across conversation messages.
+   *
+   * `scope` is required and ANDed, which it was not: with `instanceId` absent
+   * this search ran over `conversation_messages` joined to every conversation in
+   * the deployment, so one tenant's query matched another tenant's message text.
+   */
   async searchByKeyword(
+    scope: TenantScope,
     query: string,
-    instanceId: InstanceSlug | undefined,
+    instanceId?: InstanceSlug,
     limit = 20,
   ): Promise<KeywordSearchResult[]> {
     // Build the tsquery from the user query (websearch syntax handles natural language)
@@ -484,6 +469,7 @@ export class ConversationStore {
     const instanceFilter = instanceId
       ? sql`AND c.instance_id = ${instanceId}`
       : sql``;
+    const orgFilter = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
     const results = await db.execute(sql`
       SELECT
@@ -497,6 +483,7 @@ export class ConversationStore {
       JOIN conversations c ON c.conversation_id = cm.conversation_id
       WHERE cm.search_vector @@ ${tsQuery}
         ${instanceFilter}
+        ${orgFilter}
       ORDER BY rank DESC
       LIMIT ${limit}
     `);
@@ -528,8 +515,8 @@ export class ConversationStore {
     updatedUntil?: Date;
     limit?: number;
     offset?: number;
-    orgId?: string;
-  } = {}): Promise<{ conversations: ConversationListItem[]; total: number }> {
+    scope: TenantScope;
+  }): Promise<{ conversations: ConversationListItem[]; total: number }> {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
 
@@ -540,11 +527,9 @@ export class ConversationStore {
     if (options.updatedUntil) conditions.push(sql`c.updated_at < ${options.updatedUntil.toISOString()}::timestamptz`);
     // Cross-org gate: an aggregate list (no instanceId) returns only caller-org
     // rows; a foreign-org instanceId param yields zero rows (ANDed at the store).
-    // Applied UNCONDITIONALLY — mirrors searchConversations, which always ANDs
-    // this predicate via buildOrgScopedAgentFilterFragment. A missing orgId (an
-    // unresolved principal scope) must fail CLOSED to zero rows, never fall
-    // through to an unfiltered cross-org listing.
-    conditions.push(options.orgId ? buildOrgScopedAgentFilter(options.orgId, "c.instance_id") : sql`false`);
+    // Applied UNCONDITIONALLY, and the scope is required: there is no absent
+    // branch left to fall through to an unfiltered cross-org listing.
+    conditions.push(tenantScopedAgentCondition(options.scope, "c.instance_id"));
     const instanceFilter = conditions.length > 0
       ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
       : sql``;
@@ -628,17 +613,18 @@ export class ConversationStore {
   /**
    * Get a single conversation with metadata.
    *
-   * @param scope the caller's organization id, or `SYSTEM_SCOPE` for an internal
-   *   caller with no organization. Omitting it fails CLOSED (always null) — never
-   *   pass nothing just to "skip" the filter.
+   * @param scope the tenant this lookup acts in. REQUIRED: an internal caller
+   *   that runs outside any request says so with `allTenantsScope(reason)`,
+   *   which is a sentence review can disagree with, rather than by omitting an
+   *   argument and inheriting whatever the absent branch happened to do.
    */
   async getConversation(
     conversationId: string,
-    scope?: ConversationScope,
+    scope: TenantScope,
   ): Promise<ConversationDetail | null> {
     // Cross-org gate: scoping the lookup to the caller's org turns a foreign-org
     // conversation id into a "not found" (the controller maps null → 404).
-    const orgFilter = scopeFilterFragment(scope, "c.instance_id");
+    const orgFilter = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
     const rows = await db.execute(sql`
       SELECT
         c.id,
@@ -783,7 +769,7 @@ export class ConversationStore {
    */
   async searchConversations(
     query: string,
-    options: { instanceId?: InstanceSlug; limit?: number; offset?: number; orgId?: string } = {},
+    options: { scope: TenantScope; instanceId?: InstanceSlug; limit?: number; offset?: number },
   ): Promise<{ conversations: ConversationSearchResult[]; total: number }> {
     const limit = options.limit ?? 20;
     const offset = options.offset ?? 0;
@@ -792,7 +778,7 @@ export class ConversationStore {
 
     // Cross-org gate: a search with no instanceId stays scoped to the caller-org
     // rows; a foreign-org instanceId param yields zero rows.
-    const orgFilter = buildOrgScopedAgentFilterFragment(options.orgId, "c.instance_id");
+    const orgFilter = buildOrgScopedAgentFilterFragment(options.scope, "c.instance_id");
     const instanceFilter = options.instanceId
       ? sql`AND c.instance_id = ${options.instanceId} ${orgFilter}`
       : orgFilter;
@@ -1022,6 +1008,35 @@ export class ConversationStore {
 
   /** Delete a conversation and all its messages (atomic). */
   /**
+   * Whether this conversation belongs to the given tenant, decided INSIDE the
+   * caller's transaction and under a row lock.
+   *
+   * The mutations below key every statement on `conversation_id` alone, across
+   * nine tables. Their safety used to rest entirely on the controller having run
+   * `loadConversationScoped` a few lines earlier: an ordering no type checked, no
+   * test pinned, and no second caller inherited — the reset hook calls
+   * `renameConversation` without it. The check belongs where the rows are, so
+   * that forgetting it is not something a caller can do.
+   *
+   * `for update` matters: without the lock a concurrent rename could move the row
+   * between this check and the statements that follow it.
+   */
+  private async conversationInTenant(
+    tx: DbTransaction,
+    conversationId: string,
+    scope: TenantScope,
+  ): Promise<boolean> {
+    const tenantFilter = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
+    const rows = await tx.execute(sql`
+      select 1
+      from conversations c
+      where c.conversation_id = ${conversationId} ${tenantFilter}
+      for update
+    `);
+    return (rows as unknown as Array<Record<string, unknown>>).length > 0;
+  }
+
+  /**
    * Rename a conversation's stable text key across every table that stores it,
    * optionally updating the title. Mirrors the `deleteConversation` cascade's
    * table set — UPDATE instead of DELETE — so nothing is orphaned and the
@@ -1037,10 +1052,12 @@ export class ConversationStore {
   async renameConversation(
     conversationId: string,
     newConversationId: string,
+    scope: TenantScope,
     title?: string,
   ): Promise<boolean> {
     const idChanged = newConversationId !== conversationId;
     return db.transaction(async (tx) => {
+      if (!(await this.conversationInTenant(tx, conversationId, scope))) return false;
       if (idChanged) {
         await tx
           .update(conversationMessages)
@@ -1097,8 +1114,9 @@ export class ConversationStore {
     });
   }
 
-  async deleteConversation(conversationId: string): Promise<boolean> {
+  async deleteConversation(conversationId: string, scope: TenantScope): Promise<boolean> {
     return db.transaction(async (tx) => {
+      if (!(await this.conversationInTenant(tx, conversationId, scope))) return false;
       // Drop everything tied to this conversation_id in one transaction so the
       // UI counters (token totals, traces, audit) match what's actually visible.
       // Tables intentionally left alone:

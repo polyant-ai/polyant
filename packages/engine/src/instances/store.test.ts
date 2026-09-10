@@ -114,6 +114,11 @@ const { mockBuildOrgScopedAgentFilter } = vi.hoisted(() => ({
 
 vi.mock("../authz/scope-filter.js", () => ({
   buildOrgScopedAgentFilter: mockBuildOrgScopedAgentFilter,
+  // The condition form is what the agent-list paths use: it always returns a
+  // predicate, so it cannot be dropped by `and(...)`'s filter(Boolean).
+  tenantScopedAgentCondition: (scope: { organizationId: string }, column: string) =>
+    mockBuildOrgScopedAgentFilter(scope.organizationId, column),
+  orgScope: (organizationId: string) => ({ organizationId }),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -196,7 +201,7 @@ describe("instances/store", () => {
       const chain = createChainMock([fakeInstance]);
       mockDb.select.mockReturnValue(chain as any);
 
-      const result = await listActiveInstances();
+      const result = await listActiveInstances({ organizationId: "org-test" });
 
       expect(result).toEqual([fakeInstance]);
       expect(mockDb.select).toHaveBeenCalled();
@@ -208,7 +213,7 @@ describe("instances/store", () => {
       const chain = createChainMock([]);
       mockDb.select.mockReturnValue(chain as any);
 
-      const result = await listActiveInstances();
+      const result = await listActiveInstances({ organizationId: "org-test" });
 
       expect(result).toEqual([]);
     });
@@ -635,11 +640,11 @@ describe("instances/store", () => {
   // listActiveInstances — org scoping (feeds GET /v1/models)
   // -----------------------------------------------------------------------
   describe("listActiveInstances — organization scoping", () => {
-    it("should_and_the_org_filter_with_the_active_status_when_an_orgId_is_given", async () => {
+    it("should_and_the_tenant_filter_with_the_active_status", async () => {
       const chain = createChainMock([fakeInstance]);
       mockDb.select.mockReturnValue(chain as any);
 
-      await listActiveInstances("org-a");
+      await listActiveInstances({ organizationId: "org-a" });
 
       expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-a", "slug");
       expect(chain.where).toHaveBeenCalledWith({

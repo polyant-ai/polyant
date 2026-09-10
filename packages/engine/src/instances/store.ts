@@ -15,7 +15,11 @@ import { knowledgeDocuments } from "../knowledge/schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { organizations, workspaces } from "../organizations/organization.schema.js";
 import { findDefaultWorkspaceId } from "../organizations/organizations.store.js";
-import { buildOrgScopedAgentFilter } from "../authz/scope-filter.js";
+import {
+  buildOrgScopedAgentFilter,
+  tenantScopedAgentCondition,
+  type TenantScope,
+} from "../authz/scope-filter.js";
 import { asInstanceSlug, asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
 
 // Every agent belongs to exactly one workspace, and a workspace to exactly one
@@ -163,21 +167,20 @@ function toInstance(row: typeof instances.$inferSelect): Instance {
 }
 
 /**
- * Return all active instances. Pass the caller's resolved `orgId` to restrict
- * the list to that organization's agents (reuses the RBAC org-scoping predicate
- * so "which agents belong to org X" stays defined in exactly one place).
- * Omitting it returns every agent — reserved for system paths with no principal.
+ * Return the active agents of one tenant. The `scope` is REQUIRED and reuses the
+ * shared tenancy predicate, so "which agents belong to this tenant" stays
+ * defined in exactly one place.
+ *
+ * It used to be `orgId?: string`, where omitting it returned every agent in the
+ * deployment — "reserved for system paths with no principal", except nothing
+ * reserved it: the absent argument and the system path were spelled the same
+ * way. A system path now writes `allTenantsScope(reason)`.
  */
-export async function listActiveInstances(orgId?: string): Promise<Instance[]> {
+export async function listActiveInstances(scope: TenantScope): Promise<Instance[]> {
   return db
     .select()
     .from(instances)
-    .where(
-      and(
-        eq(instances.status, "active"),
-        orgId ? buildOrgScopedAgentFilter(orgId, "slug") : undefined,
-      ),
-    )
+    .where(and(eq(instances.status, "active"), tenantScopedAgentCondition(scope, "slug")))
     .then((rows) => rows.map(toInstance));
 }
 

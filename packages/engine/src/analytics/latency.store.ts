@@ -3,7 +3,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { type DateRange, toISO, asRows, instanceFilter } from "../utils/query-helpers.js";
-import { buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
+import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/scope-filter.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -48,12 +48,12 @@ export interface LatencyData {
 // ── Overview (percentiles + averages) ────────────────────────────────
 
 async function getLatencyOverview(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: string,
-  orgId?: string,
 ): Promise<LatencyOverview> {
   const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
 
   const [row] = asRows<{
     p50: number | null;
@@ -90,12 +90,12 @@ async function getLatencyOverview(
 // ── Daily Percentiles ────────────────────────────────────────────────
 
 async function getDailyLatency(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: string,
-  orgId?: string,
 ): Promise<LatencyDailyRow[]> {
   const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
 
   return asRows<{ date: string; p50: number; p95: number; p99: number }>(
     await db.execute(sql`
@@ -121,12 +121,12 @@ async function getDailyLatency(
 // ── Phase Breakdown (daily averages) ─────────────────────────────────
 
 async function getPhaseBreakdown(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: string,
-  orgId?: string,
 ): Promise<PhaseBreakdownRow[]> {
   const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
 
   return asRows<{
     date: string;
@@ -157,12 +157,12 @@ async function getPhaseBreakdown(
 // ── Slowest Tool Calls ───────────────────────────────────────────────
 
 async function getSlowestTools(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: string,
-  orgId?: string,
 ): Promise<ToolLatencyRow[]> {
   const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
 
   return asRows<{
     tool: string;
@@ -200,15 +200,15 @@ async function getSlowestTools(
 // ── Main Aggregator ──────────────────────────────────────────────────
 
 export async function getLatencyAnalytics(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: string,
-  orgId?: string,
 ): Promise<LatencyData> {
   const [overview, dailyLatency, phaseBreakdown, slowestTools] = await Promise.all([
-    getLatencyOverview(range, instanceId, orgId),
-    getDailyLatency(range, instanceId, orgId),
-    getPhaseBreakdown(range, instanceId, orgId),
-    getSlowestTools(range, instanceId, orgId),
+    getLatencyOverview(scope, range, instanceId),
+    getDailyLatency(scope, range, instanceId),
+    getPhaseBreakdown(scope, range, instanceId),
+    getSlowestTools(scope, range, instanceId),
   ]);
 
   return { overview, dailyLatency, phaseBreakdown, slowestTools };

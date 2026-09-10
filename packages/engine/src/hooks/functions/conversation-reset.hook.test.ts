@@ -69,14 +69,15 @@ describe("conversation-reset hook", () => {
     });
   });
 
-  it("looks the candidate up with the explicit system scope, so the collision check is live", async () => {
-    // Without a scope the store's org filter fails closed (`and false`), so the
-    // lookup would ALWAYS return null and the collision check below would be dead.
+  it("looks the candidate up with the explicit cross-tenant scope, so the collision check is live", async () => {
+    // The store's tenancy filter fails closed, so a scope-less lookup would
+    // ALWAYS return null and the collision check below would be dead code. The
+    // hook has no principal, so it states the reason instead.
     await resetHook.handler(ctx("RESET"));
 
     expect(conversationStore.getConversation).toHaveBeenCalledWith(
       expect.stringMatching(/#\d{5}$/),
-      SYSTEM_SCOPE,
+      expect.objectContaining({ reason: expect.stringContaining("conversation-reset hook") }),
     );
   });
 

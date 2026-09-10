@@ -6,6 +6,11 @@ import {
   buildOrgScopedAgentFilter,
   buildOrgScopedAgentFilterFragment,
   ORG_SCOPED_AGENT_COLUMNS,
+  orgScope,
+  workspaceScope,
+  workspaceSetScope,
+  allTenantsScope,
+  tenantScopedAgentCondition,
 } from "./scope-filter.js";
 
 const dialect = new PgDialect();
@@ -62,9 +67,9 @@ describe("buildOrgScopedAgentFilter", () => {
 });
 
 describe("buildOrgScopedAgentFilterFragment", () => {
-  it("should_prefix_with_AND_when_orgId_present", () => {
+  it("should_prefix_with_AND_for_an_organization_scope", () => {
     const { sql: text, params } = render(
-      buildOrgScopedAgentFilterFragment("org-a"),
+      buildOrgScopedAgentFilterFragment(orgScope("org-a")),
     );
     expect(text.trim().toUpperCase().startsWith("AND")).toBe(true);
     expect(text).toMatch(/"instance_id"\s+in\s*\(/i);
@@ -72,21 +77,61 @@ describe("buildOrgScopedAgentFilterFragment", () => {
   });
 
   /**
-   * Fails CLOSED, and this assertion is the point of the test.
+   * One case per variant, because the union is what makes the predicate safe.
    *
-   * It used to return an EMPTY fragment — no constraint at all — on the reasoning
-   * that single-org OSS could not tell the difference. What it actually meant is
-   * that a principal with no `orgId` claim (a legacy JWT, or any
-   * gateway-forwarded identity, which never carries one) read analytics,
+   * The case this replaces was `undefined`, which the type no longer admits: the
+   * absent branch used to return an EMPTY fragment — no constraint at all — on
+   * the reasoning that single-org OSS could not tell the difference. What it
+   * actually meant is that a principal with no organization (a legacy JWT, or
+   * any gateway-forwarded identity, which never carries one) read analytics,
    * conversations, audit logs and memories across EVERY organization, with only
    * PermissionGuard's unresolved-scope deny standing in front of it.
    *
-   * Controllers resolve the claim through `resolvePrincipalOrgId` before calling
-   * this, so a legitimate single-org caller never lands here; arriving with
-   * nothing means ownership is unprovable, and no rows is the honest answer.
+   * What can still be got wrong is the two variants that look like "nothing":
+   * an EMPTY workspace set (a caller who can reach no workspace) must match no
+   * row, and `allTenants` must be the ONLY variant that constrains nothing.
    */
-  it("should_match_nothing_when_orgId_is_undefined", () => {
-    const { sql: text } = render(buildOrgScopedAgentFilterFragment(undefined));
+  it("should_constrain_the_slug_column_for_a_workspace_scope", () => {
+    const { sql: text, params } = render(
+      buildOrgScopedAgentFilterFragment(workspaceScope("ws-1")),
+    );
+    expect(text).toMatch(/workspace_id\s*=/i);
+    expect(params).toContain("ws-1");
+  });
+
+  it("should_bind_every_id_for_a_workspace_set_scope", () => {
+    const { sql: text, params } = render(
+      buildOrgScopedAgentFilterFragment(workspaceSetScope(new Set(["ws-1", "ws-2"]))),
+    );
+    expect(text).toMatch(/workspace_id\s+in\s*\(/i);
+    expect(params).toContain("ws-1");
+    expect(params).toContain("ws-2");
+  });
+
+  it("should_match_nothing_for_a_caller_who_can_reach_no_workspace", () => {
+    const { sql: text } = render(
+      buildOrgScopedAgentFilterFragment(workspaceSetScope(new Set())),
+    );
     expect(text.trim().toLowerCase()).toBe("and false");
+  });
+
+  it("should_constrain_nothing_ONLY_for_the_cross_tenant_scope", () => {
+    const { sql: text } = render(
+      buildOrgScopedAgentFilterFragment(allTenantsScope("a test that says why")),
+    );
+    expect(text.trim()).toBe("");
+  });
+});
+
+describe("tenantScopedAgentCondition", () => {
+  it("should_always_return_a_condition_so_it_cannot_be_filtered_out", () => {
+    const forOrg = render(tenantScopedAgentCondition(orgScope("org-a")));
+    expect(forOrg.sql.trim()).not.toBe("");
+    // `true` rather than `undefined`: an undefined condition is silently dropped
+    // by a `.filter(Boolean)` on the way into the query builder.
+    const forAll = render(tenantScopedAgentCondition(allTenantsScope("a test that says why")));
+    expect(forAll.sql.trim().toLowerCase()).toBe("true");
+    const forNobody = render(tenantScopedAgentCondition(workspaceSetScope(new Set())));
+    expect(forNobody.sql.trim().toLowerCase()).toBe("false");
   });
 });

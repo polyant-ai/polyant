@@ -8,7 +8,7 @@ import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { callerMayAccessAgent } from "../../authz/agent-tenancy.js";
-import { resolvePrincipalOrgId } from "../../instances/store.js";
+import { callerTenantScope } from "../utils/caller-tenant-scope.js";
 
 function requireInstanceId(instanceId: string | undefined): InstanceSlug {
   const trimmed = instanceId?.trim();
@@ -32,8 +32,8 @@ export class MemoriesController {
     const limit = Math.min(Math.max(limitStr ? Number(limitStr) || 20 : 20, 1), 100);
     const offset = Math.max(offsetStr ? Number(offsetStr) || 0 : 0, 0);
 
-    const orgId = (await resolvePrincipalOrgId(user?.orgId)) ?? undefined;
-    const result = await searchMemories(uid, { search, category, limit, offset, orgId });
+    const scope = await callerTenantScope(user);
+    const result = await searchMemories(uid, { scope, search, category, limit, offset });
     return {
       total: result.total,
       limit,
@@ -102,7 +102,7 @@ export class MemoriesController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
-    const deleted = await deleteMemoryForInstance(id, uid, (await resolvePrincipalOrgId(user?.orgId)) ?? undefined);
+    const deleted = await deleteMemoryForInstance(id, uid, await callerTenantScope(user));
     if (!deleted) throw new NotFoundException(`Memory "${id}" not found`);
     return { deleted: true };
   }
@@ -114,7 +114,7 @@ export class MemoriesController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
-    await deleteAllMemories(uid, (await resolvePrincipalOrgId(user?.orgId)) ?? undefined);
+    await deleteAllMemories(uid, await callerTenantScope(user));
     return { deleted: true };
   }
 }

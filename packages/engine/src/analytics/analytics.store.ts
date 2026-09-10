@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { type DateRange, toISO, asRows, pctChange, instanceFilter } from "../utils/query-helpers.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
-import { buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
+import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/scope-filter.js";
 
 export type { DateRange };
 
@@ -113,13 +113,13 @@ export interface AnalyticsData {
 // ── Overview Stats ──────────────────────────────────────────────────
 
 async function getOverviewStats(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
-  orgId?: string,
 ): Promise<OverviewStats> {
   const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
+  const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
   // Current period — ai_logs
   const [aiStats] = asRows<{
@@ -236,14 +236,14 @@ async function getOverviewStats(
 // ── Daily Trends ────────────────────────────────────────────────────
 
 async function getDailyTrend(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
-  orgId?: string,
 ): Promise<DailyTrendRow[]> {
   const instFilter = instanceFilter(instanceId);
   const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
+  const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
   const rows = asRows<{
     date: string;
@@ -310,12 +310,12 @@ async function getDailyTrend(
 // ── Hourly Distribution ─────────────────────────────────────────────
 
 async function getHourlyDistribution(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
-  orgId?: string,
 ): Promise<HourlyRow[]> {
   const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
   const rows = asRows<{ hour: number; count: number }>(
     await db.execute(sql`
@@ -343,12 +343,12 @@ async function getHourlyDistribution(
 // ── Channel Distribution ────────────────────────────────────────────
 
 async function getChannelDistribution(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
-  orgId?: string,
 ): Promise<ChannelRow[]> {
   const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
   return asRows<ChannelRow>(
     await db.execute(sql`
@@ -373,12 +373,12 @@ async function getChannelDistribution(
 // ── Model Distribution ──────────────────────────────────────────────
 
 async function getModelDistribution(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
-  orgId?: string,
 ): Promise<ModelRow[]> {
   const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
 
   return asRows<{
     provider: string;
@@ -415,12 +415,12 @@ async function getModelDistribution(
 // ── Tier Distribution ───────────────────────────────────────────────
 
 async function getTierDistribution(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
-  orgId?: string,
 ): Promise<TierRow[]> {
   const instFilter = instanceFilter(instanceId);
-  const orgInst = buildOrgScopedAgentFilterFragment(orgId);
+  const orgInst = buildOrgScopedAgentFilterFragment(scope);
 
   return asRows<TierRow>(
     await db.execute(sql`
@@ -441,12 +441,12 @@ async function getTierDistribution(
 // ── Tool Usage ──────────────────────────────────────────────────────
 
 async function getToolUsage(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
-  orgId?: string,
 ): Promise<ToolRow[]> {
   const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const orgConv = buildOrgScopedAgentFilterFragment(orgId, "c.instance_id");
+  const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
   // NOTE: migration 0038 renamed conversation_messages.tool_calls -> steps and
   // changed the shape from `[{toolName, args, result}]` to `StepDetail[]` where
@@ -477,10 +477,10 @@ async function getToolUsage(
 // ── Instance Comparison (global only) ───────────────────────────────
 
 async function getInstanceComparison(
+  scope: TenantScope,
   range: DateRange,
-  orgId?: string,
 ): Promise<InstanceComparisonRow[]> {
-  const orgInst = buildOrgScopedAgentFilterFragment(orgId, "al.instance_id");
+  const orgInst = buildOrgScopedAgentFilterFragment(scope, "al.instance_id");
   return asRows<{
     instance_id: string;
     name: string;
@@ -515,10 +515,10 @@ async function getInstanceComparison(
 // ── Main Aggregator ─────────────────────────────────────────────────
 
 export async function getAnalytics(
+  scope: TenantScope,
   range: DateRange,
   instanceId?: InstanceSlug,
   includeInstanceComparison = false,
-  orgId?: string,
 ): Promise<AnalyticsData> {
   const [
     overview,
@@ -530,14 +530,14 @@ export async function getAnalytics(
     toolUsage,
     instanceComparison,
   ] = await Promise.all([
-    getOverviewStats(range, instanceId, orgId),
-    getDailyTrend(range, instanceId, orgId),
-    getHourlyDistribution(range, instanceId, orgId),
-    getChannelDistribution(range, instanceId, orgId),
-    getModelDistribution(range, instanceId, orgId),
-    getTierDistribution(range, instanceId, orgId),
-    getToolUsage(range, instanceId, orgId),
-    includeInstanceComparison ? getInstanceComparison(range, orgId) : Promise.resolve(undefined),
+    getOverviewStats(scope, range, instanceId),
+    getDailyTrend(scope, range, instanceId),
+    getHourlyDistribution(scope, range, instanceId),
+    getChannelDistribution(scope, range, instanceId),
+    getModelDistribution(scope, range, instanceId),
+    getTierDistribution(scope, range, instanceId),
+    getToolUsage(scope, range, instanceId),
+    includeInstanceComparison ? getInstanceComparison(scope, range) : Promise.resolve(undefined),
   ]);
 
   return {

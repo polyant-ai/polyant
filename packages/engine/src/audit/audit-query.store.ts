@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { type DateRange, toISO, asRows, instanceFilter } from "../utils/query-helpers.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
-import { buildOrgScopedAgentFilterFragment } from "../authz/scope-filter.js";
+import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/scope-filter.js";
 
 export type { DateRange };
 
@@ -50,7 +50,7 @@ export async function listAuditLogs(opts: {
   to?: Date;
   limit?: number;
   offset?: number;
-  orgId?: string;
+  scope: TenantScope;
 }): Promise<AuditLogListResult> {
   const limit = Math.min(opts.limit ?? 50, 200);
   const offset = opts.offset ?? 0;
@@ -58,7 +58,7 @@ export async function listAuditLogs(opts: {
   const instFilt = instanceFilter(opts.instanceId);
   // Cross-org gate: aggregate audit lists stay scoped to the caller-org agents;
   // a foreign-org instanceId param yields zero rows.
-  const orgFilt = buildOrgScopedAgentFilterFragment(opts.orgId);
+  const orgFilt = buildOrgScopedAgentFilterFragment(opts.scope);
   const toolFilt = opts.toolName ? sql`AND tool_name = ${opts.toolName}` : sql``;
   const actionFilt = opts.action ? sql`AND action = ${opts.action}` : sql``;
   const searchFilt = opts.search
@@ -116,10 +116,10 @@ export async function getAuditStats(opts: {
   instanceId?: InstanceSlug;
   from?: Date;
   to?: Date;
-  orgId?: string;
+  scope: TenantScope;
 }): Promise<AuditStatsResult> {
   const instFilt = instanceFilter(opts.instanceId);
-  const orgFilt = buildOrgScopedAgentFilterFragment(opts.orgId);
+  const orgFilt = buildOrgScopedAgentFilterFragment(opts.scope);
   const fromFilt = opts.from ? sql`AND created_at >= ${toISO(opts.from)}` : sql``;
   const toFilt = opts.to ? sql`AND created_at <= ${toISO(opts.to)}` : sql``;
 
