@@ -58,12 +58,29 @@ export const ALL_TENANTS = Symbol("tenant-scope:all-tenants");
  * i.e. the same declaration reconciled at every merge, on the one file where a
  * silent revert changes who can read whose rows.
  */
-export type TenantScope =
+declare const tenantScopeBrand: unique symbol;
+
+/**
+ * The brand. It makes a `TenantScope` unforgeable by shape: an object literal
+ * with the right fields no longer satisfies the type, so a scope can only come
+ * from one of the constructors below.
+ *
+ * Without it the union was structural, and `{ organizationId: someString }`
+ * written anywhere — a controller in a hurry, a test double, a body that
+ * happened to carry the field — was a scope. The constructors are where the
+ * tenancy decision is meant to be visible; the brand is what makes going around
+ * them a compile error rather than a habit.
+ */
+type TenantScopeBrand = { readonly [tenantScopeBrand]: true };
+
+export type TenantScope = (
   | { readonly organizationId: string }
   | { readonly organizationId: string; readonly workspaceIds: ReadonlySet<string> }
   | { readonly workspaceId: string }
   | { readonly workspaceIds: ReadonlySet<string> }
-  | { readonly allTenants: typeof ALL_TENANTS; readonly reason: string };
+  | { readonly allTenants: typeof ALL_TENANTS; readonly reason: string }
+) &
+  TenantScopeBrand;
 
 /**
  * The scope of one organization. This is the constructor a request path uses,
@@ -75,7 +92,7 @@ export type TenantScope =
  * helper reaching for it late.
  */
 export function orgScope(organizationId: string): TenantScope {
-  return { organizationId };
+  return { organizationId } as TenantScope;
 }
 
 /**
@@ -94,12 +111,12 @@ export function orgWorkspacesScope(
   organizationId: string,
   workspaceIds: ReadonlySet<string>,
 ): TenantScope {
-  return { organizationId, workspaceIds };
+  return { organizationId, workspaceIds } as TenantScope;
 }
 
 /** The scope of one workspace. Produced only where a workspace is authoritative. */
 export function workspaceScope(workspaceId: string): TenantScope {
-  return { workspaceId };
+  return { workspaceId } as TenantScope;
 }
 
 /**
@@ -107,7 +124,7 @@ export function workspaceScope(workspaceId: string): TenantScope {
  * workspace, and it stays fail-closed: it is not a shortcut for "all".
  */
 export function workspaceSetScope(workspaceIds: ReadonlySet<string>): TenantScope {
-  return { workspaceIds };
+  return { workspaceIds } as TenantScope;
 }
 
 /**
@@ -117,7 +134,7 @@ export function workspaceSetScope(workspaceIds: ReadonlySet<string>): TenantScop
  * intended cross-tenant read from a missing argument.
  */
 export function allTenantsScope(reason: string): TenantScope {
-  return { allTenants: ALL_TENANTS, reason };
+  return { allTenants: ALL_TENANTS, reason } as TenantScope;
 }
 
 /**
