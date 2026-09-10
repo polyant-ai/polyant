@@ -2,7 +2,8 @@
 
 import { Controller, Get, Param, Res, NotFoundException } from "@nestjs/common";
 import type { Response } from "express";
-import { getAttachmentStream, isPlatformStorageConfigured } from "../../attachments/platform-storage.js";
+import { getAttachmentStream } from "../../attachments/agent-storage.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 import { callerMayAccessAgent, type AgentAccessCaller } from "../../authz/agent-tenancy.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
@@ -28,9 +29,12 @@ export class AttachmentsController {
     @Res() res: Response,
     @CurrentUser() caller?: AgentAccessCaller,
   ): Promise<void> {
-    if (!isPlatformStorageConfigured()) {
-      throw new NotFoundException("Attachment storage not configured");
-    }
+    // No "is storage configured" pre-check any more: whether it is depends on
+    // the AGENT, which is named by the key — and the key is not trustworthy until
+    // the two checks below have passed. Storage that turns out to be absent
+    // surfaces as the same 404 as a missing object, which is also the honest
+    // answer: the caller may not learn from the status code whether an agent has
+    // a bucket.
 
     // Security: reject path traversal and enforce expected key structure
     if (s3Key.includes("..") || !KEY_PATTERN.test(s3Key)) {
@@ -42,12 +46,20 @@ export class AttachmentsController {
     // authorizes the caller at its own org level and nothing ties the agent slug
     // embedded in the key to the caller's tenancy. `getAttachmentStream` is a raw
     // GetObject with no scoping either, so this is the only place to check.
-    if (!(await callerMayAccessAgent(s3Key.split("/")[1], caller))) {
+    const agentSlug = s3Key.split("/")[1];
+    if (!(await callerMayAccessAgent(agentSlug, caller))) {
       throw notFound();
     }
 
     try {
-      const { body, contentType, contentLength } = await getAttachmentStream(s3Key);
+      // The bucket is the one belonging to the agent the key names — the same
+      // agent whose ownership was just verified. Taking it from the key rather
+      // than from a second source is what keeps the check and the read from
+      // disagreeing about which tenant's bytes these are.
+      const { body, contentType, contentLength } = await getAttachmentStream(
+        asInstanceSlug(agentSlug),
+        s3Key,
+      );
 
       res.setHeader("Content-Type", contentType);
       res.setHeader("Cache-Control", "private, max-age=3600");

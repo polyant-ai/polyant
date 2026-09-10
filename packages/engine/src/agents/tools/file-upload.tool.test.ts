@@ -45,7 +45,17 @@ describe("fileUpload tool", () => {
   it("registers with correct metadata", () => {
     expect(def.name).toBe("fileUpload");
     expect(def.category).toBe("storage");
-    expect(def.requiredSecrets.map((s) => s.key)).toEqual(["aws_access_key_id", "aws_secret_access_key", "aws_region", "s3_bucket_name"]);
+    // The bucket and the region first because they are the unconditional pair;
+    // the credentials are one of two shapes and `s3_endpoint` is for an
+    // S3-compatible server. `attachments/agent-s3.ts` decides between them.
+    expect(def.requiredSecrets.map((s) => s.key)).toEqual([
+      "s3_bucket_name",
+      "aws_region",
+      "aws_access_key_id",
+      "aws_secret_access_key",
+      "s3_use_task_role",
+      "s3_endpoint",
+    ]);
   });
 
   // Happy path: upload from attachment

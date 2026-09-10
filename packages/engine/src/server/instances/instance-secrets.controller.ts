@@ -16,6 +16,7 @@ import {
   toManagementAuditActor,
 } from "../../management-audit/management-audit-logger.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { invalidateAgentS3 } from "../../attachments/agent-storage.js";
 
 const PutSecretsSchema = z.object({
   secrets: z
@@ -78,6 +79,10 @@ export class InstanceSecretsController {
     // Embedding context (provider credentials, e.g. aws_region / openai_api_key)
     // is cached separately; invalidate it too or embeds can fail for up to 30s.
     invalidateEmbeddingContext(instance.id, slug);
+    // The agent's S3 client is built once from these same secrets and cached, so
+    // a rotated key would keep the old client until a restart — and the writes
+    // would keep failing against a credential nobody is using any more.
+    invalidateAgentS3(asInstanceSlug(slug));
     const secrets = await listSecretKeys(asInstanceSlug(slug));
     return { secrets };
   }
@@ -100,6 +105,7 @@ export class InstanceSecretsController {
     });
     invalidateInstanceConfigCache(asInstanceSlug(slug));
     invalidateEmbeddingContext(instance.id, slug);
+    invalidateAgentS3(asInstanceSlug(slug));
     return { deleted: true };
   }
 }

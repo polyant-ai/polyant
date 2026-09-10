@@ -23,3 +23,50 @@ IS; this file says why, and what breaks when it is ignored.
 - **Title generation is shared**: `packages/engine/src/utils/title-generator.ts` provides `generateConversationTitle()` used by both the main pipeline (`index.ts`) and the room engine. Never duplicate the title prompt inline
 
 - **`gitCloneRepo` credential lifecycle (#87)**: the GitHub token and the credential helper are written to `.git/polyant-token` (mode 0600) and `.git/polyant-askpass.sh` (mode 0700) inside each cloned workspace so that subsequent git operations (push/fetch by Claude Code) can authenticate. Both files are removed automatically by `cleanupRepo()` when the conversation ends and by `cleanupStaleRepos()` (stale threshold: 2h). **Trade-off**: while the workspace exists, the token is at rest on disk. Workspaces must be treated as ephemeral sandbox state: never backup/rsync/tar/commit them, never expose `workspaces/<instanceId>/` via any external share. A warning is logged if a leftover `.git/polyant-token` is detected during stale cleanup — that signals a crashed prior run
+
+
+## Object storage: the agent's bucket, and the credential mode
+
+`PLATFORM_S3_BUCKET` and its three companions were the deployment's answer to
+"where do attachments go": one bucket for every tenant on the installation,
+configured by an environment variable **no deployment ever set** — so no
+attachment was ever stored, on any installation, and the panel's attachment view
+could not render. The tier was wrong as well as unused: a bucket is something a
+tenant owns, alongside the credentials that reach it.
+
+It is now the agent's, from the secrets `fileUpload` already declared —
+`s3_bucket_name` and `aws_region`, plus one of two credential shapes — and
+`attachments/agent-s3.ts` resolves it for both the tool and attachment
+persistence. One bucket per agent, so the two can never disagree about where an
+agent's files live.
+
+**The credential mode is decided explicitly, and the four branches are not
+symmetric:**
+
+- both static keys present → use them
+- exactly ONE present → a configuration error. Falling through to the task role
+  would mask the missing half AND perform the write under an identity nobody
+  chose for that agent
+- neither, with `s3_use_task_role` → the default provider chain, i.e. the ECS
+  task role, for a bucket whose policy trusts that role
+- neither, without the opt-in → refuse. The task role is a SHARED identity:
+  reaching it has to be a per-agent decision, or one agent's write lands under
+  an identity that belongs to the installation
+
+`s3_endpoint` targets an S3-compatible server (MinIO, Cloudflare R2) and also
+switches the client to **path-style** addressing: those servers do not resolve
+bucket-as-subdomain, so the SDK's virtual-host default reaches a host that does
+not exist. The `fileUpload` tool builds its returned URL the same way, or it
+would hand back a link nobody can open.
+
+**Two things worth knowing before relying on any of this.** The bytes never
+gated the agent's own sight of an attachment — they reach the model inline — so
+storage decides only whether a file can be reopened afterwards. And stored
+objects are NOT covered by `retention/purge.store.ts`: they outlive the
+conversation rows that reference them, which is known, unfixed, and worse
+per-agent than it was per-platform, because an erasure now has to reach N
+buckets whose credentials live in N encrypted rows.
+
+The client is cached per agent, so `instance-secrets.controller.ts` calls
+`invalidateAgentS3` on every write and delete: a rotated key would otherwise keep
+failing against a credential nobody is using any more, until a restart.

@@ -181,13 +181,6 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
     password: z.string().optional(),
   }),
 
-  // Platform S3 (conversation attachment storage — optional, attachments not persisted if missing)
-  platformS3: z.object({
-    bucket: z.string(),
-    region: z.string(),
-    accessKeyId: z.string(),
-    secretAccessKey: z.string(),
-  }).optional(),
 
   // Inbound message coordinator (WhatsApp/Telegram). Collapses burst fragments
   // and cancels in-flight pipelines when a new fragment arrives.
@@ -354,12 +347,6 @@ function loadConfig(): Config {
       email: process.env.INITIAL_ADMIN_EMAIL,
       password: process.env.INITIAL_ADMIN_PASSWORD,
     },
-    platformS3: process.env.PLATFORM_S3_BUCKET ? {
-      bucket: process.env.PLATFORM_S3_BUCKET,
-      region: process.env.PLATFORM_S3_REGION,
-      accessKeyId: process.env.PLATFORM_S3_ACCESS_KEY_ID,
-      secretAccessKey: process.env.PLATFORM_S3_SECRET_ACCESS_KEY,
-    } : undefined,
     coordinator: {
       softDebounceMs: process.env.MESSAGE_SOFT_DEBOUNCE_MS,
       typingDelayMs: process.env.MESSAGE_TYPING_DELAY_MS,

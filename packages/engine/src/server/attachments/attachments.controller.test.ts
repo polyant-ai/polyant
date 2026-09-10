@@ -16,19 +16,16 @@ import type { Response } from "express";
 
 const {
   mockGetAttachmentStream,
-  mockIsConfigured,
   mockResolvePrincipalOrgId,
   mockReadAgentScope,
 } = vi.hoisted(() => ({
   mockGetAttachmentStream: vi.fn(),
-  mockIsConfigured: vi.fn(() => true),
   mockResolvePrincipalOrgId: vi.fn(),
   mockReadAgentScope: vi.fn(),
 }));
 
-vi.mock("../../attachments/platform-storage.js", () => ({
+vi.mock("../../attachments/agent-storage.js", () => ({
   getAttachmentStream: mockGetAttachmentStream,
-  isPlatformStorageConfigured: mockIsConfigured,
 }));
 
 // The org-resolution rule is shared with the agent create/list paths (and unit
@@ -79,7 +76,6 @@ function makeController(scopeOrg: string | null) {
 describe("AttachmentsController.getAttachment", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockIsConfigured.mockReturnValue(true);
     // Default: the claim on the principal is authoritative.
     mockResolvePrincipalOrgId.mockImplementation(async (orgId?: string) => orgId ?? null);
     mockGetAttachmentStream.mockResolvedValue({
@@ -107,7 +103,7 @@ describe("AttachmentsController.getAttachment", () => {
     await controller.getAttachment(KEY_A, res, { orgId: ORG_A });
 
     expect(resolveAgentScope).toHaveBeenCalledWith("agent-a");
-    expect(mockGetAttachmentStream).toHaveBeenCalledWith(KEY_A);
+    expect(mockGetAttachmentStream).toHaveBeenCalledWith("agent-a", KEY_A);
     expect(res.setHeader).toHaveBeenCalledWith("Content-Type", "image/png");
   });
 
@@ -143,7 +139,7 @@ describe("AttachmentsController.getAttachment", () => {
 
     await controller.getAttachment(KEY_A, makeRes(), {});
 
-    expect(mockGetAttachmentStream).toHaveBeenCalledWith(KEY_A);
+    expect(mockGetAttachmentStream).toHaveBeenCalledWith("agent-a", KEY_A);
   });
 
   it("should return 404 when the agent scope lookup throws (fail closed)", async () => {
@@ -168,7 +164,7 @@ describe("AttachmentsController.getAttachment", () => {
 
       // Decided on the slug alone — an instance principal carries no org.
       expect(resolveAgentScope).not.toHaveBeenCalled();
-      expect(mockGetAttachmentStream).toHaveBeenCalledWith(KEY_A);
+      expect(mockGetAttachmentStream).toHaveBeenCalledWith("agent-a", KEY_A);
     });
 
     it("should return 404 when the key belongs to a different instance", async () => {
@@ -212,15 +208,21 @@ describe("AttachmentsController.getAttachment", () => {
       expect(mockGetAttachmentStream).not.toHaveBeenCalled();
     });
 
-    it("should return 404 when platform storage is not configured", async () => {
-      mockIsConfigured.mockReturnValue(false);
+    it("should return 404 when the agent has no storage configured", async () => {
+      // There is no "is storage configured" pre-check any more: whether it is
+      // depends on the AGENT, and the agent is named by a key that is not
+      // trustworthy until the ownership check has passed. So an agent with no
+      // bucket surfaces as the same 404 as a missing object — which is also the
+      // honest answer, since the status code must not tell a caller whether an
+      // agent has storage at all.
+      mockGetAttachmentStream.mockRejectedValueOnce(
+        new Error('Agent "agent-a" has no attachment storage configured'),
+      );
       const { controller } = makeController(ORG_A);
 
       await expect(
         controller.getAttachment(KEY_A, makeRes(), { orgId: ORG_A }),
       ).rejects.toBeInstanceOf(NotFoundException);
-
-      expect(mockGetAttachmentStream).not.toHaveBeenCalled();
     });
   });
 });
