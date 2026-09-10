@@ -156,7 +156,7 @@ export async function resolveOAuthCredentials(
  *  the engine (not proxied through the web app), so this is the engine origin.
  *  Each provider registers its OWN callback: <base>/oauth/<name>/callback. */
 function redirectUri(providerName: string): string {
-  const base = config.server.baseUrl ?? `http://localhost:${config.server.port}`;
+  const base = config.server.baseUrl;
   return `${base.replace(/\/+$/, "")}/oauth/${providerName}/callback`;
 }
 

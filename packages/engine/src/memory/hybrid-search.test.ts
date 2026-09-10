@@ -144,26 +144,6 @@ describe("hybridSearch", () => {
     expect(decimals.length).toBeLessThanOrEqual(4);
   });
 
-  it("uses default instanceId when not provided", async () => {
-    mockSearchByVector.mockResolvedValue([]);
-    mockSearchByKeyword.mockResolvedValue([]);
-
-    await hybridSearch("test query");
-
-    expect(mockEmbed).toHaveBeenCalledWith("test query", expect.objectContaining({ dimensions: 1024 }));
-    expect(mockSearchByVector).toHaveBeenCalledWith(
-      [0.1, 0.2, 0.3],
-      "test-default-user",
-      expect.any(Number),
-      1024,
-    );
-    expect(mockSearchByKeyword).toHaveBeenCalledWith(
-      "test query",
-      "test-default-user",
-      expect.any(Number),
-    );
-  });
-
   it("handles semantic backend error gracefully", async () => {
     mockSearchByVector.mockRejectedValue(new Error("pgvector down"));
     mockSearchByKeyword.mockResolvedValue([

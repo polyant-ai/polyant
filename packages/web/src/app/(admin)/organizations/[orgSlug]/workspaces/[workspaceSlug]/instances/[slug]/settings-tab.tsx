@@ -311,8 +311,8 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
   // The client-side "is the embedder configured" rule used to live here, unused
   // since the knowledge switch moved to its own tab. It is gone: the engine reports
   // it on `instance.embedder`, which the Knowledge tab reads. Recomputing it in the
-  // browser was also subtly wrong — the client cannot see the engine's AWS_REGION
-  // fallback.
+  // browser was also subtly wrong — the rule's inputs are encrypted secrets the
+  // client never receives.
 
   /*
     Which provider sections Credenziali renders: EVERY one of them, whatever this

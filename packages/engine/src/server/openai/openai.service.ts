@@ -9,7 +9,6 @@ import type {
   ChatCompletionResponse,
   ChatCompletionMessage,
 } from "./openai.types.js";
-import { DEFAULT_INSTANCE_ID } from "../../config.js";
 import {
   findInstanceBySlug,
   listActiveInstances,
@@ -153,9 +152,11 @@ export class OpenAIService {
       Dropping them at the source is what makes the fix real: filtering only
       `toModelMessages` would have left this second path intact.
     */
-    // Use the model field as instance slug (falls back to default).
-    // `request.model` is the client-chosen instance slug; its existence is validated downstream by findInstanceBySlug.
-    const instanceId = request.model ? asInstanceSlug(request.model) : DEFAULT_INSTANCE_ID;
+    // The model field IS the instance slug. Shape is already guaranteed:
+    // `openai.controller.ts` validates it against MODEL_SLUG_RE and answers 400
+    // before this runs, so there is nothing to fall back to. Existence is
+    // checked downstream by findInstanceBySlug.
+    const instanceId = asInstanceSlug(request.model);
 
     const channelId = this.deriveChannelId(messages, chat_id);
 

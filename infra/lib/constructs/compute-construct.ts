@@ -122,7 +122,6 @@ export class ComputeConstruct extends Construct {
         DATETIME_LOCALE: props.appConfig.locale,
         // When ALB OIDC auth is configured, engine trusts x-amzn-oidc-data
         // headers instead of requiring its own Auth.js session.
-        ...(props.auth ? { AUTH_MODE: "alb-oidc" } : {}),
       },
       secrets: {
         POSTGRES_HOST: ecs.Secret.fromSecretsManager(props.dbSecret, "host"),
@@ -175,7 +174,7 @@ export class ComputeConstruct extends Construct {
         // (no decrypt → no MissingSecret throw), so AUTH_SECRET is not needed.
         // AUTH_TRUST_HOST tells Auth.js to trust X-Forwarded-Host behind the ALB.
         ...(props.auth
-          ? { AUTH_MODE: "alb-oidc", AUTH_TRUST_HOST: "true" }
+          ? { AUTH_TRUST_HOST: "true" }
           : {}),
       },
       logging: ecs.LogDrivers.awsLogs({

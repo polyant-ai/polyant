@@ -5,15 +5,27 @@ import { resolve, dirname, basename, join, sep, isAbsolute } from "node:path";
 import { mkdir, realpath } from "node:fs/promises";
 
 const __sharedDir = dirname(fileURLToPath(import.meta.url));
-const ENGINE_ROOT = resolve(__sharedDir, "../../../..");
 
 /**
- * Root directory for per-conversation sandboxed workspaces.
+ * Root directory for per-conversation sandboxed workspaces, and the ONLY place
+ * it is decided — `workspace/index.ts` imports this rather than re-deriving it.
  * Layout: {OA_WORKSPACES_ROOT}/{instanceId}/conversations/{conversationId}/
+ *
+ * Derived from this file's own location instead of a literal absolute path, so
+ * the same code resolves `packages/engine/workspaces` whether it runs from
+ * `src/` under tsx or from `dist/` under node.
+ *
+ * CONVENTION-EXCEPTION: `WORKSPACES_ROOT` is a TEST SEAM, not deployment
+ * configuration, and is deliberately absent from `.env.example`. The constant is
+ * captured at module load, so `read-file.tool.fifo.test.ts` — which needs a real
+ * filesystem outside the repo to create a FIFO — can only redirect it by setting
+ * the variable before importing the tool. Nothing a deployment runs reads it: the
+ * directory holds a conversation's scratch space, which no deployment needs to
+ * place elsewhere or keep.
  */
 export const OA_WORKSPACES_ROOT = process.env.WORKSPACES_ROOT
   ? resolve(process.env.WORKSPACES_ROOT)
-  : resolve(ENGINE_ROOT, "workspaces");
+  : resolve(__sharedDir, "../../../..", "workspaces");
 
 const INSTANCE_ID_RE = /^[a-z0-9][a-z0-9-]*$/;
 

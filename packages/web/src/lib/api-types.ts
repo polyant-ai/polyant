@@ -135,9 +135,9 @@ export interface Instance {
    * reports all-false whenever memory is off and therefore cannot speak for an
    * agent that uses only knowledge.
    *
-   * Computed by the engine because the browser cannot see the `AWS_REGION` env
-   * fallback: a client-side copy of this rule reports a false "AWS credentials
-   * needed" for a bedrock agent whose embeddings actually work.
+   * Computed by the engine because the rule's inputs are the agent's encrypted
+   * secrets, which never reach the browser: a client-side copy reports a false
+   * "AWS credentials needed" for a bedrock agent whose embeddings actually work.
    */
   embedder?: {
     needsCredentials: boolean;

@@ -22,21 +22,17 @@ import {
   primaryKey,
 } from "drizzle-orm/pg-core";
 import { authConfig } from "./auth.config";
+import { databaseSslFromEnv, databaseUrlFromEnv } from "./db-url";
 import {
   resolveSignInOrgId,
   type OrgProvisioningPort,
 } from "./org-provisioning";
-import { isEmailDomainAllowed, parseAllowedDomains } from "./auth-domain-allowlist";
-
-const connectionString = process.env.DATABASE_URL ??
-  `postgres://${process.env.POSTGRES_USER ?? "polyant"}:${process.env.POSTGRES_PASSWORD ?? ""}@${process.env.POSTGRES_HOST ?? "localhost"}:${process.env.POSTGRES_PORT ?? "5432"}/${process.env.POSTGRES_DB ?? "polyant"}`;
 
 // Aurora/managed Postgres rejects unencrypted connections (pg_hba "no
-// encryption"). Mirror the engine client: enable SSL when POSTGRES_SSL=true,
-// accepting the managed CA chain. Off by default for local dev.
-const queryClient = postgres(connectionString, {
-  ssl: process.env.POSTGRES_SSL === "true" ? { rejectUnauthorized: false } : false,
-});
+// encryption"), so TLS follows POSTGRES_SSL and accepts the managed CA chain.
+// Both rules live in db-url.ts — see the note there on why the panel keeps its
+// own copy of the engine's assembly.
+const queryClient = postgres(databaseUrlFromEnv(), { ssl: databaseSslFromEnv() });
 const db = drizzle(queryClient);
 
 /**
@@ -206,25 +202,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     ...authConfig.callbacks,
     jwt: jwtWithOrg,
-    /**
-     * Per-org sign-in domain allowlist (RBAC Stream 8 — OSS path).
-     *
-     * Runs in the Node runtime (this file is the full server-side config) so
-     * the allowlist env vars are read here, NOT in the Edge `auth.config.ts`.
-     * Restricts Google sign-in to the configured domain(s); credentials login
-     * (no `account.provider === "google"`) bypasses the check. There is no
-     * hardcoded domain — every tenant is configured via `AUTH_ALLOWED_DOMAIN`.
-     */
-    signIn(params) {
-      const { account, profile } = params;
-      if (account?.provider === "google") {
-        const allowList = parseAllowedDomains();
-        if (!isEmailDomainAllowed(profile?.email, allowList)) {
-          return false;
-        }
-      }
-      return true;
-    },
+    // No `signIn` callback. It used to refuse a federated sign-in whose email
+    // domain was outside `AUTH_ALLOWED_DOMAIN(S)` — one list for the whole
+    // installation, which cannot answer the question for a second tenant, and a
+    // security control an operator had no way to see. The list belongs to the
+    // ORGANIZATION; the comparison it needs stays in `auth-domain-allowlist.ts`.
   },
   // No `events.createUser`. It used to provision the default-org membership and
   // the OWNER binding the moment the adapter created a user, so a first OAuth

@@ -27,15 +27,16 @@ export interface AuthenticatedUser {
   principalType: "user";
   // The resolved organization the request acts within. Injected into the JWT at
   // sign-in (web `jwt()` callback) and read back here. Optional because legacy
-  // tokens issued before this claim existed (and gateway-forwarded identities)
-  // carry no `orgId` until they are re-minted.
+  // tokens issued before this claim existed carry no `orgId` until re-minted.
   orgId?: string;
-  // In session mode (Auth.js) the engine owns the user record and `mustChangePassword`
-  // is always populated. In gateway-authenticated modes (`alb-oidc`, future GCP IAP, …) the
-  // engine has no local user row — identity is forwarded by the gateway. Platform-admin
-  // standing is never carried here (see the note above `principalType`): it is resolved
-  // from `users.is_platform_admin` per request by whatever checks `@PlatformAdminOnly()`.
+  // The engine owns the user record, so this is always populated for a human
+  // principal. Platform-admin standing is never carried here (see the note above
+  // `principalType`): it is resolved from `users.is_platform_admin` per request
+  // by whatever checks `@PlatformAdminOnly()`.
   mustChangePassword?: boolean;
   groups?: string[];
-  source?: "session" | "alb-oidc";
+  // Kept as a one-value union rather than dropped: it distinguishes a human
+  // session from the other principal kinds at a glance, and a future
+  // gateway-forwarded identity would add a member here, not a field.
+  source?: "session";
 }

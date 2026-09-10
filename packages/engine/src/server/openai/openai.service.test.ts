@@ -216,17 +216,6 @@ describe("OpenAIService", () => {
       expect(result.instanceId).toBe("my-custom-instance");
     });
 
-    it("falls back to DEFAULT_INSTANCE_ID when model is empty", () => {
-      const service = new OpenAIService();
-      const request = makeRequest(
-        [{ role: "user", content: "hi" }],
-        { model: "" },
-      );
-
-      const result = callPrepareRequest(service, request);
-      expect(result.instanceId).toBe("default-instance");
-    });
-
     it("returns empty text when no user messages exist", () => {
       const service = new OpenAIService();
       const request = makeRequest([

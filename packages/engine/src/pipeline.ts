@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ModelMessage } from "ai";
-import { config, DEFAULT_INSTANCE_ID } from "./config.js";
+import { config } from "./config.js";
 import type { InstanceSlug } from "./instances/identifiers.js";
 import { chat } from "./ai-gateway/index.js";
 import type { CostBreakdown } from "./ai-gateway/types.js";
@@ -129,7 +129,7 @@ export async function preparePipeline(
   conversationIdOverride?: string | null,
 ): Promise<PipelineContext> {
   const pipelineStart = Date.now();
-  const instanceId: InstanceSlug = msg.instanceId || DEFAULT_INSTANCE_ID;
+  const instanceId: InstanceSlug = msg.instanceId;
   pipelineLog.request(msg.channelType, instanceId, msg.text);
 
   const conversationId = conversationIdOverride

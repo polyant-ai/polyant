@@ -187,7 +187,7 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
   }
 
   // Retrieval and memory both embed, so both die the same way. The engine reports
-  // this on the instance — a client-side rule would not see the AWS_REGION fallback.
+  // this on the instance — a client-side rule cannot read the encrypted secrets.
   if (
     (instance.knowledgeEnabled && instance.embedder?.needsCredentials) ||
     (instance.memoryEnabled && instance.memory?.needsOpenAIKey)

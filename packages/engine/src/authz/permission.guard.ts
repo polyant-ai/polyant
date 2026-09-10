@@ -106,11 +106,12 @@ function isUserPrincipal(p: Principal): p is UserPrincipal {
  * is what the flag was buying time for. So the flag is gone, not defaulted: a
  * switch that turns authorization off is not a thing to leave lying around.
  *
- * CONSEQUENCE for `AUTH_MODE=alb-oidc`: a gateway-forwarded principal carries no
- * `orgId` (`auth/alb-oidc.service.ts` cannot map the Cognito `sub` onto a local
- * user) and holds no `role_bindings`, so it resolves no scope and is denied on
- * every `@RequirePermission` route — with no flag to fall back to. Gateway mode
- * needs that identity mapping before it can be used; see CLAUDE.md.
+ * This is also what retired gateway-authenticated mode (`AUTH_MODE=alb-oidc`,
+ * deleted): a gateway-forwarded principal had no local user row, so it resolved
+ * no `orgId`, held no `role_bindings`, and was denied on every
+ * `@RequirePermission` route — with no flag left to fall back to. Any future
+ * gateway mode has to map the forwarded identity onto a local user first.
+ * See ADR-0001.
  */
 @Injectable()
 export class PermissionGuard implements CanActivate {

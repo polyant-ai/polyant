@@ -83,13 +83,20 @@ export const BedrockProvider = createProvider(
     const apiKey = apiKeys?.bedrock_api_key?.trim();
     const accessKeyId = apiKeys?.bedrock_access_key_id?.trim();
     const secretAccessKey = apiKeys?.bedrock_secret_access_key?.trim();
-    // CONVENTION-EXCEPTION: process.env.AWS_REGION read directly. It is the
-    // deployment's own region, resolved per CALL after the per-instance secret
-    // and before the hardcoded fallback — config.ts is loaded once at boot and
-    // would freeze a value the instance is allowed to override. This is the read
-    // that embeddings-gateway/provider-resolver.ts and
-    // server/memories/memory-status.ts name as the original.
-    const region = apiKeys?.bedrock_region?.trim() || process.env.AWS_REGION?.trim() || "us-east-1";
+    // The region is PER-AGENT (`aws_provider_region`, surfaced here as
+    // `bedrock_region`) and has no deployment-wide fallback: refusing is the
+    // point. The `us-east-1` default that used to sit here was silently wrong
+    // for this catalog, whose Bedrock tiers are `eu.*` inference profiles that
+    // region does not serve — so an agent with no region configured raised a
+    // ValidationException per call instead of naming the missing setting. The
+    // embedder already refused on the same input (`provider-resolver.ts`); the
+    // two halves of one agent now fail the same way.
+    const region = apiKeys?.bedrock_region?.trim();
+    if (!region) {
+      throw new Error(
+        "AWS region is required for Bedrock. Configure the AWS provider region in Settings → AI Provider.",
+      );
+    }
 
     // Per-instance Bedrock API key (bearer token) is the primary auth path and
     // takes precedence over SigV4 — it bypasses AWS credential signing entirely.

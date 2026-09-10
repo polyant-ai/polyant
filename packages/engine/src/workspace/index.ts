@@ -1,19 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { existsSync, rmSync } from "fs";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
-import { sanitizeConversationId } from "../agents/tools/shared/workspace-utils.js";
-
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT
-  ? resolve(process.env.WORKSPACES_ROOT)
-  : resolve(__dirname, "../../workspaces");
+import { resolve } from "path";
+import {
+  OA_WORKSPACES_ROOT as WORKSPACES_ROOT,
+  sanitizeConversationId,
+} from "../agents/tools/shared/workspace-utils.js";
 
 // ---------------------------------------------------------------------------
 // Validation

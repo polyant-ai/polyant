@@ -54,7 +54,7 @@ export class A2aHandlerRegistry {
     const instance = await findInstanceBySlug(slug);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
 
-    const baseUrl = config.server.baseUrl ?? `http://localhost:${config.server.port}`;
+    const baseUrl = config.server.baseUrl;
     const card = buildAgentCard(instance, baseUrl);
     const executor = createPolyantExecutor(slug, this.streamHandler, this.aborts);
     const handler = new DefaultRequestHandler(card, this.taskStore.viewFor(slug), executor);

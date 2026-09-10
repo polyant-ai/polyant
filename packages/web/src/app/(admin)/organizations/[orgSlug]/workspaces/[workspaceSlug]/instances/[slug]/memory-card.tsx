@@ -78,7 +78,7 @@ export function MemoryCard({
 
       {/* Memory embeds every extracted fact, so it needs embedder credentials. The
           engine reports the state on the instance; a client-side copy of the rule
-          would not see the AWS_REGION fallback. */}
+          cannot read the encrypted secrets it depends on. */}
       {enabled && instance.memory?.needsOpenAIKey && (
         <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />

@@ -50,10 +50,9 @@ export async function computeEmbedderReadiness(instance: Instance): Promise<Embe
   );
 
   if (embeddingProvider === "bedrock") {
-    // CONVENTION-EXCEPTION: process.env.AWS_REGION read directly to mirror the
-    // engine-level fallback in resolveEmbeddingContext — otherwise the UI reports
-    // "AWS credentials needed" while embeddings actually work via the engine region.
-    const hasRegion = !!secrets[SECRET_KEYS.AWS_PROVIDER_REGION] || !!process.env.AWS_REGION;
+    // Mirrors resolveEmbeddingContext, which requires the per-agent region and
+    // has no engine-level fallback to consult.
+    const hasRegion = !!secrets[SECRET_KEYS.AWS_PROVIDER_REGION];
     return { hasCredentials: hasRegion, dimCompatible };
   }
   return { hasCredentials: !!secrets[SECRET_KEYS.OPENAI_API_KEY], dimCompatible };
@@ -65,9 +64,9 @@ export async function computeEmbedderReadiness(instance: Instance): Promise<Embe
  * agent that has memory switched off.
  *
  * Reported from the ENGINE rather than recomputed in the browser on purpose: the
- * client cannot see the `AWS_REGION` env fallback, so a client-side copy of this
- * rule shows a false "AWS credentials needed" on a bedrock instance that embeds
- * perfectly well through the engine's region.
+ * inputs are the agent's ENCRYPTED secrets, which never reach the client, so a
+ * client-side copy of this rule can only guess — and guesses "AWS credentials
+ * needed" for a bedrock agent that embeds perfectly well.
  */
 export interface EmbedderStatus {
   readonly needsCredentials: boolean;

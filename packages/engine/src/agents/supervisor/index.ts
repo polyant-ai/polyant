@@ -19,7 +19,7 @@ import { createTaskTool } from "../tools/task-tool.js";
 import { buildSupervisorSystemPrompt } from "./prompt.js";
 import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { serializeForLog } from "../../utils/serialize-for-log.js";
-import { config, DEFAULT_INSTANCE_ID } from "../../config.js";
+import { config } from "../../config.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { findInstanceBySlug, findAgentHandoffTargets } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
@@ -39,7 +39,8 @@ import { readAgentScope } from "../../authz/authz.store.js";
 export interface SupervisorInput {
   message: string;
   conversationHistory?: ModelMessage[];
-  instanceId?: InstanceSlug;
+  /** Required: which agent runs the turn. There is no deployment-wide default. */
+  instanceId: InstanceSlug;
   conversationId?: string;
   conversationSummary?: string;
   /** Override AI provider for this instance. */
@@ -506,7 +507,7 @@ export function buildUserContent(
 }
 
 async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorContext> {
-  const instanceSlug = input.instanceId ?? DEFAULT_INSTANCE_ID;
+  const instanceSlug = input.instanceId;
 
   // Resolve slug → UUID for DB queries
   const instance = await findInstanceBySlug(instanceSlug);
