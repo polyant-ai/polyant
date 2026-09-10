@@ -157,6 +157,7 @@ import { knowledgeDocuments } from "../knowledge/schema.js";
 import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { principalSecrets } from "../conversations/principal-secrets.schema.js";
 import { DEFAULT_EMBEDDING_DIM } from "../embeddings-gateway/config.js";
+import type { TenantScope } from "../authz/scope-filter.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -188,6 +189,15 @@ function mockDefaultWorkspaceSelect() {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+/**
+ * A scope for these tests. This file mocks `scope-filter`, so the real
+ * constructors are not available here and the brand has to be asserted once —
+ * in one place, named, rather than with a cast at every call site.
+ */
+function testScope(shape: Record<string, unknown>): TenantScope {
+  return shape as unknown as TenantScope;
+}
+
 describe("instances/store", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -201,7 +211,7 @@ describe("instances/store", () => {
       const chain = createChainMock([fakeInstance]);
       mockDb.select.mockReturnValue(chain as any);
 
-      const result = await listActiveInstances({ organizationId: "org-test" });
+      const result = await listActiveInstances(testScope({ organizationId: "org-test" }));
 
       expect(result).toEqual([fakeInstance]);
       expect(mockDb.select).toHaveBeenCalled();
@@ -213,7 +223,7 @@ describe("instances/store", () => {
       const chain = createChainMock([]);
       mockDb.select.mockReturnValue(chain as any);
 
-      const result = await listActiveInstances({ organizationId: "org-test" });
+      const result = await listActiveInstances(testScope({ organizationId: "org-test" }));
 
       expect(result).toEqual([]);
     });
@@ -644,7 +654,7 @@ describe("instances/store", () => {
       const chain = createChainMock([fakeInstance]);
       mockDb.select.mockReturnValue(chain as any);
 
-      await listActiveInstances({ organizationId: "org-a" });
+      await listActiveInstances(testScope({ organizationId: "org-a" }));
 
       expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-a", "slug");
       expect(chain.where).toHaveBeenCalledWith({
