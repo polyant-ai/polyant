@@ -30,7 +30,6 @@ import { getRoomBySlug, type RoomConfig } from "./room/room.store.js";
 import { asInstanceSlug, type InstanceSlug } from "./instances/identifiers.js";
 import { getActiveTrigger } from "./webhooks/active-triggers.js";
 import { findActiveTaskByOutbound } from "./scheduled-tasks/store.js";
-import { isPlatformStorageConfigured } from "./attachments/platform-storage.js";
 import { TtlCache } from "./utils/ttl-cache.js";
 import {
   isMissingApiKeyError,
@@ -123,10 +122,6 @@ async function main() {
   await loadAllHooks();
   console.log("Hook function registry loaded");
 
-  // 1b-i. Check platform S3 configuration
-  if (!isPlatformStorageConfigured()) {
-    console.warn("Platform S3 not configured (PLATFORM_S3_BUCKET) — file attachments will NOT be persisted");
-  }
 
   // 1b-ii. Sync tool registry to DB
   await syncToolsToDb();

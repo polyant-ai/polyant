@@ -20,7 +20,7 @@ import { pipelineLog } from "./utils/pipeline-logger.js";
 import { generateConversationTitle } from "./utils/title-generator.js";
 import { resolveInstanceConfig, type InstanceConfig } from "./instances/config-resolver.js";
 import { traceStore } from "./analytics/trace.store.js";
-import { uploadAttachment, isPlatformStorageConfigured } from "./attachments/platform-storage.js";
+import { uploadAttachment } from "./attachments/agent-storage.js";
 import type { AttachmentMeta, StepDetail, ReasoningDetail, LlmDebugPayload } from "./conversations/schema.js";
 import type { AgentCallMetadata, Attachment, IncomingMessage } from "./channels/types.js";
 import type { ToolCallTrace } from "./analytics/traces.schema.js";
@@ -442,9 +442,12 @@ export function afterResponse(opts: AfterResponseOptions): void {
       }
     }
 
+    // No pre-check: `uploadAttachment` answers `null` for an agent with no
+    // storage configured, which is the ordinary case. Asking first would read
+    // the same secrets twice and give the two reads a chance to disagree.
     let attachmentMetas: AttachmentMeta[] | undefined;
-    if (opts.userAttachments?.length && isPlatformStorageConfigured()) {
-      const results = await Promise.all(
+    if (opts.userAttachments?.length) {
+      const results: (AttachmentMeta | null)[] = await Promise.all(
         opts.userAttachments.map((att) =>
           att.data
             ? uploadAttachment(att.data, {
@@ -457,7 +460,11 @@ export function afterResponse(opts: AfterResponseOptions): void {
             : Promise.resolve(null),
         ),
       );
-      attachmentMetas = results.filter((r): r is AttachmentMeta => r != null);
+      const stored = results.filter((r): r is AttachmentMeta => r != null);
+      // Undefined rather than an empty array when nothing was stored: the column
+      // is nullable and an empty array would read as "there were attachments,
+      // and none of them are here".
+      attachmentMetas = stored.length > 0 ? stored : undefined;
     }
     await conversationStore.appendMessages(opts.conversationId, [
       {
