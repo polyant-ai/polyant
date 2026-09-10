@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { and, asc, desc, eq, sql, inArray } from "drizzle-orm";
-import { db, type DbExecutor } from "../database/client.js";
+import { NO_TRANSACTION, db, type DbExecutor } from "../database/client.js";
 import { seedInstancePrompts } from "./prompts.store.js";
 import { seedInstanceTools } from "./instance-tools.store.js";
 import { seedInstanceSkills } from "./instance-skills.store.js";
@@ -43,7 +43,7 @@ type Executor = Pick<typeof db, "select">;
  */
 export async function resolvePrincipalOrgId(
   orgId: string | undefined,
-  executor: Executor = db,
+  executor: Executor,
 ): Promise<string | null> {
   if (orgId) return orgId;
   // limit(2) — we only need to know whether the deployment is single-org.
@@ -61,7 +61,7 @@ export async function resolvePrincipalOrgId(
  */
 export async function resolveWorkspaceIdForPrincipal(
   orgId: string | undefined,
-  executor: Executor = db,
+  executor: Executor,
   workspaceSlug?: string,
 ): Promise<string> {
   const organizationId = await resolvePrincipalOrgId(orgId, executor);
@@ -255,7 +255,7 @@ export async function ensureInstance(data: {
       name: data.name,
       description: data.description ?? null,
       embeddingDim: DEFAULT_EMBEDDING_DIM,
-      workspaceId: await findDefaultWorkspaceId(),
+      workspaceId: await findDefaultWorkspaceId(NO_TRANSACTION),
     })
     .onConflictDoNothing({ target: instances.slug });
 }
@@ -335,7 +335,7 @@ export async function createInstance(data: {
    * agent under another tenant. Omitted → the organization's default workspace.
    */
   workspaceSlug?: string;
-}, executor: DbExecutor = db): Promise<Instance> {
+}, executor: DbExecutor): Promise<Instance> {
   const rows = await executor
     .insert(instances)
     .values({

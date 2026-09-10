@@ -102,7 +102,7 @@ export async function upsertPrompt(
  */
 export async function seedInstancePrompts(
   instanceId: InstanceUuid,
-  executor: DbExecutor = db,
+  executor: DbExecutor,
 ): Promise<void> {
   await executor
     .insert(instancePrompts)

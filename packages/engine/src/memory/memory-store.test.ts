@@ -3,6 +3,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { orgScope } from "../authz/scope-filter.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
+import { NO_TRANSACTION } from "../database/client.js";
 
 // Chain mock: each chained method returns the chain itself, with the final
 // call returning a resolved promise (or the accumulated result).
@@ -38,6 +39,10 @@ const { mockDb } = vi.hoisted(() => {
 
 vi.mock("../database/client.js", () => ({
   db: mockDb,
+  // `NO_TRANSACTION` IS `db`, named for what a call site means by passing it.
+  get NO_TRANSACTION() {
+    return mockDb;
+  },
 }));
 
 vi.mock("./schema.js", () => ({
@@ -341,7 +346,7 @@ describe("memory-store", () => {
       const delChain = createChainMock([{ id: "m1" }, { id: "m2" }]);
       mockDb.delete.mockReturnValue(delChain as any);
 
-      const count = await deleteAllMemories(asInstanceSlug("user-1"), orgScope("org-test"));
+      const count = await deleteAllMemories(asInstanceSlug("user-1"), orgScope("org-test"), NO_TRANSACTION);
 
       expect(mockDb.delete).toHaveBeenCalled();
       expect(count).toBe(2);

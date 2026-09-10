@@ -36,7 +36,7 @@ export async function resolveOrgIdBySlug(slug: string): Promise<string | null> {
 /** A seeded system role by key (e.g. "owner"), or null when the catalog lacks it. */
 export async function getSystemRoleByKey(
   roleKey: string,
-  executor: DbExecutor = db,
+  executor: DbExecutor,
 ): Promise<{ id: string } | null> {
   const [row] = await executor
     .select({ id: roles.id })
@@ -54,7 +54,7 @@ export async function getSystemRoleByKey(
 export async function getOrgScopeRoleKey(
   organizationId: string,
   userId: string,
-  executor: DbExecutor = db,
+  executor: DbExecutor,
 ): Promise<string | null> {
   const [row] = await executor
     .select({ roleKey: roles.key })
@@ -74,7 +74,7 @@ export async function getOrgScopeRoleKey(
 /** Count the distinct users holding an org-scope Owner binding in an org. */
 export async function countOwnerBindings(
   organizationId: string,
-  executor: DbExecutor = db,
+  executor: DbExecutor,
 ): Promise<number> {
   const [row] = await executor
     .select({ count: sql<number>`count(distinct ${roleBindings.userId})::int` })

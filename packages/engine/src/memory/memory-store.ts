@@ -330,7 +330,7 @@ export async function deleteMemoryForInstance(
 export async function deleteAllMemories(
   instanceId: InstanceSlug,
   scope: TenantScope,
-  executor: DbExecutor = db,
+  executor: DbExecutor,
 ): Promise<number> {
   const conditions = [eq(memories.instanceId, instanceId)];
   conditions.push(tenantScopedAgentCondition(scope));

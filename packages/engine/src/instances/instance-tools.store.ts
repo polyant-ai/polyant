@@ -191,7 +191,7 @@ async function applyToolRowDiff(
  */
 export async function seedInstanceTools(
   instanceId: InstanceUuid,
-  executor: DbExecutor = db,
+  executor: DbExecutor,
 ): Promise<void> {
   const toolRows = await executor
     .select({ id: tools.id, name: tools.name })

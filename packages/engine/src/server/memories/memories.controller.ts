@@ -9,6 +9,7 @@ import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { callerMayAccessAgent } from "../../authz/agent-tenancy.js";
 import { callerTenantScope } from "../utils/caller-tenant-scope.js";
+import { NO_TRANSACTION } from "../../database/client.js";
 
 function requireInstanceId(instanceId: string | undefined): InstanceSlug {
   const trimmed = instanceId?.trim();
@@ -114,7 +115,7 @@ export class MemoriesController {
     @CurrentUser() user?: AuthenticatedUser,
   ) {
     const uid = requireInstanceId(instanceId);
-    await deleteAllMemories(uid, await callerTenantScope(user));
+    await deleteAllMemories(uid, await callerTenantScope(user), NO_TRANSACTION);
     return { deleted: true };
   }
 }

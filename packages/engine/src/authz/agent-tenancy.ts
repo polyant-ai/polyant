@@ -3,6 +3,7 @@
 import { readAgentScope } from "./authz.store.js";
 import { resolvePrincipalOrgId } from "../instances/store.js";
 import { createLogger } from "../utils/create-logger.js";
+import { NO_TRANSACTION } from "../database/client.js";
 
 const logger = createLogger();
 const LOG_PREFIX = "authz";
@@ -78,7 +79,7 @@ export async function callerMayAccessAgent(
   // decided on the organization. `resolvePrincipalOrgId` is the shared rule: an
   // explicit claim wins; with no claim a single-org deployment is unambiguous;
   // anything else fails closed, because ownership is then unprovable.
-  const orgId = await resolvePrincipalOrgId(caller?.orgId);
+  const orgId = await resolvePrincipalOrgId(caller?.orgId, NO_TRANSACTION);
   if (!orgId) return false;
 
   try {

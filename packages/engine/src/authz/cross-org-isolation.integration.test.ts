@@ -25,6 +25,7 @@ import {
   deleteAllMemories,
 } from "../memory/memory-store.js";
 import { conversationStore } from "../conversations/store.js";
+import { NO_TRANSACTION } from "../database/client.js";
 
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
@@ -114,7 +115,7 @@ describe.skipIf(!DB_AVAILABLE)("RBAC Stream 2 — store-layer cross-org isolatio
     });
 
     it("should_not_delete_all_OrgB_memories_for_an_OrgA_caller", async () => {
-      await deleteAllMemories(asInstanceSlug(orgB.slug), orgScope(orgA.orgId));
+      await deleteAllMemories(asInstanceSlug(orgB.slug), orgScope(orgA.orgId), NO_TRANSACTION);
       const stillThere = await searchMemories(asInstanceSlug(orgB.slug), { scope: orgScope(orgB.orgId) });
       expect(stillThere.total).toBe(1);
     });

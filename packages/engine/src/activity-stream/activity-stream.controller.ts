@@ -31,6 +31,7 @@ import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { RequirePermission, Permission } from "../authz/index.js";
 import { listAllInstances, resolvePrincipalOrgId } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
+import { NO_TRANSACTION } from "../database/client.js";
 
 /**
  * Per-client backpressure cap. If a slow client accumulates more than this
@@ -66,7 +67,7 @@ const perUserConnections = new Map<string, number>();
  * (conversations, analytics, audit) do not grant one either.
  */
 async function resolveVisibleSlugs(user: AuthenticatedUser | undefined): Promise<Set<string>> {
-  const orgId = await resolvePrincipalOrgId(user?.orgId);
+  const orgId = await resolvePrincipalOrgId(user?.orgId, NO_TRANSACTION);
   // No resolvable organization → nothing is provably visible. Fail closed.
   if (!orgId) return new Set();
 

@@ -46,6 +46,7 @@ import { sanitizeForLog } from "../../utils/create-logger.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import { WorkspaceSlug } from "../../auth/decorators/workspace-slug.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
+import { NO_TRANSACTION } from "../../database/client.js";
 import {
   createManagementAuditLogger,
   ManagementAuditAction,
@@ -131,7 +132,7 @@ export class InstancesController {
     // Agents are org-owned, and this route carries no `:slug` for the guard to
     // scope on — so the org filter is applied here. An unresolvable organization
     // yields an empty list (fail closed), never the whole deployment.
-    const orgId = await resolvePrincipalOrgId(user?.orgId);
+    const orgId = await resolvePrincipalOrgId(user?.orgId, NO_TRANSACTION);
     if (!orgId) return { instances: [] };
     // Narrowed to the addressed workspace when the caller is inside one. Without
     // this, `/workspaces/sandbox/instances` listed every agent in the ORG,
@@ -234,7 +235,7 @@ export class InstancesController {
     // unresolvable one, and that is a caller-side condition (a principal with no
     // org claim on a multi-org deployment), not a server fault — surface it as a
     // 400 rather than letting the throw escape as a 500.
-    const orgId = await resolvePrincipalOrgId(user?.orgId);
+    const orgId = await resolvePrincipalOrgId(user?.orgId, NO_TRANSACTION);
     if (!orgId) {
       throw new BadRequestException(
         "Cannot resolve the caller's organization — the agent has no workspace to be created in.",
