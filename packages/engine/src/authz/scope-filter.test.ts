@@ -7,6 +7,7 @@ import {
   buildOrgScopedAgentFilterFragment,
   ORG_SCOPED_AGENT_COLUMNS,
   orgScope,
+  orgWorkspacesScope,
   workspaceScope,
   workspaceSetScope,
   allTenantsScope,
@@ -113,6 +114,29 @@ describe("buildOrgScopedAgentFilterFragment", () => {
       buildOrgScopedAgentFilterFragment(workspaceSetScope(new Set())),
     );
     expect(text.trim().toLowerCase()).toBe("and false");
+  });
+
+  it("should_and_both_halves_for_an_organization_narrowed_to_workspaces", () => {
+    const { sql: text, params } = render(
+      buildOrgScopedAgentFilterFragment(orgWorkspacesScope("org-a", new Set(["ws-1", "ws-2"]))),
+    );
+    // Both predicates, not one: the organization is the gate, the workspace set
+    // is the narrowing inside it, and a workspace binding revokes as well as
+    // grants — so dropping the second half widens the answer to the whole org.
+    expect(text).toMatch(/organization_id\s*=/i);
+    expect(text).toMatch(/workspace_id\s+in\s*\(/i);
+    expect(params).toContain("org-a");
+    expect(params).toContain("ws-1");
+    expect(params).toContain("ws-2");
+  });
+
+  it("should_match_nothing_for_an_organization_narrowed_to_no_workspace", () => {
+    const { sql: text } = render(
+      buildOrgScopedAgentFilterFragment(orgWorkspacesScope("org-a", new Set())),
+    );
+    // Fail-closed wins over the organization: a caller who can reach no
+    // workspace reads no row, whatever they are a member of.
+    expect(text.toLowerCase()).toContain("false");
   });
 
   it("should_constrain_nothing_ONLY_for_the_cross_tenant_scope", () => {

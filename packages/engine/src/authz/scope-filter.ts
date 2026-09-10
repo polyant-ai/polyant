@@ -60,6 +60,7 @@ export const ALL_TENANTS = Symbol("tenant-scope:all-tenants");
  */
 export type TenantScope =
   | { readonly organizationId: string }
+  | { readonly organizationId: string; readonly workspaceIds: ReadonlySet<string> }
   | { readonly workspaceId: string }
   | { readonly workspaceIds: ReadonlySet<string> }
   | { readonly allTenants: typeof ALL_TENANTS; readonly reason: string };
@@ -75,6 +76,25 @@ export type TenantScope =
  */
 export function orgScope(organizationId: string): TenantScope {
   return { organizationId };
+}
+
+/**
+ * One organization, narrowed to the workspaces the caller can actually reach.
+ *
+ * This is the shape an aggregated dashboard needs, and it is ONE scope rather
+ * than two arguments: the organization is the tenancy gate and the workspace set
+ * is the narrowing inside it, but both are boundaries — a workspace binding
+ * revokes as well as grants — so a query that applied the first and dropped the
+ * second would answer with rows from workspaces the caller cannot open.
+ *
+ * An EMPTY set stays fail-closed here too: a caller who reaches no workspace
+ * reads no row, whatever their organization.
+ */
+export function orgWorkspacesScope(
+  organizationId: string,
+  workspaceIds: ReadonlySet<string>,
+): TenantScope {
+  return { organizationId, workspaceIds };
 }
 
 /** The scope of one workspace. Produced only where a workspace is authoritative. */
@@ -167,7 +187,15 @@ function scopedAgentPredicate(scope: TenantScope, columnName: OrgScopedAgentColu
   const column = columnFragment(columnName);
   if ("allTenants" in scope) return null;
   if ("organizationId" in scope) {
-    return buildOrgScopedAgentFilter(scope.organizationId, columnName);
+    const org = buildOrgScopedAgentFilter(scope.organizationId, columnName);
+    // The composite is checked before the organization-only case, and both
+    // halves are ANDed: dropping the workspace half would widen the answer to
+    // the whole organization, which is the narrowing this variant exists for.
+    if ("workspaceIds" in scope) {
+      const workspaces = workspaceSetPredicate(scope.workspaceIds, column);
+      return sql`${org} and ${workspaces}`;
+    }
+    return org;
   }
   if ("workspaceId" in scope) {
     return sql`${column} in (
@@ -176,9 +204,19 @@ function scopedAgentPredicate(scope: TenantScope, columnName: OrgScopedAgentColu
       where i.workspace_id = ${scope.workspaceId}
     )`;
   }
-  if (scope.workspaceIds.size === 0) return sql`false`;
+  return workspaceSetPredicate(scope.workspaceIds, column);
+}
+
+/**
+ * `<column> IN (agents of these workspaces)`, or `false` for an empty set.
+ *
+ * Shared by the bare workspace-set scope and the composite one, so the two can
+ * never disagree about what an empty set means.
+ */
+function workspaceSetPredicate(workspaceIds: ReadonlySet<string>, column: SQL): SQL {
+  if (workspaceIds.size === 0) return sql`false`;
   const ids = sql.join(
-    [...scope.workspaceIds].map((id) => sql`${id}`),
+    [...workspaceIds].map((id) => sql`${id}`),
     sql`, `,
   );
   return sql`${column} in (
