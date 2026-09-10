@@ -125,7 +125,7 @@ the file tools (`workspaces/<instanceId>/conversations/<convId>/`, gitignored).
 - Prompts are read via `getPrompts(instanceId)` from `prompts.store.ts` (60s TTL cache)
 - Skills are discovered via DB joins in `supervisor/prompt.ts` → `discoverSkills()`
 - Tool enablement is resolved via `getEnabledToolNames()` from `instance-tools.store.ts`
-- Knowledge documents live exclusively in PostgreSQL (`knowledge_documents` + `knowledge_chunks`)
+- Knowledge documents live exclusively in PostgreSQL (`knowledge_documents` + `knowledge_chunks`), and how many ONE agent may hold is the ORGANIZATION's entitlement (`organizations.knowledge_max_docs_per_agent`), resolved only in `knowledge/doc-cap.ts`. `KNOWLEDGE_MAX_DOCS_PER_INSTANCE` is the DEFAULT for an organization that declares none, never a ceiling — a cap that could only be lowered from the environment would still need a redeploy to raise. An unresolvable agent answers that default, never "no limit"
 - The `workspaces/` directory holds **only** per-conversation tool sandboxes (`workspaces/<id>/conversations/<convId>/`) used by `readFile` / `writeFile` / `gitCloneRepo`
 - There is no `_template/` directory — new instances are seeded from DB defaults (`instances/defaults.ts`)
 

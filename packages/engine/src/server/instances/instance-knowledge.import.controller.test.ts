@@ -28,7 +28,11 @@ const {
 vi.mock("./instance-helpers.js", () => ({ findInstanceOrFail: mockFindInstanceOrFail }));
 vi.mock("../../knowledge/ingestion.js", () => ({ processDocument: mockProcessDocument }));
 vi.mock("../../embeddings-gateway/index.js", () => ({ resolveEmbeddingContext: mockResolveEmbeddingContext }));
-vi.mock("../../config.js", () => ({ config: { knowledge: { maxDocsPerInstance: 3 } } }));
+// The cap is no longer read off `config`: it is the organization's entitlement,
+// resolved through the database by `knowledge/doc-cap.ts`. Mocking the resolver
+// keeps this suite about what it was always about — what the controller does at
+// the boundary — without standing up a database to learn the number.
+vi.mock("../../knowledge/doc-cap.js", () => ({ resolveKnowledgeDocCap: async () => 3 }));
 vi.mock("../../knowledge/index.js", () => ({
   createDocument: mockCreateDocument,
   listDocuments: vi.fn(),

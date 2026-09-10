@@ -505,6 +505,13 @@
       "when": 1788739200000,
       "tag": "0078_scheduler_crash_safety",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1788825600000,
+      "tag": "0079_org_knowledge_doc_cap",
+      "breakpoints": true
     }
   ]
 }
