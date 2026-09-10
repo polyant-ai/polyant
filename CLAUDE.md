@@ -151,7 +151,7 @@ and no rationale is a wish, and belongs in neither file.
 - **Config via Zod**: all env vars parsed and validated in `packages/engine/src/config.ts`. Never read `process.env` directly elsewhere (documented exceptions: `LOG_LEVEL`, and `WORKSPACES_ROOT` which is a TEST SEAM, not deployment configuration, and is absent from `.env.example`). Other deliberate reads (subprocess env filters, default params for testability, tool-registry `requiredEnv` discovery) carry a `// CONVENTION-EXCEPTION:` comment and must stay confined to those patterns
 - **tsx does not support `emitDecoratorMetadata`**, so every NestJS constructor parameter needs an explicit `@Inject(ClassName)` — implicit type-based injection silently resolves to `undefined`. *Enforced* by the custom ESLint rule `polyant/require-inject-in-nest-classes`; plain classes instantiated with `new` (the channel adapters) are exempt by design
 - **Migrations are written by hand and the journal is updated by hand.** `drizzle-kit generate` only works through `npm run db:generate` (an ESM workaround), and with no snapshot files it emits a full-schema migration every time. A `00NN_*.sql` file with no matching entry in `meta/_journal.json` is **silently skipped** by `db:migrate` — which reports success. The `tag` must equal the filename without `.sql`, and `when` must be greater than every entry already applied to the target database, or the same silent no-op occurs
-- **Next.js loads `.env` only from `packages/web/`**, never the monorepo root: auth vars (`AUTH_SECRET`, `DATABASE_URL`, `GOOGLE_*`) belong in `packages/web/.env.local`
+- **Next.js loads `.env` only from `packages/web/`**, never the monorepo root: auth vars (`AUTH_SECRET`, `AUTH_INTERNAL_SECRET`, `DATABASE_URL`) belong in `packages/web/.env.local`
 - **Next 16**: the auth middleware is `packages/web/src/proxy.ts` (renamed from `middleware.ts`), web lint is `eslint .` against flat config (`next lint` is gone), and the root `overrides.next` MUST track the installed Next major or next-auth pulls in a second copy of `next`
 
 ### Architecture
@@ -246,10 +246,10 @@ Hierarchy: **Organization > Workspace > Agent** (the agent table is still named
 `instances`). "Project" in the original design was renamed Workspace; there is no
 `projects` table.
 
-**Authentication.** A human signs in with **email + password** (Credentials, seeded from
-`INITIAL_ADMIN_*` at boot) or, when its client id and secret are configured, with **Google
-OAuth** — neither is mandatory in code, but disabling both leaves no way in. Either way the
-human carries an Auth.js session (encrypted JWE), which the engine
+**Authentication.** A human signs in with **email + password** and nothing else
+(Credentials, seeded from `INITIAL_ADMIN_*` at boot): there is no federated provider in this
+edition, so `AUTH_INTERNAL_SECRET` unset leaves no way in at all rather than falling back to
+one. The human carries an Auth.js session (encrypted JWE), which the engine
 decrypts with `AUTH_SECRET` and no per-request DB query — the strategy is JWT because
 Next.js middleware runs in the Edge Runtime and cannot open a TCP/DB connection. An agent
 caller carries that agent's `auth_api_key` (`instance_secrets` + the `authEnabled` flag) and
@@ -290,11 +290,14 @@ Reintroducing any gateway mode means mapping the forwarded identity onto a local
 FIRST, and its own ADR — [ADR-0001](docs/adr/0001-gateway-authenticated-mode.md) is reverted
 and records the trade-offs that decision faces again.
 
-**Which domains may sign in is per-ORGANIZATION data, never an env var.**
-`AUTH_ALLOWED_DOMAIN` / `AUTH_ALLOWED_DOMAINS` are gone — they were the same list twice
-(the parser concatenated them), one list for a whole installation could not answer for a
-second tenant, and it was a security control an operator had no way to see. The comparison
-survives in `web/src/lib/auth-domain-allowlist.ts`; the list belongs to the tier above it.
+**There is NO federated sign-in here, and `auth-providers.ts` is the seam that says so.**
+It returns an empty provider list; `auth.config.ts` composes it with Credentials and names
+no provider of its own, so the file stays byte-identical to the edition that does supply
+one. Google, `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, the `signIn` callback and
+`AUTH_ALLOWED_DOMAIN(S)` are all gone: which domains may sign in is per-ORGANIZATION data,
+and both the list and the provider it gated belong to the tier that manages organizations.
+Do not reintroduce a provider inside the shared config — that is a permanent merge conflict
+in the file holding every other authentication decision.
 
 **Every AWS region is per-AGENT** (`aws_provider_region`, surfaced to the chat provider as
 `bedrock_region`). `AWS_REGION` is gone and so is the `us-east-1` default behind it: that
@@ -313,9 +316,7 @@ Tenant URL tiers are [ADR-0002](docs/adr/0002-canonical-tenant-boundaries.md).
 |----------|----------|-------------|
 | `INITIAL_ADMIN_PASSWORD` | Yes (engine) | Seeds the first admin account at boot. Without it no admin is seeded — seeding is skipped rather than auto-generating a password into the logs |
 | `INITIAL_ADMIN_EMAIL` | No (engine) | Email of that account (defaults to `administrator@local`) |
-| `AUTH_INTERNAL_SECRET` | Yes (web + engine) | Shared secret the web's Credentials provider uses to call the engine. Unset disables email/password sign-in, leaving Google as the only path |
-| `GOOGLE_CLIENT_ID` | No (web) | Google OAuth client id — omit to hide the Google button |
-| `GOOGLE_CLIENT_SECRET` | No (web) | Google OAuth client secret |
+| `AUTH_INTERNAL_SECRET` | Yes (web + engine) | Shared secret the web's Credentials provider uses to call the engine. Unset disables email/password sign-in, which is the ONLY sign-in here — there is no federated provider to fall back to |
 | `AUTH_SECRET` | Yes (web + engine) | Auth.js JWT encryption secret (32+ random chars). Must be identical in both packages — engine uses it to decrypt JWE tokens |
 | `AUTH_TRUST_HOST` | No | Set to `true` behind reverse proxy |
 | `DATABASE_URL` | Alt (web) | PostgreSQL connection string for Auth.js adapter. Web needs this in `.env.local` or root `.env` (Next.js doesn't auto-load monorepo root `.env`) |

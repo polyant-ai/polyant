@@ -267,7 +267,7 @@ For vulnerability reports, see [SECURITY.md](SECURITY.md) — please do not file
 | Database | PostgreSQL 16 + pgvector (Drizzle ORM) |
 | Memory | pgvector cosine similarity + PostgreSQL FTS (RRF fusion) |
 | Encryption | AES-256-GCM (Node.js crypto) |
-| Auth | Auth.js v5 (email + password, optional Google OAuth, JWT/JWE) |
+| Auth | Auth.js v5 (email + password, JWT/JWE) |
 | Tracing | LangSmith |
 | Infrastructure | Docker Compose |
 

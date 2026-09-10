@@ -63,7 +63,6 @@ If you run Polyant in production, please review:
 - [ ] Strong randomly-generated `AUTH_INTERNAL_SECRET`, identical in engine and web
 - [ ] `INITIAL_ADMIN_PASSWORD` changed after the first sign-in, and removed from the deployed environment
 - [ ] `AUTH_TRUST_HOST=true` only when behind a trusted reverse proxy
-- [ ] `AUTH_ALLOWED_DOMAIN` set to restrict sign-in to your organization's domain (legacy `AUTH_ALLOWED_DOMAINS` still honoured)
 - [ ] PostgreSQL not exposed to the public internet
 - [ ] HTTPS terminated at the edge (Render / Fly.io / Cloudflare / your reverse proxy)
 - [ ] Regular `npm audit` on the lockfile; Dependabot enabled

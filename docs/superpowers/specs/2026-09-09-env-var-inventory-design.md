@@ -94,7 +94,7 @@ property of the machine, the network or the release is not.
 | `AUTH_INTERNAL_SECRET` | `config.ts`, `web/lib/auth.config.ts`, `web/lib/auth.ts` | Engine↔web credentials endpoint. Unset disables email/password sign-in entirely |
 | `AUTH_MODE` | `config.ts` | `session` or `alb-oidc`. The second is REFUSED at boot |
 | `AUTH_TRUST_HOST` | `web/lib/auth.config.ts` | Auth.js host trust. Required for any self-hosted deployment |
-| `GOOGLE_CLIENT_ID` `_SECRET` | `web/lib/auth.config.ts` | Enables the Google provider. Unset hides the button |
+| ~~`GOOGLE_CLIENT_ID` `_SECRET`~~ | — | **Removed with the Google provider.** Federated sign-in belongs to the tier that manages organizations; `web/lib/auth-providers.ts` is the empty seam left in its place |
 | `PLATFORM_ADMIN_EMAIL` | `config.ts`, `web/lib/auth.ts` | The identity promoted to platform admin at every boot. A bootstrap input: it exists to create the identity that can edit everything else |
 | `INITIAL_ADMIN_EMAIL` `_PASSWORD` | `config.ts` | First-boot seed. Password unset SKIPS seeding rather than generating one into the logs |
 | `DEFAULT_INSTANCE_ID` | `config.ts` (documented exception) | Slug assumed when a caller names no agent |
@@ -142,9 +142,10 @@ per tenant hands a tenant the lever to exhaust an installation-wide resource.
 
 **Enterprise-only candidates.** `SMTP_*`, `MAIL_FROM` and
 `RETENTION_DEFAULT_DAYS` appear in the enterprise analysis but do not exist in
-this build. `AUTH_ALLOWED_DOMAIN` / `AUTH_ALLOWED_DOMAINS` exist here and stay
-the deployment floor; the per-organization list above them is enterprise
-(`organization_sso_domains`, migration 0108).
+this build. The sign-in domain list is not a candidate here either: federated
+sign-in has been removed from this edition altogether, so there is no floor for
+a per-organization list to sit on top of — see "Google sign-in is removed" in
+`docs/UPGRADING.md`.
 
 ## What was removed after the inventory (2026-09-09)
 
@@ -155,7 +156,7 @@ only legal value was the default. **61 → 52.**
 | Removed | Why it could go |
 |---|---|
 | `DEFAULT_INSTANCE_ID` | Its five call sites were all dead. `IncomingMessage.instanceId` is required, all three `supervise()` callers pass it, `hybridSearch`'s one caller passes it, and the OpenAI-compatible route validates `model` against a slug regex and answers 400 — so the fallback could not fire. `SupervisorInput.instanceId` and `hybridSearch`'s parameter are now required, which is what makes it stay gone |
-| `AUTH_ALLOWED_DOMAIN`, `AUTH_ALLOWED_DOMAINS` | The same list twice: the parser joined both with a comma and split, so the singular already accepted a list. One list for a whole installation cannot answer for a second tenant, and it was a security control an operator had no way to see. `isEmailDomainAllowed` — the exact-match rule, with its look-alike tests — stays; the list moves to the organization tier |
+| `AUTH_ALLOWED_DOMAIN`, `AUTH_ALLOWED_DOMAINS` | The same list twice: the parser joined both with a comma and split, so the singular already accepted a list. One list for a whole installation cannot answer for a second tenant, and it was a security control an operator had no way to see. The list moves to the organization tier — and with it, in a follow-up, the provider it gated: `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` and `isEmailDomainAllowed` are gone too, leaving `web/lib/auth-providers.ts` as an empty seam |
 | `AUTH_MODE` | One legal value. `alb-oidc` was refused at boot, so the variable's whole range was the default. Removing it means deleting the mode: `auth/alb-oidc.service.ts`, the guard's gateway branch, and the `AUTH_MODE` the CDK emitted for a stack that could not boot. ADR-0001 is marked reverted rather than edited — the trade-offs it records are the ones a future gateway mode faces again |
 | `AWS_REGION` | The region is per-AGENT (`aws_provider_region`). Worse than redundant: the chat path fell back to a hardcoded `us-east-1` while the embedder refused on the same input, and `us-east-1` does not serve the `eu.*` inference profiles this catalog's Bedrock tiers use — so a misconfigured agent got a per-call ValidationException instead of a message naming the setting. Both halves now refuse |
 | `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_TRACING` | Read by nothing. Kept in `.env.example` as a signpost, which is a job a comment does without three names that look settable |

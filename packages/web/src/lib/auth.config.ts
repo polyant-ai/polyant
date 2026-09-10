@@ -7,42 +7,25 @@
  */
 import type { NextAuthConfig } from "next-auth";
 import type { Provider } from "@auth/core/providers";
-import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
+import { federatedProviders } from "./auth-providers";
 
 const ENGINE_URL = process.env.INTERNAL_ENGINE_URL ?? "http://localhost:4000";
 
 /**
- * Build the providers list dynamically so that Google is included ONLY when
- * both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set. Previously the
- * code used `process.env.GOOGLE_CLIENT_ID!` (non-null assertion), which made
- * the provider construct with `undefined` at runtime in OSS deploys that
- * intentionally rely on credentials login only — the Google sign-in button
- * would then crash on click. Skipping the provider entirely is safer and
- * mirrors what the login page already does (`signIn("google", ...)` returns
- * "OAuthAccountNotLinked"-style failure gracefully if Google isn't loaded).
+ * The providers this build offers: whatever federated providers the edition
+ * supplies (none here — see `auth-providers.ts`) plus email and password.
+ *
+ * The federated half is a seam on purpose. It used to be a Google provider
+ * built inline from `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, guarded so a
+ * half-configured deployment did not construct it with `undefined` and crash on
+ * the first click. Single sign-on is an enterprise capability now, so the guard
+ * has nothing left to guard and this file no longer names a provider it cannot
+ * offer.
  */
 function buildProviders(): Provider[] {
-  const providers: Provider[] = [];
-
-  const googleId = process.env.GOOGLE_CLIENT_ID;
-  const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (googleId && googleSecret) {
-    providers.push(
-      Google({
-        clientId: googleId,
-        clientSecret: googleSecret,
-        authorization: { params: { prompt: "select_account" } },
-      }),
-    );
-  } else {
-    console.warn(
-      "[auth] GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not set — Google sign-in is disabled. " +
-        "Set both to enable it, or leave empty to rely on email/password only.",
-    );
-  }
-
-  providers.push(
+  return [
+    ...federatedProviders(),
     Credentials({
       name: "Email e Password",
       credentials: {
@@ -67,14 +50,8 @@ function buildProviders(): Provider[] {
         };
       },
     }),
-  );
-
-  return providers;
+  ];
 }
-
-/** Exposed so UI can show/hide the Google sign-in button. */
-export const isGoogleAuthEnabled =
-  !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET;
 
 interface CredentialsUser {
   id: string;
@@ -165,8 +142,8 @@ export const authConfig = {
           token.mustChangePassword = patch.mustChangePassword;
         }
       }
-      // For Google logins (no isPlatformAdmin on the user object) default to
-      // false — a platform admin can promote them later from /users.
+      // Default to false when the user object carries no standing — a platform
+      // admin can promote them later from /users.
       if (typeof token.isPlatformAdmin !== "boolean") token.isPlatformAdmin = false;
       if (typeof token.mustChangePassword !== "boolean") {
         token.mustChangePassword = false;
