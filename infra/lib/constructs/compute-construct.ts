@@ -132,8 +132,8 @@ export class ComputeConstruct extends Construct {
         ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(props.appSecret, "encryption_key"),
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.appSecret, "auth_secret"),
         // Only needed for local email/password accounts (web → engine credentials
-        // verify). Harmless placeholder otherwise. GOOGLE_* are NOT injected here:
-        // the engine never reads them — Google OAuth is handled entirely by the web.
+        // verify). Harmless placeholder otherwise. No GOOGLE_* variables are
+        // injected anywhere: federated sign-in is not part of this edition.
         AUTH_INTERNAL_SECRET: ecs.Secret.fromSecretsManager(props.appSecret, "auth_internal_secret"),
       },
       logging: ecs.LogDrivers.awsLogs({

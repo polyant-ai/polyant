@@ -15,10 +15,26 @@ had. Remove them from your environment; none of them needs a replacement value.
 | --- | --- |
 | `AUTH_MODE` | Nothing. `session` was the only value that booted, and gateway mode is deleted — see [ADR-0001](adr/0001-gateway-authenticated-mode.md). A stack whose CDK config sets `auth:` no longer receives this variable; it was already refused at startup |
 | `AUTH_ALLOWED_DOMAIN`, `AUTH_ALLOWED_DOMAINS` | Federated sign-in is no longer restricted by a deployment-wide domain list. The two variables were one list twice (the parser concatenated them), and the restriction belongs to the organization |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Nothing, and read the next paragraph first: **federated sign-in is gone from this edition entirely**, not merely unconfigured. Email and password is the only way in |
 | `AWS_REGION` | Set the AWS provider region on each agent (Settings → AI Provider). There is no deployment-wide fallback and no `us-east-1` default: a Bedrock agent with no region configured is now refused with a message naming the setting, on chat as well as on embeddings |
 | `DEFAULT_INSTANCE_ID` | Nothing. Every caller already names its agent — the OpenAI-compatible route validates `model` and answers 400 without it — so the fallback could not fire |
 | `WORKSPACES_ROOT` | Nothing. The per-conversation sandbox stays under `packages/engine/workspaces`; the variable survives only as a test seam and is no longer documented as deployment configuration |
 | `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_TRACING` | Nothing. They were read by no code at all; tracing is configured per agent |
+
+### Google sign-in is removed
+
+The Google provider, its two variables, the login button and the domain-allowlist
+callback are all gone. Single sign-on is a capability of the tier that manages
+organizations: which domains may sign in is a question about a tenant, and one
+list for a whole installation cannot answer it for a second one.
+
+**Before upgrading, make sure every account that needs access has a password.**
+An account that only ever signed in with Google has none, and there is no
+federated provider left to authenticate it. A platform admin can set one from
+Users, and `INITIAL_ADMIN_EMAIL` + `INITIAL_ADMIN_PASSWORD` still recover an
+installation whose only administrator is locked out — on a non-empty database the
+seeder sets a password on a **password-less** account and promotes it, and never
+overwrites one that already exists.
 
 `BASE_URL` is unchanged, but it is now resolved once: unset still means
 `http://localhost:<API_PORT>`, decided in `config.ts` instead of by each caller.

@@ -108,7 +108,7 @@ See `lib/stacks/main-stack.ts` for the wiring.
 | `encryption_key` | placeholder `REPLACE_ME_WITH_64_HEX_CHARS` | **required**: set 64 hex chars (`openssl rand -hex 32`) after first deploy, then force a new ECS deployment |
 | `auth_internal_secret` | placeholder | only for **local email/password accounts**: set a ≥16-char value (same value the web container uses) to enable the credentials login |
 
-`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` are **not** in this secret — the engine never reads them (Google OAuth is web-only). Add them to the web container's secrets only if you enable Google sign-in.
+There are no `GOOGLE_*` variables to place anywhere: federated sign-in is not part of this edition, and email + password is the only way into the panel.
 
 ```bash
 aws secretsmanager put-secret-value \

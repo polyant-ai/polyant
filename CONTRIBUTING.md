@@ -61,9 +61,6 @@ NEXT_PUBLIC_API_URL=http://localhost:4000
 INTERNAL_ENGINE_URL=http://localhost:4000
 ```
 
-Google OAuth is optional: set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` to enable the
-Google button, or leave them empty and sign in with the admin credentials above.
-
 ### 5. Run database migrations
 
 ```bash
@@ -105,7 +102,7 @@ polyant/
 │   │       └── server/       # NestJS controllers (REST + OpenAI-compat)
 │   └── web/                  # @polyant/web — Next.js admin panel
 │       └── src/app/
-│           ├── (auth)/       # Sign-in (email + password, optional Google OAuth)
+│           ├── (auth)/       # Sign-in (email + password)
 │           └── (admin)/      # Protected admin routes
 ├── examples/                 # Minimal working examples (instances, skills)
 └── docker-compose.yml        # PostgreSQL + pgvector

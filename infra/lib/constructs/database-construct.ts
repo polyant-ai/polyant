@@ -61,8 +61,8 @@ export class DatabaseConstruct extends Construct {
     // randomise one key per secret). `encryption_key` (64 hex chars for
     // AES-256-GCM) and `auth_internal_secret` (only needed for local
     // email/password accounts) are placeholders to populate after deploy.
-    // GOOGLE_* are intentionally NOT here: the engine never reads them —
-    // Google OAuth is a web-only concern.
+    // There are no GOOGLE_* variables to place here or anywhere else:
+    // federated sign-in is not part of this edition.
     this.appSecret = new secretsmanager.Secret(this, "AppSecret", {
       secretName: `polyant-secrets-${props.stage}`,
       description: "Polyant application secrets (auth_secret, encryption_key, auth_internal_secret)",

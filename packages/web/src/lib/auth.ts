@@ -202,16 +202,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     ...authConfig.callbacks,
     jwt: jwtWithOrg,
-    // No `signIn` callback. It used to refuse a federated sign-in whose email
-    // domain was outside `AUTH_ALLOWED_DOMAIN(S)` — one list for the whole
-    // installation, which cannot answer the question for a second tenant, and a
-    // security control an operator had no way to see. The list belongs to the
-    // ORGANIZATION; the comparison it needs stays in `auth-domain-allowlist.ts`.
+    // No `signIn` callback, and nothing left for one to decide: this edition
+    // offers no federated provider (`auth-providers.ts`), so every sign-in is a
+    // password sign-in the engine has already verified. The callback used to
+    // refuse a federated sign-in whose email domain was outside
+    // `AUTH_ALLOWED_DOMAIN(S)` — one list for a whole installation, which cannot
+    // answer the question for a second tenant. Both the list and the provider it
+    // gated belong to the tier that manages organizations.
   },
   // No `events.createUser`. It used to provision the default-org membership and
   // the OWNER binding the moment the adapter created a user, so a first OAuth
   // sign-in made you an Owner of the organization — the highest role in the
-  // product, granted for having an address that passes the domain allowlist.
+  // product, granted for having an address that passed the domain allowlist.
   //
   // A new user is now created and left with no membership. Someone holding
   // `org.member:manage` adds them through
