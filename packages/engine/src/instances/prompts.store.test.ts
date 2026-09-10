@@ -18,6 +18,10 @@ vi.mock("../database/client.js", () => ({
   db: {
     insert: mockInsert,
   },
+  // `NO_TRANSACTION` IS `db`, named for what a call site means by passing it.
+  NO_TRANSACTION: {
+    insert: mockInsert,
+  },
 }));
 
 vi.mock("../utils/ttl-cache.js", () => ({
@@ -31,6 +35,7 @@ vi.mock("../utils/ttl-cache.js", () => ({
 import { seedInstancePrompts } from "./prompts.store.js";
 import { DEFAULT_PROMPTS } from "./defaults.js";
 import { asInstanceUuid } from "./identifiers.js";
+import { NO_TRANSACTION } from "../database/client.js";
 
 describe("seedInstancePrompts (#95)", () => {
   beforeEach(() => {
@@ -42,7 +47,7 @@ describe("seedInstancePrompts (#95)", () => {
     const valuesSpy = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictSpy });
     mockInsert.mockReturnValue({ values: valuesSpy });
 
-    await seedInstancePrompts(asInstanceUuid("inst-1"));
+    await seedInstancePrompts(asInstanceUuid("inst-1"), NO_TRANSACTION);
 
     expect(mockInsert).toHaveBeenCalledTimes(1);
     expect(valuesSpy).toHaveBeenCalledTimes(1);
@@ -61,7 +66,7 @@ describe("seedInstancePrompts (#95)", () => {
     });
     mockInsert.mockReturnValue({ values: valuesSpy });
 
-    await seedInstancePrompts(asInstanceUuid("inst-empty"));
+    await seedInstancePrompts(asInstanceUuid("inst-empty"), NO_TRANSACTION);
 
     const rows = valuesSpy.mock.calls[0][0] as { sectionKey: string; content: string }[];
     const bySection = new Map(rows.map((r) => [r.sectionKey, r.content]));
@@ -85,8 +90,8 @@ describe("seedInstancePrompts (#95)", () => {
     const valuesSpy = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictSpy });
     mockInsert.mockReturnValue({ values: valuesSpy });
 
-    await seedInstancePrompts(asInstanceUuid("inst-2"));
-    await seedInstancePrompts(asInstanceUuid("inst-2"));
+    await seedInstancePrompts(asInstanceUuid("inst-2"), NO_TRANSACTION);
+    await seedInstancePrompts(asInstanceUuid("inst-2"), NO_TRANSACTION);
 
     expect(mockInsert).toHaveBeenCalledTimes(2);
     expect(onConflictSpy).toHaveBeenCalledTimes(2);
@@ -99,7 +104,7 @@ describe("seedInstancePrompts (#95)", () => {
       values: () => ({ onConflictDoNothing: () => Promise.resolve(undefined) }),
     });
 
-    await seedInstancePrompts(asInstanceUuid("inst-3"));
+    await seedInstancePrompts(asInstanceUuid("inst-3"), NO_TRANSACTION);
 
     expect(mockInvalidateCache).toHaveBeenCalledWith(asInstanceUuid("inst-3"));
   });

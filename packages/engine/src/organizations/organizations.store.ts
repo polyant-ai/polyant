@@ -21,7 +21,7 @@ type Executor = Pick<typeof db, "select">;
  * seed is missing (migration not run) — the single source of this lookup for
  * the instance create/import paths and tests.
  */
-export async function findDefaultWorkspaceId(executor: Executor = db): Promise<string> {
+export async function findDefaultWorkspaceId(executor: Executor): Promise<string> {
   const [row] = await executor
     .select({ id: workspaces.id })
     .from(workspaces)

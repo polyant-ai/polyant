@@ -42,7 +42,12 @@ const { mockDb } = vi.hoisted(() => {
   return { mockDb };
 });
 
-vi.mock("../database/client.js", () => ({ db: mockDb }));
+vi.mock("../database/client.js", () => ({ db: mockDb,
+  // `NO_TRANSACTION` IS `db`, named for what a call site means by passing it.
+  get NO_TRANSACTION() {
+    return mockDb;
+  },
+}));
 
 // The three seeds are stubbed so the transaction test can assert they received
 // the SAME executor the row was written with — which is the whole property.
@@ -158,6 +163,7 @@ import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { principalSecrets } from "../conversations/principal-secrets.schema.js";
 import { DEFAULT_EMBEDDING_DIM } from "../embeddings-gateway/config.js";
 import type { TenantScope } from "../authz/scope-filter.js";
+import { NO_TRANSACTION } from "../database/client.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -314,7 +320,7 @@ describe("instances/store", () => {
         description: "A default assistant",
         provider: "openai",
         model: "gpt-4o",
-      });
+      }, NO_TRANSACTION);
 
       expect(result).toEqual(fakeInstance);
       expect(mockDb.insert).toHaveBeenCalled();
@@ -336,7 +342,7 @@ describe("instances/store", () => {
       const chain = createChainMock([{ ...fakeInstance, description: null, provider: null, model: null }]);
       mockDb.insert.mockReturnValue(chain as any);
 
-      await createInstance({ slug: asInstanceSlug("minimal"), name: "Minimal" });
+      await createInstance({ slug: asInstanceSlug("minimal"), name: "Minimal" }, NO_TRANSACTION);
 
       expect(chain.values).toHaveBeenCalledWith({
         slug: "minimal",
@@ -355,7 +361,7 @@ describe("instances/store", () => {
       const chain = createChainMock([{ ...fakeInstance, workspaceId: "ws-org-b" }]);
       mockDb.insert.mockReturnValue(chain as any);
 
-      await createInstance({ slug: asInstanceSlug("b-agent"), name: "B", orgId: "org-b" });
+      await createInstance({ slug: asInstanceSlug("b-agent"), name: "B", orgId: "org-b" }, NO_TRANSACTION);
 
       expect(chain.values).toHaveBeenCalledWith(
         expect.objectContaining({ workspaceId: "ws-org-b" }),
@@ -372,7 +378,7 @@ describe("instances/store", () => {
       const chain = createChainMock([{ id: "ws-org-b" }]);
       mockDb.select.mockReturnValue(chain as any);
 
-      const result = await resolveWorkspaceIdForPrincipal("org-b");
+      const result = await resolveWorkspaceIdForPrincipal("org-b", NO_TRANSACTION);
 
       expect(result).toBe("ws-org-b");
       // Constrained to org B's workspaces — not the deployment-wide is_default row.
@@ -387,7 +393,7 @@ describe("instances/store", () => {
     it("should_throw_when_the_caller_org_owns_no_workspace", async () => {
       mockDb.select.mockReturnValue(createChainMock([]) as any);
 
-      await expect(resolveWorkspaceIdForPrincipal("org-b")).rejects.toThrow(/no workspace/i);
+      await expect(resolveWorkspaceIdForPrincipal("org-b", NO_TRANSACTION)).rejects.toThrow(/no workspace/i);
     });
 
     it("should_throw_when_the_principal_has_no_org_and_several_orgs_exist", async () => {
@@ -396,7 +402,7 @@ describe("instances/store", () => {
       );
 
       // Fail closed — picking the seeded default here is the cross-tenant write.
-      await expect(resolveWorkspaceIdForPrincipal(undefined)).rejects.toThrow(
+      await expect(resolveWorkspaceIdForPrincipal(undefined, NO_TRANSACTION)).rejects.toThrow(
         /organization/i,
       );
     });
@@ -406,7 +412,7 @@ describe("instances/store", () => {
         .mockReturnValueOnce(createChainMock([{ id: "org-only" }]) as any)
         .mockReturnValueOnce(createChainMock([{ id: "ws-only" }]) as any);
 
-      await expect(resolveWorkspaceIdForPrincipal(undefined)).resolves.toBe("ws-only");
+      await expect(resolveWorkspaceIdForPrincipal(undefined, NO_TRANSACTION)).resolves.toBe("ws-only");
     });
 
     // The ADDRESSED workspace — the segment in the URL the caller is on, arriving
@@ -417,7 +423,7 @@ describe("instances/store", () => {
       const chain = createChainMock([{ id: "ws-sandbox" }]);
       mockDb.select.mockReturnValue(chain as any);
 
-      const result = await resolveWorkspaceIdForPrincipal("org-b", undefined, "sandbox");
+      const result = await resolveWorkspaceIdForPrincipal("org-b", NO_TRANSACTION, "sandbox");
 
       expect(result).toBe("ws-sandbox");
       // Constrained on BOTH the organization and the slug: matching the slug alone
@@ -436,7 +442,7 @@ describe("instances/store", () => {
       mockDb.select.mockReturnValue(createChainMock([]) as any);
 
       await expect(
-        resolveWorkspaceIdForPrincipal("org-b", undefined, "someone-elses"),
+        resolveWorkspaceIdForPrincipal("org-b", NO_TRANSACTION, "someone-elses"),
       ).rejects.toThrow(/does not belong to the caller/i);
     });
   });

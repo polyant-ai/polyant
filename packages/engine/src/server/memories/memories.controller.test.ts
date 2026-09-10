@@ -224,7 +224,9 @@ describe("MemoriesController — read/delete resolve the caller's organization",
       orgId: undefined,
     } as never);
 
-    expect(mockResolvePrincipalOrgId).toHaveBeenCalledWith(undefined);
+    // Second argument: the executor the request path names — it is not in a
+    // transaction, and now has to say so.
+    expect(mockResolvePrincipalOrgId).toHaveBeenCalledWith(undefined, expect.anything());
     expect(searchMemories).toHaveBeenCalledWith(
       asInstanceSlug("agent-a"),
       expect.objectContaining({ scope: { organizationId: ORG_A } }),

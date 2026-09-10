@@ -9,6 +9,7 @@ import { contactOptouts } from "./optout.schema.js";
 import { eq } from "drizzle-orm";
 import { asInstanceSlug, asInstanceUuid } from "../instances/identifiers.js";
 import { getOptoutStatus, setOptoutStatus, listOptouts } from "./index.js";
+import { NO_TRANSACTION } from "../database/client.js";
 
 const SLUG = asInstanceSlug("optout-itest");
 let instanceId: ReturnType<typeof asInstanceUuid>;
@@ -19,7 +20,7 @@ const DB_AVAILABLE = await resolveDatabaseAvailability();
 
 describe.skipIf(!DB_AVAILABLE)("contact opt-out lifecycle (integration)", () => {
   beforeAll(async () => {
-    workspaceId = await findDefaultWorkspaceId();
+    workspaceId = await findDefaultWorkspaceId(NO_TRANSACTION);
     const [row] = await db
       .insert(instances)
       .values({ slug: SLUG, name: "Optout ITest", workspaceId })

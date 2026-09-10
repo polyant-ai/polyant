@@ -125,8 +125,8 @@ export class RoleBindingService {
     organizationId: string,
     actorId: string | undefined,
     targetUserId: string,
-    assignedRoleKey?: SystemRoleKey,
-    executor?: DbExecutor,
+    assignedRoleKey: SystemRoleKey | undefined,
+    executor: DbExecutor,
   ): Promise<void> {
     if (!actorId) return;
     if (await this.authz.isPlatformAdmin(actorId)) return;
@@ -151,7 +151,7 @@ export class RoleBindingService {
   private async levelOf(
     organizationId: string,
     userId: string,
-    executor?: DbExecutor,
+    executor: DbExecutor,
   ): Promise<number> {
     const roleKey = await getOrgScopeRoleKey(organizationId, userId, executor);
     return roleKey && isSystemRoleKey(roleKey) ? roleLevel(roleKey) : 0;
@@ -164,7 +164,7 @@ export class RoleBindingService {
   private async assertNotLastOwner(
     organizationId: string,
     userId: string,
-    executor?: DbExecutor,
+    executor: DbExecutor,
   ): Promise<void> {
     const currentRole = await getOrgScopeRoleKey(organizationId, userId, executor);
     if (currentRole !== OWNER_ROLE_KEY) return;

@@ -23,6 +23,10 @@ vi.mock("../../config.js", () => ({
   DEFAULT_INSTANCE_ID: "default-instance",
 }));
 
+// The service now names the executor it passes, so it imports the client — and
+// this test must not open a real connection to say so.
+vi.mock("../../database/client.js", () => ({ db: {}, NO_TRANSACTION: {} }));
+
 function makeRequest(
   messages: ChatCompletionMessage[],
   overrides: Partial<ChatCompletionRequest> = {},

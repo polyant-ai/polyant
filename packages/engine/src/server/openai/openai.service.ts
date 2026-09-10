@@ -17,6 +17,7 @@ import {
 } from "../../instances/store.js";
 import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
 import { orgScope } from "../../authz/scope-filter.js";
+import { NO_TRANSACTION } from "../../database/client.js";
 
 /**
  * The two principal shapes that can reach GET /v1/models (see AuthGuard): a
@@ -54,7 +55,7 @@ export class OpenAIService {
       const own = await findInstanceBySlug(asInstanceSlug(principal.instanceSlug));
       return own && own.status === "active" ? [own] : [];
     }
-    const organizationId = await resolvePrincipalOrgId(principal?.orgId);
+    const organizationId = await resolvePrincipalOrgId(principal?.orgId, NO_TRANSACTION);
     return organizationId ? listActiveInstances(orgScope(organizationId)) : [];
   }
 
