@@ -22,7 +22,6 @@ const {
   setExistingBindings,
   bindingsAfterBootstrap,
   deleteTargetsOrganizationScope,
-  updateCalls,
   transactionCount,
 } = vi.hoisted(() => {
   let returning: unknown[] = [];
@@ -137,17 +136,12 @@ const {
 vi.mock("../database/client.js", () => ({ db: mockDb }));
 
 import { ensureExistingPlatformAdminOwner } from "./organizations.store.js";
-import {
-  bindingCache,
-  bindingCacheKey,
-  platformAdminCache,
-} from "../authz/authz.caches.js";
+import { bindingCache, bindingCacheKey } from "../authz/authz.caches.js";
 
 const USER_ID = "22222222-2222-2222-2222-222222222222";
 
 describe("ensureExistingPlatformAdminOwner", () => {
   beforeEach(() => {
-    platformAdminCache.clear();
     bindingCache.clear();
     setReturning([{ id: USER_ID, isPlatformAdmin: true }]);
     setExistingBindings([]);

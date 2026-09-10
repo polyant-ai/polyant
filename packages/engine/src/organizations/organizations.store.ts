@@ -10,11 +10,7 @@ import {
 } from "./organization.schema.js";
 import { roles } from "../authz/role.schema.js";
 import { roleBindings } from "../authz/role-binding.schema.js";
-import {
-  bindingCache,
-  bindingCacheKey,
-  invalidateSuperadminCache,
-} from "../authz/authz.caches.js";
+import { bindingCache, bindingCacheKey } from "../authz/authz.caches.js";
 
 /** Anything that can run a `select` — the shared `db` or a transaction handle. */
 type Executor = Pick<typeof db, "select">;
