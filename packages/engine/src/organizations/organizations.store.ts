@@ -54,60 +54,25 @@ export async function findDefaultOrganization(): Promise<OrganizationIdentity | 
 }
 
 /**
- * Promote a user to Platform Admin by email. No-op when the email is unknown.
- * Returns the number of rows updated (0 or 1).
+ * Complete the tenancy bootstrap for an ALREADY privileged identity: the account
+ * `INITIAL_ADMIN_*` created, made Owner of the default organization so the
+ * installation is administrable at all. The whole write path is transactional —
+ * a caller never observes a platform admin without the membership and binding
+ * that make the standing usable.
  *
- * Sets only `is_platform_admin` — the single source of platform-admin standing.
- * `/api/users/*` is gated by `@PlatformAdminOnly()`, which `PermissionGuard`
- * resolves straight from this column on every request, so there is no second
- * spelling left to drift out of sync with it.
- *
- * And it invalidates the platform-admin cache. `AuthorizationService` caches the
- * flag per user with a TTL, so a `false` cached moments earlier would otherwise
- * outlive the promotion. Boot-time promotion usually runs against a cold cache,
- * which is exactly why this was easy to miss — it is the one write of this flag
- * that the invalidate-on-every-write sweep did not cover.
- */
-export async function promotePlatformAdminByEmail(email: string): Promise<number> {
-  const updated = await db
-    .update(users)
-    .set({ isPlatformAdmin: true, updatedAt: new Date() })
-    .where(eq(users.email, email))
-    .returning({ id: users.id });
-  for (const row of updated) invalidateSuperadminCache(row.id);
-  return updated.length;
-}
-
-/**
- * Establish the one deliberately configured bootstrap identity as an Owner of
- * the default organization. The whole write path is transactional: a caller
- * never observes a promoted platform admin without the membership and binding
- * that make the installation usable.
+ * It cannot elevate anyone: the transaction below acts only when the row is
+ * already a platform admin. The variant that DID promote existed for
+ * `PLATFORM_ADMIN_EMAIL`, a second configured identity that could appear after
+ * boot through a federated sign-in; with no federated provider left there is
+ * nothing for it to recognise, and a function that can promote an arbitrary
+ * address by configuration is not worth keeping for a case that cannot arise.
  *
  * Email comparisons are normalized on both sides. Auth.js normally stores
  * normalized email already, but this also handles legacy rows created before
  * that invariant was enforced.
  */
-export async function ensureConfiguredPlatformAdminOwner(
-  email: string,
-): Promise<string | null> {
-  return ensureDefaultOwnerForEmail(email, { promotePlatformAdmin: true });
-}
-
-/**
- * Complete the tenancy bootstrap for an already privileged identity only. This
- * is used for the account created by `INITIAL_ADMIN_*`; unlike the configured
- * email path, it can never elevate an arbitrary existing user.
- */
 export async function ensureExistingPlatformAdminOwner(
   email: string,
-): Promise<string | null> {
-  return ensureDefaultOwnerForEmail(email, { promotePlatformAdmin: false });
-}
-
-async function ensureDefaultOwnerForEmail(
-  email: string,
-  options: { promotePlatformAdmin: boolean },
 ): Promise<string | null> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return null;
@@ -132,19 +97,7 @@ async function ensureDefaultOwnerForEmail(
       .from(users)
       .where(sql`lower(${users.email}) = ${normalizedEmail}`)
       .limit(1);
-    if (!user || (!options.promotePlatformAdmin && !user.isPlatformAdmin)) {
-      return null;
-    }
-
-    if (options.promotePlatformAdmin) {
-      await tx
-        .update(users)
-        .set({
-          isPlatformAdmin: true,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, user.id));
-    }
+    if (!user || !user.isPlatformAdmin) return null;
 
     await tx
       .insert(organizationMemberships)
@@ -196,8 +149,8 @@ async function ensureDefaultOwnerForEmail(
   if (!bootstrap) return null;
 
   // Only invalidate after the transaction commits; otherwise a concurrent read
-  // can repopulate either cache from the old state.
-  if (options.promotePlatformAdmin) invalidateSuperadminCache(bootstrap.userId);
+  // can repopulate the cache from the old state. The platform-admin cache needs
+  // no invalidation here: this path never changes that flag.
   bindingCache.delete(bindingCacheKey(bootstrap.userId, bootstrap.organizationId));
   return bootstrap.organizationId;
 }

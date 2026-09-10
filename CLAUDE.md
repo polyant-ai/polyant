@@ -320,7 +320,6 @@ Tenant URL tiers are [ADR-0002](docs/adr/0002-canonical-tenant-boundaries.md).
 | `AUTH_SECRET` | Yes (web + engine) | Auth.js JWT encryption secret (32+ random chars). Must be identical in both packages — engine uses it to decrypt JWE tokens |
 | `AUTH_TRUST_HOST` | No | Set to `true` behind reverse proxy |
 | `DATABASE_URL` | Alt (web) | PostgreSQL connection string for Auth.js adapter. Web needs this in `.env.local` or root `.env` (Next.js doesn't auto-load monorepo root `.env`) |
-| `PLATFORM_ADMIN_EMAIL` | No | Email promoted to Platform Admin at every boot (idempotent, no-op until that user exists) |
 
 ## Instances Architecture
 

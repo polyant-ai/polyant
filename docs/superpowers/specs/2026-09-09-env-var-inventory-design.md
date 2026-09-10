@@ -95,7 +95,7 @@ property of the machine, the network or the release is not.
 | `AUTH_MODE` | `config.ts` | `session` or `alb-oidc`. The second is REFUSED at boot |
 | `AUTH_TRUST_HOST` | `web/lib/auth.config.ts` | Auth.js host trust. Required for any self-hosted deployment |
 | ~~`GOOGLE_CLIENT_ID` `_SECRET`~~ | — | **Removed with the Google provider.** Federated sign-in belongs to the tier that manages organizations; `web/lib/auth-providers.ts` is the empty seam left in its place |
-| `PLATFORM_ADMIN_EMAIL` | `config.ts`, `web/lib/auth.ts` | The identity promoted to platform admin at every boot. A bootstrap input: it exists to create the identity that can edit everything else |
+| ~~`PLATFORM_ADMIN_EMAIL`~~ | — | **Removed.** It named a SECOND bootstrap identity, promoted at every boot and — for one that had not signed in yet — through an internal endpoint the web called during sign-in. Both existed for a federated identity appearing after boot; with no federated provider the seeded `INITIAL_ADMIN_*` account is the only way one can exist |
 | `INITIAL_ADMIN_EMAIL` `_PASSWORD` | `config.ts` | First-boot seed. Password unset SKIPS seeding rather than generating one into the logs |
 | `DEFAULT_INSTANCE_ID` | `config.ts` (documented exception) | Slug assumed when a caller names no agent |
 | `API_PORT` | `config.ts` | Listening port |

@@ -7,8 +7,8 @@ import { type ManagementAuditStore, managementAuditStore } from "./management-au
  * (RBAC Stream 7).
  *
  * Privilege-granting actions (`member.role_assign`, `member.remove`,
- * `user.role_update`, `platform_admin.bootstrap`) are audited because a role
- * change controls the permission guard — up to a total bypass. `role_bindings`
+ * `user.role_update`) are audited because a role change controls the permission
+ * guard — up to a total bypass. `role_bindings`
  * are upserted delete-then-insert, so `role_bindings.created_by` is destroyed by
  * the next assignment: this audit log is the ONLY durable trace of who granted
  * what, and when.
@@ -22,7 +22,6 @@ export const ManagementAuditAction = {
   MemberRemove: "member.remove",
   McpServerWrite: "mcp_server.write",
   McpServerDelete: "mcp_server.delete",
-  PlatformAdminBootstrap: "platform_admin.bootstrap",
   UserCreate: "user.create",
   // The wire value stays `user.role_update` although `users.role` is gone:
   // renaming it would orphan every audit row already written under it.
@@ -40,7 +39,7 @@ export const ManagementAuditTarget = {
   Secret: "secret",
   Member: "member",
   McpServer: "mcp_server",
-  /** A platform-level account (`/api/users` surface, bootstrap-owner). */
+  /** A platform-level account (the `/api/users` surface). */
   User: "user",
 } as const;
 

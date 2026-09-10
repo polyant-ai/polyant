@@ -19,6 +19,7 @@ had. Remove them from your environment; none of them needs a replacement value.
 | `AWS_REGION` | Set the AWS provider region on each agent (Settings → AI Provider). There is no deployment-wide fallback and no `us-east-1` default: a Bedrock agent with no region configured is now refused with a message naming the setting, on chat as well as on embeddings |
 | `DEFAULT_INSTANCE_ID` | Nothing. Every caller already names its agent — the OpenAI-compatible route validates `model` and answers 400 without it — so the fallback could not fire |
 | `WORKSPACES_ROOT` | Nothing. The per-conversation sandbox stays under `packages/engine/workspaces`; the variable survives only as a test seam and is no longer documented as deployment configuration |
+| `PLATFORM_ADMIN_EMAIL` | Nothing, on an installation that already booted with it: the standing it granted lives in `users.is_platform_admin` and stays. The platform admin is now the account `INITIAL_ADMIN_EMAIL` names, seeded already privileged and made Owner of the default organization on the same boot. The internal `POST /api/auth/credentials/bootstrap-owner` endpoint it needed is gone with it |
 | `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_TRACING` | Nothing. They were read by no code at all; tracing is configured per agent |
 
 ### Google sign-in is removed

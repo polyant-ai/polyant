@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Unit tests for `promotePlatformAdminByEmail` — the `PLATFORM_ADMIN_EMAIL` boot
- * path, and the one write of `users.is_platform_admin` that the
- * invalidate-on-every-write sweep missed.
+ * Unit tests for `ensureExistingPlatformAdminOwner` — the boot path that makes
+ * the seeded initial admin an Owner of the default organization, and the only
+ * bootstrap identity there is.
  *
- * `is_platform_admin` is the single source of platform-admin standing:
- * `/api/users/*` is gated by `@PlatformAdminOnly()`, which `PermissionGuard`
- * resolves straight from this column on every request, so there is no second
- * spelling (a `role` column) left to drift out of sync with it.
+ * Two properties matter and both used to be violated by an earlier shape of
+ * this code: it must REFUSE an account that is not already a platform admin
+ * (nothing here may elevate an address by configuration), and it must replace
+ * only ORGANIZATION-scoped bindings, leaving workspace policy alone.
  *
- * The real `platformAdminCache` is used rather than a module mock, so these fail
- * if the store stops invalidating for real.
+ * The real `bindingCache` is used rather than a module mock, so these fail if
+ * the store stops invalidating for real.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -136,10 +136,7 @@ const {
 
 vi.mock("../database/client.js", () => ({ db: mockDb }));
 
-import {
-  ensureConfiguredPlatformAdminOwner,
-  promotePlatformAdminByEmail,
-} from "./organizations.store.js";
+import { ensureExistingPlatformAdminOwner } from "./organizations.store.js";
 import {
   bindingCache,
   bindingCacheKey,
@@ -148,66 +145,31 @@ import {
 
 const USER_ID = "22222222-2222-2222-2222-222222222222";
 
-/** The values handed to `.set(...)`, which is where the defect lived. */
-function patch(): Record<string, unknown> {
-  const call = updateCalls.find((c) => c.method === "set");
-  expect(call, "promotePlatformAdminByEmail must issue an update").toBeDefined();
-  return call!.args[0] as Record<string, unknown>;
-}
-
-describe("promotePlatformAdminByEmail", () => {
-  beforeEach(() => {
-    platformAdminCache.clear();
-    setReturning([{ id: USER_ID }]);
-  });
-
-  it("sets the flag", async () => {
-    await promotePlatformAdminByEmail("ops@acme.com");
-
-    expect(patch().isPlatformAdmin).toBe(true);
-  });
-
-  it("drops the cached flag so the promotion is not hidden by a stale false", async () => {
-    platformAdminCache.set(USER_ID, false);
-
-    await promotePlatformAdminByEmail("ops@acme.com");
-
-    // No TTL advance: the promotion must land on the very next guard check.
-    expect(platformAdminCache.has(USER_ID)).toBe(false);
-  });
-
-  it("reports how many rows it promoted", async () => {
-    await expect(promotePlatformAdminByEmail("ops@acme.com")).resolves.toBe(1);
-  });
-
-  it("is a no-op for an unknown email, and caches nothing", async () => {
-    setReturning([]);
-
-    await expect(promotePlatformAdminByEmail("nobody@acme.com")).resolves.toBe(0);
-    expect(platformAdminCache.has(USER_ID)).toBe(false);
-  });
-});
-
-describe("ensureConfiguredPlatformAdminOwner", () => {
+describe("ensureExistingPlatformAdminOwner", () => {
   beforeEach(() => {
     platformAdminCache.clear();
     bindingCache.clear();
-    setReturning([{ id: USER_ID, isPlatformAdmin: false }]);
+    setReturning([{ id: USER_ID, isPlatformAdmin: true }]);
     setExistingBindings([]);
   });
 
-  it("updates the configured user and grants default-org owner access atomically", async () => {
-    platformAdminCache.set(USER_ID, false);
+  it("grants default-org owner access atomically, matching the email case-insensitively", async () => {
     bindingCache.set(bindingCacheKey(USER_ID, USER_ID), []);
 
-    await expect(ensureConfiguredPlatformAdminOwner("Boss@Example.com")).resolves.toBe(
+    await expect(ensureExistingPlatformAdminOwner("Boss@Example.com")).resolves.toBe(
       USER_ID,
     );
 
     expect(transactionCount()).toBe(1);
-    expect(patch().isPlatformAdmin).toBe(true);
-    expect(platformAdminCache.has(USER_ID)).toBe(false);
     expect(bindingCache.has(bindingCacheKey(USER_ID, USER_ID))).toBe(false);
+  });
+
+  it("refuses an account that is not already a platform admin", async () => {
+    // Nothing on this path may elevate an address named by configuration: the
+    // seeder is what makes the account privileged, and it does so on insert.
+    setReturning([{ id: USER_ID, isPlatformAdmin: false }]);
+
+    await expect(ensureExistingPlatformAdminOwner("boss@example.com")).resolves.toBeNull();
   });
 
   it("replaces only org bindings and preserves workspace policy", async () => {
@@ -217,7 +179,7 @@ describe("ensureConfiguredPlatformAdminOwner", () => {
       { roleId: "workspace-admin", scopeType: "workspace" },
     ]);
 
-    await ensureConfiguredPlatformAdminOwner("boss@example.com");
+    await ensureExistingPlatformAdminOwner("boss@example.com");
 
     expect(deleteTargetsOrganizationScope()).toBe(true);
     expect(bindingsAfterBootstrap()).toEqual([
