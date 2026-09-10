@@ -25,6 +25,11 @@ const C = { reset: "\x1b[0m", cyan: "\x1b[36m", dim: "\x1b[2m" };
  * staging-like environment), set `NODE_ENV` to something other than
  * "production" for that engine pod.
  */
+// CONVENTION-EXCEPTION: DEBUG_LLM_PAYLOAD and NODE_ENV read directly, at module
+// load. Deliberately absent from config.ts: a development-only switch that leaks
+// customer data when on does not belong in the schema a production deployment
+// fills in, and the NODE_ENV refusal below has to be able to override it
+// regardless of what that schema validated.
 const DEBUG_LLM_PAYLOAD = (() => {
   const requested = process.env.DEBUG_LLM_PAYLOAD === "1";
   if (!requested) return false;
