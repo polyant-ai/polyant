@@ -165,7 +165,6 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
      *  the account from the same flag. Idempotent; unset = no promotion
      *  (migration 0076 reconciles any pre-existing platform-admin user before
      *  the old `users.role` column is dropped). */
-    platformAdminEmail: z.string().email().optional(),
   }),
 
   // NOTE: there is no `authz.enforce`. RBAC is enforced unconditionally — see the
@@ -350,7 +349,6 @@ function loadConfig(): Config {
     auth: {
       secret: process.env.AUTH_SECRET,
       internalSecret: process.env.AUTH_INTERNAL_SECRET,
-      platformAdminEmail: process.env.PLATFORM_ADMIN_EMAIL,
     },
     initialAdmin: {
       email: process.env.INITIAL_ADMIN_EMAIL,

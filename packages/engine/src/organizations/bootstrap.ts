@@ -2,7 +2,6 @@
 
 import { config } from "../config.js";
 import {
-  ensureConfiguredPlatformAdminOwner,
   ensureExistingPlatformAdminOwner,
   findDefaultOrganization,
 } from "./organizations.store.js";
@@ -17,17 +16,22 @@ const LOG_PREFIX = "[organizations/bootstrap]";
  *  1. Verifies the default organization exists (created by migration 0051).
  *     If it is missing the migration has not run — log and stop, never create
  *     tenancy rows here (the migration owns the seed + backfill).
- *  2. The explicitly configured `PLATFORM_ADMIN_EMAIL`, when it exists, is
- *     promoted and made Owner of that organization in one transaction.
- *  3. The password-seeded initial admin is made Owner too, but is never
- *     promoted here: the store only acts if that account is already privileged.
- *  4. On a fresh install (zero users) there is nothing to backfill — the
+ *  2. The password-seeded initial admin is made Owner of that organization, but
+ *     is never PROMOTED here: the store only acts if that account is already a
+ *     platform admin, which `users/seed.ts` made it when it created the row. So
+ *     an arbitrary address matching the configuration can never be elevated.
+ *  3. On a fresh install (zero users) there is nothing to backfill — the
  *     migration's user backfill already covered any pre-existing users. This
  *     branch is a deliberate no-op.
  *
- * OAuth users are still not provisioned at boot. The web sign-in callback calls
- * the narrow internal endpoint only for the exact configured platform-admin
- * email, covering the first Google login without granting anyone else access.
+ * There is exactly ONE bootstrap identity, and it is the account the seeder
+ * created. `PLATFORM_ADMIN_EMAIL` used to name a second one, promoted here at
+ * every boot and — for an identity that had not signed in yet — through an
+ * internal endpoint the web called during sign-in. Both existed for a federated
+ * identity that could appear after boot; with no federated provider left
+ * (`web/lib/auth-providers.ts`), an account can only exist because the seeder
+ * made it or because an administrator created it, and neither needs a second
+ * variable to be recognised.
  *
  * Never throws into the boot sequence: failures are logged and swallowed by the
  * caller, exactly like the existing platform-admin seed.
@@ -39,18 +43,6 @@ export async function bootstrapOrganizations(): Promise<void> {
       `${LOG_PREFIX} Default organization not found — run migrations (0051) before boot. Skipping bootstrap.`,
     );
     return;
-  }
-
-  const adminEmail = config.auth.platformAdminEmail;
-  if (adminEmail) {
-    const organizationId = await ensureConfiguredPlatformAdminOwner(adminEmail);
-    if (organizationId) {
-      console.log(`${LOG_PREFIX} Configured platform admin bootstrap applied.`);
-    } else {
-      // Intentionally omit the email: boot logs are persisted and configuration
-      // values are not runtime diagnostics.
-      console.log(`${LOG_PREFIX} Configured platform admin not present yet.`);
-    }
   }
 
   // This path is gated by the seed password: it identifies a deployment that
