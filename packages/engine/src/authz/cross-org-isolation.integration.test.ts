@@ -17,6 +17,7 @@
 import { resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { queryClient } from "../database/client.js";
+import { orgScope } from "./scope-filter.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import {
   searchMemories,
@@ -93,51 +94,113 @@ describe.skipIf(!DB_AVAILABLE)("RBAC Stream 2 — store-layer cross-org isolatio
 
   describe("memories", () => {
     it("should_return_zero_rows_when_OrgA_caller_passes_OrgB_agent_slug (param-IDOR)", async () => {
-      const result = await searchMemories(asInstanceSlug(orgB.slug), { orgId: orgA.orgId });
+      const result = await searchMemories(asInstanceSlug(orgB.slug), { scope: orgScope(orgA.orgId) });
       expect(result.total).toBe(0);
       expect(result.memories).toHaveLength(0);
     });
 
     it("should_return_OrgB_rows_for_the_owning_org (control)", async () => {
-      const result = await searchMemories(asInstanceSlug(orgB.slug), { orgId: orgB.orgId });
+      const result = await searchMemories(asInstanceSlug(orgB.slug), { scope: orgScope(orgB.orgId) });
       expect(result.total).toBe(1);
       expect(result.memories[0].content).toBe("secret of b");
     });
 
     it("should_not_delete_an_OrgB_memory_for_an_OrgA_caller (param-IDOR on delete)", async () => {
-      const deleted = await deleteMemoryForInstance(orgB.memoryId, asInstanceSlug(orgB.slug), orgA.orgId);
+      const deleted = await deleteMemoryForInstance(orgB.memoryId, asInstanceSlug(orgB.slug), orgScope(orgA.orgId));
       expect(deleted).toBe(false);
       // The row must still be there for its owner.
-      const stillThere = await searchMemories(asInstanceSlug(orgB.slug), { orgId: orgB.orgId });
+      const stillThere = await searchMemories(asInstanceSlug(orgB.slug), { scope: orgScope(orgB.orgId) });
       expect(stillThere.total).toBe(1);
     });
 
     it("should_not_delete_all_OrgB_memories_for_an_OrgA_caller", async () => {
-      await deleteAllMemories(asInstanceSlug(orgB.slug), orgA.orgId);
-      const stillThere = await searchMemories(asInstanceSlug(orgB.slug), { orgId: orgB.orgId });
+      await deleteAllMemories(asInstanceSlug(orgB.slug), orgScope(orgA.orgId));
+      const stillThere = await searchMemories(asInstanceSlug(orgB.slug), { scope: orgScope(orgB.orgId) });
       expect(stillThere.total).toBe(1);
     });
   });
 
   describe("conversations", () => {
     it("should_treat_an_OrgB_conversation_as_not_found_for_an_OrgA_caller (param-IDOR)", async () => {
-      const conv = await conversationStore.getConversation(orgB.convId, orgA.orgId);
+      const conv = await conversationStore.getConversation(orgB.convId, orgScope(orgA.orgId));
       expect(conv).toBeNull();
     });
 
     it("should_return_an_OrgB_conversation_for_the_owning_org (control)", async () => {
-      const conv = await conversationStore.getConversation(orgB.convId, orgB.orgId);
+      const conv = await conversationStore.getConversation(orgB.convId, orgScope(orgB.orgId));
       expect(conv?.conversationId).toBe(orgB.convId);
     });
 
     it("should_list_only_caller_org_conversations_when_no_slug_is_given (aggregate-leak)", async () => {
       const { conversations } = await conversationStore.listConversations({
-        orgId: orgA.orgId,
+        scope: orgScope(orgA.orgId),
         limit: 100,
       });
       const slugs = new Set(conversations.map((c) => c.instanceId));
       expect(slugs.has(asInstanceSlug(orgA.slug))).toBe(true);
       expect(slugs.has(asInstanceSlug(orgB.slug))).toBe(false);
+    });
+  });
+
+  /**
+   * The mutations, which the read cases above never covered.
+   *
+   * Their tenancy used to live entirely in the caller: the controller ran
+   * `loadConversationScoped` a few lines earlier, and the store keyed every
+   * statement on `conversation_id` alone across nine tables. An ordering no type
+   * checked and no test pinned — and the reset hook calls `renameConversation`
+   * without it. Here the store itself is asked to refuse.
+   */
+  describe("conversation mutations", () => {
+    it("should_not_rename_an_OrgB_conversation_for_an_OrgA_caller", async () => {
+      const renamed = await conversationStore.renameConversation(
+        orgB.convId,
+        `${orgB.convId}#stolen`,
+        orgScope(orgA.orgId),
+        "renamed by a stranger",
+      );
+      expect(renamed).toBe(false);
+
+      // The row is untouched under its own id, and the new id was never created.
+      const own = await conversationStore.getConversation(orgB.convId, orgScope(orgB.orgId));
+      expect(own?.conversationId).toBe(orgB.convId);
+      const stolen = await conversationStore.getConversation(
+        `${orgB.convId}#stolen`,
+        orgScope(orgB.orgId),
+      );
+      expect(stolen).toBeNull();
+    });
+
+    it("should_not_delete_an_OrgB_conversation_for_an_OrgA_caller", async () => {
+      const deleted = await conversationStore.deleteConversation(
+        orgB.convId,
+        orgScope(orgA.orgId),
+      );
+      expect(deleted).toBe(false);
+
+      const stillThere = await conversationStore.getConversation(
+        orgB.convId,
+        orgScope(orgB.orgId),
+      );
+      expect(stillThere?.conversationId).toBe(orgB.convId);
+    });
+
+    it("should_let_the_owning_org_rename_and_delete_its_own_conversation (control)", async () => {
+      const convId = `${orgA.slug}-conv-own`;
+      await queryClient`
+        INSERT INTO conversations (conversation_id, instance_id, channel, source)
+        VALUES (${convId}, ${orgA.slug}, 'web', 'user')`;
+
+      const archived = `${convId}#archived`;
+      const renamed = await conversationStore.renameConversation(
+        convId,
+        archived,
+        orgScope(orgA.orgId),
+      );
+      expect(renamed).toBe(true);
+
+      const deleted = await conversationStore.deleteConversation(archived, orgScope(orgA.orgId));
+      expect(deleted).toBe(true);
     });
   });
 });

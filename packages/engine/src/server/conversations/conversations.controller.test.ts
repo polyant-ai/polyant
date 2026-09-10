@@ -144,6 +144,7 @@ describe("ConversationsController — debug + state endpoints", () => {
       expect(mockStore.renameConversation).toHaveBeenCalledWith(
         "acme:whatsapp:+3900",
         "acme:whatsapp:archived-1",
+        expect.objectContaining({ organizationId: expect.any(String) }),
         "Round 1",
       );
     });
@@ -189,6 +190,7 @@ describe("ConversationsController — debug + state endpoints", () => {
       expect(mockStore.renameConversation).toHaveBeenCalledWith(
         "acme:web:api-1",
         "acme:web:api-1",
+        expect.objectContaining({ organizationId: expect.any(String) }),
         "New title",
       );
     });

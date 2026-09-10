@@ -70,10 +70,15 @@ describe("resetEmbeddingsForProviderSwitch", () => {
       "bedrock",
     );
 
-    // Both deletes run inside the shared transaction. deleteAllMemories takes an
-    // optional orgId before the executor, so the reset (no org gate) passes
-    // undefined then the tx handle; deleteAllKnowledge still takes the tx second.
-    expect(mockDeleteAllMemories).toHaveBeenCalledWith("acme", undefined, expect.anything());
+    // Both deletes run inside the shared transaction. deleteAllMemories takes a
+    // REQUIRED tenant scope before the executor: this service has no principal,
+    // so it states the cross-tenant scope and its reason instead of passing
+    // `undefined`, which used to be indistinguishable from a forgotten argument.
+    expect(mockDeleteAllMemories).toHaveBeenCalledWith(
+      "acme",
+      expect.objectContaining({ reason: expect.stringContaining("embedding provider switch") }),
+      expect.anything(),
+    );
     expect(mockDeleteAllKnowledge).toHaveBeenCalledWith("acme", expect.anything());
     // The instances row is updated by UUID, not slug.
     expect(mockWhere).toHaveBeenCalledWith(expect.anything());

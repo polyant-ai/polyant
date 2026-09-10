@@ -74,13 +74,13 @@ describe("OpenAIService", () => {
     });
 
     it("should_return_only_the_caller_org_agents_when_the_caller_is_a_user", async () => {
-      mockListActiveInstances.mockImplementation(async (orgId?: string) =>
-        orgId === "org-a" ? [agentA] : [agentA, agentB],
+      mockListActiveInstances.mockImplementation(async (scope?: { organizationId?: string }) =>
+        scope?.organizationId === "org-a" ? [agentA] : [agentA, agentB],
       );
 
       const result = await new OpenAIService().listInstances({ orgId: "org-a" });
 
-      expect(mockListActiveInstances).toHaveBeenCalledWith("org-a");
+      expect(mockListActiveInstances).toHaveBeenCalledWith({ organizationId: "org-a" });
       expect(result).toEqual([agentA]);
     });
 

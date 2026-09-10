@@ -4,7 +4,8 @@ import { defineHook } from "@polyant-ai/plugin-sdk";
 // First-party hook: importing the engine's own store is fine in-tree, but it makes
 // this function non-portable as an external plugin. If reset is ever needed from a
 // plugin, expose it as a method on `ctx.conversation` in the SDK instead.
-import { conversationStore, SYSTEM_SCOPE } from "../../conversations/index.js";
+import { conversationStore } from "../../conversations/index.js";
+import { allTenantsScope, type TenantScope } from "../../authz/scope-filter.js";
 
 /** Whole-message keyword, matched case-insensitively. Deliberately not configurable. */
 const KEYWORD = "RESET";
@@ -18,14 +19,14 @@ function randomSuffix(): string {
  * Pick an unused archive id: two random candidates, then a timestamp fallback, so a
  * collision can never make the rename fail.
  */
-async function pickArchiveId(conversationId: string): Promise<string> {
+async function pickArchiveId(conversationId: string, scope: TenantScope): Promise<string> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const candidate = `${conversationId}#${randomSuffix()}`;
-    // SYSTEM_SCOPE is required, not optional: a hook runs outside any request and
-    // has no organization, and the store's org filter fails closed on a missing
-    // scope — so an unscoped lookup would ALWAYS return null and this collision
-    // check would be dead code.
-    if (!(await conversationStore.getConversation(candidate, SYSTEM_SCOPE))) return candidate;
+    // The cross-tenant scope is required, not optional: a hook runs outside any
+    // request and has no organization, and the store's tenancy filter fails
+    // closed — so a scope-less lookup would ALWAYS return null and this
+    // collision check would be dead code. The reason travels with the call.
+    if (!(await conversationStore.getConversation(candidate, scope))) return candidate;
   }
   return `${conversationId}#${Date.now()}`;
 }
@@ -50,8 +51,11 @@ export default defineHook({
 
     const conversationId = ctx.payload.conversation.id;
     try {
-      const archiveId = await pickArchiveId(conversationId);
-      await conversationStore.renameConversation(conversationId, archiveId);
+      // One scope for both statements: a hook runs outside any request and has
+      // no organization to resolve, and the reason travels with the calls.
+      const scope = allTenantsScope("conversation-reset hook: archives a conversation outside any request");
+      const archiveId = await pickArchiveId(conversationId, scope);
+      await conversationStore.renameConversation(conversationId, archiveId, scope);
       return {
         halt: { message: `RESET → ${archiveId.slice(conversationId.length)}`, persist: false },
       };

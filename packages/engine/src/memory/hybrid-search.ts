@@ -5,6 +5,7 @@ import { embed, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
 import { conversationStore } from "../conversations/index.js";
 import { memoryLog } from "./memory-logger.js";
 import type { InstanceSlug } from "../instances/identifiers.js";
+import { allTenantsScope } from "../authz/scope-filter.js";
 
 export interface HybridSearchResult {
   content: string;
@@ -40,7 +41,12 @@ export async function hybridSearch(
       memoryLog.error("HybridSearch", "pgvector semantic search failed:", err);
       return [];
     }),
-    conversationStore.searchByKeyword(query, uid, fetchLimit).catch((err) => {
+    conversationStore.searchByKeyword(
+      allTenantsScope("hybrid search runs in a turn, with no principal; the agent slug already pins one tenant"),
+      query,
+      uid,
+      fetchLimit,
+    ).catch((err) => {
       memoryLog.error("HybridSearch", "PostgreSQL keyword search failed:", err);
       return [];
     }),
