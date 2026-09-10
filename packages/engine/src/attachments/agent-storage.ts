@@ -11,6 +11,7 @@ import {
   resolveAgentS3,
   type AgentS3Config,
 } from "./agent-s3.js";
+import { attachmentsLog } from "./attachments-logger.js";
 
 /**
  * Attachment persistence, on the AGENT's own bucket.
@@ -46,8 +47,13 @@ async function resolveFor(instanceId: InstanceSlug): Promise<AgentS3Config | nul
     // A warn line rather than a throw: persistence is not the turn's purpose,
     // and there is no boot-time answer to give — an agent's storage is
     // configured (or not) per agent, long after boot.
-    console.warn(
-      `[attachments] ${instanceId}: attachments will not be stored — ${describeAgentS3Failure(resolution)}`,
+    //
+    // Through the module logger, not `console.warn`: the slug comes from a
+    // request, and `createLogger` sanitizes both prefix and message, so a slug
+    // carrying a newline cannot forge a log line.
+    attachmentsLog.warn(
+      "Storage",
+      `${instanceId}: attachments will not be stored — ${describeAgentS3Failure(resolution)}`,
     );
     return null;
   }
