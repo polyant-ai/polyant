@@ -98,6 +98,7 @@ describe("GET /api/attachments/*key over HTTP", () => {
   */
   it.each([
     ["a hash", "report%20%2312.pdf", "report #12.pdf"],
+    ["a dot run", "report..pdf", "report..pdf"],
     ["a question mark", "report%3F.pdf", "report?.pdf"],
     ["a space", "my%20report.pdf", "my report.pdf"],
   ])("serves a filename carrying %s", async (_label, encoded, decoded) => {
@@ -111,10 +112,10 @@ describe("GET /api/attachments/*key over HTTP", () => {
   });
 
   /*
-    Every refusal is the same 404 and none of them reaches S3. `%2F` and `%2E%2E`
-    are the two that recomposing-then-validating would have let through: the
-    router decodes them inside a single segment, so the joined string looks
-    well-formed while the segment count says otherwise.
+    Every refusal is the same 404 and none of them reaches S3. `%2F` is the one
+    that recomposing-then-validating would have let through: the router decodes
+    it INSIDE a single segment, so the joined string looks like a well-formed
+    four-segment key while the segment count says otherwise.
   */
   it.each([
     ["too few segments", "attachments/agent-a/report.pdf"],
@@ -122,7 +123,7 @@ describe("GET /api/attachments/*key over HTTP", () => {
     ["the wrong prefix", "uploads/agent-a/conv-1/report.pdf"],
     ["a literal traversal", "attachments/agent-a/../conv-1/report.pdf"],
     ["an encoded separator inside a segment", "attachments/agent-a/conv-1/a%2Fb.pdf"],
-    ["an encoded traversal inside a segment", "attachments/agent-a/conv-1/%2E%2E"],
+    ["an encoded traversal as the whole segment", "attachments/agent-a/conv-1/%2E%2E"],
   ])("refuses %s with a 404 and no S3 read", async (_label, path) => {
     const res = await fetch(`${baseUrl}/api/attachments/${path}`);
 

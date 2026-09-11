@@ -32,8 +32,8 @@ describe("parseAttachmentKey", () => {
   it.each([
     ["a separator smuggled into one segment", ["attachments", "agent-a", "conv-1", "a/b.pdf"]],
     ["a backslash smuggled into one segment", ["attachments", "agent-a", "conv-1", "a\\b.pdf"]],
-    ["a traversal inside a segment", ["attachments", "agent-a", "conv-1", "..pdf"]],
     ["a traversal as a whole segment", ["attachments", "agent-a", "..", "f.pdf"]],
+    ["a single dot as a whole segment", ["attachments", "agent-a", ".", "f.pdf"]],
     ["an empty segment", ["attachments", "agent-a", "", "f.pdf"]],
     ["too few segments", ["attachments", "agent-a", "f.pdf"]],
     ["too many segments", ["attachments", "a", "c", "d", "f.pdf"]],
@@ -45,5 +45,17 @@ describe("parseAttachmentKey", () => {
 
   it.each([[undefined], [null], [42], [{}]])("refuses the non-key %p", (raw) => {
     expect(parseAttachmentKey(raw)).toBeNull();
+  });
+
+  /*
+    A dot run in the MIDDLE of a name traverses nothing: the segment count is
+    fixed and separators inside a segment are already refused. Rejecting it put
+    the validation in the wrong place — `report..pdf` was stored happily and then
+    refused on every read, so the file existed and could never be opened.
+  */
+  it("accepts a filename whose name contains a dot run", () => {
+    expect(parseAttachmentKey(["attachments", "agent-a", "conv-1", "report..pdf"])?.fileName).toBe(
+      "report..pdf",
+    );
   });
 });

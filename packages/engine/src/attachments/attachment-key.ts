@@ -53,11 +53,16 @@ export function parseAttachmentKey(raw: unknown): AttachmentKey | null {
 
   for (const segment of segments) {
     if (typeof segment !== "string") return null;
-    // Empty rejects `attachments//c/f`; the two others reject a separator or a
-    // traversal that arrived INSIDE one segment, percent-decoded by the router.
+    // Empty rejects `attachments//c/f`. The separator check rejects one that
+    // arrived INSIDE a segment, percent-decoded by the router.
     if (segment.length === 0) return null;
     if (segment.includes("/") || segment.includes("\\")) return null;
-    if (segment.includes("..")) return null;
+    // Only a segment that IS a traversal. A `..` in the MIDDLE of a name cannot
+    // traverse anything once the separators above are excluded and the count is
+    // fixed, and rejecting it was how `report..pdf` came to be stored and then
+    // refused on every read — the validation being in the wrong place rather
+    // than the name being wrong.
+    if (segment === "." || segment === "..") return null;
   }
 
   const [prefix, agentSlug, conversationId, fileName] = segments as string[];
