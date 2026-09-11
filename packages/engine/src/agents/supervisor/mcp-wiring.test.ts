@@ -40,11 +40,14 @@ vi.mock("../../ai-gateway/index.js", () => ({
   chatStream: mockChatStream,
 }));
 
-vi.mock("../tools/registry.js", () => ({
+vi.mock("../tools/registry.js", async (importOriginal) => ({
   getToolRegistry: mockGetToolRegistry,
   buildTool: mockBuildTool,
   normalizeRequiredSecrets: (input: ReadonlyArray<string | { key: string }> | undefined) =>
     (input ?? []).map((e) => (typeof e === "string" ? { key: e, type: "text" as const } : e)),
+  // The real rule, for the same reason as in index.test.ts.
+  missingRequiredSecrets: (await importOriginal<typeof import("../tools/registry.js")>())
+    .missingRequiredSecrets,
   scopeSecrets: (secrets: unknown) => secrets,
   toModelToolName: (name: string) => name.replace(/:/g, "__"),
 }));

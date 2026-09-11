@@ -49,7 +49,7 @@ vi.mock("../../ai-gateway/index.js", () => ({
   chatStream: mockChatStream,
 }));
 
-vi.mock("../tools/registry.js", () => ({
+vi.mock("../tools/registry.js", async (importOriginal) => ({
   getToolRegistry: mockGetToolRegistry,
   buildTool: mockBuildTool,
   // Pass-through: tests pass `string[]` which represents required (non-optional) keys.
@@ -57,6 +57,12 @@ vi.mock("../tools/registry.js", () => ({
     (input ?? []).map((e) =>
       typeof e === "string" ? { key: e, type: "text" as const } : e,
     ),
+  // NOT stubbed: the availability rule is the thing these tests assert on, and a
+  // re-implementation here would agree with itself while disagreeing with the
+  // supervisor. `required-secrets-availability.guardrail.test.ts` covers it over
+  // the live registry; this keeps the two from drifting apart.
+  missingRequiredSecrets: (await importOriginal<typeof import("../tools/registry.js")>())
+    .missingRequiredSecrets,
   // Pass-through: scoping is unit-tested in registry.test.ts; here it must not
   // strip secrets so the buildTools assertions see the bag they expect.
   scopeSecrets: (secrets: unknown) => secrets,

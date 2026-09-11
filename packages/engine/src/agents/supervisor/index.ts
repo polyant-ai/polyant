@@ -7,6 +7,7 @@ import { chat, chatStream, type ChatCallOptions } from "../../ai-gateway/index.j
 import {
   getToolRegistry,
   buildTool,
+  missingRequiredSecrets,
   normalizeRequiredSecrets,
   scopeSecrets,
   toModelToolName,
@@ -295,16 +296,10 @@ async function buildTools(opts: BuildToolsOptions) {
       if (knowledgeEnabled === false && def.category === "knowledge") continue;
       // Skip harness tools unless their category is explicitly included
       if (def.harness && !isHarnessIncluded) continue;
-      // Check requiredSecrets: skip tools whose non-optional secret keys are not configured.
-      // Optional specs (e.g. provider-conditional API keys) are ignored here — the tool
-      // itself returns an explicit error at runtime if the chosen branch is misconfigured.
-      if (def.requiredSecrets?.length) {
-        const requiredKeys = normalizeRequiredSecrets(def.requiredSecrets)
-          .filter((s) => !s.optional)
-          .map((s) => s.key);
-        const missing = requiredKeys.filter((k) => !secrets?.[k]);
-        if (missing.length > 0) continue;
-      }
+      // Skip tools whose MANDATORY secret keys this agent has not set. The rule,
+      // and why an optional spec is deliberately not checked here, is in
+      // `missingRequiredSecrets`.
+      if (missingRequiredSecrets(def.requiredSecrets, secrets).length > 0) continue;
       // Scope secrets to the keys this tool declares (least-privilege, enforced):
       // a tool — especially third-party plugin code — only ever sees the secrets
       // it declared in requiredSecrets; anything else is simply absent.
