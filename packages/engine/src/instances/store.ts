@@ -417,9 +417,24 @@ type UpdatableInstanceFields = {
   optoutClosingMessage?: string | null;
   optoutResumeMessage?: string | null;
   optoutInjectPromptHint?: boolean;
+  /**
+   * The six per-agent settings that replaced `DATETIME_*`, `MESSAGE_*` and
+   * `DEDUP_SIMILARITY_THRESHOLD`. `null` is a real value here — it clears the
+   * column and hands the agent back to the deployment default, which is what
+   * `resolveDatetimeSettings` and friends read.
+   */
+  datetimeTimezone?: string | null;
+  datetimeLocale?: string | null;
+  dedupSimilarityThreshold?: number | null;
+  messageSoftDebounceMs?: number | null;
+  messageTypingDelayMs?: number | null;
+  messageMaxRestarts?: number | null;
 };
 
-const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
+// `as const satisfies` rather than a `keyof` annotation: the annotation widened
+// every element to `keyof UpdatableInstanceFields`, which would make the
+// exhaustiveness check below compare a type against itself and always pass.
+const UPDATABLE_INSTANCE_KEYS = [
   "name",
   "description",
   "status",
@@ -449,7 +464,31 @@ const UPDATABLE_INSTANCE_KEYS: readonly (keyof UpdatableInstanceFields)[] = [
   "optoutClosingMessage",
   "optoutResumeMessage",
   "optoutInjectPromptHint",
-];
+  "datetimeTimezone",
+  "datetimeLocale",
+  "dedupSimilarityThreshold",
+  "messageSoftDebounceMs",
+  "messageTypingDelayMs",
+  "messageMaxRestarts",
+] as const satisfies readonly (keyof UpdatableInstanceFields)[];
+
+/**
+ * The type and the runtime list must name the same fields, and nothing used to
+ * make them: the six per-agent settings above were added to the controller, to
+ * the DTO and to the schema, and to NEITHER of these — so every PATCH of them
+ * wrote `updatedAt` and nothing else, and the panel reported a save that never
+ * happened.
+ *
+ * A key present in the type but absent from the list now fails the build; a name
+ * in the list that is not a field fails on the `satisfies`. Both directions are
+ * checked, and neither needs a test to run.
+ */
+type MissingFromUpdatableKeys = Exclude<
+  keyof UpdatableInstanceFields,
+  (typeof UPDATABLE_INSTANCE_KEYS)[number]
+>;
+const _everyUpdatableFieldIsListed: MissingFromUpdatableKeys extends never ? true : never = true;
+void _everyUpdatableFieldIsListed;
 
 /** Update an instance by slug. Touches updatedAt. Returns the updated instance or undefined if not found. */
 export async function updateInstance(

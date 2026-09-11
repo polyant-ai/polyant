@@ -473,6 +473,55 @@ describe("instances/store", () => {
 
       expect(result).toBeUndefined();
     });
+
+    /*
+      The patch handed to Drizzle, not just "set was called". The six per-agent
+      settings were added to the schema, the controller and the DTO and to
+      neither the type nor UPDATABLE_INSTANCE_KEYS, so every PATCH of them wrote
+      `updatedAt` and nothing else — a save the panel reported as successful and
+      the reload undid. Asserting the shape of `set` is what sees that.
+    */
+    it("writes the six per-agent settings, and null clears one", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.update.mockReturnValue(chain as any);
+
+      await updateInstance(asInstanceSlug("default"), {
+        datetimeTimezone: "Europe/Rome",
+        datetimeLocale: "it-IT",
+        dedupSimilarityThreshold: 0.85,
+        messageSoftDebounceMs: 0,
+        messageTypingDelayMs: 1500,
+        messageMaxRestarts: null,
+      });
+
+      expect(chain.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          datetimeTimezone: "Europe/Rome",
+          datetimeLocale: "it-IT",
+          dedupSimilarityThreshold: 0.85,
+          messageSoftDebounceMs: 0,
+          messageTypingDelayMs: 1500,
+          messageMaxRestarts: null,
+        }),
+      );
+    });
+
+    it("drops a key that is not on the whitelist", async () => {
+      const chain = createChainMock([fakeInstance]);
+      mockDb.update.mockReturnValue(chain as any);
+
+      // A JSON body can carry anything; NestJS does not strip it.
+      await updateInstance(asInstanceSlug("default"), {
+        name: "Kept",
+        embeddingDim: 9999,
+        isPlatformAdmin: true,
+      } as never);
+
+      const patch = chain.set.mock.calls[0][0];
+      expect(patch).toHaveProperty("name", "Kept");
+      expect(patch).not.toHaveProperty("embeddingDim");
+      expect(patch).not.toHaveProperty("isPlatformAdmin");
+    });
   });
 
   // -----------------------------------------------------------------------

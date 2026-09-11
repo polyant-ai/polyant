@@ -500,6 +500,12 @@ export class InstancesController {
    * A timezone or a locale is validated by ASKING Intl, not by a regex: the
    * accepted set is the runtime's, and a value it rejects would throw on every
    * turn that formats a date — far from here, and only for that agent.
+   *
+   * `null` is the CLEAR: it drops the column and hands the agent back to the
+   * deployment default. Everything else is checked for its TYPE first, because
+   * the body is JSON and nothing upstream narrows it — a truthiness test let
+   * `""` reach Intl, and two numeric comparisons are both false when the
+   * operand is a string, so `"abc"` passed as a threshold.
    */
   private validateAgentSettings(body: {
     datetimeTimezone?: string | null;
@@ -509,23 +515,37 @@ export class InstancesController {
     messageTypingDelayMs?: number | null;
     messageMaxRestarts?: number | null;
   }): void {
-    if (body.datetimeTimezone) {
+    const timezone = body.datetimeTimezone;
+    if (timezone !== undefined && timezone !== null) {
+      if (typeof timezone !== "string" || timezone.trim() === "") {
+        throw new BadRequestException(
+          "datetimeTimezone must be a non-empty IANA time zone name, or null to use the deployment default",
+        );
+      }
       try {
-        new Intl.DateTimeFormat("en-US", { timeZone: body.datetimeTimezone });
+        new Intl.DateTimeFormat("en-US", { timeZone: timezone });
       } catch {
-        throw new BadRequestException(`datetimeTimezone "${body.datetimeTimezone}" is not a known IANA time zone`);
+        throw new BadRequestException(`datetimeTimezone "${timezone}" is not a known IANA time zone`);
       }
     }
-    if (body.datetimeLocale) {
+    const locale = body.datetimeLocale;
+    if (locale !== undefined && locale !== null) {
+      if (typeof locale !== "string" || locale.trim() === "") {
+        throw new BadRequestException(
+          "datetimeLocale must be a non-empty BCP 47 locale, or null to use the deployment default",
+        );
+      }
       try {
-        new Intl.DateTimeFormat(body.datetimeLocale);
+        new Intl.DateTimeFormat(locale);
       } catch {
-        throw new BadRequestException(`datetimeLocale "${body.datetimeLocale}" is not a valid BCP 47 locale`);
+        throw new BadRequestException(`datetimeLocale "${locale}" is not a valid BCP 47 locale`);
       }
     }
     const threshold = body.dedupSimilarityThreshold;
-    if (threshold !== undefined && threshold !== null && (threshold < 0 || threshold > 1)) {
-      throw new BadRequestException("dedupSimilarityThreshold must be between 0 and 1");
+    if (threshold !== undefined && threshold !== null) {
+      if (typeof threshold !== "number" || !Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+        throw new BadRequestException("dedupSimilarityThreshold must be a number between 0 and 1");
+      }
     }
     // Zero is legitimate for all three — no debounce, no typing delay, no
     // restart — so the floor is non-negative rather than positive.

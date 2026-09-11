@@ -470,6 +470,78 @@ describe("InstancesController", () => {
   });
 
   // -------------------------------------------------------------------------
+  // The six per-agent settings — validated at the edge
+  // -------------------------------------------------------------------------
+  describe("update — the six per-agent settings", () => {
+    beforeEach(() => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+      mockEmbeddingProviderChanged.mockReturnValue(false);
+    });
+
+    it("passes accepted values through to the store", async () => {
+      await controller.update("test-one", {
+        datetimeTimezone: "Europe/Rome",
+        datetimeLocale: "it-IT",
+        dedupSimilarityThreshold: 0.85,
+        messageSoftDebounceMs: 0,
+        messageTypingDelayMs: 1500,
+        messageMaxRestarts: 2,
+      });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          datetimeTimezone: "Europe/Rome",
+          datetimeLocale: "it-IT",
+          dedupSimilarityThreshold: 0.85,
+          messageSoftDebounceMs: 0,
+          messageTypingDelayMs: 1500,
+          messageMaxRestarts: 2,
+        }),
+      );
+    });
+
+    it("accepts null for each of the six — that is the clear", async () => {
+      await controller.update("test-one", {
+        datetimeTimezone: null,
+        datetimeLocale: null,
+        dedupSimilarityThreshold: null,
+        messageSoftDebounceMs: null,
+        messageTypingDelayMs: null,
+        messageMaxRestarts: null,
+      });
+      expect(mockUpdateInstance).toHaveBeenCalled();
+    });
+
+    /*
+      The body is JSON and nothing upstream narrows it, so each of these reached
+      the column before: a truthiness test skipped `""` entirely, and `"abc"`
+      is neither `< 0` nor `> 1`. The panel already sends null for an emptied
+      field, so what this closes is the direct API caller.
+    */
+    it.each([
+      ["datetimeTimezone", ""],
+      ["datetimeLocale", ""],
+      ["datetimeTimezone", "   "],
+      ["datetimeTimezone", "Mars/Olympus_Mons"],
+      ["datetimeTimezone", 42],
+      ["datetimeLocale", 42],
+      ["dedupSimilarityThreshold", "abc"],
+      ["dedupSimilarityThreshold", Number.NaN],
+      ["dedupSimilarityThreshold", 1.5],
+      ["dedupSimilarityThreshold", -0.1],
+      ["messageSoftDebounceMs", -1],
+      ["messageTypingDelayMs", 1.5],
+      ["messageMaxRestarts", "abc"],
+    ])("rejects %s = %p", async (field, value) => {
+      await expect(
+        controller.update("test-one", { [field]: value } as never),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Models endpoint — capability hints
   // -------------------------------------------------------------------------
   describe("getModels", () => {
