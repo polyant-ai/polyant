@@ -60,15 +60,21 @@ describe("resolveAgentS3", () => {
     if (!r.ok) expect(r.reason).toBe("not_configured");
   });
 
-  it("should_switch_to_path_style_addressing_when_an_endpoint_is_given", async () => {
-    // MinIO and most S3-compatible servers do not resolve bucket-as-subdomain,
-    // so the SDK's virtual-host default reaches a host that does not exist.
-    const r = resolveAgentS3({ ...BUCKET, ...STATIC, s3_endpoint: "https://minio.internal:9000" });
+  /*
+    An agent secret must not be able to choose where the client connects. It
+    could, and that made every PUT and GET — with the file contents in them — a
+    server-side request to any host the secret named, the deployment's private
+    network included. The key is gone, and a leftover one from before the
+    removal must be INERT rather than honoured.
+  */
+  it("should_ignore_a_leftover_s3_endpoint_and_stay_on_aws", async () => {
+    const r = resolveAgentS3({ ...BUCKET, ...STATIC, s3_endpoint: "http://169.254.169.254" });
 
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(await resolved(r.config.client.config.forcePathStyle)).toBe(true);
-    expect(await resolved(r.config.client.config.endpoint)).toBeDefined();
+    expect(await resolved(r.config.client.config.forcePathStyle)).toBeFalsy();
+    const endpoint = await resolved(r.config.client.config.endpoint);
+    expect(JSON.stringify(endpoint ?? null)).not.toContain("169.254.169.254");
   });
 
   it("should_keep_virtual_host_addressing_for_real_aws", async () => {

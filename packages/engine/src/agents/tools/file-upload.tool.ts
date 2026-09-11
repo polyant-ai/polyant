@@ -21,7 +21,7 @@ export default defineTool({
     "Requires `s3_bucket_name` and `aws_region`, plus EITHER static keys\n" +
     "(`aws_access_key_id` + `aws_secret_access_key`) OR the explicit\n" +
     "`s3_use_task_role` opt-in, which reaches the runtime identity (the ECS task\n" +
-    "role) instead. Set `s3_endpoint` for an S3-compatible server (MinIO, R2).",
+    "role) instead.",
   category: "storage",
   // Only the bucket and the region are unconditional: the credentials are one of
   // two shapes, and `attachments/agent-s3.ts` decides which. Everything else is
@@ -55,15 +55,6 @@ export default defineTool({
       label: "Usa il task role (opt-in)",
       description:
         "Opt-in esplicito ('true'/'1'/'yes'): senza chiavi statiche, usa l'identità di runtime (task role ECS) per l'accesso S3 (anche cross-account via bucket policy). Off = niente uso implicito del task role.",
-      optional: true,
-      sensitive: false,
-    },
-    {
-      key: "s3_endpoint",
-      type: "text",
-      label: "Endpoint S3-compatibile",
-      description:
-        "Opzionale. URL di un server S3-compatibile (MinIO, Cloudflare R2). Se impostato, il client passa ad addressing path-style.",
       optional: true,
       sensitive: false,
     },
@@ -111,8 +102,7 @@ export default defineTool({
       // One resolver, shared with attachment persistence
       // (`attachments/agent-s3.ts`): an agent has ONE bucket, and two copies of
       // "how do I reach it" is how they come to disagree. It also brings the
-      // `s3_use_task_role` opt-in this tool's own description already promised,
-      // and the `s3_endpoint` that MinIO and R2 need.
+      // `s3_use_task_role` opt-in this tool's own description already promised.
 
       // Resolve file data
       let fileBuffer: Buffer;
@@ -177,12 +167,10 @@ export default defineTool({
         // went to S3 unchanged — the SDK encodes it for the API). Without this
         // a filename carrying #, ? or a space returns a link nobody can open.
         const encodedKey = s3Key.split("/").map(encodeURIComponent).join("/");
-        // A custom endpoint means an S3-compatible server addressed path-style,
-        // so the AWS virtual-host URL would point at a host that does not exist.
-        const endpoint = ctx.secrets?.["s3_endpoint"]?.trim();
-        const url = endpoint
-          ? `${endpoint.replace(/\/$/, "")}/${bucket}/${encodedKey}`
-          : `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
+        // One shape only: there is no configurable endpoint any more. See
+        // `attachments/agent-s3.ts` for why an agent-supplied one was a
+        // server-side-request primitive.
+        const url = `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
 
         ctx.audit.log({
           action: "storage.fileUpload",

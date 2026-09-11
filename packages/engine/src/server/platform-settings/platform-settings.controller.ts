@@ -49,15 +49,21 @@ export class PlatformSettingsController {
   @Patch()
   async update(
     @Body()
-    body: {
-      analyticsRetentionDays?: number | null;
-      sseMaxConnectionsPerUser?: number | null;
-    },
+    body:
+      | {
+          analyticsRetentionDays?: number | null;
+          sseMaxConnectionsPerUser?: number | null;
+        }
+      | undefined,
     @CurrentUser() actor?: AuthenticatedUser,
   ) {
+    // `@Body()` is UNDEFINED, not `{}`, for a request that sends no body and no
+    // `content-type` — an Express 5 change. Indexing it then threw a TypeError
+    // and answered 500 where the route's own next line answers 400.
+    const fields = body ?? {};
     const patch: { analyticsRetentionDays?: number | null; sseMaxConnectionsPerUser?: number | null } = {};
     for (const field of ["analyticsRetentionDays", "sseMaxConnectionsPerUser"] as const) {
-      const value = body[field];
+      const value = fields[field];
       if (value === undefined) continue;
       // `null` CLEARS the policy back to the deployment default, which is why
       // these are nullable and not merely optional: omitting a field leaves it

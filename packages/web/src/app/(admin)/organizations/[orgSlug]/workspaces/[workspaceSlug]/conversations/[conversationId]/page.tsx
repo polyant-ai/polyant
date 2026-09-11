@@ -112,6 +112,20 @@ function formatTime(dateStr: string | null, locale: string): string {
   return `${datePart} ${time}`;
 }
 
+/**
+ * The proxy URL for a stored attachment.
+ *
+ * Each key SEGMENT is percent-encoded, never the key as a whole — the slashes
+ * are the route's structure and must survive. Interpolating the raw key made a
+ * filename carrying `#` unreachable (everything after it became the fragment
+ * and never left the browser) and one carrying `?` land as a query string. The
+ * `fileUpload` tool already builds its display URL exactly this way; this is the
+ * same rule on the reading side.
+ */
+function attachmentHref(s3Key: string): string {
+  return `/api/attachments/${s3Key.split("/").map(encodeURIComponent).join("/")}`;
+}
+
 function AttachmentDisplay({ attachments, isUser }: { attachments: AttachmentMeta[]; isUser: boolean }) {
   return (
     <div className="mb-2 flex flex-col gap-2">
@@ -120,13 +134,13 @@ function AttachmentDisplay({ attachments, isUser }: { attachments: AttachmentMet
           return (
             <a
               key={i}
-              href={`/api/attachments/${att.s3Key}`}
+              href={attachmentHref(att.s3Key)}
               target="_blank"
               rel="noopener noreferrer"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`/api/attachments/${att.s3Key}`}
+                src={attachmentHref(att.s3Key)}
                 alt={att.fileName ?? "Attachment"}
                 className="max-h-60 rounded-lg object-contain"
                 loading="lazy"
@@ -137,7 +151,7 @@ function AttachmentDisplay({ attachments, isUser }: { attachments: AttachmentMet
         return (
           <a
             key={i}
-            href={`/api/attachments/${att.s3Key}`}
+            href={attachmentHref(att.s3Key)}
             target="_blank"
             rel="noopener noreferrer"
             className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs ${
