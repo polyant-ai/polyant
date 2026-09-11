@@ -6,7 +6,7 @@
  * Everything that the Playwright config, the DB-prepare step, the seed and the
  * specs need to agree on (ports, URLs, the test database name, the shared
  * secrets, the seeded user credentials) lives here — no magic strings scattered
- * across files (coding-style.md: "No magic strings").
+ * across files.
  *
  * The harness runs the engine + web against a DEDICATED test database
  * (`polyant_e2e`) on the SAME PostgreSQL server the dev stack already uses

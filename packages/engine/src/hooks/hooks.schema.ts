@@ -4,11 +4,7 @@ import { pgTable, uuid, varchar, boolean, integer, timestamp, jsonb, text, index
 import { instances } from "../instances/schema.js";
 import type { HookActionConfig } from "./hook-types.js";
 
-/**
- * Per-instance lifecycle hooks: run an action (a registered hook function)
- * when a conversation lifecycle event fires. See
- * docs/superpowers/specs/2026-06-10-hook-system-design.md.
- */
+/** Per-instance lifecycle hooks: run a registered hook on a conversation event. */
 export const instanceHooks = pgTable(
   "instance_hooks",
   {

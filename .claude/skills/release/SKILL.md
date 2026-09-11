@@ -1,20 +1,48 @@
 ---
 name: release
-description: Use when preparing, promoting, tagging, or publishing a Polyant versioned release, including a request to merge develop into main or create a GitHub Release.
+description: Use when auditing, preparing, promoting, tagging, or publishing a Polyant release, or when changing release metadata and notes.
 ---
 
-# Polyant release coordinator
+# Release workflow
 
-Choose and load **exactly one** subskill before doing any release work, in this order:
+Use repository release scripts as the authority. A release request does not imply permission
+to mutate protected branches or remote state.
 
-1. Any audit, readiness, CI, branch-divergence, or uncertainty concern → `release-preflight`.
-2. Otherwise, a post-merge tag or GitHub Release → `release-publish`.
-3. Otherwise, an approved version, release draft, version bump, README/About/roadmap change, or release-preparation PR → `release-prepare`.
+## Audit
 
-Do not inspect, edit, or run release commands until the selected subskill is loaded. Follow its gates exactly.
+Start read-only. Fetch current refs, confirm a clean worktree, identify the previous tag and
+candidate `develop` SHA, inspect the full change range, CI, migrations, public contracts,
+README, upgrade notes, and release-note coverage. Run:
 
-Never run release commands directly from this coordinator. In particular, do not merge, tag, push, or run `gh release create` outside `release-publish`.
+```bash
+npm run release:audit
+npm run release:verify
+```
 
-A `develop` → `main` promotion or merge request routes to `release-preflight` unless its prerequisites are already verified. The coordinator never executes that merge; once verified, prepare its reviewed promotion work through `release-prepare`.
+If evidence is missing or inconsistent, report the exact blocker. Do not repair or publish
+while auditing.
 
-If the request is ambiguous, infer the stage only from facts already established. If CI, merge status, approval, version, or target commit is unknown, route to `release-preflight`; do not assume a later stage or publish. Ask the human only when the preflight cannot resolve the missing decision safely.
+## Prepare
+
+Preparation requires an explicit SemVer version and agreed target. Run the repository
+preparation script, review its diff, and update only release material supported by the
+inspected commit range. Keep package metadata, lockfile, About/version display, changelog,
+and `docs/releases/vX.Y.Z.md` consistent. Re-running preparation for the same version must
+produce no unexplained changes.
+
+Run release verification and relevant tests. Obtain human editorial approval before creating
+a release-preparation commit or PR. Promotion from `develop` to `main` is a separately
+reviewed PR and is never force-pushed or merged by inference.
+
+## Publish
+
+Publishing requires, immediately beforehand, explicit confirmation of all three values:
+
+- tag `vX.Y.Z`;
+- exact immutable `origin/main` SHA;
+- release-note path `docs/releases/vX.Y.Z.md`.
+
+Fetch again and stop if the SHA, version metadata, checks, or notes differ. Refuse an existing
+tag; never move, replace, or silently publish it unsigned. Only after final confirmation may
+the exact tag be pushed and the GitHub Release created. Verify the published tag, target SHA,
+URL, and prerelease state, then report them.

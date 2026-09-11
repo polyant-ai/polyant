@@ -11,7 +11,7 @@
 //
 // It deliberately stops at the prose. The heading, the file and the paragraph
 // are created; what a release actually changed is written by a human (or by an
-// agent following the release-prepare skill), because that is the part where a
+// agent following `.claude/skills/release/SKILL.md`), because that is the part where a
 // claim can be false, and a false claim in a changelog is worse than a missing
 // one.
 //
