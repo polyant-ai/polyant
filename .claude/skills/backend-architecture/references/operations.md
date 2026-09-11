@@ -53,11 +53,18 @@ symmetric:**
   reaching it has to be a per-agent decision, or one agent's write lands under
   an identity that belongs to the installation
 
-`s3_endpoint` targets an S3-compatible server (MinIO, Cloudflare R2) and also
-switches the client to **path-style** addressing: those servers do not resolve
-bucket-as-subdomain, so the SDK's virtual-host default reaches a host that does
-not exist. The `fileUpload` tool builds its returned URL the same way, or it
-would hand back a link nobody can open.
+There is **no configurable endpoint**, and this is a deliberate removal rather
+than a gap. `s3_endpoint` was an agent secret handed straight to the SDK for
+MinIO and Cloudflare R2, which made whoever could write an agent's secrets able
+to point every PUT and GET — file contents included — at any host, the
+deployment's private network included. Everywhere else in the engine outbound
+HTTP is fail-closed (`utils/url-safety.ts`, `utils/safe-http.ts`, the MCP
+transport); this was the single bypass, and no deployment was using it.
+
+An origin check alone would not have closed it: DNS rebinding defeats a check
+made before the connection, which is what `pinnedLookup` exists for. Bringing
+S3-compatible storage back means an endpoint allow-list at the DEPLOYMENT tier,
+resolved through that pinning — never an agent secret.
 
 **Two things worth knowing before relying on any of this.** The bytes never
 gated the agent's own sight of an attachment — they reach the model inline — so

@@ -519,6 +519,13 @@
       "when": 1788912000000,
       "tag": "0080_env_vars_to_product",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1788998400000,
+      "tag": "0081_drop_s3_endpoint_secret",
+      "breakpoints": true
     }
   ]
 }

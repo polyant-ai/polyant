@@ -1,0 +1,19 @@
+-- Remove the stored `s3_endpoint` values, because the key no longer does
+-- anything.
+--
+-- It was handed straight to the S3 client for MinIO and Cloudflare R2, which
+-- made an agent secret into a server-side-request primitive: whoever could
+-- write an agent's secrets could point every PUT and GET — file contents
+-- included — at any host, the deployment's private network included.
+-- `attachments/agent-s3.ts` no longer reads it.
+--
+-- The rows are deleted rather than left inert, because `listSecretKeys` reads
+-- this table directly: a leftover row would keep appearing on the agent's
+-- secrets surface and in its export, reading as configuration that is in force
+-- when it is in fact ignored. Dead data that looks live is the worse of the two.
+--
+-- Not a credential: an endpoint is a URL, so nothing here needs rotating. And
+-- nothing is lost that was working — the capability is removed deliberately,
+-- and bringing S3-compatible storage back means a deployment-tier endpoint
+-- allow-list, not this key.
+DELETE FROM "instance_secrets" WHERE "key" = 's3_endpoint';
