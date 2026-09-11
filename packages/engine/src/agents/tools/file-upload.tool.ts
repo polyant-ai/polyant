@@ -24,14 +24,49 @@ export default defineTool({
     "role) instead. Set `s3_endpoint` for an S3-compatible server (MinIO, R2).",
   category: "storage",
   // Only the bucket and the region are unconditional: the credentials are one of
-  // two shapes, and `attachments/agent-s3.ts` decides which.
+  // two shapes, and `attachments/agent-s3.ts` decides which. Everything else is
+  // `optional: true` — a bare string normalizes to a REQUIRED spec, and the
+  // supervisor hides a tool whose required secrets are unset, so declaring the
+  // credential keys unconditionally would hide `fileUpload` from every agent
+  // (no agent can hold both static keys AND the task-role opt-in).
   requiredSecrets: [
     "s3_bucket_name",
     "aws_region",
-    "aws_access_key_id",
-    "aws_secret_access_key",
-    "s3_use_task_role",
-    "s3_endpoint",
+    {
+      key: "aws_access_key_id",
+      type: "text",
+      label: "AWS access key ID",
+      description:
+        "Opzionale. Va impostato insieme ad aws_secret_access_key. Se assenti entrambi, abilita s3_use_task_role per usare il task role.",
+      optional: true,
+      sensitive: true,
+    },
+    {
+      key: "aws_secret_access_key",
+      type: "text",
+      label: "AWS secret access key",
+      description: "Opzionale. Va impostato insieme ad aws_access_key_id (credenziali statiche).",
+      optional: true,
+      sensitive: true,
+    },
+    {
+      key: "s3_use_task_role",
+      type: "text",
+      label: "Usa il task role (opt-in)",
+      description:
+        "Opt-in esplicito ('true'/'1'/'yes'): senza chiavi statiche, usa l'identità di runtime (task role ECS) per l'accesso S3 (anche cross-account via bucket policy). Off = niente uso implicito del task role.",
+      optional: true,
+      sensitive: false,
+    },
+    {
+      key: "s3_endpoint",
+      type: "text",
+      label: "Endpoint S3-compatibile",
+      description:
+        "Opzionale. URL di un server S3-compatibile (MinIO, Cloudflare R2). Se impostato, il client passa ad addressing path-style.",
+      optional: true,
+      sensitive: false,
+    },
   ],
   inputExamples: [
     {
@@ -126,7 +161,7 @@ export default defineTool({
       if (!resolution.ok) {
         return { error: `S3 not configured for this agent: ${describeAgentS3Failure(resolution)}.` };
       }
-      const { client, bucket } = resolution.config;
+      const { client, bucket, credentialSource } = resolution.config;
 
       try {
         await client.send(
@@ -138,12 +173,16 @@ export default defineTool({
           }),
         );
 
+        // Percent-encode each key segment for the DISPLAY url (the raw `s3Key`
+        // went to S3 unchanged — the SDK encodes it for the API). Without this
+        // a filename carrying #, ? or a space returns a link nobody can open.
+        const encodedKey = s3Key.split("/").map(encodeURIComponent).join("/");
         // A custom endpoint means an S3-compatible server addressed path-style,
         // so the AWS virtual-host URL would point at a host that does not exist.
         const endpoint = ctx.secrets?.["s3_endpoint"]?.trim();
         const url = endpoint
-          ? `${endpoint.replace(/\/$/, "")}/${bucket}/${s3Key}`
-          : `https://${bucket}.s3.${region}.amazonaws.com/${s3Key}`;
+          ? `${endpoint.replace(/\/$/, "")}/${bucket}/${encodedKey}`
+          : `https://${bucket}.s3.${region}.amazonaws.com/${encodedKey}`;
 
         ctx.audit.log({
           action: "storage.fileUpload",
@@ -152,6 +191,7 @@ export default defineTool({
             key: s3Key,
             sizeBytes: fileBuffer.length,
             mimeType: fileMime,
+            credentialSource,
           },
           success: true,
         });
@@ -175,7 +215,7 @@ export default defineTool({
         console.error(`fileUpload tool error: ${message}`);
         ctx.audit.log({
           action: "storage.fileUpload",
-          details: { bucket, key: s3Key },
+          details: { bucket, key: s3Key, credentialSource },
           success: false,
           error: message,
         });
