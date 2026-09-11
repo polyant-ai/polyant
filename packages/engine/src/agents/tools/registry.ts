@@ -236,6 +236,33 @@ export function scopeSecrets(
   return scoped;
 }
 
+/**
+ * The secret keys a tool declares as MANDATORY that this agent has not set.
+ * Empty means the tool is available; anything else means the supervisor hides it.
+ *
+ * The asymmetry is the whole point, and it is easy to get backwards. A spec with
+ * `optional: true` is NOT checked here — a provider-conditional key, or one of
+ * two alternative credential shapes, is the tool's own decision at call time, and
+ * the tool answers with an explicit error when the branch the agent chose is
+ * incomplete. A spec WITHOUT that flag gates availability.
+ *
+ * A bare string in `requiredSecrets` normalizes to a spec with no `optional`, so
+ * it is MANDATORY. That is the trap this function exists to name: declaring the
+ * alternatives of a credential shape as bare strings asks one agent for keys no
+ * agent can hold at once, and the tool then disappears from every agent with no
+ * error anywhere — it is simply never offered to the model.
+ */
+export function missingRequiredSecrets(
+  declared: RequiredSecretsInput | undefined,
+  secrets: Record<string, string> | undefined,
+): string[] {
+  if (!declared?.length) return [];
+  return normalizeRequiredSecrets(declared)
+    .filter((spec) => !spec.optional)
+    .map((spec) => spec.key)
+    .filter((key) => !secrets?.[key]);
+}
+
 /** Append `inputExamples` as text to a tool description (raw, no schema validation). */
 function appendExamplesRaw(description: string, examples: ToolInputExample[]): string {
   const text = examples.map((ex) => `  ${ex.label}: ${JSON.stringify(ex.input)}`).join("\n");
