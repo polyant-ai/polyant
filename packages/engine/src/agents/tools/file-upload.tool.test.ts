@@ -63,27 +63,27 @@ describe("fileUpload tool", () => {
     expect(def.name).toBe("fileUpload");
     expect(def.category).toBe("storage");
     // The bucket and the region first because they are the unconditional pair;
-    // the credentials are one of two shapes and `s3_endpoint` is for an
-    // S3-compatible server. `attachments/agent-s3.ts` decides between them.
+    // the credentials are one of two shapes, and `attachments/agent-s3.ts`
+    // decides between them. There is no endpoint key: an agent-supplied one was
+    // a server-side-request primitive, see that file.
     expect(def.requiredSecrets.map((s) => s.key)).toEqual([
       "s3_bucket_name",
       "aws_region",
       "aws_access_key_id",
       "aws_secret_access_key",
       "s3_use_task_role",
-      "s3_endpoint",
     ]);
   });
 
   // Only the bucket and the region gate tool availability: the supervisor hides
   // a tool whose non-optional secrets are unset, and no agent can hold both
   // credential shapes at once.
-  it("marks the credential keys and the endpoint optional, keeping only the bucket and the region required", () => {
+  it("marks the credential keys optional, keeping only the bucket and the region required", () => {
     const byKey = Object.fromEntries(def.requiredSecrets.map((s) => [s.key, s]));
     expect(byKey["aws_access_key_id"].optional).toBe(true);
     expect(byKey["aws_secret_access_key"].optional).toBe(true);
     expect(byKey["s3_use_task_role"].optional).toBe(true);
-    expect(byKey["s3_endpoint"].optional).toBe(true);
+    expect(byKey["s3_endpoint"]).toBeUndefined();
     expect(byKey["s3_bucket_name"].optional).toBeFalsy();
     expect(byKey["aws_region"].optional).toBeFalsy();
   });

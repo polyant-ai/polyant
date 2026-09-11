@@ -52,16 +52,27 @@ export function resolveAgentS3(secrets: Record<string, string> | undefined): Age
   const region = secrets?.aws_region?.trim();
   const accessKeyId = secrets?.aws_access_key_id?.trim();
   const secretAccessKey = secrets?.aws_secret_access_key?.trim();
-  const endpoint = secrets?.s3_endpoint?.trim();
   const taskRole = TRUTHY.includes((secrets?.s3_use_task_role ?? "").trim().toLowerCase());
 
   if (!bucket) return { ok: false, reason: "no_bucket" };
   if (!region) return { ok: false, reason: "not_configured" };
 
-  // `forcePathStyle` with an explicit endpoint: MinIO and most S3-compatible
-  // servers do not resolve bucket-as-subdomain, so virtual-host addressing —
-  // the SDK's default — reaches a host that does not exist.
-  const shared = endpoint ? { region, endpoint, forcePathStyle: true } : { region };
+  // THERE IS NO CONFIGURABLE ENDPOINT. `s3_endpoint` used to be handed straight
+  // to the SDK for MinIO and R2, which made an agent secret into a
+  // server-side-request primitive: whoever can write an agent's secrets could
+  // point every PUT and GET — with the file contents in them — at any host,
+  // including one inside the deployment's private network. The rest of the
+  // engine refuses that by construction (`utils/url-safety.ts`,
+  // `utils/safe-http.ts`, the MCP transport); this was the one place that
+  // bypassed it.
+  //
+  // Removed rather than validated, because no deployment was using it. An
+  // origin check alone would not have been enough anyway — DNS rebinding
+  // defeats a check made before the connection, which is why `pinnedLookup`
+  // exists. Bringing S3-compatible storage back means an endpoint allow-list at
+  // the DEPLOYMENT tier (not an agent secret) resolved through that pinning, not
+  // this line.
+  const shared = { region };
 
   if (accessKeyId && secretAccessKey) {
     return {
