@@ -205,14 +205,14 @@ sign-off cannot be merged.
 
 ## Code Conventions
 
-- **TypeScript + ESM** — all imports must use `.js` extensions at runtime.
-- **Named exports only** — no default exports.
-- **File naming** — kebab-case: `user-profile.store.ts`.
-- **No `process.env` access** outside `config.ts`.
-- **No hardcoded secrets** — use env vars or instance secrets (AES-256-GCM encrypted in DB).
-- **Framework-first** — tools, prompt templates, and pipeline logic must be domain-agnostic. Instance-specific behavior lives in per-instance data (prompts, skills, secrets), never in code.
+- **Engine imports** — relative runtime imports under `packages/engine` use `.js`.
+- **Web imports** — relative imports under `packages/web/src` are extensionless.
+- **Tools and hooks** — default-export their SDK definition; follow the nearest existing
+  module for other export and naming conventions.
+- **Configuration and secrets** — use the owning resolver/store. Never hardcode secrets.
+- **Framework-first** — instance behaviour lives in per-instance data, never code branches.
 
-See [`.claude/rules/`](.claude/rules/) for the full coding style rules.
+See [`CLAUDE.md`](CLAUDE.md) and the matching path-scoped rule under `.claude/rules/`.
 
 ## Adding a New Tool
 

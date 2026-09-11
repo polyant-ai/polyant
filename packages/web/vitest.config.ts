@@ -25,11 +25,8 @@ export default defineConfig({
       their only job is to stop a PR from LOWERING coverage. The buffer exists so
       a refactor that legitimately deletes covered code does not fail the build.
 
-      `.claude/rules/testing.md` claimed 80%, and 100% on critical paths. Nobody
-      had ever measured it and no job checked it — the real number was 67% of
-      statements, so that rule was not a missed goal, it was a number with
-      nothing behind it. Raising these floors is a deliberate act taken with a
-      measurement in hand, not something inherited from a document.
+      Raising these floors is a deliberate act taken with a measurement in hand,
+      not something inherited from prose.
 
       Enforced only when coverage is requested (CI passes --coverage), so a local
       `npm run test:unit` stays fast.

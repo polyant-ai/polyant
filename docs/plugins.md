@@ -161,5 +161,4 @@ the steps above.
 
 ## Reference
 - SDK repo + authoring guide: `github.com/polyant-ai/polyant-sdk` (its `README.md`).
-- Design record: `docs/superpowers/specs/2026-07-02-serialized-plugin-mechanism.md`.
 - Authoring skill: `.claude/skills/plugin-authoring/SKILL.md`.
