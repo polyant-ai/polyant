@@ -33,8 +33,8 @@ import type { ConversationStateApi } from "../../conversations/state.buffer.js";
 import def from "./file-upload.tool.js";
 
 const DEFAULT_SECRETS = {
-  aws_access_key_id: "AKIAIOSFODNN7EXAMPLE",
-  aws_secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLE",
+  aws_access_key_id: "static-access-key-id",
+  aws_secret_access_key: "static-secret-access-key",
   aws_region: "eu-west-1",
   s3_bucket_name: "test-bucket",
 };
@@ -307,8 +307,8 @@ describe("fileUpload tool", () => {
 
     expect(s3ClientArgs.current.region).toBe("eu-west-1");
     expect(s3ClientArgs.current.credentials).toEqual({
-      accessKeyId: "AKIAIOSFODNN7EXAMPLE",
-      secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLE",
+      accessKeyId: "static-access-key-id",
+      secretAccessKey: "static-secret-access-key",
     });
   });
 
