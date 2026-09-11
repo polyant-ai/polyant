@@ -73,4 +73,3 @@ export function resolveMessageTimings(row: StoredRow): MessageTimingSettings {
     maxRestarts: row.messageMaxRestarts ?? config.coordinator.maxRestarts,
   };
 }
-
