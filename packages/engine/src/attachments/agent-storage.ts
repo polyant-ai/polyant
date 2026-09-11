@@ -71,6 +71,28 @@ export async function isAgentStorageConfigured(instanceId: InstanceSlug): Promis
 // ---------------------------------------------------------------------------
 
 /**
+ * A filename made safe to be ONE segment of an attachment key, or `null` when
+ * nothing usable is left.
+ *
+ * The rule belongs here, at the write, because the key is what gets stored and
+ * every later read is stuck with it. Stripping separators is not enough on its
+ * own: a name that reduces to `.` or `..` is a traversal the read side refuses,
+ * so it would be written happily and then be unopenable forever — the file
+ * existing and never being reachable is the worst of the three outcomes.
+ *
+ * Everything else is left alone. A `#`, a `?` or a space are legal in a name
+ * and legal in a key; what they need is percent-encoding in the URL, which is
+ * the caller's job on the way out (the `fileUpload` tool and the panel both do
+ * it per segment) and not a reason to mangle the name here.
+ */
+export function safeKeySegment(rawName: string): string | null {
+  const stripped = rawName.replace(/[/\\]/g, "_").trim();
+  if (stripped.length === 0) return null;
+  if (stripped === "." || stripped === "..") return null;
+  return stripped;
+}
+
+/**
  * Upload an attachment to the AGENT's bucket. Returns the metadata to store on
  * `conversation_messages.attachments`, or `null` when that agent has no
  * storage configured — which is the ordinary case and not an error.
@@ -89,9 +111,8 @@ export async function uploadAttachment(
   if (!resolved) return null;
 
   const ext = extensionFromMime(opts.mimeType);
-  // Sanitize filename: strip path separators to prevent key injection
   const rawName = opts.fileName ?? `${randomUUID()}.${ext}`;
-  const filename = rawName.replace(/[/\\]/g, "_");
+  const filename = safeKeySegment(rawName) ?? `${randomUUID()}.${ext}`;
   const s3Key = `attachments/${opts.instanceId}/${opts.conversationId}/${filename}`;
 
   await resolved.client.send(new PutObjectCommand({
