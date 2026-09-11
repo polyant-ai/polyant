@@ -108,6 +108,14 @@ function isAbortError(err: unknown): boolean {
 
 export class MessageCoordinator {
   private readonly states = new Map<string, ConversationState>();
+  /**
+   * Bursts whose state is being installed right now, by key.
+   *
+   * `states` alone cannot answer "is a burst starting?": installing a state
+   * needs the agent's timings, which come from a DB read, so there is a window
+   * in which a conversation has a burst but no entry in `states` yet.
+   */
+  private readonly starting = new Map<string, Promise<void>>();
 
   // No constructor validation of the timings any more: they no longer arrive
   // here as numbers. Both sources that produce them are already constrained —
@@ -123,6 +131,17 @@ export class MessageCoordinator {
    */
   async onMessage(msg: IncomingMessage): Promise<OutgoingMessage> {
     const key = (this.opts.conversationKey ?? defaultKey)(msg);
+
+    // Wait out a start already in flight for this conversation. Two fragments
+    // arriving as two concurrent webhook requests both used to see no state,
+    // both awaited the timings read, and both installed one — the second
+    // `states.set` overwriting the first, whose fragment was then never
+    // delivered. A failed read is swallowed on purpose: the fragment that owns
+    // it reports the failure to its own adapter, and this one falls through and
+    // starts the burst itself rather than inheriting someone else's error.
+    const pending = this.starting.get(key);
+    if (pending) await pending.catch(() => {});
+
     const state = this.states.get(key);
 
     if (!state) {
@@ -172,7 +191,22 @@ export class MessageCoordinator {
 
   // -- internals -------------------------------------------------------------
 
-  private async startBurst(key: string, msg: IncomingMessage): Promise<void> {
+  /**
+   * Start a burst, atomically with respect to concurrent fragments.
+   *
+   * The pending promise is registered in the SAME synchronous tick that found
+   * no state — `installState` runs up to its first `await` and returns, and
+   * nothing between the `starting.get` in `onMessage` and the `starting.set`
+   * here yields — so a second fragment sees either the installed state or this
+   * promise, never neither.
+   */
+  private startBurst(key: string, msg: IncomingMessage): Promise<void> {
+    const pending = this.installState(key, msg);
+    this.starting.set(key, pending);
+    return pending.finally(() => this.starting.delete(key));
+  }
+
+  private async installState(key: string, msg: IncomingMessage): Promise<void> {
     const timings = await this.opts.resolveTimings(msg);
     const state: ConversationState = {
       timings,

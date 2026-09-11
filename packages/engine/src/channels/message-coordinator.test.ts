@@ -393,4 +393,77 @@ describe("MessageCoordinator", () => {
     // again per fragment would let the window change mid-burst.
     expect(resolveTimings).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * The window pinned here is the timings read. It is a DB round-trip in
+   * production (`findInstanceBySlug`), and two fragments of one conversation
+   * arrive as two concurrent webhook requests, so both used to see no state,
+   * both installed one, and the second `states.set` discarded the first
+   * fragment.
+   *
+   * Invoking the two calls WITHOUT an intervening `await` is the whole test:
+   * every other case in this file awaits each fragment in turn, which is
+   * exactly why the overwrite went unseen.
+   */
+  it("keeps both fragments when the second arrives while the burst state is being installed", async () => {
+    const handler = vi.fn().mockResolvedValue({ text: "ok" });
+    const sendOutbound = vi.fn().mockResolvedValue(undefined);
+    let releaseTimings: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseTimings = resolve;
+    });
+    const resolveTimings = vi.fn(async () => {
+      await gate;
+      return { softDebounceMs: 1000, typingDelayMs: 0, maxRestarts: 3 };
+    });
+
+    const c = new MessageCoordinator({ resolveTimings, handler, sendOutbound });
+
+    const first = c.onMessage(makeMsg({ text: "first" }));
+    const second = c.onMessage(makeMsg({ text: "second" }));
+    releaseTimings();
+    await Promise.all([first, second]);
+
+    // One burst, not two: the second fragment waited for the state to be
+    // installed and then appended to it.
+    expect(resolveTimings).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0][0].text).toBe("first\nsecond");
+  });
+
+  /**
+   * A failed timings read belongs to the fragment that owns it. The one that was
+   * merely waiting behind it must not inherit the error — it starts the burst
+   * itself instead.
+   */
+  it("does not fail a waiting fragment when the first fragment's timings read rejects", async () => {
+    const handler = vi.fn().mockResolvedValue({ text: "ok" });
+    const sendOutbound = vi.fn().mockResolvedValue(undefined);
+    let releaseTimings: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseTimings = resolve;
+    });
+    const resolveTimings = vi.fn(async () => {
+      if (resolveTimings.mock.calls.length === 1) {
+        await gate;
+        throw new Error("agent lookup failed");
+      }
+      return { softDebounceMs: 1000, typingDelayMs: 0, maxRestarts: 3 };
+    });
+
+    const c = new MessageCoordinator({ resolveTimings, handler, sendOutbound });
+
+    const first = c.onMessage(makeMsg({ text: "first" }));
+    const second = c.onMessage(makeMsg({ text: "second" }));
+    releaseTimings();
+
+    await expect(first).rejects.toThrow("agent lookup failed");
+    await expect(second).resolves.toEqual({ text: "" });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0][0].text).toBe("second");
+  });
 });
