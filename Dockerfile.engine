@@ -5,10 +5,6 @@ COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
 # Create a minimal package.json for web to satisfy workspace resolution
 RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.0.0","private":true}' > packages/web/package.json
-# Puppeteer bundles a glibc Chromium that can't run on Alpine (musl); the runtime
-# stage installs Alpine's chromium and points Puppeteer at it. Skip the download.
-ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 RUN npm ci --workspace=@polyant/engine --include-workspace-root
 # Ensure workspace node_modules dir exists (even if empty) for COPY
 RUN mkdir -p packages/engine/node_modules
@@ -27,12 +23,45 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
 RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.0.0","private":true}' > packages/web/package.json
-# Skip Puppeteer's bundled (glibc) Chromium download — the runtime image uses the
-# Alpine chromium package; downloading here would be dead weight never copied out.
-ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 RUN npm ci --omit=dev --workspace=@polyant/engine --include-workspace-root
 RUN mkdir -p packages/engine/node_modules
+
+# ── Stage: plugins (self-contained per-plugin build) ───────────
+# Plugins baked into the image live in packages/engine/src/plugins/<name> (the
+# same convention dir the loader scans at runtime, gitignored — an operator or a
+# deploy pipeline drops them there before building). Each is built SELF-CONTAINED:
+# its own node_modules and its tools compiled TS→JS in place. --rootDir . keeps
+# the `tools/` prefix (a plugin tsconfig infers rootDir=tools, which would
+# otherwise flatten the output to the root). git is needed for the SDK's git
+# dependency.
+FROM node:22-alpine AS plugins
+RUN apk add --no-cache git
+WORKDIR /build
+COPY packages/engine/src/plugins/ ./plugins/
+
+# What the plugins need from the RUNTIME IMAGE, aggregated into three plain files
+# the runtime stage consumes. This stage is the only one that sees every plugin
+# before the runtime image is built.
+COPY scripts/collect-plugin-system-requirements.mjs ./collect.mjs
+RUN node collect.mjs plugins /build/system
+
+# The declared env applies to the plugin's own BUILD too, not only to the
+# runtime: a plugin that points at a distro binary has to say so before its
+# `npm install` tries to download a private copy of one.
+RUN . /build/system/env.sh && \
+    for d in plugins/*/; do \
+      [ -f "$d/plugin.json" ] || continue; \
+      ( set -e; cd "$d"; \
+        npm install --no-audit --no-fund; \
+        tsconfig=tsconfig.json; \
+        if [ -f tsconfig.build.json ]; then tsconfig=tsconfig.build.json; fi; \
+        npx tsc -p "$tsconfig" --rootDir . --outDir . --noEmit false; \
+        npm prune --omit=dev; \
+        find . -name node_modules -prune -o -name '*.ts' -type f -exec rm -f {} + ) || exit 1; \
+    done
+# Strip the .ts sources after compiling: they sit next to the emitted .js in the
+# same dir, and Node 22.18+ strips types → the loader (regex /\.(tool|hook)\.(ts|js)$/)
+# would import BOTH and hit "Duplicate registration". Runtime only needs the .js.
 
 # ── Stage 2: Build ─────────────────────────────────────────────
 FROM node:22-alpine AS build
@@ -49,25 +78,22 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-# System binaries the built-in tools shell out to (restored from the old
-# packages/engine/Dockerfile that PR #181 dropped):
-#   - git       → gitCloneRepo
-#   - gh        → ghIssue / ghPr (pinned download; the apk package has no version pin)
-#   - chromium  → markdownToPdf via Puppeteer (+ fonts/libs)
-ARG GH_CLI_VERSION=2.65.0
-RUN apk add --no-cache \
-      git curl bash \
-      chromium nss freetype freetype-dev harfbuzz ca-certificates ttf-freefont font-noto-emoji && \
-    ARCH=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/') && \
-    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/gh_${GH_CLI_VERSION}_linux_${ARCH}.tar.gz" \
-      | tar -xz -C /tmp && \
-    mv "/tmp/gh_${GH_CLI_VERSION}_linux_${ARCH}/bin/gh" /usr/local/bin/gh && \
-    chmod +x /usr/local/bin/gh && \
-    rm -rf /tmp/gh_*
+# What the ENGINE itself needs. Nothing here exists for a tool: the tool families
+# that shelled out to git, gh and chromium are plugins now, and each declares its
+# own packages in plugin.json. That is why this list is one line instead of the
+# page it used to be — and why an image built without the PDF plugin no longer
+# carries Chromium and its font stack.
+RUN apk add --no-cache curl ca-certificates
 
-# Point Puppeteer at the Alpine chromium instead of its own bundled (glibc) binary.
-ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+# What the INCLUDED PLUGINS asked for, collected from their manifests in the
+# plugins stage. Both files exist even when empty, and `xargs -r` runs nothing on
+# an empty one — so a build with no plugins installs nothing extra.
+COPY --from=plugins /build/system/ /app/plugin-system/
+RUN xargs -r apk add --no-cache < /app/plugin-system/apk.txt && \
+    xargs -r npm install -g --no-audit --no-fund < /app/plugin-system/npm-global.txt
+
+# Plugin env vars reach the process through the entrypoint rather than ENV: their
+# names are not known when this file is written. See docker-entrypoint.sh.
 
 # Copy hoisted deps + non-hoisted workspace deps (e.g. langsmith).
 # Runtime pulls from prod-deps (npm ci --omit=dev) — NOT deps — so the image
@@ -75,6 +101,10 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=prod-deps /app/packages/engine/node_modules ./packages/engine/node_modules
 COPY --from=build /app/packages/engine/dist ./packages/engine/dist
+# Baked-in plugins: self-contained (own node_modules) at the loader's convention
+# dir dist/plugins/<name>. loadAllTools scans dist/plugins/* at boot; each tool's
+# imports resolve from the plugin's own node_modules by walk-up.
+COPY --from=plugins /build/plugins/ ./packages/engine/dist/plugins/
 COPY packages/engine/package.json packages/engine/
 COPY package.json ./
 

@@ -55,7 +55,10 @@ describe("requiredSecrets gate availability", () => {
       if (missingRequiredSecrets(def.requiredSecrets, secrets).length > 0) hidden.push(name);
     }
 
-    expect(checked, "no tool declares requiredSecrets — registry empty?").toBeGreaterThan(5);
+    // A canary against an empty registry, not a census: the count dropped sharply
+    // when the HubSpot and PDF families moved into plugins, and it will keep
+    // drifting. Anything above zero means the loader ran.
+    expect(checked, "no tool declares requiredSecrets — registry empty?").toBeGreaterThan(0);
     expect(hidden).toEqual([]);
   });
 

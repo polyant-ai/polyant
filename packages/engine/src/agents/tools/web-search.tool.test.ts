@@ -22,6 +22,7 @@ vi.mock("@tavily/core", () => ({
 }));
 
 import { type ToolContext } from "./registry.js";
+import { artifactApiFor } from "./artifact-store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 
 import webSearchTool from "./web-search.tool.js";
@@ -36,6 +37,7 @@ function makeCtx(secrets: Record<string, string>): ToolContext {
     instanceId: asInstanceSlug("test-instance"),
     secrets,
     audit: noopAudit as any,
+    artifacts: artifactApiFor(null),
   };
 }
 
