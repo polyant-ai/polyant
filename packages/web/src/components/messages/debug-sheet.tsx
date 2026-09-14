@@ -19,10 +19,12 @@
  */
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useI18n } from "@/lib/i18n/context";
 import { api } from "@/lib/api";
 import type { MessageDebug, CostBreakdown, MessageLatency } from "@/lib/api";
-import { Cpu } from "lucide-react";
+import { Check, Copy, Cpu } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -191,6 +193,80 @@ function DiagnosticsList({ target }: { target: DebugSheetTarget }) {
   );
 }
 
+/**
+ * The turn as one object, in the shape the sheet displays it.
+ *
+ * Built from `data`, never from the DOM: what is on screen is an accordion of
+ * tool definitions and a step timeline, and selecting across that by hand is
+ * the reason this button exists. `tools` is narrowed to the three fields the
+ * sheet shows, so the export says the same thing the panel does.
+ *
+ * Returns null when there is nothing to hand over — no captured payload and no
+ * steps — which is what disables the button rather than copying `{}`.
+ */
+function turnExport(data: MessageDebug | null): Record<string, unknown> | null {
+  if (!data) return null;
+  const payload = data.debugPayload ?? null;
+  const steps = data.steps ?? [];
+  if (!payload && steps.length === 0) return null;
+  return {
+    // DEBUG was off at generation time: the three payload fields are absent
+    // rather than empty, so a reader cannot mistake "not captured" for "empty".
+    ...(payload
+      ? {
+          system: payload.system,
+          messages: payload.messages,
+          tools: payload.tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+          })),
+        }
+      : {}),
+    steps,
+  };
+}
+
+/** Copies the whole turn as JSON, and says so for a moment afterwards. */
+function CopyTurnButton({ data }: { data: MessageDebug | null }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const exportable = turnExport(data);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
+  const handleCopy = async () => {
+    if (!exportable) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(exportable, null, 2));
+      setCopied(true);
+    } catch {
+      // A denied clipboard permission or an insecure origin: the failure is
+      // silent otherwise, and the user would be left believing they copied.
+      toast.error(t("message.debug.copyFailed"));
+    }
+  };
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="gap-1.5"
+      disabled={!exportable}
+      title={exportable ? undefined : t("message.debug.copyEmpty")}
+      onClick={handleCopy}
+    >
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+      {copied ? t("message.debug.copied") : t("message.debug.copyAll")}
+    </Button>
+  );
+}
+
 export function DebugSheet({ open, onOpenChange, target }: DebugSheetProps) {
   const { t } = useI18n();
   const [data, setData] = useState<MessageDebug | null>(null);
@@ -225,7 +301,13 @@ export function DebugSheet({ open, onOpenChange, target }: DebugSheetProps) {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle>{t("message.debug.title")}</SheetTitle>
+          {/* The copy action sits in the header, beside the title: the thing it
+              copies is several screens tall, so an action at the bottom would be
+              reachable only after the scrolling it exists to spare. */}
+          <div className="flex items-center justify-between gap-2 pr-8">
+            <SheetTitle>{t("message.debug.title")}</SheetTitle>
+            <CopyTurnButton data={data} />
+          </div>
           {/* Kept for screen-reader context (Radix requires a description); hidden visually. */}
           <SheetDescription className="sr-only">{t("message.debug.description")}</SheetDescription>
         </SheetHeader>
