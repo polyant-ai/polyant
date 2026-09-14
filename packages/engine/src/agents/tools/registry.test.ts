@@ -2,6 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
+import { artifactApiFor } from "./artifact-store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 
 // ---------------------------------------------------------------------------
@@ -101,6 +102,7 @@ const noopAudit = { log: () => {} };
 const mockCtx: ToolContext = {
   instanceId: asInstanceSlug("test-instance"),
   audit: noopAudit,
+  artifacts: artifactApiFor(null),
 };
 
 // ---------------------------------------------------------------------------

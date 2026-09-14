@@ -23,20 +23,20 @@ describe("summarizeArgs", () => {
   });
 
   describe("HubSpot allow-list", () => {
-    it("hubspotContact: action + first/last name", () => {
+    it("hubspot:contact — action + first/last name", () => {
       expect(
-        summarizeArgs("hubspotContact", { action: "create", firstName: "Mario", lastName: "Rossi" }),
+        summarizeArgs("hubspot:contact", { action: "create", firstName: "Mario", lastName: "Rossi" }),
       ).toBe("create Mario Rossi");
     });
 
-    it("hubspotDeal: action + dealName", () => {
-      expect(summarizeArgs("hubspotDeal", { action: "update", dealName: "Q3 deal" })).toBe(
+    it("hubspot:deal — action + dealName", () => {
+      expect(summarizeArgs("hubspot:deal", { action: "update", dealName: "Q3 deal" })).toBe(
         "update Q3 deal",
       );
     });
 
-    it("hubspotSendEmail: subject only", () => {
-      expect(summarizeArgs("hubspotSendEmail", { subject: "Welcome", body: "secret body" })).toBe(
+    it("hubspot:sendEmail — subject only", () => {
+      expect(summarizeArgs("hubspot:sendEmail", { subject: "Welcome", body: "secret body" })).toBe(
         "Welcome",
       );
     });
@@ -55,10 +55,18 @@ describe("summarizeArgs", () => {
     it("readFile: path", () => {
       expect(summarizeArgs("readFile", { path: "src/index.ts" })).toBe("src/index.ts");
     });
-    it("ghIssue: action + repo + #N + title", () => {
+    it("github:issue: action + repo + #N + title", () => {
       expect(
-        summarizeArgs("ghIssue", { action: "comment", repo: "x/y", number: 42, title: "Bug" }),
+        summarizeArgs("github:issue", { action: "comment", repo: "x/y", number: 42, title: "Bug" }),
       ).toBe("comment x/y #42 Bug");
+    });
+    // The whitelists key on the FULL namespaced name. A tool family that moved
+    // into a plugin keeps its formatting only under the new name; the old core
+    // name falls through to the generic branch.
+    it("ghIssue (pre-extraction name): falls through to the generic branch", () => {
+      expect(summarizeArgs("ghIssue", { action: "comment", repo: "x/y" })).toBe(
+        'action="comment" repo="x/y"',
+      );
     });
     it("httpRequest: method + url", () => {
       expect(summarizeArgs("httpRequest", { method: "POST", url: "https://api.example.com/x" })).toBe(
@@ -95,7 +103,7 @@ describe("summarizeArgs", () => {
 
   it("truncates summaries with ellipsis past the per-tool max", () => {
     const longName = "x".repeat(200);
-    const out = summarizeArgs("hubspotContact", { action: "create", firstName: longName });
+    const out = summarizeArgs("hubspot:contact", { action: "create", firstName: longName });
     expect(out.length).toBeLessThanOrEqual(80);
     expect(out.endsWith("…")).toBe(true);
   });

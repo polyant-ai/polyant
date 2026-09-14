@@ -23,6 +23,32 @@ export const oauthProviderManifestSchema = z.object({
 });
 
 /**
+ * What a plugin needs from the RUNTIME IMAGE, not from npm: distro packages it
+ * shells out to or links against, npm packages that must be on PATH as
+ * executables, and environment variables that point at them.
+ *
+ * Read at BUILD time by `Dockerfile.engine`, never at runtime — the engine has
+ * no way to install anything into a running container, and a plugin that finds
+ * its binary missing must fail on the call, not at boot. Declaring this is the
+ * only way the image can stop carrying Chromium for a PDF tool no deployment
+ * enables.
+ *
+ * Including a plugin in a build means trusting it: these values become
+ * `apk add` and `npm i -g` arguments in the image. There is no allowlist, by
+ * decision — the trust boundary is the choice to include the plugin at all.
+ */
+export const pluginSystemRequirementsSchema = z.object({
+  /** Alpine packages installed into the runtime stage. */
+  apk: z.array(z.string().min(1)).default([]),
+  /** npm packages installed globally, for the executables they put on PATH. */
+  npmGlobal: z.array(z.string().min(1)).default([]),
+  /** Environment variables baked into the runtime image. */
+  env: z.record(z.string(), z.string()).default({}),
+});
+
+export type PluginSystemRequirements = z.infer<typeof pluginSystemRequirementsSchema>;
+
+/**
  * A plugin repo declares a `plugin.json` at its root. This is the discovery
  * contract: `name` + `namespace` decide the tool-name prefix, `engine` gates
  * compatibility, `toolsDir` says where the `*.tool.ts` files live.
@@ -43,6 +69,8 @@ export const pluginManifestSchema = z.object({
   namespace: z.string().min(1).optional(),
   /** OAuth providers this plugin contributes to the engine's broker registry. */
   oauthProviders: z.array(oauthProviderManifestSchema).default([]),
+  /** What the runtime image must carry for this plugin's tools to work. */
+  system: pluginSystemRequirementsSchema.default({ apk: [], npmGlobal: [], env: {} }),
 });
 
 export type PluginManifest = z.infer<typeof pluginManifestSchema> & { namespace: string };

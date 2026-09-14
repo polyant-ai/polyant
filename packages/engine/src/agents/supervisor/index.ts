@@ -13,6 +13,7 @@ import {
   toModelToolName,
   type ToolContext,
 } from "../tools/registry.js";
+import { artifactApiFor } from "../tools/artifact-store.js";
 import type { Attachment } from "../../channels/types.js";
 import { createAuditLogger } from "../../audit/audit-logger.js";
 import { auditStore } from "../../audit/audit.store.js";
@@ -318,6 +319,9 @@ async function buildTools(opts: BuildToolsOptions) {
         // classification in searchAppointmentSlots) work, mirroring what the hook
         // function-action already provides. No query until a tool actually calls it.
         conversation: conversationId ? buildConversationApi(conversationId) : undefined,
+        // Bound to THIS conversation: a handle minted in another one is not
+        // takeable here, so the store needs no per-tool authorization of its own.
+        artifacts: artifactApiFor(conversationId ?? null),
       };
       // ctx.oauth closes over ctx, so it is assigned after the literal.
       ctx.oauth = makeOAuthAccess(ctx);

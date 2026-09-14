@@ -50,7 +50,7 @@ export function summarizeArgs(toolName: string, args: unknown): string {
   const a = args as Record<string, unknown>;
 
   switch (toolName) {
-    case "hubspotContact": {
+    case "hubspot:contact": {
       const parts = [
         str(a.action),
         str(a.firstName),
@@ -58,19 +58,19 @@ export function summarizeArgs(toolName: string, args: unknown): string {
       ].filter(Boolean);
       return truncate(parts.join(" "), 80);
     }
-    case "hubspotDeal":
+    case "hubspot:deal":
       return truncate([str(a.action), str(a.dealName)].filter(Boolean).join(" "), 80);
-    case "hubspotTicket":
+    case "hubspot:ticket":
       return truncate([str(a.action), str(a.subject)].filter(Boolean).join(" "), 80);
-    case "hubspotNote":
+    case "hubspot:note":
       return truncate([str(a.action), str(a.contactId), str(a.dealId)].filter(Boolean).join(" "), 80);
-    case "hubspotSendEmail":
+    case "hubspot:sendEmail":
       return truncate(str(a.subject) ?? "", 80);
-    case "hubspotCreateTask":
+    case "hubspot:createTask":
       return truncate(str(a.subject) ?? "", 80);
-    case "hubspotMeeting":
+    case "hubspot:meeting":
       return truncate([str(a.action), str(a.title)].filter(Boolean).join(" "), 80);
-    case "hubspotGetCompany":
+    case "hubspot:getCompany":
       return truncate(str(a.name) ?? str(a.domain) ?? "", 80);
     case "searchKnowledge":
     case "searchMemory":
@@ -81,7 +81,7 @@ export function summarizeArgs(toolName: string, args: unknown): string {
 
     // ── Dev / lifecycle tools — values are paths, slugs, repos, urls. Safe
     //    to display verbatim (no PII).
-    case "gitCloneRepo":
+    case "github:cloneRepo":
       return truncate(str(a.repo) ?? str(a.url) ?? "", 80);
     case "listDirectory":
     case "readFile":
@@ -89,8 +89,8 @@ export function summarizeArgs(toolName: string, args: unknown): string {
       return truncate(str(a.path) ?? "", 80);
     case "readSkill":
       return truncate(str(a.name) ?? "", 80);
-    case "ghIssue":
-    case "ghPr": {
+    case "github:issue":
+    case "github:pr": {
       const numStr = typeof a.number === "number" && Number.isFinite(a.number) ? `#${a.number}` : null;
       return truncate(
         [str(a.action), str(a.repo), numStr, str(a.title)].filter(Boolean).join(" "),
@@ -166,8 +166,8 @@ export function formatArgsForSpotlight(toolName: string, args: unknown): string 
 
   let formatted: string;
   switch (toolName) {
-    case "hubspotContact": {
-      // Mirror the actual tool schema (hubspot-contact.tool.ts): include the
+    case "hubspot:contact": {
+      // Mirror the actual tool schema (polyant-hubspot-plugin contact.tool.ts): include the
       // search-only fields `name`/`filters`/`customProperties`/`returnProperties`
       // so search-by-name and search-by-custom-property calls don't render as
       // a single bare "action: search" row.
@@ -207,28 +207,28 @@ export function formatArgsForSpotlight(toolName: string, args: unknown): string 
       }
       break;
     }
-    case "hubspotDeal":
+    case "hubspot:deal":
       formatted = fmt(["action", "dealName", "amount", "stage", "closeDate", "contactId"]);
       break;
-    case "hubspotTicket":
+    case "hubspot:ticket":
       formatted = fmt(["action", "subject", "priority", "contactId"]);
       break;
-    case "hubspotNote":
+    case "hubspot:note":
       // `body` is the actual note content the agent writes to the CRM — not
       // user PII, just what's being saved. Show it (auto-truncated to 240
       // chars by fmt()). Also expose noteId for update and query for search.
       formatted = fmt(["action", "contactId", "dealId", "ticketId", "noteId", "query", "body"]);
       break;
-    case "hubspotSendEmail":
+    case "hubspot:sendEmail":
       formatted = fmt(["contactId", "subject"]); // body never reflected
       break;
-    case "hubspotCreateTask":
+    case "hubspot:createTask":
       formatted = fmt(["subject", "priority", "dueDate", "contactId"]);
       break;
-    case "hubspotMeeting":
+    case "hubspot:meeting":
       formatted = fmt(["action", "title", "startTime", "endTime", "contactId"]);
       break;
-    case "hubspotGetCompany":
+    case "hubspot:getCompany":
       formatted = fmt(["name", "domain"]);
       break;
     case "searchKnowledge":
@@ -246,13 +246,10 @@ export function formatArgsForSpotlight(toolName: string, args: unknown): string 
       // GET-only HTTP. Show url + queryParams. Headers stripped (auth tokens).
       formatted = fmt(["url", "queryParams"]);
       break;
-    case "verifyDocument":
-      formatted = fmt(["attachmentIndex", "kind"]);
-      break;
     case "slackPostMessage":
       formatted = fmt(["channel"]); // message body stripped
       break;
-    case "gitCloneRepo":
+    case "github:cloneRepo":
       formatted = fmt(["repo", "url"]);
       break;
     case "listDirectory":
@@ -263,8 +260,8 @@ export function formatArgsForSpotlight(toolName: string, args: unknown): string 
     case "readSkill":
       formatted = fmt(["name"]);
       break;
-    case "ghIssue":
-    case "ghPr":
+    case "github:issue":
+    case "github:pr":
       formatted = fmt(["action", "repo", "number", "title"]);
       break;
     default: {
@@ -302,14 +299,14 @@ export function formatResultForSpotlight(toolName: string, result: unknown): str
   const inner = (r.data && typeof r.data === "object" ? r.data : r) as Record<string, unknown>;
 
   switch (toolName) {
-    case "hubspotContact":
-    case "hubspotDeal":
-    case "hubspotTicket":
-    case "hubspotNote":
-    case "hubspotSendEmail":
-    case "hubspotCreateTask":
-    case "hubspotMeeting":
-    case "hubspotGetCompany": {
+    case "hubspot:contact":
+    case "hubspot:deal":
+    case "hubspot:ticket":
+    case "hubspot:note":
+    case "hubspot:sendEmail":
+    case "hubspot:createTask":
+    case "hubspot:meeting":
+    case "hubspot:getCompany": {
       const lines = [
         str(inner.id) ? `id: ${inner.id}` : null,
         str(inner.url) ? `url: ${inner.url}` : null,
@@ -334,13 +331,6 @@ export function formatResultForSpotlight(toolName: string, result: unknown): str
         str(inner.status) || typeof inner.status === "number" ? `status: ${inner.status}` : null,
         typeof inner.bodyLength === "number" ? `body: ${inner.bodyLength} bytes` : null,
         Array.isArray(inner.results) ? `${inner.results.length} righe` : null,
-      ].filter((l): l is string => l !== null);
-      return truncate(lines.join("\n") || "ok", MAX_SPOTLIGHT_CHARS);
-    }
-    case "verifyDocument": {
-      const lines = [
-        typeof inner.match === "boolean" ? `match: ${inner.match}` : null,
-        typeof inner.confidence === "number" ? `confidence: ${inner.confidence}` : null,
       ].filter((l): l is string => l !== null);
       return truncate(lines.join("\n") || "ok", MAX_SPOTLIGHT_CHARS);
     }

@@ -104,6 +104,39 @@ are identical; a same-name divergent definition fails the boot — use distinct
 names (e.g. `google-gmail`) for divergent scopes. The `OAuthProviderSpec` type is
 exported from the SDK as optional typing for manifests.
 
+### `system` (optional) — what the plugin needs from the image
+
+A plugin that shells out to a binary, links against a system library, or needs an
+environment variable pointing at one declares it in the manifest:
+
+```json
+{
+  "name": "acme-tools", "version": "1.0.0", "engine": ">=0.1.0",
+  "system": {
+    "apk": ["chromium", "nss"],
+    "npmGlobal": [],
+    "env": { "PUPPETEER_EXECUTABLE_PATH": "/usr/bin/chromium-browser" }
+  }
+}
+```
+
+This is read at BUILD time, not at runtime: the engine cannot install anything
+into a running container, and a plugin whose binary is missing must fail on the
+tool call rather than refuse to boot and take every other tool down with it.
+
+`Dockerfile.engine` collects the blocks of every plugin in the build and installs
+the union in the runtime stage; the entrypoint sources the collected env, because
+the variable *names* are not known when the Dockerfile is written. The same env
+also applies to the plugin's own build step, or an `npm install` would fetch a
+private copy of a binary the image already provides. The engine installs no tool
+binaries of its own, so an image built without a plugin does not carry what that
+plugin needs.
+
+Two plugins declaring the same variable with different values fail the build
+rather than letting one win silently. Package names must be plain enough to
+survive an argument list; beyond that there is no allowlist — including a plugin
+in a build is already the decision to trust it.
+
 ## Loading a plugin — dev
 
 The loader resolves roots from two sources (env wins de-dup):
@@ -124,11 +157,14 @@ where it lives. Two working setups:
   `tsx watch` hot-reloads. Do **not** symlink — `tsx` resolves the symlink's
   realpath (the external repo) and fails to find the monorepo deps.
 
-## Loading a plugin — build-time (deferred)
+## Loading a plugin — build-time
 
-CDK/Docker bake-in: clone each pinned plugin into `dist/plugins/<name>` (or bundle
-it) so its deps resolve in the image. Not yet implemented — the loader is already
-build-time-ready (it scans `<src|dist>/plugins/*`).
+Drop each plugin into `packages/engine/src/plugins/<name>` (gitignored) before
+building the image. The `plugins` stage of `Dockerfile.engine` installs each
+plugin's own dependencies, compiles its TypeScript in place and copies the result
+to `dist/plugins/<name>`, where the loader scans it at boot; the plugin keeps its
+own `node_modules`, so its imports resolve by walk-up rather than from the
+engine's tree. The same stage collects the `system` blocks described above.
 
 ## The SDK as a git dependency
 
