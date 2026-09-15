@@ -1108,6 +1108,7 @@
   "members.soloOwner.title": "This organization has only one Owner.",
   "members.soloOwner.description": "Promote another member to Owner before that Owner's role can be changed or they can be removed.",
   "members.remove.button": "Remove",
+  "members.remove.self": "You cannot remove yourself",
   "members.remove.title": "Remove member",
   "members.remove.description": "This removes {email} from the organization. They lose all access until re-invited. This action cannot be undone.",
   "members.remove.confirm": "Remove",

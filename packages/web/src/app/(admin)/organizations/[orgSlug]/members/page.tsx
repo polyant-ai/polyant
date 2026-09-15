@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,8 @@ const ROLE_LABEL_KEY: Record<MemberRole, TranslationKey> = {
 export default function MembersPage() {
   const { t } = useI18n();
   const { orgSlug } = useParams<{ orgSlug: string }>();
+  const { data: session } = useSession();
+  const currentUserId = session?.user?.id;
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   const [loading, setLoading] = useState(true);
   // `org.member:manage` is admin+. The entry is now offered to every role (it
@@ -173,6 +176,12 @@ export default function MembersPage() {
             {members.map((member) => {
               const locked = isSoloOwner && member.roleKey === "owner";
               const busy = busyUserId === member.userId;
+              // Removing yourself is leaving, not member management, and the
+              // engine refuses it: the session would keep an organization it no
+              // longer belongs to, and the panel would empty out at the next
+              // reload with nothing said. The row states why instead of
+              // offering a button whose only outcome is a 403.
+              const isSelf = member.userId === currentUserId;
               return (
                 <TableRow key={member.userId}>
                   <TableCell className="font-medium">
@@ -200,6 +209,11 @@ export default function MembersPage() {
                     </Select>
                   </TableCell>
                   <TableCell>
+                    {isSelf ? (
+                      <span className="text-sm text-muted-foreground">
+                        {t("members.remove.self")}
+                      </span>
+                    ) : (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="ghost" size="sm" disabled={locked || busy}>
@@ -221,6 +235,7 @@ export default function MembersPage() {
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
+                    )}
                   </TableCell>
                 </TableRow>
               );
