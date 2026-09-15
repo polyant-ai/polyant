@@ -326,6 +326,20 @@ describe("RoleBindingService", () => {
       expect(authz.invalidateBindingCache).not.toHaveBeenCalled();
     });
 
+    it("refuses to remove the acting user from their own organization", async () => {
+      // A user always ranks EQUAL to itself, so the outrank guard passes and the
+      // Owner-last guard only fires for a sole Owner: without this an admin
+      // could drop their own membership and keep a session pointing at an
+      // organization they no longer belong to.
+      mockGetOrgScopeRoleKey.mockResolvedValue("admin");
+      const { service, authz } = makeService();
+      await expect(
+        service.removeMember({ organizationId: ORG, userId: "u1", actorId: "u1" }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(mockDeleteOrganizationMember).not.toHaveBeenCalled();
+      expect(authz.invalidateBindingCache).not.toHaveBeenCalled();
+    });
+
     it("removes an Owner binding when another Owner remains", async () => {
       mockGetOrgScopeRoleKey.mockResolvedValue("owner");
       mockCountOwnerBindings.mockResolvedValue(2);

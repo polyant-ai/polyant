@@ -96,6 +96,18 @@ export class RoleBindingService {
   /** Remove a member and every role binding they hold in an organization. */
   async removeMember(input: RemoveBindingInput): Promise<void> {
     const { organizationId, userId, actorId } = input;
+    // Removing YOURSELF is not a member-management action, it is leaving — and
+    // this path offers none of what leaving needs: the caller keeps a session
+    // whose organization it no longer belongs to, so the panel it is looking at
+    // is already gone at the next reload, and the Owner-last guard below is the
+    // only thing that would have stopped an organization's sole administrator
+    // from locking everyone out of it. The actor-outrank guard cannot catch
+    // this: a user always ranks equal to itself, so it passes.
+    if (actorId && actorId === userId) {
+      throw new ForbiddenException(
+        "You cannot remove yourself from the organization: ask another administrator.",
+      );
+    }
     await withOrganizationMemberLock(organizationId, async (transaction) => {
       await this.assertActorOutranks(organizationId, actorId, userId, undefined, transaction);
       await this.assertNotLastOwner(organizationId, userId, transaction);

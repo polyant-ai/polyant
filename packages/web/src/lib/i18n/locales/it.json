@@ -1108,6 +1108,7 @@
   "members.soloOwner.title": "Questa organizzazione ha un solo Proprietario.",
   "members.soloOwner.description": "Promuovi un altro membro a Proprietario prima che il ruolo di quel Proprietario possa essere cambiato o che possa essere rimosso.",
   "members.remove.button": "Rimuovi",
+  "members.remove.self": "Non puoi rimuovere te stesso",
   "members.remove.title": "Rimuovi membro",
   "members.remove.description": "Questo rimuove {email} dall'organizzazione. Perderà ogni accesso finché non verrà reinvitato. L'azione non può essere annullata.",
   "members.remove.confirm": "Rimuovi",

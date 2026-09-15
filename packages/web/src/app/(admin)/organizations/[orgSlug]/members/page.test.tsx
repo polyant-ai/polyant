@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
@@ -37,6 +37,12 @@ vi.mock("@/lib/i18n/context", () => ({
 }));
 
 vi.mock("next/navigation", () => ({ useParams: () => ({ orgSlug: "acme" }) }));
+
+// The page has to know WHICH member the caller is: the remove action is the
+// one control whose target may be the caller itself.
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({ data: { user: { id: "u1" } } }),
+}));
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: (...args: unknown[]) => mockToastError(...args) },
@@ -87,5 +93,26 @@ describe("MembersPage — a role that may not manage members is told so", () => 
     await waitFor(() => expect(screen.getByText("ada@example.com")).toBeInTheDocument());
     expect(screen.getByText("bob@example.com")).toBeInTheDocument();
     expect(screen.queryByText("permission.required.title")).not.toBeInTheDocument();
+  });
+
+  // Leaving is not member management: the engine refuses it, and a session that
+  // outlived its membership shows an organization that is gone at the next
+  // reload. The row says so rather than offering a button that only 403s.
+  it("offers no remove action on the caller's own row", async () => {
+    mockMembersList.mockResolvedValue({
+      members: [
+        { userId: "u1", email: "ada@example.com", name: "Ada", roleKey: "admin" },
+        { userId: "u2", email: "bob@example.com", name: "Bob", roleKey: "viewer" },
+      ],
+    });
+
+    render(<MembersPage />);
+
+    const ownRow = (await screen.findByText("ada@example.com")).closest("tr")!;
+    expect(within(ownRow).queryByText("members.remove.button")).not.toBeInTheDocument();
+    expect(within(ownRow).getByText("members.remove.self")).toBeInTheDocument();
+
+    const otherRow = screen.getByText("bob@example.com").closest("tr")!;
+    expect(within(otherRow).getByText("members.remove.button")).toBeInTheDocument();
   });
 });
