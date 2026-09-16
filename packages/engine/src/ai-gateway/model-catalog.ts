@@ -100,6 +100,15 @@ export interface ProviderConfig {
   };
 }
 
+/**
+ * The provider a request runs on when the agent names none: `provider` is
+ * nullable on `instances`, and the gateway resolves an absent one to this.
+ * Exported because anyone VALIDATING a model without a provider has to reach
+ * the same answer the gateway will — a second literal elsewhere is how a model
+ * gets checked against a catalog the agent does not run on.
+ */
+export const DEFAULT_PROVIDER = "openai";
+
 export const providerConfigs: Record<string, ProviderConfig> = {
   openai: {
     tiers: {

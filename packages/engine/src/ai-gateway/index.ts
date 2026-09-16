@@ -15,12 +15,12 @@ import {
   tapAndForwardFullStream,
   type BusContext,
 } from "../activity-stream/bus-emitter.js";
+import { DEFAULT_PROVIDER } from "./model-catalog.js";
 import { findInstanceBySlug } from "../instances/store.js";
 import { buildInstanceIconUrl } from "../instances/icon-url.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import type { InstanceMeta } from "../activity-stream/activity-stream.types.js";
 
-const DEFAULT_PROVIDER = "openai";
 
 const providers: Record<string, ProviderAdapter> = {
   openai: OpenAIProvider,

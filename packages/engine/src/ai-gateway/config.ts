@@ -8,7 +8,7 @@ import type { ModelCapabilities, ReasoningLevel } from "./model-catalog.js";
 // existing importers (`./config.js`) keep working. This file holds the LOGIC:
 // model resolution, cost estimation, and the capability gates — each now a
 // catalog LOOKUP with a logged regex fallback for un-catalogued model ids.
-export { providerConfigs } from "./model-catalog.js";
+export { providerConfigs, DEFAULT_PROVIDER } from "./model-catalog.js";
 export type { ProviderConfig, ModelCapabilities } from "./model-catalog.js";
 
 export function resolveModel(provider: string, tier: string): string {

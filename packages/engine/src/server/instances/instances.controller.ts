@@ -35,7 +35,7 @@ import {
 import { countMemories } from "../../memory/index.js";
 import { countDocuments } from "../../knowledge/index.js";
 import { computeMemoryStatusFromInstance, computeEmbedderStatus } from "../memories/memory-status.js";
-import { providerConfigs, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
+import { providerConfigs, DEFAULT_PROVIDER, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
 import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
@@ -341,7 +341,6 @@ export class InstancesController {
     },
   ) {
     this.validateSlug(slug);
-    this.validateModelConfig(body.provider, body.model);
     this.validateEmbeddingProvider(body.embeddingProvider);
     body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
     body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
@@ -358,6 +357,17 @@ export class InstancesController {
     // Capture the pre-update state to detect an embedding-provider switch.
     const before = await findInstanceBySlug(asInstanceSlug(slug));
     if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
+
+    // A PATCH that changes only the model carries no provider, and the agent's
+    // stored one is the one it will run on. Reading the body alone checked the
+    // model against a provider the caller never mentioned: it refused a valid
+    // Bedrock model on a Bedrock agent, and accepted an OpenAI model on one —
+    // which then failed at the first message, far from this edit. `null` is a
+    // deliberate clear, so it falls through to the gateway's default.
+    this.validateModelConfig(
+      body.provider !== undefined ? body.provider : before.provider,
+      body.model,
+    );
 
     // Changing the embedding provider abandons the old embedding space (vectors
     // become uninterpretable) — existing memories + knowledge are wiped, never
@@ -575,7 +585,7 @@ export class InstancesController {
       throw new BadRequestException(`Invalid provider "${provider}". Valid providers: ${validProviders.join(", ")}`);
     }
     if (model) {
-      const effectiveProvider = provider || "openai";
+      const effectiveProvider = provider || DEFAULT_PROVIDER;
       const cfg = providerConfigs[effectiveProvider];
       const validModels = cfg ? [
         ...Object.values(cfg.tiers),
