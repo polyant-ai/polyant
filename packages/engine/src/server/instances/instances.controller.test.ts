@@ -72,6 +72,7 @@ vi.mock("../../instances/config-resolver.js", () => ({
 }));
 vi.mock("../../ai-gateway/config.js", () => ({
   providerConfigs: mockProviderConfigs,
+  DEFAULT_PROVIDER: "openai",
   isThinkingCapable: vi.fn().mockReturnValue(false),
   temperatureSupported: (provider: string, modelId: string, thinking: boolean): boolean => {
     if (provider === "openai" && /^(o[134]|gpt-5)/.test(modelId)) return false;
@@ -434,6 +435,57 @@ describe("InstancesController", () => {
       expect(res.wiped).toBeNull();
     });
   });
+  // -------------------------------------------------------------------------
+  // Model validation — a PATCH that changes only the model carries no provider,
+  // and the agent's stored one is the one the gateway will run it on. Checking
+  // the body alone read "openai" for every agent.
+  // -------------------------------------------------------------------------
+  describe("update — model is validated against the agent's provider", () => {
+    const bedrockInstance = { ...fullInstance, provider: "bedrock", model: "openai.gpt-oss-120b-1:0" };
+
+    it("accepts a model of the stored provider when the body omits it", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(bedrockInstance);
+      mockUpdateInstance.mockResolvedValue(bedrockInstance);
+
+      await expect(
+        controller.update("test-one", { model: "openai.gpt-oss-120b-1:0" }),
+      ).resolves.toBeDefined();
+      expect(mockUpdateInstance).toHaveBeenCalled();
+    });
+
+    it("refuses a model of another provider, naming the agent's own", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(bedrockInstance);
+
+      await expect(controller.update("test-one", { model: "gpt-4o" })).rejects.toThrow(
+        /Invalid model "gpt-4o" for provider "bedrock"/,
+      );
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it("validates against the incoming provider when the body changes both", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(bedrockInstance);
+      mockUpdateInstance.mockResolvedValue({ ...bedrockInstance, provider: "openai", model: "gpt-4o" });
+
+      await expect(
+        controller.update("test-one", { provider: "openai", model: "gpt-4o" }),
+      ).resolves.toBeDefined();
+    });
+
+    it("falls back to the gateway default when the body clears the provider", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(bedrockInstance);
+
+      await expect(
+        controller.update("test-one", { provider: null, model: "openai.gpt-oss-120b-1:0" }),
+      ).rejects.toThrow(/for provider "openai"/);
+    });
+
+    it("reports a missing agent before judging the model", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(null);
+
+      await expect(controller.update("nope", { model: "gpt-4o" })).rejects.toThrow(NotFoundException);
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Temperature — clamp on PATCH, expose on GET
   // -------------------------------------------------------------------------
