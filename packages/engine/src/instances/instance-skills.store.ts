@@ -310,8 +310,8 @@ export async function seedInstanceSkills(
   if (DEFAULT_SKILL_SLUGS.length === 0) return;
 
   // Every write here must stay on the caller's transaction: an insert issued on
-  // a second pooled connection waits for the uncommitted `instances` row lock
-  // that same transaction is holding.
+  // a second pooled connection cannot see the uncommitted `instances` row that
+  // same transaction is still holding.
   const exec = executor ?? db;
 
   const defaultSkills = await exec

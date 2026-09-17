@@ -359,10 +359,10 @@ describe("instance-tools.store", () => {
   // Caller-transaction propagation
   //
   // `createInstanceWithDefaults` seeds inside `db.transaction`, so a write
-  // issued on the module `db` takes a SECOND pooled connection and blocks on
-  // the uncommitted `instances` row lock held by the very transaction that
-  // called it: POST /api/instances hangs until the pool times out. These tests
-  // assert the writes land on the executor they were handed.
+  // issued on the module `db` takes a SECOND pooled connection, which cannot
+  // see the uncommitted `instances` row held by the very transaction that
+  // called it: POST /api/instances fails. These tests assert the writes land
+  // on the executor they were handed.
   // -----------------------------------------------------------------------
   describe("caller-transaction propagation", () => {
     it("seedInstanceTools inserts on the caller executor, not on the module db", async () => {

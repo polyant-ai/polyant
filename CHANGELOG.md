@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-17
+
+Patch release. It restores agent creation, which fails on every attempt in 1.1.0.
+
+### Fixed
+
+- **Creating an agent no longer fails.** `POST /api/instances`, and the admin
+  panel's New Agent button behind it, answered 500 on every call in 1.1.0: the
+  create path seeds its four tables inside one transaction, but the tool seed
+  issued its insert on a second pooled connection, which cannot see the agent row
+  that transaction has not committed, and the insert died on
+  `instance_tools_instance_id_fkey`. Every read and write on the create path now
+  runs on the caller's transaction. The skill seed carried the same split — it is
+  inert on this build, where the default skill list is empty, and is corrected
+  with it.
+
+### Changed
+
+- `recomputeInstanceTools` accepts an optional executor. Given one it reuses that
+  transaction instead of opening a second; called without one, as the import
+  paths do after their own transaction closes, it behaves as before. Internal
+  module, not a documented SemVer surface.
+
 ## [1.1.0] - 2026-09-04
 
 > **Upgrading from 1.0.0 needs operator action** — this release is not a rolling
@@ -305,7 +328,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/polyant-ai/polyant/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/polyant-ai/polyant/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/polyant-ai/polyant/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/polyant-ai/polyant/compare/v1.0.0...v1.0.1
