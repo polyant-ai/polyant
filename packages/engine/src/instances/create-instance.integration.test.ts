@@ -15,8 +15,28 @@
  */
 
 import { resolveDatabaseAvailability } from "../database/test-db.js";
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { queryClient } from "../database/client.js";
+
+/*
+  The last of the four seeds, wrapped so one test can make it throw. Everything
+  before it - the `instances` row, the prompt sections, the tool rows - has by
+  then really been written on the transaction, which is the state a rollback has
+  to undo. Nothing else in this file is mocked: the wrapper delegates to the real
+  implementation unless a test arms it.
+*/
+let failTheSkillSeed = false;
+vi.mock("./instance-skills.store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./instance-skills.store.js")>();
+  return {
+    ...actual,
+    seedInstanceSkills: async (...args: Parameters<typeof actual.seedInstanceSkills>) => {
+      if (failTheSkillSeed) throw new Error("seed failed after the agent row was written");
+      return actual.seedInstanceSkills(...args);
+    },
+  };
+});
+
 import { createInstanceWithDefaults } from "./store.js";
 import { asInstanceSlug } from "./identifiers.js";
 import { DEFAULT_TOOL_NAMES, DEFAULT_PROMPTS } from "./defaults.js";
@@ -83,20 +103,44 @@ describe.skipIf(!DB_AVAILABLE)("createInstanceWithDefaults (integration)", () =>
     expect(Number(promptRows[0].count)).toBe(DEFAULT_PROMPTS.length);
   });
 
-  it("should_leave_no_agent_behind_when_the_transaction_rolls_back", async () => {
-    const slug = asInstanceSlug(MARKER + "-agent");
+  it("should_leave_no_agent_behind_when_a_later_seed_fails", async () => {
+    const slug = asInstanceSlug(MARKER + "-rollback");
 
-    // Same slug as above: the unique index rejects it, which aborts the whole
-    // transaction rather than committing a half-configured second agent.
-    await expect(createInstanceWithDefaults({
-        slug,
+    failTheSkillSeed = true;
+    try {
+      await expect(
+        createInstanceWithDefaults({
+          slug,
+          name: "Rolled back",
+          orgId,
+          workspaceSlug: MARKER + "-ws",
+        }),
+      ).rejects.toThrow(/seed failed/);
+    } finally {
+      failTheSkillSeed = false;
+    }
+
+    // The agent row, its prompts and its tools were written before the failure.
+    // Outside a transaction they would still be here, and the slug would be
+    // taken by an agent that does not work and cannot be recreated.
+    const rows = await queryClient<{ count: string }[]>`
+      SELECT count(*)::text AS count FROM instances WHERE slug = ${slug}`;
+    expect(Number(rows[0].count)).toBe(0);
+
+    const orphans = await queryClient<{ count: string }[]>`
+      SELECT count(*)::text AS count FROM instance_prompts p
+      WHERE NOT EXISTS (SELECT 1 FROM instances i WHERE i.id = p.instance_id)`;
+    expect(Number(orphans[0].count)).toBe(0);
+  });
+
+  it("should_refuse_a_slug_that_is_already_taken", async () => {
+    await expect(
+      createInstanceWithDefaults({
+        slug: asInstanceSlug(MARKER + "-agent"),
         name: "Duplicate",
         orgId,
         workspaceSlug: MARKER + "-ws",
-      })).rejects.toThrow();
-
-    const rows = await queryClient<{ count: string }[]>`
-      SELECT count(*)::text AS count FROM instances WHERE slug = ${slug}`;
-    expect(Number(rows[0].count)).toBe(1);
+      }),
+    ).rejects.toThrow();
   });
 });
