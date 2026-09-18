@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
 # Create a minimal package.json for web to satisfy workspace resolution
-RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.0.0","private":true}' > packages/web/package.json
+RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.1.1","private":true}' > packages/web/package.json
 RUN npm ci --workspace=@polyant/engine --include-workspace-root
 # Ensure workspace node_modules dir exists (even if empty) for COPY
 RUN mkdir -p packages/engine/node_modules
@@ -22,7 +22,7 @@ FROM node:22-alpine AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
-RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.0.0","private":true}' > packages/web/package.json
+RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.1.1","private":true}' > packages/web/package.json
 RUN npm ci --omit=dev --workspace=@polyant/engine --include-workspace-root
 RUN mkdir -p packages/engine/node_modules
 

@@ -55,8 +55,8 @@ export async function recomputeInstanceTools(
   executor?: DbExecutor,
 ): Promise<void> {
   // Reads and the final diff must run on the CALLER's transaction when there is
-  // one: an insert on a second pooled connection waits for the uncommitted
-  // `instances` row lock held by that very transaction.
+  // one: a write issued on a second pooled connection cannot see the
+  // uncommitted `instances` row that same transaction is still holding.
   const exec = executor ?? db;
 
   // 1. Get enabled skills with their PINNED version metadata
@@ -206,6 +206,9 @@ export async function seedInstanceTools(
     source: "manual" as const,
   }));
 
+  // MUST be the caller's executor: on the create path the instance row is still
+  // uncommitted inside `createInstanceWithDefaults`'s transaction, so an insert
+  // on a different pooled connection cannot see it and dies on the FK.
   await executor
     .insert(instanceTools)
     .values(values)
