@@ -5,7 +5,7 @@ import { asInstanceSlug, type InstanceSlug } from "./identifiers.js";
 import { getAllSecretsById } from "./secrets.store.js";
 import { SECRET_KEYS } from "./secrets.store.js";
 import { TtlCache } from "../utils/ttl-cache.js";
-import { isThinkingCapable, resolveModel, clampTemperature, temperatureSupported } from "../ai-gateway/config.js";
+import { DEFAULT_PROVIDER, isThinkingCapable, resolveModel, clampTemperature, temperatureSupported } from "../ai-gateway/config.js";
 import type { CacheTtl, ModelTier } from "../ai-gateway/types.js";
 import type { STTCredentials, InstanceSttSetting } from "../stt-gateway/types.js";
 import {
@@ -97,11 +97,20 @@ export interface InstanceConfig {
  * the `standard` tier — match that fallback here so the capability gate
  * matches what runs at request time.
  */
+export function resolveEffectiveModelSelection(
+  provider: string | null | undefined,
+  model: string | null | undefined,
+): { provider: string; model: string } {
+  const effectiveProvider = provider ?? DEFAULT_PROVIDER;
+  return {
+    provider: effectiveProvider,
+    model: model ?? resolveModel(effectiveProvider, "standard" satisfies ModelTier),
+  };
+}
+
 function effectiveModelFor(provider: string | undefined, model: string | undefined): string | undefined {
-  if (model) return model;
-  if (!provider) return undefined;
   try {
-    return resolveModel(provider, "standard" satisfies ModelTier);
+    return resolveEffectiveModelSelection(provider, model).model;
   } catch {
     return undefined;
   }

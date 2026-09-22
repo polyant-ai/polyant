@@ -19,6 +19,7 @@ const {
   mockSeedTools,
   mockSeedSkills,
   mockInvalidateCache,
+  mockResolveEffectiveModelSelection,
   mockProviderConfigs,
   mockEmbeddingProviderChanged,
   mockResetEmbeddings,
@@ -39,6 +40,12 @@ const {
   mockCountMemories: vi.fn().mockResolvedValue(0),
   mockCountDocuments: vi.fn().mockResolvedValue(0),
   mockInvalidateCache: vi.fn(),
+  mockResolveEffectiveModelSelection: vi.fn(
+    (provider: string | null, model: string | null) => ({
+      provider: provider ?? "openai",
+      model: model ?? (provider === "anthropic" ? "claude-sonnet" : "gpt-4o"),
+    }),
+  ),
   mockProviderConfigs: {
     openai: {
       tiers: { fast: "gpt-4o-mini", standard: "gpt-4o", heavy: "o3" },
@@ -69,6 +76,7 @@ vi.mock("../../instances/instance-tools.store.js", () => ({ seedInstanceTools: m
 vi.mock("../../instances/instance-skills.store.js", () => ({ seedInstanceSkills: mockSeedSkills }));
 vi.mock("../../instances/config-resolver.js", () => ({
   invalidateInstanceConfigCache: mockInvalidateCache,
+  resolveEffectiveModelSelection: mockResolveEffectiveModelSelection,
 }));
 vi.mock("../../ai-gateway/config.js", () => ({
   providerConfigs: mockProviderConfigs,
@@ -194,7 +202,7 @@ describe("InstancesController", () => {
 
       // Allowed fields
       const allowed = new Set([
-        "id", "slug", "name", "description", "status", "provider", "model",
+        "id", "slug", "name", "description", "status", "provider", "model", "effectiveProvider", "effectiveModel",
         "memoryEnabled", "knowledgeEnabled", "langsmithEnabled", "langsmithProject",
         "authEnabled", "thinkingEnabled", "thinkingLevel", "temperature", "stateInPromptEnabled", "datetimeInjectionEnabled",
         // The six that moved off the environment. On the allow-list because the
@@ -213,6 +221,23 @@ describe("InstancesController", () => {
       }
       // The leak canary must be excluded.
       expect("internalSecretFlag" in instance).toBe(false);
+    });
+
+    it("reports the provider and model used by the runtime when overrides are empty", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({
+        ...fullInstance,
+        provider: null,
+        model: null,
+      });
+
+      const { instance } = await controller.getBySlug("test-one");
+
+      expect(instance).toMatchObject({
+        provider: null,
+        model: null,
+        effectiveProvider: "openai",
+        effectiveModel: "gpt-4o",
+      });
     });
 
     it("emits icon as a URL + cache-busting query, never as the raw data URI", async () => {

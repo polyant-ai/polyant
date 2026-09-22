@@ -12,6 +12,7 @@ import { api, type ChannelConfig, type Instance, type SkillState, type ToolState
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { StatusChecks } from "./status-checks-list";
+import type { StatusChecksState } from "./use-status-checks";
 
 /**
  * Where the agent opens: whether it is WELL, and then what it is.
@@ -37,11 +38,13 @@ export function StatusTab({
   instance,
   tools,
   skills,
+  status,
 }: {
   instance: Instance;
   /** Already loaded by the page — the checks read them, this page does not fetch them again. */
   tools: ToolState[];
   skills: SkillState[];
+  status: StatusChecksState;
 }) {
   const { t } = useI18n();
   const pathname = usePathname();
@@ -71,7 +74,7 @@ export function StatusTab({
 
   return (
     <div className="space-y-10">
-      <StatusChecks instance={instance} tools={tools} skills={skills} />
+      <StatusChecks status={status} />
 
       <div className="space-y-6">
         <div>
@@ -88,7 +91,7 @@ export function StatusTab({
           >
             <Row label={t("status.current.providerModel")}>
               <span className="font-mono text-xs">
-                {instance.provider ?? "—"} / {instance.model ?? "—"}
+                {instance.effectiveProvider} / {instance.effectiveModel}
               </span>
             </Row>
             <Row label={t("status.current.status")}>

@@ -1154,6 +1154,8 @@
   "instances.detail.tabCredentials": "Credentials",
   "status.check.embedderCredentials.title": "Embeddings cannot be computed",
   "status.check.embedderCredentials.body": "The selected embedder has no credentials: every uploaded document will end in error and no memory will be saved.",
+  "status.check.sttCredentials.title": "Audio transcription is unavailable",
+  "status.check.sttCredentials.body": "There are no credentials for {provider}. Configure them before enabling audio transcription.",
   "status.check.knowledgeEmpty.title": "Document search is on with nothing to search",
   "status.check.knowledgeEmpty.body": "The agent has the retrieval tool and can spend a turn on an empty knowledge base.",
   "status.check.knowledgeUnused.title": "{count} documents the agent never reads",

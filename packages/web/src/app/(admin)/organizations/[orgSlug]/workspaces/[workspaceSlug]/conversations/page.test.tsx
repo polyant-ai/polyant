@@ -118,6 +118,8 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     status: "active",
     provider: "openai",
     model: "gpt-4o",
+    effectiveProvider: "openai",
+    effectiveModel: "gpt-4o",
     memoryEnabled: false,
     knowledgeEnabled: false,
     langsmithEnabled: false,

@@ -104,6 +104,8 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     status: "active",
     provider: "openai",
     model: "gpt-4o",
+    effectiveProvider: "openai",
+    effectiveModel: "gpt-4o",
     memoryEnabled: true,
     knowledgeEnabled: false,
     langsmithEnabled: false,
@@ -201,6 +203,33 @@ describe("SettingsTab", () => {
     // Loading state renders pulse divs
     const pulseElements = container.querySelectorAll(".animate-pulse");
     expect(pulseElements.length).toBeGreaterThan(0);
+  });
+
+  it("points model configuration to credentials when its readiness check fails", async () => {
+    renderWithProvider(
+      <SettingsTab
+        instance={makeInstance()}
+        onUpdate={onUpdate}
+        section="model"
+        checks={[
+          {
+            id: "provider-no-credentials",
+            severity: "broken",
+            titleKey: "status.check.providerCredentials.title",
+            bodyKey: "status.check.providerCredentials.body",
+            params: { provider: "openai" },
+            section: "credentials",
+            sectionKey: "instances.detail.tabCredentials",
+          },
+        ]}
+      />,
+    );
+
+    expect(await screen.findByText("status.check.providerCredentials.title")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "instances.detail.tabCredentials" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("?tab=credentials"),
+    );
   });
 
   /**
@@ -577,6 +606,7 @@ describe("SettingsTab", () => {
   it("saves secrets when api key fields are filled", async () => {
     const user = userEvent.setup();
     const instance = makeInstance();
+    const onConfigurationChanged = vi.fn();
 
     mockSecretsSet.mockResolvedValueOnce({
       secrets: [{ key: "openai_api_key", configured: true }],
@@ -586,7 +616,14 @@ describe("SettingsTab", () => {
     // (A queued `mockResolvedValueOnce` here also leaked into the next test, which
     // expected a rejection and got this success instead.)
 
-    renderWithProvider(<SettingsTab instance={instance} onUpdate={onUpdate} section="credentials" />);
+    renderWithProvider(
+      <SettingsTab
+        instance={instance}
+        onUpdate={onUpdate}
+        section="credentials"
+        onConfigurationChanged={onConfigurationChanged}
+      />,
+    );
 
     await waitFor(() => {
       expect(screen.getByText("settings.tab.provider.openai")).toBeInTheDocument();
@@ -609,6 +646,7 @@ describe("SettingsTab", () => {
     });
     // The credentials page writes secrets and nothing else.
     expect(mockInstanceUpdate).not.toHaveBeenCalled();
+    expect(onConfigurationChanged).toHaveBeenCalledTimes(1);
   });
 
   it("shows error toast on save failure", async () => {

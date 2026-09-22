@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   api,
   type ChannelConfig,
@@ -20,7 +20,9 @@ import { runStatusChecks, statusVerdict, type AgentCheck } from "./status-checks
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Collects everything `runStatusChecks` needs and runs it.
+ * Collects everything `runStatusChecks` needs once at the agent-page boundary.
+ * Status and configuration sections share the returned result, and successful
+ * writes can call `refresh` when none of the three input objects changed.
  *
  * Seven requests, all GET, all in parallel, all ALLOWED TO FAIL: each check reads
  * `null` as "I could not look" and stays silent, so a viewer who cannot read
@@ -28,23 +30,29 @@ const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
  * That is also why this hook returns no error state — a failed fetch here costs
  * a check, never the page.
  *
- * The fetches are deliberately not shared with the sections that also make them:
- * this page is the landing page, the sections are not mounted, and a cache layer
- * for seven GETs is a bigger thing than seven GETs.
+ * The hook stays local to the page instead of adding a cache layer for seven GETs.
  */
 export function useStatusChecks({
   instance,
   tools,
   skills,
 }: {
-  instance: Instance;
+  instance: Instance | null;
   tools: ToolState[];
   skills: SkillState[];
-}): { checks: AgentCheck[]; verdict: ReturnType<typeof statusVerdict>; loading: boolean } {
+}): {
+  checks: AgentCheck[];
+  verdict: ReturnType<typeof statusVerdict>;
+  loading: boolean;
+  refresh: () => void;
+} {
   const [checks, setChecks] = useState<AgentCheck[]>([]);
   const [loading, setLoading] = useState(true);
+  const [revision, setRevision] = useState(0);
+  const refresh = useCallback(() => setRevision((value) => value + 1), []);
 
   useEffect(() => {
+    if (!instance) return;
     let cancelled = false;
     const slug = instance.slug;
 
@@ -96,7 +104,9 @@ export function useStatusChecks({
     return () => {
       cancelled = true;
     };
-  }, [instance, tools, skills]);
+  }, [instance, tools, skills, revision]);
 
-  return { checks, verdict: statusVerdict(checks), loading };
+  return { checks, verdict: statusVerdict(checks), loading, refresh };
 }
+
+export type StatusChecksState = ReturnType<typeof useStatusChecks>;

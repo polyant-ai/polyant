@@ -11,7 +11,7 @@ export const instances = pgTable("instances", {
   status: varchar("status", { length: 20 }).notNull().default("active"),
   provider: varchar("provider", { length: 50 }),
   model: varchar("model", { length: 100 }),
-  memoryEnabled: boolean("memory_enabled").notNull().default(true),
+  memoryEnabled: boolean("memory_enabled").notNull().default(false),
   knowledgeEnabled: boolean("knowledge_enabled").notNull().default(false),
   langsmithEnabled: boolean("langsmith_enabled").notNull().default(false),
   langsmithProject: varchar("langsmith_project", { length: 255 }),
@@ -102,7 +102,7 @@ export const instances = pgTable("instances", {
   /** When true, an informational opt-out hint is injected into the supervisor prompt. */
   optoutInjectPromptHint: boolean("optout_inject_prompt_hint").notNull().default(true),
   icon: text("icon"),
-  sttProvider: text("stt_provider").notNull().default("openai"),
+  sttProvider: text("stt_provider").notNull().default("disabled"),
   embeddingDim: integer("embedding_dim").notNull().default(1536),
   /**
    * Embedding provider, chosen INDEPENDENTLY of the chat `provider`. Allowed

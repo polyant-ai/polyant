@@ -290,6 +290,41 @@ describe("runStatusChecks — the provider key", () => {
       ids(input({ instance: agent({ provider: "bedrock" }), secrets: [] })),
     ).not.toContain("provider-no-credentials");
   });
+
+  it("checks the runtime fallback when provider and model overrides are empty", () => {
+    const instance = agent({ provider: null, model: null }) as Instance & {
+      effectiveProvider: string;
+      effectiveModel: string;
+    };
+    instance.effectiveProvider = "openai";
+    instance.effectiveModel = "gpt-4o";
+
+    const found = runStatusChecks(input({ instance, secrets: [] })).find(
+      (check) => check.id === "provider-no-credentials",
+    );
+
+    expect(found?.params?.provider).toBe("openai");
+  });
+});
+
+describe("runStatusChecks — speech to text credentials", () => {
+  it("catches a selected Deepgram provider without its key", () => {
+    expect(
+      ids(input({ instance: agent({ sttProvider: "deepgram" }), secrets: [] })),
+    ).toContain("stt-no-credentials");
+  });
+
+  it("stays quiet when speech to text is disabled", () => {
+    expect(
+      ids(input({ instance: agent({ sttProvider: "disabled" }), secrets: [] })),
+    ).not.toContain("stt-no-credentials");
+  });
+
+  it("does not reject AWS because the host role may authenticate it", () => {
+    expect(ids(input({ instance: agent({ sttProvider: "aws" }), secrets: [] }))).not.toContain(
+      "stt-no-credentials",
+    );
+  });
 });
 
 describe("runStatusChecks — promises made to people", () => {
