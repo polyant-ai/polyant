@@ -112,6 +112,36 @@ describe("configuration environment contract", () => {
   });
 
   /**
+   * Ten variables that answered a question the product now answers. Each one had
+   * become the second place the same value could come from — the first being a
+   * column an administrator edits — and the second place was reachable only by
+   * redeploying, which is what made it worth deleting rather than keeping as a
+   * default. Reintroducing one reintroduces the disagreement.
+   *
+   * `PDF_CONCURRENCY` is in the list for a different reason: the tool that read
+   * it is a plugin now, and the plugin reads it itself.
+   */
+  it("keeps the retired variables deleted, in code and in the sample", () => {
+    const retired = [
+      "ANALYTICS_RETENTION_DAYS",
+      "DATETIME_LOCALE",
+      "DATETIME_TIMEZONE",
+      "DEDUP_SIMILARITY_THRESHOLD",
+      "KNOWLEDGE_MAX_DOCS_PER_INSTANCE",
+      "MESSAGE_MAX_RESTARTS",
+      "MESSAGE_SOFT_DEBOUNCE_MS",
+      "MESSAGE_TYPING_DELAY_MS",
+      "PDF_CONCURRENCY",
+      "SSE_MAX_CONNECTIONS_PER_USER",
+    ];
+    const read = new Set(directEnvironmentNames(readFileSync(configPath, "utf8")));
+    const documented = documentedEnvironmentNames(readFileSync(samplePath, "utf8"));
+
+    expect(retired.filter((name) => read.has(name)), "Read again by config.ts").toEqual([]);
+    expect(retired.filter((name) => documented.has(name)), "Back in .env.example").toEqual([]);
+  });
+
+  /**
    * `AUTHZ_ENFORCE` is GONE and must stay gone. RBAC is enforced
    * unconditionally, so there is nothing to document and nothing to read — a
    * reintroduced flag is a reintroduced way to ship with authorization off,

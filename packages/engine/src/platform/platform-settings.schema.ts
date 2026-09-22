@@ -12,9 +12,9 @@ import { users } from "../auth/users.schema.js";
  * both values unset, so a reader never has to tell "no row yet" from "row with
  * NULLs" — two shapes for one question.
  *
- * NULL means "not set here" and falls back to the environment variable that used
- * to be the only answer. `updatedBy` is nullable because a user may be deleted
- * after setting a policy; the management audit trail is what survives.
+ * NULL means "not set here" and falls back to the shipped default in
+ * `platform-settings.store.ts`. `updatedBy` is nullable because a user may be
+ * deleted after setting a policy; the management audit trail is what survives.
  */
 export const platformSettings = pgTable("platform_settings", {
   id: boolean("id").primaryKey().default(true),

@@ -8,14 +8,17 @@ import { SlackAdapter, type SlackConfig } from "./adapters/slack/index.js";
 import { WhatsAppAdapter, type WhatsAppConfig } from "./adapters/whatsapp/index.js";
 import { AgentChannelAdapter } from "./adapters/agent.adapter.js";
 import { MessageCoordinator } from "./message-coordinator.js";
-import { config } from "../config.js";
 import { emitOutbound } from "../activity-stream/emitters/emit-outbound.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import { getOptoutStatus } from "../optout/index.js";
 import { sanitizeForLog } from "../utils/create-logger.js";
 import { findInstanceBySlug } from "../instances/store.js";
-import { resolveMessageTimings, UNSET_AGENT_SETTINGS } from "../instances/agent-settings.js";
+import {
+  DEFAULT_MESSAGE_TIMINGS,
+  resolveMessageTimings,
+  UNSET_AGENT_SETTINGS,
+} from "../instances/agent-settings.js";
 
 /**
  * Channel types that should NOT produce `category: "outbound"` events:
@@ -85,8 +88,8 @@ export class ChannelManager {
       });
       console.log(
         `[channel-manager] MessageCoordinator enabled: timings resolved per agent ` +
-          `(deployment defaults softDebounce=${config.coordinator.softDebounceMs}ms, ` +
-          `typingDelay=${config.coordinator.typingDelayMs}ms, maxRestarts=${config.coordinator.maxRestarts}), ` +
+          `(defaults softDebounce=${DEFAULT_MESSAGE_TIMINGS.softDebounceMs}ms, ` +
+          `typingDelay=${DEFAULT_MESSAGE_TIMINGS.typingDelayMs}ms, maxRestarts=${DEFAULT_MESSAGE_TIMINGS.maxRestarts}), ` +
           `channels=${[...DEBOUNCED_CHANNELS].join(",")}`,
       );
     }

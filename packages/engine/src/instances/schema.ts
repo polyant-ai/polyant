@@ -37,9 +37,8 @@ export const instances = pgTable("instances", {
   /**
    * How this agent formats the date and time it injects, and how it decides two
    * memories are the same fact. NULL on any of them means "not set here" and
-   * falls back to the deployment default (`DATETIME_TIMEZONE`,
-   * `DATETIME_LOCALE`, `DEDUP_SIMILARITY_THRESHOLD`) — see
-   * `instances/agent-settings.ts`, the one place they are resolved.
+   * falls back to the shipped default — see `instances/agent-settings.ts`, which
+   * holds those defaults and is the one place they are resolved.
    *
    * They are per-agent because two agents on one installation legitimately
    * differ: one serving Italian customers and one serving German customers want
@@ -52,8 +51,8 @@ export const instances = pgTable("instances", {
   /**
    * How this agent collapses a burst of inbound fragments: the coalescing
    * window, the delay before the typing indicator, and the cap on
-   * cancel-and-restart cycles. NULL falls back to `MESSAGE_SOFT_DEBOUNCE_MS` /
-   * `MESSAGE_TYPING_DELAY_MS` / `MESSAGE_MAX_RESTARTS`.
+   * cancel-and-restart cycles. NULL falls back to `DEFAULT_MESSAGE_TIMINGS` in
+   * `instances/agent-settings.ts`.
    *
    * These shape conversational UX, not capacity: a support agent and a booking
    * agent want different windows. Zero is a legitimate value for all three (no

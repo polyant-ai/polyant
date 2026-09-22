@@ -28,7 +28,7 @@ export interface MainStackProps extends StackProps {
       web: { cpu: number; memory: number };
     };
     logging: { retentionDays: number };
-    app: { defaultInstanceId: string; timezone: string; locale: string };
+    app: { timezone: string };
     tags: Record<string, string>;
   };
 }

@@ -2,7 +2,6 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { config } from "../config.js";
 import { platformSettings } from "./platform-settings.schema.js";
 
 /** The policies as they are STORED: null means "not set, use the deployment default". */
@@ -18,6 +17,15 @@ export interface EffectivePlatformSettings {
 }
 
 const SINGLE_ROW = true;
+
+/**
+ * What each policy is worth when the installation has not set it. These were
+ * `ANALYTICS_RETENTION_DAYS` and `SSE_MAX_CONNECTIONS_PER_USER`; once the column
+ * existed the variable was a second answer to the same question, reachable only
+ * by redeploying, so it is gone and the default sits beside the resolver.
+ */
+const DEFAULT_ANALYTICS_RETENTION_DAYS = 90;
+const DEFAULT_SSE_MAX_CONNECTIONS_PER_USER = 5;
 
 /**
  * A short in-memory cache, because `sseMaxConnectionsPerUser` is read on every
@@ -83,15 +91,14 @@ export async function getStoredPlatformSettings(): Promise<StoredPlatformSetting
 /**
  * The policies in force, and the only place the fallback is applied.
  *
- * Each value is the stored one when the installation set it, and the
- * environment variable when it did not — which is what makes this a no-op for a
- * deployment that changes nothing.
+ * Each value is the stored one when the installation set it, and the constant
+ * above when it did not.
  */
 export async function resolvePlatformSettings(): Promise<EffectivePlatformSettings> {
   const stored = await readStored();
   return {
-    analyticsRetentionDays: stored.analyticsRetentionDays ?? config.analytics.retentionDays,
-    sseMaxConnectionsPerUser: stored.sseMaxConnectionsPerUser ?? config.activityStream.maxPerUser,
+    analyticsRetentionDays: stored.analyticsRetentionDays ?? DEFAULT_ANALYTICS_RETENTION_DAYS,
+    sseMaxConnectionsPerUser: stored.sseMaxConnectionsPerUser ?? DEFAULT_SSE_MAX_CONNECTIONS_PER_USER,
   };
 }
 

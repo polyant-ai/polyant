@@ -3,6 +3,28 @@
 This guide covers upgrades that need an operator decision. For the full list of
 changes see the [changelog](../CHANGELOG.md).
 
+## Upgrading from 1.2.0
+
+### Environment variables the panel now answers
+
+Each of these set one value for a whole installation, for a question an
+administrator now answers where it belongs: on the agent, on the organization, or
+on the installation's own settings page. The shipped defaults did not change, so
+an installation that set none of them behaves exactly as before. Remove them from
+your environment — a value left there is read by nothing.
+
+| Removed | Where the value lives now |
+| --- | --- |
+| `DATETIME_TIMEZONE`, `DATETIME_LOCALE` | The agent's Settings → Behaviour overrides. An agent that declares neither formats dates in the runtime's zone and locale, so a deployment-wide zone is now `TZ` |
+| `DEDUP_SIMILARITY_THRESHOLD` | The agent's Settings → Behaviour overrides; the default is 0.90 |
+| `MESSAGE_SOFT_DEBOUNCE_MS`, `MESSAGE_TYPING_DELAY_MS`, `MESSAGE_MAX_RESTARTS` | The agent's Settings → Behaviour overrides; the defaults are 2000 ms, 1500 ms and 3 |
+| `KNOWLEDGE_MAX_DOCS_PER_INSTANCE` | The organization's knowledge-document entitlement; the default is 500 per agent |
+| `ANALYTICS_RETENTION_DAYS`, `SSE_MAX_CONNECTIONS_PER_USER` | Settings → General, for a platform admin; the defaults are 90 days and 5 connections |
+| `PDF_CONCURRENCY` | The Markdown-to-PDF plugin, which reads it itself and documents it in its own README |
+
+If you deploy with the CDK stack, drop `defaultInstanceId` and `locale` from the
+`app` block of your `config.yaml`; `timezone` stays and is passed as `TZ`.
+
 ## Upgrading from 1.1.1 to 1.2.0
 
 ### Install and re-enable extracted tools

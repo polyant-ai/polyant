@@ -31,11 +31,11 @@ export const organizations = pgTable("organizations", {
   /**
    * How many knowledge documents ONE of this organization's agents may hold.
    *
-   * NULL means the organization has none of its own and falls back to
-   * `KNOWLEDGE_MAX_DOCS_PER_INSTANCE`, which stays as the deployment default.
-   * The fallback is a DEFAULT and not a ceiling: an entitlement that could only
-   * ever be lowered from a value baked into the environment would still need a
-   * redeploy to sell. `knowledge/doc-cap.ts` is the only place it is resolved.
+   * NULL means the organization has none of its own and falls back to the
+   * shipped default. That fallback is a DEFAULT and not a ceiling: an entitlement
+   * that could only ever be lowered from a value baked into the deployment would
+   * still need a redeploy to sell. `knowledge/doc-cap.ts` holds the default and
+   * is the only place it is resolved.
    */
   knowledgeMaxDocsPerAgent: integer("knowledge_max_docs_per_agent"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

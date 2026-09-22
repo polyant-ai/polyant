@@ -36,7 +36,7 @@ const stageConfig = configFile[stage] as {
     web: { cpu: number; memory: number };
   };
   logging: { retentionDays: number };
-  app: { defaultInstanceId: string; timezone: string; locale: string };
+  app: { timezone: string };
   tags: Record<string, string>;
 };
 

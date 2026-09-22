@@ -2,7 +2,6 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
-import { config } from "../config.js";
 import { instances } from "../instances/schema.js";
 import type { InstanceSlug } from "../instances/identifiers.js";
 import { organizations, workspaces } from "../organizations/organization.schema.js";
@@ -15,8 +14,8 @@ import { organizations, workspaces } from "../organizations/organization.schema.
  * (`KNOWLEDGE_MAX_DOCS_PER_INSTANCE`), which is the mismatch this resolves: two
  * organizations sharing one installation could not be told apart, and raising
  * the cap for one customer was a redeploy for all of them. It is now an
- * entitlement on the organization, with the env var as the default for the
- * organizations that declare none.
+ * entitlement on the organization, and the variable is gone — the constant below
+ * is what an organization that declares none is worth.
  *
  * A default, NOT a ceiling. An entitlement that could only ever be lowered from
  * a value baked into the environment would still need a redeploy to sell, which
@@ -27,6 +26,8 @@ import { organizations, workspaces } from "../organizations/organization.schema.
  * "no limit". The alternative reading of an unresolvable agent is unlimited
  * writes, which is the wrong direction for a cap.
  */
+const DEFAULT_KNOWLEDGE_DOC_CAP = 500;
+
 export async function resolveKnowledgeDocCap(instanceId: InstanceSlug): Promise<number> {
   const rows = await db
     .select({ cap: organizations.knowledgeMaxDocsPerAgent })
@@ -36,5 +37,5 @@ export async function resolveKnowledgeDocCap(instanceId: InstanceSlug): Promise<
     .where(eq(instances.slug, instanceId))
     .limit(1);
 
-  return rows[0]?.cap ?? config.knowledge.maxDocsPerInstance;
+  return rows[0]?.cap ?? DEFAULT_KNOWLEDGE_DOC_CAP;
 }

@@ -49,9 +49,9 @@ dev:
     retentionDays: 30
 
   app:
-    defaultInstanceId: "default"
+    # Container time zone (`TZ`). Agents format dates in their own zone when they
+    # declare one; this is what the rest falls back to.
     timezone: "Europe/Rome"
-    locale: "it-IT"
 
   tags:
     Project: "polyant"

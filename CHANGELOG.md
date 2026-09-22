@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING — ten environment variables that the panel already answers.**
+  `DATETIME_TIMEZONE`, `DATETIME_LOCALE`, `DEDUP_SIMILARITY_THRESHOLD`,
+  `MESSAGE_SOFT_DEBOUNCE_MS`, `MESSAGE_TYPING_DELAY_MS`, `MESSAGE_MAX_RESTARTS`,
+  `KNOWLEDGE_MAX_DOCS_PER_INSTANCE`, `ANALYTICS_RETENTION_DAYS` and
+  `SSE_MAX_CONNECTIONS_PER_USER` were the deployment default behind a value an
+  administrator now sets per agent, per organization or per installation; the
+  shipped defaults are unchanged and live beside the resolver that applies them.
+  `PDF_CONCURRENCY` belongs to the Markdown-to-PDF plugin, which reads it itself.
+  A deployment that still sets any of them is not failed, but the value has no
+  effect — see [docs/UPGRADING.md](docs/UPGRADING.md).
+- The CDK stack no longer passes `DEFAULT_INSTANCE_ID` or `DATETIME_LOCALE` to
+  the engine container, and sets the deployment's time zone as `TZ`. The `app`
+  block of `config.yaml` keeps only `timezone`.
+
 ## [1.2.0] - 2026-09-22
 
 > **Upgrading from 1.1.1 needs operator action** — Google sign-in is removed,
