@@ -197,6 +197,36 @@ describe("ToolsTab", () => {
     });
   });
 
+  it("points enabled tools with missing secrets to tool credentials", () => {
+    render(
+      <ToolsTab
+        slug="test-instance"
+        tools={makeTools()}
+        skills={[]}
+        memoryEnabled={true}
+        knowledgeEnabled={true}
+        onToolsUpdate={onToolsUpdate}
+        onSkillsUpdate={onSkillsUpdate}
+        checks={[
+          {
+            id: "tools-missing-secrets",
+            severity: "broken",
+            titleKey: "status.check.toolsMissingSecrets.title",
+            bodyKey: "status.check.toolsMissingSecrets.body",
+            section: "toolSecrets",
+            sectionKey: "instances.detail.tabToolSecrets",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("status.check.toolsMissingSecrets.title")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "instances.detail.tabToolSecrets" })).toHaveAttribute(
+      "href",
+      "?tab=toolSecrets",
+    );
+  });
+
   it("disables memory tools when memoryEnabled is false", () => {
     render(
       <ToolsTab slug="test-instance" tools={makeTools()} skills={[]} memoryEnabled={false} knowledgeEnabled={true} onToolsUpdate={onToolsUpdate} onSkillsUpdate={onSkillsUpdate} />,

@@ -60,6 +60,9 @@ export interface Instance {
   status: string;
   provider: string | null;
   model: string | null;
+  /** Values the runtime uses after applying its provider and standard-tier fallback. */
+  effectiveProvider: string;
+  effectiveModel: string;
   memoryEnabled: boolean;
   knowledgeEnabled: boolean;
   langsmithEnabled: boolean;

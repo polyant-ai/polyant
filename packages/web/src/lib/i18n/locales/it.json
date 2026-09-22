@@ -1154,6 +1154,8 @@
   "instances.detail.tabCredentials": "Credenziali",
   "status.check.embedderCredentials.title": "Gli embedding non possono essere calcolati",
   "status.check.embedderCredentials.body": "L’embedder scelto non ha credenziali: ogni documento caricato finirà in errore e nessuna memoria verrà salvata.",
+  "status.check.sttCredentials.title": "La trascrizione audio non è disponibile",
+  "status.check.sttCredentials.body": "Non ci sono credenziali per {provider}. Configurale prima di abilitare la trascrizione audio.",
   "status.check.knowledgeEmpty.title": "La ricerca nei documenti è attiva ma non c’è niente da cercare",
   "status.check.knowledgeEmpty.body": "L’agente ha lo strumento di ricerca e a ogni turno può usarlo su una knowledge base vuota.",
   "status.check.knowledgeUnused.title": "{count} documenti che l’agente non legge",

@@ -95,6 +95,11 @@ const PROVIDER_REQUIRED_SECRET: Record<string, string> = {
   nebius: "nebius_api_key",
 };
 
+const STT_REQUIRED_SECRET: Record<string, string> = {
+  openai: "openai_api_key",
+  deepgram: "deepgram_api_key",
+};
+
 export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
   const {
     instance,
@@ -171,15 +176,31 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
     host's AWS profile or IAM role (the Credenziali page says so), so "no key" is
     a normal, working configuration there and an alert would be a false alarm.
   */
-  if (secrets !== null && instance.provider && PROVIDER_REQUIRED_SECRET[instance.provider]) {
-    const key = PROVIDER_REQUIRED_SECRET[instance.provider];
+  const effectiveProvider = instance.effectiveProvider ?? instance.provider;
+  if (secrets !== null && effectiveProvider && PROVIDER_REQUIRED_SECRET[effectiveProvider]) {
+    const key = PROVIDER_REQUIRED_SECRET[effectiveProvider];
     if (!effectiveSecrets.has(key)) {
       checks.push({
         id: "provider-no-credentials",
         severity: "broken",
         titleKey: "status.check.providerCredentials.title",
         bodyKey: "status.check.providerCredentials.body",
-        params: { provider: instance.provider },
+        params: { provider: effectiveProvider },
+        section: "credentials",
+        sectionKey: "instances.detail.tabCredentials",
+      });
+    }
+  }
+
+  if (secrets !== null && instance.sttProvider) {
+    const key = STT_REQUIRED_SECRET[instance.sttProvider];
+    if (key && !effectiveSecrets.has(key)) {
+      checks.push({
+        id: "stt-no-credentials",
+        severity: "broken",
+        titleKey: "status.check.sttCredentials.title",
+        bodyKey: "status.check.sttCredentials.body",
+        params: { provider: instance.sttProvider },
         section: "credentials",
         sectionKey: "instances.detail.tabCredentials",
       });

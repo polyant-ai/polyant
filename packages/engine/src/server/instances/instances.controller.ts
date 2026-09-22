@@ -25,7 +25,10 @@ import {
   resolvePrincipalOrgId,
   type Instance,
 } from "../../instances/store.js";
-import { invalidateInstanceConfigCache } from "../../instances/config-resolver.js";
+import {
+  invalidateInstanceConfigCache,
+  resolveEffectiveModelSelection,
+} from "../../instances/config-resolver.js";
 import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
 import {
   embeddingProviderChanged,
@@ -63,6 +66,7 @@ import {
  * `v=<updatedAt>` query param ensures the browser reloads after an icon change.
  */
 function toInstanceDto(instance: Instance) {
+  const effective = resolveEffectiveModelSelection(instance.provider, instance.model);
   return {
     id: instance.id,
     slug: instance.slug,
@@ -71,6 +75,8 @@ function toInstanceDto(instance: Instance) {
     status: instance.status,
     provider: instance.provider,
     model: instance.model,
+    effectiveProvider: effective.provider,
+    effectiveModel: effective.model,
     memoryEnabled: instance.memoryEnabled,
     knowledgeEnabled: instance.knowledgeEnabled,
     langsmithEnabled: instance.langsmithEnabled,

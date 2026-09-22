@@ -32,6 +32,8 @@ import {
 import { api, getUserErrorMessage, type ToolState, type SkillState } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
+import { CapabilityCheckNotice } from "./capability-check-notice";
+import type { AgentCheck } from "./status-checks";
 
 // ---------------------------------------------------------------------------
 // Props & Types
@@ -45,6 +47,7 @@ interface Props {
   knowledgeEnabled: boolean;
   onToolsUpdate: (tools: ToolState[]) => void;
   onSkillsUpdate: (skills: SkillState[]) => void;
+  checks?: AgentCheck[];
 }
 
 type Filter = "all" | "enabled" | "disabled";
@@ -90,6 +93,7 @@ export function ToolsTab({
   knowledgeEnabled,
   onToolsUpdate,
   onSkillsUpdate,
+  checks = [],
 }: Props) {
   const { t } = useI18n();
 
@@ -278,6 +282,7 @@ export function ToolsTab({
 
   return (
     <div className="max-w-3xl">
+      <CapabilityCheckNotice checks={checks} ids={["tools-missing-secrets"]} />
       <p className="mb-4 text-sm text-muted-foreground">
         {t("tools.description")}
       </p>

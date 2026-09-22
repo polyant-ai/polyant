@@ -55,10 +55,14 @@ import {
   type ProviderSectionId,
 } from "@/lib/provider-secrets";
 import { usePageSaveAction } from "./page-actions-context";
+import { CapabilityCheckNotice } from "./capability-check-notice";
+import type { AgentCheck } from "./status-checks";
 
 interface Props {
   instance: Instance;
   onUpdate: (instance: Instance) => void;
+  checks?: AgentCheck[];
+  onConfigurationChanged?: () => void;
   /**
    * Which half of this form to render.
    *
@@ -155,7 +159,13 @@ function numberOrNull(raw: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-export function SettingsTab({ instance, onUpdate, section }: Props) {
+export function SettingsTab({
+  instance,
+  onUpdate,
+  section,
+  checks = [],
+  onConfigurationChanged,
+}: Props) {
   const { t } = useI18n();
   const [secrets, setSecrets] = useState<SecretStatus[]>([]);
   // `agent.secret:read` is MEMBER+ now (a member configures an agent end to end,
@@ -571,6 +581,7 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
 
       // Clear input fields after save
       clearAllSecretValues();
+      onConfigurationChanged?.();
 
       toast.success(t("settings.tab.saved"));
     } catch (err) {
@@ -611,6 +622,7 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
     try {
       await api.secrets.delete(instance.slug, key);
       setSecrets((prev) => prev.filter((s) => s.key !== key));
+      onConfigurationChanged?.();
       toast.success(t("common.deleted"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("settings.tab.saveFailed")));
@@ -1000,6 +1012,10 @@ export function SettingsTab({ instance, onUpdate, section }: Props) {
 
   return (
     <div className="space-y-8">
+      <CapabilityCheckNotice
+        checks={checks}
+        ids={["provider-no-credentials", "stt-no-credentials"]}
+      />
       {/* AI Model */}
       <section className="space-y-4 rounded-lg border p-4">
         <div className="flex items-start justify-between">

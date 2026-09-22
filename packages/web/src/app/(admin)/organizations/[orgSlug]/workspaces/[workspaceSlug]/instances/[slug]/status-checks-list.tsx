@@ -6,11 +6,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AlertTriangle, CheckCircle2, CircleAlert } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Instance, SkillState, ToolState } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
-import { useStatusChecks } from "./use-status-checks";
 import type { AgentCheck, CheckSeverity } from "./status-checks";
+import type { StatusChecksState } from "./use-status-checks";
 
 /**
  * The verdict and the list of things worth looking at — the only part of Stato
@@ -27,18 +26,10 @@ import type { AgentCheck, CheckSeverity } from "./status-checks";
  * says so and says how many checks ran — an empty area would read as "not loaded
  * yet", which is exactly the wrong reading for a page about whether things work.
  */
-export function StatusChecks({
-  instance,
-  tools,
-  skills,
-}: {
-  instance: Instance;
-  tools: ToolState[];
-  skills: SkillState[];
-}) {
+export function StatusChecks({ status }: { status: StatusChecksState }) {
   const { t } = useI18n();
   const pathname = usePathname();
-  const { checks, verdict, loading } = useStatusChecks({ instance, tools, skills });
+  const { checks, verdict, loading } = status;
 
   if (loading) {
     return <Skeleton className="h-28 w-full" />;

@@ -45,6 +45,10 @@ vi.mock("../../instances/instance-tools.store.js", () => ({ seedInstanceTools: m
 vi.mock("../../instances/instance-skills.store.js", () => ({ seedInstanceSkills: mockSeedSkills }));
 vi.mock("../../instances/config-resolver.js", () => ({
   invalidateInstanceConfigCache: mockInvalidateCache,
+  resolveEffectiveModelSelection: (provider?: string, model?: string) => ({
+    provider: provider ?? "openai",
+    model: model ?? "gpt-4o",
+  }),
 }));
 vi.mock("../../ai-gateway/config.js", () => ({ providerConfigs: mockProviderConfigs }));
 vi.mock("../../channels/channel-manager.js", () => ({

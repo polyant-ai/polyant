@@ -50,6 +50,7 @@ import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { useI18n } from "@/lib/i18n/context";
 import { agentSection, resolveAgentTab } from "@/lib/nav/agent-sections";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
+import { useStatusChecks } from "./use-status-checks";
 
 function HeaderSaveButton() {
   const { saveAction } = usePageActions();
@@ -88,6 +89,7 @@ function InstanceDetailContent() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const status = useStatusChecks({ instance, tools, skills });
 
   useEffect(() => {
     const slug = params.slug;
@@ -247,7 +249,7 @@ function InstanceDetailContent() {
       <Tabs value={activeTab} className="mt-6">
         {/* Panoramica */}
         <TabsContent value="overview">
-          <StatusTab instance={instance} tools={tools} skills={skills} />
+          <StatusTab instance={instance} tools={tools} skills={skills} status={status} />
         </TabsContent>
         <TabsContent value="analytics">
           <AnalyticsTab slug={instance.slug} />
@@ -258,13 +260,25 @@ function InstanceDetailContent() {
           <GeneralTab instance={instance} onUpdate={setInstance} />
         </TabsContent>
         <TabsContent value="settings">
-          <SettingsTab instance={instance} onUpdate={setInstance} section="model" />
+          <SettingsTab
+            instance={instance}
+            onUpdate={setInstance}
+            section="model"
+            checks={status.checks}
+            onConfigurationChanged={status.refresh}
+          />
         </TabsContent>
         <TabsContent value="credentials">
           <p className="mb-6 text-sm text-muted-foreground">
             {t("instances.section.credentialsHelp")}
           </p>
-          <SettingsTab instance={instance} onUpdate={setInstance} section="credentials" />
+          <SettingsTab
+            instance={instance}
+            onUpdate={setInstance}
+            section="credentials"
+            checks={status.checks}
+            onConfigurationChanged={status.refresh}
+          />
         </TabsContent>
         <TabsContent value="channels">
           <ChannelsSection instance={instance} onUpdate={setInstance} />
@@ -283,10 +297,17 @@ function InstanceDetailContent() {
             knowledgeEnabled={instance.knowledgeEnabled}
             onToolsUpdate={setTools}
             onSkillsUpdate={setSkills}
+            checks={status.checks}
           />
         </TabsContent>
         <TabsContent value="toolSecrets">
-          <SettingsTab instance={instance} onUpdate={setInstance} section="toolSecrets" />
+          <SettingsTab
+            instance={instance}
+            onUpdate={setInstance}
+            section="toolSecrets"
+            checks={status.checks}
+            onConfigurationChanged={status.refresh}
+          />
         </TabsContent>
         {/* MCP servers: their own section, no longer the tail of the Tools page.
             `mcp-servers.controller.ts` gates it on the CHANNEL permission — an MCP
