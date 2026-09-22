@@ -436,6 +436,31 @@ describe("triggerConversation", () => {
     });
   });
 
+  describe("control returns this engine cannot honor", () => {
+    it("warns, naming the hook, when a hook asks to regenerate the turn", async () => {
+      // The hook is accepted, executed and logged successful; the webhook engine
+      // is supervise-direct, so the control return goes nowhere (#379).
+      mockRunHooks.mockImplementation(async (event: string) =>
+        event === "response_generated"
+          ? [
+              {
+                hookId: "h", event, actionType: "function", toolName: "requireTool",
+                success: true, durationMs: 1, regenerate: { reason: "tool not called" },
+              },
+            ]
+          : [],
+      );
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      warn.mockClear();
+
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { chat_id: "9999" });
+
+      const warned = warn.mock.calls.map((c) => String(c[0]));
+      expect(warned.some((m) => m.includes("requireTool") && m.includes("regenerate") && m.includes("webhook"))).toBe(true);
+      warn.mockRestore();
+    });
+  });
+
   describe("response_generated replacement", () => {
     const channelDef: EventDefinition = {
       ...baseDefinition,
