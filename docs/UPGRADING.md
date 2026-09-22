@@ -3,7 +3,33 @@
 This guide covers upgrades that need an operator decision. For the full list of
 changes see the [changelog](../CHANGELOG.md).
 
-## Upgrading to the next release
+## Upgrading from 1.1.1 to 1.2.0
+
+### Install and re-enable extracted tools
+
+The GitHub, Render, HubSpot and Markdown-to-PDF tool families no longer ship in
+the core image. If an agent uses one of them, add its plugin to the image before
+building (see [Loading a plugin — build-time](plugins.md#loading-a-plugin--build-time)),
+or use `PLUGIN_DIRS` in development.
+
+Plugin tools have namespaced names and are new registry entries: for example,
+`ghIssue` is now `github:issue`, `hubspotContact` is now `hubspot:contact`, and
+`markdownToPdf` is now `extra:markdownToPdf`. On first boot the registry removes
+the old flat entries; it does not carry their enabled state to the replacements.
+After installing the plugins, re-enable the required tools for every affected
+agent from its Tools tab and update any skill that names an old tool. The
+integration-specific `verifyDocument` tool was removed without a replacement.
+
+### Custom S3 endpoints are removed
+
+`s3_endpoint` is no longer read, and migration `0081_drop_s3_endpoint_secret`
+deletes every stored value. An agent configured for MinIO, Cloudflare R2 or
+another S3-compatible endpoint falls back to AWS addressing, so uploads and
+attachment reads will fail rather than continue against that service.
+
+Before upgrading, move affected buckets to AWS S3 and configure each agent with
+`s3_bucket_name`, `aws_region`, and either static AWS credentials or
+`s3_use_task_role`. Version 1.2.0 has no supported custom-endpoint replacement.
 
 ### Environment variables that are gone
 
@@ -20,6 +46,7 @@ had. Remove them from your environment; none of them needs a replacement value.
 | `DEFAULT_INSTANCE_ID` | Nothing. Every caller already names its agent — the OpenAI-compatible route validates `model` and answers 400 without it — so the fallback could not fire |
 | `WORKSPACES_ROOT` | Nothing. The per-conversation sandbox stays under `packages/engine/workspaces`; the variable survives only as a test seam and is no longer documented as deployment configuration |
 | `PLATFORM_ADMIN_EMAIL` | Nothing, on an installation that already booted with it: the standing it granted lives in `users.is_platform_admin` and stays. The platform admin is now the account `INITIAL_ADMIN_EMAIL` names, seeded already privileged and made Owner of the default organization on the same boot. The internal `POST /api/auth/credentials/bootstrap-owner` endpoint it needed is gone with it |
+| `DEBUG_LLM_PAYLOAD` | Enable debugging on the individual agent instead. The per-agent capture includes the full prompt, messages and tool definitions and stores them for inspection instead of writing sensitive payloads to stdout |
 | `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_TRACING` | Nothing. They were read by no code at all; tracing is configured per agent |
 
 ### Google sign-in is removed
