@@ -4,6 +4,7 @@ import { chat } from "../ai-gateway/index.js";
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import type { EventDefinition } from "./webhook-sources.store.js";
+import { webhookLog } from "./webhook-logger.js";
 
 /**
  * Match an incoming webhook payload against a list of event definitions.
@@ -41,7 +42,24 @@ export async function matchEvent(
     );
 
     const answer = response.text.trim().toLowerCase();
-    if (answer === "yes") return def;
+    if (/^yes\b/.test(answer)) return def;
+
+    // Anything that is neither a yes nor a no means the model did not comply
+    // with the one-word instruction, and the payload is about to be dropped for
+    // a reason that has nothing to do with the matching criteria. That drop is
+    // indistinguishable from "no definition was interested": no retry, no
+    // backlog row, no trace. Say so.
+    //
+    // The strict `answer === "yes"` this replaces made the same silent drop for
+    // an answer as ordinary as "Yes." — it held only because the `fast` tier
+    // happens to be obedient about one-word replies, which is a property of the
+    // model rather than of this code.
+    if (!/^no\b/.test(answer)) {
+      webhookLog.warn(
+        "EventMatcher",
+        `definition "${def.name}" got a non-yes/no answer — treating as no match: ${JSON.stringify(answer.slice(0, 80))}`,
+      );
+    }
   }
 
   return null;
