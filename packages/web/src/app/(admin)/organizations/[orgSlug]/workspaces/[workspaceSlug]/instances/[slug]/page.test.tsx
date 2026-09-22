@@ -327,7 +327,7 @@ describe("InstanceDetailPage — sections", () => {
     await waitFor(() => expect(screen.getByText("tab-body:status:provider-no-credentials")).toBeInTheDocument());
   });
 
-  it("loads readiness once at page level and shares it with every section", async () => {
+  it("builds readiness from the loaded agent", async () => {
     resetSearch("tab=settings");
     render(<InstanceDetailPage />);
 

@@ -24,9 +24,9 @@ export function CapabilityCheckNotice({
       {visible.map((check) => (
         <div
           key={check.id}
-          className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3"
+          className="flex items-start gap-2 rounded-md border bg-muted/50 p-3"
         >
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">{t(check.titleKey, check.params)}</p>
             <p className="text-sm text-muted-foreground">{t(check.bodyKey, check.params)}</p>

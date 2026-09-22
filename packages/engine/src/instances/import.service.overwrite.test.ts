@@ -288,14 +288,18 @@ describe("importOverwriteInstance — destructive delete-then-reimport orchestra
     expect(mockInvalidateHooksCache).toHaveBeenCalledWith(TARGET_SLUG);
   });
 
-  it("should_never_include_the_embedder_columns_in_the_metadata_update", async () => {
-    await importOverwriteInstance(TARGET_SLUG, makeBundle());
+  it("should_preserve_explicit_capabilities_without_updating_embedder_columns", async () => {
+    await importOverwriteInstance(
+      TARGET_SLUG,
+      makeBundle({ memoryEnabled: true, sttProvider: "deepgram" }),
+    );
 
     const updateChain = mockDb.update.mock.results[0].value as unknown as Record<
       string,
       ReturnType<typeof vi.fn>
     >;
     const setArg = updateChain.set.mock.calls[0][0] as Record<string, unknown>;
+    expect(setArg).toMatchObject({ memoryEnabled: true, sttProvider: "deepgram" });
     expect(setArg).not.toHaveProperty("embeddingProvider");
     expect(setArg).not.toHaveProperty("embeddingDim");
   });
