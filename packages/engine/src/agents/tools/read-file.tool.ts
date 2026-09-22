@@ -23,7 +23,9 @@ export default defineTool({
     "• RELATIVE (e.g. `notes.md`, `.repos/owner/repo/README.md`) — more concise, recommended.\n" +
     "• ABSOLUTE — must still reside inside the conversation workspace (typically the path returned by `gitCloneRepo`).\n" +
     "Returns the file text (truncated to 500 lines or 512 KB).\n" +
-    "Supports the `tail` option to read only the last N lines (useful for log files).\n" +
+    "Reading without a range returns the WHOLE file, which stays in the conversation for the rest of the turn — " +
+    "use `offset`/`limit` to read a window around what you need, or `tail` for the last N lines of a log.\n" +
+    "The result reports the file's total line count, so a window can be paged deliberately.\n" +
     "To explore the structure, use `listDirectory` first.",
   category: "dev",
   inputExamples: [
@@ -32,6 +34,8 @@ export default defineTool({
       input: {
         path: "notes.md",
         tail: null,
+        offset: null,
+        limit: null,
       },
     },
     {
@@ -39,6 +43,8 @@ export default defineTool({
       input: {
         path: ".repos/owner/repo-abc123/_hot.md",
         tail: null,
+        offset: null,
+        limit: null,
       },
     },
     {
@@ -46,6 +52,17 @@ export default defineTool({
       input: {
         path: ".repos/owner/repo-abc123/_log.md",
         tail: 30,
+        offset: null,
+        limit: null,
+      },
+    },
+    {
+      label: "80 lines around a match found at line 214",
+      input: {
+        path: ".repos/owner/repo-abc123/spec.md",
+        tail: null,
+        offset: 180,
+        limit: 80,
       },
     },
   ],
@@ -55,12 +72,23 @@ export default defineTool({
     ),
     tail: z.number().int().min(1).nullable()
       .describe("If specified, returns only the last N lines of the file. Useful for log files."),
+    offset: z.number().int().min(1).nullable()
+      .describe("1-indexed first line to return. Pass null to start at the beginning."),
+    limit: z.number().int().min(1).nullable()
+      .describe("How many lines to return from `offset` (capped at 500). Pass null for the default cap."),
   }),
-  execute: async ({ path, tail }: { path: string; tail: number | null }, ctx) => {
+  execute: async (
+    { path, tail, offset, limit }: { path: string; tail: number | null; offset: number | null; limit: number | null },
+    ctx,
+  ) => {
     let resolvedPath: string;
     let source: "workspace-relative" | "workspace-absolute";
 
     try {
+      if (tail != null && (offset != null || limit != null)) {
+        return { error: "readFile takes either tail or offset/limit, not both." };
+      }
+
       if (!ctx.conversationId) {
         return {
           error:
@@ -96,34 +124,42 @@ export default defineTool({
           return { error: `Path is not a file: ${path}. Use listDirectory to explore directories.` };
         }
         if (fileStat.size > MAX_FILE_SIZE) {
-          return { error: `File too large: ${(fileStat.size / 1024).toFixed(0)} KB (max 512 KB). Try tail to read only the end of the file.` };
+          return { error: `File too large: ${(fileStat.size / 1024).toFixed(0)} KB (max 512 KB). Read a window of it with offset/limit, or its end with tail.` };
         }
         content = await handle.readFile("utf-8");
       } finally {
         await handle.close();
       }
 
+      const lines = content.split("\n");
+      const totalLines = lines.length;
+
       let result: string;
       if (tail != null) {
-        const lines = content.split("\n");
-        const tailLines = lines.slice(-tail);
-        result = tailLines.join("\n");
+        result = lines.slice(-tail).join("\n");
+      } else if (offset != null || limit != null) {
+        // A window the caller asked for. The MAX_LINES cap still applies, so a
+        // huge `limit` cannot undo the point of asking for a range.
+        const start = (offset ?? 1) - 1;
+        const count = Math.min(limit ?? MAX_LINES, MAX_LINES);
+        const window = lines.slice(start, start + count);
+        const last = start + window.length;
+        result = start >= totalLines
+          ? `[no lines: offset ${start + 1} is past the end of the file, which has ${totalLines} lines]`
+          : window.join("\n") + `\n\n[lines ${start + 1}-${last} of ${totalLines}]`;
+      } else if (totalLines > MAX_LINES) {
+        result = lines.slice(0, MAX_LINES).join("\n") + `\n\n[... truncated: ${totalLines} total lines, showing first ${MAX_LINES}]`;
       } else {
-        const lines = content.split("\n");
-        if (lines.length > MAX_LINES) {
-          result = lines.slice(0, MAX_LINES).join("\n") + `\n\n[... truncated: ${lines.length} total lines, showing first ${MAX_LINES}]`;
-        } else {
-          result = content;
-        }
+        result = content;
       }
 
       ctx.audit.log({
         action: "workspace.readFile",
-        details: { path: resolvedPath, source, sizeBytes: fileStat.size, tail: tail ?? null },
+        details: { path: resolvedPath, source, sizeBytes: fileStat.size, tail: tail ?? null, offset: offset ?? null, limit: limit ?? null },
         success: true,
       });
 
-      return { content: result, sizeBytes: fileStat.size, lines: content.split("\n").length };
+      return { content: result, sizeBytes: fileStat.size, lines: totalLines };
     } catch (err) {
       const message = errMsg(err);
       ctx.audit.log({
