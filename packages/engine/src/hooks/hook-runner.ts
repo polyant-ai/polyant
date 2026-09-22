@@ -61,6 +61,42 @@ export function hookProvenance(summaries: HookExecutionSummary[]): HookProvenanc
   return src ? { source: "hook", hookName: src.toolName || "hook" } : undefined;
 }
 
+/** The control returns a hook can ask for. Each engine honors a subset. */
+export const HOOK_CONTROLS = ["halt", "replaceResponse", "regenerate", "injectContext"] as const;
+export type HookControl = (typeof HOOK_CONTROLS)[number];
+
+/**
+ * Warn about control returns the calling engine will not act on.
+ *
+ * Only the main pipeline honors all four. The room and webhook engines are
+ * supervise-direct with no replay loop, so `regenerate` and `injectContext`
+ * reach them and go nowhere — and every other signal a hook author has says the
+ * hook worked: `validateHookFunction` accepted it, the engine executed it, and
+ * `hook_executions` recorded it with `success: true`. The one path that already
+ * warns is the one where the author made a mistake (`replaceResponse` without
+ * `mutatesResponse`); this is the path where they did everything right.
+ *
+ * Nothing in the SDK types, the panel or `hook_executions` says which engine an
+ * instance runs on, so a log line naming the hook is the only place the author
+ * can learn it.
+ */
+export function warnUnhonoredControls(
+  summaries: HookExecutionSummary[],
+  engine: string,
+  honored: readonly HookControl[],
+): void {
+  for (const s of summaries) {
+    for (const control of HOOK_CONTROLS) {
+      if (s[control] && !honored.includes(control)) {
+        console.warn(
+          `[hooks] "${s.toolName || s.hookId}" returned ${control} on a ${engine} turn — ` +
+            `the ${engine} engine does not honor it, so it was dropped.`,
+        );
+      }
+    }
+  }
+}
+
 /** All context-injection strings requested across a run's summaries, in order. */
 export function collectInjectContext(summaries: HookExecutionSummary[]): string[] {
   return summaries.map((s) => s.injectContext).filter((c): c is string => !!c);

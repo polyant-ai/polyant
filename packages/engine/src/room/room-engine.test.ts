@@ -278,6 +278,31 @@ describe("executeRoomCycle", () => {
     });
   });
 
+  describe("control returns this engine cannot honor", () => {
+    it("warns, naming the hook, when a hook asks to regenerate the turn", async () => {
+      // The hook is accepted, executed and logged successful; the room engine is
+      // supervise-direct, so the control return goes nowhere (#379).
+      mockRunHooks.mockResolvedValue([
+        {
+          hookId: "h", event: "response_generated", actionType: "function", toolName: "requireTool",
+          success: true, durationMs: 1, regenerate: { reason: "tool not called" },
+        },
+      ]);
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
+      ]);
+      mockDb.select.mockReturnValue(createChainMock([]) as any);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      warn.mockClear();
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
+
+      const warned = warn.mock.calls.map((c) => String(c[0]));
+      expect(warned.some((m) => m.includes("requireTool") && m.includes("regenerate") && m.includes("room"))).toBe(true);
+      warn.mockRestore();
+    });
+  });
+
   describe("early exit conditions", () => {
     it("should return early (no-op) when no pending events and no human message", async () => {
       mockListAndMarkPendingEvents.mockResolvedValue([]);

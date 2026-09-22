@@ -25,7 +25,7 @@ vi.mock("../audit/audit-logger.js", () => ({
   createAuditLogger: () => ({ log: auditLogMock }),
 }));
 
-import { runHooks, collectInjectContext, hookProvenance, firstRegenerate } from "./hook-runner.js";
+import { runHooks, collectInjectContext, hookProvenance, firstRegenerate, warnUnhonoredControls } from "./hook-runner.js";
 import type { HookEventPayload, HookExecutionSummary, HookRunContext, InstanceHookRow } from "./hook-types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
@@ -292,6 +292,60 @@ describe("firstRegenerate", () => {
 
   it("returns undefined when no summary requested regenerate", () => {
     expect(firstRegenerate([summary({}), summary({})])).toBeUndefined();
+  });
+});
+
+describe("warnUnhonoredControls", () => {
+  function summary(overrides: Partial<HookExecutionSummary>): HookExecutionSummary {
+    return {
+      hookId: "h",
+      event: "response_generated",
+      actionType: "function",
+      toolName: "gate",
+      success: true,
+      durationMs: 1,
+      ...overrides,
+    } as HookExecutionSummary;
+  }
+
+  it("names the hook and the control an engine dropped", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    warn.mockClear();
+    warnUnhonoredControls(
+      [summary({ regenerate: { reason: "tool not called" } })],
+      "room",
+      ["halt", "replaceResponse"],
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = warn.mock.calls[0][0] as string;
+    expect(message).toContain("gate");
+    expect(message).toContain("regenerate");
+    expect(message).toContain("room");
+    warn.mockRestore();
+  });
+
+  it("stays silent for controls the engine honors", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    warn.mockClear();
+    warnUnhonoredControls(
+      [summary({ halt: { message: "stop" } }), summary({ replaceResponse: { message: "new" } })],
+      "room",
+      ["halt", "replaceResponse"],
+    );
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("warns for every dropped control, injectContext included", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    warn.mockClear();
+    warnUnhonoredControls(
+      [summary({ injectContext: "extra" }), summary({ regenerate: { reason: "x" } })],
+      "webhook",
+      ["halt", "replaceResponse"],
+    );
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
 });
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { supervise, type SupervisorOutput } from "../agents/supervisor/index.js";
-import { runHooks, firstHalt, firstReplaceResponse, hookProvenance } from "../hooks/hook-runner.js";
+import { runHooks, firstHalt, firstReplaceResponse, hookProvenance, warnUnhonoredControls } from "../hooks/hook-runner.js";
 import type { HookEventPayload, HookRunContext } from "../hooks/hook-types.js";
 import { ConversationStateBuffer } from "../conversations/state.buffer.js";
 import { channelManager } from "../channels/channel-manager.js";
@@ -30,6 +30,11 @@ function estimateTokens(text: string): number {
 // (see #84) and stayed private, so every later place that put somebody else's
 // text into a prompt did it plainly — the webhook engine and <channel_identity>
 // among them. Same functions, same behaviour, one importable home.
+
+// The Room is supervise-direct: there is no replay loop, so `regenerate` and
+// `injectContext` cannot be acted on here. Declaring what IS honored keeps the
+// warning honest if a control is added or implemented later.
+const ROOM_HOOK_CONTROLS = ["halt", "replaceResponse"] as const;
 
 export async function executeRoomCycle(
   room: RoomConfig,
@@ -169,6 +174,7 @@ export async function executeRoomCycle(
   // Pre-LLM hook (halt-capable). Only message_received fires here (see the
   // halt-and-respond spec §6). Keep the summaries for provenance on halt.
   const preHookSummaries = await runHooks("message_received", hookPayload, hookCtx);
+  warnUnhonoredControls(preHookSummaries, "room", ROOM_HOOK_CONTROLS);
   const halt = firstHalt(preHookSummaries);
 
   let result: SupervisorOutput | undefined;
@@ -237,6 +243,7 @@ export async function executeRoomCycle(
       { ...hookPayload, response: { text: result!.text, regenerationCount: 0 } },
       hookCtx,
     );
+    warnUnhonoredControls(postHooks, "room", ROOM_HOOK_CONTROLS);
     replace = firstReplaceResponse(postHooks);
   }
 

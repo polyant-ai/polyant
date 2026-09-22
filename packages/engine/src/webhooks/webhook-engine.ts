@@ -3,7 +3,7 @@
 import { supervise, type SupervisorOutput } from "../agents/supervisor/index.js";
 import { randomBytes } from "crypto";
 import { makeDelimiter, scrubClosing } from "../utils/untrusted-text.js";
-import { runHooks, firstHalt, firstReplaceResponse, hookProvenance } from "../hooks/hook-runner.js";
+import { runHooks, firstHalt, firstReplaceResponse, hookProvenance, warnUnhonoredControls } from "../hooks/hook-runner.js";
 import type { HookEventPayload, HookRunContext } from "../hooks/hook-types.js";
 import { traceStore } from "../analytics/trace.store.js";
 import { conversationStore } from "../conversations/index.js";
@@ -20,6 +20,10 @@ import type { EventDefinition } from "./webhook-sources.store.js";
 import { emitConversation } from "../activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { ConversationStateBuffer } from "../conversations/state.buffer.js";
+
+// Webhook turns are supervise-direct: no replay loop, so `regenerate` and
+// `injectContext` cannot be acted on here.
+const WEBHOOK_HOOK_CONTROLS = ["halt", "replaceResponse"] as const;
 
 /**
  * Trigger an immediate conversation from a matched webhook event.
@@ -219,6 +223,7 @@ export async function triggerConversation(
   };
   // Pre-LLM hook (halt-capable). Keep the summaries for provenance on halt.
   const preHookSummaries = await runHooks("message_received", hookPayload, hookCtx);
+  warnUnhonoredControls(preHookSummaries, "webhook", WEBHOOK_HOOK_CONTROLS);
   const halt = firstHalt(preHookSummaries);
 
   let result: SupervisorOutput | undefined;
@@ -270,6 +275,7 @@ export async function triggerConversation(
       { ...hookPayload, response: { text: result!.text, regenerationCount: 0 } },
       hookCtx,
     );
+    warnUnhonoredControls(postHooks, "webhook", WEBHOOK_HOOK_CONTROLS);
     replace = firstReplaceResponse(postHooks);
   }
 
