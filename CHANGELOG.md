@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-22
+
+> **Upgrading from 1.1.1 needs operator action** — Google sign-in is removed,
+> several built-in tool families now require plugins and re-enablement, and
+> custom S3 endpoints are no longer supported. See
+> [docs/UPGRADING.md](https://github.com/polyant-ai/polyant/blob/main/docs/UPGRADING.md).
+
+### Added
+
+- Platform admins can set analytics retention and the per-user live-activity
+  connection limit from Settings → General. Agents can override timezone,
+  locale, memory-deduplication threshold and message-coordination timings from
+  their Settings page; existing environment variables remain the defaults.
+- Organization-specific knowledge-document caps can override the deployment
+  default without a redeploy.
+- Scheduled tasks recover after a process dies or a run exceeds its deadline.
+  `GET /health/scheduler` now reports free slots and stuck runs, and migrations
+  add per-task `max_run_ms` plus an index for running tasks.
+- The Debug sheet can copy a complete captured turn — model payload and step
+  trace — as one JSON object.
+- Plugin manifests can declare runtime packages and environment values. The
+  Docker build compiles plugins placed under `packages/engine/src/plugins/` and
+  installs only the system dependencies those plugins request.
+
+### Changed
+
+- **BREAKING — GitHub, Render, HubSpot and Markdown-to-PDF tools moved out of
+  core into plugins.** Their names are namespaced (`ghIssue` becomes
+  `github:issue`, `hubspotContact` becomes `hubspot:contact`, and
+  `markdownToPdf` becomes `extra:markdownToPdf`), old flat registry rows are
+  removed, and affected agents must enable the replacements. `verifyDocument`
+  was removed without a replacement.
+- **BREAKING — Google sign-in is removed.** Email and password is the only
+  sign-in method in this edition. Accounts that only used Google need a password
+  before upgrading; `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and the
+  deployment-wide domain allowlist are gone.
+- **BREAKING — deployment configuration was narrowed.** `AUTH_MODE`,
+  `DEFAULT_INSTANCE_ID`, `AWS_REGION`, `PLATFORM_ADMIN_EMAIL`,
+  `WORKSPACES_ROOT`, `DEBUG_LLM_PAYLOAD` and the unused `LANGSMITH_*` variables
+  are no longer product configuration. The upgrade guide covers the settings
+  that require operator action.
+- **BREAKING — attachment storage is configured per agent.** The four
+  `PLATFORM_S3_*` variables are gone; attachment persistence and `fileUpload`
+  share the agent's bucket and support either static credentials or the explicit
+  `s3_use_task_role` opt-in.
+- **BREAKING — `s3_endpoint` is removed.** Migration
+  `0081_drop_s3_endpoint_secret` deletes stored values. MinIO, Cloudflare R2 and
+  other custom endpoints are unsupported in 1.2.0 and fall back to AWS
+  addressing.
+- Bedrock's default `standard` and `heavy` tiers no longer require Anthropic
+  model access: they use Amazon Nova Pro and OpenAI gpt-oss 120B respectively.
+  Nova keeps system-prompt caching without placing an invalid cache marker on
+  tool messages.
+- The plugin SDK is pinned at v1.8.0, including plugin knowledge access.
+
+### Fixed
+
+- Scheduled tasks no longer remain permanently `running` after a deploy or
+  crash, and one malformed tool-audit entry no longer blocks the rest of an
+  agent's audit trail.
+- Tenant-scoped conversation and memory reads and mutations fail closed;
+  unresolved request tenancy is refused instead of widening or silently losing
+  a predicate.
+- Agent behaviour overrides are persisted and type-validated, and two
+  concurrent fragments can no longer overwrite each other while a message burst
+  is starting.
+- `fileUpload` is available with either supported credential shape. Attachment
+  routes now accept Express 5 wildcard segments, and filenames containing
+  spaces, `#`, `?`, or harmless dot runs remain reachable.
+- Updating only an agent's model validates it against the provider the agent
+  actually uses.
+- Signed-out pages can switch language, and organization members cannot
+  accidentally remove their own membership.
+- MCP credential edits preserve omitted secrets, OAuth metadata receives the
+  same URL validation as the server URL, A2A cancellation survives handler
+  cache expiry, and the panel refuses to enable API-key authentication without
+  a key.
+
+### Security
+
+- Removed the agent-controlled S3 endpoint that could direct file PUTs and GETs
+  to arbitrary hosts, including private network addresses.
+- Closed cross-tenant keyword search and mutation paths by making tenant scope
+  explicit, branded and fail-closed throughout the affected stores.
+- Disabled skills can no longer resolve their retained credential placeholders;
+  rotating bearer values no longer mint an unlimited series of throttle
+  buckets; MCP OAuth endpoints use the shared SSRF denylist.
+- Request-controlled channel identifiers are sanitized before logging, unknown
+  imported channel types are rejected safely, and raw provider response bodies
+  are no longer written to logs.
+- Updated Next.js, Sharp, js-yaml, Multer and qs to patched versions for their
+  applicable security advisories.
+
 ## [1.1.1] - 2026-09-17
 
 Patch release. It restores agent creation, which fails on every attempt in 1.1.0.
@@ -328,7 +421,8 @@ Patch release. It restores agent creation, which fails on every attempt in 1.1.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/polyant-ai/polyant/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/polyant-ai/polyant/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/polyant-ai/polyant/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/polyant-ai/polyant/compare/v1.0.1...v1.0.2
