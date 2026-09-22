@@ -17,19 +17,37 @@ vi.mock("../database/client.js", () => ({
   },
 }));
 
+// Only `server.baseUrl` is read from the deployment config now: it is the
+// bootstrap value behind the stored public address. Every other default is a
+// constant in the store itself.
 vi.mock("../config.js", () => ({
-  config: {
-    analytics: { retentionDays: 90 },
-    activityStream: { maxPerUser: 5 },
-  },
+  config: { server: { baseUrl: "http://localhost:4000" } },
 }));
 
 import {
+  PLATFORM_SETTING_NUMBERS,
   getStoredPlatformSettings,
   invalidatePlatformSettingsCache,
   resolvePlatformSettings,
   updatePlatformSettings,
 } from "./platform-settings.store.js";
+
+/** Every policy unset, the shape a seeded row has before anyone edits it. */
+const unset = Object.fromEntries(PLATFORM_SETTING_NUMBERS.map((key) => [key, null]));
+
+/** What the resolver answers when nothing is stored: the shipped defaults. */
+const shipped = {
+  analyticsRetentionDays: 90,
+  sseMaxConnections: 50,
+  sseMaxConnectionsPerUser: 5,
+  throttleTtlMs: 60_000,
+  throttleLimit: 30,
+  agentCallTimeoutMs: 60_000,
+  mcpConnectTimeoutMs: 10_000,
+  schedulerOrphanGraceMs: 900_000,
+  schedulerDefaultMaxRunMs: 1_800_000,
+  baseUrl: "http://localhost:4000",
+};
 
 describe("platform settings", () => {
   beforeEach(() => {
@@ -38,20 +56,20 @@ describe("platform settings", () => {
   });
 
   it("should_fall_back_to_the_deployment_default_for_a_policy_the_installation_has_not_set", async () => {
-    mockLimit.mockResolvedValue([{ analyticsRetentionDays: null, sseMaxConnectionsPerUser: null }]);
+    mockLimit.mockResolvedValue([{ ...unset, baseUrl: null }]);
 
-    expect(await resolvePlatformSettings()).toEqual({
-      analyticsRetentionDays: 90,
-      sseMaxConnectionsPerUser: 5,
-    });
+    expect(await resolvePlatformSettings()).toEqual(shipped);
   });
 
   it("should_use_the_installations_own_policy_where_it_set_one", async () => {
-    mockLimit.mockResolvedValue([{ analyticsRetentionDays: 30, sseMaxConnectionsPerUser: null }]);
+    mockLimit.mockResolvedValue([
+      { ...unset, analyticsRetentionDays: 30, baseUrl: "https://engine.example.com" },
+    ]);
 
     expect(await resolvePlatformSettings()).toEqual({
+      ...shipped,
       analyticsRetentionDays: 30,
-      sseMaxConnectionsPerUser: 5,
+      baseUrl: "https://engine.example.com",
     });
   });
 
@@ -59,28 +77,26 @@ describe("platform settings", () => {
     // `resolvePlatformSettings` answers what is in FORCE; this answers what is
     // STORED. Collapsing the two would make an empty field indistinguishable
     // from one set to the same number, and clearing it impossible to express.
-    mockLimit.mockResolvedValue([{ analyticsRetentionDays: null, sseMaxConnectionsPerUser: 2 }]);
+    mockLimit.mockResolvedValue([{ ...unset, sseMaxConnectionsPerUser: 2, baseUrl: null }]);
 
     expect(await getStoredPlatformSettings()).toEqual({
-      analyticsRetentionDays: null,
+      ...unset,
       sseMaxConnectionsPerUser: 2,
+      baseUrl: null,
     });
   });
 
   it("should_answer_the_deployment_default_when_the_row_is_missing", async () => {
     // The migration seeds the row, so an absent one means an unmigrated
-    // database. Both policies read as unset, which is the behaviour every
+    // database. Every policy reads as unset, which is the behaviour every
     // installation had before this table existed.
     mockLimit.mockResolvedValue([]);
 
-    expect(await resolvePlatformSettings()).toEqual({
-      analyticsRetentionDays: 90,
-      sseMaxConnectionsPerUser: 5,
-    });
+    expect(await resolvePlatformSettings()).toEqual(shipped);
   });
 
   it("should_read_once_for_a_burst_of_callers", async () => {
-    mockLimit.mockResolvedValue([{ analyticsRetentionDays: 30, sseMaxConnectionsPerUser: 2 }]);
+    mockLimit.mockResolvedValue([{ ...unset, analyticsRetentionDays: 30, sseMaxConnectionsPerUser: 2 }]);
 
     await Promise.all([resolvePlatformSettings(), resolvePlatformSettings()]);
     await resolvePlatformSettings();
@@ -91,10 +107,10 @@ describe("platform settings", () => {
   });
 
   it("should_show_a_change_immediately_rather_than_after_the_cache_expires", async () => {
-    mockLimit.mockResolvedValue([{ analyticsRetentionDays: 90, sseMaxConnectionsPerUser: 5 }]);
+    mockLimit.mockResolvedValue([{ ...unset }]);
     await resolvePlatformSettings();
 
-    mockLimit.mockResolvedValue([{ analyticsRetentionDays: 7, sseMaxConnectionsPerUser: 5 }]);
+    mockLimit.mockResolvedValue([{ ...unset, analyticsRetentionDays: 7 }]);
     await updatePlatformSettings({ analyticsRetentionDays: 7 }, "user-1");
 
     // The write drops the cache: an administrator who shortens the retention

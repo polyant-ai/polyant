@@ -17,7 +17,7 @@
 // authorize link and the token exchange always agree.
 
 import { randomBytes, createHash } from "crypto";
-import { config } from "../../config.js";
+import { resolvePlatformSettings } from "../../platform/platform-settings.store.js";
 import { getSecret } from "../../instances/secrets.store.js";
 import type { InstanceSlug } from "../../instances/identifiers.js";
 
@@ -155,23 +155,23 @@ export async function resolveOAuthCredentials(
 /** Engine-public base URL. The callback is hit by the user's browser straight at
  *  the engine (not proxied through the web app), so this is the engine origin.
  *  Each provider registers its OWN callback: <base>/oauth/<name>/callback. */
-function redirectUri(providerName: string): string {
-  const base = config.server.baseUrl;
-  return `${base.replace(/\/+$/, "")}/oauth/${providerName}/callback`;
+async function redirectUri(providerName: string): Promise<string> {
+  const { baseUrl } = await resolvePlatformSettings();
+  return `${baseUrl.replace(/\/+$/, "")}/oauth/${providerName}/callback`;
 }
 
 /** Authorize URL the user clicks. `state` is an unguessable nonce (mapped
  *  server-side to the conversation via oauth_states). `codeChallenge` adds PKCE
  *  when the provider supports it. */
-export function buildAuthorizeUrl(
+export async function buildAuthorizeUrl(
   p: OAuthProvider,
   state: string,
   clientId: string,
   codeChallenge?: string,
-): string {
+): Promise<string> {
   const params = new URLSearchParams({
     client_id: clientId,
-    redirect_uri: redirectUri(p.name),
+    redirect_uri: await redirectUri(p.name),
     scope: p.scope,
     state,
     ...p.extraAuthorizeParams,
@@ -225,7 +225,7 @@ export async function exchangeCodeForToken(
     client_id: creds.clientId ?? "",
     client_secret: creds.clientSecret ?? "",
     code,
-    redirect_uri: redirectUri(p.name),
+    redirect_uri: await redirectUri(p.name),
     grant_type: "authorization_code",
   };
   if (codeVerifier) body.code_verifier = codeVerifier;

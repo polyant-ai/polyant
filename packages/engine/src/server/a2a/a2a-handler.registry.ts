@@ -3,7 +3,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { DefaultRequestHandler } from "@a2a-js/sdk/server";
 
-import { config } from "../../config.js";
+import { resolvePlatformSettings } from "../../platform/platform-settings.store.js";
 import { TtlCache } from "../../utils/ttl-cache.js";
 import { findInstanceBySlug } from "../../instances/store.js";
 import type { InstanceSlug } from "../../instances/identifiers.js";
@@ -54,7 +54,7 @@ export class A2aHandlerRegistry {
     const instance = await findInstanceBySlug(slug);
     if (!instance) throw new NotFoundException(`Instance "${slug}" not found`);
 
-    const baseUrl = config.server.baseUrl;
+    const { baseUrl } = await resolvePlatformSettings();
     const card = buildAgentCard(instance, baseUrl);
     const executor = createPolyantExecutor(slug, this.streamHandler, this.aborts);
     const handler = new DefaultRequestHandler(card, this.taskStore.viewFor(slug), executor);

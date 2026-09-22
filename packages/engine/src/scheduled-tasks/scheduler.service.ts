@@ -11,7 +11,7 @@ import { emitCron } from "../activity-stream/emitters/emit-cron.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { findInstanceBySlug } from "../instances/store.js";
-import { config } from "../config.js";
+import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 
 function scheduleLabel(schedule: ScheduleConfig): string {
   switch (schedule.type) {
@@ -269,7 +269,8 @@ class SchedulerService {
    * closed as an error in the run log, so the audit still says what happened.
    */
   private async recoverOrphanedRuns(): Promise<void> {
-    const cutoff = new Date(Date.now() - config.scheduler.orphanGraceMs);
+    const { schedulerOrphanGraceMs } = await resolvePlatformSettings();
+    const cutoff = new Date(Date.now() - schedulerOrphanGraceMs);
     const stuck = await store.findStuckRunning(cutoff);
     if (stuck.length === 0) return;
 
@@ -293,7 +294,7 @@ class SchedulerService {
    * The startup recovery only helps when the process restarts. A run that hangs in a live
    * process — an HTTP call with no timeout is the usual cause — holds its row forever and
    * one of the three concurrency slots with it. Past `max_run_ms` (per task, falling back
-   * to `config.scheduler.defaultMaxRunMs`) the row is marked failed so the task is not
+   * to the platform setting) the row is marked failed so the task is not
    * silenced beyond the deadline it declared.
    *
    * Unlike the startup path this DOES count as a failure: the run had its declared time
@@ -313,8 +314,9 @@ class SchedulerService {
     const running = await store.findStuckRunning(new Date(now));
     if (running.length === 0) return;
 
+    const { schedulerDefaultMaxRunMs } = await resolvePlatformSettings();
     for (const task of running) {
-      const deadline = task.maxRunMs ?? config.scheduler.defaultMaxRunMs;
+      const deadline = task.maxRunMs ?? schedulerDefaultMaxRunMs;
       const runningForMs = now - (task.updatedAt?.getTime() ?? now);
       if (runningForMs < deadline) continue;
 
@@ -347,14 +349,15 @@ class SchedulerService {
     stuckRunning: number;
     orphanGraceMs: number;
   }> {
-    const cutoff = new Date(Date.now() - config.scheduler.defaultMaxRunMs);
+    const { schedulerDefaultMaxRunMs, schedulerOrphanGraceMs } = await resolvePlatformSettings();
+    const cutoff = new Date(Date.now() - schedulerDefaultMaxRunMs);
     return {
       running: this.started,
       maxConcurrent: MAX_CONCURRENT,
       inFlight: this.running.size,
       freeSlots: MAX_CONCURRENT - this.running.size,
       stuckRunning: await store.countStuckRunning(cutoff),
-      orphanGraceMs: config.scheduler.orphanGraceMs,
+      orphanGraceMs: schedulerOrphanGraceMs,
     };
   }
 

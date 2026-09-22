@@ -3,6 +3,48 @@
 This guide covers upgrades that need an operator decision. For the full list of
 changes see the [changelog](../CHANGELOG.md).
 
+## Upgrading from 1.2.0
+
+### Environment variables the panel now answers
+
+Each of these set one value for a whole installation, for a question an
+administrator now answers where it belongs: on the agent, on the organization, or
+on the installation's own settings page. The shipped defaults did not change, so
+an installation that set none of them behaves exactly as before. Remove them from
+your environment — a value left there is read by nothing.
+
+| Removed | Where the value lives now |
+| --- | --- |
+| `DATETIME_TIMEZONE`, `DATETIME_LOCALE` | The agent's Settings → Behaviour overrides. An agent that declares neither formats dates in the runtime's zone and locale, so a deployment-wide zone is now `TZ` |
+| `DEDUP_SIMILARITY_THRESHOLD` | The agent's Settings → Behaviour overrides; the default is 0.90 |
+| `MESSAGE_SOFT_DEBOUNCE_MS`, `MESSAGE_TYPING_DELAY_MS`, `MESSAGE_MAX_RESTARTS` | The agent's Settings → Behaviour overrides; the defaults are 2000 ms, 1500 ms and 3 |
+| `KNOWLEDGE_MAX_DOCS_PER_INSTANCE` | The organization's knowledge-document entitlement; the default is 500 per agent |
+| `ANALYTICS_RETENTION_DAYS`, `SSE_MAX_CONNECTIONS_PER_USER` | Settings → General, for a platform admin; the defaults are 90 days and 5 connections |
+| `PDF_CONCURRENCY` | The Markdown-to-PDF plugin, which reads it itself and documents it in its own README |
+
+If you deploy with the CDK stack, drop `defaultInstanceId` and `locale` from the
+`app` block of your `config.yaml`; `timezone` stays and is passed as `TZ`.
+
+### Operational limits move to Settings → General
+
+Seven more variables become rows an administrator edits, with the defaults they
+had: `SSE_MAX_CONNECTIONS` (50), `THROTTLE_TTL_MS` (60000), `THROTTLE_LIMIT`
+(30), `AGENT_CALL_TIMEOUT_MS` (60000), `MCP_CONNECT_TIMEOUT_MS` (10000),
+`SCHEDULER_ORPHAN_GRACE_MS` (900000) and `SCHEDULER_DEFAULT_MAX_RUN_MS`
+(1800000). If your deployment set any of them to something other than the
+default, set the same number in Settings → General before removing the variable —
+otherwise the upgrade quietly restores the default.
+
+`THROTTLE_ENABLED` stays an environment variable and keeps its meaning.
+
+### The engine's public address
+
+`BASE_URL` is still read, and still the value a fresh installation boots with.
+What is new is that Settings → General can hold a public address, and that one
+wins where it is set — so an engine that is announcing the wrong webhook URLs is
+now a form to correct rather than a redeploy. Nothing to do on upgrade: with no
+address stored, `BASE_URL` is what every URL is built from, exactly as before.
+
 ## Upgrading from 1.1.1 to 1.2.0
 
 ### Install and re-enable extracted tools
@@ -64,8 +106,10 @@ installation whose only administrator is locked out — on a non-empty database 
 seeder sets a password on a **password-less** account and promotes it, and never
 overwrites one that already exists.
 
-`BASE_URL` is unchanged, but it is now resolved once: unset still means
-`http://localhost:<API_PORT>`, decided in `config.ts` instead of by each caller.
+`BASE_URL` is unchanged in this release, but it is now resolved once: unset still
+means `http://localhost:<API_PORT>`, decided in `config.ts` instead of by each
+caller. (From the next release a stored platform setting can override it — see
+above.)
 
 ## Upgrading from 1.0.0 to 1.1.0
 

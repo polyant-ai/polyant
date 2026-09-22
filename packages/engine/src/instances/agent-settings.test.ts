@@ -7,8 +7,11 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { config } from "../config.js";
 import {
+  DEFAULT_DATETIME_LOCALE,
+  DEFAULT_DATETIME_TIMEZONE,
+  DEFAULT_DEDUP_SIMILARITY_THRESHOLD,
+  DEFAULT_MESSAGE_TIMINGS,
   resolveDatetimeSettings,
   resolveDedupSimilarityThreshold,
   resolveMessageTimings,
@@ -18,17 +21,13 @@ import {
 describe("agent settings resolution", () => {
   it("should_use_the_deployment_default_for_an_agent_that_declares_nothing", () => {
     expect(resolveDatetimeSettings(UNSET_AGENT_SETTINGS)).toEqual({
-      timezone: config.datetime.timezone,
-      locale: config.datetime.locale,
+      timezone: DEFAULT_DATETIME_TIMEZONE,
+      locale: DEFAULT_DATETIME_LOCALE,
     });
     expect(resolveDedupSimilarityThreshold(UNSET_AGENT_SETTINGS)).toBe(
-      config.memory.dedupSimilarityThreshold,
+      DEFAULT_DEDUP_SIMILARITY_THRESHOLD,
     );
-    expect(resolveMessageTimings(UNSET_AGENT_SETTINGS)).toEqual({
-      softDebounceMs: config.coordinator.softDebounceMs,
-      typingDelayMs: config.coordinator.typingDelayMs,
-      maxRestarts: config.coordinator.maxRestarts,
-    });
+    expect(resolveMessageTimings(UNSET_AGENT_SETTINGS)).toEqual(DEFAULT_MESSAGE_TIMINGS);
   });
 
   it("should_use_the_agents_own_value_where_it_declares_one", () => {
@@ -78,8 +77,8 @@ describe("agent settings resolution", () => {
     const row = { ...UNSET_AGENT_SETTINGS, datetimeTimezone: "Asia/Tokyo", messageMaxRestarts: 7 };
 
     expect(resolveDatetimeSettings(row).timezone).toBe("Asia/Tokyo");
-    expect(resolveDatetimeSettings(row).locale).toBe(config.datetime.locale);
+    expect(resolveDatetimeSettings(row).locale).toBe(DEFAULT_DATETIME_LOCALE);
     expect(resolveMessageTimings(row).maxRestarts).toBe(7);
-    expect(resolveMessageTimings(row).softDebounceMs).toBe(config.coordinator.softDebounceMs);
+    expect(resolveMessageTimings(row).softDebounceMs).toBe(DEFAULT_MESSAGE_TIMINGS.softDebounceMs);
   });
 });

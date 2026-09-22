@@ -56,7 +56,7 @@ export async function oauthConnectResult(ctx: ToolContext, providerName: string)
   return {
     status: "action_required",
     message: `Per procedere collega il tuo account ${providerName}: apri il link, autorizza, poi richiedimi la stessa cosa.`,
-    url: buildAuthorizeUrl(provider, state, clientId, pkce?.challenge),
+    url: await buildAuthorizeUrl(provider, state, clientId, pkce?.challenge),
   };
 }
 

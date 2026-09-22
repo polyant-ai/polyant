@@ -21,6 +21,12 @@ import type { Server } from "node:http";
  * part is `{ text }`, and the SDK requires the `A2A-Version: 1.0` header.
  */
 
+// The agent card carries the engine's public address, which is a row now; this
+// suite has no database, so the shipped bootstrap value stands in for it.
+vi.mock("../../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: async () => ({ baseUrl: "http://localhost:4000" }),
+}));
+
 vi.mock("../../instances/config-resolver.js", () => ({
   resolveInstanceConfig: vi.fn(),
 }));

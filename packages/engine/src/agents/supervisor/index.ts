@@ -21,7 +21,7 @@ import { createTaskTool } from "../tools/task-tool.js";
 import { buildSupervisorSystemPrompt } from "./prompt.js";
 import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { serializeForLog } from "../../utils/serialize-for-log.js";
-import { config } from "../../config.js";
+import { resolvePlatformSettings } from "../../platform/platform-settings.store.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { findInstanceBySlug, findAgentHandoffTargets } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
@@ -405,7 +405,7 @@ async function buildTools(opts: BuildToolsOptions) {
         callerConversationId: conversationId ?? `${instanceId}:unknown`,
         parentTraceId: undefined,
         currentDepth,
-        timeoutMs: config.agent.callTimeoutMs,
+        timeoutMs: (await resolvePlatformSettings()).agentCallTimeoutMs,
         dispatch: (input) => adapter.dispatch(input),
       });
       tools[synth.name] = aiTool({

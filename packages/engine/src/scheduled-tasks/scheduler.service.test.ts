@@ -59,6 +59,12 @@ vi.mock("./schedule-utils.js", () => ({
 // ---------------------------------------------------------------------------
 import { schedulerService } from "./scheduler.service.js";
 
+// The platform policies are a row; this suite has no database. The values are
+// the shipped defaults, so the assertions read the same as before they moved.
+vi.mock("../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: async () => ({ schedulerOrphanGraceMs: 900_000, schedulerDefaultMaxRunMs: 1_800_000 }),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

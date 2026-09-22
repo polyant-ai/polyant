@@ -46,7 +46,12 @@ import {
   invalidateAllInstanceConfigCache,
 } from "./config-resolver.js";
 import { asInstanceSlug } from "./identifiers.js";
-import { config as deployment } from "../config.js";
+import {
+  DEFAULT_DATETIME_LOCALE,
+  DEFAULT_DATETIME_TIMEZONE,
+  DEFAULT_DEDUP_SIMILARITY_THRESHOLD,
+  DEFAULT_MESSAGE_TIMINGS,
+} from "./agent-settings.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -130,17 +135,13 @@ describe("instances/config-resolver", () => {
         stateInPromptEnabled: false,
         datetimeInjectionEnabled: true,
         // The six behaviours that moved off the environment. Resolved, so the
-        // config carries values rather than nulls; the row declares none here,
-        // so each is the DEPLOYMENT default — asserted against the deployment's
-        // own config rather than a literal, because the datetime defaults come
-        // from the runtime's zone and locale.
-        datetime: { timezone: deployment.datetime.timezone, locale: deployment.datetime.locale },
-        dedupSimilarityThreshold: deployment.memory.dedupSimilarityThreshold,
-        messageTimings: {
-          softDebounceMs: deployment.coordinator.softDebounceMs,
-          typingDelayMs: deployment.coordinator.typingDelayMs,
-          maxRestarts: deployment.coordinator.maxRestarts,
-        },
+        // config carries values rather than nulls; the row declares none here, so
+        // each is the shipped default — asserted against the exported constants
+        // rather than a literal, because the datetime defaults come from the
+        // runtime's zone and locale.
+        datetime: { timezone: DEFAULT_DATETIME_TIMEZONE, locale: DEFAULT_DATETIME_LOCALE },
+        dedupSimilarityThreshold: DEFAULT_DEDUP_SIMILARITY_THRESHOLD,
+        messageTimings: DEFAULT_MESSAGE_TIMINGS,
         cacheConfig: { enabled: true, ttl: "1h" },
         a2aEnabled: false,
         toolResultsInHistoryEnabled: false,
@@ -203,13 +204,9 @@ describe("instances/config-resolver", () => {
         // Same three as above: the fixture row declares none of the six, so each
         // resolves to the deployment default.
         datetimeInjectionEnabled: undefined,
-        datetime: { timezone: deployment.datetime.timezone, locale: deployment.datetime.locale },
-        dedupSimilarityThreshold: deployment.memory.dedupSimilarityThreshold,
-        messageTimings: {
-          softDebounceMs: deployment.coordinator.softDebounceMs,
-          typingDelayMs: deployment.coordinator.typingDelayMs,
-          maxRestarts: deployment.coordinator.maxRestarts,
-        },
+        datetime: { timezone: DEFAULT_DATETIME_TIMEZONE, locale: DEFAULT_DATETIME_LOCALE },
+        dedupSimilarityThreshold: DEFAULT_DEDUP_SIMILARITY_THRESHOLD,
+        messageTimings: DEFAULT_MESSAGE_TIMINGS,
         cacheConfig: { enabled: true, ttl: "1h" },
         a2aEnabled: true,
         toolResultsInHistoryEnabled: false,

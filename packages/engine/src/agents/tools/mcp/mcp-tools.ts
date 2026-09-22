@@ -4,7 +4,7 @@ import { tool as aiTool, type Tool } from "ai";
 import { z } from "zod";
 import { UnauthorizedError } from "@ai-sdk/mcp";
 import { connectWithTimeout } from "./mcp-connect.js";
-import { config } from "../../../config.js";
+import { resolvePlatformSettings } from "../../../platform/platform-settings.store.js";
 import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
 import { toModelToolName } from "../registry.js";
 import { listEnabledMcpServers, type McpServerRecord } from "../../../instances/mcp-servers.store.js";
@@ -94,6 +94,7 @@ export async function buildMcpTools(opts: {
       // callers always pass one).
       if (!opts.conversationId) continue;
       provider = makeMcpOAuthProvider({
+        baseUrl: (await resolvePlatformSettings()).baseUrl,
         instanceUuid: opts.instanceUuid,
         instanceSlug: opts.instanceSlug,
         conversationId: opts.conversationId,
@@ -119,7 +120,8 @@ export async function buildMcpTools(opts: {
       : { type: "http" as const, url: server.url, headers: staticHeaders(server) };
 
     try {
-      const { client, toolSet } = await connectWithTimeout(transport, config.mcp.connectTimeoutMs, opts.abortSignal);
+      const { mcpConnectTimeoutMs } = await resolvePlatformSettings();
+      const { client, toolSet } = await connectWithTimeout(transport, mcpConnectTimeoutMs, opts.abortSignal);
       for (const [toolName, t] of Object.entries(toolSet)) {
         if (allowList && !allowList.includes(toolName)) continue;
         const modelName = capModelToolName(toModelToolName(`mcp:${server.slug}:${toolName}`));

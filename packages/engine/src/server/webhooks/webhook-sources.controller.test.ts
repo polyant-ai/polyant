@@ -42,6 +42,12 @@ vi.mock("../../instances/resolve-instance-id.js", () => ({
 
 import { EventSourcesController } from "./webhook-sources.controller.js";
 
+// The platform policies are a row; this suite has no database. The values are
+// the shipped defaults, so the assertions read the same as before they moved.
+vi.mock("../../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: async () => ({ baseUrl: "http://localhost:4000" }),
+}));
+
 function metadataOf(key: string, handler: keyof EventSourcesController): unknown {
   const proto = EventSourcesController.prototype as unknown as Record<string, unknown>;
   return Reflect.getMetadata(key, proto[handler] as object);

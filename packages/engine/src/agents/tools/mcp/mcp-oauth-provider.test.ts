@@ -31,12 +31,11 @@ vi.mock("../../../instances/mcp-servers.store.js", () => ({
     merged.push({ slug, patch });
   }),
 }));
-vi.mock("../../../config.js", () => ({ config: { server: { baseUrl: "https://polyant.test", port: 4000 } } }));
 
 const { makeMcpOAuthProvider, mcpRedirectUrl } = await import("./mcp-oauth-provider.js");
 // instanceUuid and instanceSlug are deliberately different strings so a test
 // asserting "the slug was used" cannot pass by accident if the uuid were used instead.
-const deps = { instanceUuid: asInstanceUuid("iid"), instanceSlug: asInstanceSlug("my-slug"), conversationId: "conv-1", serverSlug: "gh", config: {} as any };
+const deps = { baseUrl: "https://polyant.test", instanceUuid: asInstanceUuid("iid"), instanceSlug: asInstanceSlug("my-slug"), conversationId: "conv-1", serverSlug: "gh", config: {} as any };
 
 describe("McpVaultOAuthProvider", () => {
   beforeEach(() => {
@@ -47,7 +46,8 @@ describe("McpVaultOAuthProvider", () => {
   });
 
   it("should_build_redirect_url", () => {
-    expect(mcpRedirectUrl()).toBe("https://polyant.test/mcp/oauth/callback");
+    expect(mcpRedirectUrl("https://polyant.test")).toBe("https://polyant.test/mcp/oauth/callback");
+    expect(mcpRedirectUrl("https://polyant.test/")).toBe("https://polyant.test/mcp/oauth/callback");
   });
 
   it("should_conform_to_the_real_OAuthClientProvider_interface", () => {

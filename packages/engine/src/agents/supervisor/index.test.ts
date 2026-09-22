@@ -141,6 +141,12 @@ import type { SupervisorInput } from "./index.js";
 import type { Attachment } from "../../channels/types.js";
 import { channelManager } from "../../channels/channel-manager.js";
 
+// The platform policies are a row; this suite has no database. The values are
+// the shipped defaults, so the assertions read the same as before they moved.
+vi.mock("../../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: async () => ({ agentCallTimeoutMs: 60_000 }),
+}));
+
 const TEST_INSTANCE = asInstanceSlug("default");
 
 // ---------------------------------------------------------------------------

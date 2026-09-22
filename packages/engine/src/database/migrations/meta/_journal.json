@@ -526,6 +526,13 @@
       "when": 1788998400000,
       "tag": "0081_drop_s3_endpoint_secret",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1790035200000,
+      "tag": "0082_platform_settings_expand",
+      "breakpoints": true
     }
   ]
 }

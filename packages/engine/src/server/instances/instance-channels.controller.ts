@@ -83,7 +83,7 @@ export class InstanceChannelsController {
     if (typeof secret !== "string" || !secret) {
       throw new NotFoundException(WHATSAPP_NOT_IN_API_KEY_MODE);
     }
-    return { webhookUrl: buildTwilioWhatsAppWebhookUrl(slug, secret) };
+    return { webhookUrl: await buildTwilioWhatsAppWebhookUrl(slug, secret) };
   }
 
   /**
@@ -122,7 +122,7 @@ export class InstanceChannelsController {
       await channelManager.startChannel(slug, WHATSAPP_CHANNEL_TYPE, result.config);
     }
 
-    return { webhookUrl: buildTwilioWhatsAppWebhookUrl(slug, webhookSecret) };
+    return { webhookUrl: await buildTwilioWhatsAppWebhookUrl(slug, webhookSecret) };
   }
 
   /**
@@ -208,16 +208,16 @@ export class InstanceChannelsController {
   }
 
   /** The full webhook URL when the saved channel ended up in apiKey mode, else undefined. */
-  private buildWebhookUrlIfApiKeyMode(
+  private async buildWebhookUrlIfApiKeyMode(
     slug: string,
     channelType: ChannelType,
     config: Record<string, unknown>,
-  ): string | undefined {
+  ): Promise<string | undefined> {
     if (channelType !== WHATSAPP_CHANNEL_TYPE || resolveWhatsAppAuthMode(config) !== WHATSAPP_AUTH_MODE_API_KEY) {
       return undefined;
     }
     const secret = config.webhookSecret;
-    return typeof secret === "string" && secret ? buildTwilioWhatsAppWebhookUrl(slug, secret) : undefined;
+    return typeof secret === "string" && secret ? await buildTwilioWhatsAppWebhookUrl(slug, secret) : undefined;
   }
 
   /** Start/stop the channel adapter and mirror the virtual `agent` channel into the tools catalog. */
@@ -239,13 +239,13 @@ export class InstanceChannelsController {
   }
 
   /** Build the masked channel + optional webhookUrl response shape shared by `setChannel`. */
-  private buildChannelResponse(
+  private async buildChannelResponse(
     slug: string,
     channelType: ChannelType,
     enabled: boolean,
     persistedConfig: Record<string, unknown>,
   ) {
-    const webhookUrl = this.buildWebhookUrlIfApiKeyMode(slug, channelType, persistedConfig);
+    const webhookUrl = await this.buildWebhookUrlIfApiKeyMode(slug, channelType, persistedConfig);
     return {
       channel: { channelType, enabled, config: maskSensitiveConfig(persistedConfig) },
       ...(webhookUrl ? { webhookUrl } : {}),

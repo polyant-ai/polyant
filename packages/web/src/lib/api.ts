@@ -210,10 +210,29 @@ export function getUserErrorMessage(err: unknown, fallback: string): string {
 
 // ── API Methods ─────────────────────────────────────────────────────
 
-export interface PlatformSettings {
-  analyticsRetentionDays: number | null;
-  sseMaxConnectionsPerUser: number | null;
-}
+/**
+ * The numeric installation policies. Named as a list so the form, the patch and
+ * the effective shape below cannot drift apart — the engine keeps the same list
+ * for the same reason.
+ */
+export const PLATFORM_SETTING_NUMBERS = [
+  "analyticsRetentionDays",
+  "sseMaxConnections",
+  "sseMaxConnectionsPerUser",
+  "throttleTtlMs",
+  "throttleLimit",
+  "agentCallTimeoutMs",
+  "mcpConnectTimeoutMs",
+  "schedulerOrphanGraceMs",
+  "schedulerDefaultMaxRunMs",
+] as const;
+
+export type PlatformSettingNumber = (typeof PLATFORM_SETTING_NUMBERS)[number];
+
+export type PlatformSettings = { [K in PlatformSettingNumber]: number | null } & {
+  /** The engine's public origin. Null means `BASE_URL`, or localhost, is in force. */
+  baseUrl: string | null;
+};
 
 /**
  * Both shapes come back from the engine on purpose: `settings` is what is
@@ -223,7 +242,7 @@ export interface PlatformSettings {
  */
 export interface PlatformSettingsResponse {
   settings: PlatformSettings;
-  effective: { analyticsRetentionDays: number; sseMaxConnectionsPerUser: number };
+  effective: { [K in PlatformSettingNumber]: number } & { baseUrl: string };
 }
 
 export const api = {

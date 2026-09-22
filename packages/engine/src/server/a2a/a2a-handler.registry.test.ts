@@ -13,6 +13,12 @@ vi.mock("../../instances/store.js", () => ({
 import { findInstanceBySlug } from "../../instances/store.js";
 import { A2aHandlerRegistry } from "./a2a-handler.registry.js";
 
+// The platform policies are a row; this suite has no database. The values are
+// the shipped defaults, so the assertions read the same as before they moved.
+vi.mock("../../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: async () => ({ baseUrl: "http://localhost:4000" }),
+}));
+
 const fakeStreamHandler = (async () => ({
   textStream: (async function* () {})(),
   fullStream: (async function* () {})(),

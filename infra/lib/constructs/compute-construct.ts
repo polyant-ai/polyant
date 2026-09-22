@@ -32,9 +32,7 @@ export interface ComputeConstructProps {
     web: { cpu: number; memory: number };
   };
   appConfig: {
-    defaultInstanceId: string;
     timezone: string;
-    locale: string;
   };
   loggingRetentionDays: number;
   certificate?: acm.ICertificate;
@@ -117,9 +115,11 @@ export class ComputeConstruct extends Construct {
       environment: {
         API_PORT: "4000",
         POSTGRES_SSL: "true",
-        DEFAULT_INSTANCE_ID: props.appConfig.defaultInstanceId,
-        DATETIME_TIMEZONE: props.appConfig.timezone,
-        DATETIME_LOCALE: props.appConfig.locale,
+        // The engine formats dates in the RUNTIME zone unless an agent declares
+        // its own, so the deployment's zone is `TZ` — there is no engine variable
+        // for it any more. `DEFAULT_INSTANCE_ID` and `DATETIME_LOCALE` are gone
+        // with it: nothing read them.
+        TZ: props.appConfig.timezone,
         // When ALB OIDC auth is configured, engine trusts x-amzn-oidc-data
         // headers instead of requiring its own Auth.js session.
       },

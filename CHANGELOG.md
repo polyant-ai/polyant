@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Settings → General holds the installation's operational policies: the engine's
+  public address, the two live-stream caps, the rate-limit window and request
+  limit, the agent-to-agent and MCP connection timeouts, and the two scheduler
+  deadlines. Each is empty until set, and an empty field shows the value in force
+  as its placeholder.
+- The engine's public address can be corrected without a redeploy. `BASE_URL`
+  stays as the value the deployment boots with; the stored address wins where one
+  is set, and every webhook URL, OAuth redirect and agent card is built from the
+  resolved value.
+
+### Removed
+
+- **BREAKING — ten environment variables that the panel already answers.**
+  `DATETIME_TIMEZONE`, `DATETIME_LOCALE`, `DEDUP_SIMILARITY_THRESHOLD`,
+  `MESSAGE_SOFT_DEBOUNCE_MS`, `MESSAGE_TYPING_DELAY_MS`, `MESSAGE_MAX_RESTARTS`,
+  `KNOWLEDGE_MAX_DOCS_PER_INSTANCE`, `ANALYTICS_RETENTION_DAYS` and
+  `SSE_MAX_CONNECTIONS_PER_USER` were the deployment default behind a value an
+  administrator now sets per agent, per organization or per installation; the
+  shipped defaults are unchanged and live beside the resolver that applies them.
+  `PDF_CONCURRENCY` belongs to the Markdown-to-PDF plugin, which reads it itself.
+  A deployment that still sets any of them is not failed, but the value has no
+  effect — see [docs/UPGRADING.md](docs/UPGRADING.md).
+- **BREAKING — eight more environment variables become panel settings.**
+  `SSE_MAX_CONNECTIONS`, `THROTTLE_TTL_MS`, `THROTTLE_LIMIT`,
+  `AGENT_CALL_TIMEOUT_MS`, `MCP_CONNECT_TIMEOUT_MS`, `SCHEDULER_ORPHAN_GRACE_MS`
+  and `SCHEDULER_DEFAULT_MAX_RUN_MS` are now rows in `platform_settings`, edited
+  in Settings → General, with the same defaults as before. `THROTTLE_ENABLED`
+  stays an environment variable: it exists for parallel local runs, and a rate
+  limiter that can be switched off from inside the product is no use to a
+  locked-out administrator.
+- The CDK stack no longer passes `DEFAULT_INSTANCE_ID` or `DATETIME_LOCALE` to
+  the engine container, and sets the deployment's time zone as `TZ`. The `app`
+  block of `config.yaml` keeps only `timezone`.
+
 ## [1.2.0] - 2026-09-22
 
 > **Upgrading from 1.1.1 needs operator action** — Google sign-in is removed,

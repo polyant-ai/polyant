@@ -1,19 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { config } from "../config.js";
+import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 
 /**
  * The engine's public base URL — how an external producer (Twilio, a webhook
- * caller) must address it. Falls back to localhost so a local dev setup shows
- * a usable URL instead of an empty prefix.
+ * caller) must address it.
+ *
+ * It is the platform setting when one is stored, `BASE_URL` otherwise, and
+ * `http://localhost:<port>` when neither is set, so a local dev setup shows a
+ * usable URL instead of an empty prefix. Asynchronous because the first of those
+ * is a row: every caller builds a URL to hand to a person or a provider, inside
+ * a request that is already waiting on the database.
  */
-export function engineBaseUrl(): string {
-  return config.server.baseUrl;
+export async function engineBaseUrl(): Promise<string> {
+  const { baseUrl } = await resolvePlatformSettings();
+  return baseUrl;
 }
 
 /** Ingestion URL of a Room event source. */
-export function buildEventSourceWebhookUrl(token: string): string {
-  return `${engineBaseUrl()}/webhooks/${token}`;
+export async function buildEventSourceWebhookUrl(token: string): Promise<string> {
+  return `${await engineBaseUrl()}/webhooks/${token}`;
 }
 
 /**
@@ -21,6 +27,6 @@ export function buildEventSourceWebhookUrl(token: string): string {
  * `apiKey` mode. The secret is the authentication gate — Twilio signs webhooks
  * with the account Auth Token, which this mode does not have.
  */
-export function buildTwilioWhatsAppWebhookUrl(slug: string, webhookSecret: string): string {
-  return `${engineBaseUrl()}/webhooks/twilio/${encodeURIComponent(slug)}/whatsapp/${encodeURIComponent(webhookSecret)}`;
+export async function buildTwilioWhatsAppWebhookUrl(slug: string, webhookSecret: string): Promise<string> {
+  return `${await engineBaseUrl()}/webhooks/twilio/${encodeURIComponent(slug)}/whatsapp/${encodeURIComponent(webhookSecret)}`;
 }

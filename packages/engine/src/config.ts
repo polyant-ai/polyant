@@ -26,8 +26,8 @@ if (existsSync(packageEnv)) {
  * `.optional()` accepts only `undefined`, while `.default()` fires only on
  * `undefined`. So an input the sample documents as skippable ("Leave empty for
  * no promotion") was either rejected outright or silently coerced to a wrong
- * value: `Number("")` is `0`, so `MESSAGE_SOFT_DEBOUNCE_MS=` meant 0ms, and
- * `DATETIME_TIMEZONE=` made `Intl` throw on every LLM turn.
+ * value: `Number("")` is `0`, so `THROTTLE_TTL_MS=` meant a zero-length window,
+ * and an empty string where a URL was expected made its parser throw.
  *
  * Mapping `""` → `undefined` across the WHOLE input is the fix, not a per-field
  * whitelist: a whitelist has to be extended by whoever adds the next optional
@@ -81,18 +81,19 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
       .transform((v): boolean => v === "true"),
   }),
 
-  // Memory (pgvector)
-  memory: z.object({
-    dedupSimilarityThreshold: z.coerce.number().default(0.90),
-  }),
-
   // HTTP Server (NestJS)
   server: z.object({
     port: z.coerce.number().default(4000),
     /**
-     * Public origin of the engine. `BASE_URL` when set; otherwise resolved to
-     * `http://localhost:<port>` by the transform below, so consumers read a
-     * string and never a fallback. The four callers that build a public URL from
+     * Public origin of the engine, as the DEPLOYMENT declares it: `BASE_URL`
+     * when set, otherwise `http://localhost:<port>` from the transform below, so
+     * consumers read a string and never a fallback.
+     *
+     * It is the BOOTSTRAP value, not the last word. `platform_settings.base_url`
+     * wins where an administrator has set one, which is how a wrong public URL
+     * is corrected without a redeploy — see `platform-settings.store.ts`, the
+     * one place the two are combined. Nothing outside that resolver should read
+     * this field. The four callers that build a public URL from
      * it (webhook callbacks, the two OAuth redirect builders, the A2A agent card)
      * each used to write that fallback themselves — four chances to disagree
      * about what an unset BASE_URL means.
@@ -117,18 +118,19 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
         if (typeof v === "number") return v;
         return v === "true";
       }),
-    // Per-IP rate limiting (@nestjs/throttler). Enabled by default; set
-    // THROTTLE_ENABLED=false to disable ALL throttling (global default + every
-    // per-route @Throttle override) — intended for parallel dev/eval runs that
-    // would otherwise trip the limits from a single IP. Only the literal "false"
-    // disables (z.coerce.boolean() would treat "false" as true).
+    // Per-IP rate limiting (@nestjs/throttler): whether it runs at all. The
+    // WINDOW and the LIMIT are platform settings, edited in the panel; this
+    // switch is not, because it exists for parallel dev/eval runs that would
+    // otherwise trip the limits from a single IP, and because a limiter that can
+    // be turned off from inside the product is no use to a locked-out
+    // administrator. THROTTLE_ENABLED=false disables ALL throttling, the global
+    // default and every per-route @Throttle override alike. Only the literal
+    // "false" disables (z.coerce.boolean() would treat "false" as true).
     throttle: z.object({
       enabled: z
         .string()
         .optional()
         .transform((v) => v !== "false"),
-      ttlMs: z.coerce.number().int().positive().default(60_000),
-      limit: z.coerce.number().int().positive().default(30),
     }),
   }).transform((server) => ({
     ...server,
@@ -141,15 +143,6 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
       /^[0-9a-fA-F]{64}$/,
       "ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes for AES-256-GCM)",
     ),
-  }),
-
-  // Datetime (used in supervisor system prompt)
-  datetime: z.object({
-    // No explicit DATETIME_TIMEZONE / DATETIME_LOCALE → follow the runtime zone/locale
-    // (driven by TZ and LANG/LC_ALL respectively, else the system defaults).
-    // resolvedOptions() reflects the env vars set before Node started.
-    timezone: z.string().default(Intl.DateTimeFormat().resolvedOptions().timeZone),
-    locale: z.string().default(Intl.DateTimeFormat().resolvedOptions().locale),
   }),
 
   // Auth (Auth.js JWT decryption + credentials provider)
@@ -182,80 +175,11 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
   }),
 
 
-  // Inbound message coordinator (WhatsApp/Telegram). Collapses burst fragments
-  // and cancels in-flight pipelines when a new fragment arrives.
-  //   softDebounceMs: sliding coalescing window before the pipeline fires
-  //   typingDelayMs: delay before sending the channel's typing indicator
-  //   maxRestarts: cap on consecutive cancel-and-restart cycles per conversation
-  coordinator: z.object({
-    softDebounceMs: z.coerce.number().int().min(0).default(2000),
-    typingDelayMs: z.coerce.number().int().min(0).default(1500),
-    maxRestarts: z.coerce.number().int().min(0).default(3),
-  }),
-
-
-  // Agent-to-agent invocation (virtual `agent` channel).
-  //   callTimeoutMs: maximum wall-clock duration of a single sub-agent call.
-  //     On timeout the synthesised tool returns an error string to the caller.
-  agent: z.object({
-    callTimeoutMs: z.coerce.number().int().positive().default(60000),
-  }),
-
-  // Activity stream (SSE) resource limits.
-  //   maxConnections:    global cap on concurrent SSE subscribers (across all users).
-  //   maxPerUser:        per-authenticated-user cap on concurrent SSE subscribers.
-  // Excess connections are rejected with HTTP 503 + Retry-After.
-  activityStream: z.object({
-    maxConnections: z.coerce.number().int().positive().default(50),
-    maxPerUser: z.coerce.number().int().positive().default(5),
-  }),
-
-  // Knowledge ingestion resource limits.
-  //   maxDocsPerInstance: hard cap on the number of knowledge documents an
-  //     instance may hold. Uploads beyond the cap are rejected with 400.
-  knowledge: z.object({
-    maxDocsPerInstance: z.coerce.number().int().positive().default(500),
-  }),
-
-  // Analytics retention. Daily housekeeping deletes rows older than
-  // `retentionDays` from `ai_logs` and `pipeline_traces` so the tables don't
-  // grow unboundedly. Default 90 days.
-  analytics: z.object({
-    retentionDays: z.coerce.number().int().positive().default(90),
-  }),
-
-  // Scheduler crash-safety.
-  //
-  //   orphanGraceMs: on startup, rows left in `last_run_status='running'` whose
-  //     `updated_at` is OLDER than this are assumed to belong to a process that is gone
-  //     and are recovered. Rows younger than it are left alone — during a rolling deploy
-  //     the previous process may still be legitimately running them, and stealing a live
-  //     run means executing it twice. Default 15 min: comfortably longer than a normal
-  //     deploy overlap.
-  //   defaultMaxRunMs: per-run deadline when a task declares no `max_run_ms`. Past it,
-  //     the reaper marks the run failed so the row stops blocking the task forever.
-  //     Deliberately generous (30 min): reaping a run that is still alive is the worse
-  //     failure of the two — the row would be re-armed while the old execution keeps
-  //     going — whereas a late reap only prolongs a silence that is already bounded.
-  scheduler: z.object({
-    orphanGraceMs: z.coerce.number().int().positive().default(15 * 60_000),
-    defaultMaxRunMs: z.coerce.number().int().positive().default(30 * 60_000),
-  }),
-
   // Plugin roots. `dirs` are absolute paths (from PLUGIN_DIRS, comma-separated)
   // the tool loader scans for external plugins in addition to the convention
   // dir (src/plugins/*). Primarily local dev / explicit override.
   plugins: z.object({
     dirs: z.array(z.string()).default([]),
-  }),
-
-  // External MCP (Model Context Protocol) client servers (instance-configured,
-  // consumed via @ai-sdk/mcp).
-  //   connectTimeoutMs: bounds the per-server createMCPClient()+tools() round
-  //     trip so one hung/slow server can't stall every turn. On expiry the
-  //     server is treated exactly like a dead server (log warn + skip).
-  mcp: z.object({
-    connectTimeoutMs: z.coerce.number().int().positive().default(10000),
   }),
 }));
 
@@ -312,25 +236,16 @@ function loadConfig(): Config {
       databaseUrl: buildDatabaseUrl(),
       ssl: process.env.POSTGRES_SSL,
     },
-    memory: {
-      dedupSimilarityThreshold: process.env.DEDUP_SIMILARITY_THRESHOLD,
-    },
     server: {
       port: process.env.API_PORT,
       baseUrl: process.env.BASE_URL,
       trustProxy: process.env.TRUST_PROXY,
       throttle: {
         enabled: process.env.THROTTLE_ENABLED,
-        ttlMs: process.env.THROTTLE_TTL_MS,
-        limit: process.env.THROTTLE_LIMIT,
       },
     },
     encryption: {
       key: process.env.ENCRYPTION_KEY,
-    },
-    datetime: {
-      timezone: process.env.DATETIME_TIMEZONE,
-      locale: process.env.DATETIME_LOCALE,
     },
     auth: {
       secret: process.env.AUTH_SECRET,
@@ -340,28 +255,6 @@ function loadConfig(): Config {
       email: process.env.INITIAL_ADMIN_EMAIL,
       password: process.env.INITIAL_ADMIN_PASSWORD,
     },
-    coordinator: {
-      softDebounceMs: process.env.MESSAGE_SOFT_DEBOUNCE_MS,
-      typingDelayMs: process.env.MESSAGE_TYPING_DELAY_MS,
-      maxRestarts: process.env.MESSAGE_MAX_RESTARTS,
-    },
-    agent: {
-      callTimeoutMs: process.env.AGENT_CALL_TIMEOUT_MS,
-    },
-    activityStream: {
-      maxConnections: process.env.SSE_MAX_CONNECTIONS,
-      maxPerUser: process.env.SSE_MAX_CONNECTIONS_PER_USER,
-    },
-    knowledge: {
-      maxDocsPerInstance: process.env.KNOWLEDGE_MAX_DOCS_PER_INSTANCE,
-    },
-    analytics: {
-      retentionDays: process.env.ANALYTICS_RETENTION_DAYS,
-    },
-    scheduler: {
-      orphanGraceMs: process.env.SCHEDULER_ORPHAN_GRACE_MS,
-      defaultMaxRunMs: process.env.SCHEDULER_DEFAULT_MAX_RUN_MS,
-    },
     plugins: {
       // CONVENTION-EXCEPTION: PLUGIN_DIRS is parsed here (split + trim) into the
       // Zod schema; the raw comma-separated string never leaks past config.
@@ -369,9 +262,6 @@ function loadConfig(): Config {
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s.length > 0),
-    },
-    mcp: {
-      connectTimeoutMs: process.env.MCP_CONNECT_TIMEOUT_MS,
     },
   });
 

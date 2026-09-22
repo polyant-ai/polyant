@@ -4,7 +4,7 @@ import { eq, desc, sql, gt, and, ilike, isNotNull, count as drizzleCount } from 
 import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db, type DbExecutor } from "../database/client.js";
 import { memories } from "./schema.js";
-import { config } from "../config.js";
+import { DEFAULT_DEDUP_SIMILARITY_THRESHOLD } from "../instances/agent-settings.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 import type { EmbeddingDim, EmbeddingProvider } from "../embeddings-gateway/types.js";
 import { vectorColumnValues } from "../embeddings-gateway/dim-columns.js";
@@ -65,9 +65,6 @@ function activeEmbeddingColumn(dim: EmbeddingDim) {
 }
 
 // ---- Constants ----
-
-/** The deployment default, for an input that names no threshold of its own. */
-const DEFAULT_DEDUP_SIMILARITY_THRESHOLD = config.memory.dedupSimilarityThreshold;
 
 // ---- Store functions ----
 

@@ -20,11 +20,18 @@ const { getStoredPlatformSettings, resolvePlatformSettings, updatePlatformSettin
   updatePlatformSettings: vi.fn(),
 }));
 
-vi.mock("../../platform/platform-settings.store.js", () => ({
-  getStoredPlatformSettings,
-  resolvePlatformSettings,
-  updatePlatformSettings,
-}));
+vi.mock("../../platform/platform-settings.store.js", async (importOriginal) => {
+  // The store is mocked, but `PLATFORM_SETTING_NUMBERS` is not a dependency —
+  // it is the list of fields the route validates, and a stand-in list would let
+  // this suite pass while the route ignored half the body.
+  const actual = await importOriginal<typeof import("../../platform/platform-settings.store.js")>();
+  return {
+    PLATFORM_SETTING_NUMBERS: actual.PLATFORM_SETTING_NUMBERS,
+    getStoredPlatformSettings,
+    resolvePlatformSettings,
+    updatePlatformSettings,
+  };
+});
 // The audit row is not the subject here and would need a database.
 vi.mock("../../management-audit/management-audit-logger.js", () => ({
   createManagementAuditLogger: () => ({ log: vi.fn() }),
@@ -82,5 +89,51 @@ describe("PATCH /api/platform/settings with no usable body", () => {
 
     expect(res.status).toBe(200);
     expect(updatePlatformSettings).toHaveBeenCalledWith({ analyticsRetentionDays: 30 }, undefined);
+  });
+});
+
+/**
+ * The public address is the one policy that is not a number, and the one whose
+ * wrong value is silent: a trailing slash yields `//webhooks`, a path yields a
+ * redirect URI no provider will match, and nothing complains until a webhook
+ * stops arriving. So the route reduces what it accepts to an origin.
+ */
+describe("PATCH /api/platform/settings — the public address", () => {
+  const patch = async (baseUrlValue: unknown) =>
+    fetch(`${baseUrl}/api/platform/settings`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: baseUrlValue }),
+    });
+
+  it("stores an origin and drops a trailing slash", async () => {
+    const res = await patch("https://engine.example.com/");
+
+    expect(res.status).toBe(200);
+    expect(updatePlatformSettings).toHaveBeenCalledWith(
+      { baseUrl: "https://engine.example.com" },
+      undefined,
+    );
+  });
+
+  it.each([
+    ["a path", "https://engine.example.com/api"],
+    ["a query", "https://engine.example.com/?a=1"],
+    ["a scheme that is not http(s)", "ftp://engine.example.com"],
+    ["something that is not a URL at all", "engine.example.com"],
+  ])("refuses %s", async (_label, value) => {
+    const res = await patch(value);
+
+    expect(res.status).toBe(400);
+    expect(updatePlatformSettings).not.toHaveBeenCalled();
+  });
+
+  it("reads an empty string as clearing it back to BASE_URL", async () => {
+    // An emptied field in the panel arrives as "", and the operator means the
+    // same thing by it as by null: stop overriding the deployment.
+    const res = await patch("");
+
+    expect(res.status).toBe(200);
+    expect(updatePlatformSettings).toHaveBeenCalledWith({ baseUrl: null }, undefined);
   });
 });
