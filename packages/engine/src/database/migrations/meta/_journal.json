@@ -533,6 +533,13 @@
       "when": 1790035200000,
       "tag": "0082_platform_settings_expand",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1790121600000,
+      "tag": "0083_agent_capability_defaults",
+      "breakpoints": true
     }
   ]
 }

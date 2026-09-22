@@ -91,6 +91,8 @@ describe.skipIf(!DB_AVAILABLE)("createInstanceWithDefaults (integration)", () =>
     });
 
     expect(instance.slug).toBe(slug);
+    expect(instance.memoryEnabled).toBe(false);
+    expect(instance.sttProvider).toBe("disabled");
 
     const toolRows = await queryClient<{ name: string }[]>`
       SELECT t.name FROM instance_tools it

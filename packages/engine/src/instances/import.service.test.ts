@@ -130,4 +130,20 @@ describe("importNewInstance — tenancy", () => {
     // Fail closed: no agent row is written to any fallback workspace.
     expect(mockDb.insert).not.toHaveBeenCalled();
   });
+
+  it("preserves explicit capability values from an imported bundle", async () => {
+    const bundle = makeBundle();
+    bundle.instance.memoryEnabled = true;
+    (bundle.instance as Record<string, unknown>).sttProvider = "deepgram";
+    mockResolveWorkspaceIdForPrincipal.mockResolvedValue("ws-org-b");
+    const insertChain = createChainMock([{ id: "new-uuid" }]);
+    mockDb.insert.mockReturnValue(insertChain as never);
+
+    await importNewInstance(bundle, "org-b");
+
+    expect(insertedValues(insertChain)).toMatchObject({
+      memoryEnabled: true,
+      sttProvider: "deepgram",
+    });
+  });
 });
