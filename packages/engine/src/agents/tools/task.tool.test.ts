@@ -13,7 +13,7 @@ vi.mock("@/utils/pipeline-logger.js", () => ({
   },
 }));
 
-import { createTaskTool } from "./task-tool.js";
+import { createTaskTool } from "./task.tool.js";
 import { chat } from "../../ai-gateway/index.js";
 
 const mockChat = vi.mocked(chat);

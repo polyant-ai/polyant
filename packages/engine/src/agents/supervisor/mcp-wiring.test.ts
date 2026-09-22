@@ -52,7 +52,7 @@ vi.mock("../tools/registry.js", async (importOriginal) => ({
   toModelToolName: (name: string) => name.replace(/:/g, "__"),
 }));
 
-vi.mock("../tools/task-tool.js", () => ({
+vi.mock("../tools/task.tool.js", () => ({
   createTaskTool: mockCreateTaskTool,
 }));
 
