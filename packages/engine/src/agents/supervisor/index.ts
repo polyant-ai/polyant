@@ -17,7 +17,7 @@ import { artifactApiFor } from "../tools/artifact-store.js";
 import type { Attachment } from "../../channels/types.js";
 import { createAuditLogger } from "../../audit/audit-logger.js";
 import { auditStore } from "../../audit/audit.store.js";
-import { createTaskTool } from "../tools/task-tool.js";
+import { createTaskTool } from "../tools/task.tool.js";
 import { buildSupervisorSystemPrompt } from "./prompt.js";
 import { pipelineLog } from "../../utils/pipeline-logger.js";
 import { serializeForLog } from "../../utils/serialize-for-log.js";
