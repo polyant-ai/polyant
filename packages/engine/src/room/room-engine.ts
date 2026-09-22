@@ -17,9 +17,10 @@ import { setRoomConversationId } from "./room.store.js";
 import { generateConversationTitle } from "../utils/title-generator.js";
 import { makeDelimiter, scrubClosing } from "../utils/untrusted-text.js";
 import { roomLog } from "./room-logger.js";
-import { eventDefinitions } from "../webhooks/webhooks.schema.js";
+import { projectEventPayload } from "./payload-projection.js";
+import { eventDefinitions, eventSources } from "../webhooks/webhooks.schema.js";
 import { db } from "../database/client.js";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
 function estimateTokens(text: string): number {
@@ -66,13 +67,34 @@ export async function executeRoomCycle(
   // Gather interpretation prompts for the pending events' definitions
   const definitionIds = [...new Set(pendingEvents.map((e) => e.eventDefinitionId))];
   let definitionPrompts: Array<{ name: string; interpretationPrompt: string }> = [];
+  // Source type per definition: it decides how the payload is rendered below.
+  const sourceTypeByDefinition = new Map<string, string>();
   if (definitionIds.length > 0) {
     const defs = await db
-      .select({ name: eventDefinitions.name, interpretationPrompt: eventDefinitions.interpretationPrompt })
+      .select({
+        id: eventDefinitions.id,
+        name: eventDefinitions.name,
+        interpretationPrompt: eventDefinitions.interpretationPrompt,
+        sourceType: eventSources.sourceType,
+      })
       .from(eventDefinitions)
+      .innerJoin(eventSources, eq(eventDefinitions.eventSourceId, eventSources.id))
       .where(inArray(eventDefinitions.id, definitionIds));
-    definitionPrompts = defs;
+    definitionPrompts = defs.map((d) => ({ name: d.name, interpretationPrompt: d.interpretationPrompt }));
+    for (const d of defs) {
+      if (d.sourceType) sourceTypeByDefinition.set(d.id, d.sourceType);
+    }
   }
+
+  // Render-time projection: the model sees the payload without the API URL
+  // templates and node ids no interpretation prompt can act on. The raw payload
+  // in `event_backlog` is untouched.
+  const renderedPayloads = new Map<string, string>(
+    pendingEvents.map((e) => [
+      e.id,
+      JSON.stringify(projectEventPayload(sourceTypeByDefinition.get(e.eventDefinitionId), e.rawPayload)),
+    ]),
+  );
 
   // Get conversation history
   const history = await conversationStore.getRecentMessages(conversationId, 50);
@@ -80,7 +102,7 @@ export async function executeRoomCycle(
   // Build context usage estimate. `room.prompt` is counted here because it is
   // sent as a system section (see `roomPrompt` on the supervise() call below).
   const contextParts = [room.prompt, ...definitionPrompts.map((d) => d.interpretationPrompt)];
-  const eventsText = pendingEvents.map((e) => JSON.stringify(e.rawPayload)).join("\n");
+  const eventsText = pendingEvents.map((e) => renderedPayloads.get(e.id) ?? "").join("\n");
   const historyText = history.map((m) => String(m.content)).join("\n");
   const totalEstimate = estimateTokens([...contextParts, eventsText, historyText].join("\n"));
   const maxTokens = 128_000;
@@ -101,7 +123,7 @@ export async function executeRoomCycle(
     parts.push(`## Pending Events (${pendingEvents.length})`);
     for (const evt of pendingEvents) {
       parts.push(`- Event ID: ${evt.id}`);
-      const payloadJson = scrubClosing(JSON.stringify(evt.rawPayload), payloadTag.close);
+      const payloadJson = scrubClosing(renderedPayloads.get(evt.id) ?? "{}", payloadTag.close);
       parts.push(`  Payload: ${payloadTag.open}${payloadJson}${payloadTag.close}`);
       parts.push(`  Received: ${evt.matchedAt?.toISOString() ?? evt.createdAt?.toISOString()}`);
     }

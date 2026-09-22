@@ -71,10 +71,16 @@ vi.mock("../webhooks/webhooks.schema.js", () => ({
     name: "name",
     interpretationPrompt: "interpretation_prompt",
     id: "id",
+    eventSourceId: "event_source_id",
+  },
+  eventSources: {
+    id: "id",
+    sourceType: "source_type",
   },
 }));
 vi.mock("drizzle-orm", () => ({
   inArray: vi.fn((...args: unknown[]) => ({ type: "inArray", args })),
+  eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
 }));
 vi.mock("../config.js", () => ({
   config: {
@@ -357,6 +363,46 @@ describe("executeRoomCycle", () => {
       expect(message).toContain("Event ID: evt-2");
       expect(message).toContain('"orderId":123');
       expect(message).toContain('"orderId":456');
+    });
+
+    it("renders a GitHub payload without its API URL templates", async () => {
+      // The synthetic message is the user turn, so it is re-sent on every step —
+      // whatever noise it carries is paid for 7-11 times per cycle (#381).
+      const rawPayload = {
+        action: "opened",
+        issue: { number: 7, title: "Broken link", html_url: "https://github.com/acme/app/issues/7" },
+        sender: { login: "octocat", node_id: "MDQ6", followers_url: "https://api.github.com/users/octocat/followers" },
+      };
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload, matchedAt: new Date("2026-03-30"), createdAt: new Date("2026-03-30") },
+      ]);
+      mockDb.select.mockReturnValue(createChainMock([
+        { id: "def-1", name: "Issues", interpretationPrompt: "Triage it", sourceType: "github" },
+      ]) as any);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
+
+      const message = mockSupervise.mock.calls[0][0].message as string;
+      expect(message).toContain('"login":"octocat"');
+      expect(message).toContain('"title":"Broken link"');
+      expect(message).toContain("https://github.com/acme/app/issues/7");
+      expect(message).not.toContain("followers_url");
+      expect(message).not.toContain("node_id");
+    });
+
+    it("renders an unknown source type's payload unchanged", async () => {
+      const rawPayload = { objectId: 42, portal_url: "https://app.hubspot.com/x" };
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload, matchedAt: new Date("2026-03-30"), createdAt: new Date("2026-03-30") },
+      ]);
+      mockDb.select.mockReturnValue(createChainMock([
+        { id: "def-1", name: "Deals", interpretationPrompt: "Handle it", sourceType: "hubspot" },
+      ]) as any);
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
+
+      const message = mockSupervise.mock.calls[0][0].message as string;
+      expect(message).toContain("portal_url");
     });
 
     it("should include event handling instructions from definitions", async () => {
