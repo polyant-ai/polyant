@@ -88,6 +88,8 @@ export interface SupervisorInput {
   attachments?: Attachment[];
   /** Additional context prompt from webhook triggers. Injected as system prompt section. */
   contextPrompt?: string;
+  /** The Room's mandate (`instance_room.prompt`). Injected as a system prompt section on Room cycles. */
+  roomPrompt?: string;
   /**
    * Identity of the counterpart this conversation is with. When provided, a
    * `## Current channel` section is injected into the system prompt so the
@@ -574,6 +576,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
       memoryEnabled: input.memoryEnabled,
       conversationSummary: input.conversationSummary,
       contextPrompt: input.contextPrompt,
+      roomPrompt: input.roomPrompt,
       channelIdentity: input.channelIdentity,
       conversationState: input.stateInPromptEnabled ? input.stateBuffer?.snapshot() : undefined,
       datetimeInjectionEnabled: input.datetimeInjectionEnabled,

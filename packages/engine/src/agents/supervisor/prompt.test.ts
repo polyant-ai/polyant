@@ -84,6 +84,7 @@ function buildPrompt(overrides?: {
   memoryEnabled?: boolean;
   conversationSummary?: string;
   contextPrompt?: string;
+  roomPrompt?: string;
   datetimeInjectionEnabled?: boolean;
   optoutHint?: { stopKeywords: string[]; resumeKeywords: string[] };
   conversationState?: Record<string, unknown>;
@@ -315,6 +316,20 @@ describe("buildSupervisorSystemPrompt", () => {
     expect(system).toContain("## Conversation Context");
     expect(system).toContain("order #42 shipped");
     expect(turnContext).not.toContain("Conversation Context");
+  });
+
+  it("puts the room mandate in the cacheable system prefix", async () => {
+    const { system, turnContext } = await buildPrompt({
+      roomPrompt: "Check the backlog for a duplicate before opening anything.",
+    });
+    expect(system).toContain("## Room Mandate");
+    expect(system).toContain("Check the backlog for a duplicate before opening anything.");
+    expect(turnContext).not.toContain("Room Mandate");
+  });
+
+  it("omits the room mandate section when no room prompt is configured", async () => {
+    const { system } = await buildPrompt();
+    expect(system).not.toContain("Room Mandate");
   });
 
   it("keeps the right separator count when a section is missing from DB", async () => {

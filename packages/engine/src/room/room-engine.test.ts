@@ -437,6 +437,36 @@ describe("executeRoomCycle", () => {
       );
     });
 
+    it("delivers the room prompt to the supervisor as a system section", async () => {
+      // Regression: the room prompt reached only the token estimate, so an
+      // operator's saved mandate was never sent to the model (#380).
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
+      ]);
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      await executeRoomCycle(makeRoom({ prompt: "Check for duplicates before acting." }), asInstanceSlug("test-slug"));
+
+      expect(mockSupervise).toHaveBeenCalledWith(
+        expect.objectContaining({ roomPrompt: "Check for duplicates before acting." }),
+      );
+    });
+
+    it("omits the room prompt when the room has none", async () => {
+      mockListAndMarkPendingEvents.mockResolvedValue([
+        { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
+      ]);
+      const selChain = createChainMock([]);
+      mockDb.select.mockReturnValue(selChain as any);
+
+      await executeRoomCycle(makeRoom({ prompt: "" }), asInstanceSlug("test-slug"));
+
+      expect(mockSupervise).toHaveBeenCalledWith(
+        expect.objectContaining({ roomPrompt: undefined }),
+      );
+    });
+
     it("should pass memoryEnabled from instance config", async () => {
       mockResolveInstanceConfig.mockResolvedValue({ ...INSTANCE_CONFIG, memoryEnabled: true });
       mockListAndMarkPendingEvents.mockResolvedValue([

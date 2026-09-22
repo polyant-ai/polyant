@@ -72,7 +72,8 @@ export async function executeRoomCycle(
   // Get conversation history
   const history = await conversationStore.getRecentMessages(conversationId, 50);
 
-  // Build context usage estimate
+  // Build context usage estimate. `room.prompt` is counted here because it is
+  // sent as a system section (see `roomPrompt` on the supervise() call below).
   const contextParts = [room.prompt, ...definitionPrompts.map((d) => d.interpretationPrompt)];
   const eventsText = pendingEvents.map((e) => JSON.stringify(e.rawPayload)).join("\n");
   const historyText = history.map((m) => String(m.content)).join("\n");
@@ -188,6 +189,10 @@ export async function executeRoomCycle(
         datetimeInjectionEnabled: instanceConfig.datetimeInjectionEnabled,
         datetime: instanceConfig.datetime,
         cacheConfig: instanceConfig.cacheConfig,
+        // The Room mandate the operator edits in the panel. It used to reach
+        // only the token estimate below, so a saved prompt looked delivered and
+        // was not (#380).
+        roomPrompt: room.prompt || undefined,
         includeHarness: new Set(["room"]),
         stateBuffer,
         // Room mints a FRESH conversationId every cycle — no stable per-turn
