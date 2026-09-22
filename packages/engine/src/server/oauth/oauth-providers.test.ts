@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { createHash } from "crypto";
 import {
   buildAuthorizeUrl,
@@ -14,6 +14,12 @@ import {
   type OAuthProvider,
 } from "./oauth-providers.js";
 import { oauthRequiredSecrets } from "../../agents/tools/oauth-access.js";
+
+// The platform policies are a row; this suite has no database. The values are
+// the shipped defaults, so the assertions read the same as before they moved.
+vi.mock("../../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: async () => ({ baseUrl: "http://localhost:4000" }),
+}));
 
 const GH: OAuthProvider = {
   name: "github",
@@ -66,16 +72,16 @@ describe("oauth broker authorize URL", () => {
     registerOAuthProvider(GOOGLE);
   });
 
-  it("should_carry_the_state_nonce_and_a_provider_scoped_callback", () => {
-    const url = new URL(buildAuthorizeUrl(getOAuthProvider("github")!, "nonce-abc", "cid-123"));
+  it("should_carry_the_state_nonce_and_a_provider_scoped_callback", async () => {
+    const url = new URL(await buildAuthorizeUrl(getOAuthProvider("github")!, "nonce-abc", "cid-123"));
     expect(url.searchParams.get("state")).toBe("nonce-abc");
     expect(url.searchParams.get("client_id")).toBe("cid-123");
     expect(url.searchParams.get("redirect_uri")).toMatch(/\/oauth\/github\/callback$/);
     expect(url.searchParams.get("code_challenge")).toBeNull();
   });
 
-  it("should_add_pkce_params_when_a_challenge_is_provided", () => {
-    const url = new URL(buildAuthorizeUrl(getOAuthProvider("google")!, "n", "cid", "chal-xyz"));
+  it("should_add_pkce_params_when_a_challenge_is_provided", async () => {
+    const url = new URL(await buildAuthorizeUrl(getOAuthProvider("google")!, "n", "cid", "chal-xyz"));
     expect(url.searchParams.get("code_challenge")).toBe("chal-xyz");
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
   });
@@ -85,8 +91,8 @@ describe("oauth broker authorize URL", () => {
     expect(challenge).toBe(createHash("sha256").update(verifier).digest("base64url"));
   });
 
-  it("should_apply_google_offline_access_params", () => {
-    const url = new URL(buildAuthorizeUrl(getOAuthProvider("google")!, "c:1", "cid"));
+  it("should_apply_google_offline_access_params", async () => {
+    const url = new URL(await buildAuthorizeUrl(getOAuthProvider("google")!, "c:1", "cid"));
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("prompt")).toBe("consent");
   });

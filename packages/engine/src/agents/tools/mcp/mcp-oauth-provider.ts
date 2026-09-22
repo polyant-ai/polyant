@@ -8,7 +8,6 @@ import type {
   OAuthAuthorizationServerInformation,
 } from "@ai-sdk/mcp";
 import { generateToken } from "../../../crypto/index.js";
-import { config } from "../../../config.js";
 import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
 import { getPrincipalSecret, setPrincipalSecret } from "../../../conversations/principal-secrets.store.js";
 import { createOAuthState } from "../../../server/oauth/oauth-states.store.js";
@@ -16,9 +15,8 @@ import { mergeMcpServerConfig } from "../../../instances/mcp-servers.store.js";
 import type { McpServerConfig } from "../../../instances/mcp-servers.store.js";
 
 /** `<baseUrl>/mcp/oauth/callback` — the single redirect URI registered for every MCP server. */
-export function mcpRedirectUrl(): string {
-  const base = config.server.baseUrl;
-  return `${base.replace(/\/+$/, "")}/mcp/oauth/callback`;
+export function mcpRedirectUrl(baseUrl: string): string {
+  return `${baseUrl.replace(/\/+$/, "")}/mcp/oauth/callback`;
 }
 
 export interface McpOAuthProviderDeps {
@@ -34,6 +32,13 @@ export interface McpOAuthProviderDeps {
   conversationId: string;
   serverSlug: string;
   config: McpServerConfig;
+  /**
+   * The engine's public origin, resolved by the caller. Passed rather than read
+   * here because the SDK's `redirectUrl` is a plain getter: the value has to be
+   * in hand before the provider exists, and the caller is already awaiting the
+   * database.
+   */
+  baseUrl: string;
 }
 
 const tokensKey = (slug: string) => `mcp_${slug}_tokens`;
@@ -61,7 +66,7 @@ export class McpVaultOAuthProvider implements OAuthClientProvider {
   constructor(private readonly deps: McpOAuthProviderDeps) {}
 
   get redirectUrl(): string {
-    return mcpRedirectUrl();
+    return mcpRedirectUrl(this.deps.baseUrl);
   }
 
   get clientMetadata(): OAuthClientMetadata {

@@ -25,6 +25,26 @@ your environment — a value left there is read by nothing.
 If you deploy with the CDK stack, drop `defaultInstanceId` and `locale` from the
 `app` block of your `config.yaml`; `timezone` stays and is passed as `TZ`.
 
+### Operational limits move to Settings → General
+
+Seven more variables become rows an administrator edits, with the defaults they
+had: `SSE_MAX_CONNECTIONS` (50), `THROTTLE_TTL_MS` (60000), `THROTTLE_LIMIT`
+(30), `AGENT_CALL_TIMEOUT_MS` (60000), `MCP_CONNECT_TIMEOUT_MS` (10000),
+`SCHEDULER_ORPHAN_GRACE_MS` (900000) and `SCHEDULER_DEFAULT_MAX_RUN_MS`
+(1800000). If your deployment set any of them to something other than the
+default, set the same number in Settings → General before removing the variable —
+otherwise the upgrade quietly restores the default.
+
+`THROTTLE_ENABLED` stays an environment variable and keeps its meaning.
+
+### The engine's public address
+
+`BASE_URL` is still read, and still the value a fresh installation boots with.
+What is new is that Settings → General can hold a public address, and that one
+wins where it is set — so an engine that is announcing the wrong webhook URLs is
+now a form to correct rather than a redeploy. Nothing to do on upgrade: with no
+address stored, `BASE_URL` is what every URL is built from, exactly as before.
+
 ## Upgrading from 1.1.1 to 1.2.0
 
 ### Install and re-enable extracted tools
@@ -86,8 +106,10 @@ installation whose only administrator is locked out — on a non-empty database 
 seeder sets a password on a **password-less** account and promotes it, and never
 overwrites one that already exists.
 
-`BASE_URL` is unchanged, but it is now resolved once: unset still means
-`http://localhost:<API_PORT>`, decided in `config.ts` instead of by each caller.
+`BASE_URL` is unchanged in this release, but it is now resolved once: unset still
+means `http://localhost:<API_PORT>`, decided in `config.ts` instead of by each
+caller. (From the next release a stored platform setting can override it — see
+above.)
 
 ## Upgrading from 1.0.0 to 1.1.0
 

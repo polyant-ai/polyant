@@ -46,6 +46,12 @@ vi.mock("../../management-audit/management-audit-logger.js", async () => {
 
 import { InstanceChannelsController } from "./instance-channels.controller.js";
 
+// The platform policies are a row; this suite has no database. The values are
+// the shipped defaults, so the assertions read the same as before they moved.
+vi.mock("../../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: async () => ({ baseUrl: "http://localhost:4000" }),
+}));
+
 const ACCOUNT_SID = "AC00000000000000000000000000000001";
 const API_KEY_SID = "SK00000000000000000000000000000002";
 const USER = { id: "u1", email: "admin@example.com" } as never;

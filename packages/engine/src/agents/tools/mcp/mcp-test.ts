@@ -3,7 +3,7 @@
 import { UnauthorizedError } from "@ai-sdk/mcp";
 import { connectWithTimeout } from "./mcp-connect.js";
 import { assertSafeMcpUrlResolved } from "./mcp-url-guard.js";
-import { config } from "../../../config.js";
+import { resolvePlatformSettings } from "../../../platform/platform-settings.store.js";
 import type { McpAuthMode } from "../../../instances/mcp-servers.store.js";
 
 export interface McpTestOptions {
@@ -38,7 +38,7 @@ export async function testMcpConnection(opts: McpTestOptions): Promise<McpTestRe
     // the client on the timeout and error paths.
     const { client, toolSet } = await connectWithTimeout(
       { type: "http", url: opts.url, headers },
-      config.mcp.connectTimeoutMs,
+      (await resolvePlatformSettings()).mcpConnectTimeoutMs,
     );
     try {
       return { ok: true, tools: Object.keys(toolSet) };

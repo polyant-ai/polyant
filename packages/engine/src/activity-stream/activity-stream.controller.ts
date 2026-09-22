@@ -25,7 +25,6 @@ import { SkipThrottle } from "@nestjs/throttler";
 import type { Request, Response } from "express";
 import { activityBus } from "./activity-bus.js";
 import type { FeedEvent } from "./activity-stream.types.js";
-import { config } from "../config.js";
 import { CurrentUser } from "../auth/index.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { RequirePermission, Permission } from "../authz/index.js";
@@ -87,12 +86,10 @@ export class ActivityStreamController {
     @CurrentUser() user: AuthenticatedUser | undefined,
     @Query("instance") instance?: string,
   ): Promise<void> {
-    // The global cap protects the PROCESS and stays deployment configuration.
-    // The per-user cap is the installation's policy, so it is resolved from
-    // `platform_settings` — a read per connect, which is rare, behind a short
-    // cache in the store.
-    const maxConnections = config.activityStream.maxConnections;
-    const { sseMaxConnectionsPerUser: maxPerUser } = await resolvePlatformSettings();
+    // Both caps are the installation's policy, resolved from `platform_settings`
+    // — one read per connect, which is rare, behind a short cache in the store.
+    const { sseMaxConnections: maxConnections, sseMaxConnectionsPerUser: maxPerUser } =
+      await resolvePlatformSettings();
 
     // Global cap.
     if (activeConnections >= maxConnections) {

@@ -14,7 +14,34 @@ import {
   getStoredPlatformSettings,
   resolvePlatformSettings,
   updatePlatformSettings,
+  PLATFORM_SETTING_NUMBERS,
+  type PlatformSettingNumber,
+  type StoredPlatformSettings,
 } from "../../platform/platform-settings.store.js";
+
+/**
+ * An ORIGIN, and nothing else: everything built from `baseUrl` appends its own
+ * path, so a trailing slash yields `//webhooks` and a path segment yields a
+ * redirect URI no provider will match. An empty string is read as "clear it",
+ * because that is what an emptied field in the panel means.
+ */
+function normalizeBaseUrl(raw: string | null): string | null {
+  const trimmed = raw?.trim() ?? "";
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new BadRequestException("baseUrl must be an absolute http(s) URL, or null to clear it");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new BadRequestException("baseUrl must be an absolute http(s) URL, or null to clear it");
+  }
+  if (parsed.search || parsed.hash || (parsed.pathname && parsed.pathname !== "/")) {
+    throw new BadRequestException("baseUrl must be an origin, with no path, query or fragment");
+  }
+  return parsed.origin;
+}
 
 /**
  * The installation's own policies, which had no surface because they had no
@@ -49,29 +76,27 @@ export class PlatformSettingsController {
   @Patch()
   async update(
     @Body()
-    body:
-      | {
-          analyticsRetentionDays?: number | null;
-          sseMaxConnectionsPerUser?: number | null;
-        }
-      | undefined,
+    body: (Partial<Record<PlatformSettingNumber, number | null>> & { baseUrl?: string | null }) | undefined,
     @CurrentUser() actor?: AuthenticatedUser,
   ) {
     // `@Body()` is UNDEFINED, not `{}`, for a request that sends no body and no
     // `content-type` — an Express 5 change. Indexing it then threw a TypeError
     // and answered 500 where the route's own next line answers 400.
     const fields = body ?? {};
-    const patch: { analyticsRetentionDays?: number | null; sseMaxConnectionsPerUser?: number | null } = {};
-    for (const field of ["analyticsRetentionDays", "sseMaxConnectionsPerUser"] as const) {
+    const patch: { -readonly [K in keyof StoredPlatformSettings]?: StoredPlatformSettings[K] } = {};
+    for (const field of PLATFORM_SETTING_NUMBERS) {
       const value = fields[field];
       if (value === undefined) continue;
-      // `null` CLEARS the policy back to the deployment default, which is why
-      // these are nullable and not merely optional: omitting a field leaves it
-      // alone, and sending null is a decision.
+      // `null` CLEARS the policy back to the shipped default, which is why these
+      // are nullable and not merely optional: omitting a field leaves it alone,
+      // and sending null is a decision.
       if (value !== null && (!Number.isInteger(value) || value <= 0)) {
         throw new BadRequestException(`${field} must be a positive integer, or null to clear it`);
       }
       patch[field] = value;
+    }
+    if (fields.baseUrl !== undefined) {
+      patch.baseUrl = normalizeBaseUrl(fields.baseUrl);
     }
     if (Object.keys(patch).length === 0) {
       throw new BadRequestException("No settings to update");

@@ -60,7 +60,7 @@ export class EventSourcesController {
     const result = await createEventSource(instanceId, parsed.data);
     return {
       ...result,
-      webhookUrl: buildWebhookUrl(result.webhookToken),
+      webhookUrl: await buildWebhookUrl(result.webhookToken),
     };
   }
 
@@ -117,7 +117,7 @@ export class EventSourcesController {
     const newToken = await rotateWebhookToken(id, instanceId);
     return {
       webhookToken: newToken,
-      webhookUrl: buildWebhookUrl(newToken),
+      webhookUrl: await buildWebhookUrl(newToken),
     };
   }
 
@@ -141,7 +141,7 @@ export class EventSourcesController {
     const token = await getEventSourceWebhookToken(id, instanceId);
     if (!token) throw new NotFoundException("Event source not found");
 
-    return { webhookUrl: buildWebhookUrl(token) };
+    return { webhookUrl: await buildWebhookUrl(token) };
   }
 
   @RequirePermission(Permission.ROOM_READ)

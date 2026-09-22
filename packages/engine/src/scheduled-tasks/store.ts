@@ -26,7 +26,7 @@ export interface CreateTaskInput {
    * which the cron can tick.
    */
   enabled?: boolean;
-  /** Per-run deadline in ms; null/undefined → config.scheduler.defaultMaxRunMs. */
+  /** Per-run deadline in ms; null/undefined → the platform's default deadline. */
   maxRunMs?: number | null;
 }
 

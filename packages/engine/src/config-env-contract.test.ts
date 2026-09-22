@@ -112,7 +112,7 @@ describe("configuration environment contract", () => {
   });
 
   /**
-   * Ten variables that answered a question the product now answers. Each one had
+   * Variables that answered a question the product now answers. Each one had
    * become the second place the same value could come from — the first being a
    * column an administrator edits — and the second place was reachable only by
    * redeploying, which is what made it worth deleting rather than keeping as a
@@ -120,9 +120,15 @@ describe("configuration environment contract", () => {
    *
    * `PDF_CONCURRENCY` is in the list for a different reason: the tool that read
    * it is a plugin now, and the plugin reads it itself.
+   *
+   * `BASE_URL` and `THROTTLE_ENABLED` are deliberately NOT here. The first is
+   * what the engine boots with before anyone has opened the panel; the second
+   * turns the limiter off, which an administrator locked out by it cannot do
+   * from inside the product.
    */
   it("keeps the retired variables deleted, in code and in the sample", () => {
     const retired = [
+      "AGENT_CALL_TIMEOUT_MS",
       "ANALYTICS_RETENTION_DAYS",
       "DATETIME_LOCALE",
       "DATETIME_TIMEZONE",
@@ -130,9 +136,15 @@ describe("configuration environment contract", () => {
       "KNOWLEDGE_MAX_DOCS_PER_INSTANCE",
       "MESSAGE_MAX_RESTARTS",
       "MESSAGE_SOFT_DEBOUNCE_MS",
+      "MCP_CONNECT_TIMEOUT_MS",
       "MESSAGE_TYPING_DELAY_MS",
       "PDF_CONCURRENCY",
+      "SCHEDULER_DEFAULT_MAX_RUN_MS",
+      "SCHEDULER_ORPHAN_GRACE_MS",
+      "SSE_MAX_CONNECTIONS",
       "SSE_MAX_CONNECTIONS_PER_USER",
+      "THROTTLE_LIMIT",
+      "THROTTLE_TTL_MS",
     ];
     const read = new Set(directEnvironmentNames(readFileSync(configPath, "utf8")));
     const documented = documentedEnvironmentNames(readFileSync(samplePath, "utf8"));

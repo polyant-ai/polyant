@@ -31,6 +31,12 @@ vi.mock("@ai-sdk/mcp", () => ({
 
 import { McpOAuthCallbackController } from "./mcp-oauth-callback.controller.js";
 
+// The platform policies are a row; this suite has no database. The values are
+// the shipped defaults, so the assertions read the same as before they moved.
+vi.mock("../../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: async () => ({ baseUrl: "http://localhost:4000" }),
+}));
+
 const PENDING = { conversationId: "c1", instanceId: "iid", provider: "mcp:gh", codeVerifier: null };
 const SERVER = { id: "srv-1", slug: "gh", name: "GitHub", url: "https://mcp.gh.test", authMode: "oauth" as const, enabled: true, config: {} };
 
@@ -121,6 +127,7 @@ describe("McpOAuthCallbackController.callback", () => {
     // by the instance SLUG, matching deleteInstance()'s slug-keyed cascade —
     // not the uuid consumed from the oauth_states row.
     expect(mockMakeMcpOAuthProvider).toHaveBeenCalledWith({
+      baseUrl: "http://localhost:4000",
       instanceUuid: "iid",
       instanceSlug: "my-instance",
       conversationId: "c1",

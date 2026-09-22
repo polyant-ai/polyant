@@ -46,7 +46,7 @@ export const scheduledTasks = pgTable(
     // --- Behavior ---
     /**
      * Deadline for a single run, in ms. NULL falls back to
-     * `config.scheduler.defaultMaxRunMs`.
+     * the platform's default deadline.
      *
      * The reaper uses it to tell a slow-but-alive run from a run whose process is gone:
      * without a deadline there is no way to distinguish them, and the row would stay

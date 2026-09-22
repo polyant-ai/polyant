@@ -41,6 +41,7 @@ import { OptoutsModule } from "./optouts/optouts.module.js";
 import { MembersModule } from "./members/members.module.js";
 import { OrganizationsModule } from "../organizations/organizations.module.js";
 import { throttleTracker } from "./throttle-tracker.js";
+import { resolvePlatformSettingsOrDefaults } from "../platform/platform-settings.store.js";
 import { PlatformSettingsController } from "./platform-settings/platform-settings.controller.js";
 
 @Module({
@@ -48,8 +49,14 @@ import { PlatformSettingsController } from "./platform-settings/platform-setting
     ThrottlerModule.forRoot({
       throttlers: [{
         name: "default",
-        ttl: config.server.throttle.ttlMs,
-        limit: config.server.throttle.limit,
+        // Resolved per request rather than at boot: both numbers are platform
+        // settings, so an administrator who widens the window while a client is
+        // hammering the API sees it take effect without a redeploy. The store's
+        // ten-second cache is what keeps this one cheap, and the
+        // `OrDefaults` reader is what keeps a database blip from turning every
+        // route into a 500.
+        ttl: async () => (await resolvePlatformSettingsOrDefaults()).throttleTtlMs,
+        limit: async () => (await resolvePlatformSettingsOrDefaults()).throttleLimit,
       }],
       // Bypass throttling entirely (global default + per-route @Throttle) when
       // disabled via THROTTLE_ENABLED=false — see config.ts server.throttle.

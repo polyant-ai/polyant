@@ -7,6 +7,7 @@ import { Public } from "../../auth/decorators/public.decorator.js";
 import { consumeOAuthState } from "./oauth-states.store.js";
 import { getMcpServer } from "../../instances/mcp-servers.store.js";
 import { makeMcpOAuthProvider } from "../../agents/tools/mcp/mcp-oauth-provider.js";
+import { resolvePlatformSettings } from "../../platform/platform-settings.store.js";
 import { asInstanceUuid } from "../../instances/identifiers.js";
 import { resolveInstanceSlug } from "../../instances/resolve-instance-id.js";
 import { errMsg } from "../../utils/error.js";
@@ -68,7 +69,8 @@ export class McpOAuthCallbackController {
     }
 
     try {
-      const provider = makeMcpOAuthProvider({ instanceUuid, instanceSlug, conversationId: pending.conversationId, serverSlug, config: server.config });
+      const { baseUrl } = await resolvePlatformSettings();
+      const provider = makeMcpOAuthProvider({ baseUrl, instanceUuid, instanceSlug, conversationId: pending.conversationId, serverSlug, config: server.config });
       // The oauth_states row is already consumed above; seed the provider's
       // storedState() with it so the SDK's own CSRF check (storedState ===
       // callbackState) passes.

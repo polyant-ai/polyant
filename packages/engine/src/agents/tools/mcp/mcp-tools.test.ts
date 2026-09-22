@@ -13,14 +13,19 @@ vi.mock("@ai-sdk/mcp", () => ({ createMCPClient, UnauthorizedError: FakeUnauthor
 const servers: any[] = [];
 vi.mock("../../../instances/mcp-servers.store.js", () => ({ listEnabledMcpServers: vi.fn(async () => servers) }));
 vi.mock("./mcp-oauth-provider.js", () => ({ makeMcpOAuthProvider: () => ({ pendingAuthorizeUrl: "https://gh.test/authorize" }) }));
-// Keep the real config (registry.ts, imported transitively via this module,
-// depends on it for postgres/etc.) but shrink the connect timeout so the
-// timeout-path tests below stay fast (not 0 — must stay clearly slower than
-// the mocked promises' microtask resolution).
+// Keep the real config: registry.ts, imported transitively via this module,
+// depends on it for postgres/etc.
 vi.mock("../../../config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../config.js")>();
-  return { ...actual, config: { ...actual.config, mcp: { connectTimeoutMs: 30 } } };
+  return { ...actual, config: { ...actual.config } };
 });
+
+// The connect budget is a platform policy now, and this suite has no database.
+// Shrunk so the timeout-path tests below stay fast — not 0, which must stay
+// clearly slower than the mocked promises' microtask resolution.
+vi.mock("../../../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: async () => ({ mcpConnectTimeoutMs: 30, baseUrl: "http://localhost:4000" }),
+}));
 
 const { buildMcpTools } = await import("./mcp-tools.js");
 const IID = asInstanceUuid("iid");

@@ -8,6 +8,12 @@ vi.mock("@ai-sdk/mcp", () => ({ createMCPClient, UnauthorizedError: FakeUnauthor
 
 vi.mock("../../../config.js", () => ({ config: { mcp: { connectTimeoutMs: 50 } } }));
 
+// The platform policies are a row; this suite has no database. The values are
+// the shipped defaults, so the assertions read the same as before they moved.
+vi.mock("../../../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: async () => ({ mcpConnectTimeoutMs: 50 }),
+}));
+
 const { testMcpConnection } = await import("./mcp-test.js");
 
 describe("testMcpConnection", () => {
