@@ -37,6 +37,12 @@ export interface PromptOptions {
   /** Additional context prompt injected from webhook triggers. Persisted per-conversation. */
   contextPrompt?: string;
   /**
+   * The Room's mandate (`instance_room.prompt`) — the operator-authored
+   * instructions for an event-driven agent. Instance-stable, so it belongs in
+   * the cacheable prefix alongside the DB sections.
+   */
+  roomPrompt?: string;
+  /**
    * Identity of the counterpart this conversation is with. When provided, a
    * `## Current channel` section is injected into the system prompt so the
    * agent always knows who it is talking to across channels.
@@ -301,7 +307,7 @@ async function loadSkillsList(
  * The supervisor prompt, split so provider prompt-caching is effective.
  *
  * - `system`: the STABLE prefix — the per-instance DB sections (identity … user
- *   identity) plus any persisted webhook `contextPrompt`. Byte-identical across
+ *   identity), the Room mandate, and any persisted webhook `contextPrompt`. Byte-identical across
  *   turns (and, absent a webhook context, across every conversation of the
  *   instance), so it can be cached.
  * - `turnContext`: the PER-TURN volatile block (current datetime, channel
@@ -361,6 +367,9 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
   // note + the (instance-static) opt-out hint. The persisted webhook
   // `contextPrompt` is stable within a conversation, so it stays here too.
   const systemSections = [s01, s02, s03, s04, s05, s06, s07, CONTEXT_TAGS_NOTE];
+  if (options.roomPrompt) {
+    systemSections.push(`## Room Mandate\n\n${options.roomPrompt}`);
+  }
   if (options.optoutHint) {
     systemSections.push(renderOptoutHintSection(options.optoutHint));
   }
