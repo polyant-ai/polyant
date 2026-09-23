@@ -432,7 +432,7 @@ async function buildTools(opts: BuildToolsOptions) {
   // only bounds their blast radius. Moving the merge before this point would
   // silently hand every MCP tool to every sub-agent.
   if (enabledNames.has("spawnTask")) {
-    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId);
+    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId, provider);
     tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);
   }
 
