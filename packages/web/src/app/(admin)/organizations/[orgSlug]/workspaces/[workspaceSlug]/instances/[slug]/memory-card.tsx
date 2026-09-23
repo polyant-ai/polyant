@@ -8,6 +8,7 @@ import { AlertTriangle } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { api, getUserErrorMessage, type Instance } from "@/lib/api";
+import { providerName } from "@/lib/provider-secrets";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
 
@@ -31,6 +32,7 @@ export function MemoryCard({
   onUpdate: (instance: Instance) => void;
 }) {
   const { t } = useI18n();
+  const embeddingProvider = instance.embeddingProvider ?? "openai";
   const [saving, setSaving] = useState(false);
   const [enabled, setEnabled] = useState(instance.memoryEnabled);
 
@@ -83,11 +85,13 @@ export function MemoryCard({
         <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <p className="text-sm text-amber-900 dark:text-amber-200">
-            {t(
-              (instance.embeddingProvider as string | undefined) === "bedrock"
-                ? "memory.banner.bedrockNeedsAws"
-                : "memory.banner.openaiNeedsKey",
-            )}
+            {/* Names the SELECTED embedder. It used to say OpenAI for every
+                embedder that was not Bedrock, which told the reader to set a key
+                that would not make the chosen embedder work. Bedrock keeps its
+                own wording because what it needs is a region, not a key. */}
+            {embeddingProvider === "bedrock"
+              ? t("memory.banner.bedrockNeedsAws")
+              : t("memory.banner.embedderNeedsKey", { provider: providerName(embeddingProvider) })}
           </p>
         </div>
       )}

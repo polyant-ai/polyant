@@ -105,8 +105,10 @@ export const instances = pgTable("instances", {
   sttProvider: text("stt_provider").notNull().default("disabled"),
   embeddingDim: integer("embedding_dim").notNull().default(1536),
   /**
-   * Embedding provider, chosen INDEPENDENTLY of the chat `provider`. Allowed
-   * values: "openai" | "bedrock" (Anthropic has no embeddings API). Backfilled
+   * Embedding provider, chosen INDEPENDENTLY of the chat `provider` (Anthropic
+   * has no embeddings API, so an agent chatting there embeds elsewhere). Allowed
+   * values are whatever the deployment serves — the two built in plus any
+   * registered at boot — validated by the API, not by this column. Backfilled
    * from the chat provider by migration 0052 so existing instances keep their
    * embedding space. Changing it abandons the old vectors and wipes memories +
    * knowledge (vectors are provider-specific) — see embedding-reset.service.ts.

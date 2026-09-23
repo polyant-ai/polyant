@@ -27,6 +27,7 @@ import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
 import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
 import { invalidateInstanceConfigCache } from "./config-resolver.js";
+import { isKnownEmbeddingProvider, knownEmbeddingProviders } from "../embeddings-gateway/config.js";
 import { instanceBundleSchema } from "./export.schema.js";
 import { importPrompts } from "./prompts.import.js";
 import { importSkillAssignments } from "./skill-assignments.import.js";
@@ -62,6 +63,20 @@ export async function importNewInstance(
   const bundle = instanceBundleSchema.parse(rawBundle);
   const data = bundle.instance;
   const warnings: ImportWarning[] = [];
+
+  // The embedder is the ONE scalar this import writes that the deployment may not
+  // be able to honour, and the only one whose failure is silent: an unknown name
+  // used to reach `resolveEmbeddingContext`, miss every branch and fall through
+  // to OpenAI, so a snapshot taken on a deployment serving another embedder
+  // would quietly send its memories and its knowledge base to a provider the
+  // agent was never configured for. The chat provider needs no check here: an
+  // unserved one fails loudly on the first turn.
+  if (!isKnownEmbeddingProvider(data.embeddingProvider)) {
+    throw new Error(
+      `Embedding provider "${data.embeddingProvider}" is not available in this deployment. ` +
+        `Available embedders: ${knownEmbeddingProviders().join(", ")}.`,
+    );
+  }
 
   // Resolve unique slug
   const slug = await resolveUniqueSlug(data.slug);

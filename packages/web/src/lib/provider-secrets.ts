@@ -110,3 +110,25 @@ export const PROVIDER_CREDENTIAL_KEYS: ReadonlySet<string> = new Set<string>([
   ...PROVIDER_SECRET_SECTIONS.flatMap((section) => section.fields.map((field) => field.key)),
   SECRET_KEYS.DEEPGRAM,
 ]);
+
+/**
+ * How a provider is WRITTEN in the panel. The identifiers (`openai`,
+ * `bedrock`) are the API's vocabulary, not a reader's: the agent's Settings
+ * tab has spelled them properly for a long time, and the provider lists are
+ * the same nouns on a different page.
+ */
+export const BRAND_NAMES: Readonly<Record<string, string>> = {
+  hubspot: "HubSpot",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  nebius: "Nebius",
+  bedrock: "AWS Bedrock",
+  aws: "AWS",
+  tavily: "Tavily",
+  langsmith: "LangSmith",
+};
+
+/** The provider's name where there is one, the identifier where there is not. */
+export function providerName(provider: string): string {
+  return BRAND_NAMES[provider] ?? provider;
+}

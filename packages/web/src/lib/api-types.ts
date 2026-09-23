@@ -128,11 +128,13 @@ export interface Instance {
    */
   embeddingDim?: number;
   /**
-   * Embedder provider, chosen independently of the chat `provider`:
-   * "openai" | "bedrock" (Anthropic has no embeddings API). Changing it wipes
-   * memories + knowledge, since vectors are not portable across providers.
+   * Embedder provider, chosen independently of the chat `provider` (Anthropic has
+   * no embeddings API). One of the ids in `ModelsResponse.embedders` — not a
+   * closed union, because an embedder can be registered at boot and the engine
+   * validates the value against its own registry. Changing it wipes memories +
+   * knowledge, since vectors are not portable across providers.
    */
-  embeddingProvider?: "openai" | "bedrock";
+  embeddingProvider?: string;
   /**
    * Provider-aware memory readiness, computed server-side. `needsOpenAIKey` is
    * true when memory is enabled but the embeddings provider lacks the required
@@ -249,6 +251,14 @@ export interface ModelInfo {
 
 export interface ModelsResponse {
   providers: Record<string, { models: ModelInfo[] }>;
+  /**
+   * The embedders this deployment can use — the two built in plus any registered
+   * at boot. Served rather than hardcoded in the panel: a second list here was
+   * pinned to OpenAI and Bedrock, so a registered embedder could not be selected
+   * at all. `supportedDims` is what makes a switch legal — a provider that cannot
+   * emit the agent's stored dimension would make every embed throw.
+   */
+  embedders: { id: string; supportedDims: number[] }[];
 }
 
 export interface PromptSection {

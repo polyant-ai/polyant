@@ -36,6 +36,9 @@ describe("saveMemory", () => {
     mockResolveEmbeddingContext.mockResolvedValue({
       instanceId: "user-1",
       dimensions: 1024,
+      // `providerName` is what the row records — the embedder's own name, not
+      // the transport its credentials speak.
+      providerName: "openai",
       credentials: { provider: "openai", apiKey: "k" },
     });
   });

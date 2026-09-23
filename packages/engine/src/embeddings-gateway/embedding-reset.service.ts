@@ -11,7 +11,7 @@ import type { InstanceSlug, InstanceUuid } from "../instances/identifiers.js";
 import { allTenantsScope } from "../authz/scope-filter.js";
 
 /**
- * Whether the instance's EMBEDDING provider changed (openai↔bedrock). The
+ * Whether the instance's EMBEDDING provider changed. The
  * embedding provider is now an independent field, decoupled from the chat
  * `provider`: changing only the chat LLM never touches embeddings. The embedding
  * space is provider-specific, so a change makes existing vectors uninterpretable

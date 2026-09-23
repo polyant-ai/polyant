@@ -9,11 +9,11 @@ import { embed } from "./index.js";
 beforeEach(() => { oa.mockReset().mockResolvedValue([1]); br.mockReset().mockResolvedValue([2]); });
 describe("embed dispatch", () => {
   it("routes openai", async () => {
-    await embed("x", { credentials: { provider: "openai", apiKey: "k" }, dimensions: 1024 });
+    await embed("x", { providerName: "openai", credentials: { provider: "openai", apiKey: "k" }, dimensions: 1024 });
     expect(oa).toHaveBeenCalled(); expect(br).not.toHaveBeenCalled();
   });
   it("routes bedrock", async () => {
-    await embed("x", { credentials: { provider: "bedrock", region: "eu-west-1" }, dimensions: 1024 });
+    await embed("x", { providerName: "bedrock", credentials: { provider: "bedrock", region: "eu-west-1" }, dimensions: 1024 });
     expect(br).toHaveBeenCalled();
   });
 });

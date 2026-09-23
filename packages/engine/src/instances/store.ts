@@ -165,7 +165,7 @@ export interface Instance {
   icon: string | null;
   sttProvider: string;
   embeddingDim: number;
-  /** Embedding provider, independent of the chat `provider`: "openai" | "bedrock". */
+  /** Embedding provider, independent of the chat `provider`. */
   embeddingProvider: EmbeddingProvider;
   /** Owning workspace UUID (RBAC tenancy). Every instance belongs to one. */
   workspaceId: string;
@@ -409,7 +409,7 @@ type UpdatableInstanceFields = {
   debugEnabled?: boolean;
   icon?: string | null;
   sttProvider?: string;
-  /** Embedder choice (openai|bedrock). Changing it triggers a destructive wipe in the controller. */
+  /** Embedder choice. Changing it triggers a destructive wipe in the controller. */
   embeddingProvider?: EmbeddingProvider;
   optoutEnabled?: boolean;
   optoutStopKeywords?: string[];

@@ -4,16 +4,18 @@ import { describe, it, expect } from "vitest";
 import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, reasoningLevelsFor, resolveReasoningLevel, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
 
 describe("resolveModel", () => {
+  // The gpt-4o family these used to name is in OpenAI's deprecated list; the
+  // tiers are where an agent lands when nobody chose a model.
   it("resolves openai fast tier", () => {
-    expect(resolveModel("openai", "fast")).toBe("gpt-4o-mini");
+    expect(resolveModel("openai", "fast")).toBe("gpt-6-luna");
   });
 
   it("resolves openai standard tier", () => {
-    expect(resolveModel("openai", "standard")).toBe("gpt-4o");
+    expect(resolveModel("openai", "standard")).toBe("gpt-6-sol");
   });
 
   it("resolves openai heavy tier", () => {
-    expect(resolveModel("openai", "heavy")).toBe("o3");
+    expect(resolveModel("openai", "heavy")).toBe("gpt-6-astra");
   });
 
   it("resolves anthropic fast tier", () => {
@@ -140,21 +142,25 @@ describe("estimateCost", () => {
     expect(cost).toBeCloseTo(expected, 12);
   });
 
-  it("prices GPT-5.6 cache read at 0.1x and cache WRITE at 1.25x (per-model override)", () => {
-    // gpt-5.6-luna: input $1/1M, output $6/1M. 1000 input = 200 full + 600 read + 200 write.
+  it("prices an OpenAI cache read at its own rate and charges nothing to write", () => {
+    // gpt-5.6-luna: input $0.20/1M, output $1.20/1M, cached input $0.02/1M.
+    // 1000 input = 200 full + 600 read + 200 write.
+    //
+    // This used to assert a 1.25x WRITE premium on the 5.6 family. The published
+    // table has three columns — input, cached input, output — and no cache write
+    // at all, so a write costs nothing here as on every other OpenAI row.
     const cost = estimateCost("openai", "gpt-5.6-luna", 1000, 500, {
       cachedInputTokens: 600,
       cacheCreationInputTokens: 200,
     });
     const expected =
-      (200 * 1.0) / 1_000_000 + // regular input
-      (600 * 1.0 * 0.1) / 1_000_000 + // cache read 0.1x
-      (200 * 1.0 * 1.25) / 1_000_000 + // cache write 1.25x
-      (500 * 6.0) / 1_000_000; // output
+      (200 * 0.2) / 1_000_000 + // regular input
+      (600 * 0.02) / 1_000_000 + // cache read, an absolute rate
+      0 + // cache write is not charged
+      (500 * 1.2) / 1_000_000; // output
     expect(cost).toBeCloseTo(expected, 12);
-    // The per-model override must NOT leak to the pre-5.6 provider default.
-    expect(estimateCost("openai", "gpt-4o", 1000, 0, { cacheCreationInputTokens: 1000 })).toBeCloseTo(
-      0, // gpt-4o write multiplier is 0 → cache writes are free
+    expect(estimateCost("openai", "gpt-6-sol", 1000, 0, { cacheCreationInputTokens: 1000 })).toBeCloseTo(
+      0,
       12,
     );
   });
@@ -167,9 +173,18 @@ describe("estimateCost", () => {
     expect(cost).toBeCloseTo((900 * 3.0 * 0.1) / 1_000_000, 12);
   });
 
-  it("prices Bedrock cross-Region (eu.*) profiles at the base rate — no surcharge", () => {
+  it("prices a Bedrock eu.* Claude 4.5+ profile 10% over the global one", () => {
+    // This used to assert no surcharge. Anthropic's pricing page states that a
+    // regional or multi-region endpoint — which an `eu.` inference profile is —
+    // carries a 10% premium over the global endpoint for Claude 4.5 and later.
+    const global = (1000 * 3.0) / 1_000_000 + (500 * 15.0) / 1_000_000;
+    expect(estimateCost("bedrock", "global.anthropic.claude-sonnet-4-6", 1000, 500)).toBeCloseTo(global, 12);
+    expect(estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-6", 1000, 500)).toBeCloseTo(global * 1.1, 12);
+  });
+
+  it("leaves a pre-4.5 Bedrock eu.* profile at its old price, as the premium does not reach it", () => {
     const base = (1000 * 3.0) / 1_000_000 + (500 * 15.0) / 1_000_000;
-    expect(estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-6", 1000, 500)).toBeCloseTo(base, 12);
+    expect(estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-20250514-v1:0", 1000, 500)).toBeCloseTo(base, 12);
   });
 });
 
@@ -376,33 +391,43 @@ describe("isThinkingCapable", () => {
 });
 
 describe("isReasoningAlwaysOn", () => {
+  // Provider + model, because two providers publish the same bare id: the gate
+  // used to look the id up across providers and answered from the first row.
   it.each([
     // gpt-oss reasons on EVERY call (no off), whatever provider serves it.
-    ["openai.gpt-oss-120b-1:0", true],
-    ["openai.gpt-oss-20b-1:0", true],
-    ["us.openai.gpt-oss-120b-1:0", true],
-    ["openai/gpt-oss-120b", true],
+    ["bedrock", "openai.gpt-oss-120b-1:0", true],
+    ["bedrock", "openai.gpt-oss-20b-1:0", true],
+    ["bedrock", "us.openai.gpt-oss-120b-1:0", true],
+    ["nebius", "openai/gpt-oss-120b", true],
     // OpenAI o-series + gpt-5.6 reason on every call (LIVE-VERIFIED: they still
     // spend reasoning tokens with reasoning OFF). gpt-5.4 has a real off.
-    ["o3", true],
-    ["gpt-5.6-sol", true],
-    ["gpt-5.6-luna", true],
-    ["gpt-5.4", false],
+    ["openai", "o3", true],
+    ["openai", "gpt-5.6-sol", true],
+    ["openai", "gpt-5.6-luna", true],
+    ["openai", "gpt-5.4", false],
     // MiniMax (Bedrock + Nebius), Kimi K2, Qwen3-Next-Thinking reason on every call,
     // no working off-switch (live-verified: enable_thinking:false still reasons).
-    ["minimax.minimax-m2.5", true],
-    ["MiniMaxAI/MiniMax-M2.5", true],
-    ["moonshotai/Kimi-K2.6", true],
-    ["moonshotai/Kimi-K2.7-Code", true],
-    ["Qwen/Qwen3-Next-80B-A3B-Thinking", true],
+    ["bedrock", "minimax.minimax-m2.5", true],
+    ["nebius", "MiniMaxAI/MiniMax-M2.5", true],
+    ["nebius", "moonshotai/Kimi-K2.6", true],
+    ["nebius", "moonshotai/Kimi-K2.7-Code", true],
+    ["nebius", "Qwen/Qwen3-Next-80B-A3B-Thinking", true],
     // Toggleable hybrids (Qwen3.5, GLM) / budget-based (Claude) have a real off.
-    ["Qwen/Qwen3.5-397B-A17B", false],
-    ["zai-org/GLM-5.2", false],
-    ["eu.anthropic.claude-sonnet-5", false],
-    ["gpt-4o", false],
-    ["", false],
-  ])("%s -> %s", (model, expected) => {
-    expect(isReasoningAlwaysOn(model)).toBe(expected);
+    ["nebius", "Qwen/Qwen3.5-397B-A17B", false],
+    ["nebius", "zai-org/GLM-5.2", false],
+    ["bedrock", "eu.anthropic.claude-sonnet-5", false],
+    ["openai", "gpt-4o", false],
+    ["openai", "", false],
+    ["", "o3", false],
+  ])("%s/%s -> %s", (provider, model, expected) => {
+    expect(isReasoningAlwaysOn(provider, model)).toBe(expected);
+  });
+
+  it("falls back to the id heuristic for an un-catalogued id, per provider", () => {
+    // The fallback is still id-only (a family name is a family name), but it is
+    // reached through the provider, so a catalogued row always wins over it.
+    expect(isReasoningAlwaysOn("nebius", "someorg/gpt-oss-42b")).toBe(true);
+    expect(isReasoningAlwaysOn("nebius", "someorg/Llama-9")).toBe(false);
   });
 });
 

@@ -159,6 +159,13 @@ function setupDefaultMocks() {
       anthropic: { models: [{ id: "claude-3-opus", tier: "heavy", costInput: 0.015, costOutput: 0.075, supportsThinking: false, supportsTemperature: true }] },
       bedrock: { models: [{ id: "titan", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true }] },
     },
+    // The embedder select renders from THIS list, not from a copy in the
+    // component — a copy pinned to two names is what made a registered embedder
+    // unselectable.
+    embedders: [
+      { id: "openai", supportedDims: [1024, 1536] },
+      { id: "bedrock", supportedDims: [1024] },
+    ],
   });
   mockToolsRequiredSecrets.mockResolvedValue({ requiredSecrets: [] });
 }
@@ -546,6 +553,61 @@ describe("SettingsTab", () => {
         expect.objectContaining({ embeddingProvider: "bedrock", confirmWipe: true }),
       );
     });
+  });
+
+  it("offers every embedder the server serves, including one it has never heard of", async () => {
+    // The regression this pins: the select used to render two hardcoded options,
+    // so an embedder registered at boot could be reached only by a direct PATCH.
+    // The id is deliberately not one this file knows: what is being asserted is
+    // that the panel keeps no list of its own.
+    const user = userEvent.setup();
+    mockModelsList.mockResolvedValue({
+      providers: {
+        openai: { models: [{ id: "gpt-4o", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true }] },
+      },
+      embedders: [
+        { id: "openai", supportedDims: [1024, 1536] },
+        { id: "some-registered-embedder", supportedDims: [1024] },
+      ],
+    });
+
+    renderWithProvider(<SettingsTab instance={makeInstance()} onUpdate={onUpdate} section="model" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    const embedderTrigger = screen.getByRole("combobox", { name: "settings.tab.embedder" });
+    embedderTrigger.focus();
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByRole("option", { name: /some-registered-embedder/i })).toBeInTheDocument();
+  });
+
+  it("keeps the agent's current embedder selectable when the server stops offering it", async () => {
+    // A blank select would save a silent change on the next submit, and that
+    // change wipes memories and knowledge.
+    mockModelsList.mockResolvedValue({
+      providers: {
+        openai: { models: [{ id: "gpt-4o", tier: "standard", costInput: 0.01, costOutput: 0.03, supportsThinking: false, supportsTemperature: true }] },
+      },
+      embedders: [{ id: "openai", supportedDims: [1024, 1536] }],
+    });
+
+    renderWithProvider(
+      <SettingsTab
+        instance={makeInstance({ embeddingProvider: "an-embedder-no-longer-served" })}
+        onUpdate={onUpdate}
+        section="model"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.tab.aiModel")).toBeInTheDocument();
+    });
+
+    const embedderTrigger = screen.getByRole("combobox", { name: "settings.tab.embedder" });
+    expect(embedderTrigger).toHaveTextContent(/an-embedder-no-longer-served/i);
   });
 
   it("does not prompt for a wipe when the embedding provider is unchanged (openai→anthropic)", async () => {

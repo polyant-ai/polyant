@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { findInstanceBySlug } from "./store.js";
+import { registeredProviderApiKeys } from "../ai-gateway/providers/registry.js";
 import { asInstanceSlug, type InstanceSlug } from "./identifiers.js";
 import { getAllSecretsById } from "./secrets.store.js";
 import { SECRET_KEYS } from "./secrets.store.js";
@@ -210,6 +211,10 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     provider: instance.provider ?? undefined,
     model: instance.model ?? undefined,
     apiKeys: {
+      // A provider registered at boot carries its key under its own name. The
+      // declared type is closed on purpose (see ChatRequest.apiKeys) and an
+      // adapter reads its own key through `providerApiKey()`, hence the cast.
+      ...(registeredProviderApiKeys(secrets) as Record<string, string | undefined>),
       openai: secrets[SECRET_KEYS.OPENAI_API_KEY],
       anthropic: secrets[SECRET_KEYS.ANTHROPIC_API_KEY],
       nebius: secrets[SECRET_KEYS.NEBIUS_API_KEY],

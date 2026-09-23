@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { assertDimSupported, SUPPORTED_DIMS, DEFAULT_EMBEDDING_DIM } from "./config.js";
+import { assertDimSupported, supportedDimsFor, DEFAULT_EMBEDDING_DIM } from "./config.js";
 
 describe("assertDimSupported", () => {
   it("accepts supported dims", () => {
@@ -14,6 +14,6 @@ describe("assertDimSupported", () => {
   });
   it("defaults new instances to 1024", () => {
     expect(DEFAULT_EMBEDDING_DIM).toBe(1024);
-    expect(SUPPORTED_DIMS.bedrock).toEqual([1024]);
+    expect(supportedDimsFor("bedrock")).toEqual([1024]);
   });
 });

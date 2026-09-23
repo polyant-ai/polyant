@@ -54,6 +54,7 @@ import {
   SECRET_KEYS,
   type ProviderSectionId,
 } from "@/lib/provider-secrets";
+import { BRAND_NAMES } from "@/lib/provider-secrets";
 import { usePageSaveAction } from "./page-actions-context";
 import { CapabilityCheckNotice } from "./capability-check-notice";
 import type { AgentCheck } from "./status-checks";
@@ -89,17 +90,6 @@ interface Props {
 }
 
 type STTProvider = "openai" | "aws" | "deepgram" | "disabled";
-
-const BRAND_NAMES: Record<string, string> = {
-  hubspot: "HubSpot",
-  openai: "OpenAI",
-  anthropic: "Anthropic",
-  nebius: "Nebius",
-  bedrock: "AWS Bedrock",
-  aws: "AWS",
-  tavily: "Tavily",
-  langsmith: "LangSmith",
-};
 
 // Display labels for reasoning-effort levels (values come from the model's
 // live-verified reasoningLevels set exposed by /api/instances/models).
@@ -184,11 +174,13 @@ export function SettingsTab({
   // AI Model settings
   const [provider, setProvider] = useState(instance.provider ?? "");
   const [model, setModel] = useState(instance.model ?? "");
-  // Embedder provider — chosen INDEPENDENTLY of the chat LLM. Only OpenAI and
-  // Bedrock embed (Anthropic has no embeddings API). Changing it wipes memories
-  // + knowledge (vectors are provider-specific), hence the confirmation below.
-  const [embeddingProvider, setEmbeddingProvider] = useState<"openai" | "bedrock">(
-    (instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai",
+  // Embedder provider — chosen INDEPENDENTLY of the chat LLM (Anthropic has no
+  // embeddings API). Any embedder the deployment serves (GET
+  // /api/instances/models → embedders), so a registered one is selectable; a
+  // closed union here was the reason it was not. Changing it wipes memories +
+  // knowledge (vectors are provider-specific), hence the confirmation below.
+  const [embeddingProvider, setEmbeddingProvider] = useState<string>(
+    instance.embeddingProvider ?? "openai",
   );
   // Persisted user preference; the toggle below is hidden when the selected
   // model is not thinking-capable, but the state is preserved so that
@@ -437,6 +429,13 @@ export function SettingsTab({
   const availableModels = provider && modelsData?.providers[provider]
     ? modelsData.providers[provider].models
     : [];
+  // The embedders this deployment serves. The agent's CURRENT embedder is kept in
+  // the list even if the server stops offering it, so a stale value renders as
+  // itself rather than as a blank select that saves a silent change on the next
+  // submit — the switch it would trigger wipes memories and knowledge.
+  const embedderOptions = Array.from(
+    new Set([...(modelsData?.embedders ?? []).map((e) => e.id), embeddingProvider]),
+  );
   // When no model is pinned ("System default"), mirror the backend's
   // effectiveModelFor fallback and resolve capabilities from the standard-tier
   // model — otherwise thinking/temperature stay disabled for default instances.
@@ -479,7 +478,7 @@ export function SettingsTab({
   const modelDirty =
     provider !== (instance.provider ?? "") ||
     model !== (instance.model ?? "") ||
-    embeddingProvider !== ((instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai") ||
+    embeddingProvider !== (instance.embeddingProvider ?? "openai") ||
     thinkingToPersist !== instance.thinkingEnabled ||
     thinkingLevel !== (instance.thinkingLevel ?? "medium") ||
     temperature !== (instance.temperature ?? null) ||
@@ -597,7 +596,7 @@ export function SettingsTab({
     // so the loss is explicit and confirmed. Changing only the chat LLM never
     // triggers this.
     const embeddingChanged =
-      embeddingProvider !== ((instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai");
+      embeddingProvider !== (instance.embeddingProvider ?? "openai");
     if (embeddingChanged) {
       setWipeOpen(true);
       return;
@@ -613,7 +612,7 @@ export function SettingsTab({
   const handleWipeCancel = () => {
     setWipeOpen(false);
     // Revert the embedder selection back to the persisted instance value.
-    setEmbeddingProvider((instance.embeddingProvider as "openai" | "bedrock" | undefined) ?? "openai");
+    setEmbeddingProvider(instance.embeddingProvider ?? "openai");
   };
 
   usePageSaveAction({ isDirty, saving, onSave: handleSave });
@@ -1184,22 +1183,25 @@ export function SettingsTab({
         </div>
 
         {/*
-          Embedder provider — independent of the chat LLM above. Only OpenAI and
-          Bedrock embed (Anthropic has no embeddings API). Changing it permanently
-          wipes memories + knowledge (vectors are provider-specific).
+          Embedder provider — independent of the chat LLM above (Anthropic has no
+          embeddings API, so an agent chatting there still embeds elsewhere).
+          Rendered from the server's list, never a copy: the copy that used to sit
+          here was pinned to OpenAI and Bedrock, so a registered embedder could
+          not be chosen at all. Changing it permanently wipes memories + knowledge
+          (vectors are provider-specific).
         */}
         <div className="space-y-2">
           <Label>{t("settings.tab.embedder")}</Label>
-          <Select
-            value={embeddingProvider}
-            onValueChange={(v) => setEmbeddingProvider(v as "openai" | "bedrock")}
-          >
+          <Select value={embeddingProvider} onValueChange={setEmbeddingProvider}>
             <SelectTrigger aria-label={t("settings.tab.embedder")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="openai">{BRAND_NAMES["openai"] ?? "OpenAI"}</SelectItem>
-              <SelectItem value="bedrock">{BRAND_NAMES["bedrock"] ?? "Bedrock"}</SelectItem>
+              {embedderOptions.map((id) => (
+                <SelectItem key={id} value={id}>
+                  {BRAND_NAMES[id] ?? id.charAt(0).toUpperCase() + id.slice(1)}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">{t("settings.tab.embedderHint")}</p>

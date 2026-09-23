@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateCostBreakdown, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, resolveReasoningLevel } from "./config.js";
+import { resolveModel, estimateCostBreakdown, isReasoningAlwaysOn, isThinkingCapable, reasoningControlFor, reasoningOffFor, resolveReasoningLevel, wireDialectFor } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
-import { OpenAIProvider, buildOpenAIReasoningOptions } from "./providers/openai.js";
-import { AnthropicProvider, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
-import { BedrockProvider, buildBedrockReasoningOptions } from "./providers/bedrock.js";
-import { NebiusProvider } from "./providers/nebius.js";
+import { buildOpenAIReasoningOffOptions, buildOpenAIReasoningOptions } from "./providers/openai.js";
+import { buildAnthropicThinkingOffOptions, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
+import { buildBedrockReasoningOptions } from "./providers/bedrock.js";
+import { getProviderAdapter } from "./providers/registry.js";
+import { buildCompatibleReasoningOptions } from "./providers/openai-compatible-reasoning.js";
 import { aiLogger, classifyProviderError } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
 import type { ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "./types.js";
@@ -21,13 +22,6 @@ import { buildInstanceIconUrl } from "../instances/icon-url.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import type { InstanceMeta } from "../activity-stream/activity-stream.types.js";
 
-
-const providers: Record<string, ProviderAdapter> = {
-  openai: OpenAIProvider,
-  anthropic: AnthropicProvider,
-  bedrock: BedrockProvider,
-  nebius: NebiusProvider,
-};
 
 let initialized = false;
 
@@ -56,7 +50,7 @@ function resolveCallConfig(
   options?: ChatCallOptions,
 ): CallConfig {
   const providerName = request.provider ?? DEFAULT_PROVIDER;
-  const provider = providers[providerName];
+  const provider = getProviderAdapter(providerName);
   if (!provider) {
     throw new Error(`Provider "${providerName}" not configured`);
   }
@@ -79,70 +73,70 @@ function resolveCallConfig(
     providerOptions = { ...providerOptions, langsmith: lsOptions as Record<string, unknown> };
   }
 
-  // Inject provider-specific thinking/reasoning configuration when requested.
-  // Gated on isThinkingCapable for ALL providers (defense-in-depth): config-
-  // resolver already clears a stale `thinking=true` for a non-capable model, but
-  // gating here too guarantees the ai-gateway boundary never sends thinking
-  // config to a model that would ignore it (OpenAI/Anthropic) or hard-reject it
-  // (Bedrock's ValidationException, like the cachePoint). Anthropic also needs
-  // the interleaved beta header, set unconditionally on the AnthropicProvider
-  // factory. Shape is mapped per family in the build* helpers via the catalog's
-  // reasoningControl (adaptive+effort / budget / effort).
+  // Inject the thinking/reasoning configuration when requested, keyed on the
+  // catalog's `wireDialect` and NOT on the provider name — so a new provider is a
+  // catalog row and costs no branch here. Gated on isThinkingCapable for ALL
+  // dialects (defense-in-depth): config-resolver already clears a stale
+  // `thinking=true` for a non-capable model, but gating here too guarantees the
+  // ai-gateway boundary never sends thinking config to a model that would ignore
+  // it (OpenAI/Anthropic) or hard-reject it (Bedrock's ValidationException, like
+  // the cachePoint). Anthropic also needs the interleaved beta header, set
+  // unconditionally on the AnthropicProvider factory. The 1P shapes are mapped per
+  // family in the build* helpers via the catalog's reasoningControl
+  // (adaptive+effort / budget / effort).
+  //
+  // The openai-compatible dialect is the one that also runs with thinking OFF:
+  // its hybrid models reason BY DEFAULT, so "off" is an explicit payload rather
+  // than an omission (see buildCompatibleReasoningOptions).
+  //
   // Clamp the requested level to what THIS model accepts (per the catalog's
   // live-verified reasoningLevels) — a stale/out-of-range effort (e.g. xhigh on o3,
   // max on gpt-oss) would otherwise 400. Falls back to "medium" (universally valid).
   const thinkingLevel = resolveReasoningLevel(providerName, modelId, request.thinkingLevel ?? "medium");
-  if (request.thinking && isThinkingCapable(providerName, modelId)) {
-    if (providerName === "anthropic") {
+  const dialect = wireDialectFor(providerName);
+  const thinkingCapable = isThinkingCapable(providerName, modelId);
+  // Whether thinking OFF is a payload rather than an omission. It used to be an
+  // omission on every 1P model, and stopped being one with gpt-6 (default effort
+  // `medium`) and Claude Opus 5 (adaptive when the parameter is omitted): those
+  // reason through a turn the operator switched thinking off for unless we say
+  // so. The openai-compatible dialect always enters, because its builder decides
+  // both directions from the same catalog data.
+  const reasoningOff = isReasoningAlwaysOn(providerName, modelId)
+    ? undefined
+    : reasoningOffFor(providerName, modelId);
+  if (thinkingCapable && (request.thinking || dialect === "openai-compatible" || reasoningOff)) {
+    const off = !request.thinking;
+    const options: Record<string, unknown> | undefined =
+      dialect === "anthropic"
+        ? off
+          ? buildAnthropicThinkingOffOptions()
+          : buildAnthropicThinkingOptions(thinkingLevel, reasoningControlFor(providerName, modelId) === "adaptive")
+        : dialect === "openai"
+          ? off
+            ? buildOpenAIReasoningOffOptions()
+            : buildOpenAIReasoningOptions(thinkingLevel)
+          : dialect === "bedrock"
+            ? buildBedrockReasoningOptions(thinkingLevel, reasoningControlFor(providerName, modelId) ?? "budget")
+            : dialect === "openai-compatible"
+              ? buildCompatibleReasoningOptions({
+                  provider: providerName,
+                  modelId,
+                  thinking: !!request.thinking,
+                  level: thinkingLevel,
+                })
+              : undefined;
+    // The compatible builder returns {} for a model with no off-switch; merging an
+    // empty object would still create the provider namespace, which is harmless but
+    // noisy in a captured debug payload.
+    if (options && Object.keys(options).length > 0) {
       providerOptions = {
         ...providerOptions,
-        anthropic: {
-          ...(providerOptions?.anthropic ?? {}),
-          ...buildAnthropicThinkingOptions(thinkingLevel, reasoningControlFor(providerName, modelId) === "adaptive"),
-        } as Record<string, unknown>,
-      };
-    } else if (providerName === "openai") {
-      providerOptions = {
-        ...providerOptions,
-        openai: {
-          ...(providerOptions?.openai ?? {}),
-          ...buildOpenAIReasoningOptions(thinkingLevel),
-        } as Record<string, unknown>,
-      };
-    } else if (providerName === "bedrock") {
-      providerOptions = {
-        ...providerOptions,
-        bedrock: {
-          ...(providerOptions?.bedrock ?? {}),
-          ...buildBedrockReasoningOptions(thinkingLevel, reasoningControlFor(providerName, modelId) ?? "budget"),
+        [providerName]: {
+          ...(providerOptions?.[providerName] ?? {}),
+          ...options,
         } as Record<string, unknown>,
       };
     }
-  }
-
-  // Nebius (OpenAI-compatible): reasoning models (Qwen3.5 hybrid & friends) think
-  // BY DEFAULT, and `reasoning_effort` only tunes intensity — it does NOT turn
-  // thinking off. The real off-switch is the vLLM chat-template kwarg
-  // `enable_thinking:false`, which @ai-sdk/openai-compatible forwards verbatim into
-  // the request body. Drive BOTH states so the admin `thinking` toggle actually
-  // controls the model (without it, "off" left the model reasoning by default).
-  // Gated on isThinkingCapable so the Qwen-specific kwarg never reaches a
-  // non-reasoning model. EXCEPTION: gpt-oss (isReasoningAlwaysOn) reasons on
-  // every call and IGNORES enable_thinking (that kwarg is Qwen-only), so its
-  // "off" must send nothing — it falls back to its own reasoning default. There
-  // is no off; the frontend disables the toggle for these models accordingly.
-  if (providerName === "nebius" && isThinkingCapable(providerName, modelId)) {
-    providerOptions = {
-      ...providerOptions,
-      nebius: {
-        ...(providerOptions?.nebius ?? {}),
-        ...(request.thinking
-          ? { reasoningEffort: resolveReasoningLevel(providerName, modelId, request.thinkingLevel ?? "medium") }
-          : isReasoningAlwaysOn(modelId)
-            ? {}
-            : { chat_template_kwargs: { enable_thinking: false } }),
-      } as Record<string, unknown>,
-    };
   }
 
   // v6: OpenAI's `strictJsonSchema` defaults to true; our tools use Zod
@@ -309,7 +303,7 @@ export async function chat(
   try {
     response = await config.provider.chat({
       ...request,
-      messages: sanitizeMessagesForModel(request.messages, config.modelId),
+      messages: sanitizeMessagesForModel(request.messages, config.providerName, config.modelId),
       providerOptions: config.providerOptions,
     }, config.modelId);
   } catch (err) {
@@ -356,7 +350,7 @@ export async function chatStream(
   try {
     stream = await config.provider.chatStream({
       ...request,
-      messages: sanitizeMessagesForModel(request.messages, config.modelId),
+      messages: sanitizeMessagesForModel(request.messages, config.providerName, config.modelId),
       providerOptions: config.providerOptions,
     }, config.modelId);
   } catch (err) {
