@@ -12,7 +12,7 @@ export default defineTool({
     "Send a WhatsApp message (text and/or a media attachment) using the Twilio WhatsApp channel configured on the current instance.\n" +
     "The 'to' parameter is the recipient's number in E.164 format (e.g. '+14155550100'). " +
     "To reply to the same user as this conversation, use the sender's number.\n" +
-    "Optional 'mediaUrl' parameter: a public HTTPS URL (e.g. the publicUrl returned by hubspotFile) that Twilio downloads and delivers as an attachment (PDF, image, etc.).\n" +
+    "Optional 'mediaUrl' parameter: a public HTTPS URL that Twilio downloads and delivers as an attachment (PDF, image, etc.).\n" +
     "Caveat: requires the instance to have the 'whatsapp' channel active. The body may be empty when only mediaUrl is passed.",
   category: "messaging",
   inputExamples: [
@@ -40,7 +40,7 @@ export default defineTool({
     mediaUrl: z
       .string()
       .nullable()
-      .describe("Public HTTPS URL to attach as media (e.g. a hubspotFile publicUrl). Must start with https://."),
+      .describe("Public HTTPS URL to attach as media. Must start with https://."),
   }),
   execute: async ({ to, message, mediaUrl }: { to: string; message: string; mediaUrl: string | null }, ctx) => {
       const trimmedTo = to.trim();

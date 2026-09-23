@@ -269,21 +269,31 @@ class SchedulerService {
    * closed as an error in the run log, so the audit still says what happened.
    */
   private async recoverOrphanedRuns(): Promise<void> {
-    const { schedulerOrphanGraceMs } = await resolvePlatformSettings();
-    const cutoff = new Date(Date.now() - schedulerOrphanGraceMs);
-    const stuck = await store.findStuckRunning(cutoff);
+    const { schedulerOrphanGraceMs, schedulerDefaultMaxRunMs } = await resolvePlatformSettings();
+    const now = Date.now();
+    const cutoff = new Date(now - schedulerOrphanGraceMs);
+    const candidates = await store.findStuckRunning(cutoff);
+    // The outgoing replica may still own a run beyond the deploy grace. Never
+    // reclaim it before its own deadline (which may exceed the platform default).
+    const stuck = candidates.filter((task) =>
+      now - (task.updatedAt?.getTime() ?? now) >= Math.max(
+        schedulerOrphanGraceMs,
+        task.maxRunMs ?? schedulerDefaultMaxRunMs,
+      ),
+    );
     if (stuck.length === 0) return;
 
     const ids = stuck.map((t) => t.id);
-    const cleared = await store.clearRunningMarker(ids);
+    const clearedIds = await store.clearRunningMarker(ids);
+    if (clearedIds.length === 0) return;
     const closed = await runLog.failDanglingRuns(
-      ids,
+      clearedIds,
       "orphaned: the process running this task did not survive to report an outcome",
     );
 
     scheduledTaskLog.warn(
       "SchedulerService",
-      `recovered ${cleared} orphaned task row(s) and closed ${closed} dangling run(s): ` +
+      `recovered ${clearedIds.length} orphaned task row(s) and closed ${closed} dangling run(s): ` +
         stuck.map((t) => `"${t.name}" (${t.instanceId})`).join(", "),
     );
   }

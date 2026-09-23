@@ -177,6 +177,7 @@ function makeBundle(overrides: Record<string, unknown> = {}) {
         keepHistory: true,
         deleteAfterRun: false,
         maxRetries: 0,
+        maxRunMs: null,
         createdBy: null,
       }],
       mcpServers: [],

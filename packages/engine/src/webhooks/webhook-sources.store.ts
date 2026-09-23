@@ -118,7 +118,7 @@ export async function updateEventSource(
   id: string,
   instanceId: InstanceUuid,
   data: { name?: string; config?: Record<string, unknown>; enabled?: boolean },
-): Promise<void> {
+): Promise<boolean> {
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (data.name !== undefined) set.name = data.name;
   if (data.enabled !== undefined) set.enabled = data.enabled;
@@ -133,32 +133,39 @@ export async function updateEventSource(
       .limit(1);
 
     const current = rows[0];
-    if (current) {
-      let existingConfig: Record<string, unknown> = {};
-      try {
-        existingConfig = JSON.parse(decrypt(current.config)) as Record<string, unknown>;
-      } catch {
-        webhookLog.warn("WebhookSources", `failed to decrypt config for source ${id}, preserving only incoming keys`);
-      }
-
-      const mergedConfig = { ...existingConfig, ...data.config };
-      const schema = eventSourceConfigSchemas[current.sourceType];
-      if (schema) schema.parse(mergedConfig);
-      set.config = encrypt(JSON.stringify(mergedConfig));
+    if (!current) return false;
+    let existingConfig: Record<string, unknown> = {};
+    try {
+      existingConfig = JSON.parse(decrypt(current.config)) as Record<string, unknown>;
+    } catch {
+      webhookLog.warn("WebhookSources", `failed to decrypt config for source ${id}, preserving only incoming keys`);
     }
+
+    const mergedConfig = { ...existingConfig, ...data.config };
+    const schema = eventSourceConfigSchemas[current.sourceType];
+    if (schema) schema.parse(mergedConfig);
+    set.config = encrypt(JSON.stringify(mergedConfig));
   }
 
-  await db.update(eventSources).set(set).where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)));
+  const updated = await db.update(eventSources).set(set)
+    .where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)))
+    .returning({ id: eventSources.id });
+  return updated.length > 0;
 }
 
-export async function deleteEventSource(id: string, instanceId: InstanceUuid): Promise<void> {
-  await db.delete(eventSources).where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)));
+export async function deleteEventSource(id: string, instanceId: InstanceUuid): Promise<boolean> {
+  const deleted = await db.delete(eventSources)
+    .where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)))
+    .returning({ id: eventSources.id });
+  return deleted.length > 0;
 }
 
-export async function rotateWebhookToken(id: string, instanceId: InstanceUuid): Promise<string> {
+export async function rotateWebhookToken(id: string, instanceId: InstanceUuid): Promise<string | null> {
   const newToken = generateWebhookToken();
-  await db.update(eventSources).set({ webhookToken: newToken, updatedAt: new Date() }).where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)));
-  return newToken;
+  const updated = await db.update(eventSources).set({ webhookToken: newToken, updatedAt: new Date() })
+    .where(and(eq(eventSources.id, id), eq(eventSources.instanceId, instanceId)))
+    .returning({ webhookToken: eventSources.webhookToken });
+  return updated[0]?.webhookToken ?? null;
 }
 
 /**

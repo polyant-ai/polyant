@@ -104,7 +104,7 @@ vi.mock("drizzle-orm", () => ({
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
-import { markRunning, markFailed, create, clearRunningMarker } from "./store.js";
+import { markRunning, markCompleted, markFailed, create, clearRunningMarker } from "./store.js";
 import type { InstanceSlug } from "../instances/identifiers.js";
 
 // ---------------------------------------------------------------------------
@@ -200,6 +200,16 @@ describe("scheduled-tasks/store", () => {
     });
   });
 
+  it("does not overwrite a task that completed while the scheduler was resolving its outcome", async () => {
+    mockDb.select.mockReturnValue(createChainMock([BASE_TASK]) as never);
+    const updateChain = createChainMock(undefined);
+    mockDb.update.mockReturnValue(updateChain as never);
+
+    await markCompleted(TASK_ID, "conversation-1");
+
+    expect(JSON.stringify(updateChain.where.mock.calls[0][0])).toContain("running");
+  });
+
   // -----------------------------------------------------------------------
   // markFailed
   // -----------------------------------------------------------------------
@@ -221,6 +231,7 @@ describe("scheduled-tasks/store", () => {
       expect(setArgs.lastError).toBe("boom");
       expect(setArgs.lastRunStatus).toBe("error");
       expect(setArgs.enabled).toBeUndefined(); // not yet at limit
+      expect(JSON.stringify(updateChain.where.mock.calls[0][0])).toContain("running");
     });
 
     it("uses computeRetryDelay backoff when within maxRetries", async () => {
@@ -290,7 +301,7 @@ describe("clearRunningMarker", () => {
     // The startup path calls it unconditionally; an empty IN () would be both pointless
     // and, depending on the dialect, a syntax error.
     const cleared = await clearRunningMarker([]);
-    expect(cleared).toBe(0);
+    expect(cleared).toEqual([]);
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
@@ -300,7 +311,7 @@ describe("clearRunningMarker", () => {
 
     const cleared = await clearRunningMarker(["a", "b"]);
 
-    expect(cleared).toBe(2);
+    expect(cleared).toEqual(["a", "b"]);
     // The `running` guard in the WHERE clause is what makes this race-free: a row a live
     // process completed in the meantime must not be reopened.
     const whereArg = (chain as unknown as { where: ReturnType<typeof vi.fn> }).where.mock.calls[0]![0];

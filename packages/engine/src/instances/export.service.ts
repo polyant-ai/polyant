@@ -158,6 +158,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
       keepHistory: t.keepHistory,
       deleteAfterRun: t.deleteAfterRun,
       maxRetries: t.maxRetries,
+      maxRunMs: t.maxRunMs,
       createdBy: t.createdBy ?? null,
     })),
     mcpServers,

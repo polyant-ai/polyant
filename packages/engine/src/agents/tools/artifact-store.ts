@@ -18,6 +18,9 @@ import { randomUUID } from "crypto";
 
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
+const MAX_ARTIFACT_BYTES = 10 * 1024 * 1024;
+const MAX_STORED_BYTES = 100 * 1024 * 1024;
+const MAX_ENTRIES = 1_000;
 
 export interface ArtifactPayload {
   buffer: Buffer;
@@ -53,6 +56,17 @@ export class ArtifactStore {
     conversationId: string | null,
     ttlMs: number = DEFAULT_TTL_MS,
   ): string {
+    if (!Number.isInteger(ttlMs) || ttlMs <= 0 || ttlMs > DEFAULT_TTL_MS) {
+      throw new RangeError("Artifact TTL must be between 1 ms and 10 minutes");
+    }
+    if (payload.buffer.byteLength > MAX_ARTIFACT_BYTES) {
+      throw new RangeError("Artifact exceeds the 10 MB limit");
+    }
+    this.cleanup();
+    const storedBytes = [...this.entries.values()].reduce((total, entry) => total + entry.buffer.byteLength, 0);
+    if (this.entries.size >= MAX_ENTRIES || storedBytes + payload.buffer.byteLength > MAX_STORED_BYTES) {
+      throw new RangeError("Artifact store is full");
+    }
     const id = `artifact_${randomUUID()}`;
     this.entries.set(id, { ...payload, conversationId, expiresAt: Date.now() + ttlMs });
     this.ensureCleanupTimer();

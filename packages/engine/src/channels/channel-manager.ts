@@ -77,8 +77,13 @@ export class ChannelManager {
         // singleton across every channel and agent, so the timings cannot be
         // captured here the way they used to be.
         resolveTimings: async (msg) => {
-          const agent = await findInstanceBySlug(msg.instanceId);
-          return resolveMessageTimings(agent ?? UNSET_AGENT_SETTINGS);
+          try {
+            const agent = await findInstanceBySlug(msg.instanceId);
+            return resolveMessageTimings(agent ?? UNSET_AGENT_SETTINGS);
+          } catch (err) {
+            console.error(`[channel-manager] timing lookup failed for ${sanitizeForLog(msg.instanceId)}; using defaults:`, err);
+            return DEFAULT_MESSAGE_TIMINGS;
+          }
         },
         handler: (msg, signal) => loggedPipeline(msg, signal),
         sendOutbound: (slug, channelType, channelId, text) =>

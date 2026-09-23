@@ -19,10 +19,16 @@ const {
   mockListEventSourcesWithDefinitions,
   mockGetEventSourceWebhookToken,
   mockResolveInstanceId,
+  mockUpdateEventSource,
+  mockDeleteEventSource,
+  mockRotateWebhookToken,
 } = vi.hoisted(() => ({
   mockListEventSourcesWithDefinitions: vi.fn(),
   mockGetEventSourceWebhookToken: vi.fn(),
   mockResolveInstanceId: vi.fn(),
+  mockUpdateEventSource: vi.fn(),
+  mockDeleteEventSource: vi.fn(),
+  mockRotateWebhookToken: vi.fn(),
 }));
 
 vi.mock("../../webhooks/webhook-sources.store.js", async () => {
@@ -33,6 +39,9 @@ vi.mock("../../webhooks/webhook-sources.store.js", async () => {
     ...actual,
     listEventSourcesWithDefinitions: mockListEventSourcesWithDefinitions,
     getEventSourceWebhookToken: mockGetEventSourceWebhookToken,
+    updateEventSource: mockUpdateEventSource,
+    deleteEventSource: mockDeleteEventSource,
+    rotateWebhookToken: mockRotateWebhookToken,
   };
 });
 
@@ -134,5 +143,19 @@ describe("EventSourcesController", () => {
 
       await expect(controller.webhookUrl("unknown", "src-1")).rejects.toBeInstanceOf(NotFoundException);
     });
+  });
+
+  it("returns 404 instead of claiming a missing source was updated or deleted", async () => {
+    mockUpdateEventSource.mockResolvedValue(false);
+    mockDeleteEventSource.mockResolvedValue(false);
+
+    await expect(controller.update("acme", "missing", { name: "changed" })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(controller.remove("acme", "missing")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("returns 404 instead of revealing a token for a missing source", async () => {
+    mockRotateWebhookToken.mockResolvedValue(null);
+
+    await expect(controller.rotate("acme", "missing")).rejects.toBeInstanceOf(NotFoundException);
   });
 });
