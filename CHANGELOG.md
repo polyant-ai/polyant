@@ -18,6 +18,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stays as the value the deployment boots with; the stored address wins where one
   is set, and every webhook URL, OAuth redirect and agent card is built from the
   resolved value.
+- Models: OpenAI's gpt-6 family (`gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`),
+  Claude Opus 5, Opus 5.5 and Fable 5.1, and on Nebius GLM-5.3, GLM-5.3-Flash,
+  DeepSeek V4.1 Flash, DeepSeek V4 Pro 0813, Kimi K3, MiniMax M3 and
+  Nemotron 3.5 Lightning.
+- AI providers and OpenAI-compatible embedders can be registered at boot
+  (`registerAiProvider`, `registerEmbeddingProvider`) instead of edited into the
+  maps every request reads. The embedder selector in an agent's settings lists
+  what the server serves rather than a hardcoded pair.
+
+### Changed
+
+- **The OpenAI tiers moved to the gpt-6 family** (`fast` → `gpt-6-luna`,
+  `standard` → `gpt-6-sol`, `heavy` → `gpt-6-astra`). They pointed at
+  `gpt-4o-mini`/`gpt-4o`, which OpenAI lists as deprecated. Every OpenAI agent
+  without a pinned model, and its background jobs, lands on the new models; the
+  deprecated ones stay in the catalog so a pinned agent keeps its costs priced.
+- Prices corrected against the published pages: Claude Sonnet 5 is $2/$10 (it was
+  recorded at $3/$15), the gpt-5.6 family came down and no longer carries a
+  cache-write premium, `o3`'s cached input is $0.50, and Bedrock `eu.*` Claude 4.5+
+  profiles carry the 10% regional premium, where none was modelled.
+
+### Fixed
+
+- Switching thinking off now switches it off on models that reason by default —
+  gpt-6 sol/luna and Claude Opus 5 kept reasoning (and billing for it) when the
+  parameter was simply omitted.
+- An agent on a registered embedder was reported as missing credentials: the
+  readiness check asked for the OpenAI key regardless of the embedder.
+- An unknown embedder name — from an import, or a stale row — fell through to
+  OpenAI instead of failing; it now fails, and an import naming one is refused.
+- The reasoning-level clamp could send `medium` to a model that does not accept
+  it, and two capability checks looked a model up across providers by id alone.
 
 ### Removed
 

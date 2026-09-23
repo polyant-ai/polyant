@@ -24,7 +24,15 @@ const { mockUpdate, mockToastSuccess, mockToastError } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/i18n/context", () => ({
-  useI18n: vi.fn(() => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() })),
+  useI18n: vi.fn(() => ({
+    // Params are appended rather than dropped: the banners below carry the name
+    // of the embedder whose key is missing, and a mock that swallowed it would
+    // pass whatever provider the component named.
+    t: (key: string, params?: Record<string, string | number>) =>
+      params ? `${key} ${Object.values(params).join(" ")}` : key,
+    locale: "en",
+    setLocale: vi.fn(),
+  })),
   I18nProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
@@ -134,7 +142,25 @@ describe("MemoryCard — the embedder warning", () => {
       />,
     );
 
-    expect(screen.getByText("memory.banner.openaiNeedsKey")).toBeInTheDocument();
+    expect(screen.getByText("memory.banner.embedderNeedsKey OpenAI")).toBeInTheDocument();
+  });
+
+  // The regression: the banner said OpenAI for every embedder that was not
+  // Bedrock, so an agent on a registered embedder was told to configure a key
+  // that would not make its embedder work.
+  it("names a REGISTERED embedder, not OpenAI", () => {
+    renderWithProvider(
+      <MemoryCard
+        instance={makeInstance({
+          memoryEnabled: true,
+          embeddingProvider: "some-registered-embedder",
+          memory: { needsOpenAIKey: true, canEnable: false },
+        })}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("memory.banner.embedderNeedsKey some-registered-embedder")).toBeInTheDocument();
   });
 
   // The #150 case: the CHAT provider is anthropic, the embedder is bedrock, and
@@ -153,7 +179,7 @@ describe("MemoryCard — the embedder warning", () => {
     );
 
     expect(screen.getByText("memory.banner.bedrockNeedsAws")).toBeInTheDocument();
-    expect(screen.queryByText("memory.banner.openaiNeedsKey")).not.toBeInTheDocument();
+    expect(screen.queryByText(/memory\.banner\.embedderNeedsKey/)).not.toBeInTheDocument();
   });
 
   it("stays quiet when the engine reports nothing missing", () => {
@@ -167,7 +193,7 @@ describe("MemoryCard — the embedder warning", () => {
       />,
     );
 
-    expect(screen.queryByText("memory.banner.openaiNeedsKey")).not.toBeInTheDocument();
+    expect(screen.queryByText(/memory\.banner\.embedderNeedsKey/)).not.toBeInTheDocument();
     expect(screen.queryByText("memory.banner.bedrockNeedsAws")).not.toBeInTheDocument();
   });
 
@@ -183,6 +209,6 @@ describe("MemoryCard — the embedder warning", () => {
       />,
     );
 
-    expect(screen.queryByText("memory.banner.openaiNeedsKey")).not.toBeInTheDocument();
+    expect(screen.queryByText(/memory\.banner\.embedderNeedsKey/)).not.toBeInTheDocument();
   });
 });

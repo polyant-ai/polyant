@@ -46,7 +46,15 @@ const { mockList, mockUpdate, mockToastSuccess, mockToastError } = vi.hoisted(()
 }));
 
 vi.mock("@/lib/i18n/context", () => ({
-  useI18n: vi.fn(() => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() })),
+  useI18n: vi.fn(() => ({
+    // Params are appended rather than dropped: the banners below carry the name
+    // of the embedder whose key is missing, and a mock that swallowed it would
+    // pass whatever provider the component named.
+    t: (key: string, params?: Record<string, string | number>) =>
+      params ? `${key} ${Object.values(params).join(" ")}` : key,
+    locale: "en",
+    setLocale: vi.fn(),
+  })),
   I18nProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
@@ -100,7 +108,29 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("settings.tab.knowledgeOpenaiWarning")).toBeInTheDocument();
+      expect(screen.getByText("settings.tab.knowledgeEmbedderWarning OpenAI")).toBeInTheDocument();
+    });
+  });
+
+  // Same regression as the memory card's banner: it said OpenAI for every
+  // embedder that was not Bedrock, so the instruction did not fix anything for an
+  // agent on a registered embedder.
+  it("names a REGISTERED embedder, not OpenAI", async () => {
+    renderWithProvider(
+      <KnowledgeTab
+        slug="a1"
+        instance={makeInstance({
+          embeddingProvider: "some-registered-embedder",
+          embedder: { needsCredentials: true },
+        })}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("settings.tab.knowledgeEmbedderWarning some-registered-embedder"),
+      ).toBeInTheDocument();
     });
   });
 
@@ -131,7 +161,7 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
     );
 
     await waitFor(() => expect(mockList).toHaveBeenCalled());
-    expect(screen.queryByText("settings.tab.knowledgeOpenaiWarning")).not.toBeInTheDocument();
+    expect(screen.queryByText(/settings\.tab\.knowledgeEmbedderWarning/)).not.toBeInTheDocument();
   });
 
   it("stays quiet while retrieval is off, since nothing will be embedded", async () => {
@@ -147,7 +177,7 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
     );
 
     await waitFor(() => expect(mockList).toHaveBeenCalled());
-    expect(screen.queryByText("settings.tab.knowledgeOpenaiWarning")).not.toBeInTheDocument();
+    expect(screen.queryByText(/settings\.tab\.knowledgeEmbedderWarning/)).not.toBeInTheDocument();
   });
 
   // The engine's answer, not a client-side recomputation: `memory` reports
@@ -166,7 +196,7 @@ describe("KnowledgeTab — the embedder-credentials warning", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("settings.tab.knowledgeOpenaiWarning")).toBeInTheDocument();
+      expect(screen.getByText("settings.tab.knowledgeEmbedderWarning OpenAI")).toBeInTheDocument();
     });
   });
 });

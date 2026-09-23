@@ -44,6 +44,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { api, getUserErrorMessage, type Instance, type KnowledgeDocument } from "@/lib/api";
+import { providerName } from "@/lib/provider-secrets";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { usePageSaveAction } from "./page-actions-context";
@@ -183,9 +184,13 @@ function KnowledgeToggle({
         <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <p className="text-sm text-amber-900 dark:text-amber-200">
+            {/* Names the SELECTED embedder — see the same banner on the memory
+                card. Bedrock keeps its own wording: it needs a region, not a key. */}
             {instance.embeddingProvider === "bedrock"
               ? t("settings.tab.knowledgeAwsWarning")
-              : t("settings.tab.knowledgeOpenaiWarning")}
+              : t("settings.tab.knowledgeEmbedderWarning", {
+                  provider: providerName(instance.embeddingProvider ?? "openai"),
+                })}
           </p>
         </div>
       )}
