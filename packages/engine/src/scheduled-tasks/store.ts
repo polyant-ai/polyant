@@ -239,7 +239,7 @@ export async function markCompleted(id: string, conversationId: string): Promise
       nextRunAt,
       updatedAt: now,
     })
-    .where(eq(scheduledTasks.id, id));
+    .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.lastRunStatus, "running")));
 }
 
 /** Mark a task as failed */
@@ -277,7 +277,7 @@ export async function markFailed(id: string, error: string): Promise<void> {
       nextRunAt,
       updatedAt: now,
     })
-    .where(eq(scheduledTasks.id, id));
+    .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.lastRunStatus, "running")));
 }
 
 /**
@@ -318,14 +318,14 @@ export async function countStuckRunning(since: Date): Promise<number> {
  * The `running` guard in the WHERE clause keeps this idempotent and race-free: a row that
  * a live process has meanwhile completed is not touched.
  */
-export async function clearRunningMarker(ids: string[]): Promise<number> {
-  if (ids.length === 0) return 0;
+export async function clearRunningMarker(ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
   const rows = await db
     .update(scheduledTasks)
     .set({ lastRunStatus: null, updatedAt: new Date() })
     .where(and(inArray(scheduledTasks.id, ids), eq(scheduledTasks.lastRunStatus, "running")))
     .returning({ id: scheduledTasks.id });
-  return rows.length;
+  return rows.map((row) => row.id);
 }
 
 /** Disable a task */

@@ -2,6 +2,15 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ChannelManager } from "./channel-manager.js";
+import type { MessageHandler } from "./types.js";
+import { asInstanceSlug } from "../instances/identifiers.js";
+
+const { mockFindInstanceBySlug, mockTelegramInitialize } = vi.hoisted(() => ({
+  mockFindInstanceBySlug: vi.fn(),
+  mockTelegramInitialize: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../instances/store.js", () => ({ findInstanceBySlug: mockFindInstanceBySlug }));
 
 // Mock DB-dependent imports
 vi.mock("../instances/channels.store.js", () => ({
@@ -14,7 +23,7 @@ vi.mock("../instances/channels.store.js", () => ({
 vi.mock("./adapters/telegram/index.js", () => ({
   TelegramAdapter: vi.fn().mockImplementation(function (this: any, _instanceId: string) {
     this.name = "telegram";
-    this.initialize = vi.fn().mockResolvedValue(undefined);
+    this.initialize = mockTelegramInitialize;
     this.sendMessage = vi.fn().mockResolvedValue(undefined);
     this.shutdown = vi.fn().mockResolvedValue(undefined);
   }),
@@ -42,6 +51,8 @@ describe("ChannelManager", () => {
   let manager: ChannelManager;
 
   beforeEach(() => {
+    mockFindInstanceBySlug.mockReset();
+    mockTelegramInitialize.mockClear();
     manager = new ChannelManager();
     manager.setMessageHandler(vi.fn().mockResolvedValue({ text: "ok" }));
   });
@@ -123,5 +134,28 @@ describe("ChannelManager", () => {
         freshManager.startChannel("inst", "telegram", { botToken: "t" }),
       ).rejects.toThrow("Message handler not set");
     });
+  });
+
+  it("accepts an inbound fragment with default timings when the agent lookup fails", async () => {
+    vi.useFakeTimers();
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mockFindInstanceBySlug.mockRejectedValue(new Error("database unavailable"));
+      await manager.startChannel("my-instance", "telegram", { botToken: "test-token" });
+      const onMessage = mockTelegramInitialize.mock.calls[0][0] as MessageHandler;
+
+      await expect(onMessage({
+        channelType: "telegram",
+        channelId: "chat-1",
+        instanceId: asInstanceSlug("my-instance"),
+        text: "hello",
+        metadata: {},
+      })).resolves.toEqual({ text: "" });
+      expect(errorLog).toHaveBeenCalled();
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      errorLog.mockRestore();
+    }
   });
 });

@@ -45,6 +45,23 @@ describe("ArtifactStore", () => {
     store.stopCleanupTimer();
   });
 
+  it("rejects oversized artifacts and TTLs instead of retaining unbounded data", () => {
+    const store = new ArtifactStore();
+    expect(() => store.put({ ...payload(), buffer: Buffer.alloc(10 * 1024 * 1024 + 1) }, "conv-1"))
+      .toThrow(RangeError);
+    expect(() => store.put(payload(), "conv-1", 10 * 60 * 1000 + 1)).toThrow(RangeError);
+    expect(store.size()).toBe(0);
+  });
+
+  it("caps aggregate retained bytes across conversations", () => {
+    const store = new ArtifactStore();
+    const tenMb = { ...payload(), buffer: Buffer.alloc(10 * 1024 * 1024) };
+    for (let i = 0; i < 10; i++) store.put(tenMb, `conv-${i}`);
+
+    expect(() => store.put(payload(), "extra")).toThrow(RangeError);
+    store.stopCleanupTimer();
+  });
+
   it("cleanup() drops only expired entries", () => {
     vi.useFakeTimers();
     const store = new ArtifactStore();

@@ -95,7 +95,7 @@ describe("SchedulerService", () => {
     mockRunLog.failDanglingRuns.mockReset().mockResolvedValue(0);
     mockStore.findStuckRunning.mockReset().mockResolvedValue([]);
     mockStore.countStuckRunning.mockReset().mockResolvedValue(0);
-    mockStore.clearRunningMarker.mockReset().mockResolvedValue(0);
+    mockStore.clearRunningMarker.mockReset().mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -209,7 +209,7 @@ describe("SchedulerService", () => {
       });
       mockStore.clearRunningMarker.mockImplementation(async () => {
         calls.push("clearRunningMarker");
-        return 1;
+        return ["task-orphan"];
       });
       mockRunLog.failDanglingRuns.mockImplementation(async () => {
         calls.push("failDanglingRuns");
@@ -235,7 +235,7 @@ describe("SchedulerService", () => {
       // An interrupted run is a deploy's fault, not the task's: counting it would burn a
       // retry, push `nextRunAt` away, and after enough deploys disable the task outright.
       mockStore.findStuckRunning.mockResolvedValue([orphan()]);
-      mockStore.clearRunningMarker.mockResolvedValue(1);
+      mockStore.clearRunningMarker.mockResolvedValue(["task-orphan"]);
 
       schedulerService.initialize(noopHandler);
       await schedulerService.start();
@@ -254,6 +254,29 @@ describe("SchedulerService", () => {
       const cutoff = mockStore.findStuckRunning.mock.calls[0]![0] as Date;
       // Default grace is 15 minutes; assert the shape (a past cutoff), not the constant.
       expect(cutoff.getTime()).toBeLessThan(Date.now() - 60_000);
+    });
+
+    it("does not reclaim a run still inside its deadline, even after the deploy grace", async () => {
+      mockStore.findStuckRunning.mockResolvedValue([
+        orphan({ updatedAt: new Date(Date.now() - 20 * 60_000) }),
+        orphan({ id: "long-running", updatedAt: new Date(Date.now() - 40 * 60_000), maxRunMs: 60 * 60_000 }),
+      ]);
+      schedulerService.initialize(noopHandler);
+
+      await schedulerService.start();
+
+      expect(mockStore.clearRunningMarker).not.toHaveBeenCalled();
+      expect(mockRunLog.failDanglingRuns).not.toHaveBeenCalled();
+    });
+
+    it("closes only rows whose running marker was actually cleared", async () => {
+      mockStore.findStuckRunning.mockResolvedValue([orphan()]);
+      mockStore.clearRunningMarker.mockResolvedValue([]);
+      schedulerService.initialize(noopHandler);
+
+      await schedulerService.start();
+
+      expect(mockRunLog.failDanglingRuns).not.toHaveBeenCalled();
     });
   });
 

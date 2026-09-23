@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { instanceBundleSchema, INSTANCE_BUNDLE_VERSION } from "./export.schema.js";
+import { exportScheduledTaskSchema, instanceBundleSchema, INSTANCE_BUNDLE_VERSION } from "./export.schema.js";
 
 // A minimal legacy 1.0 bundle: only the fields the original format carried.
 // New fields are absent — the schema must default them so old exports still
@@ -162,6 +162,25 @@ describe("instanceBundleSchema back-compat", () => {
     });
     expect(parsed.instance.channels[0]?.channelType).toBe("agent");
   });
+});
+
+it("preserves a custom scheduled-task deadline and defaults older bundles to null", () => {
+  const legacyTask = {
+    name: "digest",
+    description: null,
+    enabled: true,
+    schedule: { type: "interval", everyMs: 60_000 },
+    prompt: "Summarize",
+    outboundChannel: null,
+    outboundTarget: null,
+    keepHistory: false,
+    deleteAfterRun: false,
+    maxRetries: 3,
+    createdBy: null,
+  };
+
+  expect(exportScheduledTaskSchema.parse(legacyTask).maxRunMs).toBeNull();
+  expect(exportScheduledTaskSchema.parse({ ...legacyTask, maxRunMs: 45_000 }).maxRunMs).toBe(45_000);
 });
 
 // stripSensitiveKeys now has its own module + test file: see

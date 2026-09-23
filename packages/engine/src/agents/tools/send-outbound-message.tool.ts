@@ -11,7 +11,7 @@ export default defineTool({
     "Send a message to the user via the configured outbound channel.\n" +
     "Use this tool to send the initial message or follow-up messages in a webhook-triggered conversation.\n" +
     "The outbound channel and target are determined by the trigger configuration.\n" +
-    "Optionally attach a public HTTPS media URL (e.g. a PDF link from hubspotFile) — supported on WhatsApp via Twilio; ignored by channels that don't support outbound media.\n" +
+    "Optionally attach a public HTTPS media URL — supported on WhatsApp via Twilio; ignored by channels that don't support outbound media.\n" +
     "Returns confirmation that the message was sent.\n" +
     "Caveat: only available in webhook-triggered conversation context.",
   category: "conversation-trigger",

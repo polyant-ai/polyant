@@ -55,6 +55,11 @@ export default defineTool({
 });
 ```
 
+`ctx.artifacts` is an in-process, one-shot handoff between tools in the same
+conversation. Each artifact is limited to 10 MB and at most 10 minutes; the
+process store accepts at most 100 MB or 1,000 live handles. Persist anything
+longer-lived through `fileUpload` instead.
+
 ### Schema rules (OpenAI strict-mode compatible — enforced by `strict-mode.test.ts`)
 - `.nullable()`, **not** `.optional()` / `.default()` (apply defaults in `execute`).
 - No `.transform()` / `.refine()` / `.preprocess()` in `parameters` — move that logic to `execute` and return `{ error }` instead of throwing (see `hubspot-contact.tool.ts`, `http-request.tool.ts`).

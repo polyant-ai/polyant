@@ -103,6 +103,7 @@ export const exportScheduledTaskSchema = z.object({
   keepHistory: z.boolean(),
   deleteAfterRun: z.boolean(),
   maxRetries: z.number(),
+  maxRunMs: z.number().int().min(1_000).nullable().default(null),
   createdBy: z.string().nullable(),
 });
 

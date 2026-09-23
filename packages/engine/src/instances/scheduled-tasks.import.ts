@@ -26,6 +26,7 @@ export async function importScheduledTasks(
       keepHistory: task.keepHistory,
       deleteAfterRun: task.deleteAfterRun,
       maxRetries: task.maxRetries,
+      maxRunMs: task.maxRunMs,
       createdBy: task.createdBy,
       nextRunAt,
     });

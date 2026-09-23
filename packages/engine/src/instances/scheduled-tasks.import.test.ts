@@ -36,6 +36,7 @@ function task(
     keepHistory: true,
     deleteAfterRun: false,
     maxRetries: 3,
+    maxRunMs: null,
     createdBy: "user-1",
     ...overrides,
   };
@@ -80,6 +81,14 @@ describe("importScheduledTasks", () => {
     await importScheduledTasks(tx, "instance-slug", [task({ enabled: false })]);
 
     expect(inserted[0]).toMatchObject({ enabled: false, nextRunAt: null });
+  });
+
+  it("preserves a custom run deadline on import", async () => {
+    const { tx, inserted } = makeFakeTx();
+
+    await importScheduledTasks(tx, "instance-slug", [task({ maxRunMs: 45_000 })]);
+
+    expect(inserted[0].maxRunMs).toBe(45_000);
   });
 
   it("inserts multiple tasks in array order, using the SLUG (not a uuid) as instanceId", async () => {

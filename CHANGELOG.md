@@ -103,6 +103,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scheduled tasks no longer remain permanently `running` after a deploy or
   crash, and one malformed tool-audit entry no longer blocks the rest of an
   agent's audit trail.
+- Agent bundles preserve each scheduled task's run deadline; event-source edits
+  and token rotation return 404 for missing sources; inbound messages use default
+  timings when their settings lookup fails. In-process plugin artifacts now have
+  bounded size, lifetime and aggregate storage.
+- Scheduler startup recovery waits through each task's run deadline and does
+  not overwrite an outcome already recorded by another process.
 - Tenant-scoped conversation and memory reads and mutations fail closed;
   unresolved request tenancy is refused instead of widening or silently losing
   a predicate.
