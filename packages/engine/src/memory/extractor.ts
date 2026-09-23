@@ -132,7 +132,7 @@ export async function extractMemories(
       embedding: embeddings[i],
       dimensions: ctx.dimensions,
       dedupSimilarityThreshold,
-      provider: ctx.credentials.provider,
+      provider: ctx.providerName,
     });
     results.push(result);
   }

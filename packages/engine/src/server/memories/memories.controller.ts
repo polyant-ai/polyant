@@ -90,7 +90,7 @@ export class MemoriesController {
       importance: body.importance ?? 5,
       embedding,
       dimensions: embCtx.dimensions,
-      provider: embCtx.credentials.provider,
+      provider: embCtx.providerName,
     });
     return { memory: result };
   }

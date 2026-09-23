@@ -23,6 +23,7 @@ import {
   computeMemoryStatusFromInstance,
   computeMemoryStatus,
 } from "./memory-status.js";
+import { registerEmbeddingProvider } from "../../embeddings-gateway/registry.js";
 
 function makeInstance(overrides: Partial<Instance>): Instance {
   return {
@@ -159,5 +160,44 @@ describe("computeMemoryStatus", () => {
     const status = await computeMemoryStatus("my-bot");
 
     expect(status).toEqual({ needsOpenAIKey: false, canEnable: true });
+  });
+});
+
+// The defect: readiness asked for `openai_api_key` for anything that was not
+// bedrock, while the resolver reads the registration's own key — so an agent
+// embedding fine on a registered embedder was reported as missing credentials.
+describe("readiness of a registered embedder", () => {
+  beforeEach(() => {
+    registerEmbeddingProvider({
+      name: "some-registered-embedder",
+      label: "Some Registered Embedder",
+      baseURL: "https://example.invalid/v1",
+      modelId: "an-embedding-model",
+      apiKeySecret: "some_registered_embedder_api_key",
+      supportedDims: [1024],
+    });
+  });
+  afterEach(() => {
+    mockGetAllSecretsById.mockReset();
+  });
+
+  it("is ready on its OWN key, with no OpenAI key anywhere", async () => {
+    mockGetAllSecretsById.mockResolvedValue({ some_registered_embedder_api_key: "key-123" });
+
+    const status = await computeMemoryStatusFromInstance(
+      makeInstance({ embeddingProvider: "some-registered-embedder" }),
+    );
+
+    expect(status).toEqual({ needsOpenAIKey: false, canEnable: true });
+  });
+
+  it("is NOT made ready by an OpenAI key it does not use", async () => {
+    mockGetAllSecretsById.mockResolvedValue({ openai_api_key: "sk-test" });
+
+    const status = await computeMemoryStatusFromInstance(
+      makeInstance({ embeddingProvider: "some-registered-embedder" }),
+    );
+
+    expect(status).toEqual({ needsOpenAIKey: true, canEnable: false });
   });
 });

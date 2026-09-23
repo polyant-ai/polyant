@@ -11,6 +11,7 @@ vi.mock("../instances/secrets.store.js", () => ({
 }));
 
 import { resolveEmbeddingContext, invalidateAllEmbeddingContexts } from "./provider-resolver.js";
+import { registerEmbeddingProvider } from "./registry.js";
 
 beforeEach(() => {
   findInstance.mockReset();
@@ -43,6 +44,48 @@ describe("resolveEmbeddingContext", () => {
     const ctx = await resolveEmbeddingContext("s");
     expect(ctx.credentials.provider).toBe("openai");
   });
+  // The two defects this pins, both in the same branch. The OpenAI case used to
+  // be a bare `else`, so it answered for ANY name the deployment does not serve —
+  // an agent configured for an embedder this deployment does not serve had its
+  // data sent to OpenAI, and nothing said so. And `providerName` is what the memory and knowledge rows
+  // record; it used to be the transport discriminant, which stamped every
+  // registered embedder as `openai-compatible`.
+  it("refuses an embedder this deployment does not serve, instead of falling back to OpenAI", async () => {
+    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "openai", embeddingProvider: "an-embedder-nobody-serves", embeddingDim: 1024 });
+    getSecrets.mockResolvedValue({ openai_api_key: "k" });
+
+    await expect(resolveEmbeddingContext("s")).rejects.toThrow(/is not available in this deployment/);
+  });
+
+  it("reports the embedder's OWN name for persistence, not the transport it speaks", async () => {
+    registerEmbeddingProvider({
+      name: "resolver-test-embedder",
+      label: "Resolver Test Embedder",
+      baseURL: "https://example.invalid/v1",
+      modelId: "an-embedding-model",
+      apiKeySecret: "resolver_test_embedder_api_key",
+      supportedDims: [1024],
+    });
+    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "resolver-test-embedder", embeddingProvider: "resolver-test-embedder", embeddingDim: 1024 });
+    getSecrets.mockResolvedValue({ resolver_test_embedder_api_key: "k" });
+
+    const ctx = await resolveEmbeddingContext("s");
+
+    expect(ctx.providerName).toBe("resolver-test-embedder");
+    expect(ctx.credentials.provider).toBe("openai-compatible");
+  });
+
+  it("reports the built-in embedders' own names too", async () => {
+    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "bedrock", embeddingProvider: "bedrock", embeddingDim: 1024 });
+    getSecrets.mockResolvedValue({ aws_provider_region: "eu-west-1" });
+    expect((await resolveEmbeddingContext("s")).providerName).toBe("bedrock");
+
+    invalidateAllEmbeddingContexts();
+    findInstance.mockResolvedValue({ id: "i2", slug: "s2", provider: "openai", embeddingProvider: "openai", embeddingDim: 1024 });
+    getSecrets.mockResolvedValue({ openai_api_key: "k" });
+    expect((await resolveEmbeddingContext("s2")).providerName).toBe("openai");
+  });
+
   it("throws on unknown instance", async () => {
     findInstance.mockResolvedValue(undefined);
     await expect(resolveEmbeddingContext("nope")).rejects.toThrow(/not found/);

@@ -28,7 +28,17 @@ export interface ChatRequest {
   tools?: Record<string, Tool>;
   maxSteps?: number;
   system?: string;
-  /** Per-instance API keys. When provided, used instead of process.env defaults. */
+  /**
+   * Per-instance API keys, keyed by PROVIDER NAME (the Bedrock triple is the one
+   * exception: it authenticates with a pair plus a region rather than a single
+   * key). Deliberately CLOSED, and it under-declares on purpose — a provider
+   * registered at boot puts its key on this object under its own name, and its
+   * adapter reads it through `providerApiKey()` (`providers/registry.ts`). An
+   * index signature here would be the honest type and does not survive contact
+   * with the plugin SDK: `ToolApiKeys` is an interface, and a TypeScript
+   * interface is not assignable to a type carrying an index signature, so every
+   * tool that forwards `ctx.apiKeys` into its own LLM call would stop compiling.
+   */
   apiKeys?: {
     openai?: string;
     anthropic?: string;

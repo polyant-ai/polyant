@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { ModelMessage } from "ai";
-import { findModelCapabilities } from "./model-catalog.js";
+import { getModelCapabilities } from "./model-catalog.js";
 import { warnCatalogFallback } from "./config.js";
 import { sanitizeToolWireMessages } from "../utils/model-tool-wire.js";
 
@@ -9,21 +9,22 @@ import { sanitizeToolWireMessages } from "../utils/model-tool-wire.js";
 // absent from the per-model catalog. An unlisted model has its image/file content
 // parts stripped to a text note (degraded, never a provider 400). Fails safe.
 // Exported so the catalog-integrity test can cross-check catalogued rows.
-const VISION_CAPABLE = /gpt-4o|gpt-4\.1|gpt-5|chatgpt|claude|nova-lite|nova-pro|nova-2|vision|\bo[134]\b|-vl-|minicpm-v|cosmos3|kimi-k2\.6/i;
+const VISION_CAPABLE = /gpt-4o|gpt-4\.1|gpt-5|gpt-6|chatgpt|claude|nova-lite|nova-pro|nova-2|vision|\bo[134]\b|-vl-|minicpm-v|cosmos3|kimi-k2\.6|kimi-k3|glm-5\.3-flash|deepseek-v4\.1/i;
 
 export function visionCapableFallback(model: string): boolean {
   return VISION_CAPABLE.test(model);
 }
 
 /**
- * Whether a model accepts image/file input. Reads the catalog `vision` field
- * (cross-provider lookup — this gate receives no provider); falls back to the
- * regex heuristic (logged) for un-catalogued ids.
+ * Whether a `(provider, model)` accepts image/file input. Reads the catalog
+ * `vision` field; falls back to the regex heuristic (logged) for un-catalogued
+ * ids. The provider is required because two providers publish the same bare
+ * model id — a lookup by id alone answered from whichever row came first.
  */
-export function modelSupportsVision(model: string): boolean {
-  const entry = findModelCapabilities(model);
+export function modelSupportsVision(provider: string, model: string): boolean {
+  const entry = getModelCapabilities(provider, model);
   if (entry) return entry.vision;
-  warnCatalogFallback("modelSupportsVision", "", model);
+  warnCatalogFallback("modelSupportsVision", provider, model);
   return visionCapableFallback(model);
 }
 
@@ -41,8 +42,12 @@ const EMPTY_PLACEHOLDER = "[attachment]";
  * Returns the same reference when nothing changed. Internal part typing is loose (the
  * function operates on the runtime content shape); cast back to ModelMessage at the edge.
  */
-export function sanitizeMessagesForModel(messages: ModelMessage[], model: string): ModelMessage[] {
-  const visionOk = modelSupportsVision(model);
+export function sanitizeMessagesForModel(
+  messages: ModelMessage[],
+  provider: string,
+  model: string,
+): ModelMessage[] {
+  const visionOk = modelSupportsVision(provider, model);
   const wireSafeMessages = sanitizeToolWireMessages(messages);
   let changed = false;
 

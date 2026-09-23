@@ -2,8 +2,9 @@
 
 import type { Instance } from "../../instances/store.js";
 import { findInstanceByIdOrSlug } from "../../instances/resolve-instance-id.js";
-import { getAllSecretsById, SECRET_KEYS } from "../../instances/secrets.store.js";
-import { SUPPORTED_DIMS } from "../../embeddings-gateway/config.js";
+import { getAllSecretsById } from "../../instances/secrets.store.js";
+import { supportedDimsFor } from "../../embeddings-gateway/config.js";
+import { requiredSecretKeysFor } from "../../embeddings-gateway/provider-resolver.js";
 import type { EmbeddingDim, EmbeddingProvider } from "../../embeddings-gateway/types.js";
 
 /**
@@ -45,17 +46,15 @@ export async function computeEmbedderReadiness(instance: Instance): Promise<Embe
   // The instance is only usable if the embedding provider can emit its stored
   // dimension. A provider switch that left embedding_dim incompatible (e.g.
   // bedrock + 1536) makes every embed throw — never report that as healthy.
-  const dimCompatible = SUPPORTED_DIMS[embeddingProvider].includes(
-    instance.embeddingDim as EmbeddingDim,
-  );
+  const dimCompatible = supportedDimsFor(embeddingProvider).includes(instance.embeddingDim as EmbeddingDim);
 
-  if (embeddingProvider === "bedrock") {
-    // Mirrors resolveEmbeddingContext, which requires the per-agent region and
-    // has no engine-level fallback to consult.
-    const hasRegion = !!secrets[SECRET_KEYS.AWS_PROVIDER_REGION];
-    return { hasCredentials: hasRegion, dimCompatible };
-  }
-  return { hasCredentials: !!secrets[SECRET_KEYS.OPENAI_API_KEY], dimCompatible };
+  // Which secrets the embedder needs is asked, never restated here: this branch
+  // used to name `openai_api_key` for anything that was not bedrock, which
+  // reported a registered embedder as missing credentials while its own key was
+  // set and its embeddings worked.
+  const required = requiredSecretKeysFor(embeddingProvider);
+  const hasCredentials = required.every((key) => !!secrets[key]);
+  return { hasCredentials, dimCompatible };
 }
 
 /**

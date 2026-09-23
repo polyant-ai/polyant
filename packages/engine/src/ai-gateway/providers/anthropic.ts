@@ -98,6 +98,21 @@ type AnthropicThinkingOptions =
  *     preset levels, so the budget key is always one of low/medium/high).
  * The gateway supplies `adaptive` from `reasoningControlFor(provider, model) === "adaptive"`.
  */
+/**
+ * The payload that switches thinking OFF for a Claude model that runs adaptive
+ * thinking when the parameter is omitted (Opus 5). Omitting `thinking` is the
+ * off-switch for every earlier Claude and is the opposite for this one, so the
+ * direction is catalog data (`reasoningOff: { via: "thinking-disabled" }`) rather
+ * than a model-id test here.
+ *
+ * Safe to send unconditionally when thinking is off: `{type:"disabled"}` is
+ * rejected only alongside an effort of `xhigh`/`max`, and an off turn sends no
+ * effort at all.
+ */
+export function buildAnthropicThinkingOffOptions(): { thinking: { type: "disabled" } } {
+  return { thinking: { type: "disabled" } };
+}
+
 export function buildAnthropicThinkingOptions(level: string, adaptive: boolean): AnthropicThinkingOptions {
   if (adaptive) return { thinking: { type: "adaptive" }, effort: level };
   const budgetKey: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";

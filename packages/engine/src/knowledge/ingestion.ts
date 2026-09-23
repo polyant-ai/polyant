@@ -79,7 +79,7 @@ export async function processDocument(
       docId,
       chunkRecords,
       ctx.dimensions,
-      ctx.credentials.provider,
+      ctx.providerName,
     );
 
     console.log(`[Knowledge] Processed doc ${docId}: ${inserted} chunks embedded`);

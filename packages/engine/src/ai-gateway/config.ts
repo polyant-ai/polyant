@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { TierMapping, CostBreakdown } from "./types.js";
-import { providerConfigs, getModelCapabilities, findModelCapabilities } from "./model-catalog.js";
-import type { ModelCapabilities, ReasoningLevel } from "./model-catalog.js";
+import { providerConfigs, getModelCapabilities } from "./model-catalog.js";
+import type { ModelCapabilities, ReasoningLevel, ReasoningToggle, WireDialect } from "./model-catalog.js";
 
 // The per-model catalog (data) lives in model-catalog.ts; re-exported here so
 // existing importers (`./config.js`) keep working. This file holds the LOGIC:
@@ -49,11 +49,12 @@ export function reasoningCapableFallback(provider: string, modelId: string): boo
   if (!provider || !modelId) return false;
   switch (provider) {
     case "openai":
-      // Reasoning families: o1, o3, o4 (any suffix) and the gpt-5 line.
-      return /^(o[134]|gpt-5)/.test(modelId);
+      // Reasoning families: o1, o3, o4 (any suffix) and the gpt-5 / gpt-6 lines.
+      return /^(o[134]|gpt-5|gpt-6)/.test(modelId);
     case "anthropic":
-      // Claude 3.7 + the Claude 4 family (sonnet, opus, haiku), sonnet-5, fable-5.
-      return /^claude-(3-7|opus-4|sonnet-4|sonnet-5|haiku-4|fable-5)/.test(modelId);
+      // Claude 3.7 + the Claude 4 family (sonnet, opus, haiku), sonnet-5, opus-5,
+      // fable-5 (which also covers fable-5-1).
+      return /^claude-(3-7|opus-4|opus-5|sonnet-4|sonnet-5|haiku-4|fable-5)/.test(modelId);
     case "bedrock":
       // Anthropic Claude 4+ (haiku/sonnet/opus — haiku LIVE-VERIFIED to reason on
       // Bedrock) + OpenAI gpt-oss (effort) + MiniMax M (live-verified), with or
@@ -62,7 +63,7 @@ export function reasoningCapableFallback(provider: string, modelId: string): boo
     case "nebius":
       // Reasoning families served by Nebius (emit reasoning_content). IDs carry an
       // org prefix, so match the model segment case-insensitively.
-      return /(qwen3\.5|-thinking|deepseek-v4|glm-5|gpt-oss|kimi-k2|minimax-m|hermes-4|nemotron|reasoner)/i.test(modelId);
+      return /(qwen3\.5|-thinking|deepseek-v4|glm-5|gpt-oss|kimi-k[23]|minimax-m|hermes-4|nemotron|reasoner)/i.test(modelId);
     default:
       return false;
   }
@@ -81,7 +82,14 @@ export function reasoningCapableFallback(provider: string, modelId: string): boo
  */
 export function reasoningAlwaysOnFallback(modelId: string): boolean {
   if (!modelId) return false;
-  return /gpt-oss|^o[134]\b|gpt-5\.6|minimax-m|kimi-k2|-thinking/i.test(modelId);
+  // The alternatives that name a POINT release are anchored and terminated on
+  // purpose: `claude-fable-5-1` cannot be switched off and `claude-fable-5` can,
+  // and one is a prefix of the other. Same for `claude-opus-5-5` against
+  // `claude-opus-5`, and `gpt-6-astra` against the rest of its family.
+  return (
+    /gpt-oss|^o[134]\b|gpt-5\.6|minimax-m|kimi-k[23]|-thinking/i.test(modelId) ||
+    /^gpt-6-astra$|^claude-opus-5-5$|^claude-fable-5-1$/i.test(modelId)
+  );
 }
 
 /**
@@ -99,9 +107,9 @@ export function temperatureRejectedFallback(provider: string, modelId: string): 
     case "openai":
       // Both alternatives are anchored: `^` binds only to the first branch of a
       // top-level `|`, so without the group `my-gpt-5.6-tune` would match too.
-      return /^(?:o[134]\b|gpt-5\.6)/.test(modelId);
+      return /^(?:o[134]\b|gpt-5\.6|gpt-6)/.test(modelId);
     case "anthropic":
-      return /^claude-(opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
+      return /^claude-(opus-4-[78]|opus-5|sonnet-5|fable-5)/.test(modelId);
     case "bedrock":
       return /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-(opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
     default:
@@ -128,7 +136,7 @@ export function reasoningControlFallback(
   if (!reasoningCapableFallback(provider, modelId)) return undefined;
   const claudeAdaptive =
     (provider === "anthropic" || provider === "bedrock") &&
-    /claude-(?:opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
+    /claude-(?:opus-4-[78]|opus-5|sonnet-5|fable-5)/.test(modelId);
   if (claudeAdaptive) return "adaptive";
   switch (provider) {
     case "openai":
@@ -303,18 +311,25 @@ export function isThinkingCapable(provider: string, modelId: string): boolean {
  * only the effort (low|medium|high) is adjustable, there is no "off" (gpt-oss,
  * the OpenAI o-series, and gpt-5.6 — all live-verified). A model that is always-on is necessarily
  * thinking-capable, so callers use this to REFINE the `isThinkingCapable`
- * verdict — not replace it. Takes model id alone (provider-agnostic: gpt-oss is
- * gpt-oss whatever serves it), so it does a cross-provider catalog lookup.
+ * verdict — not replace it.
+ *
+ * Takes the PROVIDER as well as the model id, and every caller has one. It used
+ * to look the id up across providers on the premise that "gpt-oss is gpt-oss
+ * whatever serves it" — true of the capability, false of the lookup: a model id
+ * is unique within its provider and nothing makes it unique across providers
+ * (open-weight models are served under the same bare name by more than one),
+ * each with its own prices and effort levels, so a cross-provider lookup answers
+ * from whichever row was declared first, with nothing in the log.
  *
  * Consumed by GET /api/instances/models (frontend locks the toggle ON + shows an
- * "always reasons" hint) and by ai-gateway resolveCallConfig (Nebius: never send
- * the Qwen-only `enable_thinking:false` kwarg to a model that ignores it).
+ * "always reasons" hint) and by ai-gateway resolveCallConfig (never send an
+ * off-switch kwarg to a model that ignores it).
  */
-export function isReasoningAlwaysOn(modelId: string): boolean {
-  if (!modelId) return false;
-  const entry = findModelCapabilities(modelId);
+export function isReasoningAlwaysOn(provider: string, modelId: string): boolean {
+  if (!provider || !modelId) return false;
+  const entry = getModelCapabilities(provider, modelId);
   if (entry) return entry.reasoningAlwaysOn ?? false;
-  warnCatalogFallback("isReasoningAlwaysOn", "", modelId);
+  warnCatalogFallback("isReasoningAlwaysOn", provider, modelId);
   return reasoningAlwaysOnFallback(modelId);
 }
 
@@ -346,6 +361,10 @@ export function reasoningLevelsFallback(provider: string, modelId: string): read
   const control = reasoningControlFallback(provider, modelId);
   if (!control) return [];
   if (control === "adaptive") return ["low", "medium", "high", "xhigh", "max"];
+  // gpt-6 publishes `max` as well; gpt-5.x stops at `xhigh`.
+  if (control === "effort" && provider === "openai" && /^gpt-6/.test(modelId)) {
+    return ["low", "medium", "high", "xhigh", "max"];
+  }
   if (control === "effort" && provider === "openai" && /^gpt-5/.test(modelId)) {
     return ["low", "medium", "high", "xhigh"];
   }
@@ -368,13 +387,21 @@ export function reasoningLevelsFor(provider: string, modelId: string): readonly 
 
 /**
  * Clamp a requested reasoning level to what the model actually accepts, falling
- * back to "medium" (which every reasoning model supports). Prevents a direct API
- * caller from sending an out-of-range effort that the provider 400s on — the
- * single enforcement point at the ai-gateway boundary.
+ * back to a level it does accept — `medium` where the model takes it, otherwise
+ * the first of its published set. Prevents a direct API caller from sending an
+ * out-of-range effort that the provider 400s on: the single enforcement point at
+ * the ai-gateway boundary.
  */
 export function resolveReasoningLevel(provider: string, modelId: string, requested: string): ReasoningLevel {
   const levels = reasoningLevelsFor(provider, modelId);
-  return (levels as readonly string[]).includes(requested) ? (requested as ReasoningLevel) : "medium";
+  if ((levels as readonly string[]).includes(requested)) return requested as ReasoningLevel;
+  // The fallback has to be a level THIS model accepts. It used to be `medium`
+  // unconditionally, which held only while every catalogued model accepted it.
+  // Providers do publish effort sets without it (high|max only, or xhigh in place
+  // of high), and there the old fallback sent the one value the endpoint 400s on
+  // — from inside the clamp whose job is to prevent exactly that.
+  if ((levels as readonly string[]).includes("medium")) return "medium";
+  return levels[0] ?? "medium";
 }
 
 /**
@@ -448,4 +475,49 @@ export function cacheOnToolMessagesSupported(provider: string, model: string): b
   if (entry) return entry.cacheOnToolMessages ?? true;
   warnCatalogFallback("cacheOnToolMessagesSupported", provider, model);
   return cacheOnToolMessagesFallback(provider, model);
+}
+
+/**
+ * The wire dialect the gateway speaks to a provider — the switch `resolveCallConfig`
+ * keys its thinking payload on, so a new provider costs a catalog row and no
+ * branch there. `undefined` for a provider with no catalog (which `resolveModel`
+ * would already have rejected), and the caller then sends no thinking config.
+ */
+export function wireDialectFor(provider: string): WireDialect | undefined {
+  return providerConfigs[provider]?.wireDialect;
+}
+
+/**
+ * How to switch a model's thinking OFF on the wire: the model's own
+ * `reasoningOff` when it disagrees with its provider, else the provider's
+ * `defaultReasoningOff`. An un-catalogued model id therefore still gets its
+ * provider's off-switch, which is what keeps a drifting Nebius id from silently
+ * reasoning through a turn the operator switched thinking off for.
+ *
+ * `undefined` = nothing to send; absence of a thinking payload IS off (every
+ * OpenAI/Anthropic/Bedrock model). Callers must skip `reasoningAlwaysOn` models:
+ * they have no off, and sending one a kwarg it ignores is noise at best.
+ */
+export function reasoningOffFor(provider: string, modelId: string): ReasoningToggle | undefined {
+  if (!provider) return undefined;
+  const config = providerConfigs[provider];
+  if (!config) return undefined;
+  const model = config.models[modelId];
+  if (model?.reasoningOff) return model.reasoningOff;
+  // A model that has to be switched ON is already off when we send nothing, so
+  // the provider default does not apply to it — handing it one would send a
+  // parameter it never declared (an effort value the endpoint does not accept is
+  // a 400).
+  if (model?.reasoningOn) return undefined;
+  return config.defaultReasoningOff;
+}
+
+/**
+ * How to switch a model's thinking ON, for the models that do not reason by
+ * default and need more than an effort level to start. `undefined`
+ * for everything else — the effort payload alone starts them.
+ */
+export function reasoningOnFor(provider: string, modelId: string): ReasoningToggle | undefined {
+  if (!provider) return undefined;
+  return providerConfigs[provider]?.models[modelId]?.reasoningOn;
 }

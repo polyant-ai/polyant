@@ -40,6 +40,7 @@ import { countDocuments } from "../../knowledge/index.js";
 import { computeMemoryStatusFromInstance, computeEmbedderStatus } from "../memories/memory-status.js";
 import { providerConfigs, DEFAULT_PROVIDER, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
 import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
+import { isKnownEmbeddingProvider, knownEmbeddingProviders, supportedDimsFor } from "../../embeddings-gateway/config.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
@@ -175,7 +176,7 @@ export class InstancesController {
         supportsThinking: isThinkingCapable(name, modelId),
         // gpt-oss & co. reason on every call (no off) — the UI locks the toggle
         // ON and shows a hint rather than pretending it can be disabled.
-        reasoningAlwaysOn: isReasoningAlwaysOn(modelId),
+        reasoningAlwaysOn: isReasoningAlwaysOn(name, modelId),
         // The effort levels this model accepts (live-verified). The FE renders the
         // level picker from this exact set — empty for non-reasoning models.
         reasoningLevels: reasoningLevelsFor(name, modelId),
@@ -188,7 +189,18 @@ export class InstancesController {
       }));
       providers[name] = { models };
     }
-    return { providers };
+    // The embedders this deployment can use, served from the same endpoint for
+    // the same reason the provider list is: the panel must not keep a second
+    // list. It kept one, hardcoded to the two built-ins, so a registered
+    // embedder was reachable only by a direct PATCH — and an agent chatting on a
+    // provider that does not embed had no way to stop embedding with OpenAI.
+    // `supportedDims` rides along because a switch is only legal to a provider
+    // that can emit the agent's stored dimension.
+    const embedders = knownEmbeddingProviders().map((id) => ({
+      id,
+      supportedDims: supportedDimsFor(id),
+    }));
+    return { providers, embedders };
   }
 
   // GET /api/instances/:slug — get by slug
@@ -301,8 +313,10 @@ export class InstancesController {
       status?: string;
       provider?: string | null;
       model?: string | null;
-      /** Embedder provider (openai|bedrock), independent of the chat provider. Changing it wipes data. */
-      embeddingProvider?: "openai" | "bedrock";
+      /** Embedder provider, independent of the chat provider. Changing it wipes data. */
+      // Validated against the embedder registry (validateEmbeddingProvider), not
+      // a closed union: an embedder can be registered at boot.
+      embeddingProvider?: string;
       memoryEnabled?: boolean;
       knowledgeEnabled?: boolean;
       langsmithEnabled?: boolean;
@@ -507,7 +521,6 @@ export class InstancesController {
     return out;
   }
 
-  /** Validate the embedder provider. Only OpenAI and Bedrock embed (Anthropic has no embeddings API). */
   /**
    * The six per-agent settings, refused at the edge rather than by the database.
    * The migration's CHECK constraints say the same thing, but a 400 naming the
@@ -576,10 +589,16 @@ export class InstancesController {
     }
   }
 
+  /**
+   * Validate the embedder provider against the embedders this deployment can
+   * actually use — the two built in plus anything registered at boot. Not a
+   * hardcoded pair: an unlisted name would be stored, then fail every embedding
+   * call at runtime instead of failing this request.
+   */
   private validateEmbeddingProvider(embeddingProvider?: string) {
-    if (embeddingProvider !== undefined && embeddingProvider !== "openai" && embeddingProvider !== "bedrock") {
+    if (embeddingProvider !== undefined && !isKnownEmbeddingProvider(embeddingProvider)) {
       throw new BadRequestException(
-        `Invalid embeddingProvider "${embeddingProvider}". Valid embedding providers: openai, bedrock.`,
+        `Invalid embeddingProvider "${embeddingProvider}". Valid embedding providers: ${knownEmbeddingProviders().join(", ")}.`,
       );
     }
   }

@@ -31,7 +31,7 @@ export default defineTool({
         importance: 7,
         embedding,
         dimensions: embCtx.dimensions,
-        provider: embCtx.credentials.provider,
+        provider: embCtx.providerName,
       });
       ctx.audit.log({
         action: "memory.save",

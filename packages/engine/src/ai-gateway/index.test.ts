@@ -5,21 +5,31 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockProviderChat = vi.fn();
 const mockProviderChatStream = vi.fn();
 
-vi.mock("./providers/openai.js", () => ({
-  OpenAIProvider: {
-    name: "openai",
-    chat: (...args: unknown[]) => mockProviderChat(...args),
-    chatStream: (...args: unknown[]) => mockProviderChatStream(...args),
-  },
-}));
+// The transport is mocked; the reasoning builders stay REAL, so the tests below
+// exercise the payload the gateway actually sends rather than a stub of it.
+vi.mock("./providers/openai.js", async (importActual) => {
+  const actual = await importActual<typeof import("./providers/openai.js")>();
+  return {
+    ...actual,
+    OpenAIProvider: {
+      name: "openai",
+      chat: (...args: unknown[]) => mockProviderChat(...args),
+      chatStream: (...args: unknown[]) => mockProviderChatStream(...args),
+    },
+  };
+});
 
-vi.mock("./providers/anthropic.js", () => ({
-  AnthropicProvider: {
-    name: "anthropic",
-    chat: vi.fn(),
-    chatStream: vi.fn(),
-  },
-}));
+vi.mock("./providers/anthropic.js", async (importActual) => {
+  const actual = await importActual<typeof import("./providers/anthropic.js")>();
+  return {
+    ...actual,
+    AnthropicProvider: {
+      name: "anthropic",
+      chat: vi.fn(),
+      chatStream: vi.fn(),
+    },
+  };
+});
 
 const mockNebiusChat = vi.fn();
 vi.mock("./providers/nebius.js", () => ({
@@ -54,7 +64,7 @@ vi.mock("./logger.js", async (importActual) => {
     classifyProviderError: actual.classifyProviderError,
     aiLogger: {
       log: vi.fn(),
-      createEntry: vi.fn().mockReturnValue({ provider: "openai", model: "gpt-4o" }),
+      createEntry: vi.fn().mockReturnValue({ provider: "openai", model: "gpt-6-sol" }),
       initialize: vi.fn(),
       shutdown: vi.fn(),
     },
@@ -119,7 +129,7 @@ function makeChatResponse(overrides = {}) {
     text: "Response text",
     usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150, cachedInputTokens: 0, cacheCreationInputTokens: 0 },
     durationMs: 500,
-    model: "gpt-4o",
+    model: "gpt-6-sol",
     provider: "openai",
     steps: [],
     toolCalls: [],
@@ -141,19 +151,19 @@ describe("AI Gateway", () => {
 
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({ tier: "standard" }),
-        "gpt-4o",
+        "gpt-6-sol",
       );
       expect(result.text).toBe("Response text");
     });
 
-    it("resolves fast tier to gpt-4o-mini", async () => {
-      mockProviderChat.mockResolvedValue(makeChatResponse({ model: "gpt-4o-mini" }));
+    it("resolves fast tier to gpt-6-luna", async () => {
+      mockProviderChat.mockResolvedValue(makeChatResponse({ model: "gpt-6-luna" }));
 
       await chat(makeRequest({ tier: "fast" }));
 
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.anything(),
-        "gpt-4o-mini",
+        "gpt-6-luna",
       );
     });
 
@@ -172,7 +182,7 @@ describe("AI Gateway", () => {
       await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("user-1") });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
-        "openai", "gpt-4o", "standard", false,
+        "openai", "gpt-6-sol", "standard", false,
         100, 50, 150,
         expect.any(Number),
         500,
@@ -190,7 +200,7 @@ describe("AI Gateway", () => {
       await chat(makeRequest(), { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), callType: "service" });
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
-        "openai", "gpt-4o", "standard", false,
+        "openai", "gpt-6-sol", "standard", false,
         100, 50, 150,
         expect.any(Number),
         500,
@@ -256,7 +266,7 @@ describe("AI Gateway", () => {
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-4o" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-6-sol" },
       );
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -278,10 +288,64 @@ describe("AI Gateway", () => {
       // factory option structuredOutputs:false). No langsmith key is added.
       expect(mockProviderChat).toHaveBeenCalledWith(
         expect.objectContaining({
-          providerOptions: { openai: { strictJsonSchema: false } },
+          providerOptions: { openai: { reasoningEffort: "none", strictJsonSchema: false } },
         }),
         expect.any(String),
       );
+    });
+
+    describe("switching thinking OFF on a model that reasons by default", () => {
+      // Sending nothing is "off" only for a model whose default is off. That was
+      // every 1P model until gpt-6 (default effort `medium`) and Claude Opus 5
+      // (adaptive when the parameter is omitted): on those, an omitted payload
+      // leaves the model reasoning through a turn the operator switched thinking
+      // off for, and the bill and the latency both show it.
+      it("sends reasoning_effort none to an OpenAI model whose default effort is medium", async () => {
+        mockProviderChat.mockResolvedValue(makeChatResponse());
+
+        await chat(makeRequest({ provider: "openai", model: "gpt-6-sol", thinking: false }));
+
+        expect(mockProviderChat.mock.calls[0][0].providerOptions.openai).toMatchObject({
+          reasoningEffort: "none",
+        });
+      });
+
+      it("sends thinking disabled to Claude Opus 5, which runs adaptive when the parameter is omitted", async () => {
+        const anthropicChat = vi.fn().mockResolvedValue(makeChatResponse());
+        const { AnthropicProvider } = await import("./providers/anthropic.js");
+        (AnthropicProvider as unknown as { chat: unknown }).chat = anthropicChat;
+
+        await chat(makeRequest({ provider: "anthropic", model: "claude-opus-5", thinking: false }));
+
+        expect(anthropicChat.mock.calls[0][0].providerOptions.anthropic).toMatchObject({
+          thinking: { type: "disabled" },
+        });
+      });
+
+      it("sends nothing to a model that has no off-switch at all", async () => {
+        // gpt-6-astra publishes no `none` effort: it reasons on every call, so a
+        // payload claiming to switch it off would be a parameter it rejects and a
+        // debug capture that lies about what the gateway did.
+        mockProviderChat.mockResolvedValue(makeChatResponse());
+
+        await chat(makeRequest({ provider: "openai", model: "gpt-6-astra", thinking: false }));
+
+        expect(mockProviderChat.mock.calls[0][0].providerOptions.openai).not.toHaveProperty(
+          "reasoningEffort",
+        );
+      });
+
+      it("leaves a model whose default is already off alone", async () => {
+        // gpt-5.4 goes to zero reasoning tokens with thinking off (live-verified),
+        // so it declares no off-switch and must keep receiving nothing.
+        mockProviderChat.mockResolvedValue(makeChatResponse());
+
+        await chat(makeRequest({ provider: "openai", model: "gpt-5.4", thinking: false }));
+
+        expect(mockProviderChat.mock.calls[0][0].providerOptions.openai).not.toHaveProperty(
+          "reasoningEffort",
+        );
+      });
     });
 
     it("disables Nebius thinking via chat_template_kwargs when thinking is off", async () => {
@@ -322,10 +386,12 @@ describe("AI Gateway", () => {
 
       // gpt-oss ignores enable_thinking (a Qwen-only chat-template kwarg), so
       // sending it just masks the truth. The gateway must send nothing and let
-      // the model fall back to its own reasoning default.
-      const opts = mockNebiusChat.mock.calls[0][0].providerOptions.nebius;
-      expect(opts).not.toHaveProperty("chat_template_kwargs");
-      expect(opts).toEqual({});
+      // the model fall back to its own reasoning default. "Nothing" is now the
+      // absent namespace rather than an empty one — an empty object reached the
+      // wire identically, but showed up in a captured debug payload as if the
+      // gateway had configured something.
+      const opts = mockNebiusChat.mock.calls[0][0].providerOptions?.nebius;
+      expect(opts ?? {}).toEqual({});
     });
 
     it("sends Bedrock effort-based reasoningConfig for gpt-oss when thinking is on", async () => {
@@ -427,7 +493,7 @@ describe("AI Gateway", () => {
       await stream.response;
 
       expect(aiLogger.createEntry).toHaveBeenCalledWith(
-        "openai", "gpt-4o", "standard", false,
+        "openai", "gpt-6-sol", "standard", false,
         100, 50, 150,
         expect.any(Number),
         500,
@@ -453,7 +519,7 @@ describe("AI Gateway", () => {
 
       expect(buildLangSmithProviderOptions).toHaveBeenCalledWith(
         { apiKey: "ls-key", project: "test-project" },
-        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-4o" },
+        { conversationId: "conv-1", instanceId: asInstanceSlug("inst-1"), providerName: "openai", modelId: "gpt-6-sol" },
       );
       expect(mockProviderChatStream).toHaveBeenCalledWith(
         expect.objectContaining({

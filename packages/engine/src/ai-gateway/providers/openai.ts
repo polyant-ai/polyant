@@ -36,6 +36,18 @@ export const OpenAIProvider = createProvider("openai", (modelId, apiKeys) => {
  *
  * Reference: https://platform.openai.com/docs/guides/reasoning#reasoning-effort
  */
+/**
+ * The payload that switches reasoning OFF for a model that reasons by default.
+ *
+ * Needed from gpt-6 onwards: its default `reasoning_effort` is `medium`, so
+ * sending nothing leaves the model thinking through a turn the operator switched
+ * thinking off for — the same failure the open-weight providers have, arriving on
+ * OpenAI. Driven by the catalog's `reasoningOff`, never by a model-id test.
+ */
+export function buildOpenAIReasoningOffOptions(): { reasoningEffort: string } {
+  return { reasoningEffort: "none" };
+}
+
 export function buildOpenAIReasoningOptions(level: string): { reasoningEffort: string } {
   // Forward the level as-is: the gateway (resolveReasoningLevel) has already
   // clamped it to this model's catalog `reasoningLevels` (e.g. gpt-5.x accept

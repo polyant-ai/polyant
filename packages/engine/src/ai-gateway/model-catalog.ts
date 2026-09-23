@@ -6,6 +6,41 @@ import type { TierMapping } from "./types.js";
 export type ReasoningLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
+ * How the gateway expresses thinking ON THE WIRE for a provider's models. The
+ * `resolveCallConfig` switch keys on this, NOT on the provider name, so a new
+ * provider is a catalog row and zero lines in `ai-gateway/index.ts`:
+ *   - `openai` / `anthropic` / `bedrock` → the three 1P `build*Options` helpers.
+ *   - `openai-compatible` → the shared `/v1/chat/completions` dialect
+ *     (`reasoning_effort` + `chat_template_kwargs`), driven per MODEL by
+ *     `reasoningOff`/`reasoningOn` because vLLM chat templates disagree with each
+ *     other inside one provider.
+ */
+export type WireDialect = "openai" | "anthropic" | "bedrock" | "openai-compatible";
+
+/**
+ * The wire toggle that switches a model's thinking off, for a model that reasons
+ * BY DEFAULT. Sending no thinking config is "off" only for a model whose default
+ * is off — which used to be every 1P model and is no longer true of the newest
+ * ones, so this field is not the open-weight curiosity it started as:
+ *   - `effort-none` → `reasoning_effort: "none"` is honoured (OpenAI gpt-6 sol
+ *     and luna, whose default effort is `medium`, and open-weight endpoints that
+ *     accept the same value).
+ *   - `thinking-disabled` → Anthropic `thinking: { type: "disabled" }` (Claude
+ *     Opus 5, which runs adaptive thinking when the parameter is omitted).
+ *   - `template-kwarg` → a vLLM chat-template kwarg, forwarded verbatim into the
+ *     request body by `@ai-sdk/openai-compatible` (`enable_thinking: false` on
+ *     Nebius Qwen3.5 and GLM; the kwarg's NAME differs per model family, which is
+ *     why it is data).
+ * An ABSENT `reasoningOff` means the effort payload alone decides, which is still
+ * true of most models. `reasoningAlwaysOn` models have no off at all and carry
+ * neither field.
+ */
+export type ReasoningToggle =
+  | { via: "effort-none" }
+  | { via: "thinking-disabled" }
+  | { via: "template-kwarg"; kwarg: string; value: unknown };
+
+/**
  * Single source of truth for per-`(provider, model)` metadata. Every capability
  * gate (reasoning / vision / temperature / cache) and the cost estimator read
  * from this catalog; the brittle per-provider regexes in `config.ts` survive
@@ -90,10 +125,42 @@ export interface ModelCapabilities {
    * Drives `cacheOnToolMessagesSupported` and the Bedrock marker gate.
    */
   cacheOnToolMessages?: boolean;
+  /**
+   * How thinking is switched OFF for this model, overriding the provider's
+   * `defaultReasoningOff`. Set it only where a model disagrees with its own
+   * provider — one serving stack can host model families whose chat templates
+   * switch off in different ways. Ignored for `reasoningAlwaysOn` models, which
+   * have no off.
+   */
+  reasoningOff?: ReasoningToggle;
+  /**
+   * How thinking is switched ON, for a model that does NOT reason by default and
+   * needs more than an effort level to start (a chat-template kwarg such as
+   * `thinking = true`). Absent = the effort payload is enough.
+   *
+   * Declaring this also OPTS OUT of the provider's `defaultReasoningOff`: a model
+   * that must be switched on is already off when nothing is sent, and handing it
+   * the provider's off-switch would send a parameter it never declared.
+   */
+  reasoningOn?: ReasoningToggle;
 }
 
 export interface ProviderConfig {
   tiers: TierMapping;
+  /**
+   * Which wire dialect the gateway speaks to this provider. Drives the thinking
+   * payload in `resolveCallConfig` — see {@link WireDialect}.
+   */
+  wireDialect: WireDialect;
+  /**
+   * The off-switch this provider's models use unless a row overrides it with its
+   * own `reasoningOff`. A provider default rather than a per-row copy because it
+   * is a property of the serving stack (a vLLM chat template, an API that honours
+   * `reasoning_effort: "none"`), and because it is the only thing that can cover a
+   * model id which drifts in before its catalog row exists. Absent = sending no
+   * thinking config is off, which is the OpenAI/Anthropic/Bedrock behaviour.
+   */
+  defaultReasoningOff?: ReasoningToggle;
   /** Per-model capability + pricing catalog. Keyed by exact provider model id. */
   models: {
     [model: string]: ModelCapabilities;
@@ -111,10 +178,16 @@ export const DEFAULT_PROVIDER = "openai";
 
 export const providerConfigs: Record<string, ProviderConfig> = {
   openai: {
+    wireDialect: "openai",
+    // The gpt-4o and gpt-4.1 families the tiers used to point at are in OpenAI's
+    // DEPRECATED list. They are catalogued still — an agent pinned to one keeps
+    // its costs priced — but nothing defaults onto them: the tiers are where an
+    // agent lands when nobody chose a model, including the service jobs (titles,
+    // memory extraction, summaries) of every agent on this provider.
     tiers: {
-      fast: "gpt-4o-mini",
-      standard: "gpt-4o",
-      heavy: "o3",
+      fast: "gpt-6-luna",
+      standard: "gpt-6-sol",
+      heavy: "gpt-6-astra",
     },
     models: {
       // Cache-read rates are LIVE-VERIFIED per model against the published pricing
@@ -137,20 +210,40 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       "gpt-5.4-mini": { input: 0.75, output: 4.50, cacheRead: 0.075, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       "gpt-5.4-nano": { input: 0.20, output: 1.25, cacheRead: 0.02, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
-      // GPT-5.6 family (Sol/Terra/Luna) — cache read 0.1×, cache WRITE 1.25×
-      // (absolute published rates; unlike pre-5.6 these DO charge a write premium).
+      // GPT-5.6 family (Sol/Terra/Luna). Repriced downward since this row was
+      // written, and the write premium it used to carry is gone: the published
+      // table now has three columns — input, cached input, output — and no cache
+      // write at all, which is the pre-5.6 behaviour restored.
       // reasoningAlwaysOn: LIVE-VERIFIED — with reasoning OFF they still spend
       // reasoning tokens (sol 105 / terra 51 / luna 88), so there is no true off
       // (unlike gpt-5.4, which goes to 0). The UI locks the thinking toggle ON.
-      "gpt-5.6-sol": { input: 5.00, output: 30.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.6-terra": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 3.125, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.6-luna": { input: 1.00, output: 6.00, cacheRead: 0.10, cacheWrite: 1.25, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      "gpt-5.6-sol": { input: 4.00, output: 20.00, cacheRead: 0.40, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      "gpt-5.6-terra": { input: 2.00, output: 12.00, cacheRead: 0.20, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      "gpt-5.6-luna": { input: 0.20, output: 1.20, cacheRead: 0.02, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      // GPT-6 family (Astra/Sol/Luna), the generation OpenAI now points at. Prices
+      // and capabilities read from the published pricing and model pages
+      // (2026-09-23); no cache write column, so cacheWrite 0 like the rest.
+      //
+      // Two things here are NOT the shape earlier OpenAI rows have, and both bite
+      // silently. Their default `reasoning_effort` is `medium`, so a turn with
+      // thinking OFF reasons unless we send `none` — hence `reasoningOff`, which
+      // until now only open-weight providers needed. And on /v1/chat/completions
+      // they call tools ONLY at effort `none`; full tool use needs /v1/responses,
+      // which `providers/openai.ts` already routes every thinking-capable model
+      // through, so the agent path is on the right endpoint by construction.
+      //
+      // Astra is the exception inside its own family: its published effort set has
+      // no `none`, so it cannot be switched off and is `reasoningAlwaysOn`.
+      "gpt-6-astra": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "gpt-6-sol": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
+      "gpt-6-luna": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
       // Reasoning — o-series is a pure reasoning model: LIVE-VERIFIED it reasons
       // even with reasoning OFF (576 tokens), so reasoningAlwaysOn.
-      "o3": { input: 2.00, output: 8.00, cacheRead: 1.00, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: false, cache: true },
+      "o3": { input: 2.00, output: 8.00, cacheRead: 0.50, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: false, cache: true },
     },
   },
   anthropic: {
+    wireDialect: "anthropic",
     tiers: {
       fast: "claude-haiku-4-5-20251001",
       standard: "claude-sonnet-4-6",
@@ -163,7 +256,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // Haiku 4.5 (fast)
       "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 2.00, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       // Sonnet family (sonnet-5 uses the adaptive thinking API)
-      "claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "claude-sonnet-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
       "claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       // Opus family (4.7/4.8 use the adaptive thinking API; 4.6 uses legacy budget)
@@ -174,10 +267,26 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // LIVE-VERIFIED on Anthropic 1P: adaptive thinking (low..max, rejects the
       // legacy budget shape), vision, temperature rejected, not always-on. (Only
       // on the anthropic provider — Bedrock has no invocable fable-5 profile.)
+      // Opus 5 and Opus 5.5, and Fable 5.1 beside Fable 5. Prices from the published
+      // table (2026-09-23), where cache write is 2× input at the 1h TTL this
+      // deployment uses and cache read is 0.1× — except on the two rows below that
+      // break that multiplier, which is precisely what an ABSOLUTE `cacheRead`
+      // expresses and a multiplier table could not: Fable 5.1 reads at 0.025×
+      // ($0.25) and Opus 5.5 at 0.05× ($0.20).
+      //
+      // Opus 5 needs `reasoningOff`: omitting `thinking` runs ADAPTIVE on it,
+      // the opposite of every earlier Claude, so a turn with thinking off keeps
+      // reasoning unless the disable is sent. Opus 5.5 and Fable 5.1 cannot be
+      // switched off at all (`disabled` is a 400), so they are reasoningAlwaysOn
+      // and the panel locks their toggle.
+      "claude-opus-5": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
+      "claude-opus-5-5": { input: 4.00, output: 20.00, cacheRead: 0.20, cacheWrite: 8.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "claude-fable-5-1": { input: 10.00, output: 50.00, cacheRead: 0.25, cacheWrite: 20.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
       "claude-fable-5": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 20.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
     },
   },
   bedrock: {
+    wireDialect: "bedrock",
     // Anthropic models on Bedrock require cross-region inference profiles
     // (raw model IDs fail with "Invocation ... with on-demand throughput isn't supported").
     // This catalog is EU-only: every entry is an eu.* / global. profile invocable
@@ -224,29 +333,33 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "eu.amazon.nova-pro-v1:0": { input: 0.80, output: 3.20, cacheRead: 0.08, cacheWrite: 1.00, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
       // Anthropic via Bedrock — EU inference profiles. Bedrock caches at 5m only →
       // cache read 0.1× input, cache WRITE 1.25× input (absolute rates below).
-      // Token rates match Anthropic first-party; cross-Region profiles are billed
-      // at the source-Region price (AWS's documented stance — no surcharge modeled).
+      // Token rates track Anthropic first-party, and for Claude 4.5 and later a
+      // REGIONAL or multi-region endpoint — which an `eu.` inference profile is —
+      // carries a 10% premium over the global one (Anthropic's pricing page,
+      // "Regional and multi-region endpoint pricing", read 2026-09-23). This used
+      // to say no surcharge was modeled; the eu rows for 4.5+ are +10% now, and
+      // Sonnet 4 (pre-4.5) keeps its old price, as the premium does not reach it.
       // Opus 4.5+ is $5/$25 (not the old $15/$75). Bedrock reasoning covers
       // sonnet-4/sonnet-5/opus-4 (NOT haiku, NOT fable). Sonnet 5 / Opus 4.7-4.8 /
       // Fable 5 reject temperature (mirrors 1P).
       // Haiku 4.5 on Bedrock DOES reason (live-verified: 1306 reasoning chars via
       // budgetTokens) — the old regex wrongly excluded it.
-      "eu.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 1.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
+      "eu.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.10, output: 5.50, cacheRead: 0.11, cacheWrite: 1.375, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "eu.anthropic.claude-sonnet-4-20250514-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
-      "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
-      "eu.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
+      "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.30, output: 16.50, cacheRead: 0.33, cacheWrite: 4.125, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
+      "eu.anthropic.claude-sonnet-4-6": { input: 3.30, output: 16.50, cacheRead: 0.33, cacheWrite: 4.125, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       // ponytail: profile ID follows the sonnet-4-6 form; confirm EU invocability + pricing before promoting to `standard`.
-      "eu.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
-      "eu.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
-      "eu.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
-      "eu.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
-      "eu.anthropic.claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "eu.anthropic.claude-sonnet-5": { input: 2.20, output: 11.00, cacheRead: 0.22, cacheWrite: 2.75, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "eu.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.50, output: 27.50, cacheRead: 0.55, cacheWrite: 6.875, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
+      "eu.anthropic.claude-opus-4-6-v1": { input: 5.50, output: 27.50, cacheRead: 0.55, cacheWrite: 6.875, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
+      "eu.anthropic.claude-opus-4-7": { input: 5.50, output: 27.50, cacheRead: 0.55, cacheWrite: 6.875, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "eu.anthropic.claude-opus-4-8": { input: 5.50, output: 27.50, cacheRead: 0.55, cacheWrite: 6.875, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
       // (Bedrock EU has NO claude-fable-5 — "Model not found" live — so no entry.)
       // Anthropic via Bedrock — Global inference profiles (use-case form may be required)
       "global.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 1.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
-      "global.anthropic.claude-sonnet-5": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "global.anthropic.claude-sonnet-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
       "global.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
@@ -282,6 +395,11 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     },
   },
   nebius: {
+    wireDialect: "openai-compatible",
+    // Qwen3.5-family hybrids reason BY DEFAULT and `reasoning_effort` only tunes
+    // intensity, so the vLLM chat-template kwarg is the real off-switch. Declared
+    // once here so an un-catalogued model id drifting in still gets it.
+    defaultReasoningOff: { via: "template-kwarg", kwarg: "enable_thinking", value: false },
     // Nebius Token Factory — OpenAI-compatible endpoint (see providers/nebius.ts).
     // Model IDs follow the HuggingFace `org/Model` convention and are the exact
     // strings returned by GET /v1/models for the account.
@@ -327,6 +445,24 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "moonshotai/Kimi-K2.6": { input: 0.95, output: 4.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: false }, // [R][V] always-on (LIVE-VERIFIED)
       "Qwen/Qwen2.5-VL-72B-Instruct": { input: 0.25, output: 0.75, reasoning: false, vision: true, temperature: true, cache: false },
       "openbmb/MiniCPM-V-4_5": { input: 0.658, output: 1.11, reasoning: false, vision: true, temperature: true, cache: false },
+      // — New on the public endpoints page (2026-09-23), a curated set: the new
+      //   generation of each family already here. Prices as published; the
+      //   existing rows' prices were checked against the same page and are
+      //   unchanged. Capabilities mirror the sibling of the same family on this
+      //   provider — same serving stack, same chat template behaviour. The ids
+      //   follow the HuggingFace `org/Model` form every Nebius row uses; the page
+      //   shows display names, so they are inferred and want one pass against an
+      //   authenticated `GET /v1/models` before an agent is pinned to them.
+      //   Left out on purpose: `DeepSeek-V4-Flash-0731`, superseded by V4.1 Flash.
+      "zai-org/GLM-5.3": { input: 1.40, output: 4.40, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
+      "zai-org/GLM-5.3-Flash": { input: 0.15, output: 0.50, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: false },
+      "deepseek-ai/DeepSeek-V4.1-Flash": { input: 0.30, output: 1.20, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: false },
+      "deepseek-ai/DeepSeek-V4-Pro-0813": { input: 1.32, output: 3.96, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
+      // Kimi and MiniMax reason on every call on this provider (LIVE-VERIFIED on
+      // their predecessors: enable_thinking:false is a no-op) → reasoningAlwaysOn.
+      "moonshotai/Kimi-K3": { input: 3.00, output: 15.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: false },
+      "MiniMaxAI/MiniMax-M3": { input: 0.30, output: 1.20, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
+      "nvidia/Nemotron-3.5-Lightning": { input: 0.06, output: 0.24, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: false, temperature: true, cache: false },
     },
   },
 };
@@ -336,15 +472,25 @@ export function getModelCapabilities(provider: string, modelId: string): ModelCa
   return providerConfigs[provider]?.models[modelId];
 }
 
+/** The provider names this file owns, captured before any registration runs. */
+const BUILT_IN_PROVIDER_NAMES: ReadonlySet<string> = new Set(Object.keys(providerConfigs));
+
 /**
- * Cross-provider lookup by model id alone — for gates that receive no provider
- * (vision). Model ids are effectively unique across providers, so the first
- * match wins. `undefined` for un-catalogued ids.
+ * Register a provider's catalog at boot — the extension point for a provider
+ * that does not ship in this file (a deployment overlay, a plugin), so it is
+ * added without editing the map every request reads. Every gate, the
+ * `/api/instances/models` payload and the request validation pick the rows up
+ * because they all read the live object rather than a copy.
+ *
+ * Idempotent by design — re-registering the same provider replaces its config
+ * rather than throwing, so a double boot (tests, a warm reload) is harmless.
+ * Registering a name the built-in catalog already owns is a programming error and
+ * throws: silently shadowing `openai` would move every agent's cost and
+ * capability answers with nothing in the log.
  */
-export function findModelCapabilities(modelId: string): ModelCapabilities | undefined {
-  for (const cfg of Object.values(providerConfigs)) {
-    const entry = cfg.models[modelId];
-    if (entry) return entry;
+export function registerProviderConfig(name: string, config: ProviderConfig): void {
+  if (BUILT_IN_PROVIDER_NAMES.has(name)) {
+    throw new Error(`Cannot register provider "${name}": the name is owned by the built-in catalog.`);
   }
-  return undefined;
+  providerConfigs[name] = config;
 }
