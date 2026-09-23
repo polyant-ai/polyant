@@ -70,6 +70,18 @@ describe("createTaskTool", () => {
     });
   });
 
+  it("keeps the parent's provider for a delegated task", async () => {
+    mockChat.mockResolvedValue({ text: "ok", steps: [], durationMs: 1 } as never);
+    const tool = createTaskTool({}, { anthropic: "sk-test" }, undefined, undefined, "anthropic");
+
+    await tool.execute!({ task: "Research", label: null }, { toolCallId: "tc-1", messages: [] } as never);
+
+    expect(mockChat.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      provider: "anthropic",
+      apiKeys: { anthropic: "sk-test" },
+    }));
+  });
+
   it("returns error object on chat failure", async () => {
     mockChat.mockRejectedValue(new Error("LLM timeout"));
 

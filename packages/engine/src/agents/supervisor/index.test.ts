@@ -607,17 +607,18 @@ describe("supervise", () => {
       expect(builtToolNames).not.toContain("roomNotify");
     });
 
-    it("passes apiKeys, instanceId, and conversationId to createTaskTool", async () => {
+    it("passes the parent's provider to createTaskTool", async () => {
       mockGetEnabledToolNames.mockResolvedValue(new Set(["spawnTask"]));
 
-      const apiKeys = { openai: "sk-test" };
-      await supervise({ message: "hi", apiKeys, instanceId: asInstanceSlug("my-instance"), conversationId: "conv-1" });
+      const apiKeys = { anthropic: "sk-test" };
+      await supervise({ message: "hi", apiKeys, provider: "anthropic", instanceId: asInstanceSlug("my-instance"), conversationId: "conv-1" });
 
       expect(mockCreateTaskTool).toHaveBeenCalledWith(
         expect.any(Object),
         apiKeys,
         "my-instance",
         "conv-1",
+        "anthropic",
       );
     });
   });

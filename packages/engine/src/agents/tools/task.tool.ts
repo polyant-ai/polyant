@@ -37,7 +37,7 @@ export default defineTool({
  * Defensive filter: spawnTask is stripped from the sub-agent's tool set so a
  * sub-agent can never re-invoke itself (depth max = 0 from the sub's POV).
  */
-export function createTaskTool(subAgentTools: Record<string, Tool>, apiKeys?: ChatRequest["apiKeys"], instanceId?: InstanceSlug, conversationId?: string): Tool {
+export function createTaskTool(subAgentTools: Record<string, Tool>, apiKeys?: ChatRequest["apiKeys"], instanceId?: InstanceSlug, conversationId?: string, provider?: ChatRequest["provider"]): Tool {
   const audit = createAuditLogger("spawnTask", instanceId ?? asInstanceSlug("unknown"), conversationId);
   const { spawnTask: _drop, ...isolatedTools } = subAgentTools;
   void _drop;
@@ -58,6 +58,7 @@ export function createTaskTool(subAgentTools: Record<string, Tool>, apiKeys?: Ch
           {
             tier: "standard",
             apiKeys,
+            provider,
             system: `You are a specialized agent. Execute the following task precisely and completely.
 
 Task: ${task}
