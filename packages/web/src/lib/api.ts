@@ -17,6 +17,7 @@ export type {
   ModelsResponse,
   PromptSection,
   ToolState,
+  ToolPluginInfo,
   RequiredSecretSpec,
   RequiredEnvEntry,
   SkillState,
@@ -89,6 +90,7 @@ import type {
   ModelsResponse,
   PromptSection,
   ToolState,
+  ToolPluginInfo,
   RequiredSecretSpec,
   SkillState,
   SkillEnvStatus,
@@ -394,9 +396,9 @@ export const api = {
   },
   tools: {
     list: (slug: string) =>
-      request<{ tools: ToolState[] }>(`/api/instances/${encodeURIComponent(slug)}/tools`),
+      request<{ tools: ToolState[]; plugins?: ToolPluginInfo[] }>(`/api/instances/${encodeURIComponent(slug)}/tools`),
     update: (slug: string, enabled: string[]) =>
-      request<{ tools: ToolState[] }>(`/api/instances/${encodeURIComponent(slug)}/tools`, {
+      request<{ tools: ToolState[]; plugins?: ToolPluginInfo[] }>(`/api/instances/${encodeURIComponent(slug)}/tools`, {
         method: "PATCH",
         body: JSON.stringify({ enabled }),
       }),

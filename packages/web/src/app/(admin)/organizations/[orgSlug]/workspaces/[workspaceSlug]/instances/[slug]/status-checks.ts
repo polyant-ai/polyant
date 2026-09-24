@@ -147,8 +147,8 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
         titleKey: "status.check.toolsMissingSecrets.title",
         bodyKey: "status.check.toolsMissingSecrets.body",
         params: { count: starved.length, names: starved.map((t) => t.name).join(", ") },
-        section: "toolSecrets",
-        sectionKey: "instances.detail.tabToolSecrets",
+        section: "tools",
+        sectionKey: "instances.detail.tabTools",
       });
     }
 

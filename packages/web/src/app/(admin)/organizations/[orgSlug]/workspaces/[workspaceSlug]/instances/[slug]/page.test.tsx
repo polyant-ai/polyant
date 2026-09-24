@@ -113,11 +113,7 @@ vi.mock("./general-tab", () => ({ GeneralTab: () => <div>tab-body:general</div> 
 vi.mock("./prompts-tab", () => ({ PromptsTab: () => <div>tab-body:prompts</div> }));
 // The merged sections are stubbed at the COMPOSITE, not at its parts: what the
 // page addresses now is the composite, and the parts' own tests still cover them.
-vi.mock("./tools-tab", () => ({
-  ToolsTab: ({ checks }: { checks?: Array<{ id: string }> }) => (
-    <div>tab-body:tools:{checks?.map((check) => check.id).join(",")}</div>
-  ),
-}));
+vi.mock("./tools-tab", () => ({ ToolsTab: () => <div>tab-body:tools</div> }));
 vi.mock("./mcp-servers-tab", () => ({ McpServersTab: () => <div>tab-body:mcp</div> }));
 vi.mock("./skills-tab", () => ({ SkillsTab: () => <div>tab-body:skills</div> }));
 vi.mock("./knowledge-tab", () => ({ KnowledgeTab: () => <div>tab-body:knowledge</div> }));
@@ -199,7 +195,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
 const EVERY_SECTION = [
   "overview", "analytics",
   "general", "settings", "credentials", "channels",
-  "prompts", "tools", "toolSecrets", "mcp", "skills", "knowledge", "hooks", "params",
+  "prompts", "tools", "mcp", "skills", "knowledge", "hooks", "params",
   "webhooks", "scheduled", "room",
   "privacy",
   "conversations", "memories", "logs",
@@ -208,12 +204,10 @@ const EVERY_SECTION = [
 /** Which stub body a section renders, where the two differ. */
 const BODY_OF: Record<string, string> = {
   overview: "status:provider-no-credentials",
-  // One component, four pages: the stub reports which half it was asked for, so a
+  // One component, three pages: the stub reports which half it was asked for, so a
   // copy-paste leaving two addresses on one section fails here.
   settings: "settings:model:provider-no-credentials",
   credentials: "settings:credentials:provider-no-credentials",
-  toolSecrets: "settings:toolSecrets:provider-no-credentials",
-  tools: "tools:provider-no-credentials",
 };
 
 /**
@@ -228,6 +222,8 @@ const BODY_OF: Record<string, string> = {
 const DROPPED_ADDRESSES = [
   "triggers",
   "governance",
+  // The tool parameters' page: they are set in each tool's own panel now.
+  "toolSecrets",
   // Enterprise sections. They are not aliases either: an address that names
   // nothing in this build lands on the default section like any other.
   "policy",
@@ -298,7 +294,7 @@ describe("InstanceDetailPage — sections", () => {
   it("renders no tab row at all", async () => {
     resetSearch("tab=tools");
     render(<InstanceDetailPage />);
-    await waitFor(() => expect(screen.getByText("tab-body:tools:provider-no-credentials")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("tab-body:tools")).toBeInTheDocument());
 
     expect(screen.queryAllByRole("tab")).toHaveLength(0);
     expect(screen.queryByText("tab-body:prompts")).not.toBeInTheDocument();

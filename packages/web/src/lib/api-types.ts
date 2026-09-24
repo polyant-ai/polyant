@@ -282,6 +282,19 @@ export interface RequiredSecretSpec {
   currentValue?: string;
 }
 
+/**
+ * How the panel names a plugin whose tools it lists, from the plugin's manifest.
+ * `displayName` and `description` are optional in the manifest; without them the
+ * panel humanizes the namespace.
+ */
+export interface ToolPluginInfo {
+  namespace: string;
+  name: string;
+  version: string;
+  displayName?: string;
+  description?: string;
+}
+
 export interface ToolState {
   name: string;
   description: string;

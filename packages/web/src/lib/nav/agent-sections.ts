@@ -47,7 +47,6 @@ import {
   Activity,
   IdCard,
   Info,
-  KeySquare,
   MessagesSquare,
   SlidersHorizontal,
   Cpu,
@@ -119,11 +118,10 @@ export const AGENT_SECTIONS: readonly AgentSectionDef[] = [
   // HERE rather than with the automations: a hook intercepts the lifecycle to
   // change the reply, which is behaviour, not scheduling.
   { tab: "prompts", titleKey: "instances.detail.tabPrompts", macro: "behaviour", icon: MessageSquareText },
+  // The parameters a tool declares are configured in that tool's own panel, and
+  // a hook's on the Hooks page: a key exists because something asked for it, so
+  // it is set beside that thing rather than on a page of loose fields.
   { tab: "tools", titleKey: "instances.detail.tabTools", macro: "behaviour", icon: Wrench },
-  // The keys the enabled tools and hooks demand — beside the tool list, because
-  // that is what makes them exist. Named "Parametri", NOT the same word as the
-  // per-turn ones below, which are under Avanzate.
-  { tab: "toolSecrets", titleKey: "instances.detail.tabToolSecrets", macro: "behaviour", icon: KeySquare },
   /*
     External MCP servers — a section of its own, after the tools and their keys.
 

@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Trash2, AlertTriangle, Info, Search, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { AlertTriangle, Info, Search, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,7 +26,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   Dialog,
@@ -43,13 +42,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, getUserErrorMessage, isForbidden, type Instance, type SecretStatus, type ModelsResponse, type RequiredSecretSpec } from "@/lib/api";
+import { api, getUserErrorMessage, isForbidden, type Instance, type SecretStatus, type ModelsResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
-import { SecretField, SecretStatusBadge } from "@/components/instance-secret/secret-field";
+import { SecretField } from "@/components/instance-secret/secret-field";
+import { ReadableField } from "@/components/instance-secret/secret-spec-field";
 import type { TranslationKey } from "@/lib/i18n/types";
 import {
-  PROVIDER_CREDENTIAL_KEYS,
   PROVIDER_SECRET_SECTIONS,
   SECRET_KEYS,
   type ProviderSectionId,
@@ -67,26 +66,21 @@ interface Props {
   /**
    * Which half of this form to render.
    *
-   * Four pages come out of this one component, because they all need the same
-   * loaded secrets, the same required-secret specs and the same `secretFields`
-   * machine:
+   * Three pages come out of this one component, because they all need the same
+   * loaded secrets and the same `secretFields` machine:
    *
    *   `model`       — which model runs the agent, the embedder, speech-to-text,
    *                   prompt caching, temperature.
    *   `credentials` — the PROVIDER keys. Their own page because a key used to be
    *                   reachable from three places, and "where do I put an API key"
    *                   must have one answer.
-   *   `toolSecrets` — the keys the enabled tools and hooks demand. Beside the tool
-   *                   list rather than with the provider keys: they exist because a
-   *                   tool asked for them, and they are read while deciding what the
-   *                   agent may do.
    *   `params`      — what the engine puts in front of the model each turn. Rendered
    *                   inside the Parametri page, next to memory and diagnostics.
    *
    * Only one is mounted at a time, so each writes only its own fields: a save from
    * one page can never carry a stale copy of another's.
    */
-  section: "model" | "credentials" | "toolSecrets" | "params";
+  section: "model" | "credentials" | "params";
 }
 
 type STTProvider = "openai" | "aws" | "deepgram" | "disabled";
@@ -121,19 +115,6 @@ function catalogSortValue(row: CatalogRow, key: CatalogSortKey): string | number
     case "cacheWrite":
       return row.costCacheWrite;
   }
-}
-
-function humanizeSecretKey(key: string): string {
-  return key
-    .replace(/_/g, " ")
-    .split(" ")
-    .map((w) => {
-      const lower = w.toLowerCase();
-      if (lower === "api") return "API";
-      if (lower === "key") return "Key";
-      return BRAND_NAMES[lower] ?? w.charAt(0).toUpperCase() + w.slice(1);
-    })
-    .join(" ");
 }
 
 /**
@@ -233,16 +214,6 @@ export function SettingsTab({
 
   // Knowledge
 
-  // Required-secret specs (tools + hooks, dynamic, from API). Each entry describes
-  // how to render and persist the field (text input vs select dropdown).
-  const [requiredSecretSpecs, setRequiredSecretSpecs] = useState<RequiredSecretSpec[]>([]);
-
-  // What the tools' own block renders: the required specs minus the provider
-  // credentials, which have their own blocks above (see PROVIDER_CREDENTIAL_KEYS).
-  const toolSecretSpecs = requiredSecretSpecs.filter(
-    (spec) => !PROVIDER_CREDENTIAL_KEYS.has(spec.key),
-  );
-
   // Secret input values, visibility toggles, and original value (for dirty tracking).
   // `initial` is the server-side value at load time (only populated for non-secret select fields).
   const [secretFields, setSecretFields] = useState<Record<string, { value: string; initial: string; visible: boolean }>>(
@@ -295,15 +266,10 @@ export function SettingsTab({
     Promise.allSettled([
       api.secrets.list(instance.slug),
       api.models.list(),
-      api.tools.requiredSecrets(instance.slug),
-    ]).then(([secretsRes, modelsRes, toolSecretsRes]) => {
+    ]).then(([secretsRes, modelsRes]) => {
       if (cancelled) return;
       if (modelsRes.status === "fulfilled") setModelsData(modelsRes.value);
       else toast.error(t("settings.tab.loadFailed"));
-
-      if (toolSecretsRes.status === "fulfilled") {
-        setRequiredSecretSpecs(toolSecretsRes.value.requiredSecrets);
-      }
 
       if (secretsRes.status === "fulfilled") {
         setSecrets(secretsRes.value.secrets);
@@ -320,21 +286,6 @@ export function SettingsTab({
     };
   }, [instance.slug]);
 
-  useEffect(() => {
-    setSecretFields((prev) => {
-      const next = { ...prev };
-      for (const spec of requiredSecretSpecs) {
-        if (!(spec.key in next)) {
-          // Pre-fill any non-sensitive field (select or readable text) from its
-          // echoed `currentValue`. Sensitive fields never carry one, so they
-          // initialize to empty.
-          const initialValue = spec.currentValue ?? "";
-          next[spec.key] = { value: initialValue, initial: initialValue, visible: false };
-        }
-      }
-      return next;
-    });
-  }, [requiredSecretSpecs]);
 
   const isConfigured = (key: string) =>
     secrets.some((s) => s.key === key && s.configured);
@@ -508,7 +459,7 @@ export function SettingsTab({
   // theirs. Nothing overlaps, so no page can save another's values.
   const secretsDirty = Object.values(secretFields).some((f) => f.value !== f.initial);
   const isDirty =
-    section === "credentials" || section === "toolSecrets"
+    section === "credentials"
       ? secretsDirty
       : section === "model"
         ? modelDirty
@@ -628,71 +579,6 @@ export function SettingsTab({
     }
   };
 
-  // The tools' and hooks' required secrets: a key exists because a tool asked
-  // for it, so it belongs beside the tool list, not beside the model picker.
-  // Reads `toolSecretSpecs`, NOT the raw specs — a provider credential a tool
-  // happens to declare is rendered by Credenziali and nowhere else.
-  const requiredSecretsBlock = (
-    <>
-        {toolSecretSpecs.length > 0 ? (
-          /* No card and no heading: the section's own title says what these are,
-             and the box around a handful of fields framed nothing. */
-          <div className="space-y-4">
-            {toolSecretSpecs.map((spec) => {
-              const label = spec.label ?? humanizeSecretKey(spec.key);
-              if (spec.type === "select") {
-                return (
-                  <ToolSelectField
-                    key={spec.key}
-                    label={label}
-                    description={spec.description}
-                    configured={isConfigured(spec.key)}
-                    value={secretValue(spec.key)}
-                    choices={spec.choices ?? []}
-                    onChange={(v) => setSecretValue(spec.key, v)}
-                    configuredLabel={t("settings.tab.configured")}
-                    notConfiguredLabel={t("settings.tab.notConfigured")}
-                  />
-                );
-              }
-              if (spec.sensitive === false) {
-                return (
-                  <ReadableField
-                    key={spec.key}
-                    label={label}
-                    sublabel={spec.description}
-                    value={secretValue(spec.key)}
-                    onChange={(v) => setSecretValue(spec.key, v)}
-                    configured={isConfigured(spec.key)}
-                    placeholder={isConfigured(spec.key) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-                    onRemove={isConfigured(spec.key) ? () => handleRemoveSecret(spec.key) : undefined}
-                  />
-                );
-              }
-              return (
-                <SecretField
-                  key={spec.key}
-                  label={label}
-                  sublabel={spec.description}
-                  value={secretValue(spec.key)}
-                  onChange={(v) => setSecretValue(spec.key, v)}
-                  configured={isConfigured(spec.key)}
-                  visible={secretVisible(spec.key)}
-                  onToggleVisibility={() => toggleSecretVisibility(spec.key)}
-                  placeholder={isConfigured(spec.key) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-                  onRemove={isConfigured(spec.key) ? () => handleRemoveSecret(spec.key) : undefined}
-                />
-              );
-            })}
-          </div>
-        ) : (
-          <p className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-            {t("settings.tab.noRequiredSecrets")}
-          </p>
-        )}
-    </>
-  );
-
   /*
     Provider credentials — one block per provider, from the shared
     PROVIDER_SECRET_SECTIONS the organization page renders too.
@@ -796,11 +682,6 @@ export function SettingsTab({
 
   if (section === "credentials") {
     return <div className="space-y-8">{providerCredentialsBlock}</div>;
-  }
-
-  // The tools' own keys, beside the tool list — not with the provider ones.
-  if (section === "toolSecrets") {
-    return <div className="space-y-8">{requiredSecretsBlock}</div>;
   }
 
   /*
@@ -1396,124 +1277,3 @@ export function SettingsTab({
 
 
 /** The "you need not configure this" line, shown only when nothing local overrides it. */
-
-// ── Readable Field Component ────────────────────────────────────────
-// For tool config fields with sensitive === false (e.g. a base URL):
-// plain cleartext input, prefilled from currentValue. No eye toggle.
-
-interface ReadableFieldProps {
-  label: string;
-  sublabel?: string;
-  value: string;
-  onChange: (value: string) => void;
-  configured: boolean;
-  placeholder: string;
-  onRemove?: () => void;
-}
-
-function ReadableField({
-  label,
-  sublabel,
-  value,
-  onChange,
-  configured,
-  placeholder,
-  onRemove,
-}: ReadableFieldProps) {
-  const { t } = useI18n();
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Label>{label}</Label>
-        <SecretStatusBadge configured={configured} />
-      </div>
-      {sublabel && <p className="text-xs text-muted-foreground">{sublabel}</p>}
-      <div className="flex gap-2">
-        <Input
-          type="text"
-          className="flex-1"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-        />
-        {onRemove && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="icon" className="shrink-0 text-destructive">
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{t("settings.tab.removeKeyTitle")}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {t("settings.tab.removeKeyDescription")}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={onRemove}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  {t("settings.tab.removeKey")}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Secret Field Component ──────────────────────────────────────────
-
-
-interface ToolSelectFieldProps {
-  label: string;
-  description?: string;
-  configured: boolean;
-  value: string;
-  choices: string[];
-  onChange: (value: string) => void;
-  configuredLabel: string;
-  notConfiguredLabel: string;
-}
-
-function ToolSelectField({
-  label,
-  description,
-  configured,
-  value,
-  choices,
-  onChange,
-  configuredLabel,
-  notConfiguredLabel,
-}: ToolSelectFieldProps) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Label>{label}</Label>
-        <Badge variant={configured ? "default" : "secondary"} className="text-xs">
-          {configured ? configuredLabel : notConfiguredLabel}
-        </Badge>
-      </div>
-      {description && (
-        <p className="text-xs text-muted-foreground">{description}</p>
-      )}
-      <Select value={value || undefined} onValueChange={onChange}>
-        <SelectTrigger>
-          <SelectValue placeholder={label} />
-        </SelectTrigger>
-        <SelectContent>
-          {choices.map((c) => (
-            <SelectItem key={c} value={c}>
-              {c}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}

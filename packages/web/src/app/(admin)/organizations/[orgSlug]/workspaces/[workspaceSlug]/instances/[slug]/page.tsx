@@ -26,7 +26,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, getUserErrorMessage, type Instance, type ToolState, type SkillState, type PromptSection } from "@/lib/api";
+import { api, getUserErrorMessage, type Instance, type ToolState, type ToolPluginInfo, type SkillState, type PromptSection } from "@/lib/api";
 import { GeneralTab } from "./general-tab";
 import { PromptsTab } from "./prompts-tab";
 import { ToolsTab } from "./tools-tab";
@@ -84,6 +84,8 @@ function InstanceDetailContent() {
   const section = agentSection(activeTab);
   const [instance, setInstance] = useState<Instance | null>(null);
   const [tools, setTools] = useState<ToolState[]>([]);
+  // How the Tools section names each plugin; fixed for the engine's lifetime.
+  const [toolPlugins, setToolPlugins] = useState<ToolPluginInfo[]>([]);
   const [skills, setSkills] = useState<SkillState[]>([]);
   const [prompts, setPrompts] = useState<PromptSection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,6 +104,7 @@ function InstanceDetailContent() {
       .then(([instanceRes, toolsRes, skillsRes, promptsRes]) => {
         setInstance(instanceRes.instance);
         setTools(toolsRes.tools);
+        setToolPlugins(toolsRes.plugins ?? []);
         setSkills(skillsRes.skills);
         setPrompts(promptsRes.prompts);
       })
@@ -295,17 +298,9 @@ function InstanceDetailContent() {
             skills={skills}
             memoryEnabled={instance.memoryEnabled}
             knowledgeEnabled={instance.knowledgeEnabled}
+            plugins={toolPlugins}
             onToolsUpdate={setTools}
             onSkillsUpdate={setSkills}
-            checks={status.checks}
-          />
-        </TabsContent>
-        <TabsContent value="toolSecrets">
-          <SettingsTab
-            instance={instance}
-            onUpdate={setInstance}
-            section="toolSecrets"
-            checks={status.checks}
             onConfigurationChanged={status.refresh}
           />
         </TabsContent>

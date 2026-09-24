@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,8 +36,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { api, getUserErrorMessage, type HookEvent, type InstanceHook, type HookFunctionInfo } from "@/lib/api";
+import { api, getUserErrorMessage, type HookEvent, type InstanceHook, type HookFunctionInfo, type RequiredSecretSpec } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { PROVIDER_CREDENTIAL_KEYS } from "@/lib/provider-secrets";
+import { SecretSpecField } from "@/components/instance-secret/secret-spec-field";
+import { useSecretSpecs } from "@/components/instance-secret/use-secret-specs";
 
 const HOOK_EVENTS: HookEvent[] = [
   "conversation_start",
@@ -93,6 +96,44 @@ export function HooksTab({ slug }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /*
+    The keys the ENABLED hooks declare, each with the hooks that ask for it. They
+    used to sit on a page of their own, mixed with the tools' keys and saying
+    neither which hook wanted them nor why; a key exists because a hook asked for
+    it, so it is set beside the hooks. Provider credentials stay in Credenziali.
+  */
+  const hookParams = useMemo(() => {
+    const enabled = new Set(hooks.filter((h) => h.enabled).map((h) => h.actionConfig.functionName));
+    const byKey = new Map<string, { spec: RequiredSecretSpec; askedBy: string[] }>();
+    for (const fn of catalog) {
+      if (!enabled.has(fn.name)) continue;
+      for (const spec of fn.requiredSecrets) {
+        if (PROVIDER_CREDENTIAL_KEYS.has(spec.key)) continue;
+        const entry = byKey.get(spec.key) ?? { spec, askedBy: [] };
+        entry.askedBy.push(fn.name);
+        byKey.set(spec.key, entry);
+      }
+    }
+    return [...byKey.values()];
+  }, [hooks, catalog]);
+  const paramSpecs = useMemo(() => hookParams.map((p) => p.spec), [hookParams]);
+  const params = useSecretSpecs(slug, paramSpecs);
+  const [savingParams, setSavingParams] = useState(false);
+
+  // Its own button: every other action on this page writes at once, so a
+  // page-level Save would be the one thing here that waits.
+  const saveParams = async () => {
+    setSavingParams(true);
+    try {
+      await params.save();
+      toast.success(t("hooks.paramsSaved"));
+    } catch (err) {
+      toast.error(getUserErrorMessage(err, t("settings.tab.saveFailed")));
+    } finally {
+      setSavingParams(false);
+    }
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -265,6 +306,30 @@ export function HooksTab({ slug }: Props) {
             );
           })}
         </div>
+      )}
+
+      {hookParams.length > 0 && (
+        <section className="space-y-4">
+          <div>
+            <h3 className="text-sm font-medium">{t("hooks.params")}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{t("hooks.paramsHelp")}</p>
+          </div>
+          {!params.canRead && <p className="text-sm text-muted-foreground">{t("tools.paramsNoAccess")}</p>}
+          {params.canRead &&
+            hookParams.map(({ spec, askedBy }) => (
+              <div key={spec.key} className="space-y-1.5">
+                <SecretSpecField spec={spec} form={params} />
+                <p className="text-xs text-muted-foreground">{t("tools.paramAskedBy", { names: askedBy.join(", ") })}</p>
+              </div>
+            ))}
+          {params.canRead && (
+            <div className="flex justify-end">
+              <Button size="sm" onClick={saveParams} disabled={!params.dirty || savingParams}>
+                {t("tools.paramsSave")}
+              </Button>
+            </div>
+          )}
+        </section>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
