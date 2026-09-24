@@ -64,7 +64,7 @@ export function descriptionSummary(description: string): string {
   return description.split("\n").find((line) => line.trim() !== "")?.trim() ?? "";
 }
 
-/** The keys a tool declares that its own panel renders: provider credentials live in Credenziali. */
+/** The keys a tool declares that its own panel renders: provider credentials live in the Modello section. */
 export function toolParamSpecs(tool: ToolState): RequiredSecretSpec[] {
   return (tool.requiredSecrets ?? []).filter((spec) => !PROVIDER_CREDENTIAL_KEYS.has(spec.key));
 }

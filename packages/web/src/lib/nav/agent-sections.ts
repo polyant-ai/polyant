@@ -13,9 +13,10 @@
  *
  * - **Strumenti**: the internal tools and the external MCP servers answer the same
  *   question ("what can this agent do"), so they are one page.
- * - **Credenziali**: a key was reachable from two places (the model picker and the
- *   tool secrets). "Where do I put an API key" now has one answer, and the keys the
- *   TOOLS demand have their own section beside the tool list, called Parametri.
+ * - **Credenziali** and **Parametri** are gone as destinations: a key is set beside
+ *   what uses it. A provider key sits in the Modello block of the task that reads
+ *   it (conversation, embeddings, transcription), a tool's key in that tool's
+ *   panel, a hook's on the Hooks page.
  * - **Avanzate**: memory, the per-turn parameters and the tracing were three
  *   different destinations for one subject — what the engine carries into a turn
  *   and what it keeps after.
@@ -50,7 +51,6 @@ import {
   MessagesSquare,
   SlidersHorizontal,
   Cpu,
-  KeyRound,
   Radio,
   CalendarClock,
   History,
@@ -110,7 +110,8 @@ export const AGENT_SECTIONS: readonly AgentSectionDef[] = [
   // Configurazione — what the agent IS, what runs it, and how it is reached.
   { tab: "general", titleKey: "instances.detail.tabGeneral", macro: "configuration", icon: Info },
   { tab: "settings", titleKey: "instances.detail.tabSettings", macro: "configuration", icon: Cpu },
-  { tab: "credentials", titleKey: "instances.detail.tabCredentials", macro: "configuration", icon: KeyRound },
+  // No Credenziali row: a provider key is set in the Modello section, in the
+  // block of the task that uses it, next to the choice that needs it.
   // ONE section for every channel: the channel is picked inside it.
   { tab: "channels", titleKey: "instances.detail.tabChannels", macro: "configuration", icon: Radio },
 

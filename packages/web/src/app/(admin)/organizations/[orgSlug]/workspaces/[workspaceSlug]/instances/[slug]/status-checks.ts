@@ -173,7 +173,7 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
     the only defect on this page that stops the agent answering at all.
 
     AWS is deliberately absent from the required set: Bedrock falls back to the
-    host's AWS profile or IAM role (the Credenziali page says so), so "no key" is
+    host's AWS profile or IAM role (the Modello page says so), so "no key" is
     a normal, working configuration there and an alert would be a false alarm.
   */
   const effectiveProvider = instance.effectiveProvider ?? instance.provider;
@@ -186,8 +186,8 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
         titleKey: "status.check.providerCredentials.title",
         bodyKey: "status.check.providerCredentials.body",
         params: { provider: effectiveProvider },
-        section: "credentials",
-        sectionKey: "instances.detail.tabCredentials",
+        section: "settings",
+        sectionKey: "instances.detail.tabSettings",
       });
     }
   }
@@ -201,8 +201,8 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
         titleKey: "status.check.sttCredentials.title",
         bodyKey: "status.check.sttCredentials.body",
         params: { provider: instance.sttProvider },
-        section: "credentials",
-        sectionKey: "instances.detail.tabCredentials",
+        section: "settings",
+        sectionKey: "instances.detail.tabSettings",
       });
     }
   }
@@ -218,8 +218,8 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
       severity: "broken",
       titleKey: "status.check.embedderCredentials.title",
       bodyKey: "status.check.embedderCredentials.body",
-      section: "credentials",
-      sectionKey: "instances.detail.tabCredentials",
+      section: "settings",
+      sectionKey: "instances.detail.tabSettings",
     });
   }
 

@@ -253,7 +253,7 @@ describe("ToolsTab", () => {
     expect(within(rowOf("saveMemory")).getByRole("img", { name: "tools.memoryDisabledHint" })).toBeInTheDocument();
   });
 
-  it("opens a tool's panel: cleartext prefilled, secrets masked, provider keys pointed to Credentials", async () => {
+  it("opens a tool's panel: cleartext prefilled, secrets masked, provider keys pointed to the Model section", async () => {
     const user = userEvent.setup();
     renderTab();
 
@@ -263,9 +263,9 @@ describe("ToolsTab", () => {
     expect(await within(sheet).findByDisplayValue("https://crm.example.com")).toHaveAttribute("type", "text");
     expect(within(sheet).getByText("The key of the CRM account.")).toBeInTheDocument();
     expect(within(sheet).getByPlaceholderText("settings.tab.keyPlaceholder")).toHaveAttribute("type", "password");
-    // A provider credential is set in Credenziali, never as a second field here.
+    // A provider credential is set in the Model section, never as a second field here.
     expect(within(sheet).getByText("OpenAI API Key")).toBeInTheDocument();
-    expect(within(sheet).getByRole("link", { name: "tools.paramProviderCredential" })).toHaveAttribute("href", "?tab=credentials");
+    expect(within(sheet).getByRole("link", { name: "tools.paramProviderCredential" })).toHaveAttribute("href", "?tab=settings");
     // A sibling from the same plugin has a switch of its own.
     expect(within(sheet).getByRole("switch", { name: /deal/ })).not.toBeChecked();
   });

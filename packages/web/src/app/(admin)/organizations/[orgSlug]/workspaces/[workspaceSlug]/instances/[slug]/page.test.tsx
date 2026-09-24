@@ -120,9 +120,7 @@ vi.mock("./knowledge-tab", () => ({ KnowledgeTab: () => <div>tab-body:knowledge<
 // One component, two sections: which half it renders is the `section` prop, and
 // the stub reports it — a copy-paste leaving both addresses on one half fails here.
 vi.mock("./settings-tab", () => ({
-  SettingsTab: ({ section, checks }: { section: string; checks?: Array<{ id: string }> }) => (
-    <div>tab-body:settings:{section}:{checks?.map((check) => check.id).join(",")}</div>
-  ),
+  SettingsTab: ({ section }: { section: string }) => <div>tab-body:settings:{section}</div>,
 }));
 vi.mock("./channels-section", () => ({ ChannelsSection: () => <div>tab-body:channels</div> }));
 vi.mock("./analytics-tab", () => ({ AnalyticsTab: () => <div>tab-body:analytics</div> }));
@@ -194,7 +192,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
  */
 const EVERY_SECTION = [
   "overview", "analytics",
-  "general", "settings", "credentials", "channels",
+  "general", "settings", "channels",
   "prompts", "tools", "mcp", "skills", "knowledge", "hooks", "params",
   "webhooks", "scheduled", "room",
   "privacy",
@@ -204,10 +202,9 @@ const EVERY_SECTION = [
 /** Which stub body a section renders, where the two differ. */
 const BODY_OF: Record<string, string> = {
   overview: "status:provider-no-credentials",
-  // One component, three pages: the stub reports which half it was asked for, so a
+  // One component, two pages: the stub reports which half it was asked for, so a
   // copy-paste leaving two addresses on one section fails here.
-  settings: "settings:model:provider-no-credentials",
-  credentials: "settings:credentials:provider-no-credentials",
+  settings: "settings:model",
 };
 
 /**
@@ -224,6 +221,8 @@ const DROPPED_ADDRESSES = [
   "governance",
   // The tool parameters' page: they are set in each tool's own panel now.
   "toolSecrets",
+  // The provider keys' page: each key is set in the Model block of the task that uses it.
+  "credentials",
   // Enterprise sections. They are not aliases either: an address that names
   // nothing in this build lands on the default section like any other.
   "policy",
@@ -324,10 +323,12 @@ describe("InstanceDetailPage — sections", () => {
   });
 
   it("builds readiness from the loaded agent", async () => {
-    resetSearch("tab=settings");
+    // The overview renders the readiness list; the Model section shows each
+    // task's state in its own block instead of the list.
+    resetSearch("tab=overview");
     render(<InstanceDetailPage />);
 
-    await screen.findByText("tab-body:settings:model:provider-no-credentials");
+    await screen.findByText("tab-body:status:provider-no-credentials");
     expect(mockUseStatusChecks).toHaveBeenCalled();
     expect(mockUseStatusChecks.mock.calls.at(-1)?.[0]).toMatchObject({
       instance: expect.objectContaining({ slug: "test-instance" }),

@@ -18,6 +18,12 @@ export interface SaveAction {
   isDirty: boolean;
   saving: boolean;
   onSave: () => void | Promise<void>;
+  /**
+   * Why the changes cannot be saved as they are, or null. A form sets it when
+   * saving would leave the agent broken (a model chosen without the credential
+   * it needs); the header keeps Save disabled and says why beside it.
+   */
+  blockedReason?: string | null;
 }
 
 interface PageActionsContextValue {
@@ -67,6 +73,7 @@ export function PageActionsProvider({ children }: { children: ReactNode }) {
     return {
       isDirty: entries.some((a) => a.isDirty),
       saving: entries.some((a) => a.saving),
+      blockedReason: entries.find((a) => a.isDirty && a.blockedReason)?.blockedReason ?? null,
       onSave: async () => {
         for (const action of entries) {
           if (action.isDirty) await action.onSave();
@@ -90,7 +97,7 @@ export function usePageActions() {
   return ctx;
 }
 
-export function usePageSaveAction({ isDirty, saving, onSave }: SaveAction) {
+export function usePageSaveAction({ isDirty, saving, onSave, blockedReason = null }: SaveAction) {
   const { registerSaveAction } = usePageActions();
   const id = useId();
   const onSaveRef = useRef(onSave);
@@ -100,8 +107,9 @@ export function usePageSaveAction({ isDirty, saving, onSave }: SaveAction) {
     registerSaveAction(id, {
       isDirty,
       saving,
+      blockedReason,
       onSave: () => onSaveRef.current(),
     });
     return () => registerSaveAction(id, null);
-  }, [id, isDirty, saving, registerSaveAction]);
+  }, [id, isDirty, saving, blockedReason, registerSaveAction]);
 }

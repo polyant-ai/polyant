@@ -190,7 +190,7 @@ export function ToolSheet({
                 {providerSpecs.map((spec) => (
                   <div key={spec.key} className="space-y-1">
                     <p className="text-sm font-medium">{spec.label ?? humanizeSecretKey(spec.key)}</p>
-                    <Link href="?tab=credentials" className="text-xs underline underline-offset-4">
+                    <Link href="?tab=settings" className="text-xs underline underline-offset-4">
                       {t("tools.paramProviderCredential")}
                     </Link>
                   </div>

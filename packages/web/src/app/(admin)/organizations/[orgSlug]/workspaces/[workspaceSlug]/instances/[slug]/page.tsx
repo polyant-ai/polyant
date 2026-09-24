@@ -56,16 +56,20 @@ function HeaderSaveButton() {
   const { saveAction } = usePageActions();
   const { t } = useI18n();
   if (!saveAction) return null;
+  const blocked = saveAction.blockedReason ?? null;
   return (
-    <Button
-      size="sm"
-      // `void`: the registered handler reports its own failures with a toast,
-      // and an unhandled rejection here would be the only sign of one.
-      onClick={() => void saveAction.onSave()}
-      disabled={!saveAction.isDirty || saveAction.saving}
-    >
-      {saveAction.saving ? t("common.saving") : t("common.save")}
-    </Button>
+    <div className="flex items-center gap-3">
+      {blocked && <span className="text-xs text-warning">{blocked}</span>}
+      <Button
+        size="sm"
+        // `void`: the registered handler reports its own failures with a toast,
+        // and an unhandled rejection here would be the only sign of one.
+        onClick={() => void saveAction.onSave()}
+        disabled={!saveAction.isDirty || saveAction.saving || blocked !== null}
+      >
+        {saveAction.saving ? t("common.saving") : t("common.save")}
+      </Button>
+    </div>
   );
 }
 
@@ -267,19 +271,6 @@ function InstanceDetailContent() {
             instance={instance}
             onUpdate={setInstance}
             section="model"
-            checks={status.checks}
-            onConfigurationChanged={status.refresh}
-          />
-        </TabsContent>
-        <TabsContent value="credentials">
-          <p className="mb-6 text-sm text-muted-foreground">
-            {t("instances.section.credentialsHelp")}
-          </p>
-          <SettingsTab
-            instance={instance}
-            onUpdate={setInstance}
-            section="credentials"
-            checks={status.checks}
             onConfigurationChanged={status.refresh}
           />
         </TabsContent>

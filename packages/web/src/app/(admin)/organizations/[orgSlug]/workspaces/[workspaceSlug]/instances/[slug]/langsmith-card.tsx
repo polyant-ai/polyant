@@ -21,9 +21,9 @@ import { usePageSaveAction } from "./page-actions-context";
  * traces what the agent DOES at runtime, which is the subject of the Parametri
  * page, not of the agent's identity.
  *
- * The key travels with the switch deliberately — it is the one provider credential
- * NOT in Credenziali, because a key whose only purpose is to satisfy the toggle
- * three centimetres above it is discoverable there and nowhere else.
+ * The key travels with the switch deliberately, like every key now: it is set
+ * beside the thing that uses it, and its only use is the toggle three
+ * centimetres above it.
  */
 export function LangsmithCard({
   instance,

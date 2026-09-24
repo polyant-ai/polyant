@@ -52,7 +52,7 @@ export function humanizeSecretKey(key: string): string {
     .join(" ");
 }
 
-function RemoveKeyButton({ onRemove }: { onRemove: () => void }) {
+export function RemoveKeyButton({ onRemove }: { onRemove: () => void }) {
   const { t } = useI18n();
   return (
     <AlertDialog>

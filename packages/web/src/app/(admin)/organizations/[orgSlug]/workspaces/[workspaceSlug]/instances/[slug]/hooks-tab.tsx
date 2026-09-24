@@ -101,7 +101,7 @@ export function HooksTab({ slug }: Props) {
     The keys the ENABLED hooks declare, each with the hooks that ask for it. They
     used to sit on a page of their own, mixed with the tools' keys and saying
     neither which hook wanted them nor why; a key exists because a hook asked for
-    it, so it is set beside the hooks. Provider credentials stay in Credenziali.
+    it, so it is set beside the hooks. Provider credentials stay in the Modello section.
   */
   const hookParams = useMemo(() => {
     const enabled = new Set(hooks.filter((h) => h.enabled).map((h) => h.actionConfig.functionName));
