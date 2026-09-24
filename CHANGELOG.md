@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-09-24
+
+Security patch release.
+
+### Security
+
+- Library updates for security reasons, including Next.js 16.3.6 in the admin panel.
+
 ## [1.1.1] - 2026-09-17
 
 Patch release. It restores agent creation, which fails on every attempt in 1.1.0.
@@ -328,7 +336,8 @@ Patch release. It restores agent creation, which fails on every attempt in 1.1.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/polyant-ai/polyant/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/polyant-ai/polyant/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/polyant-ai/polyant/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/polyant-ai/polyant/compare/v1.0.1...v1.0.2
