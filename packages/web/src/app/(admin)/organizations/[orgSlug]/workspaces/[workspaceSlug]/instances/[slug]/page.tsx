@@ -26,7 +26,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, getUserErrorMessage, type Instance, type ToolState, type SkillState, type PromptSection } from "@/lib/api";
+import { api, getUserErrorMessage, type Instance, type ToolState, type ToolPluginInfo, type SkillState, type PromptSection } from "@/lib/api";
 import { GeneralTab } from "./general-tab";
 import { PromptsTab } from "./prompts-tab";
 import { ToolsTab } from "./tools-tab";
@@ -56,16 +56,20 @@ function HeaderSaveButton() {
   const { saveAction } = usePageActions();
   const { t } = useI18n();
   if (!saveAction) return null;
+  const blocked = saveAction.blockedReason ?? null;
   return (
-    <Button
-      size="sm"
-      // `void`: the registered handler reports its own failures with a toast,
-      // and an unhandled rejection here would be the only sign of one.
-      onClick={() => void saveAction.onSave()}
-      disabled={!saveAction.isDirty || saveAction.saving}
-    >
-      {saveAction.saving ? t("common.saving") : t("common.save")}
-    </Button>
+    <div className="flex items-center gap-3">
+      {blocked && <span className="text-xs text-warning">{blocked}</span>}
+      <Button
+        size="sm"
+        // `void`: the registered handler reports its own failures with a toast,
+        // and an unhandled rejection here would be the only sign of one.
+        onClick={() => void saveAction.onSave()}
+        disabled={!saveAction.isDirty || saveAction.saving || blocked !== null}
+      >
+        {saveAction.saving ? t("common.saving") : t("common.save")}
+      </Button>
+    </div>
   );
 }
 
@@ -84,6 +88,8 @@ function InstanceDetailContent() {
   const section = agentSection(activeTab);
   const [instance, setInstance] = useState<Instance | null>(null);
   const [tools, setTools] = useState<ToolState[]>([]);
+  // How the Tools section names each plugin; fixed for the engine's lifetime.
+  const [toolPlugins, setToolPlugins] = useState<ToolPluginInfo[]>([]);
   const [skills, setSkills] = useState<SkillState[]>([]);
   const [prompts, setPrompts] = useState<PromptSection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,6 +108,7 @@ function InstanceDetailContent() {
       .then(([instanceRes, toolsRes, skillsRes, promptsRes]) => {
         setInstance(instanceRes.instance);
         setTools(toolsRes.tools);
+        setToolPlugins(toolsRes.plugins ?? []);
         setSkills(skillsRes.skills);
         setPrompts(promptsRes.prompts);
       })
@@ -264,19 +271,6 @@ function InstanceDetailContent() {
             instance={instance}
             onUpdate={setInstance}
             section="model"
-            checks={status.checks}
-            onConfigurationChanged={status.refresh}
-          />
-        </TabsContent>
-        <TabsContent value="credentials">
-          <p className="mb-6 text-sm text-muted-foreground">
-            {t("instances.section.credentialsHelp")}
-          </p>
-          <SettingsTab
-            instance={instance}
-            onUpdate={setInstance}
-            section="credentials"
-            checks={status.checks}
             onConfigurationChanged={status.refresh}
           />
         </TabsContent>
@@ -295,17 +289,9 @@ function InstanceDetailContent() {
             skills={skills}
             memoryEnabled={instance.memoryEnabled}
             knowledgeEnabled={instance.knowledgeEnabled}
+            plugins={toolPlugins}
             onToolsUpdate={setTools}
             onSkillsUpdate={setSkills}
-            checks={status.checks}
-          />
-        </TabsContent>
-        <TabsContent value="toolSecrets">
-          <SettingsTab
-            instance={instance}
-            onUpdate={setInstance}
-            section="toolSecrets"
-            checks={status.checks}
             onConfigurationChanged={status.refresh}
           />
         </TabsContent>

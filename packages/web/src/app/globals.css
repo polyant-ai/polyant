@@ -42,6 +42,12 @@
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
 
+  /* The middle severity. The palette had only "broken" and "good", so a warning
+     had to borrow one of them — and a warning painted as an error is a page that
+     cries wolf. */
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -97,6 +103,9 @@
   --success: #00C853;
   --success-foreground: #FFFFFF;
 
+  --warning: #B26A00;
+  --warning-foreground: #FFFFFF;
+
   --border: #EEEEEE;
   --input: #E0E0E0;
   --ring: #000000;
@@ -150,6 +159,10 @@
 
   --success: #00C853;
   --success-foreground: #FFFFFF;
+
+  /* Lifted on the dark ground: #B26A00 on #0A0A0A is below 4.5:1. */
+  --warning: #E0A33E;
+  --warning-foreground: #000000;
 
   --border: #222222;
   --input: #2A2A2A;

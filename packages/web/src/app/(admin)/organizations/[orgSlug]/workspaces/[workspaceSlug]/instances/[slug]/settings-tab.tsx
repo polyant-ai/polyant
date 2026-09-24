@@ -4,12 +4,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Trash2, AlertTriangle, Info, Search, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, Info, Search, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Select,
   SelectContent,
@@ -26,7 +27,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   Dialog,
@@ -43,50 +43,43 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, getUserErrorMessage, isForbidden, type Instance, type SecretStatus, type ModelsResponse, type RequiredSecretSpec } from "@/lib/api";
+import { api, getUserErrorMessage, isForbidden, type Instance, type SecretStatus, type ModelsResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
-import { SecretField, SecretStatusBadge } from "@/components/instance-secret/secret-field";
+import { SecretField } from "@/components/instance-secret/secret-field";
+import { ReadableField, RemoveKeyButton } from "@/components/instance-secret/secret-spec-field";
 import type { TranslationKey } from "@/lib/i18n/types";
 import {
-  PROVIDER_CREDENTIAL_KEYS,
   PROVIDER_SECRET_SECTIONS,
   SECRET_KEYS,
+  type ProviderSecretField,
+  type ProviderSecretSection,
   type ProviderSectionId,
 } from "@/lib/provider-secrets";
-import { BRAND_NAMES } from "@/lib/provider-secrets";
+import { BRAND_NAMES, providerName } from "@/lib/provider-secrets";
 import { usePageSaveAction } from "./page-actions-context";
-import { CapabilityCheckNotice } from "./capability-check-notice";
-import type { AgentCheck } from "./status-checks";
 
 interface Props {
   instance: Instance;
   onUpdate: (instance: Instance) => void;
-  checks?: AgentCheck[];
   onConfigurationChanged?: () => void;
   /**
    * Which half of this form to render.
    *
-   * Four pages come out of this one component, because they all need the same
-   * loaded secrets, the same required-secret specs and the same `secretFields`
-   * machine:
+   * Two pages come out of this one component, because they share the loaded
+   * secrets and the `secretFields` machine:
    *
-   *   `model`       — which model runs the agent, the embedder, speech-to-text,
-   *                   prompt caching, temperature.
-   *   `credentials` — the PROVIDER keys. Their own page because a key used to be
-   *                   reachable from three places, and "where do I put an API key"
-   *                   must have one answer.
-   *   `toolSecrets` — the keys the enabled tools and hooks demand. Beside the tool
-   *                   list rather than with the provider keys: they exist because a
-   *                   tool asked for them, and they are read while deciding what the
-   *                   agent may do.
-   *   `params`      — what the engine puts in front of the model each turn. Rendered
-   *                   inside the Parametri page, next to memory and diagnostics.
+   *   `model`  — what the agent uses a provider FOR, one block per task
+   *              (conversation, embeddings, speech-to-text): the provider and
+   *              model, and right under them the credential that task needs.
+   *              There is no separate credentials page any more: a key is set
+   *              in the block of the task that uses it, and saved with it.
+   *   `params` — what the engine puts in front of the model each turn. Rendered
+   *              inside the Avanzate page, next to memory and diagnostics.
    *
-   * Only one is mounted at a time, so each writes only its own fields: a save from
-   * one page can never carry a stale copy of another's.
+   * Only one is mounted at a time, so each writes only its own fields.
    */
-  section: "model" | "credentials" | "toolSecrets" | "params";
+  section: "model" | "params";
 }
 
 type STTProvider = "openai" | "aws" | "deepgram" | "disabled";
@@ -123,19 +116,6 @@ function catalogSortValue(row: CatalogRow, key: CatalogSortKey): string | number
   }
 }
 
-function humanizeSecretKey(key: string): string {
-  return key
-    .replace(/_/g, " ")
-    .split(" ")
-    .map((w) => {
-      const lower = w.toLowerCase();
-      if (lower === "api") return "API";
-      if (lower === "key") return "Key";
-      return BRAND_NAMES[lower] ?? w.charAt(0).toUpperCase() + w.slice(1);
-    })
-    .join(" ");
-}
-
 /**
  * An empty field means "no value here" and must reach the API as null, which is
  * what clears the column. A field the user is mid-way through typing (`"1."`,
@@ -149,11 +129,53 @@ function numberOrNull(raw: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
+/** The tasks the agent uses a provider for, in the order the page shows them. */
+type Role = "chat" | "embed" | "stt";
+const ROLES: readonly Role[] = ["chat", "embed", "stt"];
+const ROLE_TITLE: Record<Role, TranslationKey> = {
+  chat: "settings.role.chat.title",
+  embed: "settings.role.embed.title",
+  stt: "settings.role.stt.title",
+};
+
+/** A credential set: a provider section, or Deepgram's single key. */
+type CredentialGroup = Exclude<ProviderSectionId, "langsmith"> | "deepgram";
+
+const DEEPGRAM_SECTION: ProviderSecretSection & { id: "deepgram" } = {
+  id: "deepgram" as never,
+  titleKey: "settings.tab.deepgramKey",
+  fields: [{ key: SECRET_KEYS.DEEPGRAM, labelKey: "settings.tab.deepgramKey" }],
+} as ProviderSecretSection & { id: "deepgram" };
+
+function credentialSection(group: CredentialGroup): ProviderSecretSection {
+  return group === "deepgram" ? DEEPGRAM_SECTION : PROVIDER_SECRET_SECTIONS.find((s) => s.id === group)!;
+}
+
+/**
+ * Which credential set a task's provider reads. A provider registered at boot is
+ * absent: the panel does not know its keys, and says so instead of guessing.
+ */
+const CHAT_CREDENTIAL: Record<string, CredentialGroup> = { openai: "openai", anthropic: "anthropic", nebius: "nebius", bedrock: "aws" };
+const EMBEDDER_CREDENTIAL: Record<string, CredentialGroup> = { openai: "openai", bedrock: "aws" };
+const STT_CREDENTIAL: Record<string, CredentialGroup> = { openai: "openai", aws: "aws", deepgram: "deepgram" };
+
+/**
+ * The keys a set must hold for its provider to answer. AWS needs none: Bedrock
+ * and Transcribe fall back to the host's profile or IAM role, so an empty AWS
+ * block is a working configuration, not a missing one.
+ */
+const REQUIRED_KEYS: Record<CredentialGroup, readonly string[]> = {
+  openai: [SECRET_KEYS.OPENAI],
+  anthropic: [SECRET_KEYS.ANTHROPIC],
+  nebius: [SECRET_KEYS.NEBIUS],
+  aws: [],
+  deepgram: [SECRET_KEYS.DEEPGRAM],
+};
+
 export function SettingsTab({
   instance,
   onUpdate,
   section,
-  checks = [],
   onConfigurationChanged,
 }: Props) {
   const { t } = useI18n();
@@ -233,16 +255,6 @@ export function SettingsTab({
 
   // Knowledge
 
-  // Required-secret specs (tools + hooks, dynamic, from API). Each entry describes
-  // how to render and persist the field (text input vs select dropdown).
-  const [requiredSecretSpecs, setRequiredSecretSpecs] = useState<RequiredSecretSpec[]>([]);
-
-  // What the tools' own block renders: the required specs minus the provider
-  // credentials, which have their own blocks above (see PROVIDER_CREDENTIAL_KEYS).
-  const toolSecretSpecs = requiredSecretSpecs.filter(
-    (spec) => !PROVIDER_CREDENTIAL_KEYS.has(spec.key),
-  );
-
   // Secret input values, visibility toggles, and original value (for dirty tracking).
   // `initial` is the server-side value at load time (only populated for non-secret select fields).
   const [secretFields, setSecretFields] = useState<Record<string, { value: string; initial: string; visible: boolean }>>(
@@ -295,15 +307,10 @@ export function SettingsTab({
     Promise.allSettled([
       api.secrets.list(instance.slug),
       api.models.list(),
-      api.tools.requiredSecrets(instance.slug),
-    ]).then(([secretsRes, modelsRes, toolSecretsRes]) => {
+    ]).then(([secretsRes, modelsRes]) => {
       if (cancelled) return;
       if (modelsRes.status === "fulfilled") setModelsData(modelsRes.value);
       else toast.error(t("settings.tab.loadFailed"));
-
-      if (toolSecretsRes.status === "fulfilled") {
-        setRequiredSecretSpecs(toolSecretsRes.value.requiredSecrets);
-      }
 
       if (secretsRes.status === "fulfilled") {
         setSecrets(secretsRes.value.secrets);
@@ -320,21 +327,6 @@ export function SettingsTab({
     };
   }, [instance.slug]);
 
-  useEffect(() => {
-    setSecretFields((prev) => {
-      const next = { ...prev };
-      for (const spec of requiredSecretSpecs) {
-        if (!(spec.key in next)) {
-          // Pre-fill any non-sensitive field (select or readable text) from its
-          // echoed `currentValue`. Sensitive fields never carry one, so they
-          // initialize to empty.
-          const initialValue = spec.currentValue ?? "";
-          next[spec.key] = { value: initialValue, initial: initialValue, visible: false };
-        }
-      }
-      return next;
-    });
-  }, [requiredSecretSpecs]);
 
   const isConfigured = (key: string) =>
     secrets.some((s) => s.key === key && s.configured);
@@ -345,25 +337,6 @@ export function SettingsTab({
   // it on `instance.embedder`, which the Knowledge tab reads. Recomputing it in the
   // browser was also subtly wrong — the rule's inputs are encrypted secrets the
   // client never receives.
-
-  /*
-    Which provider sections Credenziali renders: EVERY one of them, whatever this
-    agent currently runs on.
-
-    It used to render only the providers already selected for chat, the embedder
-    or STT. That made the page describe the current choice rather than hold the
-    credentials, and it inverted the order of two steps an operator does in the
-    other order: a key could not be entered until the agent had already been
-    pointed at the provider it belongs to, so preparing an agent for Bedrock
-    before switching it to Bedrock was impossible, and the switch had to be saved
-    against a provider with no credentials.
-
-    `langsmith` stays out, and this is the one exception left: its key is rendered
-    by `langsmith-card.tsx` beside the switch that turns tracing on, with its own
-    save. That is a placement decision, not a gate — the key is always reachable
-    there, which is what this rule is about.
-  */
-  const providerSectionIsCredential = (id: ProviderSectionId) => id !== "langsmith";
 
   const providerNames = modelsData ? Object.keys(modelsData.providers) : [];
 
@@ -473,6 +446,32 @@ export function SettingsTab({
     setModel("");
   };
 
+  /*
+    Credentials by task. Each block shows the set its provider reads; when two
+    tasks read the same set (OpenAI for chat and embeddings) the fields appear
+    once, in the first block, and the other says it shares them.
+
+    A task is "missing" only when the caller can read secrets — unknown must not
+    read as missing — and its provider needs a key that is neither stored nor
+    typed. Embeddings matter only while memory or knowledge is on.
+  */
+  const chatProvider = provider || instance.effectiveProvider || "";
+  const roleGroup: Record<Role, CredentialGroup | null> = {
+    chat: CHAT_CREDENTIAL[chatProvider] ?? null,
+    embed: EMBEDDER_CREDENTIAL[embeddingProvider] ?? null,
+    stt: sttProvider === "disabled" ? null : (STT_CREDENTIAL[sttProvider] ?? null),
+  };
+  const roleInUse = (role: Role) =>
+    role === "stt" ? sttProvider !== "disabled" : role === "embed" ? instance.memoryEnabled || instance.knowledgeEnabled : true;
+  const groupHome = (group: CredentialGroup) => ROLES.find((r) => roleGroup[r] === group);
+  const hasKey = (key: string) => isConfigured(key) || secretValue(key) !== "";
+  const roleMissing = (role: Role) => {
+    const group = roleGroup[role];
+    if (!group || !canReadSecrets || !roleInUse(role)) return false;
+    return REQUIRED_KEYS[group].some((key) => !hasKey(key));
+  };
+  const missingRoles = ROLES.filter(roleMissing);
+
   // Per-section, so the Save button of one half never lights up for an edit made in
   // the other — and, more importantly, so its payload carries only its own fields.
   const modelDirty =
@@ -507,12 +506,10 @@ export function SettingsTab({
   // The two secret pages are dirty on their fields; the two settings pages on
   // theirs. Nothing overlaps, so no page can save another's values.
   const secretsDirty = Object.values(secretFields).some((f) => f.value !== f.initial);
-  const isDirty =
-    section === "credentials" || section === "toolSecrets"
-      ? secretsDirty
-      : section === "model"
-        ? modelDirty
-        : paramsDirty;
+  // The model page saves the keys typed in its blocks together with the choices
+  // that need them: a provider picked without its key is an agent that fails
+  // at the first message.
+  const isDirty = section === "model" ? modelDirty || secretsDirty : paramsDirty;
 
   const performSave = async (confirmWipe: boolean) => {
     setSaving(true);
@@ -615,7 +612,15 @@ export function SettingsTab({
     setEmbeddingProvider(instance.embeddingProvider ?? "openai");
   };
 
-  usePageSaveAction({ isDirty, saving, onSave: handleSave });
+  usePageSaveAction({
+    isDirty,
+    saving,
+    onSave: handleSave,
+    blockedReason:
+      section === "model" && missingRoles.length > 0
+        ? t("settings.tab.credentialMissingFor", { roles: missingRoles.map((r) => t(ROLE_TITLE[r])).join(", ") })
+        : null,
+  });
 
   const handleRemoveSecret = async (key: string) => {
     try {
@@ -628,163 +633,103 @@ export function SettingsTab({
     }
   };
 
-  // The tools' and hooks' required secrets: a key exists because a tool asked
-  // for it, so it belongs beside the tool list, not beside the model picker.
-  // Reads `toolSecretSpecs`, NOT the raw specs — a provider credential a tool
-  // happens to declare is rendered by Credenziali and nowhere else.
-  const requiredSecretsBlock = (
-    <>
-        {toolSecretSpecs.length > 0 ? (
-          /* No card and no heading: the section's own title says what these are,
-             and the box around a handful of fields framed nothing. */
-          <div className="space-y-4">
-            {toolSecretSpecs.map((spec) => {
-              const label = spec.label ?? humanizeSecretKey(spec.key);
-              if (spec.type === "select") {
-                return (
-                  <ToolSelectField
-                    key={spec.key}
-                    label={label}
-                    description={spec.description}
-                    configured={isConfigured(spec.key)}
-                    value={secretValue(spec.key)}
-                    choices={spec.choices ?? []}
-                    onChange={(v) => setSecretValue(spec.key, v)}
-                    configuredLabel={t("settings.tab.configured")}
-                    notConfiguredLabel={t("settings.tab.notConfigured")}
-                  />
-                );
-              }
-              if (spec.sensitive === false) {
-                return (
-                  <ReadableField
-                    key={spec.key}
-                    label={label}
-                    sublabel={spec.description}
-                    value={secretValue(spec.key)}
-                    onChange={(v) => setSecretValue(spec.key, v)}
-                    configured={isConfigured(spec.key)}
-                    placeholder={isConfigured(spec.key) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-                    onRemove={isConfigured(spec.key) ? () => handleRemoveSecret(spec.key) : undefined}
-                  />
-                );
-              }
-              return (
-                <SecretField
-                  key={spec.key}
-                  label={label}
-                  sublabel={spec.description}
-                  value={secretValue(spec.key)}
-                  onChange={(v) => setSecretValue(spec.key, v)}
-                  configured={isConfigured(spec.key)}
-                  visible={secretVisible(spec.key)}
-                  onToggleVisibility={() => toggleSecretVisibility(spec.key)}
-                  placeholder={isConfigured(spec.key) ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder")}
-                  onRemove={isConfigured(spec.key) ? () => handleRemoveSecret(spec.key) : undefined}
-                />
-              );
-            })}
-          </div>
-        ) : (
-          <p className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-            {t("settings.tab.noRequiredSecrets")}
+  const renderCredentialField = (field: ProviderSecretField) => {
+    const placeholder = isConfigured(field.key)
+      ? t("settings.tab.keyPlaceholderSet")
+      : t(field.placeholderKey ?? "settings.tab.keyPlaceholder");
+    const shared = {
+      label: t(field.labelKey),
+      value: secretValue(field.key),
+      onChange: (v: string) => setSecretValue(field.key, v),
+      configured: isConfigured(field.key),
+      placeholder,
+      onRemove: isConfigured(field.key) ? () => handleRemoveSecret(field.key) : undefined,
+    };
+    // A region is config, not a credential — never masked.
+    return field.sensitive === false ? (
+      <ReadableField key={field.key} {...shared} />
+    ) : (
+      <SecretField
+        key={field.key}
+        {...shared}
+        visible={secretVisible(field.key)}
+        onToggleVisibility={() => toggleSecretVisibility(field.key)}
+      />
+    );
+  };
+
+  /** The status in a task's header: only what can be known, never a guess. */
+  const roleStatus = (role: Role) => {
+    if (!canReadSecrets || !roleGroup[role] || !roleInUse(role)) return null;
+    return roleMissing(role) ? (
+      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-warning">
+        <AlertTriangle className="size-3.5" aria-hidden />
+        {t("settings.role.missing")}
+      </span>
+    ) : (
+      <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-success">
+        <Check className="size-3.5" aria-hidden />
+        {t("settings.role.ready")}
+      </span>
+    );
+  };
+
+  /** The credential a task's provider reads, under that task's choice. */
+  const credentialBlock = (role: Role) => {
+    const group = roleGroup[role];
+    if (role === "stt" && sttProvider === "disabled") return null;
+    if (!group) {
+      return <p className="text-xs text-muted-foreground">{t("settings.tab.credentialElsewhere")}</p>;
+    }
+    const home = groupHome(group);
+    const section = credentialSection(group);
+    const alsoUsedBy = ROLES.filter((r) => r !== role && roleGroup[r] === group).map((r) => t(ROLE_TITLE[r]));
+    return (
+      <div className="space-y-3 border-t pt-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <Label className="text-sm font-medium">{t("settings.tab.authentication")}</Label>
+          {home === role && alsoUsedBy.length > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {t("settings.tab.credentialAlsoUsedBy", { roles: alsoUsedBy.join(", ") })}
+            </span>
+          )}
+        </div>
+        {!canReadSecrets ? (
+          <p className="text-sm text-muted-foreground">{t("settings.tab.credentialNoAccess")}</p>
+        ) : home !== role && home ? (
+          <p className="text-sm text-muted-foreground">
+            {t("settings.tab.credentialShared", { provider: providerName(group), role: t(ROLE_TITLE[home]) })}
           </p>
+        ) : (
+          <>
+            {section.fields.map(renderCredentialField)}
+            {group === "aws" && (
+              <div className="flex items-start gap-2 rounded-md bg-muted p-3 text-muted-foreground">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <p className="text-sm">{t("settings.tab.awsFallbackNote")}</p>
+              </div>
+            )}
+          </>
         )}
-    </>
-  );
+      </div>
+    );
+  };
 
   /*
-    Provider credentials — one block per provider, from the shared
-    PROVIDER_SECRET_SECTIONS the organization page renders too.
-
-    ONE visibility rule for every provider (generalized from what the AWS card
-    already did): a block shows when that provider is selected for chat, the
-    embedder or STT. The selects on the model page drive it off the loaded
-    instance, so a provider is authenticable as soon as it is chosen.
-
-    SECRET_READ only (hidden for member/viewer).
+    Keys this agent still holds that no task reads — left behind by a provider
+    switch. They used to sit on the credentials page indistinguishable from the
+    ones in use; here they are named as unused, with the way to remove them.
   */
-  const providerCredentialsBlock = (
-    <>
-      {canReadSecrets &&
-        PROVIDER_SECRET_SECTIONS.filter((s) => providerSectionIsCredential(s.id)).map(
-          (providerSection) => (
-            <section key={providerSection.id} className="space-y-4 rounded-lg border p-4">
-              <div>
-                <Label className="text-base font-medium">{t(providerSection.titleKey)}</Label>
-                {providerSection.helpKey && (
-                  <p className="text-sm text-muted-foreground">{t(providerSection.helpKey)}</p>
-                )}
-              </div>
-
-              {providerSection.fields.map((field) => {
-                const placeholder = isConfigured(field.key)
-                  ? t("settings.tab.keyPlaceholderSet")
-                  : t(field.placeholderKey ?? "settings.tab.keyPlaceholder");
-                const shared = {
-                  label: t(field.labelKey),
-                  value: secretValue(field.key),
-                  onChange: (v: string) => setSecretValue(field.key, v),
-                  configured: isConfigured(field.key),
-                  placeholder,
-                  onRemove: isConfigured(field.key)
-                    ? () => handleRemoveSecret(field.key)
-                    : undefined,
-                };
-                // A region is config, not a credential — never masked.
-                return field.sensitive === false ? (
-                  <ReadableField key={field.key} {...shared} />
-                ) : (
-                  <SecretField
-                    key={field.key}
-                    {...shared}
-                    visible={secretVisible(field.key)}
-                    onToggleVisibility={() => toggleSecretVisibility(field.key)}
-                  />
-                );
-              })}
-
-              {providerSection.id === "aws" && (
-                <div className="flex items-start gap-2 rounded-md bg-blue-50 p-3 text-blue-900 dark:bg-blue-950/50 dark:text-blue-200">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <p className="text-sm">{t("settings.tab.awsFallbackNote")}</p>
-                </div>
-              )}
-            </section>
-          ),
-        )}
-
-      {/* Deepgram is not a PROVIDER_SECRET_SECTIONS entry — it is reached only by
-          the speech-to-text picker — but its key is a credential, and credentials
-          have one home now. Shown whatever the picker currently says, for the
-          reason the provider sections above are. */}
-      {canReadSecrets && (
-        <section className="space-y-4 rounded-lg border p-4">
-          <div>
-            <Label className="text-base font-medium">{t("settings.tab.stt")}</Label>
-          </div>
-          <SecretField
-            label={t("settings.tab.deepgramKey")}
-            value={secretValue(SECRET_KEYS.DEEPGRAM)}
-            onChange={(v) => setSecretValue(SECRET_KEYS.DEEPGRAM, v)}
-            configured={isConfigured(SECRET_KEYS.DEEPGRAM)}
-            visible={secretVisible(SECRET_KEYS.DEEPGRAM)}
-            onToggleVisibility={() => toggleSecretVisibility(SECRET_KEYS.DEEPGRAM)}
-            placeholder={
-              isConfigured(SECRET_KEYS.DEEPGRAM)
-                ? t("settings.tab.keyPlaceholderSet")
-                : t("settings.tab.keyPlaceholder")
-            }
-            onRemove={
-              isConfigured(SECRET_KEYS.DEEPGRAM)
-                ? () => handleRemoveSecret(SECRET_KEYS.DEEPGRAM)
-                : undefined
-            }
-          />
-        </section>
-      )}
-    </>
-  );
+  const usedGroups = new Set(ROLES.map((r) => roleGroup[r]).filter((g): g is CredentialGroup => g !== null));
+  const unusedKeys = canReadSecrets
+    ? (["openai", "anthropic", "nebius", "aws", "deepgram"] as const)
+        .filter((group) => !usedGroups.has(group))
+        .flatMap((group) =>
+          credentialSection(group)
+            .fields.filter((field) => isConfigured(field.key))
+            .map((field) => ({ field, group })),
+        )
+    : [];
 
   if (loading) {
     return <div className="animate-pulse space-y-4">
@@ -792,15 +737,6 @@ export function SettingsTab({
       <div className="h-32 rounded-lg bg-muted" />
       <div className="h-48 rounded-lg bg-muted" />
     </div>;
-  }
-
-  if (section === "credentials") {
-    return <div className="space-y-8">{providerCredentialsBlock}</div>;
-  }
-
-  // The tools' own keys, beside the tool list — not with the provider ones.
-  if (section === "toolSecrets") {
-    return <div className="space-y-8">{requiredSecretsBlock}</div>;
   }
 
   /*
@@ -1011,19 +947,15 @@ export function SettingsTab({
 
   return (
     <div className="space-y-8">
-      <CapabilityCheckNotice
-        checks={checks}
-        ids={["provider-no-credentials", "stt-no-credentials"]}
-      />
-      {/* AI Model */}
+      {/* Conversazione — the model that answers, its credential, its tuning. */}
       <section className="space-y-4 rounded-lg border p-4">
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <Label className="text-base font-medium">{t("settings.tab.aiModel")}</Label>
-            <p className="text-sm text-muted-foreground">
-              {t("settings.tab.aiModelHelp")}
-            </p>
+            <h2 className="text-base font-medium">{t(ROLE_TITLE.chat)}</h2>
+            <p className="text-sm text-muted-foreground">{t("settings.role.chat.help")}</p>
           </div>
+          <div className="flex items-center gap-3">
+          {roleStatus("chat")}
           {modelsData && (
             <Dialog open={pricingOpen} onOpenChange={setPricingOpen}>
               <DialogTrigger asChild>
@@ -1146,6 +1078,7 @@ export function SettingsTab({
               </DialogContent>
             </Dialog>
           )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -1182,31 +1115,18 @@ export function SettingsTab({
           </div>
         </div>
 
-        {/*
-          Embedder provider — independent of the chat LLM above (Anthropic has no
-          embeddings API, so an agent chatting there still embeds elsewhere).
-          Rendered from the server's list, never a copy: the copy that used to sit
-          here was pinned to OpenAI and Bedrock, so a registered embedder could
-          not be chosen at all. Changing it permanently wipes memories + knowledge
-          (vectors are provider-specific).
-        */}
-        <div className="space-y-2">
-          <Label>{t("settings.tab.embedder")}</Label>
-          <Select value={embeddingProvider} onValueChange={setEmbeddingProvider}>
-            <SelectTrigger aria-label={t("settings.tab.embedder")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {embedderOptions.map((id) => (
-                <SelectItem key={id} value={id}>
-                  {BRAND_NAMES[id] ?? id.charAt(0).toUpperCase() + id.slice(1)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">{t("settings.tab.embedderHint")}</p>
-        </div>
+        {credentialBlock("chat")}
 
+        {/*
+          The model's tuning — reasoning, temperature, prompt cache. Touched
+          rarely, so folded away under the choice it tunes.
+        */}
+        <Collapsible className="border-t pt-4">
+          <CollapsibleTrigger className="group flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground">
+            <ChevronRight className="size-4 transition-transform group-data-[state=open]:rotate-90" aria-hidden />
+            {t("settings.tab.modelTuning")}
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-2 space-y-0">
         {/*
           Extended thinking toggle. Always rendered — disabled (not hidden) when
           the selected model does not support thinking, so the control never
@@ -1341,16 +1261,55 @@ export function SettingsTab({
             </div>
           )}
         </div>
-
+          </CollapsibleContent>
+        </Collapsible>
       </section>
 
-
-      {/* Audio (STT) — which engine transcribes voice notes. Its key, when the
-          choice needs one, is in Credenziali with every other key. */}
+      {/* Embedding — what turns documents and memories into vectors, and its key. */}
       <section className="space-y-4 rounded-lg border p-4">
-        <div>
-          <Label className="text-base font-medium">{t("settings.tab.stt")}</Label>
-          <p className="text-sm text-muted-foreground">{t("settings.tab.sttHelp")}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-medium">{t(ROLE_TITLE.embed)}</h2>
+            <p className="text-sm text-muted-foreground">{t("settings.role.embed.help")}</p>
+          </div>
+          {roleStatus("embed")}
+        </div>
+        {/*
+          Embedder provider — independent of the chat LLM above (Anthropic has no
+          embeddings API, so an agent chatting there still embeds elsewhere).
+          Rendered from the server's list, never a copy: the copy that used to sit
+          here was pinned to OpenAI and Bedrock, so a registered embedder could
+          not be chosen at all. Changing it permanently wipes memories + knowledge
+          (vectors are provider-specific).
+        */}
+        <div className="space-y-2">
+          <Label>{t("settings.tab.embedder")}</Label>
+          <Select value={embeddingProvider} onValueChange={setEmbeddingProvider}>
+            <SelectTrigger aria-label={t("settings.tab.embedder")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {embedderOptions.map((id) => (
+                <SelectItem key={id} value={id}>
+                  {BRAND_NAMES[id] ?? id.charAt(0).toUpperCase() + id.slice(1)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">{t("settings.tab.embedderHint")}</p>
+        </div>
+
+        {credentialBlock("embed")}
+      </section>
+
+      {/* Trascrizione audio — which engine transcribes voice notes, and its key. */}
+      <section className="space-y-4 rounded-lg border p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-medium">{t(ROLE_TITLE.stt)}</h2>
+            <p className="text-sm text-muted-foreground">{t("settings.tab.sttHelp")}</p>
+          </div>
+          {roleStatus("stt")}
         </div>
 
         <div className="space-y-2">
@@ -1367,7 +1326,28 @@ export function SettingsTab({
             </SelectContent>
           </Select>
         </div>
+        {credentialBlock("stt")}
       </section>
+
+      {unusedKeys.length > 0 && (
+        <section className="space-y-2">
+          <div>
+            <h2 className="text-sm font-medium">{t("settings.tab.unusedKeys")}</h2>
+            <p className="text-sm text-muted-foreground">{t("settings.tab.unusedKeysHelp")}</p>
+          </div>
+          <ul className="divide-y rounded-lg border">
+            {unusedKeys.map(({ field, group }) => (
+              <li key={field.key} className="flex items-center gap-3 px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm">{t(field.labelKey)}</p>
+                  <p className="truncate text-xs text-muted-foreground">{t(credentialSection(group).titleKey)}</p>
+                </div>
+                <RemoveKeyButton onRemove={() => void handleRemoveSecret(field.key)} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* Provider-change destructive wipe confirmation */}
       <AlertDialog open={wipeOpen} onOpenChange={setWipeOpen}>
@@ -1396,124 +1376,3 @@ export function SettingsTab({
 
 
 /** The "you need not configure this" line, shown only when nothing local overrides it. */
-
-// ── Readable Field Component ────────────────────────────────────────
-// For tool config fields with sensitive === false (e.g. a base URL):
-// plain cleartext input, prefilled from currentValue. No eye toggle.
-
-interface ReadableFieldProps {
-  label: string;
-  sublabel?: string;
-  value: string;
-  onChange: (value: string) => void;
-  configured: boolean;
-  placeholder: string;
-  onRemove?: () => void;
-}
-
-function ReadableField({
-  label,
-  sublabel,
-  value,
-  onChange,
-  configured,
-  placeholder,
-  onRemove,
-}: ReadableFieldProps) {
-  const { t } = useI18n();
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Label>{label}</Label>
-        <SecretStatusBadge configured={configured} />
-      </div>
-      {sublabel && <p className="text-xs text-muted-foreground">{sublabel}</p>}
-      <div className="flex gap-2">
-        <Input
-          type="text"
-          className="flex-1"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-        />
-        {onRemove && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="icon" className="shrink-0 text-destructive">
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{t("settings.tab.removeKeyTitle")}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {t("settings.tab.removeKeyDescription")}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={onRemove}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                >
-                  {t("settings.tab.removeKey")}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Secret Field Component ──────────────────────────────────────────
-
-
-interface ToolSelectFieldProps {
-  label: string;
-  description?: string;
-  configured: boolean;
-  value: string;
-  choices: string[];
-  onChange: (value: string) => void;
-  configuredLabel: string;
-  notConfiguredLabel: string;
-}
-
-function ToolSelectField({
-  label,
-  description,
-  configured,
-  value,
-  choices,
-  onChange,
-  configuredLabel,
-  notConfiguredLabel,
-}: ToolSelectFieldProps) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Label>{label}</Label>
-        <Badge variant={configured ? "default" : "secondary"} className="text-xs">
-          {configured ? configuredLabel : notConfiguredLabel}
-        </Badge>
-      </div>
-      {description && (
-        <p className="text-xs text-muted-foreground">{description}</p>
-      )}
-      <Select value={value || undefined} onValueChange={onChange}>
-        <SelectTrigger>
-          <SelectValue placeholder={label} />
-        </SelectTrigger>
-        <SelectContent>
-          {choices.map((c) => (
-            <SelectItem key={c} value={c}>
-              {c}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}

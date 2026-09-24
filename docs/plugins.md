@@ -55,6 +55,24 @@ export default defineTool({
 });
 ```
 
+### Declaring parameters people can understand
+
+Every key in `requiredSecrets` is a field someone fills in the agent's Tools
+section, in the panel of the tool that asks for it. Declare it as a spec with a
+`label` and a `description` rather than a bare string:
+
+```ts
+requiredSecrets: [
+  { key: "tavily_api_key", type: "text", label: "Tavily API key",
+    description: "Key of the Tavily account the searches are billed to." },
+],
+```
+
+Both are optional, so a bare string keeps working: the panel then shows the key
+humanized as the title and says the author gave no description. Several tools of
+one plugin may declare the same key; the field is shown once and names every tool
+that asks for it.
+
 `ctx.artifacts` is an in-process, one-shot handoff between tools in the same
 conversation. Each artifact is limited to 10 MB and at most 10 minutes; the
 process store accepts at most 100 MB or 1,000 live handles. Persist anything
@@ -69,11 +87,18 @@ longer-lived through `fileUpload` instead.
 ## `plugin.json` (plugin repo root)
 
 ```json
-{ "name": "acme-tools", "version": "1.0.0", "engine": ">=0.1.0", "toolsDir": "tools", "namespace": "acme" }
+{
+  "name": "acme-tools", "version": "1.0.0", "engine": ">=0.1.0", "toolsDir": "tools", "namespace": "acme",
+  "displayName": "Acme", "description": "Order status and returns from the Acme back office."
+}
 ```
 
 `namespace` prefixes every tool name → `acme:checkStatus`. Defaults to
-`name`. A plugin whose `engine` range excludes the running engine version is
+`name`. `displayName` and `description` are optional and only change how the
+admin panel presents the plugin: its name in the Origin column and in the tool
+picker, and its sentence when the picker is browsed by plugin. Without them the
+panel humanizes the namespace. Tools are still enabled one by one; the plugin
+is never switched as a whole. A plugin whose `engine` range excludes the running engine version is
 skipped with a warning (the deployment continues). Duplicate final names fail the
 boot loudly.
 

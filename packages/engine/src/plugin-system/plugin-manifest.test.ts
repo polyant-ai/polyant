@@ -120,3 +120,27 @@ describe("pluginManifestSchema — system requirements", () => {
     expect(r.success).toBe(false);
   });
 });
+
+describe("displayName and description in manifest", () => {
+  const base = { name: "p", version: "1.0.0", engine: ">=0.1.0" };
+
+  it("are optional: a manifest without them is still valid", () => {
+    const r = pluginManifestSchema.safeParse(base);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.displayName).toBeUndefined();
+      expect(r.data.description).toBeUndefined();
+    }
+  });
+
+  it("are carried through when present", () => {
+    const r = pluginManifestSchema.safeParse({ ...base, displayName: "CRM", description: "Contacts and deals." });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data).toMatchObject({ displayName: "CRM", description: "Contacts and deals." });
+  });
+
+  it("reject an empty string, which would render as a blank name", () => {
+    expect(pluginManifestSchema.safeParse({ ...base, displayName: "" }).success).toBe(false);
+    expect(pluginManifestSchema.safeParse({ ...base, description: "" }).success).toBe(false);
+  });
+});
