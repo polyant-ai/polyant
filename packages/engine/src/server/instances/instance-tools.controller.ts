@@ -2,7 +2,7 @@
 
 import { Controller, Get, Patch, Param, Body, BadRequestException } from "@nestjs/common";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
-import { listAvailableTools } from "../../agents/tools/registry.js";
+import { listAvailableTools, pluginsForTools } from "../../agents/tools/registry.js";
 import { resolveCatalogToolIds } from "../../agents/tools/tools-sync.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import { getAllSecretsById } from "../../instances/secrets.store.js";
@@ -81,7 +81,9 @@ export class InstanceToolsController {
       enabled: enabledMap.has(t.name),
       source: enabledMap.get(t.name) ?? null,
     }));
-    return { tools: result };
+    // How the panel names each plugin these tools come from. Same shape after a
+    // PATCH, so the list reads the same after a save as after a reload.
+    return { tools: result, plugins: pluginsForTools(result.map((t) => t.name)) };
   }
 
   @RequirePermission(Permission.TOOL_WRITE)
@@ -202,6 +204,6 @@ export class InstanceToolsController {
       enabled: updatedMap.has(t.name),
       source: updatedMap.get(t.name) ?? null,
     }));
-    return { tools: resultTools };
+    return { tools: resultTools, plugins: pluginsForTools(resultTools.map((t) => t.name)) };
   }
 }

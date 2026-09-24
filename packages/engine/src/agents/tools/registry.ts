@@ -131,9 +131,42 @@ export type ToolDefinition = SerializedToolDefinition;
 
 const registry = new Map<string, ToolDefinition>();
 
+/**
+ * What the panel shows about a loaded plugin: its manifest's identity, never
+ * its code or roots. Tools are enabled one by one; a plugin is only how they
+ * are grouped and named in the admin UI.
+ */
+export interface LoadedPluginInfo {
+  namespace: string;
+  name: string;
+  version: string;
+  displayName?: string;
+  description?: string;
+}
+
+/** The plugins whose tools the loader registered, by namespace. Written by `loadAllTools` only. */
+const loadedPlugins = new Map<string, LoadedPluginInfo>();
+
 /** TEST ONLY: clear the registry between unit tests. */
 export function _resetRegistryForTests(): void {
   registry.clear();
+  loadedPlugins.clear();
+}
+
+/** TEST ONLY: record a plugin as loaded (bypasses the loader). */
+export function _registerPluginForTests(info: LoadedPluginInfo): void {
+  loadedPlugins.set(info.namespace, info);
+}
+
+/**
+ * The loaded plugins among whose namespaces at least one of `toolNames` falls.
+ * Callers pass the tools they are about to serve, so a plugin is described only
+ * where one of its tools is visible.
+ */
+export function pluginsForTools(toolNames: readonly string[]): LoadedPluginInfo[] {
+  return [...loadedPlugins.values()].filter((plugin) =>
+    toolNames.some((name) => name.startsWith(`${plugin.namespace}:`)),
+  );
 }
 
 function assertUniqueName(finalName: string): void {
@@ -427,6 +460,13 @@ export async function loadAllTools(): Promise<void> {
     // divergent same-name provider throws here and aborts the boot (loud).
     for (const provider of manifest.oauthProviders) registerOAuthProvider(provider);
     await importRoot(join(root, manifest.toolsDir), manifest.namespace);
+    loadedPlugins.set(manifest.namespace, {
+      namespace: manifest.namespace,
+      name: manifest.name,
+      version: manifest.version,
+      ...(manifest.displayName ? { displayName: manifest.displayName } : {}),
+      ...(manifest.description ? { description: manifest.description } : {}),
+    });
   }
 
   // Prune tools with missing env vars.

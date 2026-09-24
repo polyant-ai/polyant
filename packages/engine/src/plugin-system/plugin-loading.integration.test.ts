@@ -31,6 +31,7 @@ import { resolvePluginRoots } from "./plugin-roots.js";
 import {
   loadAllTools,
   getToolRegistry,
+  pluginsForTools,
   _resetRegistryForTests,
 } from "../agents/tools/registry.js";
 import { getOAuthProvider, _resetOAuthRegistryForTests } from "../server/oauth/oauth-providers.js";
@@ -81,6 +82,18 @@ describe("plugin loading (serialized contract, integration)", () => {
 
     // incompatible (engine >=99.0.0) → skipped.
     expect(getToolRegistry().has("incompatible:nope")).toBe(false);
+
+    // The panel's description of the loaded plugin comes from its manifest; the
+    // skipped one is not described, whatever tool names it is asked about.
+    expect(pluginsForTools(["sample:ping", "incompatible:nope"])).toEqual([
+      {
+        namespace: "sample",
+        name: "sample",
+        version: "1.0.0",
+        displayName: "Sample tools",
+        description: "A fixture plugin with one tool.",
+      },
+    ]);
 
     // The compatible plugin's OAuth provider is registered; the incompatible
     // plugin's is NOT (the engine-range gate applies to providers too).
