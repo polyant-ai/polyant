@@ -1,6 +1,6 @@
 {
   "name": "polyant",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "description": "Polyant \u2014 open-source platform for building AI assistants with long-term memory and multi-channel support",
   "license": "AGPL-3.0-or-later",
@@ -39,9 +39,10 @@
   },
   "overrides": {
     "path-to-regexp": "^8.4.1",
-    "next": "^16.3.0",
+    "next": "^16.3.6",
     "axios": "^1.15.0",
     "langsmith": "^0.7.3",
+    "multer": "^2.3.0",
     "jsdom": {
       "undici": "^7.29.0"
     },
