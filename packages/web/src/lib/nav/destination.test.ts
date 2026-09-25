@@ -47,22 +47,15 @@ describe("resolveDestination", () => {
     expect(d?.backHref).toBe("/organizations/acme/workspaces/vendite/instances");
   });
 
-  it("groups sections, with one Automazione row for its three tabs", () => {
+  it("places one Automazione row in Comportamento before Avanzate", () => {
     const groups = resolveDestination(AGENT)!.groups;
-    const nonEmpty = AGENT_MACROS.filter(({ macro }) => agentSectionsByMacro(macro).length > 0);
+    const behaviour = groups.find((group) => group.key === "behaviour")!;
 
-    expect(groups).toHaveLength(nonEmpty.length);
-    expect(groups.flatMap((g) => g.items)).toHaveLength(AGENT_SECTIONS.length - 2);
-
-    for (const { macro, titleKey } of nonEmpty) {
-      const group = groups.find((g) => g.key === macro)!;
-      expect(group.labelKey).toBe(titleKey);
-      expect(group.items.map((i) => i.href)).toEqual(
-        (macro === "automation" ? agentSectionsByMacro(macro).slice(0, 1) : agentSectionsByMacro(macro))
-          .map((section) => `${AGENT}?tab=${section.tab}`),
-      );
-      if (macro === "automation") expect(group.items[0].titleKey).toBe(titleKey);
-    }
+    expect(groups).toHaveLength(AGENT_MACROS.length - 1);
+    expect(groups.find((group) => group.key === "automation")).toBeUndefined();
+    expect(groups.flatMap((group) => group.items)).toHaveLength(AGENT_SECTIONS.length - 2);
+    expect(behaviour.items.map((item) => item.key).slice(-2)).toEqual(["automation", "params"]);
+    expect(behaviour.items.find((item) => item.key === "automation")?.href).toBe(`${AGENT}?tab=webhooks`);
   });
 });
 

@@ -87,19 +87,30 @@ export function agentFromPath(
 function agentGroups(orgSlug: string, workspaceSlug: string, agentSlug: string): DestinationGroup[] {
   const base = workspacePath(orgSlug, workspaceSlug, `/instances/${encodeURIComponent(agentSlug)}`);
   return AGENT_MACROS.flatMap(({ macro, titleKey }) => {
+    if (macro === "automation") return [];
     const sections = agentSectionsByMacro(macro);
     // A macro with no section would be a heading over nothing.
     if (sections.length === 0) return [];
+    const items = sections.map((section) => ({
+      key: section.tab,
+      titleKey: section.titleKey,
+      href: `${base}?tab=${section.tab}`,
+      icon: section.icon,
+    }));
+    if (macro === "behaviour") {
+      const automation = agentSectionsByMacro("automation")[0];
+      items.splice(items.findIndex((item) => item.key === "params"), 0, {
+        key: "automation",
+        titleKey: "instances.macro.automation",
+        href: `${base}?tab=${automation.tab}`,
+        icon: automation.icon,
+      });
+    }
     return [
       {
         key: macro,
         labelKey: titleKey,
-        items: (macro === "automation" ? sections.slice(0, 1) : sections).map((section) => ({
-          key: section.tab,
-          titleKey: macro === "automation" ? titleKey : section.titleKey,
-          href: `${base}?tab=${section.tab}`,
-          icon: section.icon,
-        })),
+        items,
       },
     ];
   });
