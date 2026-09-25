@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { Bot } from "grammy";
+import { createHash } from "node:crypto";
 import type { ChannelAdapter, Attachment, MessageHandler, OutgoingMessage } from "../../types.js";
 import { CHANNEL_MAX_LENGTH } from "../../types.js";
 import { toTelegramMarkdownV2 } from "./markdown-v2.js";
 import { splitMessage } from "../../split-message.js";
 import { transcribeAudio } from "../../audio-transcription.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
-import { sanitizeForLog } from "../../../utils/create-logger.js";
 
 export interface TelegramConfig {
   botToken: string;
@@ -17,11 +17,15 @@ export interface TelegramConfig {
 export class TelegramAdapter implements ChannelAdapter {
   name = "telegram" as const;
   private bot: Bot | null = null;
+  readonly webhookSecret: string;
 
   constructor(
     private readonly instanceId: InstanceSlug,
     private readonly cfg: TelegramConfig,
-  ) {}
+    private readonly webhookUrl: string,
+  ) {
+    this.webhookSecret = createHash("sha256").update(cfg.botToken).digest("hex");
+  }
 
   async initialize(onMessage: MessageHandler): Promise<void> {
     const { botToken, allowedUserIds } = this.cfg;
@@ -140,13 +144,17 @@ export class TelegramAdapter implements ChannelAdapter {
     this.bot.on("message:voice", handleMessage);
     this.bot.on("message:audio", handleMessage);
 
-    // bot.init() validates the token (getMe) and resolves quickly.
-    // bot.start() enters an infinite polling loop that never resolves — run fire-and-forget.
     await this.bot.init();
-    this.bot.start().catch((err) =>
-      console.error('Telegram polling error for instance "%s":', sanitizeForLog(this.instanceId), err),
-    );
-    console.log(`Telegram bot started for instance "${sanitizeForLog(this.instanceId)}" (polling)`);
+    await this.bot.api.setWebhook(this.webhookUrl, {
+      secret_token: this.webhookSecret,
+      allowed_updates: ["message"],
+    });
+    console.log("Telegram bot started (webhook)");
+  }
+
+  async handleInbound(update: Parameters<Bot["handleUpdate"]>[0]): Promise<void> {
+    if (!this.bot) throw new Error("Telegram bot not initialized");
+    await this.bot.handleUpdate(update);
   }
 
   async sendMessage(channelId: string, msg: OutgoingMessage): Promise<void> {
@@ -189,8 +197,8 @@ export class TelegramAdapter implements ChannelAdapter {
 
   async shutdown(): Promise<void> {
     if (this.bot) {
-      this.bot.stop();
+      await this.bot.api.deleteWebhook();
+      this.bot = null;
     }
   }
 }
-

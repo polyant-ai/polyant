@@ -76,7 +76,7 @@ export interface StatusCheckInput {
 /** Channels whose adapter cannot start without these config keys. */
 const CHANNEL_REQUIRED_FIELDS: Record<string, string[]> = {
   telegram: ["botToken"],
-  slack: ["botToken", "appToken", "signingSecret"],
+  slack: ["botToken", "signingSecret"],
   whatsapp: ["accountSid", "authToken", "whatsappNumber"],
 };
 

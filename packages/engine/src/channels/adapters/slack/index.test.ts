@@ -17,6 +17,7 @@ const conversationsOpenMock = vi.fn();
 const chatPostMessageMock = vi.fn();
 const startMock = vi.fn().mockResolvedValue(undefined);
 const stopMock = vi.fn().mockResolvedValue(undefined);
+const processEventMock = vi.fn().mockResolvedValue(undefined);
 
 const fakeClient = {
   auth: { test: authTestMock },
@@ -37,7 +38,9 @@ vi.mock("@slack/bolt", () => {
       }
       start = startMock;
       stop = stopMock;
+      processEvent = processEventMock;
     },
+    isValidSlackRequest: vi.fn().mockReturnValue(true),
   };
 });
 
@@ -48,7 +51,6 @@ const BOT_USER_ID = "UBOT123";
 const makeAdapter = (onMessage: MessageHandler) => {
   const adapter = new SlackAdapter(asInstanceSlug("inst-test"), {
     botToken: "xoxb-test",
-    appToken: "xapp-test",
     signingSecret: "secret",
   });
   return { adapter, init: () => adapter.initialize(onMessage) };
@@ -68,6 +70,7 @@ beforeEach(() => {
   chatPostMessageMock.mockReset();
   startMock.mockClear();
   stopMock.mockClear();
+  processEventMock.mockClear();
 });
 
 describe("SlackAdapter — initialization", () => {
@@ -79,7 +82,15 @@ describe("SlackAdapter — initialization", () => {
     expect(captured.message).toBeTypeOf("function");
     expect(captured.appMention).toBeTypeOf("function");
     expect(authTestMock).toHaveBeenCalledOnce();
-    expect(startMock).toHaveBeenCalledOnce();
+    expect(startMock).not.toHaveBeenCalled();
+  });
+
+  it("dispatches a verified webhook event through Bolt", async () => {
+    const { adapter, init } = makeAdapter(vi.fn());
+    await init();
+    const body = { type: "event_callback", event: { type: "app_mention" } };
+    await adapter.handleInbound(body);
+    expect(processEventMock).toHaveBeenCalledWith({ body, ack: expect.any(Function) });
   });
 
   it("throws if auth.test does not return user_id", async () => {

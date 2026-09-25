@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { App } from "@slack/bolt";
+import { App, isValidSlackRequest } from "@slack/bolt";
 import type { ChannelAdapter, IncomingMessage, MessageHandler, OutgoingMessage } from "../../types.js";
 import { CHANNEL_MAX_LENGTH, METADATA_CONVERSATION_ID_OVERRIDE } from "../../types.js";
 import { toSlackMrkdwn } from "./slack-mrkdwn.js";
 import { splitMessage } from "../../split-message.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
-import { sanitizeForLog } from "../../../utils/create-logger.js";
 
 export interface SlackConfig {
   botToken: string;
-  appToken: string;
   signingSecret: string;
 }
 
@@ -29,13 +27,12 @@ export class SlackAdapter implements ChannelAdapter {
   ) {}
 
   async initialize(onMessage: MessageHandler): Promise<void> {
-    const { botToken, appToken, signingSecret } = this.cfg;
+    const { botToken } = this.cfg;
 
     this.app = new App({
       token: botToken,
-      signingSecret,
-      socketMode: true,
-      appToken,
+      // Nest owns the HTTP listener and forwards verified events to Bolt.
+      receiver: { init: () => {}, start: async () => {}, stop: async () => {} },
     });
 
     const auth = await this.app.client.auth.test({ token: botToken });
@@ -122,8 +119,22 @@ export class SlackAdapter implements ChannelAdapter {
       }
     });
 
-    await this.app.start();
-    console.log(`Slack bot started for instance "${sanitizeForLog(this.instanceId)}" (socket mode, botUserId=${this.botUserId})`);
+    console.log("Slack bot started (webhook)");
+  }
+
+  verifyRequest(rawBody: Buffer, signature: string, timestamp: string): boolean {
+    const seconds = Number(timestamp);
+    if (!Number.isSafeInteger(seconds) || Math.abs(Date.now() / 1000 - seconds) > 300) return false;
+    return isValidSlackRequest({
+      signingSecret: this.cfg.signingSecret,
+      body: rawBody.toString("utf8"),
+      headers: { "x-slack-signature": signature, "x-slack-request-timestamp": seconds },
+    });
+  }
+
+  async handleInbound(body: Record<string, unknown>): Promise<void> {
+    if (!this.app) throw new Error("Slack app not initialized");
+    await this.app.processEvent({ body, ack: async () => {} });
   }
 
   async sendMessage(channelId: string, msg: OutgoingMessage): Promise<void> {

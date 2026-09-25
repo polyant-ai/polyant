@@ -11,6 +11,9 @@ const { mockFindInstanceBySlug, mockTelegramInitialize } = vi.hoisted(() => ({
 }));
 
 vi.mock("../instances/store.js", () => ({ findInstanceBySlug: mockFindInstanceBySlug }));
+vi.mock("../platform/platform-settings.store.js", () => ({
+  resolvePlatformSettings: vi.fn().mockResolvedValue({ baseUrl: "https://engine.example.test" }),
+}));
 
 // Mock DB-dependent imports
 vi.mock("../instances/channels.store.js", () => ({

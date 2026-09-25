@@ -457,6 +457,8 @@ export const api = {
   channels: {
     list: (slug: string) =>
       request<{ channels: ChannelConfig[] }>(`/api/instances/${encodeURIComponent(slug)}/channels`),
+    slackWebhookUrl: (slug: string) =>
+      request<{ webhookUrl: string }>(`/api/instances/${encodeURIComponent(slug)}/channels/slack/webhook-url`),
     set: (slug: string, channelType: string, config: Record<string, unknown>, enabled: boolean) =>
       // `webhookUrl` is present only when the saved channel ends up in
       // Twilio API Key mode (see the engine's `buildChannelResponse`).

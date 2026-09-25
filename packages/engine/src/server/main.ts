@@ -68,7 +68,7 @@ export async function startServer(
   messageHandler: MessageHandler,
   streamMessageHandler: StreamMessageHandler,
 ): Promise<INestApplication> {
-  const app = await NestFactory.create(ServerModule, { logger: getLogLevels() });
+  const app = await NestFactory.create(ServerModule, { logger: getLogLevels(), rawBody: true });
 
   // Express `trust proxy`: governs Express's OWN `req.protocol`/`req.hostname`/
   // `req.ip` getters — used by rate limiting and anything else that reads
