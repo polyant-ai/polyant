@@ -30,3 +30,8 @@ export async function buildEventSourceWebhookUrl(token: string): Promise<string>
 export async function buildTwilioWhatsAppWebhookUrl(slug: string, webhookSecret: string): Promise<string> {
   return `${await engineBaseUrl()}/webhooks/twilio/${encodeURIComponent(slug)}/whatsapp/${encodeURIComponent(webhookSecret)}`;
 }
+
+/** Public Slack Events API endpoint; the signing secret authenticates inbound requests. */
+export async function buildSlackWebhookUrl(slug: string): Promise<string> {
+  return `${await engineBaseUrl()}/webhooks/slack/${encodeURIComponent(slug)}`;
+}

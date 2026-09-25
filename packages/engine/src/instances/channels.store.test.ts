@@ -154,7 +154,6 @@ describe("instances/channels.store", () => {
 
       const config = {
         botToken: "xoxb-token",
-        appToken: "xapp-token",
         signingSecret: "secret123",
       };
       await setChannelConfig(INSTANCE_UUID, "slack", config, false);
@@ -251,7 +250,7 @@ describe("instances/channels.store", () => {
   describe("listChannelConfigs", () => {
     it("returns all channel configs for an instance", async () => {
       const telegramConfig = { botToken: "123:ABC" };
-      const slackConfig = { botToken: "xoxb", appToken: "xapp", signingSecret: "sec" };
+      const slackConfig = { botToken: "xoxb", signingSecret: "sec" };
 
       mockResolveInstanceId(true);
       const listChain = createChainMock([

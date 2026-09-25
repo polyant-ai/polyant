@@ -82,7 +82,6 @@ export const channelConfigSchemas: Record<ChannelType, z.ZodType> = {
   }),
   slack: z.object({
     botToken: z.string().min(1),
-    appToken: z.string().min(1),
     signingSecret: z.string().min(1),
   }),
   whatsapp: whatsappConfigSchema,
@@ -112,7 +111,7 @@ export const channelConfigSchemas: Record<ChannelType, z.ZodType> = {
  */
 export const CHANNEL_CONFIG_KEYS: Record<ChannelType, readonly string[]> = {
   telegram: ["botToken", "allowedUserIds"],
-  slack: ["botToken", "appToken", "signingSecret"],
+  slack: ["botToken", "signingSecret"],
   whatsapp: ["authMode", "accountSid", "authToken", "apiKeySid", "apiKeySecret", "whatsappNumber"],
   agent: [],
 };

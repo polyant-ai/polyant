@@ -63,7 +63,6 @@ const CHANNEL_DEFS = [
     helpKey: "channels.tab.slackHelp" as const,
     fields: [
       { key: "botToken", labelKey: "channels.tab.slackBotToken" as const, sensitive: true },
-      { key: "appToken", labelKey: "channels.tab.slackAppToken" as const, sensitive: true },
       { key: "signingSecret", labelKey: "channels.tab.slackSigningSecret" as const, sensitive: true },
     ],
   },
@@ -106,6 +105,14 @@ export function ChannelsTab({
   const [rawChannels, setRawChannels] = useState<ChannelConfig[]>([]);
   const [savingChannel, setSavingChannel] = useState<string | null>(null);
   const [visibleFields, setVisibleFields] = useState<Record<string, boolean>>({});
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
+
+  useEffect(() => {
+    if (channelType !== "slack") return;
+    void api.channels.slackWebhookUrl(slug)
+      .then(({ webhookUrl }) => setSlackWebhookUrl(webhookUrl))
+      .catch(() => setSlackWebhookUrl(""));
+  }, [channelType, slug]);
 
   // This tab renders exactly ONE channel (`channelType`), so "the section you are
   // in" is unambiguous and its save belongs to the page's own action, beside
@@ -275,6 +282,7 @@ export function ChannelsTab({
             onToggleFieldVisibility={toggleFieldVisibility}
             a2aEnabled={a2aEnabled}
             onA2aEnabledChange={setA2aEnabled}
+            webhookUrl={def.type === "slack" ? slackWebhookUrl : undefined}
           />
         );
       })}

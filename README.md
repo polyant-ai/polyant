@@ -191,8 +191,8 @@ See [Architecture](https://docs.polyant.ai/concepts/architecture) for the full t
 | Channel | Protocol | Notes |
 |---------|----------|-------|
 | **HTTP API** | OpenAI-compatible (`/v1/chat/completions`) | Instances appear as selectable models |
-| **Telegram** | Long polling (grammY) | Text, photos, document attachments |
-| **Slack** | Socket Mode (@slack/bolt) | Per-instance configuration |
+| **Telegram** | HTTPS webhook (grammY) | Text, photos, document attachments |
+| **Slack** | Events API webhook (@slack/bolt) | Per-instance configuration |
 | **WhatsApp** | Webhook via Twilio (Auth Token or API Key) | Text and media attachments |
 
 All channel configs are stored encrypted per-instance. Adapters start/stop dynamically without a restart.

@@ -25,7 +25,7 @@ import { findInstanceOrFail, maskSensitiveConfig } from "./instance-helpers.js";
 import { asInstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { generateToken } from "../../crypto/index.js";
-import { buildTwilioWhatsAppWebhookUrl } from "../webhook-url.js";
+import { buildTwilioWhatsAppWebhookUrl, buildSlackWebhookUrl } from "../webhook-url.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import {
@@ -51,6 +51,13 @@ function isChannelConfigValidationError(err: unknown): err is ZodError {
 @Controller("api/instances")
 export class InstanceChannelsController {
   private readonly auditLogger = createManagementAuditLogger();
+
+  @RequirePermission(Permission.CHANNEL_READ)
+  @Get(":slug/channels/slack/webhook-url")
+  async slackWebhookUrl(@Param("slug") slug: string) {
+    await findInstanceOrFail(slug);
+    return { webhookUrl: await buildSlackWebhookUrl(slug) };
+  }
 
   @RequirePermission(Permission.CHANNEL_READ)
   @Get(":slug/channels")

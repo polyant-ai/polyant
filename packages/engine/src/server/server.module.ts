@@ -23,6 +23,8 @@ import { InstanceKnowledgeController } from "./instances/instance-knowledge.cont
 import { InstanceScheduledTasksController } from "./instances/instance-scheduled-tasks.controller.js";
 import { WebhookController } from "./webhooks/webhook.controller.js";
 import { TwilioWebhookController } from "./channels/twilio-webhook.controller.js";
+import { TelegramWebhookController } from "./channels/telegram-webhook.controller.js";
+import { SlackWebhookController } from "./channels/slack-webhook.controller.js";
 import { RoomController } from "./room/room.controller.js";
 import { InstanceHooksController } from "./hooks/instance-hooks.controller.js";
 import { HookFunctionsController } from "./hooks/hook-functions.controller.js";
@@ -100,6 +102,8 @@ import { PlatformSettingsController } from "./platform-settings/platform-setting
     InstanceScheduledTasksController,
     WebhookController,
     TwilioWebhookController,
+    TelegramWebhookController,
+    SlackWebhookController,
     RoomController,
     InstanceHooksController,
     HookFunctionsController,

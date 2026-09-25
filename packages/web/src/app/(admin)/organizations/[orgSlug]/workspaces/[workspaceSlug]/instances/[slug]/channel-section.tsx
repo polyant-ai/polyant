@@ -20,6 +20,7 @@ interface Props {
   onToggleFieldVisibility: (fieldId: string) => void;
   a2aEnabled: boolean;
   onA2aEnabledChange: (value: boolean) => void;
+  webhookUrl?: string;
 }
 
 /**
@@ -43,6 +44,7 @@ export function ChannelSection({
   onToggleFieldVisibility,
   a2aEnabled,
   onA2aEnabledChange,
+  webhookUrl,
 }: Props) {
   const { t } = useI18n();
 
@@ -152,6 +154,14 @@ export function ChannelSection({
           </div>
         );
       })}
+
+      {webhookUrl && (
+        <div className="space-y-1 border-t pt-4">
+          <Label>{t("channels.tab.slackWebhookUrl")}</Label>
+          <p className="text-xs text-muted-foreground">{t("channels.tab.slackWebhookUrlHelp")}</p>
+          <code className="block break-all rounded bg-muted px-2 py-1 text-xs">{webhookUrl}</code>
+        </div>
+      )}
 
       {/*
         A2A lives HERE, under Agent-to-Agent, because both answer "who else

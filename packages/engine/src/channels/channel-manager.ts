@@ -14,6 +14,7 @@ import { asInstanceSlug } from "../instances/identifiers.js";
 import { getOptoutStatus } from "../optout/index.js";
 import { sanitizeForLog } from "../utils/create-logger.js";
 import { findInstanceBySlug } from "../instances/store.js";
+import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 import {
   DEFAULT_MESSAGE_TIMINGS,
   resolveMessageTimings,
@@ -129,12 +130,11 @@ export class ChannelManager {
     // Stop existing adapter for this instance+channel if running
     await this.stopChannel(instanceSlug, channelType);
 
-    const adapter = this.createAdapter(instanceSlug, channelType as ChannelType, config);
-    if (!adapter) return;
-
     const wrappedHandler = this.wrapHandler();
 
     try {
+      const adapter = await this.createAdapter(instanceSlug, channelType as ChannelType, config);
+      if (!adapter) return;
       await adapter.initialize(wrappedHandler);
 
       let instanceMap = this.adapters.get(instanceSlug);
@@ -349,11 +349,15 @@ export class ChannelManager {
   }
 
   /** Create the appropriate adapter based on channel type. */
-  private createAdapter(instanceSlug: string, channelType: ChannelType, config: Record<string, unknown>): ChannelAdapter | null {
+  private async createAdapter(instanceSlug: string, channelType: ChannelType, config: Record<string, unknown>): Promise<ChannelAdapter | null> {
     const slug = asInstanceSlug(instanceSlug);
     switch (channelType) {
       case "telegram":
-        return new TelegramAdapter(slug, config as unknown as TelegramConfig);
+        return new TelegramAdapter(
+          slug,
+          config as unknown as TelegramConfig,
+          `${(await resolvePlatformSettings()).baseUrl}/webhooks/telegram/${encodeURIComponent(slug)}`,
+        );
       case "slack":
         return new SlackAdapter(slug, config as unknown as SlackConfig);
       case "whatsapp":
