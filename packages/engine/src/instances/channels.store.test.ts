@@ -250,7 +250,7 @@ describe("instances/channels.store", () => {
   describe("listChannelConfigs", () => {
     it("returns all channel configs for an instance", async () => {
       const telegramConfig = { botToken: "123:ABC" };
-      const slackConfig = { botToken: "xoxb", signingSecret: "sec" };
+      const slackConfig = { botToken: "fake-bot-token", signingSecret: "sec" };
 
       mockResolveInstanceId(true);
       const listChain = createChainMock([
