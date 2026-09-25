@@ -1207,6 +1207,7 @@
   "status.verdict.okBody": "Nessun controllo ha rilevato problemi.",
   "status.verdict.count": "{broken} da correggere · {warning} da guardare",
   "status.checks.notes": "Note",
+  "status.checks.attention": "Da guardare",
   "status.check.toolsMissingSecrets.title": "{count} strumenti non arrivano al modello",
   "status.check.toolsMissingSecrets.body": "Sono abilitati ma i loro parametri obbligatori non sono configurati, quindi l’engine li salta: l’agente non sa nemmeno che esistono. Riguarda {names}.",
   "status.check.skillsMissingEnv.title": "{count} skill non verranno caricate",

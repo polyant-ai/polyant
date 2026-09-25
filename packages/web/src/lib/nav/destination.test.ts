@@ -47,24 +47,21 @@ describe("resolveDestination", () => {
     expect(d?.backHref).toBe("/organizations/acme/workspaces/vendite/instances");
   });
 
-  /**
-   * Every SECTION is a row now, grouped under its macro's heading. It was one row
-   * per macro landing on its first section, with the rest behind a tab row — so
-   * finding a section meant remembering which macro held it.
-   */
-  it("makes one group per non-empty macro, holding a row per section", () => {
+  it("groups sections, with one Automazione row for its three tabs", () => {
     const groups = resolveDestination(AGENT)!.groups;
     const nonEmpty = AGENT_MACROS.filter(({ macro }) => agentSectionsByMacro(macro).length > 0);
 
     expect(groups).toHaveLength(nonEmpty.length);
-    expect(groups.flatMap((g) => g.items)).toHaveLength(AGENT_SECTIONS.length);
+    expect(groups.flatMap((g) => g.items)).toHaveLength(AGENT_SECTIONS.length - 2);
 
     for (const { macro, titleKey } of nonEmpty) {
       const group = groups.find((g) => g.key === macro)!;
       expect(group.labelKey).toBe(titleKey);
       expect(group.items.map((i) => i.href)).toEqual(
-        agentSectionsByMacro(macro).map((section) => `${AGENT}?tab=${section.tab}`),
+        (macro === "automation" ? agentSectionsByMacro(macro).slice(0, 1) : agentSectionsByMacro(macro))
+          .map((section) => `${AGENT}?tab=${section.tab}`),
       );
+      if (macro === "automation") expect(group.items[0].titleKey).toBe(titleKey);
     }
   });
 });
@@ -83,6 +80,12 @@ describe("isDestinationItemActive", () => {
     expect(macroOfTab("hooks")).toBe(macroOfTab("prompts"));
     expect(isDestinationItemActive(behaviour, AGENT, "hooks")).toBe(false);
     expect(isDestinationItemActive(behaviour, AGENT, "privacy")).toBe(false);
+  });
+
+  it("keeps Automazione active in each of its three tabs", () => {
+    for (const tab of ["webhooks", "scheduled", "room"]) {
+      expect(isDestinationItemActive(`${AGENT}?tab=webhooks`, AGENT, tab)).toBe(true);
+    }
   });
 
   // A stale address lights the row whose page actually renders — the fallback is

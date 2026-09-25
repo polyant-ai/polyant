@@ -3,12 +3,12 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Trash2, Download, MoreHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,7 +48,7 @@ import { HooksTab } from "./hooks-tab";
 import { PrivacyTab } from "./privacy-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { useI18n } from "@/lib/i18n/context";
-import { agentSection, resolveAgentTab } from "@/lib/nav/agent-sections";
+import { agentSection, agentSectionsByMacro, resolveAgentTab } from "@/lib/nav/agent-sections";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useStatusChecks } from "./use-status-checks";
 
@@ -75,6 +75,7 @@ function HeaderSaveButton() {
 
 function InstanceDetailContent() {
   const params = useParams<{ slug: string }>();
+  const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useI18n();
@@ -249,11 +250,18 @@ function InstanceDetailContent() {
         began mid-sentence. One heading, from the same registry the sidebar reads,
         so the two cannot drift.
       */}
-      <h2 className="mt-8 text-2xl font-semibold tracking-tight">{t(section.titleKey)}</h2>
+      <h2 className="mt-8 text-2xl font-semibold tracking-tight">
+        {t(section.macro === "automation" ? "instances.macro.automation" : section.titleKey)}
+      </h2>
 
-      {/* `Tabs` stays purely as the panel switcher — `?tab=` picks which
-          `TabsContent` renders, and nothing on this page changes it. */}
-      <Tabs value={activeTab} className="mt-6">
+      <Tabs value={activeTab} onValueChange={(tab) => router.push(`${pathname}?tab=${tab}`)} className="mt-6">
+        {section.macro === "automation" && (
+          <TabsList>
+            {agentSectionsByMacro("automation").map((tab) => (
+              <TabsTrigger key={tab.tab} value={tab.tab}>{t(tab.titleKey)}</TabsTrigger>
+            ))}
+          </TabsList>
+        )}
         {/* Panoramica */}
         <TabsContent value="overview">
           <StatusTab instance={instance} tools={tools} skills={skills} status={status} />

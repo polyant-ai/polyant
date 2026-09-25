@@ -1207,6 +1207,7 @@
   "status.verdict.okBody": "No check found a problem.",
   "status.verdict.count": "{broken} to fix · {warning} to look at",
   "status.checks.notes": "Notes",
+  "status.checks.attention": "To review",
   "status.check.toolsMissingSecrets.title": "{count} tools never reach the model",
   "status.check.toolsMissingSecrets.body": "They are enabled but their required parameters are unset, so the engine skips them: the agent does not even know they exist. Affects {names}.",
   "status.check.skillsMissingEnv.title": "{count} skills will not load",

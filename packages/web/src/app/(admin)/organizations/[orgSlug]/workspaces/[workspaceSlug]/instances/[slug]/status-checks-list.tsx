@@ -4,11 +4,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AlertTriangle, CheckCircle2, CircleAlert } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
+import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/lib/i18n/context";
 import { cn } from "@/lib/utils";
-import type { AgentCheck, CheckSeverity } from "./status-checks";
+import type { AgentCheck } from "./status-checks";
 import type { StatusChecksState } from "./use-status-checks";
 
 /**
@@ -29,7 +30,7 @@ import type { StatusChecksState } from "./use-status-checks";
 export function StatusChecks({ status }: { status: StatusChecksState }) {
   const { t } = useI18n();
   const pathname = usePathname();
-  const { checks, verdict, loading } = status;
+  const { checks, loading } = status;
 
   if (loading) {
     return <Skeleton className="h-28 w-full" />;
@@ -37,54 +38,40 @@ export function StatusChecks({ status }: { status: StatusChecksState }) {
 
   const alerts = checks.filter((c) => c.severity !== "note");
   const notes = checks.filter((c) => c.severity === "note");
-  const broken = alerts.filter((c) => c.severity === "broken").length;
 
   return (
     <div className="space-y-4">
-      <div
-        className={cn(
-          "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-l-[3px] px-4 py-3",
-          verdict === "broken"
-            ? "border-l-destructive"
-            : verdict === "warning"
-              ? "border-l-amber-500"
-              : "border-l-success",
-        )}
-      >
-        <VerdictIcon verdict={verdict} />
-        <span className="text-base font-semibold">{t(`status.verdict.${verdict}`)}</span>
-        <span className="text-sm text-muted-foreground">
-          {/* No count of "checks passed": the honest number is how many rules were
-              evaluated, and only the ones that fired come back from
-              `runStatusChecks`. A constant kept beside them would drift the first
-              time a rule is added, and a wrong number here is worse than none. */}
-          {alerts.length === 0
-            ? t("status.verdict.okBody")
-            : t("status.verdict.count", {
-                broken,
-                warning: alerts.length - broken,
-              })}
-        </span>
-      </div>
-
-      {alerts.length > 0 && (
-        <div className="divide-y rounded-lg border">
-          {alerts.map((check) => (
-            <CheckRow key={check.id} check={check} pathname={pathname} />
-          ))}
+      <Card className="gap-0 overflow-hidden py-0">
+        <div className="flex items-baseline justify-between gap-3 border-b px-4 py-3">
+          <span className="text-[11px] font-bold uppercase tracking-[0.13em] text-muted-foreground">
+            {t("status.checks.attention")}
+          </span>
+          {alerts.length > 0 && <span className="text-xs tabular-nums text-muted-foreground">{alerts.length}</span>}
         </div>
-      )}
+        {alerts.length > 0 ? (
+          <ul className="divide-y">
+            {alerts.map((check) => (
+              <CheckRow key={check.id} check={check} pathname={pathname} />
+            ))}
+          </ul>
+        ) : (
+          <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground">
+            <CheckCircle2 className="size-4 text-success" />
+            {t("status.verdict.okBody")}
+          </div>
+        )}
+      </Card>
 
       {notes.length > 0 && (
         <div>
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {t("status.checks.notes")}
           </p>
-          <div className="divide-y rounded-lg border">
+          <ul className="divide-y rounded-lg border">
             {notes.map((check) => (
               <CheckRow key={check.id} check={check} pathname={pathname} />
             ))}
-          </div>
+          </ul>
         </div>
       )}
     </div>
@@ -95,15 +82,15 @@ function CheckRow({ check, pathname }: { check: AgentCheck; pathname: string }) 
   const { t } = useI18n();
 
   return (
-    <div className="flex items-start gap-3 p-4">
+    <li className="relative flex items-start gap-3 py-3 pl-4 pr-3 hover:bg-muted">
       <span
         aria-hidden
         className={cn(
-          "mt-1.5 size-1.5 shrink-0 rounded-full",
+          "absolute inset-y-3 left-0 w-[3px] rounded-full",
           check.severity === "broken"
             ? "bg-destructive"
             : check.severity === "warning"
-              ? "bg-amber-500"
+              ? "bg-warning"
               : "bg-muted-foreground/50",
         )}
       />
@@ -117,12 +104,6 @@ function CheckRow({ check, pathname }: { check: AgentCheck; pathname: string }) 
       >
         {t(check.sectionKey)}
       </Link>
-    </div>
+    </li>
   );
-}
-
-function VerdictIcon({ verdict }: { verdict: CheckSeverity | "ok" }) {
-  if (verdict === "broken") return <CircleAlert className="size-4 text-destructive" />;
-  if (verdict === "warning") return <AlertTriangle className="size-4 text-amber-500" />;
-  return <CheckCircle2 className="size-4 text-success" />;
 }

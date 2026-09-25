@@ -21,6 +21,7 @@ import { isNavActive } from "@/components/layout/nav-main";
 import {
   AGENT_MACROS,
   AGENT_SECTIONS,
+  agentSection,
   agentSectionsByMacro,
   resolveAgentTab,
 } from "./agent-sections";
@@ -93,9 +94,9 @@ function agentGroups(orgSlug: string, workspaceSlug: string, agentSlug: string):
       {
         key: macro,
         labelKey: titleKey,
-        items: sections.map((section) => ({
+        items: (macro === "automation" ? sections.slice(0, 1) : sections).map((section) => ({
           key: section.tab,
-          titleKey: section.titleKey,
+          titleKey: macro === "automation" ? titleKey : section.titleKey,
           href: `${base}?tab=${section.tab}`,
           icon: section.icon,
         })),
@@ -124,11 +125,7 @@ export function resolveDestination(pathname: string): Destination | null {
  * path comparison every other nav surface uses would mark every one of them active
  * at once. When an item's href carries a tab, the tab decides.
  *
- * And it decides by LEAF: a sidebar row is a macro entry linking to
- * the first section it holds, so it must stay lit while you move along that page's
- * tab row — otherwise opening the second tab of Comportamento leaves the sidebar
- * with nothing lit at all. `resolveAgentTab` is applied first, so a legacy or absent
- * `?tab=` lights the entry the page actually rendered.
+ * The Automazione row stays active across its three page tabs.
  *
  * @param currentTab the URL's `tab` parameter, or `null` when it carries none.
  */
@@ -140,7 +137,9 @@ export function isDestinationItemActive(
   const [path, query] = href.split("?");
   const itemTab = query ? new URLSearchParams(query).get("tab") : null;
   if (!itemTab) return isNavActive(pathname, href);
-  return isNavActive(pathname, path, true) && resolveAgentTab(currentTab) === itemTab;
+  const activeTab = resolveAgentTab(currentTab);
+  return isNavActive(pathname, path, true) &&
+    (itemTab === "webhooks" ? agentSection(activeTab).macro === "automation" : activeTab === itemTab);
 }
 
 /**

@@ -79,7 +79,7 @@ export default function PlaygroundPage() {
   );
 
   return (
-    <div className="-m-6 flex h-[calc(100vh-4rem)]">
+    <div data-full-bleed className="-m-6 flex h-[calc(100vh-4rem)]">
       <ChatArea
         messages={chat.state.messages}
         isStreaming={chat.state.isStreaming}

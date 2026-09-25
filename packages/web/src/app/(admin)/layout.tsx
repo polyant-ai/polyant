@@ -33,7 +33,7 @@ export default async function AdminLayout({
           <AppSidebar user={user} />
           <SidebarInset>
             <Header />
-            <div className="flex-1 p-6">{children}</div>
+            <div className="min-w-0 w-full max-w-[1600px] flex-1 self-center p-6 has-[[data-full-bleed]]:max-w-none">{children}</div>
           </SidebarInset>
         </SidebarProvider>
       </ActivityStreamProvider>

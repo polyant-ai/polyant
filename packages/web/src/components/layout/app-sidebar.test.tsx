@@ -99,6 +99,8 @@ describe("AppSidebar — a destination takes over the sidebar", () => {
     expect(within(content).queryByRole("link", { name: /^comportamento$/i })).not.toBeInTheDocument();
     expect(within(content).getByRole("link", { name: /^prompt$/i })).toBeInTheDocument();
     expect(within(content).getByRole("link", { name: /^strumenti$/i })).toBeInTheDocument();
+    expect(within(content).getByRole("link", { name: /^automazioni$/i })).toBeInTheDocument();
+    expect(within(content).queryByRole("link", { name: /^webhook$/i })).not.toBeInTheDocument();
 
     /*
       And none of the daily work. Conversazioni and Memoria are the trap here:
