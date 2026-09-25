@@ -8,7 +8,7 @@ import { SlackAdapter } from "./index.js";
 describe("Slack webhook signature", () => {
   it("accepts the signed raw body and rejects alteration or an old timestamp", () => {
     const adapter = new SlackAdapter(asInstanceSlug("agent"), {
-      botToken: "xoxb-test",
+      botToken: "fake-bot-token",
       signingSecret: "test-secret",
     });
     const body = Buffer.from('{"type":"event_callback","event":{"type":"app_mention"}}');
