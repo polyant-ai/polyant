@@ -8,7 +8,6 @@ import { toTelegramMarkdownV2 } from "./markdown-v2.js";
 import { splitMessage } from "../../split-message.js";
 import { transcribeAudio } from "../../audio-transcription.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
-import { sanitizeForLog } from "../../../utils/create-logger.js";
 
 export interface TelegramConfig {
   botToken: string;
@@ -150,7 +149,7 @@ export class TelegramAdapter implements ChannelAdapter {
       secret_token: this.webhookSecret,
       allowed_updates: ["message"],
     });
-    console.log(`Telegram bot started for instance "${sanitizeForLog(this.instanceId)}" (webhook)`);
+    console.log("Telegram bot started (webhook)");
   }
 
   async handleInbound(update: Parameters<Bot["handleUpdate"]>[0]): Promise<void> {

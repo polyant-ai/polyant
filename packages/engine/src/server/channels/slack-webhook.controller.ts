@@ -10,7 +10,6 @@ import type { SlackAdapter } from "../../channels/adapters/slack/index.js";
 import { getChannelConfig } from "../../instances/channels.store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
-import { sanitizeForLog } from "../../utils/create-logger.js";
 
 @Controller("webhooks/slack")
 export class SlackWebhookController {
@@ -41,7 +40,7 @@ export class SlackWebhookController {
     }
     if (event.type !== "event_callback") return { status: "ignored" };
     void adapter.handleInbound(event).catch((error) =>
-      console.error("[slack] webhook processing failed for %s:", sanitizeForLog(slug), error),
+      console.error("[slack] webhook processing failed:", error),
     );
     return { status: "accepted" };
   }
