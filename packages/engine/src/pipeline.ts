@@ -445,6 +445,11 @@ export function afterResponse(opts: AfterResponseOptions): void {
     // No pre-check: `uploadAttachment` answers `null` for an agent with no
     // storage configured, which is the ordinary case. Asking first would read
     // the same secrets twice and give the two reads a chance to disagree.
+    // A failed upload (denied bucket policy, wrong region, revoked credentials,
+    // a transient S3 error) costs that attachment its stored copy, not the
+    // turn: the reply has been produced and tools may have written, so the
+    // turn is persisted without it. Only the error's name is logged — an S3
+    // message carries the object key, and the key carries the conversation id.
     let attachmentMetas: AttachmentMeta[] | undefined;
     if (opts.userAttachments?.length) {
       const results: (AttachmentMeta | null)[] = await Promise.all(
@@ -456,6 +461,13 @@ export function afterResponse(opts: AfterResponseOptions): void {
                 fileName: att.fileName,
                 instanceId: opts.instanceId,
                 conversationId: opts.conversationId,
+              }).catch((err: unknown) => {
+                console.warn(
+                  'Attachment upload failed for agent "%s" (%s); the turn is saved without it',
+                  opts.instanceId,
+                  err instanceof Error ? err.name : "unknown error",
+                );
+                return null;
               })
             : Promise.resolve(null),
         ),
