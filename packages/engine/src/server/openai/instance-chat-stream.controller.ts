@@ -56,6 +56,20 @@ export class InstanceChatStreamController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
+    // A client that disconnects stops the relay. The RESPONSE's `close` is the
+    // signal, registered before the first await: the request's `close` fires
+    // as soon as its body has been read — by the body parser, before this
+    // handler runs — with the client still connected, so a listener on it
+    // never saw a disconnect. `writableFinished` tells our own `res.end()` apart
+    // from a client that went away.
+    const abortController = new AbortController();
+    let heartbeat: ReturnType<typeof setInterval> | undefined = undefined;
+    res.on("close", () => {
+      if (res.writableFinished) return;
+      clearInterval(heartbeat);
+      if (!abortController.signal.aborted) abortController.abort();
+    });
+
     // Per-instance API key auth (mirrors /v1/chat/completions). The global
     // JWT AuthGuard is skipped via @Public() — this route accepts the same
     // Bearer-token shape as the OpenAI-compatible endpoint, NOT a session
@@ -81,20 +95,13 @@ export class InstanceChatStreamController {
     };
 
     // Keep the connection warm during output-less stretches (see HEARTBEAT_MS).
-    const heartbeat = setInterval(() => {
+    heartbeat = setInterval(() => {
       try {
         res.write(": ping\n\n");
       } catch {
         // Socket already gone; the close handler / finally will clear this.
       }
     }, HEARTBEAT_MS);
-
-    // Abort the underlying pipeline if the client disconnects.
-    const abortController = new AbortController();
-    req.on("close", () => {
-      clearInterval(heartbeat);
-      if (!abortController.signal.aborted) abortController.abort();
-    });
 
     let stream;
     try {
