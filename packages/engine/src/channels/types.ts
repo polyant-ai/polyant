@@ -167,6 +167,18 @@ export interface ChannelAdapter {
    */
   sendTyping?(channelId: string, messageSid?: string): Promise<void>;
 
-  /** Gracefully shut down the adapter */
+  /**
+   * Gracefully shut down the adapter in THIS process. It must leave the
+   * provider-side registration alone: during a rolling deploy the replica
+   * shutting down runs after the new one registered, so undoing the
+   * registration here would silence the channel.
+   */
   shutdown(): Promise<void>;
+
+  /**
+   * Undo the provider-side registration (e.g. a Telegram webhook). Called only
+   * when the channel is switched off or deleted, or its agent is deleted —
+   * never on process shutdown or on a restart of the same channel.
+   */
+  deregister?(): Promise<void>;
 }

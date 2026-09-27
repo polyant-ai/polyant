@@ -5,9 +5,10 @@ import { ChannelManager } from "./channel-manager.js";
 import type { MessageHandler } from "./types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
-const { mockFindInstanceBySlug, mockTelegramInitialize } = vi.hoisted(() => ({
+const { mockFindInstanceBySlug, mockTelegramInitialize, mockTelegramDeregister } = vi.hoisted(() => ({
   mockFindInstanceBySlug: vi.fn(),
   mockTelegramInitialize: vi.fn().mockResolvedValue(undefined),
+  mockTelegramDeregister: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../instances/store.js", () => ({ findInstanceBySlug: mockFindInstanceBySlug }));
@@ -29,6 +30,7 @@ vi.mock("./adapters/telegram/index.js", () => ({
     this.initialize = mockTelegramInitialize;
     this.sendMessage = vi.fn().mockResolvedValue(undefined);
     this.shutdown = vi.fn().mockResolvedValue(undefined);
+    this.deregister = mockTelegramDeregister;
   }),
 }));
 
@@ -56,6 +58,7 @@ describe("ChannelManager", () => {
   beforeEach(() => {
     mockFindInstanceBySlug.mockReset();
     mockTelegramInitialize.mockClear();
+    mockTelegramDeregister.mockClear();
     manager = new ChannelManager();
     manager.setMessageHandler(vi.fn().mockResolvedValue({ text: "ok" }));
   });
@@ -127,6 +130,33 @@ describe("ChannelManager", () => {
       await manager.shutdownAll();
 
       expect(manager.getActiveChannels()).toEqual([]);
+    });
+
+    it("leaves provider registrations alone, since a newer replica may already own them", async () => {
+      await manager.startChannel("inst1", "telegram", { botToken: "t" });
+
+      await manager.shutdownAll();
+
+      expect(mockTelegramDeregister).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("provider registration", () => {
+    it("is undone when a channel is switched off, and kept when the same channel restarts", async () => {
+      await manager.startChannel("inst1", "telegram", { botToken: "t1" });
+      await manager.startChannel("inst1", "telegram", { botToken: "t2" });
+      expect(mockTelegramDeregister).not.toHaveBeenCalled();
+
+      await manager.stopChannel("inst1", "telegram", { deregister: true });
+      expect(mockTelegramDeregister).toHaveBeenCalledOnce();
+    });
+
+    it("is undone for every channel of a deleted agent", async () => {
+      await manager.startChannel("inst1", "telegram", { botToken: "t" });
+
+      await manager.stopAllForInstance("inst1", { deregister: true });
+
+      expect(mockTelegramDeregister).toHaveBeenCalledOnce();
     });
   });
 

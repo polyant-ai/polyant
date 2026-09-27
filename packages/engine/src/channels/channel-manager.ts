@@ -154,8 +154,12 @@ export class ChannelManager {
     }
   }
 
-  /** Stop a single channel adapter for an instance. */
-  async stopChannel(instanceSlug: string, channelType: string): Promise<void> {
+  /**
+   * Stop a single channel adapter for an instance. `deregister` also undoes the
+   * provider-side registration: pass it when the channel is switched off or
+   * deleted, not when the same channel is about to start again.
+   */
+  async stopChannel(instanceSlug: string, channelType: string, opts: { deregister?: boolean } = {}): Promise<void> {
     const instanceMap = this.adapters.get(instanceSlug);
     if (!instanceMap) return;
 
@@ -163,6 +167,7 @@ export class ChannelManager {
     if (!adapter) return;
 
     try {
+      if (opts.deregister) await adapter.deregister?.();
       await adapter.shutdown();
     } catch (err) {
       console.error('Error shutting down %s for instance "%s":', sanitizeForLog(channelType), sanitizeForLog(instanceSlug), err);
@@ -183,13 +188,14 @@ export class ChannelManager {
     );
   }
 
-  /** Stop all channels for an instance. */
-  async stopAllForInstance(instanceSlug: string): Promise<void> {
+  /** Stop all channels for an instance; `deregister` as in `stopChannel`. */
+  async stopAllForInstance(instanceSlug: string, opts: { deregister?: boolean } = {}): Promise<void> {
     const instanceMap = this.adapters.get(instanceSlug);
     if (!instanceMap) return;
 
     const promises = Array.from(instanceMap.entries()).map(async ([type, adapter]) => {
       try {
+        if (opts.deregister) await adapter.deregister?.();
         await adapter.shutdown();
       } catch (err) {
         console.error('Error shutting down %s for instance "%s":', sanitizeForLog(type), sanitizeForLog(instanceSlug), err);
@@ -199,7 +205,10 @@ export class ChannelManager {
     this.adapters.delete(instanceSlug);
   }
 
-  /** Gracefully shut down all adapters across all instances. */
+  /**
+   * Gracefully shut down all adapters across all instances, on process exit.
+   * Registrations stay with the provider: another replica may already own them.
+   */
   async shutdownAll(): Promise<void> {
     const promises: Promise<void>[] = [];
     for (const [slug] of this.adapters) {

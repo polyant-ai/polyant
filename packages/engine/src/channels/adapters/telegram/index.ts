@@ -196,9 +196,10 @@ export class TelegramAdapter implements ChannelAdapter {
   }
 
   async shutdown(): Promise<void> {
-    if (this.bot) {
-      await this.bot.api.deleteWebhook();
-      this.bot = null;
-    }
+    this.bot = null;
+  }
+
+  async deregister(): Promise<void> {
+    if (this.bot) await this.bot.api.deleteWebhook();
   }
 }

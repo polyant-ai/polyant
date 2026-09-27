@@ -306,6 +306,20 @@ export class ComputeConstruct extends Construct {
       action: elbv2.ListenerAction.forward([engineTg]),
     });
 
+    // Inbound channel traffic is PUBLIC even when OIDC is on: providers (Telegram,
+    // Slack, Twilio, email relays, HubSpot) and HTTP-channel clients cannot sign
+    // in, and each route authenticates the caller itself — a provider signature,
+    // a secret token in the path or header, or the channel's own credential.
+    // Without this rule the paths fall through to the web target, which answers
+    // 404.
+    listener.addAction("InboundChannelsPublic", {
+      conditions: [
+        elbv2.ListenerCondition.pathPatterns(["/webhooks/*", "/channels/http/*"]),
+      ],
+      priority: 7,
+      action: elbv2.ListenerAction.forward([engineTg]),
+    });
+
     // Route API paths to engine, everything else to web
     listener.addAction("EngineRouting", {
       conditions: [

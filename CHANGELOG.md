@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — Telegram and Slack now arrive through webhooks.** Telegram used
+  long polling and Slack Socket Mode, so both worked without a public address.
+  Now the engine registers `<public address>/webhooks/telegram/<agent>` with
+  Telegram, and Slack must be pointed at `<public address>/webhooks/slack/<agent>`
+  with Socket Mode switched off; the Slack app token is no longer used. The
+  engine needs a public HTTPS address and `/webhooks/*` must reach it — see
+  [docs/UPGRADING.md](docs/UPGRADING.md).
 - **The OpenAI tiers moved to the gpt-6 family** (`fast` → `gpt-6-luna`,
   `standard` → `gpt-6-sol`, `heavy` → `gpt-6-astra`). They pointed at
   `gpt-4o-mini`/`gpt-4o`, which OpenAI lists as deprecated. Every OpenAI agent
@@ -41,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A Telegram channel went silent after every rolling deploy: the replica being
+  stopped deleted the webhook the new one had just registered. The webhook is
+  now removed only when the channel is switched off or deleted, or its agent is
+  deleted.
+- The CDK stack sends `/webhooks/*` and `/channels/http/*` to the engine without
+  the OIDC sign-in. They fell through to the web panel, which answered 404, so
+  inbound Twilio, email, HubSpot and HTTP-channel traffic never arrived on an
+  ALB deployment.
 - Switching thinking off now switches it off on models that reason by default —
   gpt-6 sol/luna and Claude Opus 5 kept reasoning (and billing for it) when the
   parameter was simply omitted.

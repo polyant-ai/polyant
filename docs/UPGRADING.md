@@ -37,6 +37,24 @@ otherwise the upgrade quietly restores the default.
 
 `THROTTLE_ENABLED` stays an environment variable and keeps its meaning.
 
+### Telegram and Slack need a public address
+
+Telegram and Slack no longer open a connection out of the engine: their messages
+arrive as webhooks, like WhatsApp's. Before upgrading a deployment that runs
+either channel:
+
+1. Make sure the engine has a public HTTPS address (`BASE_URL`, or the address in
+   Settings → General) and that `/webhooks/*` reaches the engine. The CDK stack
+   routes it; a hand-built proxy or load balancer needs the rule, without any
+   sign-in in front of it — each webhook authenticates the caller itself.
+2. For each Slack app: switch Socket Mode off, and under Event Subscriptions set
+   the Request URL to `<public address>/webhooks/slack/<agent slug>`. The signing
+   secret the channel already holds verifies the requests; the app-level token is
+   no longer used.
+3. Telegram needs nothing by hand: the engine registers its webhook when the
+   channel starts. Telegram keeps undelivered updates for 24 hours, so messages
+   sent while the address was unreachable arrive once it is.
+
 ### The engine's public address
 
 `BASE_URL` is still read, and still the value a fresh installation boots with.
