@@ -6,6 +6,7 @@ import { buildOpenAIReasoningOffOptions, buildOpenAIReasoningOptions } from "./p
 import { buildAnthropicThinkingOffOptions, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
 import { buildBedrockReasoningOptions } from "./providers/bedrock.js";
 import { getProviderAdapter } from "./providers/registry.js";
+import { usageCompletedBeforeFailure } from "./providers/base.js";
 import { buildCompatibleReasoningOptions } from "./providers/openai-compatible-reasoning.js";
 import { aiLogger, classifyProviderError } from "./logger.js";
 import { buildLangSmithProviderOptions } from "./langsmith.js";
@@ -238,12 +239,24 @@ function logAndRecordUsage(
   );
 }
 
+/** The provider's price of a usage, as the success path prices a response. */
+function costOfUsage(
+  config: { providerName: string; modelId: string },
+  usage: NonNullable<ReturnType<typeof usageCompletedBeforeFailure>>,
+): number {
+  return estimateCostBreakdown(config.providerName, config.modelId, usage.promptTokens, usage.completionTokens, {
+    cachedInputTokens: usage.cachedInputTokens,
+    cacheCreationInputTokens: usage.cacheCreationInputTokens,
+  }).total;
+}
+
 /**
  * A turn that dies at the provider used to leave no row at all — "this agent
- * is erroring" was not a question ai_logs could answer. Logged with zeroed
- * usage/cost (there is none, the call never returned) and the error's CLASS
- * only, never its message — the message can quote the request, and the
- * request is the prompt.
+ * is erroring" was not a question ai_logs could answer. Logged with the usage
+ * and cost of the steps the call completed before it failed — a multi-step
+ * call that dies at step N was billed for steps 1..N-1 — or zero when it
+ * completed none, and with the error's CLASS only, never its message — the
+ * message can quote the request, and the request is the prompt.
  *
  * Skips logging entirely when `request.abortSignal` is already aborted: that
  * abort is the message coordinator preempting an in-flight turn because a
@@ -264,24 +277,26 @@ function logFailedCall(
 ): void {
   if (request.abortSignal?.aborted) return;
 
+  const usage = usageCompletedBeforeFailure(err);
+  const cost = usage ? costOfUsage(config, usage) : 0;
   aiLogger.log(
     aiLogger.createEntry(
       config.providerName,
       config.modelId,
       request.tier,
       request.thinking ?? false,
-      0,
-      0,
-      0,
-      0,
+      usage?.promptTokens ?? 0,
+      usage?.completionTokens ?? 0,
+      (usage?.promptTokens ?? 0) + (usage?.completionTokens ?? 0),
+      cost,
       durationMs,
       0,
       0,
       options?.conversationId,
       options?.instanceId,
       options?.callType,
-      0,
-      0,
+      usage?.cachedInputTokens ?? 0,
+      usage?.cacheCreationInputTokens ?? 0,
       "error",
       classifyProviderError(err),
     ),

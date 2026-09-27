@@ -131,6 +131,41 @@ interface MappedUsage {
   cacheCreationInputTokens?: number;
 }
 
+/**
+ * What the steps a call completed had cost, once the call has failed.
+ *
+ * A `chat()` is up to `maxSteps` model calls. When step N throws (a provider
+ * error, a context-length overflow) or the call is aborted, steps 1..N-1 were
+ * billed by the provider, but the SDK's result — the only other place usage is
+ * read — never arrives. Keyed by the thrown error, so the gateway reading it
+ * learns the usage of exactly that failed call.
+ */
+const usageBeforeFailure = new WeakMap<object, Required<MappedUsage>>();
+
+/** The usage of the steps a failed or aborted call completed, or null when it completed none. */
+export function usageCompletedBeforeFailure(err: unknown): Required<MappedUsage> | null {
+  return err !== null && typeof err === "object" ? usageBeforeFailure.get(err) ?? null : null;
+}
+
+/** Sums each completed step's usage (`onStepEnd`) and pins it to the call's error. */
+function completedStepsUsage() {
+  const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0 };
+  let steps = 0;
+  return {
+    onStepEnd: (step: { usage?: unknown }) => {
+      const usage = mapUsage(step.usage);
+      total.promptTokens += usage.promptTokens ?? 0;
+      total.completionTokens += usage.completionTokens ?? 0;
+      total.cachedInputTokens += usage.cachedInputTokens ?? 0;
+      total.cacheCreationInputTokens += usage.cacheCreationInputTokens ?? 0;
+      steps++;
+    },
+    pinTo(err: unknown): void {
+      if (steps > 0 && err !== null && typeof err === "object") usageBeforeFailure.set(err, { ...total });
+    },
+  };
+}
+
 function mapUsage(u: unknown): MappedUsage {
   if (!u || typeof u !== "object") return {};
   const o = u as Record<string, unknown>;
@@ -641,6 +676,7 @@ export function createProvider(
 
       const { instructions, messages } = prepare(request, modelId);
       const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
+      const completed = completedStepsUsage();
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
         tracedGenerateText({
           model: createModel(modelId, request.apiKeys),
@@ -649,11 +685,15 @@ export function createProvider(
           tools: request.tools,
           stopWhen: isStepCount(request.maxSteps ?? 1),
           abortSignal: request.abortSignal,
+          onStepEnd: completed.onStepEnd,
           ...(prepareStep ? { prepareStep } : {}),
           ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
           ...temperatureCallParam(providerName, modelId, request),
         }),
-      );
+      ).catch((err: unknown) => {
+        completed.pinTo(err);
+        throw err;
+      });
 
       // v5+: per-turn reasoning blocks are exposed at the top level as `reasoning`
       // (array). Normalised for type safety.
@@ -680,6 +720,7 @@ export function createProvider(
       // tracing happens at the model middleware level, not the streamText level.
       const { instructions, messages } = prepare(request, modelId);
       const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
+      const completed = completedStepsUsage();
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
         tracedStreamText({
           model: createModel(modelId, request.apiKeys),
@@ -688,6 +729,7 @@ export function createProvider(
           tools: request.tools,
           stopWhen: isStepCount(request.maxSteps ?? 1),
           abortSignal: request.abortSignal,
+          onStepEnd: completed.onStepEnd,
           ...(prepareStep ? { prepareStep } : {}),
           ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
           ...temperatureCallParam(providerName, modelId, request),
@@ -720,6 +762,7 @@ export function createProvider(
           } catch (err) {
             // Stream-time provider errors surface here (not at the initial await).
             logProviderError(providerName, modelId, err, { system: instructions, messages });
+            completed.pinTo(err);
             throw err;
           }
         })(),

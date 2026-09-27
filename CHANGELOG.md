@@ -59,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `chat/stream` stops relaying a turn when the client disconnects. It listened
   for the request's `close`, which Node emits once the body has been read, so a
   real disconnect was never seen.
+- A multi-step model call that fails at a later step is logged with the tokens
+  and cost of the steps it completed, which the provider billed; it was logged
+  at zero.
 - A failed upload of an inbound attachment no longer loses the turn: the message
   and the reply are saved without the attachment's stored copy.
 - One management-audit row the database refused (an over-long target id, say)

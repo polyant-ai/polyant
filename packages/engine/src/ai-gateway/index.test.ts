@@ -55,6 +55,15 @@ vi.mock("./providers/bedrock.js", async (importActual) => {
   };
 });
 
+// The usage a provider pins to a failed call's error. The real map lives in
+// `providers/base.ts`, fed by the SDK's step callbacks; the gateway only reads it.
+const pinnedUsage = vi.hoisted(() => new WeakMap<object, unknown>());
+vi.mock("./providers/base.js", async (importActual) => ({
+  ...(await importActual<typeof import("./providers/base.js")>()),
+  usageCompletedBeforeFailure: (err: unknown) =>
+    (err !== null && typeof err === "object" ? pinnedUsage.get(err) : null) ?? null,
+}));
+
 vi.mock("./logger.js", async (importActual) => {
   // `classifyProviderError` stays REAL: the point of the failure tests below is
   // that the class written to ai_logs is derived from the actual error shape.
@@ -601,6 +610,21 @@ describe("AI Gateway", () => {
       const entry = loggedEntry();
       expect(entry.promptTokens).toBe(0);
       expect(entry.costUsd).toBe(0);
+    });
+
+    it("logs the tokens and cost of the steps the call completed before it failed", async () => {
+      // A multi-step call that dies at step N was billed for steps 1..N-1; the
+      // provider pins that usage to the error it throws.
+      const err = apiError(400);
+      pinnedUsage.set(err, { promptTokens: 1_000_000, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0 });
+      mockProviderChat.mockRejectedValue(err);
+
+      await expect(chat(makeRequest())).rejects.toBe(err);
+
+      const entry = loggedEntry();
+      expect(entry.outcome).toBe("error");
+      expect(entry.promptTokens).toBe(1_000_000);
+      expect(entry.costUsd).toBeGreaterThan(0);
     });
 
     it("writes NOTHING when the turn was preempted by the message coordinator", async () => {

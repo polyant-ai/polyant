@@ -13,7 +13,14 @@ vi.mock("../langsmith.js", () => ({
 }));
 
 import type { ModelMessage } from "ai";
-import { buildSteps, aggregateReasoning, serializeTools, createProvider, normalizeStrictConversation } from "./base.js";
+import {
+  buildSteps,
+  aggregateReasoning,
+  serializeTools,
+  createProvider,
+  normalizeStrictConversation,
+  usageCompletedBeforeFailure,
+} from "./base.js";
 import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 
 // safeTokens and aggregateStepUsage are not exported, so we test them
@@ -339,6 +346,63 @@ const baseRequest: import("../types.js").ChatRequest = {
  * step happened to use. So the gateway must report the CUMULATIVE figure
  * whichever shape the installed SDK hands it.
  */
+/**
+ * A `chat()` is up to `maxSteps` model calls. When a later step throws, the
+ * earlier ones were billed, and the SDK result that carries usage never
+ * arrives — so the provider pins what the completed steps used to the error.
+ */
+describe("createProvider – usage of the steps completed before a failure", () => {
+  type StepEndOptions = { onStepEnd: (step: { usage?: unknown }) => void };
+
+  it("chat: pins the completed steps' usage to the error the call throws", async () => {
+    const failure = new Error("context length exceeded");
+    vi.mocked(tracedGenerateText).mockImplementationOnce((async (options: StepEndOptions) => {
+      options.onStepEnd({ usage: { inputTokens: 400, outputTokens: 30, inputTokenDetails: { cacheReadTokens: 100 } } });
+      options.onStepEnd({ usage: { inputTokens: 600, outputTokens: 50 } });
+      throw failure;
+    }) as never);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    await expect(adapter.chat({ ...baseRequest }, "claude-sonnet-4-6")).rejects.toBe(failure);
+
+    expect(usageCompletedBeforeFailure(failure)).toEqual({
+      promptTokens: 1000,
+      completionTokens: 80,
+      cachedInputTokens: 100,
+      cacheCreationInputTokens: 0,
+    });
+  });
+
+  it("chat: pins nothing when the call failed before completing a step", async () => {
+    const failure = new Error("unauthorized");
+    vi.mocked(tracedGenerateText).mockRejectedValueOnce(failure);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    await expect(adapter.chat({ ...baseRequest }, "claude-sonnet-4-6")).rejects.toBe(failure);
+
+    expect(usageCompletedBeforeFailure(failure)).toBeNull();
+  });
+
+  it("chatStream: pins the completed steps' usage to the error the stream settles with", async () => {
+    const failure = new Error("stream broke");
+    vi.mocked(tracedStreamText).mockImplementationOnce((async (options: StepEndOptions) => {
+      options.onStepEnd({ usage: { inputTokens: 250, outputTokens: 20 } });
+      return {
+        ...fakeStreamTextResult,
+        text: Promise.reject(failure),
+        steps: Promise.resolve([]),
+        reasoning: Promise.resolve(undefined),
+      };
+    }) as never);
+
+    const adapter = createProvider("anthropic", (_modelId) => ({}) as any);
+    const stream = await adapter.chatStream!({ ...baseRequest }, "claude-sonnet-4-6");
+    await expect(stream.response).rejects.toBe(failure);
+
+    expect(usageCompletedBeforeFailure(failure)).toMatchObject({ promptTokens: 250, completionTokens: 20 });
+  });
+});
+
 describe("createProvider – cumulative usage across SDK majors", () => {
   const V7_CUMULATIVE = {
     inputTokens: 900,
