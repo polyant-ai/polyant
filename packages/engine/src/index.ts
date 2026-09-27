@@ -6,6 +6,7 @@ import { installFileLogger, shutdownFileLogger } from "./utils/file-logger.js";
 installFileLogger();
 
 import { config } from "./config.js";
+import { retiredEnvironmentWarnings } from "./config-retired.js";
 import { db } from "./database/client.js";
 import { initAIGateway, shutdown as shutdownGateway } from "./ai-gateway/index.js";
 import { initMemory } from "./memory/index.js";
@@ -98,6 +99,7 @@ function formatDbTarget(databaseUrl: string): string {
 
 async function main() {
   console.log("Polyant starting...");
+  for (const warning of retiredEnvironmentWarnings()) console.warn(warning);
 
   // 0. Seed the initial platform admin if the users table is empty (idempotent).
   // Runs before the rest of the boot so the system is "ready for first

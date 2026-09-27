@@ -443,7 +443,7 @@ export class InstancesController {
     // `handleMessage(slug, …)` against a missing instance forever, generating
     // an error loop until the engine restarts.
     try {
-      await channelManager.stopAllForInstance(slug);
+      await channelManager.stopAllForInstance(slug, { deregister: true });
     } catch (err) {
       // Best-effort: a stuck adapter must not block the delete.
       // Pass the user-controlled slug as a separate argument so it is never

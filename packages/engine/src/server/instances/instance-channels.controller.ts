@@ -238,7 +238,7 @@ export class InstanceChannelsController {
     if (enabled) {
       await channelManager.startChannel(slug, channelType, config);
     } else {
-      await channelManager.stopChannel(slug, channelType);
+      await channelManager.stopChannel(slug, channelType, { deregister: true });
     }
     if (channelType === AGENT_CHANNEL_TYPE) {
       await syncAgentTool({ slug, description: instanceDescription, enable: enabled });
@@ -313,7 +313,7 @@ export class InstanceChannelsController {
     const instance = await findInstanceOrFail(slug);
     const existing = await getChannelConfig(asInstanceSlug(slug), channelType as ChannelType);
 
-    await channelManager.stopChannel(slug, channelType);
+    await channelManager.stopChannel(slug, channelType, { deregister: true });
     await deleteChannelConfig(instance.id, channelType as ChannelType);
 
     // Audit AFTER the config is actually gone but BEFORE the remaining side

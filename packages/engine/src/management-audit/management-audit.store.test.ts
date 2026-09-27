@@ -122,6 +122,75 @@ describe("ManagementAuditStore", () => {
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
   });
+
+  /** A database that refuses any row whose targetId is `poison`, as Postgres refuses a value its column cannot hold. */
+  function refusingDb() {
+    const written: Array<Record<string, unknown>> = [];
+    let up = true;
+    const db = {
+      insert() {
+        return {
+          async values(rows: Array<Record<string, unknown>>) {
+            if (!up) throw new Error("db down");
+            if (rows.some((r) => r.targetId === "poison")) throw new Error("value refused");
+            written.push(...rows);
+          },
+        };
+      },
+    };
+    return { db, written, setUp: (value: boolean) => { up = value; } };
+  }
+
+  const entry = (targetId: string) => ({
+    action: ManagementAuditAction.AgentCreate,
+    actorUserId: null,
+    actorEmail: null,
+    targetType: "agent",
+    targetId,
+  });
+
+  it("writes the other rows of a batch and drops only the one the database refuses", async () => {
+    const { db, written } = refusingDb();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    store.initialize(db);
+    store.record(entry("a"));
+    store.record(entry("poison"));
+    store.record(entry("b"));
+
+    await store.flush();
+    store.record(entry("c"));
+    await store.flush();
+
+    expect(written.map((r) => r.targetId)).toEqual(["a", "b", "c"]);
+    errSpy.mockRestore();
+  });
+
+  it("keeps the whole batch for later when the database itself is down", async () => {
+    const { db, written, setUp } = refusingDb();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    store.initialize(db);
+    store.record(entry("a"));
+    store.record(entry("b"));
+
+    setUp(false);
+    await store.flush();
+    setUp(true);
+    await store.flush();
+
+    expect(written.map((r) => r.targetId)).toEqual(["a", "b"]);
+    errSpy.mockRestore();
+  });
+
+  it("cuts a value longer than its column, so the row can still be written", async () => {
+    const { db, captured } = createInsertSpy();
+    store.initialize(db);
+    store.record(entry("x".repeat(300)));
+
+    await store.flush();
+
+    const [row] = captured[0] as Array<Record<string, string>>;
+    expect(row.targetId).toHaveLength(255);
+  });
 });
 
 describe("createManagementAuditLogger", () => {

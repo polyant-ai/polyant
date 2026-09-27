@@ -35,6 +35,8 @@ interface FakeRes {
   writes: string[];
   ended: boolean;
   socketTimeout: number | null;
+  writableFinished: boolean;
+  on(event: string, listener: () => void): void;
   setHeader(k: string, v: string): void;
   setTimeout(ms: number): void;
   write(chunk: string): boolean;
@@ -47,6 +49,8 @@ function makeRes(): FakeRes {
     writes: [],
     ended: false,
     socketTimeout: null,
+    writableFinished: false,
+    on() {},
     setHeader(k, v) {
       this.headers[k] = v;
     },
