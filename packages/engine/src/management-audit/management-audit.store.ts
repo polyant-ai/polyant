@@ -39,7 +39,7 @@ export class ManagementAuditStore {
   }
 
   record(entry: ManagementAuditEntry): void {
-    this.buffer.push(entry);
+    this.buffer.push(fitColumns(entry));
     if (this.buffer.length >= ManagementAuditStore.FLUSH_THRESHOLD) {
       void this.flush();
     }
@@ -54,6 +54,12 @@ export class ManagementAuditStore {
     try {
       await this.db.insert(managementAuditLogs).values(entries);
     } catch (err) {
+      // One row the database refuses fails the whole multi-row INSERT. Retried
+      // as a batch, it would keep failing every later flush, so no tenant's
+      // audit reached the table until the buffer cap pushed it out. Row by
+      // row, the refused rows are dropped and the rest are written; only when
+      // every row fails is it the database, and the batch is kept for later.
+      if (entries.length > 1 && await this.insertEachDroppingRefused(entries)) return;
       console.error("Failed to flush management audit logs:", err);
       // Re-buffer failed entries, but cap to prevent an unbounded memory leak.
       this.buffer.unshift(...entries);
@@ -67,6 +73,25 @@ export class ManagementAuditStore {
     }
   }
 
+  /** True when at least one row was written; refused rows are dropped. */
+  private async insertEachDroppingRefused(entries: ManagementAuditEntry[]): Promise<boolean> {
+    const refused: ManagementAuditEntry[] = [];
+    for (const entry of entries) {
+      try {
+        await this.db!.insert(managementAuditLogs).values([entry]);
+      } catch {
+        refused.push(entry);
+      }
+    }
+    if (refused.length === entries.length) return false;
+    for (const entry of refused) {
+      console.error(
+        `ManagementAuditStore: dropped an audit entry the database refused (action ${entry.action}, target type ${entry.targetType})`,
+      );
+    }
+    return true;
+  }
+
   async shutdown(): Promise<void> {
     if (this.flushInterval) {
       clearInterval(this.flushInterval);
@@ -78,3 +103,20 @@ export class ManagementAuditStore {
 
 /** Process-wide singleton, initialized at boot. */
 export const managementAuditStore = new ManagementAuditStore();
+
+/**
+ * Column widths of `management_audit_logs`. A caller-supplied value longer than
+ * its column (a target id built from a request field, say) would make the row
+ * unwritable; cut to the width, the row still records who did what.
+ */
+const COLUMN_WIDTH = { action: 100, actorEmail: 255, targetType: 50, targetId: 255 } as const;
+
+function fitColumns(entry: ManagementAuditEntry): ManagementAuditEntry {
+  return {
+    ...entry,
+    action: entry.action.slice(0, COLUMN_WIDTH.action),
+    actorEmail: entry.actorEmail?.slice(0, COLUMN_WIDTH.actorEmail) ?? entry.actorEmail,
+    targetType: entry.targetType.slice(0, COLUMN_WIDTH.targetType),
+    targetId: entry.targetId.slice(0, COLUMN_WIDTH.targetId),
+  };
+}
