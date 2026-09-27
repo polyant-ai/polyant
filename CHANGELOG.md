@@ -56,6 +56,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the OIDC sign-in. They fell through to the web panel, which answered 404, so
   inbound Twilio, email, HubSpot and HTTP-channel traffic never arrived on an
   ALB deployment.
+- `chat/stream` stops relaying a turn when the client disconnects. It listened
+  for the request's `close`, which Node emits once the body has been read, so a
+  real disconnect was never seen.
+- A failed upload of an inbound attachment no longer loses the turn: the message
+  and the reply are saved without the attachment's stored copy.
+- One management-audit row the database refused (an over-long target id, say)
+  stopped every later write of the management audit until 500 newer rows pushed
+  it out. Refused rows are now dropped one by one, and values are cut to their
+  column width.
 - Switching thinking off now switches it off on models that reason by default —
   gpt-6 sol/luna and Claude Opus 5 kept reasoning (and billing for it) when the
   parameter was simply omitted.
