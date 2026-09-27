@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, Loader2, Zap, Coins, Terminal, FileText, Mic, SearchCode, Database, Webhook, Link2, Pencil } from "lucide-react";
+import { Trash2, Loader2, Zap, Coins, FileText, Mic, SearchCode, Database, Webhook, Link2, Pencil } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -50,67 +50,15 @@ import { MessageMetadataPills } from "@/components/messages/message-metadata-pil
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
+import { SystemActivity } from "@/components/messages/system-activity";
 import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
-import { formatRelativeTime, parseUTC } from "@/lib/format";
+import { formatActivityTimestamp, formatRelativeTime, parseUTC } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useFormat } from "@/lib/use-format";
 
 const MESSAGES_PAGE_SIZE = 50;
-
-/**
- * Per-message timestamp. Strategy:
- *  - same calendar day  → "14:30:25"
- *  - yesterday          → "ieri / yesterday 14:30:25" (Intl.RelativeTimeFormat picks the locale)
- *  - within last 6 days → "lun 14:30:25"
- *  - same year          → "22 mag 14:30:25"
- *  - older              → "22 mag 2024 14:30:25"
- * The locale is the browser's default — same approach as the rest of the page.
- */
-function formatTime(dateStr: string | null, locale: string): string {
-  if (!dateStr) return "";
-  const date = parseUTC(dateStr);
-  const now = new Date();
-
-  const sameDay = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate();
-
-  const time = date.toLocaleTimeString(locale, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-
-  if (sameDay(date, now)) return time;
-
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (sameDay(date, yesterday)) {
-    const label = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-1, "day");
-    return `${label} ${time}`;
-  }
-
-  // Within the last 6 days: show weekday abbreviation (lun/tue/…).
-  const sixDaysAgo = new Date(now);
-  sixDaysAgo.setDate(now.getDate() - 6);
-  sixDaysAgo.setHours(0, 0, 0, 0);
-  if (date >= sixDaysAgo) {
-    const weekday = date.toLocaleDateString(locale, { weekday: "short" });
-    return `${weekday} ${time}`;
-  }
-
-  // Older: include the date. Drop the year for messages in the current year.
-  const sameYear = date.getFullYear() === now.getFullYear();
-  const datePart = date.toLocaleDateString(locale, {
-    day: "numeric",
-    month: "short",
-    ...(sameYear ? {} : { year: "numeric" }),
-  });
-  return `${datePart} ${time}`;
-}
 
 /**
  * The proxy URL for a stored attachment.
@@ -572,41 +520,22 @@ export default function ConversationDetailPage() {
 
         <TooltipProvider>
           {timeline.map((item) => {
-            // Hook execution → centered expandable pill in the timeline
             if (item.kind === "hook") {
               const exec = item.exec;
-              return (
-                <div key={`hook-${exec.id}`} className="flex justify-center">
-                  <HookExecutionPill execution={exec} timestamp={formatTime(exec.createdAt, locale)} />
+              return detailed ? (
+                <div key={`hook-${exec.id}`} className="max-w-[85%]">
+                  <HookExecutionPill execution={exec} timestamp={formatActivityTimestamp(exec.createdAt, locale)} />
                 </div>
-              );
+              ) : null;
             }
 
             const msg = item.msg;
-            // System message → centered amber pill
             if (msg.role === "system") {
-              return (
-                <div key={msg.id} className="flex justify-center">
-                  <div className="max-w-[85%] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30">
-                    <div className="flex items-start gap-2">
-                      <Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
-                          {t("conversations.detail.systemMessage")}
-                        </p>
-                        <p className="mt-0.5 whitespace-pre-wrap text-sm text-amber-800 dark:text-amber-200">
-                          {msg.content}
-                        </p>
-                        {msg.createdAt && (
-                          <p className="mt-1 text-xs text-amber-600/60 dark:text-amber-400/60">
-                            {formatTime(msg.createdAt, locale)}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+              return detailed ? (
+                <div key={msg.id} className="max-w-[85%]">
+                  <SystemActivity content={msg.content} timestamp={msg.createdAt ? formatActivityTimestamp(msg.createdAt, locale) : undefined} />
                 </div>
-              );
+              ) : null;
             }
 
             return (
@@ -615,8 +544,12 @@ export default function ConversationDetailPage() {
                 id={`msg-${msg.id}`}
                 className={`flex scroll-mt-4 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
+                <div className={`${msg.role === "user" ? "max-w-[75%]" : "max-w-[85%]"} min-w-0`}>
+                  {msg.role !== "user" && detailed && (
+                    <MessageExtras reasoning={msg.reasoning} steps={msg.steps} />
+                  )}
                 <div
-                  className={`max-w-[75%] min-w-0 overflow-hidden rounded-2xl px-4 py-3 transition-colors duration-500 ${
+                  className={`min-w-0 overflow-hidden rounded-2xl px-4 py-3 transition-colors duration-500 ${
                     highlightId === msg.id
                       ? "bg-accent text-accent-foreground ring-2 ring-accent-strong"
                       : msg.role === "user"
@@ -649,20 +582,11 @@ export default function ConversationDetailPage() {
                       <Mic className="h-3 w-3" />
                     </span>
                   )}
-                  {msg.role !== "user" && msg.metadata?.source === "hook" && (
+                  {msg.role !== "user" && detailed && msg.metadata?.source === "hook" && (
                     <span className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
                       <Webhook className="h-3 w-3" />
                       {t("message.provenance.hook", { name: String(msg.metadata.hookName ?? "") })}
                     </span>
-                  )}
-                  {/* Reasoning + steps panels above message text — only in the
-                      detailed view (audit/exploratory UX; hidden in compact). */}
-                  {msg.role !== "user" && detailed && (
-                    <MessageExtras
-                      reasoning={msg.reasoning}
-                      steps={msg.steps}
-                      defaultOpen
-                    />
                   )}
                   <MarkdownRenderer content={msg.content} />
                   {msg.role !== "user" && detailed && (
@@ -675,7 +599,7 @@ export default function ConversationDetailPage() {
                         : "text-muted-foreground"
                     }`}
                   >
-                    <span>{formatTime(msg.createdAt, locale)}</span>
+                    <span>{formatActivityTimestamp(msg.createdAt, locale)}</span>
                     <button
                       type="button"
                       onClick={() => handleShare(msg.id)}
@@ -711,6 +635,7 @@ export default function ConversationDetailPage() {
                       </button>
                     )}
                   </div>
+                </div>
                 </div>
               </div>
             );

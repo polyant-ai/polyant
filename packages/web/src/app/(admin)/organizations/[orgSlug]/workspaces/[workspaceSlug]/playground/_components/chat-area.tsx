@@ -2,9 +2,11 @@
 
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, MessageSquareCode, KeyRound, Eye, EyeOff, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 
 import {
@@ -13,6 +15,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { MessageBubble } from "./message-bubble";
+import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
+import { formatActivityTimestamp, parseUTC } from "@/lib/format";
 import { ChatInput } from "./chat-input";
 import { InstanceSelector } from "./instance-selector";
 import { ChatHistoryDialog } from "./chat-sidebar";
@@ -20,10 +24,11 @@ import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-s
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
 import { useI18n } from "@/lib/i18n/context";
 import type { ChatMessage } from "../_hooks/use-chat";
-import type { ConversationListItem } from "@/lib/api";
+import type { ConversationListItem, HookExecution } from "@/lib/api";
 
 interface ChatAreaProps {
   messages: ChatMessage[];
+  historicalHookExecutions: HookExecution[];
   isStreaming: boolean;
   instanceSlug: string;
   error: string | null;
@@ -41,6 +46,7 @@ interface ChatAreaProps {
 
 export function ChatArea({
   messages,
+  historicalHookExecutions,
   isStreaming,
   instanceSlug,
   error,
@@ -55,12 +61,24 @@ export function ChatArea({
   onNewChat,
   onSelectConversation,
 }: ChatAreaProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [showKeyValue, setShowKeyValue] = useState(false);
   const [debugTarget, setDebugTarget] = useState<DebugSheetTarget | null>(null);
   const [stateOpen, setStateOpen] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
+
+  const timeline = useMemo(() => {
+    const items: ({ kind: "message"; message: ChatMessage; ts: number } | { kind: "hook"; execution: HookExecution; ts: number })[] =
+      messages.map((message) => ({ kind: "message", message, ts: message.createdAt ? parseUTC(message.createdAt).getTime() : Number.MAX_SAFE_INTEGER }));
+    const oldestMessage = Math.min(...items.map((item) => item.ts));
+    for (const execution of historicalHookExecutions) {
+      const ts = parseUTC(execution.createdAt).getTime();
+      if (ts >= oldestMessage) items.push({ kind: "hook", execution, ts });
+    }
+    return items.sort((a, b) => a.ts - b.ts);
+  }, [messages, historicalHookExecutions]);
 
   // Auto-scroll to bottom on new messages or streaming updates
   useEffect(() => {
@@ -100,6 +118,10 @@ export function ChatArea({
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          <Label htmlFor="playground-activity" className="mr-2 flex items-center gap-2 text-sm font-normal text-muted-foreground">
+            <Switch id="playground-activity" checked={showActivity} onCheckedChange={setShowActivity} />
+            {t("conversations.detail.detailedToggle")}
+          </Label>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -156,7 +178,11 @@ export function ChatArea({
           </div>
         ) : (
           <div className="mx-auto max-w-3xl space-y-4 p-4">
-            {messages.map((msg) => {
+            {timeline.map((item) => {
+              if (item.kind === "hook") {
+                return showActivity ? <HookExecutionPill key={`hook-${item.execution.id}`} execution={item.execution} timestamp={formatActivityTimestamp(item.execution.createdAt, locale)} /> : null;
+              }
+              const msg = item.message;
               const messageId = msg.dbMessageId ?? msg.id;
               // Inspect affordance only when we can address the persisted turn:
               // a known conversationId + a DB message id, and not the live stream.
@@ -169,6 +195,7 @@ export function ChatArea({
                 <MessageBubble
                   key={msg.id}
                   message={msg}
+                  showActivity={showActivity}
                   onDebugClick={
                     canInspect
                       ? () =>

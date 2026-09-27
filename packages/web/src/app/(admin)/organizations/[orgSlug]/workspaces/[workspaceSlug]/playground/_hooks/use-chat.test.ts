@@ -176,6 +176,11 @@ describe("chatReducer", () => {
         // Real conversationId shape: `${slug}:${channel}:${channelId}`.
         conversationId: "x:web:api-abc",
         instanceSlug: "x",
+        hooks: [{
+          id: "hook-1", hookId: "h1", event: "message_received", actionType: "function",
+          toolName: "refresh", success: true, error: null, durationMs: 10,
+          args: null, result: null, createdAt: "2026-01-01T00:00:00Z",
+        }],
         messages: [
           {
             id: "m1",
@@ -202,6 +207,7 @@ describe("chatReducer", () => {
         ],
       });
       expect(s.messages).toHaveLength(1);
+      expect(s.historicalHookExecutions[0].toolName).toBe("refresh");
       expect(s.messages[0].steps[0]).toMatchObject({
         index: 0,
         toolCalls: [{ toolCallId: "c1", toolName: "search", args: {} }],

@@ -372,7 +372,7 @@ export function DebugSheet({ open, onOpenChange, target }: DebugSheetProps) {
 
               {data.steps && data.steps.length > 0 && (
                 <Section title={t("message.debug.steps")}>
-                  <MessageExtras steps={data.steps} defaultOpen />
+                  <MessageExtras steps={data.steps} />
                 </Section>
               )}
             </>

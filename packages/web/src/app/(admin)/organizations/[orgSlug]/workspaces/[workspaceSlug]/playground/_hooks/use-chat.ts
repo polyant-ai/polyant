@@ -13,6 +13,7 @@ import {
   type ConversationMessage,
   type ReasoningDetail,
   type StepDetail,
+  type HookExecution,
 } from "@/lib/api";
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -44,7 +45,7 @@ export interface ChatMessage {
   steps: LiveStep[];
   /** Reasoning text accumulated during the stream (signature attached on close). */
   reasoning: ReasoningDetail[];
-  /** Lifecycle hook outcomes for this turn (live SSE only — loaded conversations show them in the Conversations page). */
+  /** Lifecycle hook outcomes received during the live stream. Persisted executions use historicalHookExecutions. */
   hookExecutions: PlaygroundHookExecution[];
   isStreaming: boolean;
   createdAt: string | null;
@@ -58,6 +59,7 @@ export interface ChatMessage {
 
 export interface ChatState {
   messages: ChatMessage[];
+  historicalHookExecutions: HookExecution[];
   isStreaming: boolean;
   error: string | null;
   chatId: string;
@@ -80,7 +82,7 @@ export type ChatAction =
   | { type: "HOOK_EXECUTION"; execution: PlaygroundHookExecution }
   | { type: "STREAM_DONE"; meta?: { conversationId?: string; messageId?: string } }
   | { type: "STREAM_ERROR"; error: string }
-  | { type: "LOAD_CONVERSATION"; messages: ConversationMessage[]; conversationId: string; instanceSlug?: string }
+  | { type: "LOAD_CONVERSATION"; messages: ConversationMessage[]; hooks?: HookExecution[]; conversationId: string; instanceSlug?: string }
   | { type: "NEW_CHAT" }
   | { type: "SET_INSTANCE"; slug: string };
 
@@ -93,6 +95,7 @@ function generateId(): string {
 export function createInitialState(instanceSlug: string): ChatState {
   return {
     messages: [],
+    historicalHookExecutions: [],
     isStreaming: false,
     error: null,
     chatId: generateId(),
@@ -354,6 +357,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         messages: loaded,
+        historicalHookExecutions: action.hooks ?? [],
         conversationId: action.conversationId,
         chatId,
         // Set instanceSlug if provided (from conversation metadata)
@@ -367,6 +371,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return {
         ...state,
         messages: [],
+        historicalHookExecutions: [],
         chatId: generateId(),
         conversationId: null,
         isStreaming: false,
@@ -378,6 +383,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         instanceSlug: action.slug,
         messages: [],
+        historicalHookExecutions: [],
         chatId: generateId(),
         conversationId: null,
         isStreaming: false,
@@ -471,12 +477,14 @@ export function useChat(defaultInstanceSlug: string) {
       // Derive the instance scope from the explicit arg, or fall back to
       // parsing the conversation id (`<instanceSlug>:<channel>:<id>`).
       const scope = instanceSlug ?? conversationId.split(":")[0] ?? "";
-      const result = await api.conversations.messages(conversationId, scope, {
-        limit: 100,
-      });
+      const [result, hookResult] = await Promise.all([
+        api.conversations.messages(conversationId, scope, { limit: 100 }),
+        api.conversations.hookExecutions(conversationId, scope).catch(() => ({ executions: [] as HookExecution[] })),
+      ]);
       dispatch({
         type: "LOAD_CONVERSATION",
         messages: result.messages,
+        hooks: hookResult.executions,
         conversationId,
         instanceSlug,
       });
