@@ -102,6 +102,12 @@ export class OpenAIController {
   }
 
   private async handleStreaming(body: ChatCompletionRequest, res: Response) {
+    // The pipeline starts BEFORE the first byte: whatever refuses the request
+    // (a bad body, a missing key, a hook's error) is then an ordinary HTTP error
+    // with its status. Started after the role chunk, it arrived inside a 200 the
+    // client was already reading, and the response ended with no `[DONE]`.
+    const stream = await this.openaiService.chatCompletionStream(body);
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -123,9 +129,6 @@ export class OpenAIController {
       ],
     };
     res.write(`data: ${JSON.stringify(roleChunk)}\n\n`);
-
-    // Get real streaming response from the pipeline
-    const stream = await this.openaiService.chatCompletionStream(body);
 
     // Pipe fullStream events: tool calls wrapped in <think> tags, text deltas as standard chunks
     let thinkOpen = false;

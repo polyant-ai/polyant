@@ -153,3 +153,30 @@ describe("OpenAIController.validateAuth — auth bypass protection (#38)", () =>
     ).rejects.toThrow("Invalid API key");
   });
 });
+
+describe("OpenAIController — streaming request refused by the pipeline", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindInstanceBySlug.mockResolvedValue({ id: "test-id", slug: "my-bot", status: "active" });
+    mockResolveInstanceConfig.mockResolvedValue({ authEnabled: false });
+  });
+
+  it("answers an ordinary error, having written nothing of the stream yet", async () => {
+    const { BadRequestException } = await import("@nestjs/common");
+    const refusal = new BadRequestException("no");
+    const controller = new (OpenAIController as any)({
+      chatCompletionStream: vi.fn().mockRejectedValue(refusal),
+    });
+    const res = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn(), json: vi.fn() };
+
+    await expect(
+      controller.chatCompletions(
+        { model: "my-bot", stream: true, messages: [{ role: "user", content: "ciao" }] },
+        res,
+      ),
+    ).rejects.toBe(refusal);
+
+    expect(res.setHeader).not.toHaveBeenCalled();
+    expect(res.write).not.toHaveBeenCalled();
+  });
+});
