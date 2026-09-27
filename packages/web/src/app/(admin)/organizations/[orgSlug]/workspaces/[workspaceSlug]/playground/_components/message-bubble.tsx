@@ -33,11 +33,9 @@ export function MessageBubble({ message, showActivity, onDebugClick }: MessageBu
       <div className={`${isUser ? "max-w-[75%]" : "max-w-[85%]"} min-w-0`}>
         {!isUser && showActivity && (message.hookExecutions.length > 0 || message.reasoning.length > 0 || message.steps.some((step) => step.toolCalls.length > 0)) && (
           <div className="mb-3">
-            {message.hookExecutions.length > 0 && <div className="border-l border-border pl-3">
-              {message.hookExecutions.map((exec, i) => (
-                <HookExecutionPill key={`${exec.hookId}-${exec.event}-${i}`} execution={exec} />
-              ))}
-            </div>}
+            {message.hookExecutions.map((exec, i) => (
+              <HookExecutionPill key={`${exec.hookId}-${exec.event}-${i}`} execution={exec} />
+            ))}
             <MessageExtras reasoning={message.reasoning} steps={message.steps} />
           </div>
         )}

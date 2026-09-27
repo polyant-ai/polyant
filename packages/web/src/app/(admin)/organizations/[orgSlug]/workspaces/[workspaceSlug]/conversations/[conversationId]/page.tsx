@@ -57,6 +57,7 @@ import { formatActivityTimestamp, formatRelativeTime, parseUTC } from "@/lib/for
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useFormat } from "@/lib/use-format";
+import { useDetailedView } from "@/hooks/use-detailed-view";
 
 const MESSAGES_PAGE_SIZE = 50;
 
@@ -148,8 +149,8 @@ export default function ConversationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   // Detailed view: shows per-message metadata pills + reasoning/tool panels.
-  // Off by default; the choice persists across pages via localStorage.
-  const [detailed, setDetailed] = useState(false);
+  // Off by default; the choice is shared with the Playground and persists.
+  const [detailed, toggleDetailed] = useDetailedView();
   // Message targeted by a shared deep link (#msg-<id>) — briefly ring-highlighted.
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
@@ -158,16 +159,6 @@ export default function ConversationDetailPage() {
   const loadingMoreRef = useRef(false);
   const prevScrollHeightRef = useRef<number | null>(null);
   const didInitialScrollRef = useRef(false);
-
-  // Read the persisted preference on mount (client-only, avoids SSR mismatch).
-  useEffect(() => {
-    setDetailed(localStorage.getItem("conversationDetailedView") === "true");
-  }, []);
-
-  const toggleDetailed = (value: boolean) => {
-    setDetailed(value);
-    localStorage.setItem("conversationDetailedView", String(value));
-  };
 
   // Copy a deep link to a specific message. Opening it scrolls to and
   // highlights that message (see the deep-link effect below).

@@ -45,7 +45,7 @@ export function MessageExtras({ reasoning, steps }: MessageExtrasProps) {
   if (!reasoning?.length && !calls.length) return null;
 
   return (
-    <div className="mb-3 border-l border-border pl-3">
+    <div className="mb-3">
       {reasoning && reasoning.length > 0 && (
         <ActivityRow
           icon={<Brain className="size-3.5" />}

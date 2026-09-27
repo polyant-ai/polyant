@@ -26,7 +26,7 @@ export function HookExecutionPill({ execution, timestamp }: {
     <ActivityRow
       icon={<Webhook className="size-3.5" />}
       iconLabel={t("message.activity.hook")}
-          tone="hook"
+      tone="hook"
       timestamp={timestamp}
       status={execution.success ? (
         <CheckCircle2 className="size-4 shrink-0 text-success" aria-label={t("message.activity.succeeded")} />
