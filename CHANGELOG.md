@@ -59,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `chat/stream` stops relaying a turn when the client disconnects. It listened
   for the request's `close`, which Node emits once the body has been read, so a
   real disconnect was never seen.
+- The engine warns at boot for each retired environment variable still set,
+  naming where its value is set now. The variables are read by nothing, and a
+  deployment that kept one had no way to learn the value had no effect.
 - A streaming `/v1/chat/completions` request the pipeline refuses is answered
   with its error status. The stream used to open first, so the refusal arrived
   inside a 200 already being read, and the response ended without `[DONE]`.
