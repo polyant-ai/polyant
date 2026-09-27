@@ -15,6 +15,7 @@ export function SystemActivity({ content, timestamp }: { content: string; timest
       <ActivityRow
         icon={<Terminal className="size-3.5" />}
         iconLabel={t("conversations.detail.systemMessage")}
+          tone="system"
         timestamp={timestamp}
         detail={<div className="prose-sm max-w-none break-words"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown></div>}
       >

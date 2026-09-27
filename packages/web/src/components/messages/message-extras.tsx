@@ -50,6 +50,7 @@ export function MessageExtras({ reasoning, steps }: MessageExtrasProps) {
         <ActivityRow
           icon={<Brain className="size-3.5" />}
           iconLabel={t("message.reasoning.label")}
+          tone="reasoning"
           detail={<div className="space-y-2 whitespace-pre-wrap break-words leading-relaxed">
             {reasoning.map((block, index) => (
               <div key={index} className="prose-sm max-w-none">
@@ -69,6 +70,7 @@ export function MessageExtras({ reasoning, steps }: MessageExtrasProps) {
             key={`${step.index}-${call.toolCallId}`}
             icon={<Wrench className="size-3.5" />}
             iconLabel={t("message.activity.tool")}
+            tone="tool"
             status={hasResult ? isFailedResult(result) ? (
               <XCircle className="size-4 shrink-0 text-destructive" aria-label={t("message.activity.failed")} />
             ) : (

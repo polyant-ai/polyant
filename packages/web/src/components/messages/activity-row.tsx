@@ -3,9 +3,17 @@
 import type { ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 
-export function ActivityRow({ icon, iconLabel, children, detail, timestamp, status }: {
+const iconTones = {
+  system: "bg-warning/10 text-warning",
+  reasoning: "bg-primary/10 text-primary",
+  tool: "bg-success/10 text-success",
+  hook: "bg-accent/40 text-foreground",
+};
+
+export function ActivityRow({ icon, iconLabel, tone, children, detail, timestamp, status }: {
   icon: ReactNode;
   iconLabel: string;
+  tone: keyof typeof iconTones;
   children: ReactNode;
   detail?: ReactNode;
   timestamp?: string;
@@ -13,7 +21,7 @@ export function ActivityRow({ icon, iconLabel, children, detail, timestamp, stat
 }) {
   const line = (
     <span className="flex min-w-0 items-center gap-2 py-2 text-sm text-foreground">
-      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground" role="img" aria-label={iconLabel}>{icon}</span>
+      <span className={`flex size-6 shrink-0 items-center justify-center rounded-md ${iconTones[tone]}`} role="img" aria-label={iconLabel}>{icon}</span>
       <span className="min-w-0 flex-1 break-words">{children}</span>
       {status}
       {timestamp && <time className="shrink-0 text-xs tabular-nums text-muted-foreground">{timestamp}</time>}
