@@ -92,6 +92,19 @@ export function formatDateTime(iso: string | null | undefined, locale?: string):
   }
 }
 
+/** Full timestamp for conversation messages and recorded activity. */
+export function formatActivityTimestamp(iso: string | null | undefined, locale?: string): string {
+  if (!iso) return "";
+  return parseUTC(iso).toLocaleString(locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 /** Wall-clock only — for a transcript, where the day is a separator above. */
 export function formatTime(iso: string | null | undefined, locale?: string): string {
   if (!iso) return "\u2014";

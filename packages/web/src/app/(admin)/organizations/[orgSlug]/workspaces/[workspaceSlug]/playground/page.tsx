@@ -82,6 +82,7 @@ export default function PlaygroundPage() {
     <div data-full-bleed className="-m-6 flex h-[calc(100vh-4rem)]">
       <ChatArea
         messages={chat.state.messages}
+        historicalHookExecutions={chat.state.historicalHookExecutions}
         isStreaming={chat.state.isStreaming}
         instanceSlug={chat.state.instanceSlug}
         error={chat.state.error}
