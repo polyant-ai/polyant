@@ -18,6 +18,10 @@
  *   - Server-side `?instance=<slug>` filter — events for other instances are
  *     never emitted on this socket (no client-side trust).
  *   - Server-side ORGANIZATION filter — see `resolveVisibleSlugs`.
+ *
+ * `GET /api/activity-stream/conversation` is the same stream narrowed to one
+ * conversation, plus a `persisted` signal after each stored write to it. Both
+ * routes share the caps above.
  */
 
 import { Controller, Get, Query, Req, Res } from "@nestjs/common";
@@ -31,6 +35,9 @@ import { RequirePermission, Permission } from "../authz/index.js";
 import { listAllInstances, resolvePrincipalOrgId } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 import { NO_TRANSACTION } from "../database/client.js";
+import { conversationStore } from "../conversations/store.js";
+import { subscribeConversationChanges } from "../conversations/live-updates.js";
+import { callerTenantScope } from "../server/utils/caller-tenant-scope.js";
 
 /**
  * Per-client backpressure cap. If a slow client accumulates more than this
@@ -74,6 +81,157 @@ async function resolveVisibleSlugs(user: AuthenticatedUser | undefined): Promise
   return new Set(instances.map((i) => i.slug));
 }
 
+/** Answer 503 when the installation-wide subscriber cap is reached. */
+function rejectAtGlobalCap(res: Response, maxConnections: number): boolean {
+  if (activeConnections >= maxConnections) {
+    res.setHeader("Retry-After", "60");
+    res.status(503).json({
+      error: "Too many concurrent activity-stream subscribers; try again later",
+      limit: maxConnections,
+    });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Open an SSE stream that forwards the bus events `accept` lets through, plus
+ * any named signals `extra` sends. Access must be resolved by the caller BEFORE
+ * this runs: from here on a connection slot is held and headers go out.
+ */
+function openFeed(
+  req: Request,
+  res: Response,
+  user: AuthenticatedUser | undefined,
+  maxPerUser: number,
+  accept: (evt: FeedEvent) => boolean,
+  extra?: (send: (event: string) => void) => () => void,
+): void {
+  // Per-user cap. Unauthenticated requests are blocked by the global AuthGuard,
+  // but we guard defensively in case the route is ever marked @Public.
+  const userId = user?.userId ?? null;
+  if (userId) {
+    const current = perUserConnections.get(userId) ?? 0;
+    if (current >= maxPerUser) {
+      res.setHeader("Retry-After", "60");
+      res.status(503).json({
+        error: "Too many concurrent activity-stream subscribers for this user",
+        limit: maxPerUser,
+      });
+      return;
+    }
+    perUserConnections.set(userId, current + 1);
+  }
+
+  activeConnections += 1;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  // Initial comment line keeps proxies / browsers from buffering headers
+  // until the first real event lands.
+  res.write(": connected\n\n");
+
+  // Serialized SSE frames, so bus events and named signals share one
+  // backpressure bound.
+  const queue: string[] = [];
+  let writing = false;
+  let closed = false;
+  let decremented = false;
+
+  const flush = () => {
+    if (writing || closed) return;
+    writing = true;
+    while (queue.length > 0) {
+      const frame = queue.shift()!;
+      try {
+        res.write(frame);
+      } catch {
+        // Connection broke between checks; tear down.
+        closed = true;
+        break;
+      }
+    }
+    writing = false;
+  };
+
+  const enqueue = (frame: string) => {
+    if (closed) return;
+    queue.push(frame);
+    if (queue.length > MAX_PENDING_PER_CLIENT) {
+      // Backpressure: drop oldest frames; preserve the most recent.
+      queue.splice(0, queue.length - MAX_PENDING_PER_CLIENT);
+    }
+    flush();
+  };
+
+  const unsubscribe = activityBus.subscribe((evt) => {
+    if (accept(evt)) enqueue(`data: ${JSON.stringify(evt)}\n\n`);
+  });
+  const unsubscribeExtra = extra?.((event) => enqueue(`event: ${event}\ndata: {}\n\n`));
+
+  // Heartbeat to keep idle proxies (Render, nginx, …) from killing the
+  // connection at 30–60 s of silence. Comment lines are ignored by the
+  // EventSource browser API.
+  const heartbeat = setInterval(() => {
+    if (closed) return;
+    try {
+      res.write(": ping\n\n");
+    } catch {
+      closed = true;
+    }
+  }, 25_000);
+
+  const decrementCounters = () => {
+    if (decremented) return;
+    decremented = true;
+    activeConnections = Math.max(0, activeConnections - 1);
+    if (userId) {
+      const remaining = (perUserConnections.get(userId) ?? 1) - 1;
+      if (remaining <= 0) perUserConnections.delete(userId);
+      else perUserConnections.set(userId, remaining);
+    }
+  };
+
+  /**
+   * Release EVERY resource on EVERY path, idempotently (express can fire
+   * `close` and `error`, so this runs more than once).
+   *
+   * `closed` may already be true because a write failed inside `flush()` or the
+   * heartbeat. That path still owes the interval and the subscriptions:
+   * returning early there leaked a 25 s timer plus a live subscription (holding
+   * the filter and `res`) for the process lifetime, and made the bus invoke
+   * one dead handler per abruptly-dropped client on every event.
+   *
+   * `clearInterval` and the unsubscribes (`emitter.off`) are all no-ops when
+   * already applied, so repeated calls are safe.
+   */
+  const teardown = () => {
+    const wasOpen = !closed;
+    closed = true;
+    clearInterval(heartbeat);
+    unsubscribe();
+    unsubscribeExtra?.();
+    // Only end a response that was still considered open — ending twice is
+    // harmless but pointless, and the write already failed on the closed path.
+    if (wasOpen) {
+      try {
+        res.end();
+      } catch {
+        // ignored
+      }
+    }
+    decrementCounters();
+  };
+
+  req.on("close", teardown);
+  req.on("error", teardown);
+  res.on("error", teardown);
+}
+
 @SkipThrottle()
 @Controller("api/activity-stream")
 export class ActivityStreamController {
@@ -88,147 +246,67 @@ export class ActivityStreamController {
   ): Promise<void> {
     // Both caps are the installation's policy, resolved from `platform_settings`
     // — one read per connect, which is rare, behind a short cache in the store.
-    const { sseMaxConnections: maxConnections, sseMaxConnectionsPerUser: maxPerUser } =
-      await resolvePlatformSettings();
-
-    // Global cap.
-    if (activeConnections >= maxConnections) {
-      res.setHeader("Retry-After", "60");
-      res.status(503).json({
-        error: "Too many concurrent activity-stream subscribers; try again later",
-        limit: maxConnections,
-      });
-      return;
-    }
+    const { sseMaxConnections, sseMaxConnectionsPerUser } = await resolvePlatformSettings();
+    if (rejectAtGlobalCap(res, sseMaxConnections)) return;
 
     // Resolved BEFORE any connection counter is incremented or a header is sent,
     // so a failure here cannot leak a slot or a half-open stream.
     const visibleSlugs = await resolveVisibleSlugs(user);
 
-    // Per-user cap. Unauthenticated requests are blocked by the global AuthGuard,
-    // but we guard defensively in case the route is ever marked @Public.
-    const userId = user?.userId ?? null;
-    if (userId) {
-      const current = perUserConnections.get(userId) ?? 0;
-      if (current >= maxPerUser) {
-        res.setHeader("Retry-After", "60");
-        res.status(503).json({
-          error: "Too many concurrent activity-stream subscribers for this user",
-          limit: maxPerUser,
-        });
-        return;
-      }
-      perUserConnections.set(userId, current + 1);
-    }
-
-    activeConnections += 1;
-
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders?.();
-
-    // Initial comment line keeps proxies / browsers from buffering headers
-    // until the first real event lands.
-    res.write(": connected\n\n");
-
-    const queue: FeedEvent[] = [];
-    let writing = false;
-    let closed = false;
-    let decremented = false;
-
-    const flush = () => {
-      if (writing || closed) return;
-      writing = true;
-      while (queue.length > 0) {
-        const evt = queue.shift()!;
-        try {
-          res.write(`data: ${JSON.stringify(evt)}\n\n`);
-        } catch {
-          // Connection broke between checks; tear down.
-          closed = true;
-          break;
-        }
-      }
-      writing = false;
-    };
-
-    const handler = (evt: FeedEvent) => {
-      if (closed) return;
+    openFeed(req, res, user, sseMaxConnectionsPerUser, (evt) => {
       // Tenancy filter FIRST, and independent of any client input: the bus is
       // process-global, so without this the socket carries every organization's
       // agent slugs, tool summaries, channel senders and handoff prompts.
       // An event with no agent cannot be attributed, so it is not forwarded.
-      if (!evt.instance?.slug || !visibleSlugs.has(evt.instance.slug)) return;
+      if (!evt.instance?.slug || !visibleSlugs.has(evt.instance.slug)) return false;
       // Server-side filter: when the client passed `?instance=<slug>` only
       // forward events scoped to that instance.
-      if (instance && evt.instance.slug !== instance) return;
-      queue.push(evt);
-      if (queue.length > MAX_PENDING_PER_CLIENT) {
-        // Backpressure: drop oldest events; preserve the most recent.
-        queue.splice(0, queue.length - MAX_PENDING_PER_CLIENT);
-      }
-      flush();
-    };
+      return !instance || evt.instance.slug === instance;
+    });
+  }
 
-    const unsubscribe = activityBus.subscribe(handler);
+  /**
+   * One conversation as it happens, on any channel: its bus events while a turn
+   * runs, and a `persisted` signal each time a message or hook execution for it
+   * is stored, so the transcript can be re-read through the normal read path.
+   *
+   * Gated like reading the conversation itself. The conversation is checked
+   * against the caller's organization and the named agent once, at connect; an
+   * event carrying this conversation id belongs to it, so the id is the filter.
+   */
+  @RequirePermission(Permission.CONVERSATION_READ)
+  @Get("conversation")
+  async conversation(
+    @Req() req: Request,
+    @Res() res: Response,
+    @CurrentUser() user: AuthenticatedUser | undefined,
+    @Query("conversationId") conversationId?: string,
+    @Query("instanceId") instanceId?: string,
+  ): Promise<void> {
+    const id = conversationId?.trim();
+    const slug = instanceId?.trim();
+    if (!id || !slug) {
+      res.status(400).json({ error: "conversationId and instanceId are required" });
+      return;
+    }
 
-    // Heartbeat to keep idle proxies (Render, nginx, …) from killing the
-    // connection at 30–60 s of silence. Comment lines are ignored by the
-    // EventSource browser API.
-    const heartbeat = setInterval(() => {
-      if (closed) return;
-      try {
-        res.write(": ping\n\n");
-      } catch {
-        closed = true;
-      }
-    }, 25_000);
+    const { sseMaxConnections, sseMaxConnectionsPerUser } = await resolvePlatformSettings();
+    if (rejectAtGlobalCap(res, sseMaxConnections)) return;
 
-    const decrementCounters = () => {
-      if (decremented) return;
-      decremented = true;
-      activeConnections = Math.max(0, activeConnections - 1);
-      if (userId) {
-        const remaining = (perUserConnections.get(userId) ?? 1) - 1;
-        if (remaining <= 0) perUserConnections.delete(userId);
-        else perUserConnections.set(userId, remaining);
-      }
-    };
+    // Same answer for a missing and a foreign conversation: never reveal existence.
+    const found = await conversationStore.getConversation(id, await callerTenantScope(user));
+    if (!found || found.instanceId !== slug) {
+      res.status(404).json({ error: `Conversation not found: ${id}` });
+      return;
+    }
 
-    /**
-     * Release EVERY resource on EVERY path, idempotently (express can fire
-     * `close` and `error`, so this runs more than once).
-     *
-     * `closed` may already be true because a write failed inside `flush()` or the
-     * heartbeat. That path still owes the interval and the bus subscription:
-     * returning early there leaked a 25 s timer plus a live subscription (holding
-     * `visibleSlugs` and `res`) for the process lifetime, and made the bus invoke
-     * one dead handler per abruptly-dropped client on every event.
-     *
-     * `clearInterval` and the unsubscribe (`emitter.off`) are both no-ops when
-     * already applied, so repeated calls are safe.
-     */
-    const teardown = () => {
-      const wasOpen = !closed;
-      closed = true;
-      clearInterval(heartbeat);
-      unsubscribe();
-      // Only end a response that was still considered open — ending twice is
-      // harmless but pointless, and the write already failed on the closed path.
-      if (wasOpen) {
-        try {
-          res.end();
-        } catch {
-          // ignored
-        }
-      }
-      decrementCounters();
-    };
-
-    req.on("close", teardown);
-    req.on("error", teardown);
-    res.on("error", teardown);
+    openFeed(
+      req,
+      res,
+      user,
+      sseMaxConnectionsPerUser,
+      (evt) => evt.conversationId === id,
+      (send) => subscribeConversationChanges(id, () => send("persisted")),
+    );
   }
 }

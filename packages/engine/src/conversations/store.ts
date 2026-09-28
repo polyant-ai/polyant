@@ -11,6 +11,7 @@ import { toolAuditLogs } from "../audit/audit.schema.js";
 import { hookExecutions } from "../hooks/hooks.schema.js";
 import { memories } from "../memory/schema.js";
 import { principalSecrets } from "./principal-secrets.schema.js";
+import { notifyConversationChanged } from "./live-updates.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 import {
   buildOrgScopedAgentFilterFragment,
@@ -369,6 +370,8 @@ export class ConversationStore {
         .set({ updatedAt: new Date() })
         .where(eq(conversations.conversationId, conversationId));
     });
+    // After the commit, so a reader woken by the signal sees the rows.
+    notifyConversationChanged(conversationId);
   }
 
   /**

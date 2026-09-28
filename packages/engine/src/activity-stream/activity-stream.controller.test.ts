@@ -16,9 +16,18 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockListAllInstances, mockResolvePrincipalOrgId } = vi.hoisted(() => ({
+const { mockListAllInstances, mockResolvePrincipalOrgId, mockGetConversation } = vi.hoisted(() => ({
   mockListAllInstances: vi.fn(),
   mockResolvePrincipalOrgId: vi.fn(),
+  mockGetConversation: vi.fn(),
+}));
+
+vi.mock("../conversations/store.js", () => ({
+  conversationStore: { getConversation: mockGetConversation },
+}));
+
+vi.mock("../server/utils/caller-tenant-scope.js", () => ({
+  callerTenantScope: async (user?: { orgId?: string }) => ({ kind: "org", orgId: user?.orgId }),
 }));
 
 vi.mock("../instances/store.js", () => ({
@@ -29,6 +38,7 @@ vi.mock("../instances/store.js", () => ({
 import { ActivityStreamController } from "./activity-stream.controller.js";
 import { activityBus } from "./activity-bus.js";
 import type { FeedEvent } from "./activity-stream.types.js";
+import { notifyConversationChanged } from "../conversations/live-updates.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import type { Request, Response } from "express";
 
@@ -242,5 +252,79 @@ describe("GET /api/activity-stream/live — teardown releases resources", () => 
     expect(vi.getTimerCount()).toBe(0);
     // `res.end()` only on the first (still-open) teardown.
     expect(res.end).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("GET /api/activity-stream/conversation — one conversation, live", () => {
+  const CONVERSATION = "agent-a:whatsapp:39333";
+  let controller: ActivityStreamController;
+  const openConnections: Array<() => void> = [];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    controller = new ActivityStreamController();
+    activityBus.__clearBuffer();
+    mockGetConversation.mockResolvedValue({ conversationId: CONVERSATION, instanceId: "agent-a" });
+  });
+
+  afterEach(() => {
+    for (const close of openConnections.splice(0)) close();
+  });
+
+  async function connect(conversationId: string | undefined, instanceId: string | undefined) {
+    const { res, written } = makeRes();
+    const { req, handlers } = makeReq();
+    await controller.conversation(req, res, callerOfOrgA, conversationId, instanceId);
+    openConnections.push(() => handlers.close?.());
+    return { res, written };
+  }
+
+  function eventIn(conversationId: string): FeedEvent {
+    return { ...eventFor("agent-a"), id: `evt-${conversationId}`, conversationId };
+  }
+
+  it("forwards only the events of the requested conversation", async () => {
+    const { written } = await connect(CONVERSATION, "agent-a");
+
+    activityBus.emitEvent(eventIn("agent-a:whatsapp:other"));
+    activityBus.emitEvent(eventIn(CONVERSATION));
+
+    expect(dataEvents(written)).toHaveLength(1);
+    expect(dataEvents(written)[0]).toContain(CONVERSATION);
+  });
+
+  it("sends a persisted signal after a stored write to the conversation, and only to it", async () => {
+    const { written } = await connect(CONVERSATION, "agent-a");
+
+    notifyConversationChanged("agent-a:whatsapp:other");
+    notifyConversationChanged(CONVERSATION);
+
+    expect(written.filter((w) => w.startsWith("event: persisted"))).toHaveLength(1);
+  });
+
+  it("answers 404 without opening a stream for a conversation outside the caller's organization", async () => {
+    mockGetConversation.mockResolvedValue(null);
+    const { res, written } = await connect(CONVERSATION, "agent-a");
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.flushHeaders).not.toHaveBeenCalled();
+    expect(mockGetConversation).toHaveBeenCalledWith(CONVERSATION, { kind: "org", orgId: ORG_A });
+
+    activityBus.emitEvent(eventIn(CONVERSATION));
+    expect(dataEvents(written)).toHaveLength(0);
+  });
+
+  it("answers 404 when the conversation belongs to a different agent than the one named", async () => {
+    const { res } = await connect(CONVERSATION, "agent-a2");
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.flushHeaders).not.toHaveBeenCalled();
+  });
+
+  it("answers 400 when the conversation or the agent is missing", async () => {
+    const { res } = await connect(CONVERSATION, undefined);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockGetConversation).not.toHaveBeenCalled();
   });
 });

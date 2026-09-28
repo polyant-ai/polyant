@@ -3,6 +3,7 @@
 import { asc, eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { hookExecutions } from "./hooks.schema.js";
+import { notifyConversationChanged } from "../conversations/live-updates.js";
 import type { InstanceSlug } from "../instances/identifiers.js";
 import type { HookActionType, HookEvent } from "./hook-types.js";
 
@@ -72,6 +73,7 @@ export async function recordHookExecution(input: RecordHookExecutionInput): Prom
     args: input.args ?? null,
     result: input.result ?? null,
   });
+  notifyConversationChanged(input.conversationId);
 }
 
 /** Executions for one conversation, oldest first (timeline order). */
