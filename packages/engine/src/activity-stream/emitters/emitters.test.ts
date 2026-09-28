@@ -24,6 +24,8 @@ import { emitCron } from "./emit-cron.js";
 import { emitMemory } from "./emit-memory.js";
 import { emitConversation } from "./emit-conversation.js";
 import { emitAgentHandoffStart, emitAgentHandoffEnd } from "./emit-agent-handoff.js";
+import { emitToolStart } from "./emit-tool.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 import type { InstanceMeta } from "../activity-stream.types.js";
 
 const inst: InstanceMeta = { id: "i-1", slug: "alpha", name: "Alpha", icon: null };
@@ -261,5 +263,31 @@ describe("emitAgentHandoff", () => {
     emitAgentHandoffStart({ ...base, childConversationId: "agent:concierge:xyz" });
     const e = captured();
     expect(e.handoff?.childConversationId).toBe("agent:concierge:xyz");
+  });
+});
+
+describe("emitToolStart", () => {
+  it("emits a start/end pair sharing one step id, with outcome and duration on the end", async () => {
+    const end = emitToolStart({ toolName: "searchKnowledge", args: { query: "orari" }, conversationId: "conv-1", instanceSlug: asInstanceSlug("alpha") });
+    await vi.waitFor(() => expect(emitMock).toHaveBeenCalledTimes(1));
+    end({ kind: "success", output: { success: false } });
+    await vi.waitFor(() => expect(emitMock).toHaveBeenCalledTimes(2));
+
+    const [start, finish] = emitMock.mock.calls.map((c) => c[0]);
+    expect(start.id.endsWith(":start")).toBe(true);
+    expect(finish.id).toBe(start.id.replace(/:start$/, ":end"));
+    expect(start.tool.name).toBe("searchKnowledge");
+    expect(start.status).toBeUndefined();
+    expect(finish.status).toBe("error");
+    expect(typeof finish.durationMs).toBe("number");
+    expect(finish.conversationId).toBe("conv-1");
+  });
+
+  it("marks a thrown tool as an error carrying its message", async () => {
+    emitToolStart({ toolName: "httpRequest", args: {}, instanceSlug: asInstanceSlug("alpha") })({ kind: "error", message: "timeout" });
+    await vi.waitFor(() => expect(emitMock).toHaveBeenCalledTimes(2));
+    const finish = emitMock.mock.calls.map((c) => c[0]).find((e) => e.id.endsWith(":end"));
+    expect(finish.status).toBe("error");
+    expect(finish.resultPreview).toBe("timeout");
   });
 });

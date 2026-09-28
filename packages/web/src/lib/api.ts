@@ -572,6 +572,13 @@ export const api = {
       request<{ conversation: ConversationListItem }>(
         `/api/conversations/${encodeURIComponent(conversationId)}?instanceId=${encodeURIComponent(instanceId)}`,
       ),
+    /**
+     * SSE URL following one conversation live: its activity events, plus a
+     * `persisted` event whenever a message or hook execution is stored.
+     * EventSource cannot go through `request()`, so only the path lives here.
+     */
+    liveUrl: (conversationId: string, instanceId: string) =>
+      `/api/activity-stream/conversation?${new URLSearchParams({ conversationId, instanceId }).toString()}`,
     hookExecutions: (conversationId: string, instanceId: string) =>
       request<{ executions: HookExecution[] }>(
         `/api/conversations/${encodeURIComponent(conversationId)}/hooks?instanceId=${encodeURIComponent(instanceId)}`,

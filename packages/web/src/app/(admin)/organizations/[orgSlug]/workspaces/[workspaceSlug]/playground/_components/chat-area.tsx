@@ -23,6 +23,7 @@ import { ChatHistoryDialog } from "./chat-sidebar";
 import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
 import { useI18n } from "@/lib/i18n/context";
+import { useDetailedView } from "@/hooks/use-detailed-view";
 import type { ChatMessage } from "../_hooks/use-chat";
 import type { ConversationListItem, HookExecution } from "@/lib/api";
 
@@ -67,7 +68,7 @@ export function ChatArea({
   const [showKeyValue, setShowKeyValue] = useState(false);
   const [debugTarget, setDebugTarget] = useState<DebugSheetTarget | null>(null);
   const [stateOpen, setStateOpen] = useState(false);
-  const [showActivity, setShowActivity] = useState(false);
+  const [showActivity, setShowActivity] = useDetailedView();
 
   const timeline = useMemo(() => {
     const items: ({ kind: "message"; message: ChatMessage; ts: number } | { kind: "hook"; execution: HookExecution; ts: number })[] =

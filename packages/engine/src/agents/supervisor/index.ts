@@ -38,6 +38,7 @@ import { buildMcpTools } from "../tools/mcp/mcp-tools.js";
 import { agentToolTarget } from "../../authz/agent-tenancy.js";
 import { readAgentScope } from "../../authz/authz.store.js";
 import type { DatetimeSettings } from "../../instances/agent-settings.js";
+import { emitToolStart } from "../../activity-stream/emitters/emit-tool.js";
 
 export interface SupervisorInput {
   message: string;
@@ -214,7 +215,7 @@ function wrapToolWithAudit(
   name: string,
   builtTool: Tool,
   instanceId: InstanceSlug,
-  _conversationId?: string,
+  conversationId?: string,
   toolCallTraces?: ToolCallTrace[],
   signals?: SupervisorSignals,
 ): Tool {
@@ -227,6 +228,7 @@ function wrapToolWithAudit(
     inputSchema: original.inputSchema as never,
     execute: async (params: any) => {
       const toolStart = Date.now();
+      const emitToolEnd = emitToolStart({ toolName: name, args: params, conversationId, instanceSlug: instanceId });
 
       try {
         const output = await originalExecute(params);
@@ -247,11 +249,13 @@ function wrapToolWithAudit(
         auditStore.patchDuration(name, instanceId, durationMs);
         const outputPreview = safeOutputPreview(output);
         if (outputPreview) auditStore.patchOutput(name, instanceId, outputPreview);
+        emitToolEnd({ kind: "success", output });
         return output;
       } catch (err) {
         const durationMs = Date.now() - toolStart;
         toolCallTraces?.push({ name, duration_ms: durationMs, success: false });
         auditStore.patchDuration(name, instanceId, durationMs);
+        emitToolEnd({ kind: "error", message: err instanceof Error ? err.message : String(err) });
         throw err;
       }
     },
