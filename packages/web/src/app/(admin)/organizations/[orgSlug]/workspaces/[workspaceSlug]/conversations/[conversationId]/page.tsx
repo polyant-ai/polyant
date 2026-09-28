@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -58,8 +58,15 @@ import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useFormat } from "@/lib/use-format";
 import { useDetailedView } from "@/hooks/use-detailed-view";
+import { currentTurn, useLiveConversation } from "@/hooks/use-live-conversation";
+import { LiveTurn } from "@/components/messages/live-turn";
 
 const MESSAGES_PAGE_SIZE = 50;
+
+/** A stored message's time in ms; 0 when the row carries none. */
+function storedAt(message: ConversationMessage): number {
+  return message.createdAt ? parseUTC(message.createdAt).getTime() : 0;
+}
 
 /**
  * The proxy URL for a stored attachment.
@@ -151,6 +158,8 @@ export default function ConversationDetailPage() {
   // Detailed view: shows per-message metadata pills + reasoning/tool panels.
   // Off by default; the choice is shared with the Playground and persists.
   const [detailed, toggleDetailed] = useDetailedView();
+  // Live: follow the conversation as it happens, on whatever channel it runs.
+  const [live, setLive] = useState(false);
   // Message targeted by a shared deep link (#msg-<id>) — briefly ring-highlighted.
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
@@ -219,6 +228,55 @@ export default function ConversationDetailPage() {
       loadingMoreRef.current = false;
     }
   };
+
+  // Re-read the header, the newest page and hooks after the engine stores rows.
+  // Merged by id, so older pages already loaded stay and a re-read row is replaced.
+  const refreshLatest = useCallback(async () => {
+    try {
+      const [convRes, msgRes, hooksRes] = await Promise.all([
+        api.conversations.get(conversationId, instanceId).catch(() => null),
+        api.conversations.messages(conversationId, instanceId, { limit: MESSAGES_PAGE_SIZE, order: "desc" }),
+        api.conversations.hookExecutions(conversationId, instanceId).catch(() => null),
+      ]);
+      if (convRes) setConversation(convRes.conversation);
+      setMessages((prev) => {
+        const byId = new Map(prev.map((m) => [m.id, m]));
+        for (const m of msgRes.messages) byId.set(m.id, m);
+        return [...byId.values()].sort((a, b) => storedAt(a) - storedAt(b));
+      });
+      setTotalMessages(msgRes.total);
+      if (hooksRes) setHookExecutions(hooksRes.executions);
+    } catch {
+      // The next stored write retries; the transcript on screen stays valid.
+    }
+  }, [conversationId, instanceId]);
+
+  const { events: liveEvents, connected: liveConnected } = useLiveConversation({
+    conversationId,
+    instanceId,
+    enabled: live && !loading,
+    onPersisted: refreshLatest,
+  });
+
+  // The turn in progress. Once its rows are stored they take its place in the
+  // transcript.
+  const pendingLive = useMemo(
+    () => currentTurn(
+      liveEvents,
+      messages.filter((m) => m.role === "user").map(storedAt),
+      Math.max(0, ...messages.map(storedAt)),
+    ),
+    [liveEvents, messages],
+  );
+
+  // Keep the newest activity in view while following, unless the reader has
+  // scrolled up to read something older.
+  useEffect(() => {
+    if (!live) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight;
+  }, [live, pendingLive, messages]);
 
   // After the initial fetch resolves, jump to the bottom (latest message visible).
   // Re-pin on each image load — lazy-loaded images grow the scrollHeight after the
@@ -462,6 +520,20 @@ export default function ConversationDetailPage() {
           <Switch id="detailed-view" checked={detailed} onCheckedChange={toggleDetailed} />
           {t("conversations.detail.detailedToggle")}
         </Label>
+        <Label
+          htmlFor="live-view"
+          className="mr-2 flex items-center gap-2 text-sm font-normal text-muted-foreground"
+        >
+          <Switch id="live-view" checked={live} onCheckedChange={setLive} />
+          {t("conversations.detail.liveToggle")}
+          {live && (
+            <span
+              className={`size-2 rounded-full ${liveConnected ? "animate-pulse bg-success" : "bg-muted-foreground"}`}
+              role="status"
+              aria-label={t(liveConnected ? "conversations.detail.liveConnected" : "conversations.detail.liveConnecting")}
+            />
+          )}
+        </Label>
         <Button variant="ghost" size="sm" onClick={() => setStateOpen(true)}>
           <Database className="h-4 w-4" />
           {t("conversations.state.button")}
@@ -633,7 +705,9 @@ export default function ConversationDetailPage() {
           })}
         </TooltipProvider>
 
-        {messages.length === 0 && (
+        <LiveTurn events={pendingLive} showActivity={detailed} />
+
+        {messages.length === 0 && pendingLive.length === 0 && (
           <p className="text-center text-muted-foreground">
             {t("conversations.detail.noMessages")}
           </p>
