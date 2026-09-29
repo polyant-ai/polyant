@@ -59,7 +59,7 @@ export function reasoningCapableFallback(provider: string, modelId: string): boo
       // Anthropic Claude 4+ (haiku/sonnet/opus — haiku LIVE-VERIFIED to reason on
       // Bedrock) + OpenAI gpt-oss (effort) + MiniMax M (live-verified), with or
       // without a cross-region inference-profile prefix (eu./us./apac./global.).
-      return /^(?:(?:eu|us|apac|global)\.)?(?:anthropic\.claude-(?:haiku-4|sonnet-4|sonnet-5|opus-4)|openai\.gpt-oss)|^minimax\.minimax-m/.test(modelId);
+      return /^(?:(?:eu|us|apac|global)\.)?(?:anthropic\.claude-(?:haiku-4|sonnet-4|sonnet-5|opus-4|opus-5)|openai\.gpt-oss)|^minimax\.minimax-m/.test(modelId);
     case "nebius":
       // Reasoning families served by Nebius (emit reasoning_content). IDs carry an
       // org prefix, so match the model segment case-insensitively.
@@ -83,12 +83,13 @@ export function reasoningCapableFallback(provider: string, modelId: string): boo
 export function reasoningAlwaysOnFallback(modelId: string): boolean {
   if (!modelId) return false;
   // The alternatives that name a POINT release are anchored and terminated on
-  // purpose: `claude-fable-5-1` cannot be switched off and `claude-fable-5` can,
-  // and one is a prefix of the other. Same for `claude-opus-5-5` against
-  // `claude-opus-5`, and `gpt-6-astra` against the rest of its family.
+  // purpose: `claude-opus-5-5` cannot be switched off and `claude-opus-5` can,
+  // and one is a prefix of the other (on Bedrock too, behind a profile prefix).
+  // Same for `gpt-6-astra` against the rest of its family. Both Fable releases
+  // are always-on.
   return (
     /gpt-oss|^o[134]\b|gpt-5\.6|minimax-m|kimi-k[23]|-thinking/i.test(modelId) ||
-    /^gpt-6-astra$|^claude-opus-5-5$|^claude-fable-5-1$/i.test(modelId)
+    /^gpt-6-astra$|^(?:(?:eu|us|apac|global)\.anthropic\.)?claude-opus-5-5$|^claude-fable-5(?:-1)?$/i.test(modelId)
   );
 }
 
@@ -111,7 +112,7 @@ export function temperatureRejectedFallback(provider: string, modelId: string): 
     case "anthropic":
       return /^claude-(opus-4-[78]|opus-5|sonnet-5|fable-5)/.test(modelId);
     case "bedrock":
-      return /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-(opus-4-[78]|sonnet-5|fable-5)/.test(modelId);
+      return /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-(opus-4-[78]|opus-5|sonnet-5|fable-5)/.test(modelId);
     default:
       return false;
   }

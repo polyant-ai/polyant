@@ -92,15 +92,15 @@ describe("model catalog integrity", () => {
   });
 
   it("declares an off/on switch only in a shape its provider's dialect can send", () => {
-    // On the 1P dialects the gateway sends ONE fixed off-shape — `reasoning_effort:
-    // "none"` on openai, `thinking: {type:"disabled"}` on anthropic — whatever the
-    // row's `via` says, and bedrock sends none at all. A row declaring another shape
-    // would compile, pass every other check, and have its declaration ignored on
-    // the wire. Only the openai-compatible dialect reads `via`.
+    // Each dialect sends only the off-shapes its builder knows — `reasoning_effort:
+    // "none"` on openai, `thinking: {type:"disabled"|"between_tools"}` on
+    // anthropic and (inside additionalModelRequestFields) on bedrock. A row
+    // declaring another shape would compile, pass every other check, and have its
+    // declaration ignored on the wire.
     const allowed: Record<string, readonly string[]> = {
       openai: ["effort-none"],
-      anthropic: ["thinking-disabled"],
-      bedrock: [],
+      anthropic: ["thinking-disabled", "thinking-between-tools"],
+      bedrock: ["thinking-disabled", "thinking-between-tools"],
       "openai-compatible": ["effort-none", "template-kwarg"],
     };
     let checked = 0;

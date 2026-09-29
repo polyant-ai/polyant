@@ -6,6 +6,7 @@ import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { createProvider, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
 import { cacheSupported, cacheOnToolMessagesSupported } from "../config.js";
+import type { ReasoningToggle } from "../model-catalog.js";
 
 /**
  * Bedrock Converse cache breakpoint. Bedrock uses a `cachePoint` block (via
@@ -160,5 +161,26 @@ export function buildBedrockReasoningOptions(
   const budgetKey: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";
   return {
     reasoningConfig: { type: "enabled", budgetTokens: BEDROCK_THINKING_BUDGETS[budgetKey] },
+  };
+}
+
+/**
+ * The payload that switches thinking OFF for a Claude model on Bedrock that runs
+ * adaptive when the parameter is omitted (Sonnet 5, Sonnet 5.5, Opus 5) — the
+ * Bedrock twin of `buildAnthropicThinkingOffOptions`, and called only for a row
+ * that declares `reasoningOff`.
+ *
+ * It goes in `additionalModelRequestFields`, which Bedrock forwards to the model
+ * verbatim, and not in `reasoningConfig`: the SDK drops `reasoningConfig:
+ * {type:"disabled"}` for Claude without writing anything, so the model would
+ * keep reasoning (LIVE-VERIFIED 2026-09-29, eu-south-1).
+ */
+export function buildBedrockReasoningOffOptions(
+  toggle: ReasoningToggle | undefined,
+): { additionalModelRequestFields: { thinking: { type: "disabled" | "between_tools" } } } {
+  return {
+    additionalModelRequestFields: {
+      thinking: { type: toggle?.via === "thinking-between-tools" ? "between_tools" : "disabled" },
+    },
   };
 }

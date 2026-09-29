@@ -305,8 +305,8 @@ describe("AI Gateway", () => {
 
     describe("switching thinking OFF on a model that reasons by default", () => {
       // Sending nothing is "off" only for a model whose default is off. That was
-      // every 1P model until gpt-6 (default effort `medium`) and Claude Opus 5
-      // (adaptive when the parameter is omitted): on those, an omitted payload
+      // every 1P model until gpt-6 (default effort `medium`) and Claude Opus 5 /
+      // Sonnet 5 / Sonnet 5.5 (adaptive when the parameter is omitted): on those, an omitted payload
       // leaves the model reasoning through a turn the operator switched thinking
       // off for, and the bill and the latency both show it.
       it("sends reasoning_effort none to an OpenAI model whose default effort is medium", async () => {
@@ -329,6 +329,31 @@ describe("AI Gateway", () => {
         expect(anthropicChat.mock.calls[0][0].providerOptions.anthropic).toMatchObject({
           thinking: { type: "disabled" },
         });
+      });
+
+      it("sends thinking disabled to Claude Sonnet 5, which also runs adaptive by default", async () => {
+        const anthropicChat = vi.fn().mockResolvedValue(makeChatResponse());
+        const { AnthropicProvider } = await import("./providers/anthropic.js");
+        (AnthropicProvider as unknown as { chat: unknown }).chat = anthropicChat;
+
+        await chat(makeRequest({ provider: "anthropic", model: "claude-sonnet-5", thinking: false }));
+
+        expect(anthropicChat.mock.calls[0][0].providerOptions.anthropic).toMatchObject({
+          thinking: { type: "disabled" },
+        });
+      });
+
+      it("sends between_tools to Claude Sonnet 5.5, which answers disabled with a 400", async () => {
+        const anthropicChat = vi.fn().mockResolvedValue(makeChatResponse());
+        const { AnthropicProvider } = await import("./providers/anthropic.js");
+        (AnthropicProvider as unknown as { chat: unknown }).chat = anthropicChat;
+
+        await chat(makeRequest({ provider: "anthropic", model: "claude-sonnet-5-5", thinking: false }));
+
+        const sent = anthropicChat.mock.calls[0][0].providerOptions.anthropic;
+        expect(sent.thinking).toEqual({ type: "between_tools" });
+        // between_tools is refused at xhigh/max, so an off turn must carry no effort.
+        expect(sent).not.toHaveProperty("effort");
       });
 
       it("sends nothing to a model that has no off-switch at all", async () => {
@@ -448,6 +473,30 @@ describe("AI Gateway", () => {
 
       const opts = mockBedrockChat.mock.calls[0][0].providerOptions;
       expect(opts?.bedrock).toBeUndefined();
+    });
+
+    it.each([
+      ["eu.anthropic.claude-sonnet-5", "disabled"],
+      ["eu.anthropic.claude-opus-5", "disabled"],
+      ["global.anthropic.claude-sonnet-5-5", "between_tools"],
+    ])("switches %s off through additionalModelRequestFields (%s)", async (model, type) => {
+      // These run adaptive when `thinking` is omitted, and the SDK drops
+      // `reasoningConfig: {type:"disabled"}` for Claude without writing anything,
+      // so the off-switch has to travel as the raw Anthropic field.
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(makeRequest({ provider: "bedrock", model, thinking: false }));
+
+      const bedrockOpts = mockBedrockChat.mock.calls[0][0].providerOptions.bedrock;
+      expect(bedrockOpts).toEqual({ additionalModelRequestFields: { thinking: { type } } });
+    });
+
+    it("sends no off-switch to Opus 5.5 on Bedrock, which refuses one", async () => {
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(makeRequest({ provider: "bedrock", model: "eu.anthropic.claude-opus-5-5", thinking: false }));
+
+      expect(mockBedrockChat.mock.calls[0][0].providerOptions?.bedrock).toBeUndefined();
     });
 
     it("omits Bedrock reasoningConfig for a non-reasoning model even if thinking is on", async () => {
