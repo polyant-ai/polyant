@@ -4,7 +4,7 @@ import { resolveModel, estimateCostBreakdown, isReasoningAlwaysOn, isThinkingCap
 import { sanitizeMessagesForModel } from "./vision.js";
 import { buildOpenAIReasoningOffOptions, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { buildAnthropicThinkingOffOptions, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
-import { buildBedrockReasoningOptions } from "./providers/bedrock.js";
+import { buildBedrockReasoningOffOptions, buildBedrockReasoningOptions } from "./providers/bedrock.js";
 import { getProviderAdapter } from "./providers/registry.js";
 import { usageCompletedBeforeFailure } from "./providers/base.js";
 import { buildCompatibleReasoningOptions } from "./providers/openai-compatible-reasoning.js";
@@ -118,7 +118,9 @@ function resolveCallConfig(
             ? buildOpenAIReasoningOffOptions()
             : buildOpenAIReasoningOptions(thinkingLevel)
           : dialect === "bedrock"
-            ? buildBedrockReasoningOptions(thinkingLevel, reasoningControlFor(providerName, modelId) ?? "budget")
+            ? off
+              ? buildBedrockReasoningOffOptions(reasoningOff)
+              : buildBedrockReasoningOptions(thinkingLevel, reasoningControlFor(providerName, modelId) ?? "budget")
             : dialect === "openai-compatible"
               ? buildCompatibleReasoningOptions({
                   provider: providerName,

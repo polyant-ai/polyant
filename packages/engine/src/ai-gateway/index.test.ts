@@ -475,6 +475,30 @@ describe("AI Gateway", () => {
       expect(opts?.bedrock).toBeUndefined();
     });
 
+    it.each([
+      ["eu.anthropic.claude-sonnet-5", "disabled"],
+      ["eu.anthropic.claude-opus-5", "disabled"],
+      ["global.anthropic.claude-sonnet-5-5", "between_tools"],
+    ])("switches %s off through additionalModelRequestFields (%s)", async (model, type) => {
+      // These run adaptive when `thinking` is omitted, and the SDK drops
+      // `reasoningConfig: {type:"disabled"}` for Claude without writing anything,
+      // so the off-switch has to travel as the raw Anthropic field.
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(makeRequest({ provider: "bedrock", model, thinking: false }));
+
+      const bedrockOpts = mockBedrockChat.mock.calls[0][0].providerOptions.bedrock;
+      expect(bedrockOpts).toEqual({ additionalModelRequestFields: { thinking: { type } } });
+    });
+
+    it("sends no off-switch to Opus 5.5 on Bedrock, which refuses one", async () => {
+      mockBedrockChat.mockResolvedValue(makeChatResponse());
+
+      await chat(makeRequest({ provider: "bedrock", model: "eu.anthropic.claude-opus-5-5", thinking: false }));
+
+      expect(mockBedrockChat.mock.calls[0][0].providerOptions?.bedrock).toBeUndefined();
+    });
+
     it("omits Bedrock reasoningConfig for a non-reasoning model even if thinking is on", async () => {
       // Guard: sending reasoningConfig to e.g. nova-lite v1 is a hard Bedrock
       // ValidationException, so the isThinkingCapable gate must suppress it.

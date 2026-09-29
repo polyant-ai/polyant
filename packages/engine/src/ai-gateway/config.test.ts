@@ -416,6 +416,16 @@ describe("isReasoningAlwaysOn", () => {
     ["nebius", "Qwen/Qwen3.5-397B-A17B", false],
     ["nebius", "zai-org/GLM-5.2", false],
     ["bedrock", "eu.anthropic.claude-sonnet-5", false],
+    // Claude that refuses `disabled` and has no lower setting (LIVE-VERIFIED
+    // 2026-09-29): Fable 5 and 5.1, Opus 5.5 on both providers. Opus 5 and
+    // Sonnet 5.5 are their switchable neighbours.
+    ["anthropic", "claude-fable-5", true],
+    ["anthropic", "claude-fable-5-1", true],
+    ["anthropic", "claude-opus-5-5", true],
+    ["bedrock", "eu.anthropic.claude-opus-5-5", true],
+    ["anthropic", "claude-opus-5", false],
+    ["bedrock", "global.anthropic.claude-opus-5", false],
+    ["anthropic", "claude-sonnet-5-5", false],
     ["openai", "gpt-4o", false],
     ["openai", "", false],
     ["", "o3", false],
