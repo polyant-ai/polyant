@@ -2,6 +2,7 @@
 
 import type { ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
+import type { ReasoningToggle } from "../model-catalog.js";
 import { createProvider, type PrepareMessages } from "./base.js";
 import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
 
@@ -100,17 +101,20 @@ type AnthropicThinkingOptions =
  */
 /**
  * The payload that switches thinking OFF for a Claude model that runs adaptive
- * thinking when the parameter is omitted (Opus 5). Omitting `thinking` is the
- * off-switch for every earlier Claude and is the opposite for this one, so the
- * direction is catalog data (`reasoningOff: { via: "thinking-disabled" }`) rather
- * than a model-id test here.
+ * thinking when the parameter is omitted (Opus 5, Sonnet 5, Sonnet 5.5). Omitting
+ * `thinking` is the off-switch for every earlier Claude and is the opposite for
+ * these, so the direction is catalog data (`reasoningOff`) rather than a model-id
+ * test here — and so is the shape, because Sonnet 5.5 refuses `disabled` and
+ * takes `between_tools` as its lowest setting.
  *
- * Safe to send unconditionally when thinking is off: `{type:"disabled"}` is
- * rejected only alongside an effort of `xhigh`/`max`, and an off turn sends no
- * effort at all.
+ * Safe to send unconditionally when thinking is off: both shapes are rejected
+ * only alongside an effort of `xhigh`/`max`, and an off turn sends no effort at
+ * all.
  */
-export function buildAnthropicThinkingOffOptions(): { thinking: { type: "disabled" } } {
-  return { thinking: { type: "disabled" } };
+export function buildAnthropicThinkingOffOptions(
+  toggle: ReasoningToggle | undefined,
+): { thinking: { type: "disabled" } | { type: "between_tools" } } {
+  return { thinking: { type: toggle?.via === "thinking-between-tools" ? "between_tools" : "disabled" } };
 }
 
 export function buildAnthropicThinkingOptions(level: string, adaptive: boolean): AnthropicThinkingOptions {

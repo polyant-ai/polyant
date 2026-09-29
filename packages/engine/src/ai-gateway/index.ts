@@ -98,7 +98,8 @@ function resolveCallConfig(
   const thinkingCapable = isThinkingCapable(providerName, modelId);
   // Whether thinking OFF is a payload rather than an omission. It used to be an
   // omission on every 1P model, and stopped being one with gpt-6 (default effort
-  // `medium`) and Claude Opus 5 (adaptive when the parameter is omitted): those
+  // `medium`) and Claude Opus 5 / Sonnet 5 / Sonnet 5.5 (adaptive when the
+  // parameter is omitted): those
   // reason through a turn the operator switched thinking off for unless we say
   // so. The openai-compatible dialect always enters, because its builder decides
   // both directions from the same catalog data.
@@ -110,7 +111,7 @@ function resolveCallConfig(
     const options: Record<string, unknown> | undefined =
       dialect === "anthropic"
         ? off
-          ? buildAnthropicThinkingOffOptions()
+          ? buildAnthropicThinkingOffOptions(reasoningOff)
           : buildAnthropicThinkingOptions(thinkingLevel, reasoningControlFor(providerName, modelId) === "adaptive")
         : dialect === "openai"
           ? off

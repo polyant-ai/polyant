@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is set, and every webhook URL, OAuth redirect and agent card is built from the
   resolved value.
 - Models: OpenAI's gpt-6 family (`gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`),
-  Claude Opus 5, Opus 5.5 and Fable 5.1, and on Nebius GLM-5.3, GLM-5.3-Flash,
+  Claude Opus 5, Opus 5.5, Sonnet 5.5 and Fable 5.1, and on Nebius GLM-5.3, GLM-5.3-Flash,
   DeepSeek V4.1 Flash, DeepSeek V4 Pro 0813, Kimi K3, MiniMax M3 and
   Nemotron 3.5 Lightning.
 - AI providers and OpenAI-compatible embedders can be registered at boot
@@ -75,8 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it out. Refused rows are now dropped one by one, and values are cut to their
   column width.
 - Switching thinking off now switches it off on models that reason by default —
-  gpt-6 sol/luna and Claude Opus 5 kept reasoning (and billing for it) when the
-  parameter was simply omitted.
+  gpt-6 sol/luna and Claude Opus 5 and Sonnet 5 kept reasoning (and billing for
+  it) when the parameter was simply omitted. Claude Sonnet 5.5 refuses the usual
+  off-switch, so it gets `between_tools`, its lowest setting.
 - An agent on a registered embedder was reported as missing credentials: the
   readiness check asked for the OpenAI key regardless of the embedder.
 - An unknown embedder name — from an import, or a stale row — fell through to

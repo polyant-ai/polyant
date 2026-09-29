@@ -26,7 +26,12 @@ export type WireDialect = "openai" | "anthropic" | "bedrock" | "openai-compatibl
  *     and luna, whose default effort is `medium`, and open-weight endpoints that
  *     accept the same value).
  *   - `thinking-disabled` → Anthropic `thinking: { type: "disabled" }` (Claude
- *     Opus 5, which runs adaptive thinking when the parameter is omitted).
+ *     Opus 5 and Sonnet 5, which run adaptive thinking when the parameter is
+ *     omitted).
+ *   - `thinking-between-tools` → Anthropic `thinking: { type: "between_tools" }`
+ *     (Claude Sonnet 5.5, which answers `disabled` with a 400). It drops the
+ *     up-front thinking and keeps only the short notes between tool calls, so it
+ *     is the lowest setting that model has rather than a true off.
  *   - `template-kwarg` → a vLLM chat-template kwarg, forwarded verbatim into the
  *     request body by `@ai-sdk/openai-compatible` (`enable_thinking: false` on
  *     Nebius Qwen3.5 and GLM; the kwarg's NAME differs per model family, which is
@@ -38,6 +43,7 @@ export type WireDialect = "openai" | "anthropic" | "bedrock" | "openai-compatibl
 export type ReasoningToggle =
   | { via: "effort-none" }
   | { via: "thinking-disabled" }
+  | { via: "thinking-between-tools" }
   | { via: "template-kwarg"; kwarg: string; value: unknown };
 
 /**
@@ -255,8 +261,15 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // Opus 4.7/4.8 + Sonnet 5 removed the sampling params → temperature:false.
       // Haiku 4.5 (fast)
       "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 2.00, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
-      // Sonnet family (sonnet-5 uses the adaptive thinking API)
-      "claude-sonnet-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      // Sonnet family (sonnet-5 and sonnet-5-5 use the adaptive thinking API).
+      // Both run adaptive when `thinking` is omitted, so a turn with thinking off
+      // keeps reasoning unless the row declares its off-switch. They differ in
+      // which one: Sonnet 5 takes `disabled`; Sonnet 5.5 (released 2026-09-28,
+      // same prices) answers `disabled` with a 400 and takes `between_tools`,
+      // accepted only at effort high or below — which an off turn satisfies,
+      // because it sends no effort at all.
+      "claude-sonnet-5-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-between-tools" }, vision: true, temperature: false, cache: true },
+      "claude-sonnet-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
       "claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       // Opus family (4.7/4.8 use the adaptive thinking API; 4.6 uses legacy budget)

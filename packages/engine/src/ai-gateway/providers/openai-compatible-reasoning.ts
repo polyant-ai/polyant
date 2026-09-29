@@ -49,7 +49,8 @@ function toggleToBody(toggle: ReasoningToggle | undefined): Record<string, unkno
     case "template-kwarg":
       return { chat_template_kwargs: { [toggle.kwarg]: toggle.value } };
     case "thinking-disabled":
-      // An Anthropic shape. Reachable only from a catalog row that declared it on
+    case "thinking-between-tools":
+      // Anthropic shapes. Reachable only from a catalog row that declared it on
       // an openai-compatible provider, which is a mistake in the row rather than
       // something to translate — `model-catalog.test.ts` refuses the pairing
       // ("declares an off/on switch only in a shape its provider's dialect can
