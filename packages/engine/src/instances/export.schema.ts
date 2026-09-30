@@ -26,6 +26,9 @@ export const exportSkillAssignmentSchema = z.object({
 export const exportSecretSchema = z.object({
   key: z.string(),
   configured: z.boolean(),
+  // Only present for a key a tool or hook declares `sensitive: false` — a base
+  // URL, a `select` choice. A credential travels as its key alone.
+  value: z.string().optional(),
 });
 
 export const exportChannelSchema = z.object({
@@ -127,6 +130,10 @@ export const exportInstanceDataSchema = z.object({
   //     legacy 1.0 bundles (which lack them) keep validating. ---
   langsmithProject: z.string().nullable().default(null),
   thinkingEnabled: z.boolean().default(false),
+  // The LEVEL, beside the flag. It was the one `instances` column outside the
+  // bundle, so exporting a reasoning agent and importing it back produced an
+  // agent that thinks at a different depth, with nothing to see.
+  thinkingLevel: z.string().default("medium"),
   temperature: z.number().nullable().default(null),
   stateInPromptEnabled: z.boolean().default(false),
   datetimeInjectionEnabled: z.boolean().default(true),

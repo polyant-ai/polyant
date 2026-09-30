@@ -17,6 +17,7 @@ import { instanceChannels } from "./channels.schema.js";
 import { stripSensitiveKeys } from "./channel-config-sanitize.js";
 import { instanceSkillEnv } from "./skill-env.schema.js";
 import { decrypt } from "../crypto/index.js";
+import { readableSecretKeys } from "./readable-secret-keys.js";
 import { getRoomByInstanceId } from "../room/room.store.js";
 import { listEventSourcesWithDefinitions } from "../webhooks/webhook-sources.store.js";
 import { listByInstance as listScheduledTasks } from "../scheduled-tasks/store.js";
@@ -53,7 +54,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     prompts,
     skillAssignments,
     manualToolNames,
-    secretKeys,
+    secrets,
     channels,
     skillEnvRows,
     hooks,
@@ -65,7 +66,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     exportPrompts(instance.id),
     exportSkillAssignments(instance.id),
     exportManualTools(instance.id),
-    exportSecretKeys(instance.id),
+    exportSecrets(instance.id),
     exportChannels(instance.id),
     exportSkillEnv(instance.id),
     exportHooks(instance.id),
@@ -93,6 +94,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     icon: instance.icon,
     langsmithProject: instance.langsmithProject,
     thinkingEnabled: instance.thinkingEnabled,
+    thinkingLevel: instance.thinkingLevel,
     temperature: instance.temperature,
     stateInPromptEnabled: instance.stateInPromptEnabled,
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
@@ -120,7 +122,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     prompts,
     skills: skillAssignments,
     manualTools: manualToolNames,
-    secrets: secretKeys,
+    secrets,
     channels,
     skillEnv: skillEnvRows,
     hooks,
@@ -199,12 +201,23 @@ async function exportManualTools(instanceId: string): Promise<string[]> {
   return rows.map((r) => r.name);
 }
 
-async function exportSecretKeys(instanceId: string) {
+/**
+ * Every key, and the value of the readable ones. A parameter such as a base URL
+ * is agent configuration, and exporting only its name had the clone ask for it
+ * as if it were a password. Credentials stay behind: see `readableSecretKeys`
+ * for what decides which is which.
+ */
+async function exportSecrets(instanceId: string) {
+  const readable = readableSecretKeys();
   const rows = await db
-    .select({ key: instanceSecrets.key })
+    .select({ key: instanceSecrets.key, value: instanceSecrets.value })
     .from(instanceSecrets)
     .where(eq(instanceSecrets.instanceId, instanceId));
-  return rows.map((r) => ({ key: r.key, configured: true }));
+  return rows.map((r) =>
+    readable.has(r.key)
+      ? { key: r.key, configured: true, value: decrypt(r.value) }
+      : { key: r.key, configured: true },
+  );
 }
 
 async function exportChannels(instanceId: string) {
