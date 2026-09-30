@@ -69,7 +69,10 @@ export function normalizeFieldMapping(value: unknown, field: string): Record<str
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${field} must be an object of state key → payload path`);
   }
-  const out: Record<string, string> = {};
+  // A Map, turned into the object only at the end: `Object.fromEntries` defines
+  // own properties, so no key can reach the prototype even if the reserved-key
+  // check above it were ever loosened.
+  const out = new Map<string, string>();
   for (const [rawKey, rawPath] of Object.entries(value)) {
     const key = rawKey.trim();
     if (!key) continue;
@@ -80,11 +83,11 @@ export function normalizeFieldMapping(value: unknown, field: string): Record<str
     if (!path || path.split(".").some((segment) => !segment)) {
       throw new Error(`${field}.${key} must be a dot-path such as "phone" or "customer.id"`);
     }
-    if (Object.hasOwn(out, key)) throw new Error(`${field}: state key "${key}" is mapped twice`);
-    out[key] = path;
+    if (out.has(key)) throw new Error(`${field}: state key "${key}" is mapped twice`);
+    out.set(key, path);
   }
-  if (Object.keys(out).length > MAX_FIELD_MAPPING_ENTRIES) {
+  if (out.size > MAX_FIELD_MAPPING_ENTRIES) {
     throw new Error(`${field} maps more than ${MAX_FIELD_MAPPING_ENTRIES} fields`);
   }
-  return out;
+  return Object.fromEntries(out);
 }
