@@ -39,6 +39,7 @@ import { importRoom } from "./room.import.js";
 import { importEventSources } from "./event-sources.import.js";
 import { importScheduledTasks } from "./scheduled-tasks.import.js";
 import { importMcpServers } from "./mcp-servers.import.js";
+import { importSecrets } from "./secrets.import.js";
 import type { ImportWarning, ImportResult } from "./import.types.js";
 
 export type { ImportWarning, ImportResult } from "./import.types.js";
@@ -100,6 +101,7 @@ export async function importNewInstance(
         langsmithProject: data.langsmithProject,
         authEnabled: data.authEnabled,
         thinkingEnabled: data.thinkingEnabled,
+        thinkingLevel: data.thinkingLevel,
         temperature: data.temperature,
         stateInPromptEnabled: data.stateInPromptEnabled,
         datetimeInjectionEnabled: data.datetimeInjectionEnabled,
@@ -176,13 +178,8 @@ export async function importNewInstance(
     const mcpWarnings = await importMcpServers(tx, id, data.mcpServers);
     warnings.push(...mcpWarnings);
 
-    // 12. Secrets — only generate warnings
-    for (const secret of data.secrets) {
-      warnings.push({
-        type: "secret_required",
-        message: `Secret "${secret.key}" needs to be configured`,
-      });
-    }
+    // 12. Secrets — readable parameters are written, credentials are asked for
+    warnings.push(...(await importSecrets(tx, id, data.secrets)));
 
     return id;
   });
@@ -233,6 +230,7 @@ export async function importOverwriteInstance(
         langsmithProject: data.langsmithProject,
         authEnabled: data.authEnabled,
         thinkingEnabled: data.thinkingEnabled,
+        thinkingLevel: data.thinkingLevel,
         temperature: data.temperature,
         stateInPromptEnabled: data.stateInPromptEnabled,
         datetimeInjectionEnabled: data.datetimeInjectionEnabled,
@@ -328,13 +326,8 @@ export async function importOverwriteInstance(
     const mcpWarnings = await importMcpServers(tx, instanceId, data.mcpServers);
     warnings.push(...mcpWarnings);
 
-    // 12. Secrets warnings
-    for (const secret of data.secrets) {
-      warnings.push({
-        type: "secret_required",
-        message: `Secret "${secret.key}" needs to be configured`,
-      });
-    }
+    // 12. Secrets — readable parameters are written, credentials are asked for
+    warnings.push(...(await importSecrets(tx, instanceId, data.secrets)));
   });
 
   await recomputeInstanceTools(instanceId);

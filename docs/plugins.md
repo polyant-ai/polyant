@@ -73,6 +73,13 @@ humanized as the title and says the author gave no description. Several tools of
 one plugin may declare the same key; the field is shown once and names every tool
 that asks for it.
 
+`sensitive` decides whether the value is a credential. A `text` field is one by
+default; a `select`, or a field declared `sensitive: false` such as a base URL,
+is readable: the panel shows its current value, and an agent export carries it
+so the imported agent does not ask for it again. A credential is never shown and
+travels as its key alone. A key that any tool or hook declares sensitive is a
+credential for every one of them.
+
 `ctx.artifacts` is an in-process, one-shot handoff between tools in the same
 conversation. Each artifact is limited to 10 MB and at most 10 minutes; the
 process store accepts at most 100 MB or 1,000 live handles. Persist anything
