@@ -36,7 +36,7 @@ interface FakeRes {
   ended: boolean;
   socketTimeout: number | null;
   writableFinished: boolean;
-  on(event: string, listener: () => void): void;
+  on: ReturnType<typeof vi.fn>;
   setHeader(k: string, v: string): void;
   setTimeout(ms: number): void;
   write(chunk: string): boolean;
@@ -50,7 +50,7 @@ function makeRes(): FakeRes {
     ended: false,
     socketTimeout: null,
     writableFinished: false,
-    on() {},
+    on: vi.fn(),
     setHeader(k, v) {
       this.headers[k] = v;
     },
@@ -65,6 +65,11 @@ function makeRes(): FakeRes {
       this.ended = true;
     },
   };
+}
+
+/** The handler the controller registered for the response's `close` event. */
+function closeHandler(res: FakeRes): () => void {
+  return res.on.mock.calls.find(([event]) => event === "close")?.[1] as () => void;
 }
 
 function makeReq(authHeader?: string) {
@@ -151,7 +156,63 @@ describe("InstanceChatStreamController.stream", () => {
 
     expect(chatCompletionStream).toHaveBeenCalledWith(
       expect.objectContaining({ model: "acme", stream: true }),
+      expect.any(AbortSignal),
     );
+  });
+
+  it("requires the agent key only when the request carries call context", async () => {
+    chatCompletionStream.mockResolvedValue(makeStream([]));
+    await controller.stream("acme", { messages: [] } as never, makeReq() as never, makeRes() as never);
+    await controller.stream("acme", { messages: [], chat_id: "CA1", context: { phone: "+39000" } } as never,
+      makeReq() as never, makeRes() as never);
+    expect(mockValidateInstanceApiKey.mock.calls.map((call) => call[2])).toEqual([false, true]);
+  });
+
+  it("aborts the pipeline when the client disconnects before the turn produced anything", async () => {
+    let signal: AbortSignal | undefined;
+    chatCompletionStream.mockImplementation(async (_request: unknown, abort: AbortSignal) => {
+      signal = abort;
+      return makeStream([]);
+    });
+    const res = makeRes();
+    await controller.stream("acme", { messages: [] } as never, makeReq() as never, res as never);
+    expect(signal?.aborted).toBe(false);
+    closeHandler(res)();
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("lets the turn run to its end once it produced something, so a tool's write is never unrecorded", async () => {
+    for (const first of [
+      { type: "tool-input-start", toolCallId: "tc1", toolName: "book" },
+      { type: "text-delta", text: "Un attimo" },
+    ]) {
+      let signal: AbortSignal | undefined;
+      let release!: () => void;
+      let relayed = false;
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      const req = makeReq();
+      chatCompletionStream.mockImplementation(async (_request: unknown, abort: AbortSignal) => {
+        signal = abort;
+        return {
+          textStream: (async function* () {})(),
+          fullStream: (async function* () {
+            yield first;
+            relayed = true;
+            await held;
+            yield { type: "text-delta", text: "fatto" };
+          })(),
+          completed: Promise.resolve({ text: "fatto" }),
+        };
+      });
+      const res = makeRes();
+      const done = controller.stream("acme", { messages: [] } as never, req as never, res as never);
+      // The generator resumes after `first` only once the relay has taken it.
+      await vi.waitFor(() => expect(relayed).toBe(true));
+      closeHandler(res)();
+      release();
+      await done;
+      expect(signal?.aborted).toBe(false);
+    }
   });
 
   it("propagates auth failure before opening the stream", async () => {

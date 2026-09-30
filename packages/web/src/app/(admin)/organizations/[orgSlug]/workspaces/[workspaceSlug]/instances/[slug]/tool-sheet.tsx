@@ -2,14 +2,14 @@
 
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { AlertTriangle, ChevronRight, MinusCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,6 +58,39 @@ interface Props {
   onEnable: (name: string) => void;
   onDisable: (name: string) => void;
   onClose: () => void;
+}
+
+/**
+ * The tool's description, held to three lines. The rest is written for the model —
+ * usage rules, limits — and would bury the parameters below; it is one click away.
+ */
+function ToolDescription({ description }: { description: string }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const ref = useRef<HTMLParagraphElement>(null);
+  const full = description.trim();
+  const summary = descriptionSummary(description);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && !open) setOverflows(el.scrollHeight > el.clientHeight);
+  }, [summary, open]);
+
+  const expandable = overflows || full !== summary;
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <SheetDescription ref={ref} className={open ? "max-h-[40vh] overflow-y-auto whitespace-pre-line pr-2" : "line-clamp-3"}>
+        {open ? full : summary}
+      </SheetDescription>
+      {expandable && (
+        <CollapsibleTrigger className="group mt-1.5 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" aria-hidden />
+          {open ? t("tools.descriptionLess") : t("tools.descriptionMore")}
+        </CollapsibleTrigger>
+      )}
+    </Collapsible>
+  );
 }
 
 /**
@@ -126,27 +159,14 @@ export function ToolSheet({
           <>
             <SheetHeader className="gap-2 border-b p-5 pr-12">
               <SheetTitle className="font-mono text-base font-medium">{toolDisplayName(tool.name)}</SheetTitle>
-              <SheetDescription>{descriptionSummary(tool.description)}</SheetDescription>
-              {/* The rest of a description is written for the model — usage rules,
-                  limits — and would bury the parameters below; it is one click away. */}
-              {tool.description.trim() !== descriptionSummary(tool.description) && (
-                <Collapsible>
-                  <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                    <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" aria-hidden />
-                    {t("tools.detailsToggle")}
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <p className="mt-2 whitespace-pre-line text-xs text-muted-foreground">{tool.description.trim()}</p>
-                  </CollapsibleContent>
-                </Collapsible>
-              )}
+              <ToolDescription key={tool.name} description={tool.description} />
               <div className="flex flex-wrap gap-2 pt-1">
                 <Badge variant="secondary">{namespace ? pluginName(namespace) : t("tools.originCore")}</Badge>
                 <Badge variant="secondary">{categoryLabel(tool.category)}</Badge>
               </div>
             </SheetHeader>
 
-            <div className="flex-1 space-y-8 overflow-y-auto p-5">
+            <div className="min-h-0 flex-1 space-y-8 overflow-y-auto p-5">
               {lockReason && (
                 <div className="flex gap-2 rounded-md bg-warning/10 p-3 text-sm text-warning">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -177,15 +197,8 @@ export function ToolSheet({
                     </div>
                   ),
                 )}
-                {specs.length > 0 && params.canRead && (
-                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                    <p className="text-xs text-muted-foreground">
-                      {pendingEnable ? t("tools.paramsBeforeTool") : ""}
-                    </p>
-                    <Button size="sm" onClick={saveParams} disabled={!params.dirty || savingParams}>
-                      {t("tools.paramsSave")}
-                    </Button>
-                  </div>
+                {specs.length > 0 && params.canRead && pendingEnable && (
+                  <p className="text-xs text-muted-foreground">{t("tools.paramsBeforeTool")}</p>
                 )}
                 {providerSpecs.map((spec) => (
                   <div key={spec.key} className="space-y-1">
@@ -237,9 +250,17 @@ export function ToolSheet({
                   {t("tools.disable")}
                 </Button>
               )}
-              <Button variant="outline" onClick={requestClose}>
-                {t("common.close")}
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={requestClose}>
+                  {t("common.close")}
+                </Button>
+                {/* In the footer so it stays in view however long the parameter list is. */}
+                {specs.length > 0 && params.canRead && (
+                  <Button onClick={saveParams} disabled={!params.dirty || savingParams}>
+                    {t("tools.paramsSave")}
+                  </Button>
+                )}
+              </div>
             </SheetFooter>
           </>
         )}

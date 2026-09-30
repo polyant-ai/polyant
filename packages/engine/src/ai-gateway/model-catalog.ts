@@ -74,8 +74,19 @@ export interface ModelCapabilities {
    * Nebius, and for non-cacheable families).
    */
   cacheRead?: number;
-  /** ABSOLUTE cache-write rate. Omit → bills writes at `input` (see `cacheRead`). */
+  /**
+   * ABSOLUTE cache-write rate. Omit → bills writes at `input` (see `cacheRead`).
+   * It is the rate of a write whose TTL the provider does not report, which on
+   * Anthropic first-party is the 1h rate (the cross-turn TTL Polyant defaults to).
+   */
   cacheWrite?: number;
+  /**
+   * ABSOLUTE rate for the cache writes the provider REPORTS as 5-minute TTL, set
+   * only where it differs from `cacheWrite`: Anthropic first-party, where a 5m
+   * write is 1.25× input and a 1h write 2× (its usage splits the two under
+   * `cache_creation`). Writes without a reported TTL stay at `cacheWrite`.
+   */
+  cacheWrite5m?: number;
 
   // — capabilities —
   /** Extended thinking / reasoning capable (drives `isThinkingCapable`). */
@@ -200,7 +211,12 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     models: {
       // Cache-read rates are LIVE-VERIFIED per model against the published pricing
       // page — NOT a blanket multiplier. gpt-4o family = 0.5× input, gpt-4.1 gen =
-      // 0.25×, gpt-5.4/5.6 = 0.1×. cacheWrite 0 (no write premium) pre-5.6.
+      // 0.25×, gpt-5.4/5.6/6 = 0.1×. Cache WRITES are free before GPT-5.6
+      // (cacheWrite 0); from GPT-5.6 on they cost 1.25× the uncached input rate —
+      // "For GPT-5.6 and later, cache writes cost 1.25× the standard, uncached
+      // input-token rate" (https://developers.openai.com/api/docs/pricing and the
+      // prompt-caching guide, read 2026-09-29). OpenAI reports them in
+      // `usage.input_tokens_details.cache_write_tokens`.
       // GPT-4o family (cached 0.5× input)
       "gpt-4o-mini": { input: 0.15, output: 0.60, cacheRead: 0.075, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
       "gpt-4o": { input: 2.50, output: 10.00, cacheRead: 1.25, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
@@ -218,19 +234,18 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       "gpt-5.4-mini": { input: 0.75, output: 4.50, cacheRead: 0.075, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       "gpt-5.4-nano": { input: 0.20, output: 1.25, cacheRead: 0.02, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
-      // GPT-5.6 family (Sol/Terra/Luna). Repriced downward since this row was
-      // written, and the write premium it used to carry is gone: the published
-      // table now has three columns — input, cached input, output — and no cache
-      // write at all, which is the pre-5.6 behaviour restored.
+      // GPT-5.6 family (Sol/Terra/Luna). Cache write is the published 1.25× input
+      // column (see the family note above; pricing page read 2026-09-29).
       // reasoningAlwaysOn: LIVE-VERIFIED — with reasoning OFF they still spend
       // reasoning tokens (sol 105 / terra 51 / luna 88), so there is no true off
       // (unlike gpt-5.4, which goes to 0). The UI locks the thinking toggle ON.
-      "gpt-5.6-sol": { input: 4.00, output: 20.00, cacheRead: 0.40, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.6-terra": { input: 2.00, output: 12.00, cacheRead: 0.20, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.6-luna": { input: 0.20, output: 1.20, cacheRead: 0.02, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      "gpt-5.6-sol": { input: 4.00, output: 20.00, cacheRead: 0.40, cacheWrite: 5.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      "gpt-5.6-terra": { input: 2.00, output: 12.00, cacheRead: 0.20, cacheWrite: 2.50, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      "gpt-5.6-luna": { input: 0.20, output: 1.20, cacheRead: 0.02, cacheWrite: 0.25, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
       // GPT-6 family (Astra/Sol/Luna), the generation OpenAI now points at. Prices
       // and capabilities read from the published pricing and model pages
-      // (2026-09-23); no cache write column, so cacheWrite 0 like the rest.
+      // (2026-09-23); cache write is the published 1.25× input column, like
+      // GPT-5.6 (pricing page re-read 2026-09-29).
       //
       // Two things here are NOT the shape earlier OpenAI rows have, and both bite
       // silently. Their default `reasoning_effort` is `medium`, so a turn with
@@ -242,9 +257,9 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       //
       // Astra is the exception inside its own family: its published effort set has
       // no `none`, so it cannot be switched off and is `reasoningAlwaysOn`.
-      "gpt-6-astra": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
-      "gpt-6-sol": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
-      "gpt-6-luna": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
+      "gpt-6-astra": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 12.50, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "gpt-6-sol": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
+      "gpt-6-luna": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0.125, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
       // Reasoning — o-series is a pure reasoning model: LIVE-VERIFIED it reasons
       // even with reasoning OFF (576 tokens), so reasoningAlwaysOn.
       "o3": { input: 2.00, output: 8.00, cacheRead: 0.50, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: false, cache: true },
@@ -258,11 +273,16 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       heavy: "claude-opus-4-8",
     },
     models: {
-      // Anthropic 1P: cache read 0.1× input; cache WRITE 2× input (the 1h cross-turn
-      // TTL we default to — a 5m instance over-reports writes slightly, accepted).
+      // Anthropic 1P: cache read 0.1× input; cache WRITE 2× input at the 1h
+      // cross-turn TTL we default to (`cacheWrite`), 1.25× at 5m (`cacheWrite5m`:
+      // the within-turn step marker, and every write of a `ttl: "5m"` instance).
+      // Anthropic reports the split per call (`usage.cache_creation`), so each
+      // write is billed at its own TTL; a write with no reported split is billed
+      // at `cacheWrite`. Both columns from the published table, read 2026-09-29
+      // (https://platform.claude.com/docs/en/about-claude/pricing).
       // Opus 4.7/4.8 + Sonnet 5 removed the sampling params → temperature:false.
       // Haiku 4.5 (fast)
-      "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 2.00, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
+      "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 2.00, cacheWrite5m: 1.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       // Sonnet family (sonnet-5 and sonnet-5-5 use the adaptive thinking API).
       // Both run adaptive when `thinking` is omitted, so a turn with thinking off
       // keeps reasoning unless the row declares its off-switch. They differ in
@@ -270,14 +290,14 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // same prices) answers `disabled` with a 400 and takes `between_tools`,
       // accepted only at effort high or below — which an off turn satisfies,
       // because it sends no effort at all.
-      "claude-sonnet-5-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-between-tools" }, vision: true, temperature: false, cache: true },
-      "claude-sonnet-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
-      "claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
-      "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
+      "claude-sonnet-5-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, cacheWrite5m: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-between-tools" }, vision: true, temperature: false, cache: true },
+      "claude-sonnet-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, cacheWrite5m: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
+      "claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, cacheWrite5m: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
+      "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, cacheWrite5m: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       // Opus family (4.7/4.8 use the adaptive thinking API; 4.6 uses legacy budget)
-      "claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
-      "claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
-      "claude-opus-4-6": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
+      "claude-opus-4-8": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, cacheWrite5m: 6.25, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, cacheWrite5m: 6.25, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "claude-opus-4-6": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, cacheWrite5m: 6.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       // Fable 5 — Claude-5 generation ($10/$50; cache read 0.1×, 1h write 2×).
       // LIVE-VERIFIED on Anthropic 1P: adaptive thinking (low..max, rejects the
       // legacy budget shape), vision, temperature rejected. Always-on, which this
@@ -297,10 +317,10 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // reasoning unless the disable is sent. Opus 5.5 and Fable 5.1 cannot be
       // switched off at all (`disabled` is a 400), so they are reasoningAlwaysOn
       // and the panel locks their toggle.
-      "claude-opus-5": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
-      "claude-opus-5-5": { input: 4.00, output: 20.00, cacheRead: 0.20, cacheWrite: 8.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
-      "claude-fable-5-1": { input: 10.00, output: 50.00, cacheRead: 0.25, cacheWrite: 20.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
-      "claude-fable-5": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 20.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "claude-opus-5": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 10.00, cacheWrite5m: 6.25, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
+      "claude-opus-5-5": { input: 4.00, output: 20.00, cacheRead: 0.20, cacheWrite: 8.00, cacheWrite5m: 5.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "claude-fable-5-1": { input: 10.00, output: 50.00, cacheRead: 0.25, cacheWrite: 20.00, cacheWrite5m: 12.50, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "claude-fable-5": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 20.00, cacheWrite5m: 12.50, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
     },
   },
   bedrock: {

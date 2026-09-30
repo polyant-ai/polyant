@@ -71,6 +71,7 @@ const fakeInstance = {
   authEnabled: true,
   thinkingEnabled: false,
   stateInPromptEnabled: false,
+  webContextFieldMapping: { phone: "caller.phone" },
   cacheEnabled: true,
   cacheTtl: "1h",
   a2aEnabled: true,
@@ -133,6 +134,7 @@ describe("instances/config-resolver", () => {
         thinkingLevel: "medium",
         temperature: null,
         stateInPromptEnabled: false,
+        webContextFieldMapping: {},
         datetimeInjectionEnabled: true,
         // The six behaviours that moved off the environment. Resolved, so the
         // config carries values rather than nulls; the row declares none here, so
@@ -201,6 +203,7 @@ describe("instances/config-resolver", () => {
         // but gpt-4o supports temperature so the gate passes; null means "use provider default".
         temperature: null,
         stateInPromptEnabled: false,
+        webContextFieldMapping: { phone: "caller.phone" },
         // Same three as above: the fixture row declares none of the six, so each
         // resolves to the deployment default.
         datetimeInjectionEnabled: undefined,

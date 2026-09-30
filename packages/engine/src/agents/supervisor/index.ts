@@ -149,6 +149,8 @@ export interface SupervisorOutput {
     totalTokens: number;
     cachedInputTokens?: number;
     cacheCreationInputTokens?: number;
+    /** The 5-minute-TTL share of `cacheCreationInputTokens`, when the provider reports a TTL split. */
+    cacheCreation5mInputTokens?: number;
   };
   /** Model id actually used for this turn (e.g. "claude-sonnet-5"). */
   model: string;

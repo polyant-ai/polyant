@@ -211,6 +211,7 @@ function logAndRecordUsage(
     {
       cachedInputTokens: response.usage.cachedInputTokens,
       cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
+      cacheCreation5mInputTokens: response.usage.cacheCreation5mInputTokens,
     },
   );
   // Propagate the split up to the pipeline (persisted per-message on pipeline_traces).
@@ -250,6 +251,7 @@ function costOfUsage(
   return estimateCostBreakdown(config.providerName, config.modelId, usage.promptTokens, usage.completionTokens, {
     cachedInputTokens: usage.cachedInputTokens,
     cacheCreationInputTokens: usage.cacheCreationInputTokens,
+    cacheCreation5mInputTokens: usage.cacheCreation5mInputTokens,
   }).total;
 }
 

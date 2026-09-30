@@ -360,6 +360,7 @@ export const api = {
         optoutClosingMessage?: string | null;
         optoutResumeMessage?: string | null;
         optoutInjectPromptHint?: boolean;
+        webContextFieldMapping?: Record<string, string>;
         /** Acknowledge the destructive memory/knowledge wipe on an embedding-provider switch. */
         confirmWipe?: boolean;
       },

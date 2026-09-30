@@ -339,6 +339,7 @@ async function main() {
         completionTokens: spend.completionTokens,
         cachedInputTokens: spend.cachedInputTokens,
         cacheCreationInputTokens: spend.cacheCreationInputTokens,
+        cacheCreation5mInputTokens: spend.cacheCreation5mInputTokens,
       },
       model: result.model,
       provider: result.provider,

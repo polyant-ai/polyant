@@ -16,6 +16,7 @@ import {
   sanitizeRemoteToolDescription,
   REMOTE_TOOL_DESCRIPTION_TAG,
 } from "../tools/mcp/mcp-tool-naming.js";
+import { PRIVATE_STATE_KEY } from "../../conversations/state.buffer.js";
 
 export { normalizeRequiredEnv, type RequiredEnvEntry } from "../../utils/frontmatter.js";
 
@@ -108,7 +109,17 @@ function renderChannelIdentitySection(
  * a large blob cannot blow up the prompt. The store remains the source of truth —
  * this section is informational for the model, not authoritative.
  */
-function renderConversationStateSection(state: Record<string, unknown>): string {
+/**
+ * `_private` never reaches the model: plugins keep there what they hand to an
+ * external integration (for example terms passed to a speech-to-text service)
+ * and rely on it staying out of the prompt.
+ */
+function isModelFacingKey(key: string): boolean {
+  return key !== PRIVATE_STATE_KEY;
+}
+
+function renderConversationStateSection(rawState: Record<string, unknown>): string {
+  const state = Object.fromEntries(Object.entries(rawState).filter(([key]) => isModelFacingKey(key)));
   if (Object.keys(state).length === 0) return "";
   // JSON.stringify escapes quotes but not angle brackets, so a string VALUE
   // holding `</conversation_state>` would close the block. The state store is

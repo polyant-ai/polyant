@@ -101,6 +101,12 @@ export const instances = pgTable("instances", {
   optoutResumeMessage: text("optout_resume_message"),
   /** When true, an informational opt-out hint is injected into the supervisor prompt. */
   optoutInjectPromptHint: boolean("optout_inject_prompt_hint").notNull().default(true),
+  /**
+   * Web channel call context: state key → dot-path into the `context` object a
+   * `chat/stream` request may carry, projected onto the conversation state before
+   * the turn. Empty = the web channel accepts no context.
+   */
+  webContextFieldMapping: jsonb("web_context_field_mapping").$type<Record<string, string>>().notNull().default({}),
   icon: text("icon"),
   sttProvider: text("stt_provider").notNull().default("disabled"),
   embeddingDim: integer("embedding_dim").notNull().default(1536),

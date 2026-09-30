@@ -19,6 +19,15 @@ import type { ChatCompletionRequest } from "./openai.types.js";
 const HEARTBEAT_MS = 25_000;
 
 /**
+ * Stream parts that mean the turn has produced something: from the first of
+ * them a client disconnect no longer aborts the pipeline. `tool-input-start`
+ * comes as soon as the model begins writing a tool call, before the tool runs.
+ */
+const OUTPUT_PARTS = new Set([
+  "text-delta", "reasoning-delta", "tool-input-start", "tool-call", "tool-result",
+]);
+
+/**
  * Native streaming endpoint for the admin playground (and other first-party UIs).
  *
  * Unlike `/v1/chat/completions` (OpenAI-compatible), this endpoint emits a
@@ -56,25 +65,36 @@ export class InstanceChatStreamController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
-    // A client that disconnects stops the relay. The RESPONSE's `close` is the
-    // signal, registered before the first await: the request's `close` fires
-    // as soon as its body has been read — by the body parser, before this
-    // handler runs — with the client still connected, so a listener on it
-    // never saw a disconnect. `writableFinished` tells our own `res.end()` apart
-    // from a client that went away.
+    // A client that disconnects aborts the pipeline itself only while the turn
+    // has produced nothing: an aborted turn is not persisted, and once the model
+    // has written text, reasoned or begun a tool call (which may write), the
+    // turn runs to its end and is saved, so its record never goes missing. After
+    // that the disconnect only stops the relay.
+    //
+    // The RESPONSE's `close` is the disconnect signal, registered before the
+    // first await. The request's `close` is not: since Node 16 it fires as soon
+    // as the body has been read — by the body parser, before this handler — with
+    // the client still connected. `writableFinished` tells our own `res.end()`
+    // apart from a client that went away.
     const abortController = new AbortController();
+    let produced = false;
+    let clientGone = false;
     let heartbeat: ReturnType<typeof setInterval> | undefined = undefined;
     res.on("close", () => {
       if (res.writableFinished) return;
       clearInterval(heartbeat);
-      if (!abortController.signal.aborted) abortController.abort();
+      clientGone = true;
+      if (!produced && !abortController.signal.aborted) abortController.abort();
     });
 
     // Per-instance API key auth (mirrors /v1/chat/completions). The global
     // JWT AuthGuard is skipped via @Public() — this route accepts the same
     // Bearer-token shape as the OpenAI-compatible endpoint, NOT a session
     // cookie. See instance-api-key-auth.ts for the rules.
-    await validateInstanceApiKey(slug, req.headers["authorization"] as string | undefined);
+    // Call context writes conversation state: it needs the agent's key even
+    // when the agent is otherwise open.
+    await validateInstanceApiKey(slug, req.headers["authorization"] as string | undefined,
+      body.context !== undefined && body.context !== null);
 
     // Force the model field to the URL slug — the playground already passes
     // it but we ignore any client-side override to keep the route authoritative.
@@ -105,7 +125,7 @@ export class InstanceChatStreamController {
 
     let stream;
     try {
-      stream = await this.openaiService.chatCompletionStream(request);
+      stream = await this.openaiService.chatCompletionStream(request, abortController.signal);
     } catch (err) {
       const message = err instanceof Error ? err.message : "stream initialisation failed";
       clearInterval(heartbeat);
@@ -147,7 +167,8 @@ export class InstanceChatStreamController {
         finishReason?: string;
         error?: unknown;
       }>) {
-        if (abortController.signal.aborted) break;
+        if (clientGone) break;
+        if (OUTPUT_PARTS.has(event.type)) produced = true;
 
         switch (event.type) {
           case "start-step": {

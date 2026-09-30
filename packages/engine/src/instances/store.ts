@@ -162,6 +162,7 @@ export interface Instance {
   optoutClosingMessage: string | null;
   optoutResumeMessage: string | null;
   optoutInjectPromptHint: boolean;
+  webContextFieldMapping: Record<string, string>;
   icon: string | null;
   sttProvider: string;
   embeddingDim: number;
@@ -417,6 +418,7 @@ type UpdatableInstanceFields = {
   optoutClosingMessage?: string | null;
   optoutResumeMessage?: string | null;
   optoutInjectPromptHint?: boolean;
+  webContextFieldMapping?: Record<string, string>;
   /**
    * The six per-agent settings that replaced `DATETIME_*`, `MESSAGE_*` and
    * `DEDUP_SIMILARITY_THRESHOLD`. `null` is a real value here — it clears the
@@ -464,6 +466,7 @@ const UPDATABLE_INSTANCE_KEYS = [
   "optoutClosingMessage",
   "optoutResumeMessage",
   "optoutInjectPromptHint",
+  "webContextFieldMapping",
   "datetimeTimezone",
   "datetimeLocale",
   "dedupSimilarityThreshold",

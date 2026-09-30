@@ -91,7 +91,8 @@ export class OpenAIController {
     // Use the Zod-validated model going forward — guarantees the slug regex.
     body.model = parsed.data.model;
 
-    await this.validateAuth(body.model, authHeader);
+    // Call context writes conversation state: it needs the agent's key even on an open agent.
+    await this.validateAuth(body.model, authHeader, body.context !== undefined && body.context !== null);
 
     if (body.stream) {
       return this.handleStreaming(body, res);
@@ -198,7 +199,7 @@ export class OpenAIController {
     };
   }
 
-  private async validateAuth(instanceSlug: string, authHeader?: string) {
-    return validateInstanceApiKey(instanceSlug, authHeader);
+  private async validateAuth(instanceSlug: string, authHeader?: string, requireKey = false) {
+    return validateInstanceApiKey(instanceSlug, authHeader, requireKey);
   }
 }

@@ -55,6 +55,10 @@ const {
         "o3": { input: 2.0, output: 8.0 },
       },
     },
+    anthropic: {
+      tiers: { fast: "claude-sonnet-5-5", standard: "claude-sonnet-5-5", heavy: "claude-sonnet-5-5" },
+      models: { "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 4, cacheWrite5m: 2.5 } },
+    },
     bedrock: {
       tiers: { fast: "titan", standard: "titan", heavy: "titan" },
       models: { "openai.gpt-oss-120b-1:0": { input: 0.2, output: 0.79 } },
@@ -210,7 +214,7 @@ describe("InstancesController", () => {
         "datetimeTimezone", "datetimeLocale", "dedupSimilarityThreshold",
         "messageSoftDebounceMs", "messageTypingDelayMs", "messageMaxRestarts",
         "cacheEnabled", "cacheTtl", "a2aEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
-        "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint",
+        "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint", "webContextFieldMapping",
         // Derived status blocks, not columns: `memory` is gated on the memory
         // flag, `embedder` is not — which is why the Knowledge tab needs it.
         "memory", "embedder",
@@ -547,6 +551,35 @@ describe("InstancesController", () => {
   });
 
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // webContextFieldMapping — normalized at the edge, reserved keys refused
+  // -------------------------------------------------------------------------
+  describe("update — webContextFieldMapping", () => {
+    beforeEach(() => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+      mockEmbeddingProviderChanged.mockReturnValue(false);
+    });
+
+    it("stores the mapping trimmed, without the editor's blank rows", async () => {
+      await controller.update("test-one", { webContextFieldMapping: { " phone ": " caller.phone ", "": "" } });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ webContextFieldMapping: { phone: "caller.phone" } }),
+      );
+    });
+
+    it("rejects a reserved state key or a malformed mapping (400)", async () => {
+      for (const webContextFieldMapping of [{ _channel: "x" }, { phone: "" }, ["phone"]]) {
+        await expect(
+          controller.update("test-one", { webContextFieldMapping: webContextFieldMapping as never }),
+        ).rejects.toThrow(BadRequestException);
+      }
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // The six per-agent settings — validated at the edge
   // -------------------------------------------------------------------------
   describe("update — the six per-agent settings", () => {
@@ -650,5 +683,15 @@ describe("InstancesController", () => {
       expect(o3?.costCacheRead).toBe(2.0);
       expect(o3?.costCacheWrite).toBe(2.0);
     });
+
+    it("publishes the 5m write rate only on models with two write tiers", () => {
+      const res = controller.getModels();
+      const sonnet = res.providers.anthropic.models.find((m) => m.id === "claude-sonnet-5-5");
+      expect(sonnet?.costCacheWrite).toBe(4); // a write with no reported TTL: 1h
+      expect(sonnet?.costCacheWrite5m).toBe(2.5);
+      const gpt4o = res.providers.openai.models.find((m) => m.id === "gpt-4o");
+      expect(gpt4o).not.toHaveProperty("costCacheWrite5m");
+    });
+
   });
 });

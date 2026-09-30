@@ -19,6 +19,8 @@ export interface PipelineTraceEntry {
   completionTokens?: number;
   cachedInputTokens?: number;
   cacheCreationInputTokens?: number;
+  /** The 5-minute-TTL share of `cacheCreationInputTokens`; absent when the provider reports no TTL split. */
+  cacheCreation5mInputTokens?: number;
   /** Model id actually used for this turn. */
   model?: string;
   /** Provider that served the model. */

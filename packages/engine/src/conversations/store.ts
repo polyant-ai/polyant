@@ -145,6 +145,8 @@ export interface MessageMetadata {
   completionTokens: number;
   cachedInputTokens?: number;
   cacheCreationInputTokens?: number;
+  /** The 5-minute-TTL share of `cacheCreationInputTokens`; null when the turn reported no TTL split. */
+  cacheCreation5mInputTokens?: number | null;
   model?: string | null;
   provider?: string | null;
   cost?: CostBreakdown | null;
@@ -907,6 +909,7 @@ export class ConversationStore {
           completionTokens: pipelineTraces.completionTokens,
           cachedInputTokens: pipelineTraces.cachedInputTokens,
           cacheCreationInputTokens: pipelineTraces.cacheCreationInputTokens,
+          cacheCreation5mInputTokens: pipelineTraces.cacheCreation5mInputTokens,
           model: pipelineTraces.model,
           provider: pipelineTraces.provider,
           cost: pipelineTraces.cost,
@@ -948,6 +951,7 @@ export class ConversationStore {
           completionTokens: trace.completionTokens ?? 0,
           cachedInputTokens: trace.cachedInputTokens ?? 0,
           cacheCreationInputTokens: trace.cacheCreationInputTokens ?? 0,
+          cacheCreation5mInputTokens: trace.cacheCreation5mInputTokens ?? null,
           model: trace.model ?? null,
           provider: trace.provider ?? null,
           cost: trace.cost ?? null,

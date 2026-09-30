@@ -119,6 +119,8 @@ export interface Instance {
   optoutResumeMessage: string | null;
   /** When true, a read-only opt-out hint is injected into the supervisor prompt. */
   optoutInjectPromptHint: boolean;
+  /** Web/API channel: conversation state key → dot-path into a request's `context`. */
+  webContextFieldMapping: Record<string, string>;
   sttProvider: string | null;
   icon: string | null;
   /**
@@ -211,6 +213,8 @@ export interface ModelInfo {
    */
   costCacheRead: number;
   costCacheWrite: number;
+  /** Rate of the writes a message reports as 5m TTL, on models with two write tiers (Anthropic 1P). */
+  costCacheWrite5m?: number;
   /** True when the provider+model has real prompt caching (a discount) — a UI hint. */
   supportsCache: boolean;
   /**
@@ -497,6 +501,8 @@ export interface ConversationMessage {
   /** Prompt-cache read/write token counts (assistant messages only). */
   cachedInputTokens?: number | null;
   cacheCreationInputTokens?: number | null;
+  /** The 5m-TTL share of `cacheCreationInputTokens`; null when the turn reported no TTL split. */
+  cacheCreation5mInputTokens?: number | null;
   /** Model id used for this turn (assistant messages only). */
   model?: string | null;
   /** Provider that served the model (assistant messages only). */

@@ -195,6 +195,12 @@ export interface CacheTokenUsage {
   cachedInputTokens?: number;
   /** Input tokens written to the prompt cache (Anthropic bills these at a premium). */
   cacheCreationInputTokens?: number;
+  /**
+   * The part of `cacheCreationInputTokens` the provider reported as 5-minute-TTL
+   * writes (Anthropic's `cache_creation.ephemeral_5m_input_tokens`). Absent when
+   * the provider reports no TTL split: every write is then billed at `cacheWrite`.
+   */
+  cacheCreation5mInputTokens?: number;
 }
 
 /**
@@ -205,10 +211,13 @@ export interface CacheTokenUsage {
  * discount (Nebius) and for non-cacheable families. This is the single pricing
  * source — there is no separate multiplier table.
  */
-function resolveCacheRates(pricing: ModelCapabilities): { read: number; write: number } {
+function resolveCacheRates(pricing: ModelCapabilities): { read: number; write: number; write5m: number } {
+  const write = pricing.cacheWrite ?? pricing.input;
   return {
     read: pricing.cacheRead ?? pricing.input,
-    write: pricing.cacheWrite ?? pricing.input,
+    write,
+    // A model with one write tier bills a reported 5m write like any other write.
+    write5m: pricing.cacheWrite5m ?? write,
   };
 }
 
@@ -248,12 +257,15 @@ export function estimateCostBreakdown(
 
   const cacheRead = Math.max(0, cache?.cachedInputTokens ?? 0);
   const cacheWrite = Math.max(0, cache?.cacheCreationInputTokens ?? 0);
+  // The reported 5m writes are a subset of all writes; the rest (1h, or TTL
+  // not reported) are billed at `cacheWrite`, exactly as before the split.
+  const cacheWrite5m = Math.min(cacheWrite, Math.max(0, cache?.cacheCreation5mInputTokens ?? 0));
   const regularInput = Math.max(0, promptTokens - cacheRead - cacheWrite);
   const rates = resolveCacheRates(pricing);
 
   const input = (regularInput * pricing.input) / 1_000_000;
   const cacheReadCost = (cacheRead * rates.read) / 1_000_000;
-  const cacheWriteCost = (cacheWrite * rates.write) / 1_000_000;
+  const cacheWriteCost = ((cacheWrite - cacheWrite5m) * rates.write + cacheWrite5m * rates.write5m) / 1_000_000;
   const cacheCost = cacheReadCost + cacheWriteCost;
   const output = (completionTokens * pricing.output) / 1_000_000;
 
