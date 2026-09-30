@@ -125,6 +125,7 @@ export async function importNewInstance(
         optoutClosingMessage: data.optoutClosingMessage,
         optoutResumeMessage: data.optoutResumeMessage,
         optoutInjectPromptHint: data.optoutInjectPromptHint,
+        webContextFieldMapping: data.webContextFieldMapping,
         icon: data.icon ?? null,
         workspaceId,
       })
@@ -253,6 +254,7 @@ export async function importOverwriteInstance(
         optoutClosingMessage: data.optoutClosingMessage,
         optoutResumeMessage: data.optoutResumeMessage,
         optoutInjectPromptHint: data.optoutInjectPromptHint,
+        webContextFieldMapping: data.webContextFieldMapping,
         icon: data.icon ?? null,
         // NB: embeddingProvider/embeddingDim are deliberately NOT updated here —
         // switching an existing instance's embedder wipes all vectors (memories +

@@ -118,4 +118,45 @@ describe("ChannelWebTab", () => {
     await waitFor(() => expect(mockToastError).toHaveBeenCalled());
     expect(mockInstanceUpdate).not.toHaveBeenCalled();
   });
+
+  describe("context fields", () => {
+    it("saves the mapping the rows describe, trimmed and without blank rows", async () => {
+      mockSecretsList.mockResolvedValue({ secrets: [{ key: "auth_api_key", configured: true }] });
+      mockInstanceUpdate.mockResolvedValue({ instance: agent({ webContextFieldMapping: { phone: "phone" } }) });
+      renderTab(agent({ webContextFieldMapping: {} }));
+
+      await userEvent.click(screen.getByText("channels.tab.mappingAdd"));
+      await userEvent.type(screen.getByLabelText("channels.tab.mappingStateKey"), " phone ");
+      await userEvent.type(screen.getByLabelText("channels.tab.webContextMappingPath"), "phone");
+      await userEvent.click(screen.getByText("channels.tab.mappingAdd"));
+      await userEvent.click(screen.getByText("common.save"));
+
+      await waitFor(() => expect(mockInstanceUpdate).toHaveBeenCalledWith("bot-1", {
+        authEnabled: false,
+        webContextFieldMapping: { phone: "phone" },
+      }));
+    });
+
+    it("shows the key field once a field is mapped, even with authentication off", async () => {
+      renderTab(agent({ authEnabled: false, webContextFieldMapping: { phone: "phone" } }));
+      expect(screen.getByText("settings.tab.authApiKey")).toBeInTheDocument();
+    });
+
+    it("refuses to save a mapping with no key behind it", async () => {
+      renderTab(agent({ webContextFieldMapping: {} }));
+      await userEvent.click(screen.getByText("channels.tab.mappingAdd"));
+      await userEvent.type(screen.getByLabelText("channels.tab.mappingStateKey"), "phone");
+      await userEvent.type(screen.getByLabelText("channels.tab.webContextMappingPath"), "phone");
+      await userEvent.click(screen.getByText("common.save"));
+
+      await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("channels.tab.webContextKeyRequired"));
+      expect(mockInstanceUpdate).not.toHaveBeenCalled();
+    });
+
+    it("is not dirty when the saved mapping is shown unchanged", async () => {
+      renderTab(agent({ webContextFieldMapping: { phone: "phone", contact_id: "contactId" } }));
+      await waitFor(() => expect(mockSecretsList).toHaveBeenCalled());
+      expect(screen.queryByText("common.save")).not.toBeInTheDocument();
+    });
+  });
 });

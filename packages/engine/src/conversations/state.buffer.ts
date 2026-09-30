@@ -13,6 +13,23 @@ export const CHANNEL_STATE_KEY = "_channel";
  *  prompt. */
 export const PRIVATE_STATE_KEY = "_private";
 
+/**
+ * State keys nobody outside the engine may target: the server-seeded channel
+ * identity (`_channel`) and the prototype-pollution names.
+ *
+ * SINGLE SOURCE. Every boundary that lets a caller/client name a state key must
+ * narrow on THIS set — the web context field mapping
+ * (`conversations/field-mapping.ts`) does. A second hand-written copy would
+ * diverge the moment a key is added here, and the boundary that kept the stale
+ * copy would be the one still accepting it.
+ */
+export const RESERVED_STATE_KEYS: ReadonlySet<string> = new Set<string>([
+  CHANNEL_STATE_KEY,
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
+
 /** Max serialized size of a conversation's state blob, enforced at write time so
  *  a tool cannot grow an unbounded JSONB row (indirectly from LLM output). */
 export const MAX_STATE_BYTES = 64 * 1024;

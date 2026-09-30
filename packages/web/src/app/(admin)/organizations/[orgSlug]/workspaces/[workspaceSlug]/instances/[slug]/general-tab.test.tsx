@@ -121,6 +121,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     optoutClosingMessage: null,
     optoutResumeMessage: null,
     optoutInjectPromptHint: false,
+    webContextFieldMapping: {},
     sttProvider: "openai",
     icon: null,
     createdAt: "2025-01-01T00:00:00Z",

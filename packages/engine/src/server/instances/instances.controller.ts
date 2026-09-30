@@ -29,6 +29,7 @@ import {
   invalidateInstanceConfigCache,
   resolveEffectiveModelSelection,
 } from "../../instances/config-resolver.js";
+import { normalizeFieldMapping } from "../../conversations/field-mapping.js";
 import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
 import {
   embeddingProviderChanged,
@@ -105,6 +106,7 @@ function toInstanceDto(instance: Instance) {
     optoutClosingMessage: instance.optoutClosingMessage,
     optoutResumeMessage: instance.optoutResumeMessage,
     optoutInjectPromptHint: instance.optoutInjectPromptHint,
+    webContextFieldMapping: instance.webContextFieldMapping,
     sttProvider: instance.sttProvider,
     embeddingDim: instance.embeddingDim,
     embeddingProvider: instance.embeddingProvider,
@@ -355,6 +357,7 @@ export class InstancesController {
       optoutClosingMessage?: string | null;
       optoutResumeMessage?: string | null;
       optoutInjectPromptHint?: boolean;
+      webContextFieldMapping?: Record<string, string>;
       /**
        * Explicit acknowledgement that changing the embedding provider will
        * permanently delete this instance's memories and knowledge base. Required
@@ -368,6 +371,13 @@ export class InstancesController {
     this.validateEmbeddingProvider(body.embeddingProvider);
     body.optoutStopKeywords = this.normalizeKeywords(body.optoutStopKeywords, "optoutStopKeywords");
     body.optoutResumeKeywords = this.normalizeKeywords(body.optoutResumeKeywords, "optoutResumeKeywords");
+    if (body.webContextFieldMapping !== undefined) {
+      try {
+        body.webContextFieldMapping = normalizeFieldMapping(body.webContextFieldMapping, "webContextFieldMapping");
+      } catch (err) {
+        throw new BadRequestException((err as Error).message);
+      }
+    }
     if (body.temperature !== undefined) {
       body.temperature = clampTemperature(body.temperature);
     }

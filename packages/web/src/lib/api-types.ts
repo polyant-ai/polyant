@@ -119,6 +119,8 @@ export interface Instance {
   optoutResumeMessage: string | null;
   /** When true, a read-only opt-out hint is injected into the supervisor prompt. */
   optoutInjectPromptHint: boolean;
+  /** Web/API channel: conversation state key → dot-path into a request's `context`. */
+  webContextFieldMapping: Record<string, string>;
   sttProvider: string | null;
   icon: string | null;
   /**

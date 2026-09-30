@@ -18,6 +18,20 @@ vi.mock("../../instances/store.js", () => ({
   resolvePrincipalOrgId: mockResolvePrincipalOrgId,
 }));
 
+// Call context: the agent's mapping and the state write, stubbed.
+const { mockResolveInstanceConfig, mockFlushConversationState } = vi.hoisted(() => ({
+  mockResolveInstanceConfig: vi.fn(),
+  mockFlushConversationState: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../instances/config-resolver.js", () => ({
+  resolveInstanceConfig: mockResolveInstanceConfig,
+}));
+
+vi.mock("../../conversations/state.store.js", () => ({
+  flushConversationState: mockFlushConversationState,
+}));
+
 // Mock config to provide DEFAULT_INSTANCE_ID
 vi.mock("../../config.js", () => ({
   DEFAULT_INSTANCE_ID: "default-instance",
@@ -279,6 +293,91 @@ describe("OpenAIService", () => {
         completion_tokens: 0,
         total_tokens: 0,
       });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Call context → conversation state, through the agent's web mapping, before
+  // the turn.
+  // -------------------------------------------------------------------------
+  describe("call context", () => {
+    const user = [{ role: "user" as const, content: "Pronto" }];
+
+    beforeEach(() => {
+      mockResolveInstanceConfig.mockReset();
+      mockFlushConversationState.mockClear();
+    });
+
+    function streamingService(handler = vi.fn().mockResolvedValue({ textStream: [], fullStream: [], completed: Promise.resolve({ text: "" }) })) {
+      const service = new OpenAIService();
+      service.setStreamMessageHandler(handler);
+      return { service, handler };
+    }
+
+    it("should_project_the_mapped_context_onto_the_turns_conversation_state_before_the_turn", async () => {
+      mockResolveInstanceConfig.mockResolvedValue({
+        webContextFieldMapping: { phone: "caller.phone", account: "account", contact_id: "contactId" },
+      });
+      const order: string[] = [];
+      mockFlushConversationState.mockImplementation(async () => { order.push("state"); });
+      const { service, handler } = streamingService(vi.fn().mockImplementation(async () => {
+        order.push("turn");
+        return { textStream: [], fullStream: [], completed: Promise.resolve({ text: "" }) };
+      }));
+
+      await service.chatCompletionStream(makeRequest(user, {
+        chat_id: "CA123",
+        context: { caller: { phone: "+39000" }, account: { accountId: "299" }, secret: "dropped" },
+      }));
+
+      expect(mockFlushConversationState).toHaveBeenCalledWith(
+        "test-instance:web:api-CA123",
+        "test-instance",
+        { phone: "+39000", account: { accountId: "299" } },
+        [],
+      );
+      expect(order).toEqual(["state", "turn"]);
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it("should_touch_neither_config_nor_state_without_context", async () => {
+      const { service } = streamingService();
+      await service.chatCompletionStream(makeRequest(user, { chat_id: "CA123" }));
+      expect(mockResolveInstanceConfig).not.toHaveBeenCalled();
+      expect(mockFlushConversationState).not.toHaveBeenCalled();
+    });
+
+    it("should_refuse_context_on_an_agent_that_maps_no_web_fields", async () => {
+      mockResolveInstanceConfig.mockResolvedValue({ webContextFieldMapping: {} });
+      const { service, handler } = streamingService();
+      await expect(service.chatCompletionStream(makeRequest(user, { chat_id: "CA123", context: { phone: "+39000" } })))
+        .rejects.toThrow(/maps no web context fields/);
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("should_refuse_context_without_chat_id_or_that_is_not_an_object", async () => {
+      const { service, handler } = streamingService();
+      await expect(service.chatCompletionStream(makeRequest(user, { context: { phone: "+39000" } })))
+        .rejects.toThrow(/requires chat_id/);
+      await expect(service.chatCompletionStream(makeRequest(user, { chat_id: "CA123", context: ["phone"] })))
+        .rejects.toThrow(/must be an object/);
+      expect(handler).not.toHaveBeenCalled();
+      expect(mockFlushConversationState).not.toHaveBeenCalled();
+    });
+
+    it("should_project_the_context_on_the_non_streamed_completion_too", async () => {
+      mockResolveInstanceConfig.mockResolvedValue({ webContextFieldMapping: { phone: "phone" } });
+      const service = new OpenAIService();
+      service.setMessageHandler(async () => ({ text: "ok" }));
+      await service.chatCompletion(makeRequest(user, { chat_id: "CA123", context: { phone: "+39000" } }));
+      expect(mockFlushConversationState).toHaveBeenCalledWith("test-instance:web:api-CA123", "test-instance", { phone: "+39000" }, []);
+    });
+
+    it("should_hand_the_callers_abort_signal_to_the_pipeline", async () => {
+      const { service, handler } = streamingService();
+      const abort = new AbortController();
+      await service.chatCompletionStream(makeRequest(user, { chat_id: "CA123" }), abort.signal);
+      expect(handler.mock.calls[0]?.[1]).toBe(abort.signal);
     });
   });
 });

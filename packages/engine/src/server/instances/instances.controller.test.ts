@@ -214,7 +214,7 @@ describe("InstancesController", () => {
         "datetimeTimezone", "datetimeLocale", "dedupSimilarityThreshold",
         "messageSoftDebounceMs", "messageTypingDelayMs", "messageMaxRestarts",
         "cacheEnabled", "cacheTtl", "a2aEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
-        "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint",
+        "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint", "webContextFieldMapping",
         // Derived status blocks, not columns: `memory` is gated on the memory
         // flag, `embedder` is not — which is why the Knowledge tab needs it.
         "memory", "embedder",
@@ -547,6 +547,35 @@ describe("InstancesController", () => {
         expect.anything(),
         expect.objectContaining({ temperature: null }),
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // webContextFieldMapping — normalized at the edge, reserved keys refused
+  // -------------------------------------------------------------------------
+  describe("update — webContextFieldMapping", () => {
+    beforeEach(() => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+      mockEmbeddingProviderChanged.mockReturnValue(false);
+    });
+
+    it("stores the mapping trimmed, without the editor's blank rows", async () => {
+      await controller.update("test-one", { webContextFieldMapping: { " phone ": " caller.phone ", "": "" } });
+      expect(mockUpdateInstance).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ webContextFieldMapping: { phone: "caller.phone" } }),
+      );
+    });
+
+    it("rejects a reserved state key or a malformed mapping (400)", async () => {
+      for (const webContextFieldMapping of [{ _channel: "x" }, { phone: "" }, ["phone"]]) {
+        await expect(
+          controller.update("test-one", { webContextFieldMapping: webContextFieldMapping as never }),
+        ).rejects.toThrow(BadRequestException);
+      }
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
     });
   });
 

@@ -116,6 +116,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     optoutClosingMessage: instance.optoutClosingMessage,
     optoutResumeMessage: instance.optoutResumeMessage,
     optoutInjectPromptHint: instance.optoutInjectPromptHint,
+    webContextFieldMapping: instance.webContextFieldMapping,
     prompts,
     skills: skillAssignments,
     manualTools: manualToolNames,

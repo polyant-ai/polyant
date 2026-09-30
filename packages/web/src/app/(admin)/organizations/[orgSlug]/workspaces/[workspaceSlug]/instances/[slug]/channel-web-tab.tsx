@@ -12,6 +12,13 @@ import { SECRET_KEYS } from "@/lib/provider-secrets";
 import { api, getUserErrorMessage, type Instance } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
+import { FieldMappingEditor, mappingFromRows, type MappingRow, rowsFromMapping } from "./field-mapping-editor";
+
+/** Same mapping regardless of key order: the engine stores an object, the editor a list. */
+function sameMapping(a: Record<string, string>, b: Record<string, string>): boolean {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => b[key] === a[key]);
+}
 
 interface Props {
   instance: Instance;
@@ -43,14 +50,23 @@ interface Props {
  * The key is agent-only: `auth_api_key` is deliberately absent from the
  * organization-shareable set, because one org-level key would authenticate every
  * agent in the organization.
+ *
+ * The context fields map a request's `context` onto the conversation state
+ * before the turn. A request that carries context needs the key even when the
+ * switch is off (it writes state), so the key field shows as soon as a field is
+ * mapped.
  */
 export function ChannelWebTab({ instance, onUpdate }: Props) {
   const { t } = useI18n();
   const [authEnabled, setAuthEnabled] = useState(instance.authEnabled);
   const [saving, setSaving] = useState(false);
   const apiKey = useInstanceSecret(instance.slug, SECRET_KEYS.AUTH);
+  const savedMapping = instance.webContextFieldMapping ?? {};
+  const [mappingRows, setMappingRows] = useState<MappingRow[]>(() => rowsFromMapping(savedMapping));
+  const mapping = mappingFromRows(mappingRows);
+  const mapsContext = Object.keys(mapping).length > 0;
 
-  const isDirty = authEnabled !== instance.authEnabled || apiKey.dirty;
+  const isDirty = authEnabled !== instance.authEnabled || apiKey.dirty || !sameMapping(mapping, savedMapping);
 
   const handleSave = async () => {
     // Turning auth ON with no key — neither stored nor typed — saves a state the
@@ -61,13 +77,23 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
       toast.error(t("channels.tab.webAuthKeyRequired"));
       return;
     }
+    // Context fields with no key would save a mapping the engine refuses to use:
+    // every request with context answers 401 until a key exists.
+    if (mapsContext && !apiKey.configured && !apiKey.value.trim()) {
+      toast.error(t("channels.tab.webContextKeyRequired"));
+      return;
+    }
 
     setSaving(true);
     try {
       // The key first: a failure here must never leave the switch on with nothing
       // behind it, which would refuse every caller.
       await apiKey.save();
-      const { instance: updated } = await api.instances.update(instance.slug, { authEnabled });
+      const { instance: updated } = await api.instances.update(instance.slug, {
+        authEnabled,
+        webContextFieldMapping: mapping,
+      });
+      setMappingRows(rowsFromMapping(updated.webContextFieldMapping ?? mapping));
       onUpdate(updated);
       toast.success(t("settings.tab.saved"));
     } catch (err) {
@@ -99,7 +125,7 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
           />
         </div>
 
-        {authEnabled && (
+        {(authEnabled || mapsContext) && (
           <SecretField
             label={t("settings.tab.authApiKey")}
             value={apiKey.value}
@@ -115,6 +141,16 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
             onRemove={apiKey.configured ? apiKey.remove : undefined}
           />
         )}
+      </section>
+
+      <section className="space-y-2 rounded-lg border p-4">
+        <Label className="text-base font-medium">{t("channels.tab.webContextMapping")}</Label>
+        <p className="text-sm text-muted-foreground">{t("channels.tab.webContextMappingHelp")}</p>
+        <FieldMappingEditor
+          rows={mappingRows}
+          onChange={setMappingRows}
+          pathPlaceholder={t("channels.tab.webContextMappingPath")}
+        />
       </section>
     </div>
   );

@@ -160,6 +160,7 @@ export const exportInstanceDataSchema = z.object({
   optoutClosingMessage: z.string().nullable().default(null),
   optoutResumeMessage: z.string().nullable().default(null),
   optoutInjectPromptHint: z.boolean().default(true),
+  webContextFieldMapping: z.record(z.string(), z.string()).default({}),
   prompts: z.array(exportPromptSchema),
   skills: z.array(exportSkillAssignmentSchema),
   manualTools: z.array(z.string()),

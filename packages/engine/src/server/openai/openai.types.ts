@@ -13,6 +13,12 @@ export interface ChatCompletionRequest {
   max_tokens?: number;
   /** Client-provided conversation ID for stable session tracking (e.g. Open WebUI chat_id). */
   chat_id?: string;
+  /**
+   * Call context (e.g. the caller's phone and contact ids): projected onto the
+   * conversation state through the agent's `webContextFieldMapping` before the
+   * turn. Requires `chat_id` and the agent's API key.
+   */
+  context?: unknown;
 }
 
 export interface ChatCompletionResponse {

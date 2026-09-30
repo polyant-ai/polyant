@@ -21,11 +21,14 @@ import { asInstanceSlug } from "../../instances/identifiers.js";
  *  - "Missing Bearer token"                   header absent / wrong scheme
  *  - "Invalid API key"                        timing-safe comparison failed
  *
- * When `authEnabled` is false the function returns silently — open access.
+ * When `authEnabled` is false the function returns silently — open access —
+ * unless `requireKey`: a request carrying call `context` writes conversation
+ * state, so it needs the agent's key even on an open agent.
  */
 export async function validateInstanceApiKey(
   instanceSlug: string,
   authHeader?: string,
+  requireKey = false,
 ): Promise<void> {
   const slug = asInstanceSlug(instanceSlug);
   const instance = await findInstanceBySlug(slug);
@@ -34,10 +37,12 @@ export async function validateInstanceApiKey(
   }
 
   const instanceConfig = await resolveInstanceConfig(slug);
-  if (!instanceConfig.authEnabled) return; // Auth not enabled = open access
+  // Ordinary chat may be open; a request that writes conversation state may not.
+  if (!instanceConfig.authEnabled && !requireKey) return;
 
   if (!instanceConfig.authApiKey) {
-    throw new UnauthorizedException("Auth enabled but no API key configured");
+    throw new UnauthorizedException(requireKey && !instanceConfig.authEnabled
+      ? "Call context requires the agent's API key" : "Auth enabled but no API key configured");
   }
 
   if (!authHeader?.startsWith("Bearer ")) {

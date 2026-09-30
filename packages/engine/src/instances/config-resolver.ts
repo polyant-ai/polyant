@@ -56,6 +56,8 @@ export interface InstanceConfig {
   temperature: number | null;
   /** When true, the conversation state store is rendered read-only into the system prompt. */
   stateInPromptEnabled: boolean;
+  /** Web channel: state key → dot-path into a `chat/stream` request's `context` (empty = no context accepted). */
+  webContextFieldMapping: Record<string, string>;
   /** When true, inject the current date/time into every turn (volatile tail). */
   datetimeInjectionEnabled: boolean;
   /**
@@ -156,6 +158,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       thinkingLevel: "medium",
       temperature: null,
       stateInPromptEnabled: false,
+      webContextFieldMapping: {},
       datetimeInjectionEnabled: true,
       datetime: resolveDatetimeSettings(UNSET_AGENT_SETTINGS),
       dedupSimilarityThreshold: resolveDedupSimilarityThreshold(UNSET_AGENT_SETTINGS),
@@ -243,6 +246,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       ? clampTemperature(instance.temperature)
       : null,
     stateInPromptEnabled: instance.stateInPromptEnabled,
+    webContextFieldMapping: instance.webContextFieldMapping ?? {},
     datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
     datetime: resolveDatetimeSettings(instance),
     dedupSimilarityThreshold: resolveDedupSimilarityThreshold(instance),

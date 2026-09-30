@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { randomUUID } from "crypto";
 import type { ModelMessage } from "ai";
 import type { MessageHandler, StreamMessageHandler, StreamOutgoingMessage } from "../../channels/types.js";
@@ -18,6 +18,9 @@ import {
 import { asInstanceSlug, type InstanceSlug } from "../../instances/identifiers.js";
 import { orgScope } from "../../authz/scope-filter.js";
 import { NO_TRANSACTION } from "../../database/client.js";
+import { resolveInstanceConfig } from "../../instances/config-resolver.js";
+import { extractMappedFields } from "../../conversations/field-mapping.js";
+import { flushConversationState } from "../../conversations/state.store.js";
 
 /**
  * The two principal shapes that can reach GET /v1/models (see AuthGuard): a
@@ -62,8 +65,9 @@ export class OpenAIService {
   async chatCompletion(
     request: ChatCompletionRequest,
   ): Promise<ChatCompletionResponse> {
-    const { text, conversationHistory, instanceId, channelId } =
+    const { text, conversationHistory, instanceId, channelId, context } =
       this.prepareRequest(request);
+    await this.preloadContext(instanceId, channelId, context);
 
     // Call the pipeline via messageHandler
     const result = await this.messageHandler({
@@ -103,11 +107,18 @@ export class OpenAIService {
     };
   }
 
+  /**
+   * `signal` aborts the pipeline itself (the model, further tool steps, and the
+   * persistence of the turn), not just the relay of its events: a caller that
+   * hangs up on an answer should not keep paying for it.
+   */
   async chatCompletionStream(
     request: ChatCompletionRequest,
+    signal?: AbortSignal,
   ): Promise<StreamOutgoingMessage> {
-    const { text, conversationHistory, instanceId, channelId } =
+    const { text, conversationHistory, instanceId, channelId, context } =
       this.prepareRequest(request);
+    await this.preloadContext(instanceId, channelId, context);
 
     return this.streamMessageHandler({
       channelType: "web",
@@ -115,7 +126,32 @@ export class OpenAIService {
       instanceId,
       text,
       metadata: { conversationHistory },
-    });
+    }, signal);
+  }
+
+  /**
+   * Project the request's call `context` onto the conversation state before the
+   * turn, through the agent's `webContextFieldMapping`, so tools and hooks read
+   * it from `ctx.state`. The pipeline loads the state after this, so even the
+   * first turn's `conversation_start` hooks see it.
+   */
+  private async preloadContext(
+    instanceId: InstanceSlug,
+    channelId: string,
+    context: Record<string, unknown> | undefined,
+  ): Promise<void> {
+    if (!context) return;
+    const { webContextFieldMapping } = await resolveInstanceConfig(instanceId);
+    if (Object.keys(webContextFieldMapping).length === 0) {
+      throw new BadRequestException("This agent maps no web context fields: configure them before sending context");
+    }
+    let mapped: Record<string, unknown>;
+    try {
+      mapped = extractMappedFields(context, webContextFieldMapping);
+    } catch (err) {
+      throw new BadRequestException(err instanceof Error ? err.message : "Invalid context");
+    }
+    await flushConversationState(buildWebConversationId(instanceId, channelId), instanceId, mapped, []);
   }
 
   private prepareRequest(request: ChatCompletionRequest): {
@@ -123,8 +159,11 @@ export class OpenAIService {
     conversationHistory: ModelMessage[];
     instanceId: InstanceSlug;
     channelId: string;
+    context?: Record<string, unknown>;
   } {
     const { messages, chat_id } = request;
+    const context = parseContext(request.context);
+    if (context && !chat_id) throw new BadRequestException("context requires chat_id");
 
     // Extract the last user message as the main text
     const lastUserMsg = [...messages]
@@ -162,7 +201,7 @@ export class OpenAIService {
 
     const channelId = this.deriveChannelId(messages, chat_id);
 
-    return { text, conversationHistory, instanceId, channelId };
+    return { text, conversationHistory, instanceId, channelId, ...(context ? { context } : {}) };
   }
 
   /**
@@ -207,4 +246,22 @@ export class OpenAIService {
         content: m.content,
       }));
   }
+}
+
+/**
+ * The conversation id the pipeline derives for a web turn
+ * (`${instanceId}:${channelType}:${channelId}`, see `preparePipeline`): state
+ * written before the turn must land on the row the turn will load.
+ */
+export function buildWebConversationId(instanceId: InstanceSlug, channelId: string): string {
+  return `${instanceId}:web:${channelId}`;
+}
+
+/** A request's `context`: absent, or a plain JSON object (anything else is a 400). */
+function parseContext(value: unknown): Record<string, unknown> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new BadRequestException("context must be an object");
+  }
+  return value as Record<string, unknown>;
 }

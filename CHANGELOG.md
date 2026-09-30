@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Web chat context: `POST /api/instances/:slug/chat/stream` (and
+  `/v1/chat/completions`) accept a `context` object that is projected onto the
+  conversation state before the turn, through a per-agent web context field
+  mapping edited under Channels → Web/API, so a voice or web front end hands
+  tools and hooks the caller's identity and keeps streaming. It requires
+  `chat_id` and the agent's API key, even on an agent that is otherwise open.
+  Migration `0085` adds the column.
+- `_private` is a reserved conversation-state key that is stored and returned by
+  the state API but never rendered into the prompt.
 - Settings → General holds the installation's operational policies: the engine's
   public address, the two live-stream caps, the rate-limit window and request
   limit, the agent-to-agent and MCP connection timeouts, and the two scheduler
@@ -49,6 +58,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `chat/stream` now aborts the pipeline when the client disconnects before the
+  turn has produced anything (no text, reasoning or tool call yet): the model
+  stops and the abandoned turn is not persisted. Once the turn has produced
+  something it runs to its end and is saved, so a tool that may have written is
+  never left unrecorded.
 - A Telegram channel went silent after every rolling deploy: the replica being
   stopped deleted the webhook the new one had just registered. The webhook is
   now removed only when the channel is switched off or deleted, or its agent is
