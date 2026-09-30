@@ -24,20 +24,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import {
-  getTableConfig,
-  PgTable,
-  type PgTable as PgTableType,
-} from "drizzle-orm/pg-core";
-import { is } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { instances } from "./schema.js";
 import { exportInstanceDataSchema } from "./export.schema.js";
-
-const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+import { perAgentTables } from "../database/per-agent-tables.js";
 
 /** Columns of `instances` that are deliberately not bundle fields. */
 const COLUMNS_NOT_EXPORTED: Record<string, string> = {
@@ -147,51 +138,6 @@ const BUNDLE_SECTIONS: Record<string, { field: string; notCarried?: Record<strin
 
 /** Columns that identify a row rather than configure it, in every table. */
 const ROW_IDENTITY = new Set(["id", "instance_id", "assistant_id", "created_at", "updated_at"]);
-
-/** Column names that make a table per-agent, under every spelling in the tree. */
-const AGENT_KEYS = ["instance_id", "assistant_id"];
-
-/**
- * Every table that belongs to one agent: a table with an agent key, or one
- * whose foreign key reaches such a table. The second half is what finds a child
- * table like `event_definitions`, which names its parent and never the agent.
- */
-async function perAgentTables(): Promise<Map<string, PgTableType>> {
-  const all = new Map<string, PgTableType>();
-  const files = readdirSync(SRC_ROOT, { recursive: true, encoding: "utf8" })
-    .filter((f) => typeof f === "string")
-    .filter((f) => f.endsWith("schema.ts") || f.endsWith("logger.ts"))
-    .filter((f) => !f.includes(".test."));
-
-  for (const file of files) {
-    const mod: Record<string, unknown> = await import(join(SRC_ROOT, file));
-    for (const value of Object.values(mod)) {
-      if (is(value, PgTable)) all.set(getTableConfig(value as PgTableType).name, value as PgTableType);
-    }
-  }
-
-  const found = new Map<string, PgTableType>();
-  for (const [name, table] of all) {
-    const config = getTableConfig(table);
-    if (name === "instances" || config.columns.some((c) => AGENT_KEYS.includes(c.name))) {
-      found.set(name, table);
-    }
-  }
-  for (let grew = true; grew; ) {
-    grew = false;
-    for (const [name, table] of all) {
-      if (found.has(name)) continue;
-      const parents = getTableConfig(table).foreignKeys.map(
-        (fk) => getTableConfig(fk.reference().foreignTable).name,
-      );
-      if (parents.some((parent) => found.has(parent))) {
-        found.set(name, table);
-        grew = true;
-      }
-    }
-  }
-  return found;
-}
 
 /** The object schema under a bundle field, through arrays, defaults and nullables. */
 function objectAt(path: string): z.ZodObject<z.ZodRawShape> | undefined {
