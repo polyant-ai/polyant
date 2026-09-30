@@ -132,10 +132,17 @@ export interface TokenUsage {
   cachedInputTokens?: number;
   /**
    * Input tokens written to the provider prompt cache (cache WRITE). Subset of
-   * `promptTokens`. Anthropic-only in practice (OpenAI caching is automatic and
-   * reports no write). Priced at a premium by `estimateCost`.
+   * `promptTokens`. Reported by Anthropic (1P and Bedrock) and by OpenAI from
+   * GPT-5.6 on. Priced at a premium by `estimateCost`.
    */
   cacheCreationInputTokens?: number;
+  /**
+   * The part of `cacheCreationInputTokens` the provider reported as 5-minute-TTL
+   * writes — Anthropic 1P splits its writes by TTL, and a 5m write costs less than
+   * a 1h one. Absent when no step reported a split (every other provider, and
+   * older rows): the writes are then all billed at the model's `cacheWrite`.
+   */
+  cacheCreation5mInputTokens?: number;
 }
 
 /**

@@ -142,27 +142,40 @@ describe("estimateCost", () => {
     expect(cost).toBeCloseTo(expected, 12);
   });
 
-  it("prices an OpenAI cache read at its own rate and charges nothing to write", () => {
-    // gpt-5.6-luna: input $0.20/1M, output $1.20/1M, cached input $0.02/1M.
-    // 1000 input = 200 full + 600 read + 200 write.
-    //
-    // This used to assert a 1.25x WRITE premium on the 5.6 family. The published
-    // table has three columns — input, cached input, output — and no cache write
-    // at all, so a write costs nothing here as on every other OpenAI row.
+  it("prices an OpenAI GPT-5.6+ cache write at 1.25x the uncached input rate", () => {
+    // gpt-5.6-luna, published $/1M: input 0.20, cached input 0.02, cache write
+    // 0.25, output 1.20. 1000 input = 200 full + 600 read + 200 write.
     const cost = estimateCost("openai", "gpt-5.6-luna", 1000, 500, {
       cachedInputTokens: 600,
       cacheCreationInputTokens: 200,
     });
-    const expected =
-      (200 * 0.2) / 1_000_000 + // regular input
-      (600 * 0.02) / 1_000_000 + // cache read, an absolute rate
-      0 + // cache write is not charged
-      (500 * 1.2) / 1_000_000; // output
+    const expected = (200 * 0.2 + 600 * 0.02 + 200 * 0.25 + 500 * 1.2) / 1_000_000;
     expect(cost).toBeCloseTo(expected, 12);
-    expect(estimateCost("openai", "gpt-6-sol", 1000, 0, { cacheCreationInputTokens: 1000 })).toBeCloseTo(
-      0,
+  });
+
+  it("prices a GPT-6 Luna cache write at the published $0.125/1M", () => {
+    // Written as 0 before, so a GPT-6 turn's writes cost nothing and a cached
+    // run looked ~2.5x cheaper than it was.
+    expect(estimateCost("openai", "gpt-6-luna", 1_000_000, 0, { cacheCreationInputTokens: 1_000_000 })).toBeCloseTo(
+      0.125,
       12,
     );
+  });
+
+  it("recosts a whole GPT-6 Luna eval run with its cache writes", () => {
+    // Totals of a 148-conversation run: $0.110 when writes were free.
+    const cost = estimateCost("openai", "gpt-6-luna", 10_525_296, 36_570, {
+      cachedInputTokens: 9_186_532,
+      cacheCreationInputTokens: 1_336_289,
+    });
+    const expected = ((10_525_296 - 9_186_532 - 1_336_289) * 0.1 + 9_186_532 * 0.01 + 1_336_289 * 0.125 + 36_570 * 0.5) / 1_000_000;
+    expect(cost).toBeCloseTo(expected, 12);
+    expect(cost).toBeCloseTo(0.277, 3);
+  });
+
+  it("keeps pre-5.6 OpenAI cache writes free", () => {
+    expect(estimateCost("openai", "gpt-5.4", 1000, 0, { cacheCreationInputTokens: 1000 })).toBe(0);
+    expect(estimateCost("openai", "gpt-4.1", 1000, 0, { cacheCreationInputTokens: 1000 })).toBe(0);
   });
 
   it("clamps a cache breakdown larger than the prompt total to non-negative regular input", () => {
@@ -185,6 +198,65 @@ describe("estimateCost", () => {
   it("leaves a pre-4.5 Bedrock eu.* profile at its old price, as the premium does not reach it", () => {
     const base = (1000 * 3.0) / 1_000_000 + (500 * 15.0) / 1_000_000;
     expect(estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-20250514-v1:0", 1000, 500)).toBeCloseTo(base, 12);
+  });
+});
+
+describe("estimateCostBreakdown – Anthropic cache writes priced by TTL", () => {
+  // Sonnet 5.5, published $/1M: input 2, 5m write 2.50, 1h write 4, read 0.20, output 10.
+  const INPUT = 16_840_640;
+  const READ = 14_832_729;
+  const WRITE = 1_429_569;
+  const OUTPUT = 78_572;
+  const base = (INPUT - READ - WRITE) * 2 + READ * 0.2 + OUTPUT * 10;
+
+  it("bills a write with no reported TTL split at the 1h rate, as before the split existed", () => {
+    const cost = estimateCostBreakdown("anthropic", "claude-sonnet-5-5", INPUT, OUTPUT, {
+      cachedInputTokens: READ,
+      cacheCreationInputTokens: WRITE,
+    });
+    expect(cost.cacheWrite).toBeCloseTo((WRITE * 4) / 1_000_000, 12);
+    expect(cost.total).toBeCloseTo((base + WRITE * 4) / 1_000_000, 12);
+    expect(cost.total).toBeCloseTo(10.627, 3);
+  });
+
+  it("bills writes reported as 5m at 1.25x input", () => {
+    const cost = estimateCostBreakdown("anthropic", "claude-sonnet-5-5", INPUT, OUTPUT, {
+      cachedInputTokens: READ,
+      cacheCreationInputTokens: WRITE,
+      cacheCreation5mInputTokens: WRITE,
+    });
+    expect(cost.total).toBeCloseTo((base + WRITE * 2.5) / 1_000_000, 12);
+    expect(cost.total).toBeCloseTo(8.483, 3);
+  });
+
+  it("bills a turn mixing 5m and 1h writes at each one's own rate", () => {
+    // A cross-turn 1h write plus the within-turn 5m step marker.
+    const cost = estimateCostBreakdown("anthropic", "claude-sonnet-5-5", 10_000, 200, {
+      cachedInputTokens: 6_000,
+      cacheCreationInputTokens: 3_000,
+      cacheCreation5mInputTokens: 1_000,
+    });
+    expect(cost.cacheWrite).toBeCloseTo((2_000 * 4 + 1_000 * 2.5) / 1_000_000, 12);
+    expect(cost.cacheRead).toBeCloseTo((6_000 * 0.2) / 1_000_000, 12);
+    expect(cost.input).toBeCloseTo((1_000 * 2) / 1_000_000, 12);
+    expect(cost.total).toBeCloseTo((1_000 * 2 + 6_000 * 0.2 + 2_000 * 4 + 1_000 * 2.5 + 200 * 10) / 1_000_000, 12);
+  });
+
+  it("ignores a 5m count on a model with a single write rate", () => {
+    // Bedrock caches at 5m only, and its cacheWrite is already that rate.
+    const withSplit = estimateCost("bedrock", "global.anthropic.claude-sonnet-5-5", 1000, 0, {
+      cacheCreationInputTokens: 1000,
+      cacheCreation5mInputTokens: 1000,
+    });
+    expect(withSplit).toBeCloseTo((1000 * 2.5) / 1_000_000, 12);
+  });
+
+  it("never bills more 5m writes than there are writes", () => {
+    const cost = estimateCostBreakdown("anthropic", "claude-sonnet-5-5", 1000, 0, {
+      cacheCreationInputTokens: 100,
+      cacheCreation5mInputTokens: 500,
+    });
+    expect(cost.cacheWrite).toBeCloseTo((100 * 2.5) / 1_000_000, 12);
   });
 });
 

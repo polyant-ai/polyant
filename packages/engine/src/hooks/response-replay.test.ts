@@ -124,4 +124,11 @@ describe("addPassSpend", () => {
     expect(noCost.promptTokens).toBe(5);
     expect(noCost.cachedInputTokens).toBe(4); // undefined cache fields default to 0
   });
+
+  it("sums the 5m cache writes of a replayed turn, and leaves them absent when no pass reported any", () => {
+    const withSplit = (n: number, m5: number) => ({ ...pass(n), usage: { ...pass(n).usage, cacheCreation5mInputTokens: m5 } });
+    const replayed = addPassSpend(addPassSpend(addPassSpend(EMPTY_SPEND, withSplit(3, 1)), pass(2)), withSplit(4, 2));
+    expect(replayed.cacheCreation5mInputTokens).toBe(3);
+    expect(addPassSpend(addPassSpend(EMPTY_SPEND, pass(2)), pass(5))).not.toHaveProperty("cacheCreation5mInputTokens");
+  });
 });

@@ -27,6 +27,10 @@ export const pipelineTraces = pgTable(
     /** Prompt-cache read/write token counts for this turn (subset of promptTokens). */
     cachedInputTokens: integer("cached_input_tokens"),
     cacheCreationInputTokens: integer("cache_creation_input_tokens"),
+    /** The 5-minute-TTL share of `cacheCreationInputTokens` (Anthropic splits writes by
+     *  TTL and prices them apart). NULL when the provider reported no split, and on
+     *  every row older than the column: those writes are all priced at `cacheWrite`. */
+    cacheCreation5mInputTokens: integer("cache_creation_5m_input_tokens"),
     /** Model id actually used for this turn (e.g. "claude-sonnet-5"). */
     model: text("model"),
     /** Provider that served the model (e.g. "anthropic", "openai"). */

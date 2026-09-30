@@ -153,6 +153,7 @@ export class ConversationsController {
         completionTokens: stats?.completionTokens ?? null,
         cachedInputTokens: stats?.cachedInputTokens ?? null,
         cacheCreationInputTokens: stats?.cacheCreationInputTokens ?? null,
+        cacheCreation5mInputTokens: stats?.cacheCreation5mInputTokens ?? null,
         model: stats?.model ?? null,
         provider: stats?.provider ?? null,
         cost: stats?.cost ?? null,

@@ -68,12 +68,13 @@ function aggregateStepUsage(
 /** Compute token usage, falling back to step-level aggregation when top-level is unavailable. */
 function buildUsage(
   topLevelUsage: MappedUsage,
-  steps: { usage?: { promptTokens?: number; completionTokens?: number } }[],
+  steps: { usage?: MappedUsage }[],
 ): {
   promptTokens: number;
   completionTokens: number;
   cachedInputTokens: number;
   cacheCreationInputTokens: number;
+  cacheCreation5mInputTokens?: number;
 } {
   let prompt = safeTokens(topLevelUsage.promptTokens);
   let completion = safeTokens(topLevelUsage.completionTokens);
@@ -84,12 +85,29 @@ function buildUsage(
 
   // Cache counts come from the top-level/total usage only — the per-step
   // fallback (aggregateStepUsage) has no cache breakdown, so they stay 0 there.
+  // The one exception is the TTL split of the writes: the SDK's cumulative usage
+  // drops the raw provider usage it is read from, so it is summed over the steps.
+  const cacheCreationInputTokens = safeTokens(topLevelUsage.cacheCreationInputTokens);
+  const split5m = topLevelUsage.cacheCreation5mInputTokens ?? cacheWrite5mAcrossSteps(steps);
   return {
     promptTokens: prompt,
     completionTokens: completion,
     cachedInputTokens: safeTokens(topLevelUsage.cachedInputTokens),
-    cacheCreationInputTokens: safeTokens(topLevelUsage.cacheCreationInputTokens),
+    cacheCreationInputTokens,
+    ...(split5m !== undefined
+      ? { cacheCreation5mInputTokens: Math.min(safeTokens(split5m), cacheCreationInputTokens) }
+      : {}),
   };
+}
+
+/** The steps' reported 5m cache writes, summed; undefined when no step reported a TTL split. */
+function cacheWrite5mAcrossSteps(steps: { usage?: MappedUsage }[]): number | undefined {
+  let total: number | undefined;
+  for (const step of steps) {
+    const v = step.usage?.cacheCreation5mInputTokens;
+    if (v !== undefined) total = (total ?? 0) + v;
+  }
+  return total;
 }
 
 /**
@@ -110,7 +128,7 @@ interface SdkStep {
   toolResults?: { toolCallId: string; result: unknown }[];
   reasoningDetails?: unknown[];
   finishReason?: string;
-  usage?: { promptTokens?: number; completionTokens?: number };
+  usage?: MappedUsage;
 }
 
 /**
@@ -129,6 +147,8 @@ interface MappedUsage {
   cachedInputTokens?: number;
   /** Cache-write input tokens (cache WRITE, Anthropic). Subset of promptTokens. */
   cacheCreationInputTokens?: number;
+  /** The 5-minute-TTL share of `cacheCreationInputTokens`, when the provider reports a TTL split. */
+  cacheCreation5mInputTokens?: number;
 }
 
 /**
@@ -149,7 +169,8 @@ export function usageCompletedBeforeFailure(err: unknown): Required<MappedUsage>
 
 /** Sums each completed step's usage (`onStepEnd`) and pins it to the call's error. */
 function completedStepsUsage() {
-  const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0 };
+  // A 5m count of 0 prices exactly like an absent split (every write at `cacheWrite`).
+  const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
   let steps = 0;
   return {
     onStepEnd: (step: { usage?: unknown }) => {
@@ -158,6 +179,7 @@ function completedStepsUsage() {
       total.completionTokens += usage.completionTokens ?? 0;
       total.cachedInputTokens += usage.cachedInputTokens ?? 0;
       total.cacheCreationInputTokens += usage.cacheCreationInputTokens ?? 0;
+      total.cacheCreation5mInputTokens += usage.cacheCreation5mInputTokens ?? 0;
       steps++;
     },
     pinTo(err: unknown): void {
@@ -179,12 +201,33 @@ function mapUsage(u: unknown): MappedUsage {
   // incremental caching (the `prepareStep` marker) is counted once per step,
   // never lost. Verified live on OpenAI/Anthropic/Bedrock.
   const details = (o.inputTokenDetails ?? {}) as Record<string, unknown>;
+  const cacheCreationInputTokens = num(details.cacheWriteTokens);
+  const cacheCreation5mInputTokens = cacheWrite5mOf(o.raw, cacheCreationInputTokens);
   return {
     promptTokens: num(o.inputTokens),
     completionTokens: num(o.outputTokens),
     cachedInputTokens: num(details.cacheReadTokens) ?? num(o.cachedInputTokens),
-    cacheCreationInputTokens: num(details.cacheWriteTokens),
+    cacheCreationInputTokens,
+    ...(cacheCreation5mInputTokens !== undefined ? { cacheCreation5mInputTokens } : {}),
   };
+}
+
+/**
+ * The 5-minute-TTL share of one step's cache writes, from the raw provider usage
+ * the SDK passes through on each step (`usage.raw`). Anthropic splits its writes
+ * by TTL there — `cache_creation: { ephemeral_5m_input_tokens,
+ * ephemeral_1h_input_tokens }`, summing to `cache_creation_input_tokens` — and
+ * prices them differently (1.25× vs 2× input); the SDK normalizes only the
+ * total. Undefined when the step carries no split (every other provider).
+ */
+function cacheWrite5mOf(raw: unknown, cacheWriteTotal: number | undefined): number | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const split = (raw as Record<string, unknown>).cache_creation;
+  if (!split || typeof split !== "object") return undefined;
+  const { ephemeral_5m_input_tokens: m5, ephemeral_1h_input_tokens: h1 } = split as Record<string, unknown>;
+  if (typeof m5 === "number") return m5;
+  if (typeof h1 === "number" && cacheWriteTotal !== undefined) return Math.max(0, cacheWriteTotal - h1);
+  return undefined;
 }
 
 /**
@@ -353,7 +396,7 @@ function buildChatResponse(
   providerName: string,
 ): ChatResponse {
   const steps = buildSteps(rawSteps, durationMs);
-  const { promptTokens, completionTokens, cachedInputTokens, cacheCreationInputTokens } =
+  const { promptTokens, completionTokens, cachedInputTokens, cacheCreationInputTokens, cacheCreation5mInputTokens } =
     buildUsage(usage, rawSteps);
 
   // Prefer the SDK's top-level reasoningDetails when available (it already has
@@ -376,6 +419,7 @@ function buildChatResponse(
       totalTokens: promptTokens + completionTokens,
       cachedInputTokens,
       cacheCreationInputTokens,
+      ...(cacheCreation5mInputTokens !== undefined ? { cacheCreation5mInputTokens } : {}),
     },
     durationMs,
     model: modelId,

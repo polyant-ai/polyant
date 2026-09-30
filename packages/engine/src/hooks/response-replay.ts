@@ -15,6 +15,8 @@ export interface ReplaySpend {
   completionTokens: number;
   cachedInputTokens: number;
   cacheCreationInputTokens: number;
+  /** Summed 5m-TTL cache writes; absent until a pass reports a TTL split. */
+  cacheCreation5mInputTokens?: number;
   cost?: CostBreakdown;
 }
 
@@ -38,7 +40,13 @@ export function addPassSpend(
   pass: {
     durationMs: number;
     toolBuildingMs: number;
-    usage: { promptTokens: number; completionTokens: number; cachedInputTokens?: number; cacheCreationInputTokens?: number };
+    usage: {
+      promptTokens: number;
+      completionTokens: number;
+      cachedInputTokens?: number;
+      cacheCreationInputTokens?: number;
+      cacheCreation5mInputTokens?: number;
+    };
     cost?: CostBreakdown;
   },
 ): ReplaySpend {
@@ -49,6 +57,9 @@ export function addPassSpend(
     completionTokens: acc.completionTokens + pass.usage.completionTokens,
     cachedInputTokens: acc.cachedInputTokens + (pass.usage.cachedInputTokens ?? 0),
     cacheCreationInputTokens: acc.cacheCreationInputTokens + (pass.usage.cacheCreationInputTokens ?? 0),
+    ...(acc.cacheCreation5mInputTokens !== undefined || pass.usage.cacheCreation5mInputTokens !== undefined
+      ? { cacheCreation5mInputTokens: (acc.cacheCreation5mInputTokens ?? 0) + (pass.usage.cacheCreation5mInputTokens ?? 0) }
+      : {}),
     cost: pass.cost
       ? acc.cost
         ? {

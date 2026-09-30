@@ -154,7 +154,7 @@ export class InstancesController {
   @RequirePermission(Permission.AGENT_READ)
   @Get("models")
   getModels() {
-    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; supportsCache: boolean; supportsThinking: boolean; reasoningAlwaysOn: boolean; reasoningLevels: readonly ReasoningLevel[]; supportsTemperature: boolean; supportsTemperatureWithThinking: boolean }[] }> = {};
+    const providers: Record<string, { models: { id: string; tier: string | null; costInput: number; costOutput: number; costCacheRead: number; costCacheWrite: number; costCacheWrite5m?: number; supportsCache: boolean; supportsThinking: boolean; reasoningAlwaysOn: boolean; reasoningLevels: readonly ReasoningLevel[]; supportsTemperature: boolean; supportsTemperatureWithThinking: boolean }[] }> = {};
     for (const [name, cfg] of Object.entries(providerConfigs)) {
       const tierByModel = new Map(Object.entries(cfg.tiers).map(([tier, modelId]) => [modelId, tier]));
       const models = Object.entries(cfg.models).map(([modelId, cost]) => ({
@@ -168,6 +168,10 @@ export class InstancesController {
         // caches with no write premium (OpenAI pre-5.6).
         costCacheRead: cost.cacheRead ?? cost.input,
         costCacheWrite: cost.cacheWrite ?? cost.input,
+        // Only on models with two write tiers (Anthropic 1P): the rate of the
+        // writes a message reports as 5m (`cacheCreation5mInputTokens`); every
+        // other write stays at costCacheWrite. Absent → one rate for all writes.
+        ...(cost.cacheWrite5m !== undefined ? { costCacheWrite5m: cost.cacheWrite5m } : {}),
         // Whether the provider+model has real prompt caching — a UI hint; single
         // source of truth shared with the runtime marker gate (bedrock.ts).
         supportsCache: cacheSupported(name, modelId),

@@ -648,6 +648,8 @@ export interface PipelinePostOptions {
     completionTokens: number;
     cachedInputTokens?: number;
     cacheCreationInputTokens?: number;
+    /** The 5-minute-TTL share of `cacheCreationInputTokens`, when the provider reports a TTL split. */
+    cacheCreation5mInputTokens?: number;
   };
   /** Model id used for this turn — persisted per-message on the trace. */
   model?: string;
@@ -744,6 +746,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       completionTokens: opts.usage.completionTokens,
       cachedInputTokens: opts.usage.cachedInputTokens,
       cacheCreationInputTokens: opts.usage.cacheCreationInputTokens,
+      cacheCreation5mInputTokens: opts.usage.cacheCreation5mInputTokens,
       model: opts.model,
       provider: opts.provider,
       cost: opts.cost,
