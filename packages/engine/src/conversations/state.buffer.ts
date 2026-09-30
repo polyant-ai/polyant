@@ -6,6 +6,13 @@ import { loadConversationState, flushConversationState } from "./state.store.js"
  *  it via `ctx.state.channel`; it is never written by the LLM. */
 export const CHANNEL_STATE_KEY = "_channel";
 
+/** Reserved key for data a plugin keeps for external integrations (for example
+ *  terms passed to a speech-to-text service) that the model must not see.
+ *  Stored, returned by the state API and readable/writable by tools and hooks
+ *  like any other key, but always removed before state is rendered into the
+ *  prompt. */
+export const PRIVATE_STATE_KEY = "_private";
+
 /** Max serialized size of a conversation's state blob, enforced at write time so
  *  a tool cannot grow an unbounded JSONB row (indirectly from LLM output). */
 export const MAX_STATE_BYTES = 64 * 1024;
