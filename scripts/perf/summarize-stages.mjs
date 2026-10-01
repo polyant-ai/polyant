@@ -25,6 +25,9 @@ const lines = gunzipSync(readFileSync(new URL("k6.csv.gz", dir))).toString().tri
 const header = lines.shift().split(",");
 const col = (n) => header.indexOf(n);
 const [iName, iTime, iValue, iExtra] = [col("metric_name"), col("timestamp"), col("metric_value"), col("extra_tags")];
+// extra_tags holds custom tags as name=value pairs joined by "&".
+const tagValue = (extra, name) =>
+  (extra ?? "").split("&").map((kv) => kv.split("=")).find(([k]) => k === name)?.[1] ?? "-";
 const series = new Map();
 let t0 = Infinity;
 for (const line of lines) {
@@ -32,7 +35,7 @@ for (const line of lines) {
   const t = Number(f[iTime]);
   if (t < t0) t0 = t;
   if (!metrics.includes(f[iName])) continue;
-  const tag = by ? (f[iExtra]?.match(new RegExp(`${by}=([^&]+)`))?.[1] ?? "-") : "";
+  const tag = by ? tagValue(f[iExtra], by) : "";
   const key = by ? `${f[iName]}[${tag}]` : f[iName];
   if (!series.has(key)) series.set(key, []);
   series.get(key).push([t, Number(f[iValue])]);

@@ -13,7 +13,8 @@ import { readFileSync } from "node:fs";
 const N = Number(process.argv[2] ?? 100);
 const HOLD = Number(process.argv[3] ?? 30) * 1000;
 const sessions = JSON.parse(readFileSync(new URL("./.work/sessions.json", import.meta.url))).filter((s) => s.org && s.email.startsWith("perf-u1@"));
-const statuses = {};
+const statuses = new Map();
+const count = (k) => statuses.set(String(k), (statuses.get(String(k)) ?? 0) + 1);
 let events = 0;
 let bytes = 0;
 const reqs = [];
@@ -24,16 +25,16 @@ for (let i = 0; i < N; i++) {
     host: "localhost", port: Number(process.env.ENGINE_PORT ?? 4400), path: "/api/activity-stream/live", agent: false,
     headers: { Cookie: s.cookie, "X-Org-Slug": s.org, Accept: "text/event-stream" },
   }, (res) => {
-    statuses[res.statusCode] = (statuses[res.statusCode] ?? 0) + 1;
+    count(res.statusCode);
     res.on("data", (c) => { bytes += c.length; events += (String(c).match(/\n\n/g) ?? []).length; });
     res.on("error", () => {});
   });
-  req.on("error", (e) => { statuses[e.code] = (statuses[e.code] ?? 0) + 1; });
+  req.on("error", (e) => count(e.code));
   reqs.push(req);
 }
 
 setTimeout(() => {
-  console.log(JSON.stringify({ requested: N, statuses, events, bytes }));
+  console.log(JSON.stringify({ requested: N, statuses: Object.fromEntries(statuses), events, bytes }));
   for (const r of reqs) r.destroy();
   setTimeout(() => process.exit(0), 500);
 }, HOLD);
