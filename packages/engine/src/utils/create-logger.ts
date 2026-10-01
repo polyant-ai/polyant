@@ -16,9 +16,21 @@ export const COLORS = {
   red: "\x1b[31m",
 } as const;
 
+/**
+ * One formatter for every log line. `toLocaleTimeString` with options builds a
+ * new Intl formatter on each call, about 20x the cost of reusing one, and every
+ * log line of every turn pays it. Same output: HH:MM:SS, 24-hour.
+ */
+const LOG_TIME = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
 /** Formatted timestamp for log lines (HH:MM:SS, 24-hour). */
 export function ts(): string {
-  return new Date().toLocaleTimeString("en-GB", { hour12: false });
+  return LOG_TIME.format(new Date());
 }
 
 /**

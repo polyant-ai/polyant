@@ -18,10 +18,8 @@ import {
   type BusContext,
 } from "../activity-stream/bus-emitter.js";
 import { DEFAULT_PROVIDER } from "./model-catalog.js";
-import { findInstanceBySlug } from "../instances/store.js";
-import { buildInstanceIconUrl } from "../instances/icon-url.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
-import type { InstanceMeta } from "../activity-stream/activity-stream.types.js";
+import { resolveInstanceMeta } from "../instances/instance-meta.js";
 
 
 let initialized = false;
@@ -395,8 +393,8 @@ export async function chatStream(
 
   // Tap the fullStream so live tool-call / reasoning / step-finish events
   // flow onto the ActivityBus while the original consumer still receives
-  // every chunk unchanged. The instance metadata is fetched once per call
-  // (small, cached upstream by ttl-cache via findInstanceBySlug).
+  // every chunk unchanged. The instance metadata comes from the agent's meta
+  // cache (instances/instance-meta.ts), invalidated with its config.
   //
   // Service-type calls bypass the tap entirely (same rationale as `chat()`):
   // an internal LLM invocation must not pollute the visible turn timeline.
@@ -418,25 +416,11 @@ async function buildBusContext(options?: ChatCallOptions): Promise<BusContext> {
   if (!options?.instanceId) {
     return { conversationId: options?.conversationId };
   }
-  // Fetch is cheap (it's a single index lookup) and we only do it once per
-  // chat() / chatStream() call. Failures degrade gracefully to a context
-  // without instance metadata — the event is still emitted.
-  try {
-    const instance = await findInstanceBySlug(options.instanceId);
-    if (!instance) {
-      return { conversationId: options.conversationId };
-    }
-    const meta: InstanceMeta = {
-      id: instance.id,
-      slug: instance.slug,
-      name: instance.name,
-      // Emit a URL, never the raw base64 data URI — see buildInstanceIconUrl.
-      icon: buildInstanceIconUrl(instance.slug, instance.icon, instance.updatedAt),
-    };
-    return { instance: meta, conversationId: options.conversationId };
-  } catch {
-    return { conversationId: options.conversationId };
-  }
+  // Cached and invalidated with the agent's config: this runs on every model
+  // call, and a turn makes several. Failures degrade to a context without
+  // instance metadata — the event is still emitted.
+  const instance = await resolveInstanceMeta(options.instanceId);
+  return instance ? { instance, conversationId: options.conversationId } : { conversationId: options.conversationId };
 }
 
 export async function shutdown() {
