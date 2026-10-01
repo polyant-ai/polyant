@@ -5,6 +5,13 @@ changes see the [changelog](../CHANGELOG.md).
 
 ## Upgrading from 1.2.0
 
+### Node 24
+
+The engine and the panel now run on Node 24, the active LTS. The published
+Docker images carry it, so a deployment that uses them needs nothing. If you
+run from source or build your own images, move to Node 24 (`.nvmrc` names it);
+Node 22 is no longer tested.
+
 ### Environment variables the panel now answers
 
 Each of these set one value for a whole installation, for a question an

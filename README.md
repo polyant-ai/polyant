@@ -8,7 +8,7 @@
 # Polyant
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL--v3-blue.svg)](LICENSE)
-[![Node.js 22](https://img.shields.io/badge/node-22-green.svg)](https://nodejs.org)
+[![Node.js 24](https://img.shields.io/badge/node-24-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
 🌐 **Website**: [polyant.ai](https://polyant.ai) &nbsp;·&nbsp; 📚 **Docs**: [docs.polyant.ai](https://docs.polyant.ai) &nbsp;·&nbsp; 💬 **GitHub**: [polyant-ai/polyant](https://github.com/polyant-ai/polyant)
@@ -86,7 +86,7 @@ The full documentation lives at **[docs.polyant.ai](https://docs.polyant.ai)** (
 
 ### Prerequisites
 
-- [Node.js 22+](https://nodejs.org)
+- [Node.js 24+](https://nodejs.org)
 - [Docker & Docker Compose](https://docs.docker.com/get-docker/)
 
 ### 1. Clone and install

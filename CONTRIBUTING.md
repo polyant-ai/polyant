@@ -4,7 +4,7 @@ Thank you for your interest in contributing! This document covers everything you
 
 ## Prerequisites
 
-- **Node.js 22+** — `node --version` should show v22 or higher
+- **Node.js 24+** — `node --version` should show v24 or higher
 - **Docker & Docker Compose** — used to run PostgreSQL with pgvector
 - **PostgreSQL 16 client** (optional, for direct DB access)
 
