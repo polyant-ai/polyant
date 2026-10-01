@@ -2,6 +2,7 @@
 
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,12 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useChangelogCheck } from "@/hooks/use-changelog-check";
 import { useI18n } from "@/lib/i18n/context";
-import { ChangelogEntryCard } from "./changelog-entry-card";
+
+// The card renders markdown (react-markdown, rehype-highlight): loaded only
+// when the dialog opens, not on every admin page that mounts this modal.
+const ChangelogEntryCard = dynamic(() => import("./changelog-entry-card").then((m) => m.ChangelogEntryCard), {
+  ssr: false,
+});
 
 /**
  * Mounted once in the admin layout. Gated inside useChangelogCheck to

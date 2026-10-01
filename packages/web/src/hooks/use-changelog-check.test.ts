@@ -43,12 +43,15 @@ describe("useChangelogCheck", () => {
     }) as unknown as typeof fetch;
   });
 
-  it("stays disabled for a non-platform-admin user", async () => {
+  it("stays disabled for a non-platform-admin user and never downloads the changelog", async () => {
     mockSession(false);
     const { result } = renderHook(() => useChangelogCheck());
 
-    await waitFor(() => expect(result.current.version).toBe("1.1.0"));
+    // Give a would-be fetch the chance to resolve before asserting it never ran.
+    await new Promise((r) => setTimeout(r, 0));
 
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(result.current.version).toBe("");
     expect(result.current.newVersionAvailable).toBe(false);
     expect(result.current.unseenChangelogs).toEqual([]);
   });
