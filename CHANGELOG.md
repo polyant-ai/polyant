@@ -52,12 +52,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a pinned model, and its background jobs, lands on the new models; the
   deprecated ones stay in the catalog so a pinned agent keeps its costs priced.
 - Prices corrected against the published pages: Claude Sonnet 5 is $2/$10 (it was
-  recorded at $3/$15), the gpt-5.6 family came down and no longer carries a
-  cache-write premium, `o3`'s cached input is $0.50, and Bedrock `eu.*` Claude 4.5+
-  profiles carry the 10% regional premium, where none was modelled.
+  recorded at $3/$15), the gpt-5.6 family came down, its cache writes are
+  charged at the published 1.25× input rate, `o3`'s cached input is $0.50, and
+  Bedrock `eu.*` Claude 4.5+ profiles carry the 10% regional premium, where none
+  was modelled.
 
 ### Fixed
 
+- `spawnTask` can be enabled on an agent. Its file did not match the tool
+  loader's naming pattern, so it was never registered and sub-agents were
+  unreachable.
 - `chat/stream` now aborts the pipeline when the client disconnects before the
   turn has produced anything (no text, reasoning or tool call yet): the model
   stops and the abandoned turn is not persisted. Once the turn has produced
