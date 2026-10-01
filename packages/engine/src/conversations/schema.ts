@@ -18,7 +18,7 @@ export const conversations = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
     // Kept by ConversationStore.appendMessages in the statement that bumps
     // updated_at, so lists and analytics read them instead of counting
-    // conversation_messages per conversation (migration 0086).
+    // conversation_messages per conversation (migration conversation_message_counters).
     messageCount: integer("message_count").notNull().default(0),
     userMessageCount: integer("user_message_count").notNull().default(0),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),

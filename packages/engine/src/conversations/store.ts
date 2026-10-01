@@ -367,7 +367,8 @@ export class ConversationStore {
         })),
       ).returning({ createdAt: conversationMessages.createdAt });
 
-      // The counters ride on the update that already runs (migration 0086).
+      // The counters ride on the update that already runs (migration
+      // conversation_message_counters).
       // The latest created_at comes back from the insert, so a message that
       // carries its own timestamp and one stamped by the database count alike.
       const userCount = messages.filter((m) => m.role === "user").length;
@@ -553,7 +554,8 @@ export class ConversationStore {
       : sql``;
 
     const [rows, countResult] = await Promise.all([
-      // message_count is the conversation's own counter (migration 0086); a
+      // message_count is the conversation's own counter (migration
+      // conversation_message_counters); a
       // fan-out join over conversation_messages would force Postgres to
       // aggregate the whole messages table before ORDER BY/LIMIT.
       db.execute(sql`
@@ -1018,7 +1020,7 @@ export class ConversationStore {
         role: "system",
         content: `[Room history summary]\n${summary}`,
       }).returning({ createdAt: conversationMessages.createdAt });
-      // Keep the 0086 counters exact: N rows out, one summary in.
+      // Keep the message counters exact: N rows out, one summary in.
       await tx
         .update(conversations)
         .set({

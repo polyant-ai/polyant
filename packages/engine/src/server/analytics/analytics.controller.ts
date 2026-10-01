@@ -26,7 +26,7 @@ import { RequirePermission, Permission } from "../../authz/index.js";
  * user sees on login and on every org switch — and it fires about sixteen
  * aggregate queries. Message totals come from the conversations' own counters
  * and the message-level scans are bounded to the conversations active in the
- * window (migration 0086), but there is no rollup table and no client-side
+ * window (migration conversation_message_counters), but there is no rollup table and no client-side
  * cache, so every mount still recomputes.
  *
  * `private` is not optional: this is tenant-scoped data and must never be held

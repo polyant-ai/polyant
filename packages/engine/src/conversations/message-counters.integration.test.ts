@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The per-conversation counters of migration 0086 (message_count,
+ * The per-conversation counters of migration conversation_message_counters (message_count,
  * user_message_count, last_message_at) against a real Postgres: appendMessages
  * keeps them, room compaction adjusts them, and they always equal what a COUNT
  * over conversation_messages would say — the readers (lists, analytics) trust
@@ -17,7 +17,7 @@ import { db } from "../database/client.js";
 import { conversationStore } from "./store.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import { allTenantsScope } from "../authz/scope-filter.js";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const CID = `itest:counters:${Date.now()}`;
@@ -84,8 +84,12 @@ describe("conversation message counters (integration)", () => {
 
   it.skipIf(!DB_AVAILABLE)("rebuilds the counters from history with the migration's own backfill", async () => {
     await db.execute(sql`UPDATE conversations SET message_count = 0, user_message_count = 0, last_message_at = NULL WHERE conversation_id = ${CID}`);
-    // The UPDATE statement exactly as migration 0086 runs it.
-    const migration = readFileSync(new URL("../database/migrations/0086_conversation_message_counters.sql", import.meta.url), "utf8");
+    // The UPDATE statement exactly as the migration runs it. Found by name, not
+    // number: editions number their migrations differently.
+    const dir = new URL("../database/migrations/", import.meta.url);
+    const file = readdirSync(dir).find((f) => f.endsWith("_conversation_message_counters.sql"));
+    expect(file).toBeDefined();
+    const migration = readFileSync(new URL(file!, dir), "utf8");
     const backfill = migration.split("--> statement-breakpoint").map((s) => s.trim()).find((s) => /^(--[^\n]*\n)*UPDATE "conversations"/.test(s));
     expect(backfill).toBeDefined();
     await db.execute(sql.raw(backfill!));
