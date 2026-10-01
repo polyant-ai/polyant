@@ -1,5 +1,5 @@
 # ── Stage 1: Install dependencies ──────────────────────────────
-FROM node:22-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
@@ -18,7 +18,7 @@ RUN mkdir -p packages/engine/node_modules
 # Docker layer caching skips it entirely when package-lock is unchanged.
 # @polyant-ai/plugin-sdk is an engine `dependency` (the core *.tool.ts author it),
 # so it survives here.
-FROM node:22-alpine AS prod-deps
+FROM node:24-alpine AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
@@ -34,7 +34,7 @@ RUN mkdir -p packages/engine/node_modules
 # the `tools/` prefix (a plugin tsconfig infers rootDir=tools, which would
 # otherwise flatten the output to the root). git is needed for the SDK's git
 # dependency.
-FROM node:22-alpine AS plugins
+FROM node:24-alpine AS plugins
 RUN apk add --no-cache git
 WORKDIR /build
 COPY packages/engine/src/plugins/ ./plugins/
@@ -64,7 +64,7 @@ RUN . /build/system/env.sh && \
 # would import BOTH and hit "Duplicate registration". Runtime only needs the .js.
 
 # ── Stage 2: Build ─────────────────────────────────────────────
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/engine/node_modules ./packages/engine/node_modules
@@ -74,7 +74,7 @@ COPY packages/engine/ packages/engine/
 RUN npm run build:docker -w @polyant/engine
 
 # ── Stage 3: Runtime ───────────────────────────────────────────
-FROM node:22-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
