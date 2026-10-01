@@ -131,16 +131,7 @@ async function getOverviewStats(
   const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
   // Current period — ai_logs
-  const [aiStats] = asRows<{
-    total_cost: number;
-    total_tokens: number;
-    prompt_tokens: number;
-    completion_tokens: number;
-    cached_input_tokens: number;
-    cache_creation_input_tokens: number;
-    avg_duration_ms: number;
-    total_calls: number;
-  }>(
+  const [aiStats] = asRows<OverviewAiRow>(
     await analyticsDb.execute(sql`
       SELECT
         COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost,
@@ -159,11 +150,7 @@ async function getOverviewStats(
 
   // Current period — conversations
   const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const [convStats] = asRows<{
-    total_conversations: number;
-    total_messages: number;
-    unique_users: number;
-  }>(
+  const [convStats] = asRows<OverviewConvRow>(
     await analyticsDb.execute(sql`
       SELECT
         COUNT(*)::int AS total_conversations,
@@ -180,10 +167,7 @@ async function getOverviewStats(
   const prevFrom = new Date(range.from.getTime() - durationMs);
   const prevTo = new Date(range.from.getTime());
 
-  const [prevAi] = asRows<{
-    total_cost: number;
-    avg_duration_ms: number;
-  }>(
+  const [prevAi] = asRows<OverviewPrevAiRow>(
     await analyticsDb.execute(sql`
       SELECT
         COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost,
@@ -194,10 +178,7 @@ async function getOverviewStats(
     `),
   );
 
-  const [prevConv] = asRows<{
-    total_conversations: number;
-    total_messages: number;
-  }>(
+  const [prevConv] = asRows<OverviewPrevConvRow>(
     await analyticsDb.execute(sql`
       SELECT
         COUNT(*)::int AS total_conversations,
@@ -208,6 +189,46 @@ async function getOverviewStats(
     `),
   );
 
+  return overviewFromRows(aiStats, convStats, prevAi, prevConv);
+}
+
+
+/** The aggregate rows an overview is composed from, current and previous period. */
+export interface OverviewAiRow {
+  total_cost: number;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_input_tokens: number;
+  cache_creation_input_tokens: number;
+  avg_duration_ms: number;
+  total_calls: number;
+}
+export interface OverviewConvRow {
+  total_conversations: number;
+  total_messages: number;
+  unique_users: number;
+}
+export interface OverviewPrevAiRow {
+  total_cost: number;
+  avg_duration_ms: number;
+}
+export interface OverviewPrevConvRow {
+  total_conversations: number;
+  total_messages: number;
+}
+
+/**
+ * Compose an overview from its four aggregate rows. Pure, and exported so a
+ * caller that reads the rows grouped by tenant (one query for many tenants)
+ * composes each tenant's overview exactly as a single-tenant read does.
+ */
+export function overviewFromRows(
+  aiStats: OverviewAiRow | undefined,
+  convStats: OverviewConvRow | undefined,
+  prevAi: OverviewPrevAiRow | undefined,
+  prevConv: OverviewPrevConvRow | undefined,
+): OverviewStats {
   const totalConversations = convStats?.total_conversations ?? 0;
   const totalCost = aiStats?.total_cost ?? 0;
 
