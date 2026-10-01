@@ -14,11 +14,11 @@ const packageEnv = resolve(__dirname, ".env");
 const monorepoEnv = resolve(__dirname, "../../.env");
 
 if (existsSync(packageEnv)) {
-  config({ path: packageEnv });
+  config({ path: packageEnv, quiet: true });
 } else if (existsSync(monorepoEnv)) {
-  config({ path: monorepoEnv });
+  config({ path: monorepoEnv, quiet: true });
 } else {
-  config();
+  config({ quiet: true });
 }
 
 export default defineConfig({
