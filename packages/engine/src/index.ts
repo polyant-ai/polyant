@@ -16,6 +16,8 @@ import { supervise, superviseStream } from "./agents/supervisor/index.js";
 import { channelManager } from "./channels/channel-manager.js";
 import { listAllInstances } from "./instances/store.js";
 import { startServer } from "./server/main.js";
+import { closeHttpServer } from "./server/graceful-close.js";
+import { closeActivityStreams } from "./activity-stream/activity-stream.controller.js";
 import { type AgentCallMetadata, type IncomingMessage, type OutgoingMessage, type StreamOutgoingMessage } from "./channels/types.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { loadAllTools, getToolRegistry } from "./agents/tools/registry.js";
@@ -569,7 +571,13 @@ async function main() {
   // Graceful shutdown
   const shutdown = async () => {
     console.log("\nShutting down...");
-    await nestApp.close();
+    // Activity streams never end on their own, so the HTTP server would wait on
+    // them for good: end them first. Anything else still open (a turn
+    // streaming its reply) gets a bounded grace period, so the flushes and
+    // shutdowns below always run before the platform kills the process.
+    const streams = closeActivityStreams();
+    const { forced } = await closeHttpServer(nestApp);
+    console.log(`HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
     schedulerService.shutdown();
     roomScheduler.shutdown();
     await channelManager.shutdownAll();

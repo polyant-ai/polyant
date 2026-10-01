@@ -35,7 +35,7 @@ vi.mock("../instances/store.js", () => ({
   resolvePrincipalOrgId: mockResolvePrincipalOrgId,
 }));
 
-import { ActivityStreamController } from "./activity-stream.controller.js";
+import { ActivityStreamController, closeActivityStreams } from "./activity-stream.controller.js";
 import { activityBus } from "./activity-bus.js";
 import type { FeedEvent } from "./activity-stream.types.js";
 import { notifyConversationChanged } from "../conversations/live-updates.js";
@@ -252,6 +252,64 @@ describe("GET /api/activity-stream/live — teardown releases resources", () => 
     expect(vi.getTimerCount()).toBe(0);
     // `res.end()` only on the first (still-open) teardown.
     expect(res.end).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("closeActivityStreams — shutdown ends every open stream", () => {
+  let controller: ActivityStreamController;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    controller = new ActivityStreamController();
+    activityBus.__clearBuffer();
+    mockResolvePrincipalOrgId.mockResolvedValue(ORG_A);
+    mockListAllInstances.mockResolvedValue([{ slug: "agent-a" }]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("ends each open response and releases its timer and subscription", async () => {
+    const listenersBefore = activityBus.listenerCount();
+    const first = makeRes();
+    const second = makeRes();
+    await controller.live(makeReq().req, first.res, callerOfOrgA, undefined);
+    await controller.live(makeReq().req, second.res, callerOfOrgA, undefined);
+
+    expect(closeActivityStreams()).toBe(2);
+
+    expect(first.res.end).toHaveBeenCalledTimes(1);
+    expect(second.res.end).toHaveBeenCalledTimes(1);
+    expect(activityBus.listenerCount()).toBe(listenersBefore);
+    expect(vi.getTimerCount()).toBe(0);
+    activityBus.emitEvent(eventFor("agent-a"));
+    expect(dataEvents(first.written)).toHaveLength(0);
+  });
+
+  it("does not count or end a stream the client already closed", async () => {
+    const { res } = makeRes();
+    const { req, handlers } = makeReq();
+    await controller.live(req, res, callerOfOrgA, undefined);
+    handlers.close?.();
+
+    expect(closeActivityStreams()).toBe(0);
+    expect(res.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("frees the connection slots, so the per-user cap admits the caller again", async () => {
+    for (let i = 0; i < 5; i++) await controller.live(makeReq().req, makeRes().res, callerOfOrgA, undefined);
+    const rejected = makeRes();
+    await controller.live(makeReq().req, rejected.res, callerOfOrgA, undefined);
+    expect(rejected.res.status).toHaveBeenCalledWith(503);
+
+    closeActivityStreams();
+
+    const admitted = makeRes();
+    await controller.live(makeReq().req, admitted.res, callerOfOrgA, undefined);
+    expect(admitted.res.status).not.toHaveBeenCalled();
+    closeActivityStreams();
   });
 });
 

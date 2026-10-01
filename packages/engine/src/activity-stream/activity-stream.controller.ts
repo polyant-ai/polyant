@@ -53,6 +53,24 @@ let activeConnections = 0;
 const perUserConnections = new Map<string, number>();
 
 /**
+ * The teardown of every stream still open. These responses never end on their
+ * own, so a server shutdown waiting for them would wait forever; shutdown ends
+ * them through {@link closeActivityStreams} instead.
+ */
+const openFeeds = new Set<() => void>();
+
+/**
+ * End every open activity stream, releasing its timer, subscriptions and
+ * connection slot. Returns how many were open. Called at shutdown BEFORE the
+ * HTTP server closes, so the server is not left waiting on them.
+ */
+export function closeActivityStreams(): number {
+  const open = [...openFeeds];
+  for (const teardown of open) teardown();
+  return open.length;
+}
+
+/**
  * The agent slugs this caller is allowed to see events for, resolved ONCE per
  * connection.
  *
@@ -225,8 +243,10 @@ function openFeed(
       }
     }
     decrementCounters();
+    openFeeds.delete(teardown);
   };
 
+  openFeeds.add(teardown);
   req.on("close", teardown);
   req.on("error", teardown);
   res.on("error", teardown);
