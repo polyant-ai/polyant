@@ -16,6 +16,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/web/node_modules ./packages/web/node_modules
 COPY package.json package-lock.json ./
 COPY packages/web/ packages/web/
+# The web prebuild (scripts/generate-changelog.ts) reads the MONOREPO ROOT
+# CHANGELOG.md and hard-fails if it is missing — it must be in the build stage.
+COPY CHANGELOG.md ./
 
 # Engine URL for the Next.js /api rewrites, inlined at build time.
 # Default "" = relative paths for gateway-routed topologies (AWS ALB routes
