@@ -12,6 +12,26 @@ Docker images carry it, so a deployment that uses them needs nothing. If you
 run from source or build your own images, move to Node 24 (`.nvmrc` names it);
 Node 22 is no longer tested.
 
+### Migration 0086 rewrites the conversations table
+
+Conversations now carry their own message counters, which the conversation list
+and the analytics read instead of counting messages. Migration 0086 fills them
+from history in one pass and adds two indexes, one of them on
+`conversation_messages`. Writes to conversations and messages wait while it runs:
+on a test database with 2 million messages it took 8 seconds, and it grows with
+the size of `conversation_messages`. On a large installation, either schedule the
+deploy for a quiet moment or build the two indexes beforehand without blocking —
+the migration then skips them:
+
+```sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversations_instance_last_message"
+  ON "conversations" ("instance_id", "last_message_at");
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversation_messages_conversation_created"
+  ON "conversation_messages" ("conversation_id", "created_at");
+```
+
+The counter backfill itself always runs in the migration.
+
 ### Environment variables the panel now answers
 
 Each of these set one value for a whole installation, for a question an

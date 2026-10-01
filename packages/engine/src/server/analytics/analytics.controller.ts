@@ -23,11 +23,11 @@ import { RequirePermission, Permission } from "../../authz/index.js";
  * A SHORT, PRIVATE cache on both analytics routes.
  *
  * `AnalyticsDashboard` is the organization landing page — the first thing every
- * user sees on login and on every org switch — and it fires sixteen uncached
- * aggregate scans, four of which count every message ever (the LATERAL subquery
- * carries no date predicate of its own) and two of which unnest jsonb per
- * message. There is no rollup table and no client-side cache, so it was a full
- * recomputation on every mount.
+ * user sees on login and on every org switch — and it fires about sixteen
+ * aggregate queries. Message totals come from the conversations' own counters
+ * and the message-level scans are bounded to the conversations active in the
+ * window (migration 0086), but there is no rollup table and no client-side
+ * cache, so every mount still recomputes.
  *
  * `private` is not optional: this is tenant-scoped data and must never be held
  * by a shared proxy. 30s is chosen to absorb a reload and a back-navigation

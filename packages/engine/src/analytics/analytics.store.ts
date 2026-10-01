@@ -110,6 +110,15 @@ export interface AnalyticsData {
   instanceComparison?: InstanceComparisonRow[];
 }
 
+/**
+ * Narrows a message-level query to the conversations active in the window,
+ * through idx_conversations_instance_last_message. Exact, not a heuristic: a
+ * conversation with a message in [from, to] has its last message at or after
+ * `from`. Without it Postgres probes every conversation the tenant ever had,
+ * so the cost grew with its history instead of with the window.
+ */
+const ACTIVE_IN_WINDOW = (range: DateRange) => sql`AND c.last_message_at >= ${toISO(range.from)}`;
+
 // ── Overview Stats ──────────────────────────────────────────────────
 
 async function getOverviewStats(
@@ -157,15 +166,10 @@ async function getOverviewStats(
   }>(
     await db.execute(sql`
       SELECT
-        COUNT(DISTINCT c.conversation_id)::int AS total_conversations,
-        COALESCE(SUM(msg_count), 0)::int AS total_messages,
+        COUNT(*)::int AS total_conversations,
+        COALESCE(SUM(c.message_count), 0)::int AS total_messages,
         COUNT(DISTINCT c.user_identifier)::int AS unique_users
       FROM conversations c
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS msg_count
-        FROM conversation_messages cm
-        WHERE cm.conversation_id = c.conversation_id
-      ) mc ON true
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
         ${convFilter} ${orgConv}
     `),
@@ -196,14 +200,9 @@ async function getOverviewStats(
   }>(
     await db.execute(sql`
       SELECT
-        COUNT(DISTINCT c.conversation_id)::int AS total_conversations,
-        COALESCE(SUM(msg_count), 0)::int AS total_messages
+        COUNT(*)::int AS total_conversations,
+        COALESCE(SUM(c.message_count), 0)::int AS total_messages
       FROM conversations c
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS msg_count
-        FROM conversation_messages cm
-        WHERE cm.conversation_id = c.conversation_id
-      ) mc ON true
       WHERE c.created_at >= ${toISO(prevFrom)} AND c.created_at <= ${toISO(prevTo)}
         ${convFilter} ${orgConv}
     `),
@@ -271,14 +270,9 @@ async function getDailyTrend(
     await db.execute(sql`
       SELECT
         DATE(c.created_at) AS date,
-        COUNT(DISTINCT c.conversation_id)::int AS conversations,
-        COALESCE(SUM(msg_count), 0)::int AS messages
+        COUNT(*)::int AS conversations,
+        COALESCE(SUM(c.message_count), 0)::int AS messages
       FROM conversations c
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS msg_count
-        FROM conversation_messages cm
-        WHERE cm.conversation_id = c.conversation_id
-      ) mc ON true
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
         ${convFilter} ${orgConv}
       GROUP BY DATE(c.created_at)
@@ -326,6 +320,7 @@ async function getHourlyDistribution(
       JOIN conversations c ON c.conversation_id = cm.conversation_id
       WHERE cm.created_at >= ${toISO(range.from)} AND cm.created_at <= ${toISO(range.to)}
         AND cm.role = 'user'
+        ${ACTIVE_IN_WINDOW(range)}
         ${convFilter} ${orgConv}
       GROUP BY EXTRACT(HOUR FROM cm.created_at)
       ORDER BY hour
@@ -354,14 +349,9 @@ async function getChannelDistribution(
     await db.execute(sql`
       SELECT
         CASE WHEN c.channel IN ('openai-api', '') OR c.channel IS NULL THEN 'web' ELSE c.channel END AS channel,
-        COUNT(DISTINCT c.conversation_id)::int AS conversations,
-        COALESCE(SUM(msg_count), 0)::int AS messages
+        COUNT(*)::int AS conversations,
+        COALESCE(SUM(c.message_count), 0)::int AS messages
       FROM conversations c
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS msg_count
-        FROM conversation_messages cm
-        WHERE cm.conversation_id = c.conversation_id
-      ) mc ON true
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
         ${convFilter} ${orgConv}
       GROUP BY CASE WHEN c.channel IN ('openai-api', '') OR c.channel IS NULL THEN 'web' ELSE c.channel END
@@ -466,6 +456,7 @@ async function getToolUsage(
         AND cm.steps IS NOT NULL
         AND jsonb_array_length(cm.steps) > 0
         AND jsonb_typeof(step->'toolCalls') = 'array'
+        ${ACTIVE_IN_WINDOW(range)}
         ${convFilter} ${orgConv}
       GROUP BY tool_call->>'toolName'
       ORDER BY count DESC

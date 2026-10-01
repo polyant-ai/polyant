@@ -350,7 +350,7 @@ export class ConversationStore {
     // stale and is missed by incremental pulls. Before this, only title/summary
     // writes moved the column — never the messages themselves.
     await db.transaction(async (tx) => {
-      await tx.insert(conversationMessages).values(
+      const inserted = await tx.insert(conversationMessages).values(
         messages.map((m) => ({
           ...(m.id ? { id: m.id } : {}),
           ...(m.createdAt ? { createdAt: m.createdAt } : {}),
@@ -365,11 +365,24 @@ export class ConversationStore {
           metadata: m.metadata ? stripNulDeep(m.metadata) : null,
           debugPayload: m.debugPayload ? stripNulDeep(m.debugPayload) : null,
         })),
-      );
+      ).returning({ createdAt: conversationMessages.createdAt });
 
+      // The counters ride on the update that already runs (migration 0086).
+      // The latest created_at comes back from the insert, so a message that
+      // carries its own timestamp and one stamped by the database count alike.
+      const userCount = messages.filter((m) => m.role === "user").length;
+      const latest = inserted.reduce<Date | null>(
+        (max, r) => (r.createdAt && (!max || r.createdAt > max) ? r.createdAt : max),
+        null,
+      );
       await tx
         .update(conversations)
-        .set({ updatedAt: new Date() })
+        .set({
+          updatedAt: new Date(),
+          messageCount: sql`${conversations.messageCount} + ${messages.length}`,
+          userMessageCount: sql`${conversations.userMessageCount} + ${userCount}`,
+          ...(latest ? { lastMessageAt: sql`GREATEST(${conversations.lastMessageAt}, ${latest.toISOString()}::timestamptz)` } : {}),
+        })
         .where(eq(conversations.conversationId, conversationId));
     });
     // After the commit, so a reader woken by the signal sees the rows.
@@ -540,10 +553,9 @@ export class ConversationStore {
       : sql``;
 
     const [rows, countResult] = await Promise.all([
-      // message_count is a scalar subquery (not a JOIN + GROUP BY): a fan-out
-      // join over conversation_messages would force Postgres to aggregate the
-      // whole messages table before ORDER BY/LIMIT, so listing 20 rows scaled
-      // with the entire DB. The subquery + LATERAL now run only for the returned rows.
+      // message_count is the conversation's own counter (migration 0086); a
+      // fan-out join over conversation_messages would force Postgres to
+      // aggregate the whole messages table before ORDER BY/LIMIT.
       db.execute(sql`
         SELECT
           c.id,
@@ -553,8 +565,7 @@ export class ConversationStore {
           c.channel,
           c.instance_id,
           i.name AS instance_name,
-          (SELECT COUNT(*)::int FROM conversation_messages cm
-           WHERE cm.conversation_id = c.conversation_id) AS message_count,
+          c.message_count AS message_count,
           COALESCE(al_agg.total_tokens, 0)::int AS total_tokens,
           COALESCE(al_agg.total_cost, 0)::real AS total_cost,
           COALESCE(al_agg.conversation_tokens, 0)::int AS conversation_tokens,
@@ -639,7 +650,7 @@ export class ConversationStore {
         c.channel,
         c.instance_id,
         i.name AS instance_name,
-        COUNT(cm.id)::int AS message_count,
+        c.message_count AS message_count,
         COALESCE(al_agg.total_tokens, 0)::int AS total_tokens,
         COALESCE(al_agg.total_cost, 0)::real AS total_cost,
         COALESCE(al_agg.conversation_tokens, 0)::int AS conversation_tokens,
@@ -652,7 +663,6 @@ export class ConversationStore {
         c.updated_at
       FROM conversations c
       LEFT JOIN instances i ON i.slug = c.instance_id
-      LEFT JOIN conversation_messages cm ON cm.conversation_id = c.conversation_id
       LEFT JOIN LATERAL (
         SELECT SUM(al.total_tokens) AS total_tokens,
                SUM(al.estimated_cost_usd) AS total_cost,
@@ -666,7 +676,6 @@ export class ConversationStore {
         WHERE al.conversation_id = c.conversation_id
       ) al_agg ON true
       WHERE c.conversation_id = ${conversationId} ${orgFilter}
-      GROUP BY c.id, i.name, al_agg.total_tokens, al_agg.total_cost, al_agg.conversation_tokens, al_agg.conversation_cost, al_agg.service_tokens, al_agg.service_cost, al_agg.cached_input_tokens, al_agg.cache_creation_input_tokens
     `);
 
     const r = (rows as unknown as Array<Record<string, unknown>>)[0];
@@ -814,9 +823,7 @@ export class ConversationStore {
            ORDER BY ts_rank(cm2.search_vector, ${tsQuery}) DESC
            LIMIT 1
           ) AS best_snippet,
-          (SELECT COUNT(*)::int FROM conversation_messages cm3
-           WHERE cm3.conversation_id = c.conversation_id
-          ) AS message_count,
+          c.message_count AS message_count,
           COALESCE(al_agg.total_tokens, 0)::int AS total_tokens,
           COALESCE(al_agg.total_cost, 0)::real AS total_cost,
           COALESCE(al_agg.conversation_tokens, 0)::int AS conversation_tokens,
@@ -994,7 +1001,7 @@ export class ConversationStore {
     // A crash between them would otherwise leave the conversation with no summary and missing messages.
     await db.transaction(async (tx) => {
       const oldest = await tx
-        .select({ id: conversationMessages.id })
+        .select({ id: conversationMessages.id, role: conversationMessages.role })
         .from(conversationMessages)
         .where(eq(conversationMessages.conversationId, conversationId))
         .orderBy(conversationMessages.createdAt)
@@ -1003,13 +1010,25 @@ export class ConversationStore {
       if (oldest.length === 0) return;
 
       const idsToDelete = oldest.map((r) => r.id);
+      const deletedUser = oldest.filter((r) => r.role === "user").length;
 
       await tx.delete(conversationMessages).where(inArray(conversationMessages.id, idsToDelete));
-      await tx.insert(conversationMessages).values({
+      const [summaryRow] = await tx.insert(conversationMessages).values({
         conversationId,
         role: "system",
         content: `[Room history summary]\n${summary}`,
-      });
+      }).returning({ createdAt: conversationMessages.createdAt });
+      // Keep the 0086 counters exact: N rows out, one summary in.
+      await tx
+        .update(conversations)
+        .set({
+          messageCount: sql`${conversations.messageCount} - ${idsToDelete.length} + 1`,
+          userMessageCount: sql`${conversations.userMessageCount} - ${deletedUser}`,
+          ...(summaryRow?.createdAt
+            ? { lastMessageAt: sql`GREATEST(${conversations.lastMessageAt}, ${summaryRow.createdAt.toISOString()}::timestamptz)` }
+            : {}),
+        })
+        .where(eq(conversations.conversationId, conversationId));
     });
   }
 
