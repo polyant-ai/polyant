@@ -32,6 +32,16 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversation_messages_conversation_
 
 The counter backfill itself always runs in the migration.
 
+### A second, smaller database pool for analytics
+
+Dashboards and other analytics reads now use their own connection pool, so a
+heavy aggregate can no longer take the connections a conversation turn is
+waiting for. Each engine process therefore opens up to 3 more connections to
+Postgres (`POSTGRES_ANALYTICS_POOL_MAX`); check your server's `max_connections`
+if it is tight. Statements on that pool stop after 15 seconds
+(`POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS`). The main pool keeps its 10
+connections and is now configurable with `POSTGRES_POOL_MAX`.
+
 ### Environment variables the panel now answers
 
 Each of these set one value for a whole installation, for a question an

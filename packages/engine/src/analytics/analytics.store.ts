@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { sql } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { analyticsDb } from "../database/client.js";
 import { type DateRange, toISO, asRows, pctChange, instanceFilter } from "../utils/query-helpers.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/scope-filter.js";
@@ -141,7 +141,7 @@ async function getOverviewStats(
     avg_duration_ms: number;
     total_calls: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost,
         COALESCE(SUM(total_tokens), 0)::int AS total_tokens,
@@ -164,7 +164,7 @@ async function getOverviewStats(
     total_messages: number;
     unique_users: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         COUNT(*)::int AS total_conversations,
         COALESCE(SUM(c.message_count), 0)::int AS total_messages,
@@ -184,7 +184,7 @@ async function getOverviewStats(
     total_cost: number;
     avg_duration_ms: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost,
         COALESCE(AVG(duration_ms), 0)::float AS avg_duration_ms
@@ -198,7 +198,7 @@ async function getOverviewStats(
     total_conversations: number;
     total_messages: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         COUNT(*)::int AS total_conversations,
         COALESCE(SUM(c.message_count), 0)::int AS total_messages
@@ -249,7 +249,7 @@ async function getDailyTrend(
     cost: number;
     tokens: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         DATE(created_at) AS date,
         COALESCE(SUM(estimated_cost_usd), 0)::float AS cost,
@@ -267,7 +267,7 @@ async function getDailyTrend(
     conversations: number;
     messages: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         DATE(c.created_at) AS date,
         COUNT(*)::int AS conversations,
@@ -312,7 +312,7 @@ async function getHourlyDistribution(
   const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
   const rows = asRows<{ hour: number; count: number }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         EXTRACT(HOUR FROM cm.created_at)::int AS hour,
         COUNT(*)::int AS count
@@ -346,7 +346,7 @@ async function getChannelDistribution(
   const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
   return asRows<ChannelRow>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         CASE WHEN c.channel IN ('openai-api', '') OR c.channel IS NULL THEN 'web' ELSE c.channel END AS channel,
         COUNT(*)::int AS conversations,
@@ -378,7 +378,7 @@ async function getModelDistribution(
     cost: number;
     avg_duration: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         provider,
         model,
@@ -413,7 +413,7 @@ async function getTierDistribution(
   const orgInst = buildOrgScopedAgentFilterFragment(scope);
 
   return asRows<TierRow>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         tier,
         COUNT(*)::int AS calls,
@@ -444,7 +444,7 @@ async function getToolUsage(
   // unwrap two levels: steps -> step.toolCalls -> toolName. Steps without a
   // toolCalls array (e.g. plain "initial" text steps) are filtered out.
   return asRows<ToolRow>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         tool_call->>'toolName' AS tool,
         COUNT(*)::int AS count
@@ -479,7 +479,7 @@ async function getInstanceComparison(
     cost: number;
     tokens: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         al.instance_id,
         COALESCE(i.name, al.instance_id) AS name,

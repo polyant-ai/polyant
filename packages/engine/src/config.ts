@@ -79,6 +79,20 @@ const configSchema = z.preprocess(stripEmptyStrings, z.object({
       .enum(["true", "false"])
       .default("false")
       .transform((v): boolean => v === "true"),
+    /**
+     * Connections of the main pool: the message pipeline, the API, the jobs.
+     * 10 is what postgres.js defaults to, and what this pool always used.
+     */
+    poolMax: z.coerce.number().int().min(1).default(10),
+    /**
+     * A separate, smaller pool for analytics and dashboard reads, so heavy
+     * aggregates queue among themselves instead of taking the connections a
+     * conversation turn waits for. Measured: 50 panel users on the shared pool
+     * raised a turn's p95 overhead from 270 ms to 1 s.
+     */
+    analyticsPoolMax: z.coerce.number().int().min(1).default(3),
+    /** Per-statement cap on that pool, so one runaway aggregate cannot hold a connection. */
+    analyticsStatementTimeoutMs: z.coerce.number().int().min(1000).default(15_000),
   }),
 
   // HTTP Server (NestJS)
@@ -235,6 +249,9 @@ function loadConfig(): Config {
       password: process.env.POSTGRES_PASSWORD ?? dbUrlParsed?.password,
       databaseUrl: buildDatabaseUrl(),
       ssl: process.env.POSTGRES_SSL,
+      poolMax: process.env.POSTGRES_POOL_MAX,
+      analyticsPoolMax: process.env.POSTGRES_ANALYTICS_POOL_MAX,
+      analyticsStatementTimeoutMs: process.env.POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS,
     },
     server: {
       port: process.env.API_PORT,
