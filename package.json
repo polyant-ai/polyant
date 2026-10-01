@@ -43,9 +43,6 @@
     "axios": "^1.15.0",
     "langsmith": "^0.7.3",
     "multer": "^2.3.0",
-    "jsdom": {
-      "undici": "^7.29.1"
-    },
     "@ai-sdk/provider-utils": {
       "undici": "^7.29.1"
     }
