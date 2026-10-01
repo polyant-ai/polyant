@@ -313,7 +313,7 @@
   "tools.paramsNoAccess": "Solo chi gestisce le credenziali dell'agente può vedere e modificare questi valori.",
   "tools.paramNoDescription": "L'autore non ha descritto questo parametro.",
   "tools.paramAskedBy": "Lo chiede {names}",
-  "tools.paramProviderCredential": "Si configura in Credenziali.",
+  "tools.paramProviderCredential": "Si configura in Modello.",
   "tools.siblings": "Altri strumenti di {plugin}",
   "tools.siblingsHint": "ognuno si abilita da solo",
   "tools.pickerTitle": "Abilita strumenti",
