@@ -28,16 +28,19 @@ vi.mock("../../../platform/platform-settings.store.js", () => ({
 }));
 
 const { buildMcpTools } = await import("./mcp-tools.js");
+const { closeMcpClientPool, mcpPoolSize } = await import("./mcp-client-pool.js");
 const IID = asInstanceUuid("iid");
 const SLUG = asInstanceSlug("my-instance");
 
 describe("buildMcpTools", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     servers.length = 0;
+    // The pool outlives a turn by design; each test starts without one.
+    await closeMcpClientPool();
     createMCPClient.mockReset();
   });
 
-  it("should_namespace_and_wrap_static_server_tools", async () => {
+  it("should_namespace_and_wrap_static_server_tools_and_keep_the_pooled_client_past_the_turn", async () => {
     servers.push({ slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token: "t" } } });
     const close = vi.fn();
     createMCPClient.mockResolvedValue({
@@ -47,7 +50,83 @@ describe("buildMcpTools", () => {
     const { tools, close: closeAll } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
     expect(Object.keys(tools)).toContain("mcp__gh__create_issue");
     await closeAll();
+    // Pooled: the end of the turn does not close it; shutdown does.
+    expect(close).not.toHaveBeenCalled();
+    await closeMcpClientPool();
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  describe("connection pool", () => {
+    const staticServer = (id: string, token = "t") => ({ id, slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token } } });
+    const okClient = (execute: () => Promise<unknown> = async () => "ok") => ({
+      tools: async () => ({ create_issue: { description: "d", inputSchema: {}, execute } }),
+      close: vi.fn().mockResolvedValue(undefined),
+    });
+
+    it("should_reuse_one_connection_across_turns", async () => {
+      servers.push(staticServer("s1"));
+      createMCPClient.mockResolvedValue(okClient());
+
+      await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
+      await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c2" });
+      await Promise.all([1, 2, 3].map((n) => buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: `c${n + 2}` })));
+
+      expect(createMCPClient).toHaveBeenCalledOnce();
+      expect(mcpPoolSize()).toBe(1);
+    });
+
+    it("should_reconnect_when_the_server_record_changes", async () => {
+      servers.push(staticServer("s1", "old-token"));
+      createMCPClient.mockResolvedValue(okClient());
+      await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
+
+      servers[0] = staticServer("s1", "new-token");
+      await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c2" });
+
+      expect(createMCPClient).toHaveBeenCalledTimes(2);
+    });
+
+    it("should_reconnect_on_the_next_turn_after_a_call_fails", async () => {
+      servers.push(staticServer("s1"));
+      createMCPClient.mockResolvedValue(okClient(async () => { throw new Error("session expired"); }));
+      const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
+
+      await expect((tools["mcp__gh__create_issue"] as any).execute({}, {})).rejects.toThrow("session expired");
+      await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c2" });
+
+      expect(createMCPClient).toHaveBeenCalledTimes(2);
+    });
+
+    it("should_reconnect_once_the_connection_is_a_minute_old", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        servers.push(staticServer("s1"));
+        createMCPClient.mockResolvedValue(okClient());
+        await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1" });
+
+        vi.setSystemTime(Date.now() + 59_000);
+        await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c2" });
+        expect(createMCPClient).toHaveBeenCalledOnce();
+
+        vi.setSystemTime(Date.now() + 2_000);
+        await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c3" });
+        expect(createMCPClient).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should_not_pool_an_oauth_server_and_close_it_at_the_end_of_the_turn", async () => {
+      servers.push({ id: "s-oauth", slug: "gh", url: "https://x", authMode: "oauth", config: {} });
+      const client = okClient();
+      createMCPClient.mockResolvedValue(client);
+
+      const { close } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1", allowOAuth: true });
+      await close();
+
+      expect(client.close).toHaveBeenCalledOnce();
+      expect(mcpPoolSize()).toBe(0);
+    });
   });
 
   it("should_close_client_when_tools_enumeration_throws", async () => {
