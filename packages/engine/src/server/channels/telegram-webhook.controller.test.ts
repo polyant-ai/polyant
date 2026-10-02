@@ -18,6 +18,7 @@ vi.mock("../../instances/resolve-instance-id.js", () => ({
 }));
 
 const { TelegramWebhookController } = await import("./telegram-webhook.controller.js");
+const { pendingBackgroundTurns } = await import("../../channels/background-turns.js");
 
 describe("Telegram webhook", () => {
   it("rejects a wrong secret and forwards a valid update", async () => {
@@ -40,6 +41,22 @@ describe("Telegram webhook", () => {
 
     await expect(controller.receive("agent", secret, { update_id: 8 })).resolves.toEqual({ status: "accepted" });
     expect(handleInbound).toHaveBeenCalledWith({ update_id: 8 });
+  });
+
+  it("leaves the acknowledged turn for shutdown to wait on", async () => {
+    // Once answered 200, Telegram never delivers the update again: a turn the
+    // shutdown sequence cut off after the HTTP server closed was lost.
+    const controller = new TelegramWebhookController();
+    let finish!: () => void;
+    handleInbound.mockReset().mockReturnValue(new Promise<void>((r) => (finish = r)));
+    const secret = createHash("sha256").update("bot-token").digest("hex");
+    const before = pendingBackgroundTurns();
+
+    await controller.receive("agent", secret, { update_id: 10 });
+    expect(pendingBackgroundTurns()).toBe(before + 1);
+
+    finish();
+    await vi.waitFor(() => expect(pendingBackgroundTurns()).toBe(before));
   });
 
   it("answers 200 even when processing the update fails", async () => {

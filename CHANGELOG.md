@@ -206,7 +206,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SIGTERM` used to wait on that connection until the platform killed the
   process, so every deploy with a panel open waited out the stop timeout and
   lost the last buffered audit rows. Open streams are now ended first, and a
-  request already in flight gets ten seconds to finish.
+  request already in flight gets ten seconds to finish. Turns a Telegram,
+  Slack, WhatsApp or event webhook has already acknowledged get the same ten
+  seconds: their sender does not retry them, so cutting them off lost the reply.
 - A Telegram channel went silent after every rolling deploy: the replica being
   stopped deleted the webhook the new one had just registered. The webhook is
   now removed only when the channel is switched off or deleted, or its agent is

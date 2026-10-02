@@ -16,7 +16,8 @@ import { supervise, superviseStream } from "./agents/supervisor/index.js";
 import { channelManager } from "./channels/channel-manager.js";
 import { listAllInstances } from "./instances/store.js";
 import { startServer } from "./server/main.js";
-import { closeHttpServer } from "./server/graceful-close.js";
+import { closeHttpServer, HTTP_SHUTDOWN_GRACE_MS } from "./server/graceful-close.js";
+import { drainBackgroundTurns } from "./channels/background-turns.js";
 import { closeActivityStreams } from "./activity-stream/activity-stream.controller.js";
 import { type AgentCallMetadata, type IncomingMessage, type OutgoingMessage, type StreamOutgoingMessage } from "./channels/types.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
@@ -576,9 +577,18 @@ async function main() {
     // them for good: end them first. Anything else still open (a turn
     // streaming its reply) gets a bounded grace period, so the flushes and
     // shutdowns below always run before the platform kills the process.
+    // Turns a webhook already acknowledged (Telegram, Slack, Twilio, event
+    // webhooks) are no longer open requests, and their sender will not retry
+    // them: wait for those within the same grace period.
     const streams = closeActivityStreams();
-    const { forced } = await closeHttpServer(nestApp);
+    const [{ forced }, background] = await Promise.all([
+      closeHttpServer(nestApp),
+      drainBackgroundTurns(HTTP_SHUTDOWN_GRACE_MS),
+    ]);
     console.log(`HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
+    if (background.pending > 0) {
+      console.warn(`${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
+    }
     schedulerService.shutdown();
     roomScheduler.shutdown();
     await channelManager.shutdownAll();

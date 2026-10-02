@@ -14,6 +14,7 @@ import { Public } from "../../auth/decorators/public.decorator.js";
 import { emitWebhook } from "../../activity-stream/emitters/emit-webhook.js";
 import { resolveInstanceMeta } from "../../activity-stream/emit-helpers.js";
 import type { InstanceUuid } from "../../instances/identifiers.js";
+import { trackBackgroundTurn } from "../../channels/background-turns.js";
 
 const MAX_PAYLOAD_BYTES = 65_536;
 
@@ -74,8 +75,9 @@ export class WebhookController {
       throw new UnauthorizedException("Invalid webhook credentials");
     }
 
-    this.processEvent(result, safePayload).catch((err) =>
-      webhookLog.error("Webhook", "processing error", err),
+    // Answered before the event is processed; shutdown waits for it (see background-turns).
+    trackBackgroundTurn(
+      this.processEvent(result, safePayload).catch((err) => webhookLog.error("Webhook", "processing error", err)),
     );
 
     return { ok: true };
@@ -129,8 +131,10 @@ export class WebhookController {
     // Route based on action type
     if (matched.action === "conversation") {
       // Trigger immediate conversation — no backlog, no Room required
-      triggerConversation(instanceId, slug, matched, payload).catch((err) =>
-        webhookLog.error("Webhook", `conversation trigger failed for "${matched.name}"`, err),
+      trackBackgroundTurn(
+        triggerConversation(instanceId, slug, matched, payload).catch((err) =>
+          webhookLog.error("Webhook", `conversation trigger failed for "${matched.name}"`, err),
+        ),
       );
       webhookLog.info("Webhook", `matched "${matched.name}" → triggering conversation`);
       return;

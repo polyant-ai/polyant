@@ -16,6 +16,7 @@ import { channelWebhookTracker, requireLiveAdapter } from "./live-adapter.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { sanitizeForLog } from "../../utils/create-logger.js";
 import { redactWebhookPath } from "../filters/redact-webhook-path.js";
+import { trackBackgroundTurn } from "../../channels/background-turns.js";
 
 interface TwilioWebhookBody {
   MessageSid: string;
@@ -190,8 +191,9 @@ export class TwilioWebhookController {
       if (url) mediaItems.push({ url, contentType });
     }
 
-    // Fire-and-forget so Twilio is not kept waiting for the pipeline.
-    adapter.handleInbound({
+    // Answered at once so Twilio is not kept waiting for the pipeline; shutdown
+    // still waits for the turn (see background-turns).
+    const work = adapter.handleInbound({
       from,
       body: body.Body || "",
       profileName: body.ProfileName,
@@ -204,6 +206,7 @@ export class TwilioWebhookController {
       // and sanitized so it cannot forge extra log lines (CWE-117).
       console.error("[whatsapp] Error processing inbound for instance:", sanitizeForLog(instanceSlug), err),
     );
+    trackBackgroundTurn(work);
 
     return "<Response/>";
   }
