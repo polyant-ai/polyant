@@ -110,6 +110,25 @@ describe("HooksTab — parameters", () => {
     expect(mockHookUpdate).not.toHaveBeenCalled();
   });
 
+  it("asks before closing a sheet with unsaved changes, and discarding writes nothing", async () => {
+    const user = userEvent.setup();
+    render(<HooksTab slug="agent-1" />);
+
+    const [moderateRow] = await screen.findAllByRole("button", { name: "hooks.open" });
+    await user.click(moderateRow);
+    const sheet = await screen.findByRole("dialog");
+    await user.type(within(sheet).getByPlaceholderText("settings.tab.keyPlaceholder"), "mod-123");
+    await user.click(within(sheet).getByRole("button", { name: "common.close" }));
+
+    const confirm = await screen.findByRole("alertdialog");
+    expect(within(confirm).getByText("unsavedChanges.title")).toBeInTheDocument();
+    await user.click(within(confirm).getByRole("button", { name: "unsavedChanges.discard" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mockSecretsSet).not.toHaveBeenCalled();
+    expect(mockHookUpdate).not.toHaveBeenCalled();
+  });
+
   it("asks for the chosen function's keys while adding a hook, and writes them with it", async () => {
     const user = userEvent.setup();
     mockHookCreate.mockResolvedValue({});

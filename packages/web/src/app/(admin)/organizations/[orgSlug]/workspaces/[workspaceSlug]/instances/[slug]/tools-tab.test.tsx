@@ -301,8 +301,8 @@ describe("ToolsTab", () => {
     await user.click(within(sheet).getByRole("button", { name: "common.close" }));
 
     const confirm = await screen.findByRole("alertdialog");
-    expect(within(confirm).getByText("tools.discardTitle")).toBeInTheDocument();
-    await user.click(within(confirm).getByRole("button", { name: "tools.discardConfirm" }));
+    expect(within(confirm).getByText("unsavedChanges.title")).toBeInTheDocument();
+    await user.click(within(confirm).getByRole("button", { name: "unsavedChanges.discard" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(mockSecretsSet).not.toHaveBeenCalled();

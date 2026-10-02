@@ -24,20 +24,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { getUserErrorMessage, type HookEvent, type HookFunctionInfo, type InstanceHook, type RequiredSecretSpec } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { SecretSpecField, humanizeSecretKey } from "@/components/instance-secret/secret-spec-field";
 import type { SecretSpecsForm } from "@/components/instance-secret/use-secret-specs";
+import { UnsavedChangesDialog } from "./unsaved-changes-dialog";
 
 export const HOOK_EVENTS: HookEvent[] = [
   "conversation_start",
@@ -280,18 +271,7 @@ export function HookSheet({ hook, fn, specs, params, onSaveSettings, onDelete, o
         </SheetContent>
       </Sheet>
 
-      <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("hooks.discardTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("tools.discardBody")}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("tools.keepEditing")}</AlertDialogCancel>
-            <AlertDialogAction onClick={discard}>{t("tools.discardConfirm")}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <UnsavedChangesDialog open={confirmDiscard} onOpenChange={setConfirmDiscard} onDiscard={discard} />
     </>
   );
 }
