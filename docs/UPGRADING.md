@@ -169,6 +169,43 @@ your environment — a value left there is read by nothing.
 If you deploy with the CDK stack, drop `defaultInstanceId` and `locale` from the
 `app` block of your `config.yaml`; `timezone` stays and is passed as `TZ`.
 
+### Set a customised analytics retention before upgrading
+
+`ANALYTICS_RETENTION_DAYS` is no longer read from the moment the new engine
+starts, and the first housekeeping run comes about 30 seconds after every start
+of the engine. It deletes logs, traces, tool audit records, hook executions,
+task runs and completed event backlog older than the installation's retention,
+which is 90 days until someone sets it. An installation that kept more than 90
+days therefore loses the difference on the first boot, before anyone can open
+Settings → General.
+
+If you set `ANALYTICS_RETENTION_DAYS` to more than 90, store the same value in
+the database before upgrading. On the 1.1.x database, run the following,
+replacing `365` with your value. The table is the one migration `0080` creates,
+defined the same way, so the migration finds it and keeps the row:
+
+```sql
+CREATE TABLE IF NOT EXISTS "platform_settings" (
+  "id" boolean PRIMARY KEY DEFAULT true,
+  "analytics_retention_days" integer,
+  "sse_max_connections_per_user" integer,
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_by" uuid REFERENCES "users"("id") ON DELETE SET NULL,
+  CONSTRAINT "platform_settings_single_row" CHECK ("id"),
+  CONSTRAINT "platform_settings_analytics_retention_days_positive"
+    CHECK ("analytics_retention_days" IS NULL OR "analytics_retention_days" > 0),
+  CONSTRAINT "platform_settings_sse_max_connections_per_user_positive"
+    CHECK ("sse_max_connections_per_user" IS NULL OR "sse_max_connections_per_user" > 0)
+);
+INSERT INTO "platform_settings" ("id", "analytics_retention_days") VALUES (true, 365)
+  ON CONFLICT ("id") DO UPDATE SET "analytics_retention_days" = EXCLUDED."analytics_retention_days";
+```
+
+The statements are safe to run twice, and safe on a database that is already
+migrated. Alternatively, run the migrations on their own (see above), then
+`UPDATE platform_settings SET analytics_retention_days = 365;`, then start the
+engine. Settings → General shows the stored value afterwards.
+
 ### Operational limits move to Settings → General
 
 Seven more variables become rows an administrator edits, with the defaults they
@@ -176,8 +213,10 @@ had: `SSE_MAX_CONNECTIONS` (50), `THROTTLE_TTL_MS` (60000), `THROTTLE_LIMIT`
 (30), `AGENT_CALL_TIMEOUT_MS` (60000), `MCP_CONNECT_TIMEOUT_MS` (10000),
 `SCHEDULER_ORPHAN_GRACE_MS` (900000) and `SCHEDULER_DEFAULT_MAX_RUN_MS`
 (1800000). If your deployment set any of them to something other than the
-default, set the same number in Settings → General before removing the variable —
-otherwise the upgrade quietly restores the default.
+default, set the same number in Settings → General: the new engine does not read
+the variable, so the default applies from its first start until you do. To have
+the values in place from the start, run the migrations on their own, set the
+columns of `platform_settings`, then start the engine.
 
 `THROTTLE_ENABLED` stays an environment variable and keeps its meaning.
 
