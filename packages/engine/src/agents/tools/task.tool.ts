@@ -36,8 +36,12 @@ export default defineTool({
  * Factory: creates a spawnTask tool that delegates work to an isolated sub-agent.
  * Defensive filter: spawnTask is stripped from the sub-agent's tool set so a
  * sub-agent can never re-invoke itself (depth max = 0 from the sub's POV).
+ *
+ * The sub-agent runs on the parent's provider and pinned model, and under the
+ * parent turn's abort signal: it has real tools and up to ten steps, so a turn
+ * the user cancelled must not keep it running.
  */
-export function createTaskTool(subAgentTools: Record<string, Tool>, apiKeys?: ChatRequest["apiKeys"], instanceId?: InstanceSlug, conversationId?: string, provider?: ChatRequest["provider"]): Tool {
+export function createTaskTool(subAgentTools: Record<string, Tool>, apiKeys?: ChatRequest["apiKeys"], instanceId?: InstanceSlug, conversationId?: string, provider?: ChatRequest["provider"], model?: ChatRequest["model"], abortSignal?: AbortSignal): Tool {
   const audit = createAuditLogger("spawnTask", instanceId ?? asInstanceSlug("unknown"), conversationId);
   const { spawnTask: _drop, ...isolatedTools } = subAgentTools;
   void _drop;
@@ -59,6 +63,8 @@ export function createTaskTool(subAgentTools: Record<string, Tool>, apiKeys?: Ch
             tier: "standard",
             apiKeys,
             provider,
+            model,
+            abortSignal,
             system: `You are a specialized agent. Execute the following task precisely and completely.
 
 Task: ${task}
