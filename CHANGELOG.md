@@ -7,41 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> **Migration 0086 rewrites the conversations table, and the engine opens a
-> second, smaller Postgres pool.** See [docs/UPGRADING.md](docs/UPGRADING.md).
-
-### Added
-
-- `POSTGRES_POOL_MAX` sets the main Postgres pool (default 10).
-  `POSTGRES_ANALYTICS_POOL_MAX` (default 3) and
-  `POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS` (default 15 seconds) size the new
-  analytics pool and bound its statements.
-
-### Changed
-
-- Conversations carry their message count, user message count and time of
-  the last message. The conversation list, the conversation detail, the
-  search and the analytics read them instead of counting messages, so their
-  cost no longer grows with message history. On 2 million messages the
-  analytics queries run 4 to 10 times faster.
-- Dashboards and other analytics reads run on their own connection pool, so a
-  heavy aggregate no longer holds the connections a conversation turn needs.
-- Connections to MCP servers that do not use OAuth are reused across turns
-  for up to a minute, instead of a new handshake on every turn. A connection
-  that fails is retired and the next turn opens a fresh one.
-- A model call no longer reads the agent's row from the database: the agent's
-  identity is cached for a minute and dropped when the agent changes.
-- The panel loads the changelog only for a Platform Admin, and loads the
-  changelog card's markdown renderer only when the dialog opens.
-
 ## [1.2.0] - 2026-10-02
 
 > **Upgrading from 1.1.2 needs operator action.** The engine and the panel run
 > on Node 24. Google sign-in is removed. Several built-in tool families now
-> require plugins and re-enablement, and custom S3 endpoints are no longer
-> supported. Telegram and Slack arrive through webhooks and need a public
-> address. Environment variables that set product behaviour are gone, and a
-> non-default value has to be entered in the panel before the upgrade. See
+> require plugins (agents keep them enabled under their new names), and custom
+> S3 endpoints are no longer supported. Storing inbound attachments becomes a
+> per-agent choice, off for every agent. Telegram and Slack arrive through
+> webhooks and need a public address. Environment variables that set product
+> behaviour are gone, and a non-default value has to be entered in the panel
+> before the upgrade. Migration `0086` rewrites the conversations table. See
 > [docs/UPGRADING.md](docs/UPGRADING.md).
 
 ### Added
@@ -64,11 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/v1/chat/completions`) accept a `context` object that is projected onto the
   conversation state before the turn, through a per-agent web context field
   mapping edited under Channels → Web/API, so a voice or web front end hands
-  tools and hooks the caller's identity and keeps streaming. It requires
-  `chat_id` and the agent's API key, even on an agent that is otherwise open.
-  Migration `0085` adds the column.
+  tools and hooks the caller's identity and keeps streaming. A request with
+  context requires `chat_id` and the agent's API key, and an agent that maps at
+  least one context field requires its key on every web turn, with or without
+  context, even when its authentication is otherwise off. Migration `0085` adds
+  the column.
 - `_private` is a reserved conversation-state key that is stored and returned by
-  the state API but never rendered into the prompt.
+  the state API but never rendered into the prompt. The whole underscore
+  namespace is reserved: neither the web context mapping nor the HTTP channel
+  mapping may target an underscore key.
 - A conversation can be followed live from its detail page, on any channel:
   `GET /api/activity-stream/conversation` streams one conversation's activity
   and signals each committed write, gated by `conversation:read` and sharing the
@@ -106,6 +85,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as transcription credentials, instead of leaving it enabled and silent.
 - The Debug sheet can copy a complete captured turn — model payload and step
   trace — as one JSON object.
+- `POSTGRES_POOL_MAX` sets the main Postgres pool (default 10).
+  `POSTGRES_ANALYTICS_POOL_MAX` (default 3) and
+  `POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS` (default 15 seconds) size the new
+  analytics pool and bound its statements.
 
 ### Changed
 
@@ -117,19 +100,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING — GitHub, Render, HubSpot and Markdown-to-PDF tools moved out of
   core into plugins.** Their names are namespaced (`ghIssue` becomes
   `github:issue`, `hubspotContact` becomes `hubspot:contact`, and
-  `markdownToPdf` becomes `extra:markdownToPdf`), old flat registry rows are
-  removed, and affected agents must enable the replacements. `verifyDocument`
-  was removed without a replacement.
+  `markdownToPdf` becomes `extra:markdownToPdf`). Migration `0087` renames the
+  catalog rows in place, so agents keep the tools enabled and skills keep their
+  links and required-tool lists; an import of an older bundle maps the old
+  names too. The tools work again once their plugin is installed.
+  `verifyDocument` was removed without a replacement: the first boot removes
+  it, and any other tool no plugin provides, from the agents that had it and
+  logs their names.
 - **BREAKING — Telegram and Slack now arrive through webhooks.** Telegram used
   long polling and Slack Socket Mode, so both worked without a public address.
   Now the engine registers `<public address>/webhooks/telegram/<agent>` with
   Telegram, and Slack must be pointed at `<public address>/webhooks/slack/<agent>`
   with Socket Mode switched off; the Slack app token is no longer used. The
   engine needs a public HTTPS address and `/webhooks/*` must reach it.
-- **BREAKING — attachment storage is configured per agent.** The four
-  `PLATFORM_S3_*` variables are gone; attachment persistence and `fileUpload`
-  share the agent's bucket and support either static credentials or the explicit
-  `s3_use_task_role` opt-in.
+- **BREAKING — attachment storage is configured per agent, and storing inbound
+  files is opt-in.** The four `PLATFORM_S3_*` variables are gone; attachment
+  persistence and `fileUpload` share the agent's bucket and support either
+  static credentials or the explicit `s3_use_task_role` opt-in. An agent keeps
+  the files its users send only when **Store attachments** is on in its
+  behaviour parameters; migration `0088` adds the switch off for every agent,
+  and the model sees each file in the turn either way. Stored files are deleted
+  with their conversation and with the agent. Files earlier versions stored in
+  the platform bucket stay there; the upgrade guide shows how to copy them.
 - **The OpenAI tiers moved to the gpt-6 family** (`fast` → `gpt-6-luna`,
   `standard` → `gpt-6-sol`, `heavy` → `gpt-6-astra`). They pointed at
   `gpt-4o-mini`/`gpt-4o`, which OpenAI lists as deprecated. Every OpenAI agent
@@ -153,6 +145,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The plugin SDK is pinned at v1.8.0, including plugin knowledge access.
 - Runtime dependencies moved to NestJS 12, AI SDK 7, React 19.3, Vitest 5,
   dotenv 18, jsdom 30 and markdown-it 15.
+- Telegram webhook registration happens after the channel starts and is
+  retried on rate limits and transient errors, so a failed registration no
+  longer disables the channel. Telegram updates are acknowledged before the
+  turn runs.
+- Conversations carry their message count, user message count and time of
+  the last message. The conversation list, the conversation detail, the
+  search and the analytics read them instead of counting messages, so their
+  cost no longer grows with message history. On 2 million messages the
+  analytics queries run 4 to 10 times faster.
+- Dashboards and other analytics reads run on their own connection pool, so a
+  heavy aggregate no longer holds the connections a conversation turn needs.
+- Connections to MCP servers that do not use OAuth are reused across turns
+  for up to a minute, instead of a new handshake on every turn. A connection
+  that fails is retired and the next turn opens a fresh one.
+- A model call no longer reads the agent's row from the database: the agent's
+  identity is cached for a minute and dropped when the agent changes.
+- The panel loads the changelog only for a Platform Admin, and loads the
+  changelog card's markdown renderer only when the dialog opens.
 
 ### Removed
 
@@ -208,9 +218,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Room's prompt reaches the model. It was editable in the panel and stored,
   but only ever used for a token estimate.
 - A webhook event definition no longer drops a matching event because the model
-  answered "Yes." or "Yes, …" instead of a bare "yes".
+  answered "Yes." or "Yes, …" instead of a bare "yes", and "si", "sì" or "y"
+  count as a match only when they are the whole reply, so "Si tratta di…" no
+  longer wakes the agent. The matcher sends the classifier the same projected
+  payload the Room shows instead of the full JSON.
 - `spawnTask` can be enabled on an agent, and the sub-agents it starts run on
-  the agent's provider. Its file did not match the tool loader's naming
+  the agent's provider and pinned model and stop when the turn is aborted. Its
+  file did not match the tool loader's naming
   pattern, so it was never registered and sub-agents were unreachable.
 - An exported agent comes back as it left: the bundle carries the agent's
   thinking level and the values of tool and hook parameters declared not
@@ -269,8 +283,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `fileUpload` is available with either supported credential shape. Attachment
   routes now accept Express 5 wildcard segments, and filenames containing
   spaces, `#`, `?`, or harmless dot runs remain reachable.
-- Updating only an agent's model validates it against the provider the agent
-  actually uses.
+- An agent PATCH validates the provider and model the agent will run on
+  together, whenever it changes either, so changing only the provider can no
+  longer leave the agent pinned to a model of the previous one.
 - Signed-out pages can switch language, and organization members cannot
   accidentally remove their own membership.
 - MCP credential edits preserve omitted secrets, OAuth metadata receives the
@@ -279,6 +294,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a key.
 - `docker build -f Dockerfile.web` works again: the web build reads
   `CHANGELOG.md`, which the image never copied.
+- Telegram and Slack redeliveries of an update or event seen in the last hour
+  are dropped instead of answered twice, and each bot's webhooks are rate
+  limited on their own bucket instead of sharing one per client address. The
+  CDK stack sets `TRUST_PROXY=1`, so the engine sees the caller's address
+  behind the load balancer.
+- The scheduler reaper fails only the run it judged overdue, never a newer
+  claim of the same task.
+- A cron task that `scheduleTask` creates without a zone is stored with `UTC`,
+  the default the tool describes, instead of running in the process zone.
+- `/v1/chat/completions` with `stream: true` handles a client disconnect like
+  `chat/stream`: a turn that has produced nothing is aborted, a turn that has
+  produced output still runs to its end and is saved, and a heartbeat keeps
+  the connection open through long tool calls.
+- Analytics cost and token totals include what the provider billed for calls
+  that failed after completing steps; call counts and response times still
+  describe answered calls.
+- An import normalises the web context field mapping as the panel does, and
+  refuses an invalid one before writing anything.
+- `readFile` caps `tail` at 500 lines like other windows, and its refusal of a
+  file over 512 KB no longer suggests a range read that would also be refused.
+- A variable a plugin declares in `system.env` no longer overrides the same
+  variable set in the operator's container environment.
+- `drizzle.config.ts` lists every schema file again; `drizzle-kit push` is not
+  a supported path and the config says so.
+- A failed load of Settings → General shows the reason with a retry instead of
+  a skeleton.
 
 ### Security
 

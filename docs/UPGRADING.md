@@ -3,7 +3,14 @@
 This guide covers upgrades that need an operator decision. For the full list of
 changes see the [changelog](../CHANGELOG.md).
 
-## Upgrading from 1.2.0
+## Upgrading from 1.1.x to 1.2.0
+
+### Node 24
+
+The engine and the panel now run on Node 24, the active LTS. The published
+Docker images carry it, so a deployment that uses them needs nothing. If you
+run from source or build your own images, move to Node 24 (`.nvmrc` names it);
+Node 22 is no longer tested.
 
 ### Migration 0086 rewrites the conversations table
 
@@ -25,30 +32,6 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversation_messages_conversation_
 
 The counter backfill itself always runs in the migration.
 
-### Extracted tools keep their enablement
-
-Migration 0087 renames the catalog rows of the tools that moved into plugins
-(HubSpot, GitHub, Render, Markdown-to-PDF) to their namespaced names, so agents
-keep them enabled and skills keep their links. It recovers nothing on an
-installation whose first boot already removed the old rows; see
-[Install and re-enable extracted tools](#install-and-re-enable-extracted-tools).
-
-### Storing attachments is now a per-agent choice
-
-In 1.2.0 an agent whose `fileUpload` secrets name a bucket copied every file a
-user sent into that bucket, and nothing deleted them. Migration 0088 adds a
-switch for it, **Store attachments** under the agent's behaviour parameters, and turns it
-off on every agent. Turn it on where the conversation view should reopen the
-files. With it off the model still sees each file in the turn; it just is not
-kept.
-
-Deleting a conversation or an agent now also deletes the files stored for it,
-by the keys recorded on its messages. That needs `s3:DeleteObject` on the
-`attachments/` prefix for the agent's credentials or task role; a refused
-delete is logged and leaves the files in place, and never blocks the database
-delete. Files stored by earlier versions for conversations already deleted are
-not tracked anywhere and stay in the bucket.
-
 ### A second, smaller database pool for analytics
 
 Dashboards and other analytics reads now use their own connection pool, so a
@@ -58,53 +41,6 @@ Postgres (`POSTGRES_ANALYTICS_POOL_MAX`); check your server's `max_connections`
 if it is tight. Statements on that pool stop after 15 seconds
 (`POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS`). The main pool keeps its 10
 connections and is now configurable with `POSTGRES_POOL_MAX`.
-
-### Agents that map web context need their key on every web turn
-
-A request's call `context` is written into the state of the conversation its
-`chat_id` names, and later turns of that conversation read it. On an agent with
-authentication off, a turn without the key could therefore continue a
-conversation a keyed request had started and act as the identity its context
-set. An agent with at least one context field mapped now requires its API key on
-every request to `/v1/chat/completions` and to the chat stream, whatever the
-authentication switch says. Agents that map no context field are unchanged.
-Before upgrading, give the key to every client of such an agent, including the
-Playground's token field.
-
-### Running more than one engine replica
-
-The engine is built to run as one replica. Several parts of it keep their state
-in the process, so with two or more replicas behind a load balancer the
-following happen. Run one replica, or accept these effects:
-
-- **Live views miss writes made elsewhere.** Following a conversation live and
-  the Playground's activity feed listen to events raised in the process that
-  handled the write. A turn answered by another replica appears only on reload.
-- **A channel change reaches only the replica that saved it.** Saving a
-  Telegram, Slack or WhatsApp channel starts its adapter on the replica that
-  handled the request. The others keep the previous adapter, or none for a new
-  channel, until they restart: their webhooks answer 404 for a new channel and
-  refuse a rotated Telegram token's secret. Restart every replica after
-  changing a channel.
-- **Fragments of one message burst can be answered separately.** WhatsApp and
-  Telegram messages that arrive close together are merged into one turn per
-  process. Fragments that land on different replicas each get their own reply.
-- **A redelivered webhook can be processed twice.** Telegram and Slack
-  redeliveries are dropped by the replica that saw the first copy; a retry that
-  reaches another replica runs the agent again.
-- **Rate limits apply per replica.** Each replica counts requests on its own, so
-  the effective limit is the configured one times the number of replicas.
-
-Scheduled tasks are safe across replicas: each run is claimed in the database.
-
-## Upgrading from 1.1.x to 1.2.0
-
-### Node 24
-
-The engine and the panel now run on Node 24, the active LTS. The published
-Docker images carry it, so a deployment that uses them needs nothing. If you
-run from source or build your own images, move to Node 24 (`.nvmrc` names it);
-Node 22 is no longer tested.
 
 ### Running the migrations without starting the engine
 
@@ -134,14 +70,45 @@ either channel:
 1. Make sure the engine has a public HTTPS address (`BASE_URL`, or the address in
    Settings → General) and that `/webhooks/*` reaches the engine. The CDK stack
    routes it; a hand-built proxy or load balancer needs the rule, without any
-   sign-in in front of it — each webhook authenticates the caller itself.
+   sign-in in front of it — each webhook authenticates the caller itself. Behind
+   a proxy, set `TRUST_PROXY` to the number of hops (the CDK stack sets `1`), so
+   that webhook rate limits, which now count each bot separately, see the
+   sender's address instead of the proxy's.
 2. For each Slack app: switch Socket Mode off, and under Event Subscriptions set
    the Request URL to `<public address>/webhooks/slack/<agent slug>`. The signing
    secret the channel already holds verifies the requests; the app-level token is
    no longer used.
-3. Telegram needs nothing by hand: the engine registers its webhook when the
-   channel starts. Telegram keeps undelivered updates for 24 hours, so messages
+3. Telegram needs nothing by hand: the engine registers its webhook after the
+   channel starts, and retries when Telegram is briefly unavailable; a failed
+   registration no longer disables the channel. The engine registers only an
+   HTTPS address. Telegram keeps undelivered updates for 24 hours, so messages
    sent while the address was unreachable arrive once it is.
+
+### Running more than one engine replica
+
+The engine is built to run as one replica. Several parts of it keep their state
+in the process, so with two or more replicas behind a load balancer the
+following happen. Run one replica, or accept these effects:
+
+- **Live views miss writes made elsewhere.** Following a conversation live and
+  the Playground's activity feed listen to events raised in the process that
+  handled the write. A turn answered by another replica appears only on reload.
+- **A channel change reaches only the replica that saved it.** Saving a
+  Telegram, Slack or WhatsApp channel starts its adapter on the replica that
+  handled the request. The others keep the previous adapter, or none for a new
+  channel, until they restart: their webhooks answer 404 for a new channel and
+  refuse a rotated Telegram token's secret. Restart every replica after
+  changing a channel.
+- **Fragments of one message burst can be answered separately.** WhatsApp and
+  Telegram messages that arrive close together are merged into one turn per
+  process. Fragments that land on different replicas each get their own reply.
+- **A redelivered webhook can be processed twice.** Telegram and Slack
+  redeliveries are dropped by the replica that saw the first copy; a retry that
+  reaches another replica runs the agent again.
+- **Rate limits apply per replica.** Each replica counts requests on its own, so
+  the effective limit is the configured one times the number of replicas.
+
+Scheduled tasks are safe across replicas: each run is claimed in the database.
 
 ### Review agents without a pinned model
 
@@ -164,8 +131,8 @@ catalog's, in USD per million input / output tokens:
 | Bedrock | `heavy` | `eu.anthropic.claude-opus-4-8` ($5.50 / $27.50) | `openai.gpt-oss-120b-1:0` ($0.20 / $0.79) |
 
 What each tier reaches decides who is affected. `standard` answers the turn of
-every agent with no model of its own, and every `spawnTask` sub-agent, pinned
-agent or not, because a sub-agent always runs on its provider's `standard` tier.
+every agent with no model of its own, and the `spawnTask` sub-agents of those
+agents; a pinned agent's sub-agents run on its pinned model.
 `fast` runs the background jobs (history summaries, memory extraction, prompt
 section updates, room compaction) of every agent on the provider, pinned or not.
 Nothing in the core engine calls `heavy`; it matters only to code of your own
@@ -191,7 +158,7 @@ GROUP BY 1
 ORDER BY 1;
 ```
 
-### Install and re-enable extracted tools
+### Install the plugins of extracted tools
 
 The GitHub, Render, HubSpot and Markdown-to-PDF tool families no longer ship in
 the core image. If an agent uses one of them, add its plugin to the image before
@@ -236,11 +203,26 @@ Earlier versions stored attachments in the deployment's bucket
 (`PLATFORM_S3_BUCKET`); 1.2.0 reads them only from each agent's own bucket. An
 installation that had set `PLATFORM_S3_*` keeps those files where they were and
 the conversation view can no longer open them. The keys did not change, so
-copying an agent's prefix into its bucket makes them readable again:
+copying an agent's prefix into its bucket, and turning on **Store attachments**
+for that agent (see below), makes them readable again:
 
 ```bash
 aws s3 sync "s3://<platform bucket>/attachments/<agent slug>/" "s3://<agent bucket>/attachments/<agent slug>/"
 ```
+
+### Storing attachments is a per-agent choice
+
+Keeping the files users send is a switch on each agent, **Store attachments**
+under its behaviour parameters. Migration `0088_attachment_storage_opt_in` adds
+it turned off on every agent. Turned on, an agent whose `fileUpload` secrets name
+a bucket stores every inbound attachment under `attachments/<agent slug>/…` in
+that bucket, so the conversation view can reopen it. With it off the model still
+sees each file in the turn; it just is not kept.
+
+Deleting a conversation or an agent also deletes the files stored for it, by the
+keys recorded on its messages. That needs `s3:DeleteObject` on the
+`attachments/` prefix for the agent's credentials or task role; a refused delete
+is logged and leaves the files in place, and never blocks the database delete.
 
 ### Google sign-in is removed
 
@@ -381,7 +363,9 @@ ORDER BY 1, 2;
 ```
 
 To keep a task on UTC, open it in the agent's Automation → Scheduled section and
-save it: the form fills in `UTC` for a task that has no zone. Leaving `TZ` unset
+save it: the form fills in `UTC` for a task that has no zone. A cron task an
+agent creates through `scheduleTask` without a zone is now stored with `UTC`,
+the default the tool describes. Leaving `TZ` unset
 keeps every such task on the container's zone, UTC in the published image.
 
 ### Operational limits move to Settings → General
