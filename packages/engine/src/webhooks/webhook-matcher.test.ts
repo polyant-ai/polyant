@@ -156,6 +156,30 @@ describe("matchEvent", () => {
     expect(mockChat).toHaveBeenCalledTimes(2);
   });
 
+  it("sends the classifier the projected payload, without the noise the Room never shows", async () => {
+    // A GitHub payload carries a dozen API URL templates per object and is sent
+    // once per definition; the Room drops them at render time, the matcher sent
+    // them every time.
+    mockChat.mockResolvedValue(reply("no"));
+    const github = {
+      action: "labeled",
+      issue: { number: 1, html_url: "https://github.com/o/r/issues/1", events_url: "https://api.github.com/x", node_id: "I_1" },
+    };
+
+    await matchEvent(github, [def("a")], "inst", "github");
+
+    const sent = mockChat.mock.calls[0][0].messages[0].content as string;
+    expect(sent).toContain("https://github.com/o/r/issues/1");
+    expect(sent).not.toContain("events_url");
+    expect(sent).not.toContain("node_id");
+  });
+
+  it("sends an unknown source type's payload unchanged", async () => {
+    mockChat.mockResolvedValue(reply("no"));
+    await matchEvent({ events_url: "kept" }, [def("a")], "inst", "hubspot");
+    expect(mockChat.mock.calls[0][0].messages[0].content).toContain("events_url");
+  });
+
   it("returns null when there are no definitions at all", async () => {
     expect(await matchEvent(PAYLOAD, [], "inst")).toBeNull();
     expect(mockChat).not.toHaveBeenCalled();

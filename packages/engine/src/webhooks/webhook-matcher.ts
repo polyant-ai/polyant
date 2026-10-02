@@ -5,6 +5,7 @@ import { resolveInstanceConfig } from "../instances/config-resolver.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import type { EventDefinition } from "./webhook-sources.store.js";
 import { webhookLog } from "./webhook-logger.js";
+import { projectEventPayload } from "../room/payload-projection.js";
 
 /**
  * Verdicts accepted as a match. Kept deliberately tight: this set is what wakes
@@ -64,17 +65,22 @@ function readVerdict(text: string): "yes" | "no" | null {
  * Match an incoming webhook payload against a list of event definitions.
  * Uses a tiny LLM (tier "fast") to evaluate each definition's matching prompt.
  * Returns the first matching definition, or null if none match.
+ *
+ * `sourceType` selects the same render-time projection the Room applies: the
+ * payload is sent once per definition, so the noise it drops (API URL
+ * templates, node ids) would otherwise be paid for on every classifier call.
  */
 export async function matchEvent(
   payload: Record<string, unknown>,
   definitions: EventDefinition[],
   instanceSlug: string,
+  sourceType?: string,
 ): Promise<EventDefinition | null> {
   const instanceConfig = await resolveInstanceConfig(asInstanceSlug(instanceSlug));
   const apiKeys = instanceConfig.apiKeys;
   const provider = instanceConfig.provider;
 
-  const payloadStr = JSON.stringify(payload, null, 2);
+  const payloadStr = JSON.stringify(projectEventPayload(sourceType, payload), null, 2);
 
   // Sequential evaluation: definitions are priority-ordered, first match wins.
   // Parallel would evaluate all definitions even after a match, wasting LLM calls.

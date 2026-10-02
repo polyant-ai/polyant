@@ -103,7 +103,7 @@ export class WebhookController {
       return;
     }
 
-    const matched = await matchEvent(payload, definitions, slug);
+    const matched = await matchEvent(payload, definitions, slug, source.sourceType);
     if (!matched) {
       webhookLog.info("Webhook", `no match for source "${source.name}", dropping`);
       return;
