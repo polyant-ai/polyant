@@ -14,9 +14,30 @@ export interface TelegramConfig {
   allowedUserIds?: string;
 }
 
+/** The only update type this adapter handles; also what the registration asks for. */
+const ALLOWED_UPDATES = ["message"] as const;
+
+/**
+ * Waits between webhook registration attempts. A 429 waits for the
+ * `retry_after` Telegram names instead, when that is longer.
+ */
+export const WEBHOOK_RETRY_DELAYS_MS = [5_000, 30_000, 120_000, 600_000];
+
+/** A Bot API error code, when the error carries one (grammY's `GrammyError`). */
+function telegramErrorCode(err: unknown): number | undefined {
+  const code = (err as { error_code?: unknown } | null)?.error_code;
+  return typeof code === "number" ? code : undefined;
+}
+
+function telegramRetryAfterMs(err: unknown): number {
+  const seconds = (err as { parameters?: { retry_after?: unknown } } | null)?.parameters?.retry_after;
+  return typeof seconds === "number" ? seconds * 1000 : 0;
+}
+
 export class TelegramAdapter implements ChannelAdapter {
   name = "telegram" as const;
   private bot: Bot | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
   readonly webhookSecret: string;
 
   constructor(
@@ -144,12 +165,60 @@ export class TelegramAdapter implements ChannelAdapter {
     this.bot.on("message:voice", handleMessage);
     this.bot.on("message:audio", handleMessage);
 
+    // A token Telegram refuses fails the start: that is a credential problem
+    // only an administrator can fix, and the channel manager disables the
+    // channel for it.
     await this.bot.init();
-    await this.bot.api.setWebhook(this.webhookUrl, {
-      secret_token: this.webhookSecret,
-      allowed_updates: ["message"],
-    });
+    // The webhook registration does not. A plain-HTTP base URL or a 429 during a
+    // fleet restart used to fail the start the same way, and the channel stayed
+    // disabled in the database until someone switched it back on by hand.
+    void this.registerWebhook(this.bot, 0);
     console.log("Telegram bot started (webhook)");
+  }
+
+  /**
+   * Point the bot's webhook at this deployment, retrying transient failures.
+   * Telegram's `getWebhookInfo` shows the outcome — the URL it holds and its
+   * last delivery error — so a failure here is visible from outside as well as
+   * in the log.
+   */
+  private async registerWebhook(bot: Bot, attempt: number): Promise<void> {
+    if (this.bot !== bot) return; // shut down or restarted meanwhile
+    if (!this.webhookUrl.startsWith("https://")) {
+      console.error(
+        "[telegram] webhook not registered for %s: Telegram requires an HTTPS URL; set the platform base URL to https",
+        this.instanceId,
+      );
+      return;
+    }
+    try {
+      const info = await bot.api.getWebhookInfo();
+      const allowed = info.allowed_updates ?? [];
+      const current = info.url === this.webhookUrl &&
+        allowed.length === ALLOWED_UPDATES.length && ALLOWED_UPDATES.every((u) => allowed.includes(u));
+      if (!current) {
+        await bot.api.setWebhook(this.webhookUrl, {
+          secret_token: this.webhookSecret,
+          allowed_updates: [...ALLOWED_UPDATES],
+        });
+      }
+    } catch (err) {
+      const code = telegramErrorCode(err);
+      // A 4xx other than 429 is Telegram refusing the request itself: repeating it changes nothing.
+      const retryable = code === undefined || code === 429 || code >= 500;
+      const delay = WEBHOOK_RETRY_DELAYS_MS[attempt];
+      if (!retryable || delay === undefined || this.bot !== bot) {
+        console.error("[telegram] webhook registration failed for %s, giving up:", this.instanceId, err);
+        return;
+      }
+      const wait = Math.max(delay, telegramRetryAfterMs(err));
+      console.warn("[telegram] webhook registration failed for %s, retrying in %d ms:", this.instanceId, wait, err);
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = null;
+        void this.registerWebhook(bot, attempt + 1);
+      }, wait);
+      this.retryTimer.unref?.();
+    }
   }
 
   async handleInbound(update: Parameters<Bot["handleUpdate"]>[0]): Promise<void> {
@@ -196,6 +265,8 @@ export class TelegramAdapter implements ChannelAdapter {
   }
 
   async shutdown(): Promise<void> {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     this.bot = null;
   }
 
