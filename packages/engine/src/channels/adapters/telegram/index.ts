@@ -7,6 +7,7 @@ import { CHANNEL_MAX_LENGTH } from "../../types.js";
 import { toTelegramMarkdownV2 } from "./markdown-v2.js";
 import { splitMessage } from "../../split-message.js";
 import { transcribeAudio } from "../../audio-transcription.js";
+import { firstDelivery } from "../../inbound-dedupe.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
 
 export interface TelegramConfig {
@@ -221,8 +222,14 @@ export class TelegramAdapter implements ChannelAdapter {
     }
   }
 
+  /**
+   * Process one update. A redelivered `update_id` is dropped: update ids are
+   * per bot, and the secret is derived from the bot token, so the key names
+   * the bot rather than the agent that currently holds it.
+   */
   async handleInbound(update: Parameters<Bot["handleUpdate"]>[0]): Promise<void> {
     if (!this.bot) throw new Error("Telegram bot not initialized");
+    if (!firstDelivery(`telegram:${this.webhookSecret.slice(0, 16)}:${update.update_id}`)) return;
     await this.bot.handleUpdate(update);
   }
 

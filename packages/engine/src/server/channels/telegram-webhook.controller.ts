@@ -6,6 +6,7 @@ import { Throttle } from "@nestjs/throttler";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import type { TelegramAdapter } from "../../channels/adapters/telegram/index.js";
 import { channelWebhookTracker, requireLiveAdapter } from "./live-adapter.js";
+import { sanitizeForLog } from "../../utils/create-logger.js";
 
 const UNAVAILABLE = "Telegram webhook unavailable";
 
@@ -29,7 +30,12 @@ export class TelegramWebhookController {
     if (typeof update !== "object" || update === null || typeof (update as { update_id?: unknown }).update_id !== "number") {
       throw new NotFoundException(UNAVAILABLE);
     }
-    await adapter.handleInbound(update as Parameters<TelegramAdapter["handleInbound"]>[0]);
+    // Acknowledge first, as the Slack and Twilio webhooks do: the turn can take
+    // longer than Telegram waits (a voice note is downloaded and transcribed
+    // before the agent even starts), and an unanswered update is delivered again.
+    void adapter.handleInbound(update as Parameters<TelegramAdapter["handleInbound"]>[0]).catch((error) =>
+      console.error("[telegram] webhook processing failed for %s:", sanitizeForLog(instanceSlug), error),
+    );
     return { status: "accepted" };
   }
 }

@@ -30,4 +30,26 @@ describe("Telegram webhook", () => {
     await expect(controller.receive("agent", secret, { update_id: 7 })).resolves.toEqual({ status: "accepted" });
     expect(handleInbound).toHaveBeenCalledWith({ update_id: 7 });
   });
+
+  it("acknowledges before the turn finishes, so Telegram does not deliver the update again", async () => {
+    // Telegram resends an update its webhook has not answered; the handler used
+    // to await the whole turn (download, transcription, the agent) first.
+    const controller = new TelegramWebhookController();
+    handleInbound.mockReset().mockReturnValue(new Promise(() => {}));
+    const secret = createHash("sha256").update("bot-token").digest("hex");
+
+    await expect(controller.receive("agent", secret, { update_id: 8 })).resolves.toEqual({ status: "accepted" });
+    expect(handleInbound).toHaveBeenCalledWith({ update_id: 8 });
+  });
+
+  it("answers 200 even when processing the update fails", async () => {
+    const controller = new TelegramWebhookController();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    handleInbound.mockReset().mockRejectedValue(new Error("boom"));
+    const secret = createHash("sha256").update("bot-token").digest("hex");
+
+    await expect(controller.receive("agent", secret, { update_id: 9 })).resolves.toEqual({ status: "accepted" });
+    await vi.waitFor(() => expect(error).toHaveBeenCalled());
+    error.mockRestore();
+  });
 });

@@ -10,20 +10,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { asInstanceSlug } from "../../../instances/identifiers.js";
 
-const { setWebhook, deleteWebhook, getWebhookInfo } = vi.hoisted(() => ({
+const { setWebhook, deleteWebhook, getWebhookInfo, handleUpdate } = vi.hoisted(() => ({
   setWebhook: vi.fn(),
   deleteWebhook: vi.fn(),
   getWebhookInfo: vi.fn(),
+  handleUpdate: vi.fn(),
 }));
 vi.mock("grammy", () => ({
   Bot: class {
     api = { setWebhook, deleteWebhook, getWebhookInfo };
     init = vi.fn(async () => undefined);
     on = vi.fn();
+    handleUpdate = handleUpdate;
   },
 }));
 
 import { TelegramAdapter, WEBHOOK_RETRY_DELAYS_MS } from "./index.js";
+import { resetInboundDedupe } from "../../inbound-dedupe.js";
 
 const URL = "https://engine.test/webhooks/telegram/shop";
 
@@ -125,5 +128,25 @@ describe("Telegram webhook registration", () => {
     await adapter.deregister();
 
     expect(deleteWebhook).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Telegram inbound updates", () => {
+  beforeEach(() => {
+    handleUpdate.mockReset().mockResolvedValue(undefined);
+    getWebhookInfo.mockResolvedValue({ url: URL, allowed_updates: ["message"] });
+    resetInboundDedupe();
+  });
+
+  it("processes a redelivered update once", async () => {
+    // Telegram resends an update until it gets a 200; each copy used to run
+    // the agent again and send the contact a second reply.
+    const adapter = await startedAdapter();
+
+    await adapter.handleInbound({ update_id: 41 } as never);
+    await adapter.handleInbound({ update_id: 41 } as never);
+    await adapter.handleInbound({ update_id: 42 } as never);
+
+    expect(handleUpdate).toHaveBeenCalledTimes(2);
   });
 });
