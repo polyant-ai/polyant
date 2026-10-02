@@ -40,3 +40,6 @@ npm run lint -w @polyant/web
 
 Run `npm run build:web` when changing routes, imports, server/client boundaries, configuration,
 or anything only the Next.js build validates. Report any check that could not run.
+
+At the final PR diff, run the engineering-checkpoint skill once; route changes
+also check generated engine API artifacts and the web proxy.

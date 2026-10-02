@@ -245,3 +245,9 @@ Please **do not** open a public GitHub issue for security vulnerabilities. See [
 ## License
 
 By contributing, you agree that your contributions will be licensed under the [AGPL-3.0 License](LICENSE).
+
+## Final PR checkpoint
+
+Use the [engineering checkpoints](docs/engineering-checkpoints.md) and complete
+the PR evidence template once the final diff is ready. SDK, CLI, dev-kit and docs
+each need an impact decision; a small change does not require a full audit.

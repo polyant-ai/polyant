@@ -1,32 +1,15 @@
-## Summary
+## Change
 
-<!-- What does this PR change and why? -->
+Describe the observable behavior and why it changes.
 
-## Type of change
+## Engineering evidence
 
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Refactor / cleanup
-- [ ] Documentation
-- [ ] CI / infrastructure
-
-## Testing
-
-<!-- How did you verify this works? -->
-
-- [ ] `npm run typecheck` passes
-- [ ] `npm run lint` passes
-- [ ] `npm run test:unit` passes
-- [ ] Manually tested: <!-- describe steps -->
-
-## Sign-off
-
-- [ ] All commits are signed off (DCO) with `git commit -s`
-
-## Breaking changes
-
-<!-- List any breaking API or config changes, or write "None". -->
-
-## Related issues
-
-<!-- Closes #... -->
+<!-- Complete once the final diff is ready. Use the full PR head SHA; after another commit, refresh only invalidated evidence. Name commands/results, review decisions and related PR URLs. "no-impact: <reason>" is valid. The checkpoint checks completeness, not the truth of a self-report. -->
+Reviewed-commit: <full PR head SHA>
+- verification: TODO
+- maintainability: TODO
+- security: TODO
+- sdk: TODO
+- cli: TODO
+- dev-kit: TODO
+- docs: TODO
