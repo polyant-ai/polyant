@@ -14,7 +14,9 @@
  * Outputs, always created even when empty:
  *   apk.txt        one Alpine package per line
  *   npm-global.txt one npm package per line
- *   env.sh         `export KEY=value` lines, sourced by docker-entrypoint.sh
+ *   env.sh         one line per variable, sourced by docker-entrypoint.sh, that
+ *                  sets it only when the container environment has not: a
+ *                  plugin supplies a default, the operator's value wins
  *
  * A plugin is trusted by the act of including it in the build: these values
  * become install arguments. The script only rejects shapes that would corrupt
@@ -32,6 +34,8 @@ if (!pluginsDir || !outDir) {
 
 /** A package name that survives `xargs` and an `apk add` argument list. */
 const PACKAGE_RE = /^[A-Za-z0-9][A-Za-z0-9._@/+-]*$/;
+/** The same for `npm install -g`, which also takes a scoped name (`@scope/name`). */
+const NPM_PACKAGE_RE = /^@?[A-Za-z0-9][A-Za-z0-9._@/+-]*$/;
 /** An environment variable name; the value is quoted, so only the key is bounded. */
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -65,7 +69,7 @@ for (const entry of roots) {
     apk.add(pkg);
   }
   for (const pkg of system.npmGlobal ?? []) {
-    if (!PACKAGE_RE.test(pkg)) fail(entry.name, `invalid npm package name: ${JSON.stringify(pkg)}`);
+    if (!NPM_PACKAGE_RE.test(pkg)) fail(entry.name, `invalid npm package name: ${JSON.stringify(pkg)}`);
     npmGlobal.add(pkg);
   }
   for (const [key, value] of Object.entries(system.env ?? {})) {
@@ -92,7 +96,10 @@ writeFileSync(
   join(outDir, "env.sh"),
   [...env]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `export ${k}='${v.replaceAll("'", "'\\''")}'`)
+    // `${K+x}` is empty only when K is unset, so a value the operator set —
+    // even an empty one — is never replaced: a plugin's TRUST_PROXY or
+    // NODE_OPTIONS must not override the deployment's own.
+    .map(([k, v]) => `if [ -z "\${${k}+x}" ]; then export ${k}='${v.replaceAll("'", "'\\''")}'; fi`)
     .join("\n") + (env.size ? "\n" : ""),
 );
 

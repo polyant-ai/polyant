@@ -169,8 +169,10 @@ private copy of a binary the image already provides. The engine installs no tool
 binaries of its own, so an image built without a plugin does not carry what that
 plugin needs.
 
-Two plugins declaring the same variable with different values fail the build
-rather than letting one win silently. Package names must be plain enough to
+A declared variable is a default: it applies only when the container
+environment does not set it, so a value the operator sets — even an empty one —
+always wins over the plugin's. Two plugins declaring the same variable with
+different values fail the build rather than letting one win silently. Package names must be plain enough to
 survive an argument list; beyond that there is no allowlist — including a plugin
 in a build is already the decision to trust it.
 
