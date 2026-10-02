@@ -34,7 +34,7 @@ export function changeImpact(files) {
 
 export function validateEvidence(body, head) {
   // Templates and quoted historical evidence are not an attestation for this head.
-  const text = body.replace(/<!--[\s\S]*?-->/g, '').replace(/^>.*$/gm, '').replace(/```[\s\S]*?```/g, '');
+  const text = body.replace(/<!--[\s\S]*?-->/g, ' ').replace(/^>.*$/gm, '').replace(/```[\s\S]*?```/g, ' ');
   const errors = [];
   if (!new RegExp(`^Reviewed-commit: ${head}$`, 'm').test(text)) errors.push('Reviewed-commit must name the current full PR head SHA.');
   for (const key of ['verification', 'maintainability', 'security', 'sdk', 'cli', 'dev-kit', 'docs']) {
