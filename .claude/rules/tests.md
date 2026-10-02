@@ -20,3 +20,6 @@ paths:
   executable authority.
 - Classify a failure before changing code or assertions: regression, outdated expectation,
   flake, assertion mismatch, or environment problem.
+
+- For fallback/cache/hybrid paths, choose inputs the alternative cannot satisfy and
+  demonstrate the regression by disabling only the path under examination.

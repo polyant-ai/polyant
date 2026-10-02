@@ -17,6 +17,7 @@ import { execFileSync } from "node:child_process";
 import postgres from "postgres";
 import {
   ADMIN_DATABASE_URL,
+  buildEngineEnv,
   REPO_ROOT,
   TEST_DATABASE_URL,
   TEST_DB_NAME,
@@ -47,7 +48,7 @@ function runMigrations(): void {
     cwd: REPO_ROOT,
     // DATABASE_URL wins over the engine's dotenv (.env never overrides set vars),
     // so migrations land on the test DB regardless of repo-root .env contents.
-    env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL, POSTGRES_DB: TEST_DB_NAME },
+    env: buildEngineEnv(),
     stdio: "inherit",
   });
 }

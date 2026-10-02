@@ -17,9 +17,9 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { LOCALES } from "./types";
 
 const localesDir = dirname(fileURLToPath(import.meta.url));
-const LOCALES = ["en", "it"] as const;
 
 function rawLocale(locale: string): string {
   return readFileSync(resolve(localesDir, "locales", `${locale}.json`), "utf8");
@@ -39,13 +39,22 @@ describe("locale files", () => {
     expect([...new Set(duplicated)]).toEqual([]);
   });
 
-  it("en and it declare the same key set", () => {
+  it.each(LOCALES.filter((locale) => locale !== "en"))("%s declares the same key set as en", (locale) => {
     const en = new Set(declaredKeys(rawLocale("en")));
-    const it = new Set(declaredKeys(rawLocale("it")));
+    const translated = new Set(declaredKeys(rawLocale(locale)));
 
     // A key in one file only renders as a raw key (or blank) in the other
     // language — a defect nobody sees until they switch locale.
-    expect([...en].filter((k) => !it.has(k)), "missing from it.json").toEqual([]);
-    expect([...it].filter((k) => !en.has(k)), "missing from en.json").toEqual([]);
+    expect([...en].filter((k) => !translated.has(k)), `missing from ${locale}.json`).toEqual([]);
+    expect([...translated].filter((k) => !en.has(k)), "missing from en.json").toEqual([]);
+  });
+
+  it.each(LOCALES)("%s preserves every interpolation parameter", (locale) => {
+    const reference = JSON.parse(rawLocale("en")) as Record<string, string>;
+    const translated = JSON.parse(rawLocale(locale)) as Record<string, string>;
+    const parameters = (text: string) => [...new Set([...text.matchAll(/(?<!\{)\{([^{}]+)\}(?!\})/g)].map((match) => match[1]))].sort();
+    for (const [key, text] of Object.entries(reference)) {
+      expect(parameters(translated[key] ?? ""), key).toEqual(parameters(text));
+    }
   });
 });
