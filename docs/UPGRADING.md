@@ -149,6 +149,29 @@ had. Remove them from your environment; none of them needs a replacement value.
 | `DEBUG_LLM_PAYLOAD` | Enable debugging on the individual agent instead. The per-agent capture includes the full prompt, messages and tool definitions and stores them for inspection instead of writing sensitive payloads to stdout |
 | `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_TRACING` | Nothing. They were read by no code at all; tracing is configured per agent |
 
+### Bedrock agents need a region of their own
+
+Until 1.1.x a Bedrock agent with no region of its own used `AWS_REGION`, and
+then `us-east-1`. Both fallbacks are gone, so after the upgrade such an agent
+fails every chat turn, and every embedding if its knowledge or memory runs on
+Bedrock, with an error naming the setting. Before upgrading, list the agents
+that use Bedrock for chat or embeddings and hold no region, and set the region
+in each one's Settings → AI Provider:
+
+```sql
+SELECT i.slug, i.provider, i.embedding_provider
+FROM instances i
+WHERE (i.provider = 'bedrock' OR i.embedding_provider = 'bedrock')
+  AND NOT EXISTS (
+    SELECT 1 FROM instance_secrets s
+    WHERE s.instance_id = i.id AND s.key = 'aws_provider_region'
+  )
+ORDER BY i.slug;
+```
+
+The region is stored encrypted, so the query can only check that one is set. Settings → AI Provider exists in 1.1.x too, so this can be done on the
+running installation.
+
 ### Environment variables the panel now answers
 
 Each of these set one value for a whole installation, for a question an
