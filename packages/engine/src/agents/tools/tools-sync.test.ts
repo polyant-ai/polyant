@@ -67,6 +67,10 @@ vi.mock("../../instances/instance-tools.schema.js", () => ({
   instanceTools: { toolId: "tool_id" },
 }));
 
+vi.mock("../../skills/schema.js", () => ({
+  skillTools: { toolId: "skill_tool_id" },
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
   notInArray: vi.fn((...args: unknown[]) => ({ type: "notInArray", args })),
@@ -195,16 +199,17 @@ describe("syncToolsToDb", () => {
 
     await syncToolsToDb();
 
-    // The enabled-anywhere guard (instance_tools read) must run before the delete.
-    expect(mockTx.selectDistinct).toHaveBeenCalledTimes(1);
-    expect(mockSelectFrom).toHaveBeenCalledTimes(1);
+    // The referenced-anywhere guard (instance_tools and skill_tools reads) must
+    // run before the delete.
+    expect(mockTx.selectDistinct).toHaveBeenCalledTimes(2);
+    expect(mockSelectFrom).toHaveBeenCalledTimes(2);
   });
 
   it("warns at boot with the names of pruned tools that agents had enabled", async () => {
     // The cascade erases the enablement, so this warning is the only trace an
     // operator gets of which tools the agents lost.
     mockGetToolRegistry.mockReturnValue(new Map([["coreTool", toolDef("coreTool")]]));
-    mockSelectFrom.mockResolvedValue([{ id: "id-verify" }]);
+    mockSelectFrom.mockResolvedValueOnce([{ id: "id-verify" }]).mockResolvedValueOnce([]);
     mockDeleteReturning.mockResolvedValue([
       { id: "id-verify", name: "verifyDocument" },
       { id: "id-unused", name: "neverEnabled" },

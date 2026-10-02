@@ -5,6 +5,7 @@ import { getToolRegistry, requiredSecretKeys, type ToolDefinition } from "./regi
 import { db } from "../../database/client.js";
 import { tools } from "./tools.schema.js";
 import { instanceTools } from "../../instances/instance-tools.schema.js";
+import { skillTools } from "../../skills/schema.js";
 
 /**
  * Set of tool names that are considered "global" — always available to every
@@ -57,7 +58,7 @@ export async function syncToolsToDb(): Promise<void> {
     // Hard-delete tools that are no longer in the registry.
     //  (1) Flat (core, first-party) names absent from the registry: always pruned.
     //  (2) Namespaced (`<ns>:name`) plugin names absent from the registry AND not
-    //      enabled on ANY instance: pruned too. The "not enabled anywhere" gate
+    //      enabled on ANY instance AND not linked to any skill: pruned too. The "not enabled anywhere" gate
     //      preserves the original safety — a plugin that transiently fails to load
     //      (version skew, PLUGIN_DIRS unmounted, import crash) but whose tools a
     //      customer had enabled still has instance_tools rows, so it is KEPT and no
@@ -82,6 +83,13 @@ export async function syncToolsToDb(): Promise<void> {
     */
     const enabledRows = await tx.selectDistinct({ id: instanceTools.toolId }).from(instanceTools);
     const enabledToolIds = enabledRows.map((r) => r.id);
+    // A skill's tool links keep a row too. A tool renamed into a plugin
+    // namespace whose plugin is not installed yet may be linked only by a
+    // skill (no agent enabled it); pruning the row cascaded the skill_tools
+    // link away at the first boot, and installing the plugin later did not
+    // bring it back.
+    const linkedRows = await tx.selectDistinct({ id: skillTools.toolId }).from(skillTools);
+    const referencedToolIds = [...new Set([...enabledToolIds, ...linkedRows.map((r) => r.id)])];
 
     const pruned =
       registryNames.length > 0
@@ -95,7 +103,7 @@ export async function syncToolsToDb(): Promise<void> {
                   and(
                     like(tools.name, "%:%"),
                     not(like(tools.name, "agent:%")),
-                    enabledToolIds.length > 0 ? notInArray(tools.id, enabledToolIds) : undefined,
+                    referencedToolIds.length > 0 ? notInArray(tools.id, referencedToolIds) : undefined,
                   ),
                 ),
               ),
