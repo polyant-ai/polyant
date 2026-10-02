@@ -568,6 +568,13 @@
       "when": 1790929000000,
       "tag": "0087_rename_extracted_tools",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1790929000001,
+      "tag": "0088_attachment_storage_opt_in",
+      "breakpoints": true
     }
   ]
 }

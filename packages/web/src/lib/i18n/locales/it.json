@@ -496,6 +496,8 @@
   "settings.tab.toolResultsInHistoryHelp": "Se attivo, i risultati dei tool dei turni precedenti vengono ri-iniettati (troncati) nel contesto del modello, così ricorda cosa hanno restituito i tool. Se disattivo, viene ripetuto solo il testo dell'assistant. Aumenta i token per turno.",
   "settings.tab.debug": "Modalità debug",
   "settings.tab.debugHelp": "Se attiva, l'engine salva la richiesta esatta inviata al modello (system prompt completo, array dei messaggi e definizioni dei tool) per ogni turno — ispezionabile cliccando un messaggio nel playground o nel dettaglio conversazione. Pesante e memorizza PII a riposo; tienila disattiva se non stai analizzando.",
+  "settings.tab.attachmentStorage": "Conserva gli allegati",
+  "settings.tab.attachmentStorageHelp": "Se attiva, i file inviati dagli utenti (foto, documenti, note vocali) vengono copiati nel bucket di questo agente — quello configurato per il tool fileUpload — e si possono riaprire dalla conversazione. Eliminando la conversazione o l'agente vengono eliminati. Disattiva per impostazione predefinita: il modello vede il file comunque, e non viene conservato nulla.",
   "settings.tab.memoryOpenaiWarning": "La memoria richiede una chiave API OpenAI per gli embeddings, anche quando si usa Anthropic o Bedrock come provider AI.",
   "settings.tab.knowledgeEmbedderWarning": "Il knowledge base richiede una chiave API {provider} per gli embeddings. Configurala nella tab Modello.",
   "settings.tab.knowledgeAwsWarning": "Il knowledge base con embedder Bedrock richiede credenziali AWS (region). Configurale nella tab Modello.",

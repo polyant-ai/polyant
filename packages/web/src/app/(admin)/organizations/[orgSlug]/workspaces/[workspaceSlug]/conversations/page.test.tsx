@@ -139,6 +139,7 @@ function makeInstance(overrides: Partial<Instance> = {}): Instance {
     a2aEnabled: false,
     toolResultsInHistoryEnabled: false,
     debugEnabled: false,
+    attachmentStorageEnabled: false,
     optoutEnabled: false,
     optoutStopKeywords: [],
     optoutResumeKeywords: [],

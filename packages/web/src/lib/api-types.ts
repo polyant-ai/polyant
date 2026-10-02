@@ -111,6 +111,8 @@ export interface Instance {
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload is persisted per turn (debug/analysis). */
   debugEnabled: boolean;
+  /** When true, files users send are copied to the agent's bucket so they can be reopened. */
+  attachmentStorageEnabled: boolean;
   /** When true, inbound STOP/START keyword handling is active for this instance. */
   optoutEnabled: boolean;
   optoutStopKeywords: string[];

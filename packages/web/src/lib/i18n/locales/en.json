@@ -496,6 +496,8 @@
   "settings.tab.toolResultsInHistoryHelp": "When on, prior-turn tool results are replayed (truncated) into the model's context so it remembers what tools returned across turns. Off replays only the assistant's text. Uses more tokens per turn.",
   "settings.tab.debug": "Debug mode",
   "settings.tab.debugHelp": "When on, the engine stores the exact request sent to the model (full system prompt, the messages array, and the tool definitions) for every turn — inspectable by clicking a message in the playground or conversation detail. Heavy and stores PII at rest; keep off unless analysing.",
+  "settings.tab.attachmentStorage": "Store attachments",
+  "settings.tab.attachmentStorageHelp": "When on, files users send (photos, documents, voice notes) are copied to this agent's bucket — the one set for the fileUpload tool — so they can be reopened from the conversation. Deleting the conversation or the agent deletes them. Off by default: the model sees the file either way, and nothing is kept.",
   "settings.tab.memoryOpenaiWarning": "Memory requires an OpenAI API key for embeddings, even when using Anthropic or Bedrock as the AI provider.",
   "settings.tab.knowledgeEmbedderWarning": "Knowledge base requires a {provider} API key for embeddings. Configure it in the Model tab.",
   "settings.tab.knowledgeAwsWarning": "Knowledge base with the Bedrock embedder requires AWS credentials (region). Configure them in the Model tab.",

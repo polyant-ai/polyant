@@ -46,6 +46,8 @@ import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
+import { prepareAttachmentCleanup } from "../../attachments/attachment-cleanup.js";
+import { invalidateAgentS3 } from "../../attachments/agent-storage.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { sanitizeForLog } from "../../utils/create-logger.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
@@ -100,6 +102,7 @@ function toInstanceDto(instance: Instance) {
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
+    attachmentStorageEnabled: instance.attachmentStorageEnabled,
     optoutEnabled: instance.optoutEnabled,
     optoutStopKeywords: instance.optoutStopKeywords,
     optoutResumeKeywords: instance.optoutResumeKeywords,
@@ -350,6 +353,7 @@ export class InstancesController {
       a2aEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
+      attachmentStorageEnabled?: boolean;
       sttProvider?: "openai" | "aws" | "deepgram" | "disabled";
       optoutEnabled?: boolean;
       optoutStopKeywords?: string[];
@@ -380,6 +384,11 @@ export class InstancesController {
     }
     if (body.temperature !== undefined) {
       body.temperature = clampTemperature(body.temperature);
+    }
+    // A string "false" would reach the column as true: the switch that decides
+    // whether end users' files are kept must be a boolean or nothing.
+    if (body.attachmentStorageEnabled !== undefined && typeof body.attachmentStorageEnabled !== "boolean") {
+      throw new BadRequestException("attachmentStorageEnabled must be a boolean");
     }
     this.validateAgentSettings(body);
     // Accept the full effort union; the ai-gateway clamps to the chosen model's
@@ -469,8 +478,15 @@ export class InstancesController {
       // treated as part of the format string (CodeQL js/tainted-format-string).
       console.error("[instances] failed to stop channels for instance:", sanitizeForLog(slug), err);
     }
+    // Before the delete: the bucket credentials are agent secrets and the keys
+    // live on the messages, and both go with the agent.
+    const cleanupAttachments = await prepareAttachmentCleanup(asInstanceSlug(slug), { allConversations: true });
     const deleted = await deleteInstance(asInstanceSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
+    // Slugs are reusable: a cached client would point a new agent of the same
+    // name at this one's bucket.
+    invalidateAgentS3(asInstanceSlug(slug));
+    void cleanupAttachments();
     this.auditLogger.log({
       action: ManagementAuditAction.AgentDelete,
       actor: toManagementAuditActor(user),

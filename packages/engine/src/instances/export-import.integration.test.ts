@@ -112,4 +112,25 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
       itest_crm_api_key: "target-credential",
     });
   });
+
+  it("should_carry_the_attachment_storage_choice_and_keep_the_target_s_own_when_an_older_bundle_has_none", async () => {
+    const source = await createAgent("att-source");
+    const target = await createAgent("att-target");
+    await queryClient`UPDATE instances SET attachment_storage_enabled = true WHERE id IN (${source.id}, ${target.id})`;
+
+    const bundle = await exportInstance(source.slug);
+    expect(bundle.instance.attachmentStorageEnabled).toBe(true);
+    // A bundle from before the switch existed.
+    const legacy = structuredClone(bundle);
+    delete (legacy.instance as { attachmentStorageEnabled?: boolean }).attachmentStorageEnabled;
+
+    const stored = async (slug: string) =>
+      (await queryClient<{ on: boolean }[]>`SELECT attachment_storage_enabled AS on FROM instances WHERE slug = ${slug}`)[0]?.on;
+
+    await importOverwriteInstance(target.slug, legacy);
+    expect(await stored(target.slug)).toBe(true);
+
+    expect(await stored((await importNewInstance(legacy, orgId)).slug)).toBe(false);
+    expect(await stored((await importNewInstance(bundle, orgId)).slug)).toBe(true);
+  });
 });

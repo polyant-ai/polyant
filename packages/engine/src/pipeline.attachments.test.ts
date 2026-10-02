@@ -25,12 +25,25 @@ vi.mock("./conversations/index.js", () => ({
     updateTitle: vi.fn(async () => undefined),
     getConversation: vi.fn(async () => null),
     getTitle: vi.fn(async () => "t"),
+    clearContextPrompt: vi.fn(async () => undefined),
   },
 }));
 vi.mock("./utils/title-generator.js", () => ({ generateConversationTitle: vi.fn(async () => undefined) }));
 vi.mock("./memory/index.js", () => ({ extractMemories: vi.fn(async () => undefined) }));
+// runPipelinePost runs the post-response hooks and records a trace first.
+vi.mock("./hooks/hooks.store.js", () => ({ getEnabledHooks: vi.fn(async () => []) }));
+vi.mock("./hooks/hook-registry.js", () => ({ getHookRegistry: vi.fn(() => new Map()) }));
+vi.mock("./analytics/trace.store.js", () => ({ traceStore: { record: vi.fn() } }));
+vi.mock("./hooks/hook-runner.js", () => ({
+  runHooks: vi.fn(async () => []),
+  firstHalt: vi.fn(),
+  firstReplaceResponse: vi.fn(),
+  firstRegenerate: vi.fn(),
+  collectInjectContext: vi.fn(() => []),
+  hookProvenance: vi.fn(() => undefined),
+}));
 
-import { afterResponse } from "./pipeline.js";
+import { afterResponse, runPipelinePost, type PipelineContext } from "./pipeline.js";
 import { asInstanceSlug } from "./instances/identifiers.js";
 
 function respond(attachments: { data: Buffer; mimeType: string }[]) {
@@ -84,5 +97,66 @@ describe("afterResponse — attachment storage", () => {
 
     await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
     expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain("+39");
+  });
+});
+
+/**
+ * Keeping the files a user sends is the agent's explicit choice. Before the
+ * switch existed, configuring a bucket for the `fileUpload` tool was enough for
+ * every inbound photo and document to be copied there, with nothing to say so.
+ */
+describe("runPipelinePost — attachment storage is opt-in", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUploadAttachment.mockResolvedValue({ type: "image", s3Key: "attachments/shop/c/a.jpg" });
+  });
+
+  function ctx(attachmentStorageEnabled: boolean): PipelineContext {
+    return {
+      pipelineStart: 0,
+      instanceId: asInstanceSlug("shop"),
+      conversationId: "shop:whatsapp:+39",
+      conversationSummary: undefined,
+      contextPrompt: undefined,
+      channelIdentity: undefined,
+      stateBuffer: undefined,
+      history: undefined,
+      isFirstTurn: true,
+      hasOverflow: false,
+      droppedMessages: undefined,
+      instanceConfig: { attachmentStorageEnabled } as PipelineContext["instanceConfig"],
+      langsmith: undefined,
+      userAttachments: [{ type: "image", data: Buffer.from("jpeg"), mimeType: "image/jpeg" }],
+      incomingSystemMessages: undefined,
+      isAutoTaskTurn: false,
+      inboundMetadata: undefined,
+    };
+  }
+
+  const post = (c: PipelineContext) =>
+    runPipelinePost({
+      ctx: c,
+      contextPrepMs: 1,
+      messageText: "ecco la foto",
+      channel: "whatsapp",
+      resultText: "Ricevuta",
+      usage: { promptTokens: 0, completionTokens: 0 },
+      durationMs: 0,
+      toolBuildingMs: 0,
+      isStreaming: false,
+    });
+
+  it("does not upload an inbound attachment for an agent that has not opted in", async () => {
+    await post(ctx(false));
+
+    await vi.waitFor(() => expect(rolesWritten()).toEqual(["user", "assistant"]));
+    expect(mockUploadAttachment).not.toHaveBeenCalled();
+  });
+
+  it("uploads it once the agent has opted in", async () => {
+    await post(ctx(true));
+
+    await vi.waitFor(() => expect(rolesWritten()).toEqual(["user", "assistant"]));
+    expect(mockUploadAttachment).toHaveBeenCalledOnce();
   });
 });

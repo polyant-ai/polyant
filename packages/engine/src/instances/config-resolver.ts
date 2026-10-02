@@ -80,6 +80,8 @@ export interface InstanceConfig {
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
   debugEnabled: boolean;
+  /** When true, inbound attachments are copied to the agent's bucket. Default false — opt-in. */
+  attachmentStorageEnabled: boolean;
   /** GDPR opt-out feature config (per instance). */
   optout: {
     enabled: boolean;
@@ -170,6 +172,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
       a2aEnabled: false,
       toolResultsInHistoryEnabled: false,
       debugEnabled: false,
+      attachmentStorageEnabled: false,
       optout: { enabled: false, stopKeywords: ["STOP"], resumeKeywords: ["START"], closingMessage: null, resumeMessage: null, injectPromptHint: true },
       stt: { provider: "openai", credentials: {} },
     };
@@ -261,6 +264,7 @@ export async function resolveInstanceConfig(instanceSlug: InstanceSlug): Promise
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
+    attachmentStorageEnabled: instance.attachmentStorageEnabled,
     optout: {
       enabled: instance.optoutEnabled,
       stopKeywords: instance.optoutStopKeywords,

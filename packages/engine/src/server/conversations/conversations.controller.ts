@@ -13,6 +13,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { conversationStore } from "../../conversations/store.js";
+import { prepareAttachmentCleanup } from "../../attachments/attachment-cleanup.js";
 import { loadConversationState } from "../../conversations/state.store.js";
 import { listHookExecutions } from "../../hooks/hook-executions.store.js";
 import { parsePagination } from "../utils/parse-pagination.js";
@@ -276,10 +277,14 @@ export class ConversationsController {
     const scope = await callerTenantScope(user);
     await loadConversationScoped(id, uid, scope);
 
+    // Read the stored attachment keys while the messages still name them; the
+    // objects go after the rows, without holding up the response.
+    const cleanup = await prepareAttachmentCleanup(uid, { conversationIds: [id] });
     const deleted = await conversationStore.deleteConversation(id, scope);
     if (!deleted) {
       throw new NotFoundException(`Conversation not found: ${id}`);
     }
+    void cleanup();
     return { deleted: true };
   }
 }

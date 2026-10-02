@@ -33,6 +33,22 @@ keep them enabled and skills keep their links. It recovers nothing on an
 installation whose first boot already removed the old rows; see
 [Install and re-enable extracted tools](#install-and-re-enable-extracted-tools).
 
+### Storing attachments is now a per-agent choice
+
+In 1.2.0 an agent whose `fileUpload` secrets name a bucket copied every file a
+user sent into that bucket, and nothing deleted them. Migration 0088 adds a
+switch for it, **Store attachments** under the agent's behaviour parameters, and turns it
+off on every agent. Turn it on where the conversation view should reopen the
+files. With it off the model still sees each file in the turn; it just is not
+kept.
+
+Deleting a conversation or an agent now also deletes the files stored for it,
+by the keys recorded on its messages. That needs `s3:DeleteObject` on the
+`attachments/` prefix for the agent's credentials or task role; a refused
+delete is logged and leaves the files in place, and never blocks the database
+delete. Files stored by earlier versions for conversations already deleted are
+not tracked anywhere and stay in the bucket.
+
 ### A second, smaller database pool for analytics
 
 Dashboards and other analytics reads now use their own connection pool, so a

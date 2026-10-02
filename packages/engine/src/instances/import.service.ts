@@ -116,6 +116,10 @@ export async function importNewInstance(
         a2aEnabled: data.a2aEnabled,
         toolResultsInHistoryEnabled: data.toolResultsInHistoryEnabled,
         debugEnabled: data.debugEnabled,
+        // Absent from an older bundle: undefined leaves the column out of the
+        // statement, so a new agent gets the default and an overwrite keeps
+        // the target's own value.
+        attachmentStorageEnabled: data.attachmentStorageEnabled,
         sttProvider: data.sttProvider,
         // Embedding provider/dim only set here (fresh instance — no vectors to
         // lose). Overwrite import intentionally never touches them.
@@ -245,6 +249,7 @@ export async function importOverwriteInstance(
         a2aEnabled: data.a2aEnabled,
         toolResultsInHistoryEnabled: data.toolResultsInHistoryEnabled,
         debugEnabled: data.debugEnabled,
+        attachmentStorageEnabled: data.attachmentStorageEnabled,
         sttProvider: data.sttProvider,
         optoutEnabled: data.optoutEnabled,
         optoutStopKeywords: data.optoutStopKeywords,
