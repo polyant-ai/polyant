@@ -72,10 +72,21 @@ describe("matchEvent", () => {
   });
 
   it("accepts an Italian yes — the matching prompt is author-written and pulls the reply into its language", async () => {
-    for (const text of ["Sì", "sì, corrisponde", "Si."]) {
+    for (const text of ["Sì", "Si.", "**sì**", "y"]) {
       mockChat.mockResolvedValue(reply(text));
       expect(await matchEvent(PAYLOAD, [def("a")], "inst"), text).toMatchObject({ name: "a" });
     }
+  });
+
+  it("does not take an ordinary sentence that opens with si or y as a yes", async () => {
+    // "Si tratta di…" ("it is about…") and "y = …" open replies that argue, not
+    // verdicts. Read as a yes, each woke the agent up on a payload the
+    // criteria never matched.
+    for (const text of ["Si tratta di un evento di test, non corrisponde.", "y = 3, quindi no", "sì, ma solo in parte"]) {
+      mockChat.mockResolvedValue(reply(text));
+      expect(await matchEvent(PAYLOAD, [def("a")], "inst"), text).toBeNull();
+    }
+    expect(mockWarn).toHaveBeenCalledTimes(3);
   });
 
   it("does not take a word that merely starts with yes as a verdict", async () => {
