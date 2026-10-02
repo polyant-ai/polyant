@@ -32,6 +32,15 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversation_messages_conversation_
 
 The counter backfill itself always runs in the migration.
 
+The engine runs pending migrations when its container starts, before it answers
+its health check, and a container replaced in the meantime rolls them back. The
+container health check's start period is one limit on how long they may take;
+behind a load balancer the target group's health check, which starts counting
+once the service's health check grace period ends, is usually the shorter one.
+For an upgrade with heavy migrations, run them as a one-off task first (see
+[Running the migrations without starting the engine](#running-the-migrations-without-starting-the-engine)),
+then deploy: the new engine finds nothing left to apply.
+
 ### A second, smaller database pool for analytics
 
 Dashboards and other analytics reads now use their own connection pool, so a
@@ -108,8 +117,12 @@ following happen. Run one replica, or accept these effects:
   reaches another replica runs the agent again.
 - **Rate limits apply per replica.** Each replica counts requests on its own, so
   the effective limit is the configured one times the number of replicas.
-
-Scheduled tasks are safe across replicas: each run is claimed in the database.
+- **A scheduled task that overruns its deadline can run twice.** Each run is
+  claimed in the database, so a task normally runs once however many replicas
+  there are. When a run outlasts its run deadline, the reaper frees the claim,
+  and another replica can start the task again while the first run is still
+  going; one replica alone never does. Give each task a run deadline it does
+  not reach.
 
 ### Review agents without a pinned model
 
