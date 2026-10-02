@@ -134,7 +134,10 @@ class SchedulerService {
     // In-process guard, on top of the DB lock below. The reaper can free a row whose
     // execution is still alive in THIS process (a hung HTTP call, say): without this
     // check the freed row would be picked up again and the same task would run twice
-    // concurrently — one of the two deliveries being a duplicate.
+    // concurrently — one of the two deliveries being a duplicate. It is per PROCESS:
+    // with several replicas, a reaped row can still be claimed by another one while
+    // the hung run lives on here. `max_run_ms` is the deadline a task declares, so
+    // a run that overruns it accepts that duplicate.
     if (this.running.has(task.id)) {
       scheduledTaskLog.warn(
         "SchedulerService",
@@ -330,10 +333,16 @@ class SchedulerService {
       const runningForMs = now - (task.updatedAt?.getTime() ?? now);
       if (runningForMs < deadline) continue;
 
-      await store.markFailed(
+      // Compare-and-set on the claim read above: another replica's reaper, or the
+      // run itself finishing and the task being claimed again, may have moved
+      // the row on since. Failing that newer claim would free it for a duplicate
+      // execution, so a lost race leaves the row alone.
+      const reaped = await store.markFailed(
         task.id,
         `orphaned: run exceeded its deadline of ${deadline} ms (running for ${runningForMs} ms)`,
+        { runningSince: task.updatedAt ?? undefined },
       );
+      if (!reaped) continue;
       await runLog.failDanglingRuns([task.id], `orphaned: run exceeded ${deadline} ms`);
       scheduledTaskLog.warn(
         "SchedulerService",

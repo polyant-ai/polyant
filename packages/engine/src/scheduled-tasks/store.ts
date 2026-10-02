@@ -242,10 +242,23 @@ export async function markCompleted(id: string, conversationId: string): Promise
     .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.lastRunStatus, "running")));
 }
 
-/** Mark a task as failed */
-export async function markFailed(id: string, error: string): Promise<void> {
+/**
+ * Mark a task as failed. Returns whether the row was updated.
+ *
+ * `runningSince` makes the write a compare-and-set on the run it was read for.
+ * The reaper passes the `updated_at` it saw: between that read and this write,
+ * the run it judged overdue may have completed and the task been claimed again
+ * by another replica (the in-process guard in the scheduler only sees its own
+ * process), and failing THAT run would overwrite a live claim and free it for a
+ * third execution. The `running` guard alone cannot tell the two runs apart.
+ */
+export async function markFailed(
+  id: string,
+  error: string,
+  opts: { runningSince?: Date } = {},
+): Promise<boolean> {
   const task = await getById(id);
-  if (!task) return;
+  if (!task) return false;
 
   const newConsecutive = task.consecutiveErrors + 1;
   const shouldDisable = newConsecutive >= MAX_CONSECUTIVE_ERRORS;
@@ -265,7 +278,7 @@ export async function markFailed(id: string, error: string): Promise<void> {
     nextRunAt = computeNextRun(schedule, now);
   }
 
-  await db
+  const rows = await db
     .update(scheduledTasks)
     .set({
       lastRunAt: now,
@@ -277,7 +290,16 @@ export async function markFailed(id: string, error: string): Promise<void> {
       nextRunAt,
       updatedAt: now,
     })
-    .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.lastRunStatus, "running")));
+    .where(and(
+      eq(scheduledTasks.id, id),
+      eq(scheduledTasks.lastRunStatus, "running"),
+      // Millisecond precision on both sides: the claim is written from a JS Date.
+      opts.runningSince
+        ? sql`date_trunc('milliseconds', ${scheduledTasks.updatedAt}) = ${opts.runningSince.toISOString()}::timestamptz`
+        : undefined,
+    ))
+    .returning({ id: scheduledTasks.id });
+  return rows.length > 0;
 }
 
 /**
