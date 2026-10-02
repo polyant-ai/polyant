@@ -25,6 +25,14 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversation_messages_conversation_
 
 The counter backfill itself always runs in the migration.
 
+### Extracted tools keep their enablement
+
+Migration 0087 renames the catalog rows of the tools that moved into plugins
+(HubSpot, GitHub, Render, Markdown-to-PDF) to their namespaced names, so agents
+keep them enabled and skills keep their links. It recovers nothing on an
+installation whose first boot already removed the old rows; see
+[Install and re-enable extracted tools](#install-and-re-enable-extracted-tools).
+
 ### A second, smaller database pool for analytics
 
 Dashboards and other analytics reads now use their own connection pool, so a
@@ -174,13 +182,26 @@ the core image. If an agent uses one of them, add its plugin to the image before
 building (see [Loading a plugin — build-time](plugins.md#loading-a-plugin--build-time)),
 or use `PLUGIN_DIRS` in development.
 
-Plugin tools have namespaced names and are new registry entries: for example,
-`ghIssue` is now `github:issue`, `hubspotContact` is now `hubspot:contact`, and
-`markdownToPdf` is now `extra:markdownToPdf`. On first boot the registry removes
-the old flat entries; it does not carry their enabled state to the replacements.
-After installing the plugins, re-enable the required tools for every affected
-agent from its Tools tab and update any skill that names an old tool. The
-integration-specific `verifyDocument` tool was removed without a replacement.
+Plugin tools have namespaced names: `ghIssue`, `ghPR` and `gitCloneRepo` are now
+`github:issue`, `github:pr` and `github:cloneRepo`; `renderService` is
+`render:renderService`; each `hubspotX` tool is `hubspot:x` (`hubspotContact` is
+`hubspot:contact`, `hubspotSendEmail` is `hubspot:sendEmail`); and
+`markdownToPdf` is `extra:markdownToPdf`. Migration `0087_rename_extracted_tools`
+renames the catalog rows in place, so every agent keeps its enablement and every
+skill its tool links and its list of required tools. Until the plugin is
+installed the agent simply does not get the tool; once it is, the tool works
+again with nothing to re-enable. An export bundle from an older version that
+names a tool by its old name enables the new one on import.
+
+The integration-specific `verifyDocument` tool was removed without a
+replacement. The first boot removes it, and every other tool that no loaded
+plugin provides, from the agents that had it enabled, and logs the names of
+those tools once.
+
+An installation that already booted a version without the extracted tools and
+without this migration has lost those enablements: the migration finds no old
+rows to rename. Re-enable the tools from each affected agent's Tools tab after
+installing the plugins, and update any skill that still names an old tool.
 
 ### Custom S3 endpoints are removed
 
