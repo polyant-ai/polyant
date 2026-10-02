@@ -230,6 +230,18 @@ Before upgrading, move affected buckets to AWS S3 and configure each agent with
 `s3_bucket_name`, `aws_region`, and either static AWS credentials or
 `s3_use_task_role`. Version 1.2.0 has no supported custom-endpoint replacement.
 
+### Attachments stored in the platform bucket
+
+Earlier versions stored attachments in the deployment's bucket
+(`PLATFORM_S3_BUCKET`); 1.2.0 reads them only from each agent's own bucket. An
+installation that had set `PLATFORM_S3_*` keeps those files where they were and
+the conversation view can no longer open them. The keys did not change, so
+copying an agent's prefix into its bucket makes them readable again:
+
+```bash
+aws s3 sync "s3://<platform bucket>/attachments/<agent slug>/" "s3://<agent bucket>/attachments/<agent slug>/"
+```
+
 ### Google sign-in is removed
 
 The Google provider, its two variables, the login button and the domain-allowlist
