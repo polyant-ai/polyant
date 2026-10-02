@@ -15,7 +15,7 @@ function withoutKey(record: Record<string, string>, key: string): Record<string,
 
 export interface SecretSpecsForm {
   loading: boolean;
-  /** False when the caller may not read this agent's secrets (member, viewer). */
+  /** False when the caller may not read this agent's secrets (`agent.secret:read`; a viewer may not). */
   canRead: boolean;
   /** The agent holds this key itself. */
   isConfigured: (key: string) => boolean;
@@ -71,8 +71,9 @@ export function useSecretSpecs(slug: string, specs: readonly RequiredSecretSpec[
         if (secretsRes.status === "fulfilled") {
           setConfigured(new Set(secretsRes.value.secrets.filter((s) => s.configured).map((s) => s.key)));
         } else {
-          // Reading secrets is admin-and-above: a member still sees what a tool
-          // asks for, just not whether it is set.
+          // Reading secrets takes `agent.secret:read`, which member and above
+          // hold: a viewer still sees what a tool asks for, just not whether it
+          // is set.
           setCanRead(false);
           if (!isForbidden(secretsRes.reason)) toast.error(t("settings.tab.loadFailed"));
         }
