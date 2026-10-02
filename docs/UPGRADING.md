@@ -97,8 +97,9 @@ following happen. Run one replica, or accept these effects:
   Telegram, Slack or WhatsApp channel starts its adapter on the replica that
   handled the request. The others keep the previous adapter, or none for a new
   channel, until they restart: their webhooks answer 404 for a new channel and
-  refuse a rotated Telegram token's secret. Restart every replica after
-  changing a channel.
+  refuse a rotated Telegram token's secret, which the saving replica has
+  already registered with Telegram. Restart every replica after changing a
+  channel; each one registers the Telegram webhook again as it starts.
 - **Fragments of one message burst can be answered separately.** WhatsApp and
   Telegram messages that arrive close together are merged into one turn per
   process. Fragments that land on different replicas each get their own reply.

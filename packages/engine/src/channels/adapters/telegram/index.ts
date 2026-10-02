@@ -193,16 +193,14 @@ export class TelegramAdapter implements ChannelAdapter {
       return;
     }
     try {
-      const info = await bot.api.getWebhookInfo();
-      const allowed = info.allowed_updates ?? [];
-      const current = info.url === this.webhookUrl &&
-        allowed.length === ALLOWED_UPDATES.length && ALLOWED_UPDATES.every((u) => allowed.includes(u));
-      if (!current) {
-        await bot.api.setWebhook(this.webhookUrl, {
-          secret_token: this.webhookSecret,
-          allowed_updates: [...ALLOWED_UPDATES],
-        });
-      }
+      // Always set it, even when Telegram already holds this URL: the secret is
+      // derived from the bot token and Telegram never reports the one it holds,
+      // so after a token rotation only a fresh setWebhook makes it send the new
+      // secret. The call is idempotent, and a fleet restart's 429 is retried below.
+      await bot.api.setWebhook(this.webhookUrl, {
+        secret_token: this.webhookSecret,
+        allowed_updates: [...ALLOWED_UPDATES],
+      });
     } catch (err) {
       const code = telegramErrorCode(err);
       // A 4xx other than 429 is Telegram refusing the request itself: repeating it changes nothing.

@@ -61,18 +61,29 @@ describe("Telegram webhook registration", () => {
     expect(setWebhook).toHaveBeenCalledWith(URL, expect.objectContaining({ allowed_updates: ["message"] }));
   });
 
-  it("leaves a webhook that already matches alone", async () => {
+  it("re-registers a URL Telegram already holds, so a rotated token's secret takes effect", async () => {
+    // Telegram never returns the secret it holds. Skipping setWebhook because
+    // the URL matched left it sending the old token's secret after a rotation,
+    // and every update was refused from then on.
     getWebhookInfo.mockResolvedValue({ url: URL, allowed_updates: ["message"] });
-    await startedAdapter();
-    await vi.waitFor(() => expect(getWebhookInfo).toHaveBeenCalledOnce());
-    expect(setWebhook).not.toHaveBeenCalled();
+    const before = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "old-token" }, URL);
+    await before.initialize(vi.fn());
+    await vi.waitFor(() => expect(setWebhook).toHaveBeenCalledTimes(1));
+    await before.shutdown();
+
+    const after = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "rotated-token" }, URL);
+    await after.initialize(vi.fn());
+    await vi.waitFor(() => expect(setWebhook).toHaveBeenCalledTimes(2));
+
+    const [oldSecret, newSecret] = setWebhook.mock.calls.map(([, opts]) => opts.secret_token);
+    expect(newSecret).toBe(after.webhookSecret);
+    expect(newSecret).not.toBe(oldSecret);
   });
 
   it("starts without registering when the base URL is plain HTTP, instead of failing the channel", async () => {
     // A failed start makes the channel manager disable the channel in the
     // database; an HTTP base URL used to do exactly that to every Telegram bot.
     await expect(startedAdapter("http://engine.test/webhooks/telegram/shop")).resolves.toBeInstanceOf(TelegramAdapter);
-    expect(getWebhookInfo).not.toHaveBeenCalled();
     expect(setWebhook).not.toHaveBeenCalled();
   });
 
