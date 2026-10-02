@@ -203,7 +203,7 @@ describe("OpenAIController — streaming request refused by the pipeline", () =>
     const controller = new (OpenAIController as any)({
       chatCompletionStream: vi.fn().mockRejectedValue(refusal),
     });
-    const res = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn(), json: vi.fn() };
+    const res = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn(), json: vi.fn(), on: vi.fn() };
 
     await expect(
       controller.chatCompletions(
