@@ -28,8 +28,10 @@ export function inspectRelease(manifest, manifestDir) {
     const previousSha = git('rev-parse', '--verify', '--end-of-options', `${previous}^{commit}`);
     git('merge-base', '--is-ancestor', previousSha, sha);
     const changedFiles = git('diff', '--name-only', previousSha, sha).split('\n').filter(Boolean);
-    if (component.decision === 'release' && (!component.tag || component.tag !== `v${pkg.version}` || !component.destination)) {
-      throw new Error(`${component.name}: release requires tag v${pkg.version} and publishing destination.`);
+    if (component.decision === 'release') {
+      if (typeof component.destination !== 'string' || !component.destination.trim()) throw new Error(`${component.name}: release requires a publishing destination.`);
+      // Docs ships a site/PDF from a pinned commit, not an npm version tag.
+      if (component.name !== 'docs' && component.tag !== `v${pkg.version}`) throw new Error(`${component.name}: release requires tag v${pkg.version}.`);
     }
     return {
       name: component.name, sha, previousTag: previous, version: pkg.version,
