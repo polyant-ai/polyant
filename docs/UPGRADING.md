@@ -5,13 +5,6 @@ changes see the [changelog](../CHANGELOG.md).
 
 ## Upgrading from 1.2.0
 
-### Node 24
-
-The engine and the panel now run on Node 24, the active LTS. The published
-Docker images carry it, so a deployment that uses them needs nothing. If you
-run from source or build your own images, move to Node 24 (`.nvmrc` names it);
-Node 22 is no longer tested.
-
 ### Migration 0086 rewrites the conversations table
 
 Conversations now carry their own message counters, which the conversation list
@@ -41,6 +34,101 @@ Postgres (`POSTGRES_ANALYTICS_POOL_MAX`); check your server's `max_connections`
 if it is tight. Statements on that pool stop after 15 seconds
 (`POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS`). The main pool keeps its 10
 connections and is now configurable with `POSTGRES_POOL_MAX`.
+
+## Upgrading from 1.1.x to 1.2.0
+
+### Node 24
+
+The engine and the panel now run on Node 24, the active LTS. The published
+Docker images carry it, so a deployment that uses them needs nothing. If you
+run from source or build your own images, move to Node 24 (`.nvmrc` names it);
+Node 22 is no longer tested.
+
+### Telegram and Slack need a public address
+
+Telegram and Slack no longer open a connection out of the engine: their messages
+arrive as webhooks, like WhatsApp's. Before upgrading a deployment that runs
+either channel:
+
+1. Make sure the engine has a public HTTPS address (`BASE_URL`, or the address in
+   Settings → General) and that `/webhooks/*` reaches the engine. The CDK stack
+   routes it; a hand-built proxy or load balancer needs the rule, without any
+   sign-in in front of it — each webhook authenticates the caller itself.
+2. For each Slack app: switch Socket Mode off, and under Event Subscriptions set
+   the Request URL to `<public address>/webhooks/slack/<agent slug>`. The signing
+   secret the channel already holds verifies the requests; the app-level token is
+   no longer used.
+3. Telegram needs nothing by hand: the engine registers its webhook when the
+   channel starts. Telegram keeps undelivered updates for 24 hours, so messages
+   sent while the address was unreachable arrive once it is.
+
+### Review agents without a pinned model
+
+The default tiers changed for two providers. The OpenAI `fast`, `standard` and
+`heavy` tiers now resolve to `gpt-6-luna`, `gpt-6-sol` and `gpt-6-astra`, and the
+Bedrock `standard` and `heavy` tiers to Amazon Nova Pro and OpenAI gpt-oss 120B.
+Agents with an explicit model stay pinned, but unpinned conversations and
+background work change model and price. Review their model settings before
+deploying.
+
+### Install and re-enable extracted tools
+
+The GitHub, Render, HubSpot and Markdown-to-PDF tool families no longer ship in
+the core image. If an agent uses one of them, add its plugin to the image before
+building (see [Loading a plugin — build-time](plugins.md#loading-a-plugin--build-time)),
+or use `PLUGIN_DIRS` in development.
+
+Plugin tools have namespaced names and are new registry entries: for example,
+`ghIssue` is now `github:issue`, `hubspotContact` is now `hubspot:contact`, and
+`markdownToPdf` is now `extra:markdownToPdf`. On first boot the registry removes
+the old flat entries; it does not carry their enabled state to the replacements.
+After installing the plugins, re-enable the required tools for every affected
+agent from its Tools tab and update any skill that names an old tool. The
+integration-specific `verifyDocument` tool was removed without a replacement.
+
+### Custom S3 endpoints are removed
+
+`s3_endpoint` is no longer read, and migration `0081_drop_s3_endpoint_secret`
+deletes every stored value. An agent configured for MinIO, Cloudflare R2 or
+another S3-compatible endpoint falls back to AWS addressing, so uploads and
+attachment reads will fail rather than continue against that service.
+
+Before upgrading, move affected buckets to AWS S3 and configure each agent with
+`s3_bucket_name`, `aws_region`, and either static AWS credentials or
+`s3_use_task_role`. Version 1.2.0 has no supported custom-endpoint replacement.
+
+### Google sign-in is removed
+
+The Google provider, its two variables, the login button and the domain-allowlist
+callback are all gone. Single sign-on is a capability of the tier that manages
+organizations: which domains may sign in is a question about a tenant, and one
+list for a whole installation cannot answer it for a second one.
+
+**Before upgrading, make sure every account that needs access has a password.**
+An account that only ever signed in with Google has none, and there is no
+federated provider left to authenticate it. A platform admin can set one from
+Users, and `INITIAL_ADMIN_EMAIL` + `INITIAL_ADMIN_PASSWORD` still recover an
+installation whose only administrator is locked out — on a non-empty database the
+seeder sets a password on a **password-less** account and promotes it, and never
+overwrites one that already exists.
+
+### Environment variables that are gone
+
+Each of these was configuration of the PRODUCT wearing the clothes of
+configuration of the deployment, or a second name for something the code already
+had. Remove them from your environment; none of them needs a replacement value.
+
+| Removed | What to do instead |
+| --- | --- |
+| `AUTH_MODE` | Nothing. `session` was the only value that booted, and gateway mode is deleted — see [ADR-0001](adr/0001-gateway-authenticated-mode.md). A stack whose CDK config sets `auth:` no longer receives this variable; it was already refused at startup |
+| `AUTH_ALLOWED_DOMAIN`, `AUTH_ALLOWED_DOMAINS` | Federated sign-in is no longer restricted by a deployment-wide domain list. The two variables were one list twice (the parser concatenated them), and the restriction belongs to the organization |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Nothing, and read the next paragraph first: **federated sign-in is gone from this edition entirely**, not merely unconfigured. Email and password is the only way in |
+| `AWS_REGION` | Set the AWS provider region on each agent (Settings → AI Provider). There is no deployment-wide fallback and no `us-east-1` default: a Bedrock agent with no region configured is now refused with a message naming the setting, on chat as well as on embeddings |
+| `DEFAULT_INSTANCE_ID` | Nothing. Every caller already names its agent — the OpenAI-compatible route validates `model` and answers 400 without it — so the fallback could not fire |
+| `WORKSPACES_ROOT` | Nothing. The per-conversation sandbox stays under `packages/engine/workspaces`; the variable survives only as a test seam and is no longer documented as deployment configuration |
+| `PLATFORM_ADMIN_EMAIL` | Nothing, on an installation that already booted with it: the standing it granted lives in `users.is_platform_admin` and stays. The platform admin is now the account `INITIAL_ADMIN_EMAIL` names, seeded already privileged and made Owner of the default organization on the same boot. The internal `POST /api/auth/credentials/bootstrap-owner` endpoint it needed is gone with it |
+| `DEBUG_LLM_PAYLOAD` | Enable debugging on the individual agent instead. The per-agent capture includes the full prompt, messages and tool definitions and stores them for inspection instead of writing sensitive payloads to stdout |
+| `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_TRACING` | Nothing. They were read by no code at all; tracing is configured per agent |
 
 ### Environment variables the panel now answers
 
@@ -74,97 +162,14 @@ otherwise the upgrade quietly restores the default.
 
 `THROTTLE_ENABLED` stays an environment variable and keeps its meaning.
 
-### Telegram and Slack need a public address
-
-Telegram and Slack no longer open a connection out of the engine: their messages
-arrive as webhooks, like WhatsApp's. Before upgrading a deployment that runs
-either channel:
-
-1. Make sure the engine has a public HTTPS address (`BASE_URL`, or the address in
-   Settings → General) and that `/webhooks/*` reaches the engine. The CDK stack
-   routes it; a hand-built proxy or load balancer needs the rule, without any
-   sign-in in front of it — each webhook authenticates the caller itself.
-2. For each Slack app: switch Socket Mode off, and under Event Subscriptions set
-   the Request URL to `<public address>/webhooks/slack/<agent slug>`. The signing
-   secret the channel already holds verifies the requests; the app-level token is
-   no longer used.
-3. Telegram needs nothing by hand: the engine registers its webhook when the
-   channel starts. Telegram keeps undelivered updates for 24 hours, so messages
-   sent while the address was unreachable arrive once it is.
-
 ### The engine's public address
 
-`BASE_URL` is still read, and still the value a fresh installation boots with.
-What is new is that Settings → General can hold a public address, and that one
-wins where it is set — so an engine that is announcing the wrong webhook URLs is
-now a form to correct rather than a redeploy. Nothing to do on upgrade: with no
-address stored, `BASE_URL` is what every URL is built from, exactly as before.
-
-## Upgrading from 1.1.1 to 1.2.0
-
-### Install and re-enable extracted tools
-
-The GitHub, Render, HubSpot and Markdown-to-PDF tool families no longer ship in
-the core image. If an agent uses one of them, add its plugin to the image before
-building (see [Loading a plugin — build-time](plugins.md#loading-a-plugin--build-time)),
-or use `PLUGIN_DIRS` in development.
-
-Plugin tools have namespaced names and are new registry entries: for example,
-`ghIssue` is now `github:issue`, `hubspotContact` is now `hubspot:contact`, and
-`markdownToPdf` is now `extra:markdownToPdf`. On first boot the registry removes
-the old flat entries; it does not carry their enabled state to the replacements.
-After installing the plugins, re-enable the required tools for every affected
-agent from its Tools tab and update any skill that names an old tool. The
-integration-specific `verifyDocument` tool was removed without a replacement.
-
-### Custom S3 endpoints are removed
-
-`s3_endpoint` is no longer read, and migration `0081_drop_s3_endpoint_secret`
-deletes every stored value. An agent configured for MinIO, Cloudflare R2 or
-another S3-compatible endpoint falls back to AWS addressing, so uploads and
-attachment reads will fail rather than continue against that service.
-
-Before upgrading, move affected buckets to AWS S3 and configure each agent with
-`s3_bucket_name`, `aws_region`, and either static AWS credentials or
-`s3_use_task_role`. Version 1.2.0 has no supported custom-endpoint replacement.
-
-### Environment variables that are gone
-
-Each of these was configuration of the PRODUCT wearing the clothes of
-configuration of the deployment, or a second name for something the code already
-had. Remove them from your environment; none of them needs a replacement value.
-
-| Removed | What to do instead |
-| --- | --- |
-| `AUTH_MODE` | Nothing. `session` was the only value that booted, and gateway mode is deleted — see [ADR-0001](adr/0001-gateway-authenticated-mode.md). A stack whose CDK config sets `auth:` no longer receives this variable; it was already refused at startup |
-| `AUTH_ALLOWED_DOMAIN`, `AUTH_ALLOWED_DOMAINS` | Federated sign-in is no longer restricted by a deployment-wide domain list. The two variables were one list twice (the parser concatenated them), and the restriction belongs to the organization |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Nothing, and read the next paragraph first: **federated sign-in is gone from this edition entirely**, not merely unconfigured. Email and password is the only way in |
-| `AWS_REGION` | Set the AWS provider region on each agent (Settings → AI Provider). There is no deployment-wide fallback and no `us-east-1` default: a Bedrock agent with no region configured is now refused with a message naming the setting, on chat as well as on embeddings |
-| `DEFAULT_INSTANCE_ID` | Nothing. Every caller already names its agent — the OpenAI-compatible route validates `model` and answers 400 without it — so the fallback could not fire |
-| `WORKSPACES_ROOT` | Nothing. The per-conversation sandbox stays under `packages/engine/workspaces`; the variable survives only as a test seam and is no longer documented as deployment configuration |
-| `PLATFORM_ADMIN_EMAIL` | Nothing, on an installation that already booted with it: the standing it granted lives in `users.is_platform_admin` and stays. The platform admin is now the account `INITIAL_ADMIN_EMAIL` names, seeded already privileged and made Owner of the default organization on the same boot. The internal `POST /api/auth/credentials/bootstrap-owner` endpoint it needed is gone with it |
-| `DEBUG_LLM_PAYLOAD` | Enable debugging on the individual agent instead. The per-agent capture includes the full prompt, messages and tool definitions and stores them for inspection instead of writing sensitive payloads to stdout |
-| `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_TRACING` | Nothing. They were read by no code at all; tracing is configured per agent |
-
-### Google sign-in is removed
-
-The Google provider, its two variables, the login button and the domain-allowlist
-callback are all gone. Single sign-on is a capability of the tier that manages
-organizations: which domains may sign in is a question about a tenant, and one
-list for a whole installation cannot answer it for a second one.
-
-**Before upgrading, make sure every account that needs access has a password.**
-An account that only ever signed in with Google has none, and there is no
-federated provider left to authenticate it. A platform admin can set one from
-Users, and `INITIAL_ADMIN_EMAIL` + `INITIAL_ADMIN_PASSWORD` still recover an
-installation whose only administrator is locked out — on a non-empty database the
-seeder sets a password on a **password-less** account and promotes it, and never
-overwrites one that already exists.
-
-`BASE_URL` is unchanged in this release, but it is now resolved once: unset still
-means `http://localhost:<API_PORT>`, decided in `config.ts` instead of by each
-caller. (From the next release a stored platform setting can override it — see
-above.)
+`BASE_URL` is still read, and still the value a fresh installation boots with;
+unset still means `http://localhost:<API_PORT>`. What is new is that
+Settings → General can hold a public address, and that one wins where it is
+set — so an engine that is announcing the wrong webhook URLs is now a form to
+correct rather than a redeploy. Nothing to do on upgrade: with no address
+stored, `BASE_URL` is what every URL is built from, exactly as before.
 
 ## Upgrading from 1.0.0 to 1.1.0
 
