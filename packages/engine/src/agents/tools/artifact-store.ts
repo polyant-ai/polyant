@@ -53,7 +53,7 @@ export function artifactBinding(instanceId: string, conversationId: string | nul
   return JSON.stringify([instanceId, conversationId ?? null]);
 }
 
-/** What a tool sees as `ctx.artifacts` — already bound to its conversation. */
+/** The in-process store bound to one conversation; tools see it as {@link ToolArtifactApi}. */
 export interface ArtifactApi {
   /** Store bytes, return the handle to hand to the model. */
   put(payload: ArtifactPayload, ttlMs?: number): string;
@@ -64,6 +64,18 @@ export interface ArtifactApi {
    * exists.
    */
   take(handle: string): ArtifactPayload | null;
+}
+
+/**
+ * `ctx.artifacts` as a tool sees it: the plugin SDK's contract, under which
+ * either method may answer synchronously (this in-process store) or
+ * asynchronously (a dev-mode round trip to a remote engine). Callers always
+ * `await` both; only the store itself relies on {@link ArtifactApi} being
+ * synchronous.
+ */
+export interface ToolArtifactApi {
+  put(payload: ArtifactPayload, ttlMs?: number): string | Promise<string>;
+  take(handle: string): ArtifactPayload | null | Promise<ArtifactPayload | null>;
 }
 
 export class ArtifactStore {

@@ -84,8 +84,10 @@ credential for every one of them.
 conversation of the same agent. Each artifact is limited to 10 MB and at most
 10 minutes; one conversation holds at most 20 handles or 25 MB that nothing has
 taken yet, and the process store at most 100 MB or 1,000 live handles. `put`
-throws when a limit is reached. Persist anything longer-lived through
-`fileUpload` instead.
+throws when a limit is reached. Always `await` both `put` and `take`: they
+answer synchronously in process, but the SDK types them as possibly
+asynchronous because in dev mode each call is a round trip to the engine.
+Persist anything longer-lived through `fileUpload` instead.
 
 ### Schema rules (OpenAI strict-mode compatible — enforced by `strict-mode.test.ts`)
 - `.nullable()`, **not** `.optional()` / `.default()` (apply defaults in `execute`).
