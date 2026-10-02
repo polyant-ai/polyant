@@ -21,6 +21,19 @@ if (existsSync(packageEnv)) {
   config({ quiet: true });
 }
 
+/*
+  Migrations in this repository are written by hand: there are no drizzle-kit
+  snapshots under migrations/meta, and most CHECK constraints (on instances,
+  organizations and platform_settings), some partial indexes and every data
+  backfill live only in the SQL files, not in the Drizzle schema. So
+  `drizzle-kit push` is NOT a supported path: diffing these schema files against
+  a migrated database would drop what they do not declare. Apply schema changes
+  with `npm run db:migrate`.
+
+  The list below still has to name every file that declares a table, so tools
+  that read it (`db:studio`) see the whole database. A guardrail test
+  (src/database/drizzle-config.guardrail.test.ts) holds it to the source tree.
+*/
 export default defineConfig({
   out: "./src/database/migrations",
   schema: [
@@ -49,6 +62,12 @@ export default defineConfig({
     "./src/authz/role-binding.schema.ts",
     "./src/authz/authz-audit-log.schema.ts",
     "./src/auth/management-api-keys.schema.ts",
+    "./src/conversations/principal-secrets.schema.ts",
+    "./src/hooks/hooks.schema.ts",
+    "./src/instances/mcp-servers.schema.ts",
+    "./src/management-audit/management-audit.schema.ts",
+    "./src/platform/platform-settings.schema.ts",
+    "./src/server/oauth/oauth-states.schema.ts",
   ],
   dialect: "postgresql",
   dbCredentials: {
