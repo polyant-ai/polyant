@@ -7,6 +7,23 @@ import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 
 /**
+ * A turn on a web route (`/v1/chat/completions`, chat/stream).
+ *
+ * Call context is projected onto the conversation state keyed by the
+ * caller-chosen `chat_id`, and every later turn of that conversation loads it:
+ * tools then act on whoever the context named. So a request carrying context
+ * needs the key, and so does EVERY web turn on an agent that maps context
+ * fields — otherwise anyone who learnt a `chat_id` could continue the
+ * conversation without the key and act as the identity a keyed request put
+ * there. Checked here, per request, rather than when the mapping is saved:
+ * that holds whatever order the switch, the mapping and an import are changed in.
+ */
+export interface WebTurn {
+  /** The request carries call `context`, which writes conversation state. */
+  carriesContext: boolean;
+}
+
+/**
  * Per-instance API key authentication for chat endpoints.
  *
  * Used by both `POST /v1/chat/completions` (OpenAI-compatible) and
@@ -22,13 +39,13 @@ import { asInstanceSlug } from "../../instances/identifiers.js";
  *  - "Invalid API key"                        timing-safe comparison failed
  *
  * When `authEnabled` is false the function returns silently — open access —
- * unless `requireKey`: a request carrying call `context` writes conversation
- * state, so it needs the agent's key even on an open agent.
+ * unless the request is a web turn on an agent that maps web context (see
+ * `WebTurn`), which needs the agent's key even on an open agent.
  */
 export async function validateInstanceApiKey(
   instanceSlug: string,
   authHeader?: string,
-  requireKey = false,
+  webTurn?: WebTurn,
 ): Promise<void> {
   const slug = asInstanceSlug(instanceSlug);
   const instance = await findInstanceBySlug(slug);
@@ -37,7 +54,9 @@ export async function validateInstanceApiKey(
   }
 
   const instanceConfig = await resolveInstanceConfig(slug);
-  // Ordinary chat may be open; a request that writes conversation state may not.
+  const mapsWebContext = Object.keys(instanceConfig.webContextFieldMapping ?? {}).length > 0;
+  const requireKey = webTurn !== undefined && (webTurn.carriesContext || mapsWebContext);
+  // Ordinary chat may be open; a turn that can read or write mapped context may not.
   if (!instanceConfig.authEnabled && !requireKey) return;
 
   if (!instanceConfig.authApiKey) {

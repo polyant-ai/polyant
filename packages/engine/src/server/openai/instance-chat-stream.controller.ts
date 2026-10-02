@@ -91,10 +91,10 @@ export class InstanceChatStreamController {
     // JWT AuthGuard is skipped via @Public() — this route accepts the same
     // Bearer-token shape as the OpenAI-compatible endpoint, NOT a session
     // cookie. See instance-api-key-auth.ts for the rules.
-    // Call context writes conversation state: it needs the agent's key even
-    // when the agent is otherwise open.
+    // A web turn: on an agent that maps call context it needs the agent's key
+    // even when the agent is otherwise open (see WebTurn).
     await validateInstanceApiKey(slug, req.headers["authorization"] as string | undefined,
-      body.context !== undefined && body.context !== null);
+      { carriesContext: body.context !== undefined && body.context !== null });
 
     // Force the model field to the URL slug — the playground already passes
     // it but we ignore any client-side override to keep the route authoritative.

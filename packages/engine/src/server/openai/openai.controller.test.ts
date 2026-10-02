@@ -154,6 +154,42 @@ describe("OpenAIController.validateAuth — auth bypass protection (#38)", () =>
   });
 });
 
+describe("validateInstanceApiKey — web context on an open agent", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindInstanceBySlug.mockResolvedValue({ id: "test-id", slug: "my-bot", status: "active" });
+  });
+
+  const openAgent = (webContextFieldMapping: Record<string, string>) =>
+    mockResolveInstanceConfig.mockResolvedValue({ authEnabled: false, authApiKey: "k", webContextFieldMapping });
+
+  it("requires the key on a later, context-free turn when the agent maps context", async () => {
+    // The hole: a keyed request writes the caller's identity into the state of
+    // chat_id X; a plain turn on X, with no key, then inherited it and the
+    // agent's tools acted on that identity.
+    openAgent({ contactId: "customer.id" });
+    const { validateInstanceApiKey } = await import("./instance-api-key-auth.js");
+
+    await expect(validateInstanceApiKey("my-bot", undefined, { carriesContext: false })).rejects.toThrow("Missing Bearer token");
+    await expect(validateInstanceApiKey("my-bot", "Bearer k", { carriesContext: false })).resolves.toBeUndefined();
+  });
+
+  it("leaves an open agent open when it maps no context", async () => {
+    openAgent({});
+    const { validateInstanceApiKey } = await import("./instance-api-key-auth.js");
+
+    await expect(validateInstanceApiKey("my-bot", undefined, { carriesContext: false })).resolves.toBeUndefined();
+  });
+
+  it("leaves routes other than web turns to the agent switch", async () => {
+    // A2A turns run on their own conversation ids and never load web state.
+    openAgent({ contactId: "customer.id" });
+    const { validateInstanceApiKey } = await import("./instance-api-key-auth.js");
+
+    await expect(validateInstanceApiKey("my-bot", undefined)).resolves.toBeUndefined();
+  });
+});
+
 describe("OpenAIController — streaming request refused by the pipeline", () => {
   beforeEach(() => {
     vi.clearAllMocks();

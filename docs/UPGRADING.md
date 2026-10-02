@@ -35,6 +35,18 @@ if it is tight. Statements on that pool stop after 15 seconds
 (`POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS`). The main pool keeps its 10
 connections and is now configurable with `POSTGRES_POOL_MAX`.
 
+### Agents that map web context need their key on every web turn
+
+A request's call `context` is written into the state of the conversation its
+`chat_id` names, and later turns of that conversation read it. On an agent with
+authentication off, a turn without the key could therefore continue a
+conversation a keyed request had started and act as the identity its context
+set. An agent with at least one context field mapped now requires its API key on
+every request to `/v1/chat/completions` and to the chat stream, whatever the
+authentication switch says. Agents that map no context field are unchanged.
+Before upgrading, give the key to every client of such an agent, including the
+Playground's token field.
+
 ## Upgrading from 1.1.x to 1.2.0
 
 ### Node 24

@@ -549,7 +549,7 @@
   "channels.tab.webHelp": "L'accesso HTTP diretto all'agente: l'endpoint compatibile OpenAI, l'endpoint di streaming nativo e la CLI. È il canale che usi da un'applicazione tua o dal Playground.",
   "channels.tab.webAuthHelp": "Vale per TUTTE le rotte API di questo agente, non solo per una: disattivandola, chiunque raggiunga l'engine può farlo parlare.",
   "channels.tab.webContextMapping": "Campi di contesto (stato della conversazione)",
-  "channels.tab.webContextMappingHelp": "Mappa un campo dell'oggetto 'context' di una richiesta (destra, anche con il punto: customer.id) a una chiave di stato della conversazione (sinistra), pre-caricata prima del turno. È così che un'app vocale o web passa ai tool l'identità di chi scrive. Una richiesta con context richiede chat_id e la API key dell'agente, anche con l'autenticazione disattivata.",
+  "channels.tab.webContextMappingHelp": "Mappa un campo dell'oggetto 'context' di una richiesta (destra, anche con il punto: customer.id) a una chiave di stato della conversazione (sinistra), pre-caricata prima del turno. È così che un'app vocale o web passa ai tool l'identità di chi scrive. Una richiesta con context richiede chat_id. Appena un campo è mappato, ogni richiesta a questo agente richiede la sua API key, anche con l'autenticazione disattivata: i turni successivi di una conversazione leggono l'identità impostata dal suo context.",
   "channels.tab.webContextMappingPath": "Campo di context (es. phone, customer.id)",
   "channels.tab.webContextKeyRequired": "I campi di contesto richiedono una API key dell'agente: impostala prima di salvare",
   "channels.tab.mappingStateKey": "Chiave di stato",

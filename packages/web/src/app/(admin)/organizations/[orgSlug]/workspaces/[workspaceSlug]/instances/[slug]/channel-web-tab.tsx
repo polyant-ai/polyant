@@ -52,9 +52,9 @@ interface Props {
  * agent in the organization.
  *
  * The context fields map a request's `context` onto the conversation state
- * before the turn. A request that carries context needs the key even when the
- * switch is off (it writes state), so the key field shows as soon as a field is
- * mapped.
+ * before the turn. Once a field is mapped, every web turn needs the key even
+ * when the switch is off (later turns read the state context wrote), so the key
+ * field shows as soon as a field is mapped.
  */
 export function ChannelWebTab({ instance, onUpdate }: Props) {
   const { t } = useI18n();
