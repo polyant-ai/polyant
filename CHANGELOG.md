@@ -269,7 +269,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent bundles preserve each scheduled task's run deadline; event-source edits
   and token rotation return 404 for missing sources; inbound messages use default
   timings when their settings lookup fails. In-process plugin artifacts now have
-  bounded size, lifetime and aggregate storage.
+  bounded size, lifetime, storage per conversation and aggregate storage, and
+  a handle produced in a turn without a conversation resolves only for the
+  agent that produced it.
 - A failed upload of an inbound attachment no longer loses the turn: the message
   and the reply are saved without the attachment's stored copy.
 - One management-audit row the database refused (an over-long target id, say)

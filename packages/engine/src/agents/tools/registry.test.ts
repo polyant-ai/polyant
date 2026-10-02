@@ -102,7 +102,7 @@ const noopAudit = { log: () => {} };
 const mockCtx: ToolContext = {
   instanceId: asInstanceSlug("test-instance"),
   audit: noopAudit,
-  artifacts: artifactApiFor(null),
+  artifacts: artifactApiFor("test-agent", null),
 };
 
 // ---------------------------------------------------------------------------

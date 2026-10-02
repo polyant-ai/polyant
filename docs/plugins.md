@@ -81,9 +81,11 @@ travels as its key alone. A key that any tool or hook declares sensitive is a
 credential for every one of them.
 
 `ctx.artifacts` is an in-process, one-shot handoff between tools in the same
-conversation. Each artifact is limited to 10 MB and at most 10 minutes; the
-process store accepts at most 100 MB or 1,000 live handles. Persist anything
-longer-lived through `fileUpload` instead.
+conversation of the same agent. Each artifact is limited to 10 MB and at most
+10 minutes; one conversation holds at most 20 handles or 25 MB that nothing has
+taken yet, and the process store at most 100 MB or 1,000 live handles. `put`
+throws when a limit is reached. Persist anything longer-lived through
+`fileUpload` instead.
 
 ### Schema rules (OpenAI strict-mode compatible — enforced by `strict-mode.test.ts`)
 - `.nullable()`, **not** `.optional()` / `.default()` (apply defaults in `execute`).

@@ -334,7 +334,7 @@ async function buildTools(opts: BuildToolsOptions) {
         conversation: conversationId ? buildConversationApi(conversationId) : undefined,
         // Bound to THIS conversation: a handle minted in another one is not
         // takeable here, so the store needs no per-tool authorization of its own.
-        artifacts: artifactApiFor(conversationId ?? null),
+        artifacts: artifactApiFor(instanceId, conversationId),
       };
       // ctx.oauth closes over ctx, so it is assigned after the literal.
       ctx.oauth = makeOAuthAccess(ctx);

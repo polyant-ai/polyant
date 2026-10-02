@@ -21,6 +21,15 @@ const CLEANUP_INTERVAL_MS = 60 * 1000;
 const MAX_ARTIFACT_BYTES = 10 * 1024 * 1024;
 const MAX_STORED_BYTES = 100 * 1024 * 1024;
 const MAX_ENTRIES = 1_000;
+/**
+ * What one binding — one agent's conversation, or one agent's turns without a
+ * conversation — may hold at a time. The store is shared by every tenant in
+ * the process, so without it one producer (a plugin stuck in a loop, a dev
+ * session pushing frames) filled the whole store and every other
+ * conversation's handoff failed until the entries expired.
+ */
+const MAX_ENTRIES_PER_BINDING = 20;
+const MAX_BYTES_PER_BINDING = 25 * 1024 * 1024;
 
 export interface ArtifactPayload {
   buffer: Buffer;
@@ -29,9 +38,19 @@ export interface ArtifactPayload {
 }
 
 interface ArtifactEntry extends ArtifactPayload {
-  /** The conversation that produced it, or null when the turn had none. */
-  conversationId: string | null;
+  /** Who may take it back: see {@link artifactBinding}. */
+  binding: string;
   expiresAt: number;
+}
+
+/**
+ * The key an artifact is bound to: the agent and the conversation that
+ * produced it. A turn without a conversation (a scheduled task, a webhook
+ * trigger) used to bind to `null` alone, which every such turn of every agent
+ * shared, so one agent could take a handle another had produced.
+ */
+export function artifactBinding(instanceId: string, conversationId: string | null | undefined): string {
+  return JSON.stringify([instanceId, conversationId ?? null]);
 }
 
 /** What a tool sees as `ctx.artifacts` — already bound to its conversation. */
@@ -53,7 +72,7 @@ export class ArtifactStore {
 
   put(
     payload: ArtifactPayload,
-    conversationId: string | null,
+    binding: string,
     ttlMs: number = DEFAULT_TTL_MS,
   ): string {
     if (!Number.isInteger(ttlMs) || ttlMs <= 0 || ttlMs > DEFAULT_TTL_MS) {
@@ -63,20 +82,37 @@ export class ArtifactStore {
       throw new RangeError("Artifact exceeds the 10 MB limit");
     }
     this.cleanup();
-    const storedBytes = [...this.entries.values()].reduce((total, entry) => total + entry.buffer.byteLength, 0);
+    let storedBytes = 0;
+    let bindingEntries = 0;
+    let bindingBytes = 0;
+    for (const entry of this.entries.values()) {
+      storedBytes += entry.buffer.byteLength;
+      if (entry.binding === binding) {
+        bindingEntries++;
+        bindingBytes += entry.buffer.byteLength;
+      }
+    }
+    if (
+      bindingEntries >= MAX_ENTRIES_PER_BINDING ||
+      bindingBytes + payload.buffer.byteLength > MAX_BYTES_PER_BINDING
+    ) {
+      throw new RangeError(
+        "This conversation already holds 20 artifacts or 25 MB that nothing has taken; take them or let them expire first",
+      );
+    }
     if (this.entries.size >= MAX_ENTRIES || storedBytes + payload.buffer.byteLength > MAX_STORED_BYTES) {
       throw new RangeError("Artifact store is full");
     }
     const id = `artifact_${randomUUID()}`;
-    this.entries.set(id, { ...payload, conversationId, expiresAt: Date.now() + ttlMs });
+    this.entries.set(id, { ...payload, binding, expiresAt: Date.now() + ttlMs });
     this.ensureCleanupTimer();
     return id;
   }
 
-  take(handle: string, conversationId: string | null): ArtifactPayload | null {
+  take(handle: string, binding: string): ArtifactPayload | null {
     const entry = this.entries.get(handle);
     if (!entry) return null;
-    if (entry.conversationId !== conversationId) return null;
+    if (entry.binding !== binding) return null;
     this.entries.delete(handle);
     if (entry.expiresAt < Date.now()) return null;
     const { buffer, filename, mime } = entry;
@@ -117,10 +153,11 @@ export class ArtifactStore {
 
 export const artifactStore = new ArtifactStore();
 
-/** Bind the process-wide store to one conversation for one tool's `ctx`. */
-export function artifactApiFor(conversationId: string | null): ArtifactApi {
+/** Bind the process-wide store to one agent's conversation for one tool's `ctx`. */
+export function artifactApiFor(instanceId: string, conversationId: string | null | undefined): ArtifactApi {
+  const binding = artifactBinding(instanceId, conversationId);
   return {
-    put: (payload, ttlMs) => artifactStore.put(payload, conversationId, ttlMs),
-    take: (handle) => artifactStore.take(handle, conversationId),
+    put: (payload, ttlMs) => artifactStore.put(payload, binding, ttlMs),
+    take: (handle) => artifactStore.take(handle, binding),
   };
 }
