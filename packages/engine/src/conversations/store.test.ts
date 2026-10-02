@@ -483,7 +483,12 @@ describe("ConversationStore", () => {
       await conversationStore.appendMessages(id, [{ role: "user", content: "Hello" }]);
 
       expect(mockDb.transaction).toHaveBeenCalledTimes(1);
-      expect(updChain.set).toHaveBeenCalledWith({ updatedAt: expect.any(Date) });
+      // The message counters ride on the same update (exact values: integration test).
+      expect(updChain.set).toHaveBeenCalledWith(expect.objectContaining({
+        updatedAt: expect.any(Date),
+        messageCount: expect.anything(),
+        userMessageCount: expect.anything(),
+      }));
       expect(updChain.where).toHaveBeenCalledWith({ type: "eq", args: ["conversation_id", id] });
     });
 

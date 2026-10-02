@@ -17,6 +17,7 @@ import {
   type DatetimeSettings,
   type MessageTimingSettings,
 } from "./agent-settings.js";
+import { invalidateAllInstanceMeta, invalidateInstanceMeta } from "./instance-meta.js";
 
 export interface InstanceConfig {
   provider: string | undefined;
@@ -125,11 +126,13 @@ const cache = new TtlCache<string, InstanceConfig>({ maxSize: 200, ttlMs: 30_000
 /** Invalidate cached config for a specific instance. */
 export function invalidateInstanceConfigCache(slug: InstanceSlug): void {
   cache.delete(slug);
+  invalidateInstanceMeta(slug);
 }
 
 /** Invalidate all cached configs. */
 export function invalidateAllInstanceConfigCache(): void {
   cache.clear();
+  invalidateAllInstanceMeta();
 }
 
 /**

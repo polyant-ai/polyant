@@ -3,7 +3,8 @@
 import { tool as aiTool, type Tool } from "ai";
 import { z } from "zod";
 import { UnauthorizedError } from "@ai-sdk/mcp";
-import { connectWithTimeout } from "./mcp-connect.js";
+import { connectWithTimeout, type McpConnection } from "./mcp-connect.js";
+import { acquireMcpConnection, retireMcpConnection } from "./mcp-client-pool.js";
 import { resolvePlatformSettings } from "../../../platform/platform-settings.store.js";
 import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
 import { toModelToolName } from "../registry.js";
@@ -31,6 +32,41 @@ function connectTool(server: McpServerRecord, url: string): Tool {
     inputSchema: z.object({}),
     execute: async () => ({ status: "action_required", message: `Open this link to connect ${server.name}, authorize, then ask again.`, url }),
   });
+}
+
+/**
+ * Waits for a shared connect, giving up when THIS turn is aborted. The connect
+ * itself goes on: other turns may be waiting on it.
+ */
+function untilAborted<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+/**
+ * A pooled connection that fails a call (server restarted, session expired,
+ * network) is dropped so the next turn reconnects; the error still reaches the
+ * model as before.
+ */
+function retireOnError(t: Tool, retire: () => void): Tool {
+  const execute = t.execute;
+  if (!execute) return t;
+  return {
+    ...t,
+    execute: async (...args: Parameters<typeof execute>) => {
+      try {
+        return await execute(...args);
+      } catch (e) {
+        retire();
+        throw e;
+      }
+    },
+  } as Tool;
 }
 
 const MAX_MCP_TOOL_NAME_LENGTH = 128;
@@ -121,7 +157,19 @@ export async function buildMcpTools(opts: {
 
     try {
       const { mcpConnectTimeoutMs } = await resolvePlatformSettings();
-      const { client, toolSet } = await connectWithTimeout(transport, mcpConnectTimeoutMs, opts.abortSignal);
+      // OAuth tokens belong to this conversation: that client lives for the turn.
+      // Every other server shares a pooled connection across turns.
+      let toolSet: McpConnection["toolSet"];
+      let onCallError: (() => void) | undefined;
+      if (provider) {
+        const connection = await connectWithTimeout(transport, mcpConnectTimeoutMs, opts.abortSignal);
+        toolSet = connection.toolSet;
+        clients.push(connection.client);
+      } else {
+        const pooled = acquireMcpConnection(server, transport, mcpConnectTimeoutMs);
+        toolSet = (await untilAborted(pooled, opts.abortSignal)).toolSet;
+        onCallError = () => retireMcpConnection(server.id, pooled);
+      }
       for (const [toolName, t] of Object.entries(toolSet)) {
         if (allowList && !allowList.includes(toolName)) continue;
         const modelName = capModelToolName(toModelToolName(`mcp:${server.slug}:${toolName}`));
@@ -129,9 +177,8 @@ export async function buildMcpTools(opts: {
           mcpLog.warn("mcp", `server '${server.slug}': tool '${toolName}' sanitizes to '${modelName}', which is already equipped — skipping`);
           continue;
         }
-        tools[modelName] = t as Tool;
+        tools[modelName] = onCallError ? retireOnError(t as Tool, onCallError) : (t as Tool);
       }
-      clients.push(client);
     } catch (e) {
       if (e instanceof UnauthorizedError && provider?.pendingAuthorizeUrl) {
         tools[toModelToolName(`mcp:${server.slug}:connect`)] = connectTool(server, provider.pendingAuthorizeUrl);

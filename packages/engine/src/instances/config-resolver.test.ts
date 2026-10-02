@@ -46,6 +46,7 @@ import {
   invalidateAllInstanceConfigCache,
 } from "./config-resolver.js";
 import { asInstanceSlug } from "./identifiers.js";
+import { resolveInstanceMeta } from "./instance-meta.js";
 import {
   DEFAULT_DATETIME_LOCALE,
   DEFAULT_DATETIME_TIMEZONE,
@@ -375,6 +376,17 @@ describe("instances/config-resolver", () => {
 
       // findInstanceBySlug: 1 (default) + 1 (creative) + 1 (default re-query) = 3
       expect(mockFindInstanceBySlug).toHaveBeenCalledTimes(3);
+    });
+
+    it("also drops the agent's meta, so a rename shows at once", async () => {
+      mockFindInstanceBySlug
+        .mockResolvedValueOnce({ ...fakeInstance, name: "Old name" })
+        .mockResolvedValueOnce({ ...fakeInstance, name: "New name" });
+
+      expect((await resolveInstanceMeta("default"))?.name).toBe("Old name");
+      invalidateInstanceConfigCache(asInstanceSlug("default"));
+
+      expect((await resolveInstanceMeta("default"))?.name).toBe("New name");
     });
   });
 

@@ -18,8 +18,8 @@ interface UseChangelogCheckReturn {
 }
 
 /**
- * Fetches the build-time /changelog.json once, and — for a Platform Admin
- * only, per design decision — compares it against localStorage to surface
+ * For a Platform Admin only, per design decision: fetches the build-time
+ * /changelog.json once and compares it against localStorage to surface
  * changelog entries the operator has not seen yet.
  */
 export function useChangelogCheck(): UseChangelogCheckReturn {
@@ -31,6 +31,9 @@ export function useChangelogCheck(): UseChangelogCheckReturn {
   const [newVersionAvailable, setNewVersionAvailable] = useState(false);
 
   useEffect(() => {
+    // Only a Platform Admin is shown anything: everyone else would download
+    // the whole changelog on every full load to throw it away.
+    if (!canViewChangelog) return;
     fetch("/changelog.json")
       .then((res) => res.json() as Promise<ChangelogData>)
       .then((changelogData) => {

@@ -97,6 +97,15 @@ vi.mock("../../instances/instance-tools.store.js", () => ({
   getEnabledToolNames: mockGetEnabledToolNames,
 }));
 
+// The meta cache is exercised in instance-meta.test.ts. Here it always misses,
+// so the supervisor's own lookup (and every assertion on it) stays covered.
+vi.mock("../../instances/instance-meta.js", () => ({
+  resolveInstanceUuid: vi.fn(async () => undefined),
+  resolveInstanceMeta: vi.fn(async () => undefined),
+  invalidateInstanceMeta: vi.fn(),
+  invalidateAllInstanceMeta: vi.fn(),
+}));
+
 vi.mock("../../instances/store.js", () => ({
   findInstanceBySlug: mockFindInstanceBySlug,
   findAgentHandoffTargets: mockFindAgentHandoffTargets,

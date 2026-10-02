@@ -24,6 +24,7 @@ import { serializeForLog } from "../../utils/serialize-for-log.js";
 import { resolvePlatformSettings } from "../../platform/platform-settings.store.js";
 import { getEnabledToolNames } from "../../instances/instance-tools.store.js";
 import { findInstanceBySlug, findAgentHandoffTargets } from "../../instances/store.js";
+import { resolveInstanceUuid } from "../../instances/instance-meta.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import type { ChatRequest, CostBreakdown } from "../../ai-gateway/types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
@@ -519,12 +520,14 @@ export function buildUserContent(
 async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorContext> {
   const instanceSlug = input.instanceId;
 
-  // Resolve slug → UUID for DB queries
-  const instance = await findInstanceBySlug(instanceSlug);
-  if (!instance) {
+  // Resolve slug → UUID for DB queries. The slug → UUID pair never changes,
+  // so the cached meta answers; on a miss (unknown, or not cached) read the
+  // row, so an agent created a moment ago is never reported missing.
+  const instanceUuid =
+    (await resolveInstanceUuid(instanceSlug)) ?? (await findInstanceBySlug(instanceSlug))?.id;
+  if (!instanceUuid) {
     throw new Error(`Instance not found: "${instanceSlug}"`);
   }
-  const instanceUuid = instance.id;
 
   const toolCallTraces: ToolCallTrace[] = [];
   const signals: SupervisorSignals = { replyHandled: false, replyTexts: [] };

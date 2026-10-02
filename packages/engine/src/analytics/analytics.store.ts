@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { sql } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { analyticsDb } from "../database/client.js";
 import { type DateRange, toISO, asRows, pctChange, instanceFilter } from "../utils/query-helpers.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/scope-filter.js";
@@ -110,6 +110,15 @@ export interface AnalyticsData {
   instanceComparison?: InstanceComparisonRow[];
 }
 
+/**
+ * Narrows a message-level query to the conversations active in the window,
+ * through idx_conversations_instance_last_message. Exact, not a heuristic: a
+ * conversation with a message in [from, to] has its last message at or after
+ * `from`. Without it Postgres probes every conversation the tenant ever had,
+ * so the cost grew with its history instead of with the window.
+ */
+const ACTIVE_IN_WINDOW = (range: DateRange) => sql`AND c.last_message_at >= ${toISO(range.from)}`;
+
 // ── Overview Stats ──────────────────────────────────────────────────
 
 async function getOverviewStats(
@@ -122,17 +131,8 @@ async function getOverviewStats(
   const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
   // Current period — ai_logs
-  const [aiStats] = asRows<{
-    total_cost: number;
-    total_tokens: number;
-    prompt_tokens: number;
-    completion_tokens: number;
-    cached_input_tokens: number;
-    cache_creation_input_tokens: number;
-    avg_duration_ms: number;
-    total_calls: number;
-  }>(
-    await db.execute(sql`
+  const [aiStats] = asRows<OverviewAiRow>(
+    await analyticsDb.execute(sql`
       SELECT
         COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost,
         COALESCE(SUM(total_tokens), 0)::int AS total_tokens,
@@ -150,22 +150,13 @@ async function getOverviewStats(
 
   // Current period — conversations
   const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const [convStats] = asRows<{
-    total_conversations: number;
-    total_messages: number;
-    unique_users: number;
-  }>(
-    await db.execute(sql`
+  const [convStats] = asRows<OverviewConvRow>(
+    await analyticsDb.execute(sql`
       SELECT
-        COUNT(DISTINCT c.conversation_id)::int AS total_conversations,
-        COALESCE(SUM(msg_count), 0)::int AS total_messages,
+        COUNT(*)::int AS total_conversations,
+        COALESCE(SUM(c.message_count), 0)::int AS total_messages,
         COUNT(DISTINCT c.user_identifier)::int AS unique_users
       FROM conversations c
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS msg_count
-        FROM conversation_messages cm
-        WHERE cm.conversation_id = c.conversation_id
-      ) mc ON true
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
         ${convFilter} ${orgConv}
     `),
@@ -176,11 +167,8 @@ async function getOverviewStats(
   const prevFrom = new Date(range.from.getTime() - durationMs);
   const prevTo = new Date(range.from.getTime());
 
-  const [prevAi] = asRows<{
-    total_cost: number;
-    avg_duration_ms: number;
-  }>(
-    await db.execute(sql`
+  const [prevAi] = asRows<OverviewPrevAiRow>(
+    await analyticsDb.execute(sql`
       SELECT
         COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost,
         COALESCE(AVG(duration_ms), 0)::float AS avg_duration_ms
@@ -190,25 +178,57 @@ async function getOverviewStats(
     `),
   );
 
-  const [prevConv] = asRows<{
-    total_conversations: number;
-    total_messages: number;
-  }>(
-    await db.execute(sql`
+  const [prevConv] = asRows<OverviewPrevConvRow>(
+    await analyticsDb.execute(sql`
       SELECT
-        COUNT(DISTINCT c.conversation_id)::int AS total_conversations,
-        COALESCE(SUM(msg_count), 0)::int AS total_messages
+        COUNT(*)::int AS total_conversations,
+        COALESCE(SUM(c.message_count), 0)::int AS total_messages
       FROM conversations c
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS msg_count
-        FROM conversation_messages cm
-        WHERE cm.conversation_id = c.conversation_id
-      ) mc ON true
       WHERE c.created_at >= ${toISO(prevFrom)} AND c.created_at <= ${toISO(prevTo)}
         ${convFilter} ${orgConv}
     `),
   );
 
+  return overviewFromRows(aiStats, convStats, prevAi, prevConv);
+}
+
+
+/** The aggregate rows an overview is composed from, current and previous period. */
+export interface OverviewAiRow {
+  total_cost: number;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_input_tokens: number;
+  cache_creation_input_tokens: number;
+  avg_duration_ms: number;
+  total_calls: number;
+}
+export interface OverviewConvRow {
+  total_conversations: number;
+  total_messages: number;
+  unique_users: number;
+}
+export interface OverviewPrevAiRow {
+  total_cost: number;
+  avg_duration_ms: number;
+}
+export interface OverviewPrevConvRow {
+  total_conversations: number;
+  total_messages: number;
+}
+
+/**
+ * Compose an overview from its four aggregate rows. Pure, and exported so a
+ * caller that reads the rows grouped by tenant (one query for many tenants)
+ * composes each tenant's overview exactly as a single-tenant read does.
+ */
+export function overviewFromRows(
+  aiStats: OverviewAiRow | undefined,
+  convStats: OverviewConvRow | undefined,
+  prevAi: OverviewPrevAiRow | undefined,
+  prevConv: OverviewPrevConvRow | undefined,
+): OverviewStats {
   const totalConversations = convStats?.total_conversations ?? 0;
   const totalCost = aiStats?.total_cost ?? 0;
 
@@ -250,7 +270,7 @@ async function getDailyTrend(
     cost: number;
     tokens: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         DATE(created_at) AS date,
         COALESCE(SUM(estimated_cost_usd), 0)::float AS cost,
@@ -268,17 +288,12 @@ async function getDailyTrend(
     conversations: number;
     messages: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         DATE(c.created_at) AS date,
-        COUNT(DISTINCT c.conversation_id)::int AS conversations,
-        COALESCE(SUM(msg_count), 0)::int AS messages
+        COUNT(*)::int AS conversations,
+        COALESCE(SUM(c.message_count), 0)::int AS messages
       FROM conversations c
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS msg_count
-        FROM conversation_messages cm
-        WHERE cm.conversation_id = c.conversation_id
-      ) mc ON true
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
         ${convFilter} ${orgConv}
       GROUP BY DATE(c.created_at)
@@ -318,7 +333,7 @@ async function getHourlyDistribution(
   const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
   const rows = asRows<{ hour: number; count: number }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         EXTRACT(HOUR FROM cm.created_at)::int AS hour,
         COUNT(*)::int AS count
@@ -326,6 +341,7 @@ async function getHourlyDistribution(
       JOIN conversations c ON c.conversation_id = cm.conversation_id
       WHERE cm.created_at >= ${toISO(range.from)} AND cm.created_at <= ${toISO(range.to)}
         AND cm.role = 'user'
+        ${ACTIVE_IN_WINDOW(range)}
         ${convFilter} ${orgConv}
       GROUP BY EXTRACT(HOUR FROM cm.created_at)
       ORDER BY hour
@@ -351,17 +367,12 @@ async function getChannelDistribution(
   const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
   return asRows<ChannelRow>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         CASE WHEN c.channel IN ('openai-api', '') OR c.channel IS NULL THEN 'web' ELSE c.channel END AS channel,
-        COUNT(DISTINCT c.conversation_id)::int AS conversations,
-        COALESCE(SUM(msg_count), 0)::int AS messages
+        COUNT(*)::int AS conversations,
+        COALESCE(SUM(c.message_count), 0)::int AS messages
       FROM conversations c
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*)::int AS msg_count
-        FROM conversation_messages cm
-        WHERE cm.conversation_id = c.conversation_id
-      ) mc ON true
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
         ${convFilter} ${orgConv}
       GROUP BY CASE WHEN c.channel IN ('openai-api', '') OR c.channel IS NULL THEN 'web' ELSE c.channel END
@@ -388,7 +399,7 @@ async function getModelDistribution(
     cost: number;
     avg_duration: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         provider,
         model,
@@ -423,7 +434,7 @@ async function getTierDistribution(
   const orgInst = buildOrgScopedAgentFilterFragment(scope);
 
   return asRows<TierRow>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         tier,
         COUNT(*)::int AS calls,
@@ -454,7 +465,7 @@ async function getToolUsage(
   // unwrap two levels: steps -> step.toolCalls -> toolName. Steps without a
   // toolCalls array (e.g. plain "initial" text steps) are filtered out.
   return asRows<ToolRow>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         tool_call->>'toolName' AS tool,
         COUNT(*)::int AS count
@@ -466,6 +477,7 @@ async function getToolUsage(
         AND cm.steps IS NOT NULL
         AND jsonb_array_length(cm.steps) > 0
         AND jsonb_typeof(step->'toolCalls') = 'array'
+        ${ACTIVE_IN_WINDOW(range)}
         ${convFilter} ${orgConv}
       GROUP BY tool_call->>'toolName'
       ORDER BY count DESC
@@ -488,7 +500,7 @@ async function getInstanceComparison(
     cost: number;
     tokens: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         al.instance_id,
         COALESCE(i.name, al.instance_id) AS name,

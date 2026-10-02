@@ -46,6 +46,7 @@ import {
 import { generateWithReplay, MAX_REGENERATIONS, EMPTY_SPEND, addPassSpend } from "./hooks/response-replay.js";
 import { hookProvenance } from "./hooks/hook-runner.js";
 import { runOptoutGate } from "./optout/index.js";
+import { closeMcpClientPool } from "./agents/tools/mcp/mcp-client-pool.js";
 
 // ---------------------------------------------------------------------------
 // Module-level caches (kept in index.ts — they depend on DB lookups)
@@ -581,6 +582,7 @@ async function main() {
     schedulerService.shutdown();
     roomScheduler.shutdown();
     await channelManager.shutdownAll();
+    await closeMcpClientPool();
     await traceStore.shutdown();
     await auditStore.shutdown();
     await managementAuditStore.shutdown();

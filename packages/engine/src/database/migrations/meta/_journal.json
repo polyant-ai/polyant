@@ -554,6 +554,13 @@
       "when": 1790726400001,
       "tag": "0085_add_web_context_field_mapping",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1790875496026,
+      "tag": "0086_conversation_message_counters",
+      "breakpoints": true
     }
   ]
 }

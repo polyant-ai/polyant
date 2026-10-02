@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { sql } from "drizzle-orm";
-import { db } from "../database/client.js";
+import { analyticsDb } from "../database/client.js";
 import { type DateRange, toISO, asRows, instanceFilter } from "../utils/query-helpers.js";
 import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/scope-filter.js";
 
@@ -63,7 +63,7 @@ async function getLatencyOverview(
     avg_ttfb: number | null;
     sample_count: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         percentile_cont(0.50) WITHIN GROUP (ORDER BY total_ms)::int AS p50,
         percentile_cont(0.95) WITHIN GROUP (ORDER BY total_ms)::int AS p95,
@@ -98,7 +98,7 @@ async function getDailyLatency(
   const orgInst = buildOrgScopedAgentFilterFragment(scope);
 
   return asRows<{ date: string; p50: number; p95: number; p99: number }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         DATE(created_at) AS date,
         percentile_cont(0.50) WITHIN GROUP (ORDER BY total_ms)::int AS p50,
@@ -134,7 +134,7 @@ async function getPhaseBreakdown(
     avg_tool_building: number;
     avg_llm_call: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         DATE(created_at) AS date,
         COALESCE(AVG(context_prep_ms), 0)::float AS avg_context_prep,
@@ -171,7 +171,7 @@ async function getSlowestTools(
     p95: number;
     success_rate: number;
   }>(
-    await db.execute(sql`
+    await analyticsDb.execute(sql`
       SELECT
         tool_call->>'name' AS tool,
         AVG((tool_call->>'duration_ms')::int)::float AS avg_duration_ms,

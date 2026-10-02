@@ -3,6 +3,38 @@
 This guide covers upgrades that need an operator decision. For the full list of
 changes see the [changelog](../CHANGELOG.md).
 
+## Upgrading from 1.2.0
+
+### Migration 0086 rewrites the conversations table
+
+Conversations now carry their own message counters, which the conversation list
+and the analytics read instead of counting messages. Migration 0086 fills them
+from history in one pass and adds two indexes, one of them on
+`conversation_messages`. Writes to conversations and messages wait while it runs:
+on a test database with 2 million messages it took 8 seconds, and it grows with
+the size of `conversation_messages`. On a large installation, either schedule the
+deploy for a quiet moment or build the two indexes beforehand without blocking —
+the migration then skips them:
+
+```sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversations_instance_last_message"
+  ON "conversations" ("instance_id", "last_message_at");
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversation_messages_conversation_created"
+  ON "conversation_messages" ("conversation_id", "created_at");
+```
+
+The counter backfill itself always runs in the migration.
+
+### A second, smaller database pool for analytics
+
+Dashboards and other analytics reads now use their own connection pool, so a
+heavy aggregate can no longer take the connections a conversation turn is
+waiting for. Each engine process therefore opens up to 3 more connections to
+Postgres (`POSTGRES_ANALYTICS_POOL_MAX`); check your server's `max_connections`
+if it is tight. Statements on that pool stop after 15 seconds
+(`POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS`). The main pool keeps its 10
+connections and is now configurable with `POSTGRES_POOL_MAX`.
+
 ## Upgrading from 1.1.x to 1.2.0
 
 ### Node 24
