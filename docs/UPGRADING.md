@@ -47,6 +47,32 @@ authentication switch says. Agents that map no context field are unchanged.
 Before upgrading, give the key to every client of such an agent, including the
 Playground's token field.
 
+### Running more than one engine replica
+
+The engine is built to run as one replica. Several parts of it keep their state
+in the process, so with two or more replicas behind a load balancer the
+following happen. Run one replica, or accept these effects:
+
+- **Live views miss writes made elsewhere.** Following a conversation live and
+  the Playground's activity feed listen to events raised in the process that
+  handled the write. A turn answered by another replica appears only on reload.
+- **A channel change reaches only the replica that saved it.** Saving a
+  Telegram, Slack or WhatsApp channel starts its adapter on the replica that
+  handled the request. The others keep the previous adapter, or none for a new
+  channel, until they restart: their webhooks answer 404 for a new channel and
+  refuse a rotated Telegram token's secret. Restart every replica after
+  changing a channel.
+- **Fragments of one message burst can be answered separately.** WhatsApp and
+  Telegram messages that arrive close together are merged into one turn per
+  process. Fragments that land on different replicas each get their own reply.
+- **A redelivered webhook can be processed twice.** Telegram and Slack
+  redeliveries are dropped by the replica that saw the first copy; a retry that
+  reaches another replica runs the agent again.
+- **Rate limits apply per replica.** Each replica counts requests on its own, so
+  the effective limit is the configured one times the number of replicas.
+
+Scheduled tasks are safe across replicas: each run is claimed in the database.
+
 ## Upgrading from 1.1.x to 1.2.0
 
 ### Node 24
