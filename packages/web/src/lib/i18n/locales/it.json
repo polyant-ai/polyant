@@ -649,6 +649,7 @@
   "common.loading": "Caricamento...",
   "common.edit": "Modifica",
   "common.deleted": "Eliminato",
+  "common.retry": "Riprova",
   "common.loadFailed": "Errore nel caricamento dei dati",
   "common.toggleTheme": "Cambia tema",
   "skills.fetchFailed": "Caricamento skill fallito",
@@ -1352,5 +1353,6 @@
   "settings.platform.schedulerDefaultMaxRunMs": "Scadenza di default di una run (ms)",
   "settings.platform.schedulerDefaultMaxRunMsHelp": "La scadenza per un task pianificato che non ne dichiara una propria. Oltre, la run è segnata fallita così smette di occupare uno slot.",
   "settings.platform.save": "Salva politiche",
+  "settings.platform.saveFailed": "Impossibile salvare le politiche",
   "settings.platform.saved": "Politiche salvate"
 }

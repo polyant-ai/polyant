@@ -649,6 +649,7 @@
   "common.loading": "Loading...",
   "common.edit": "Edit",
   "common.deleted": "Deleted",
+  "common.retry": "Try again",
   "common.loadFailed": "Failed to load data",
   "common.toggleTheme": "Toggle theme",
   "skills.fetchFailed": "Failed to load skills",
@@ -1352,5 +1353,6 @@
   "settings.platform.schedulerDefaultMaxRunMs": "Default run deadline (ms)",
   "settings.platform.schedulerDefaultMaxRunMsHelp": "The deadline for a scheduled task that declares none of its own. Past it the run is marked failed so it stops holding a slot.",
   "settings.platform.save": "Save policies",
+  "settings.platform.saveFailed": "Could not save the policies",
   "settings.platform.saved": "Policies saved"
 }
