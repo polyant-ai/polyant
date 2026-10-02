@@ -44,6 +44,25 @@ Docker images carry it, so a deployment that uses them needs nothing. If you
 run from source or build your own images, move to Node 24 (`.nvmrc` names it);
 Node 22 is no longer tested.
 
+### Running the migrations without starting the engine
+
+The engine image migrates and starts in one step: its entrypoint runs
+`migrate.js` and then boots the engine. Some of the steps below have to happen
+after the schema is current and before the new engine serves anything, so run the
+migrations on their own first, with the same environment the engine gets:
+
+```bash
+docker run --rm --env-file .env --entrypoint node <engine-image> \
+  packages/engine/dist/database/migrate.js
+```
+
+It prints `Migrations applied successfully.` and exits; starting the engine
+afterwards finds nothing left to apply. On ECS, a `RunTask` override can replace
+the command but not the entrypoint, so register a task definition revision whose
+container sets `entryPoint` to `["node"]` and `command` to
+`["packages/engine/dist/database/migrate.js"]`, and run that once. From source,
+`npm run db:migrate` does the same.
+
 ### Telegram and Slack need a public address
 
 Telegram and Slack no longer open a connection out of the engine: their messages
