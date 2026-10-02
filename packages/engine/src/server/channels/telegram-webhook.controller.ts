@@ -6,7 +6,9 @@ import { Throttle } from "@nestjs/throttler";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import type { TelegramAdapter } from "../../channels/adapters/telegram/index.js";
 import { channelWebhookTracker, requireLiveAdapter } from "./live-adapter.js";
-import { sanitizeForLog } from "../../utils/create-logger.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 import { trackBackgroundTurn } from "../../channels/background-turns.js";
 
 const UNAVAILABLE = "Telegram webhook unavailable";
@@ -36,7 +38,7 @@ export class TelegramWebhookController {
     // before the agent even starts), and an unanswered update is delivered again.
     trackBackgroundTurn(
       adapter.handleInbound(update as Parameters<TelegramAdapter["handleInbound"]>[0]).catch((error) =>
-        console.error("[telegram] webhook processing failed for %s:", sanitizeForLog(instanceSlug), error),
+        log.error("telegram", `webhook processing failed for ${instanceSlug}`, error),
       ),
     );
     return { status: "accepted" };

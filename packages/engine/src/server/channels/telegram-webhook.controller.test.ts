@@ -61,12 +61,14 @@ describe("Telegram webhook", () => {
 
   it("answers 200 even when processing the update fails", async () => {
     const controller = new TelegramWebhookController();
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     handleInbound.mockReset().mockRejectedValue(new Error("boom"));
     const secret = createHash("sha256").update("bot-token").digest("hex");
 
     await expect(controller.receive("agent", secret, { update_id: 9 })).resolves.toEqual({ status: "accepted" });
-    await vi.waitFor(() => expect(error).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("webhook processing failed for agent — boom")),
+    );
     error.mockRestore();
   });
 });

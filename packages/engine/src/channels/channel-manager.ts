@@ -12,7 +12,9 @@ import { emitOutbound } from "../activity-stream/emitters/emit-outbound.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import { getOptoutStatus } from "../optout/index.js";
-import { sanitizeForLog } from "../utils/create-logger.js";
+import { createLogger, sanitizeForLog } from "../utils/create-logger.js";
+
+const log = createLogger();
 import { findInstanceBySlug } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 import {
@@ -208,7 +210,7 @@ export class ChannelManager {
     opts: { deregister?: boolean },
   ): Promise<void> {
     const logFailure = (step: string, err: unknown) =>
-      console.error('Error %s %s for instance "%s":', step, sanitizeForLog(channelType), sanitizeForLog(instanceSlug), err);
+      log.error("channel-manager", `error ${step} ${channelType} for instance "${instanceSlug}"`, err);
     try {
       if (opts.deregister) await adapter.deregister?.();
     } catch (err) {

@@ -9,6 +9,11 @@ import { splitMessage } from "../../split-message.js";
 import { transcribeAudio } from "../../audio-transcription.js";
 import { firstDelivery } from "../../inbound-dedupe.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
+import { createLogger } from "../../../utils/create-logger.js";
+
+// Webhook registration logs go through the structured logger, which sanitizes
+// the agent id and the Telegram error text (both reach the log line).
+const log = createLogger();
 
 export interface TelegramConfig {
   botToken: string;
@@ -186,9 +191,9 @@ export class TelegramAdapter implements ChannelAdapter {
   private async registerWebhook(bot: Bot, attempt: number): Promise<void> {
     if (this.bot !== bot) return; // shut down or restarted meanwhile
     if (!this.webhookUrl.startsWith("https://")) {
-      console.error(
-        "[telegram] webhook not registered for %s: Telegram requires an HTTPS URL; set the platform base URL to https",
-        this.instanceId,
+      log.error(
+        "telegram",
+        `webhook not registered for ${this.instanceId}: Telegram requires an HTTPS URL; set the platform base URL to https`,
       );
       return;
     }
@@ -207,11 +212,11 @@ export class TelegramAdapter implements ChannelAdapter {
       const retryable = code === undefined || code === 429 || code >= 500;
       const delay = WEBHOOK_RETRY_DELAYS_MS[attempt];
       if (!retryable || delay === undefined || this.bot !== bot) {
-        console.error("[telegram] webhook registration failed for %s, giving up:", this.instanceId, err);
+        log.error("telegram", `webhook registration failed for ${this.instanceId}, giving up`, err);
         return;
       }
       const wait = Math.max(delay, telegramRetryAfterMs(err));
-      console.warn("[telegram] webhook registration failed for %s, retrying in %d ms:", this.instanceId, wait, err);
+      log.error("telegram", `webhook registration failed for ${this.instanceId}, retrying in ${wait} ms`, err);
       this.retryTimer = setTimeout(() => {
         this.retryTimer = null;
         void this.registerWebhook(bot, attempt + 1);
