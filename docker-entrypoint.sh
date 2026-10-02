@@ -5,6 +5,8 @@ set -e
 # collected at build time. It is sourced rather than baked in with ENV because
 # the variable NAMES are not known when the image is written — a plugin that
 # needs PUPPETEER_EXECUTABLE_PATH ships that fact in its own plugin.json.
+# Each line sets its variable only when the container environment has not, so
+# the operator's value always wins over a plugin's.
 # Absent when the build carried no plugins, or none declared any.
 if [ -f /app/plugin-system/env.sh ]; then
   . /app/plugin-system/env.sh

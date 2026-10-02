@@ -75,4 +75,24 @@ describe("importManualTools", () => {
     expect(calls).toEqual(["select"]); // insert never issued
     expect(inserted).toEqual([]);
   });
+
+  it("enables the namespaced successor of a tool an older bundle names by its flat name", async () => {
+    const { tx, inserted } = makeFakeTx([{ id: "tool-hs", name: "hubspot:contact" }]);
+
+    const warnings = await importManualTools(tx, "instance-1", ["hubspotContact"]);
+
+    expect(warnings).toEqual([]);
+    expect(inserted).toEqual([[{ instanceId: "instance-1", toolId: "tool-hs", source: "manual" }]]);
+  });
+
+  it("warns with the new name when the successor's plugin was never installed", async () => {
+    const { tx, inserted } = makeFakeTx([]);
+
+    const warnings = await importManualTools(tx, "instance-1", ["markdownToPdf"]);
+
+    expect(warnings).toEqual([
+      { type: "missing_tool", message: 'Tool "extra:markdownToPdf" (formerly "markdownToPdf") not found — skipped' },
+    ]);
+    expect(inserted).toEqual([]);
+  });
 });

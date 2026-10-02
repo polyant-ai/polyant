@@ -121,6 +121,14 @@ vi.mock("../memories/memory-status.js", () => ({
   computeEmbedderStatus: vi.fn().mockResolvedValue({ needsCredentials: false }),
 }));
 
+const { mockPrepareAttachmentCleanup, mockRunAttachmentCleanup, mockStopAllForInstance } = vi.hoisted(() => ({
+  mockPrepareAttachmentCleanup: vi.fn(),
+  mockRunAttachmentCleanup: vi.fn(async () => undefined),
+  mockStopAllForInstance: vi.fn(async () => undefined),
+}));
+vi.mock("../../attachments/attachment-cleanup.js", () => ({ prepareAttachmentCleanup: mockPrepareAttachmentCleanup }));
+vi.mock("../../channels/channel-manager.js", () => ({ channelManager: { stopAllForInstance: mockStopAllForInstance } }));
+
 import { InstancesController } from "./instances.controller.js";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 
@@ -213,7 +221,7 @@ describe("InstancesController", () => {
         // panel has to render what is set, and null has to stay visible as null.
         "datetimeTimezone", "datetimeLocale", "dedupSimilarityThreshold",
         "messageSoftDebounceMs", "messageTypingDelayMs", "messageMaxRestarts",
-        "cacheEnabled", "cacheTtl", "a2aEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
+        "cacheEnabled", "cacheTtl", "a2aEnabled", "toolResultsInHistoryEnabled", "debugEnabled", "attachmentStorageEnabled", "sttProvider", "embeddingDim", "embeddingProvider", "icon", "createdAt", "updatedAt",
         "optoutEnabled", "optoutStopKeywords", "optoutResumeKeywords", "optoutClosingMessage", "optoutResumeMessage", "optoutInjectPromptHint", "webContextFieldMapping",
         // Derived status blocks, not columns: `memory` is gated on the memory
         // flag, `embedder` is not — which is why the Knowledge tab needs it.
@@ -508,6 +516,42 @@ describe("InstancesController", () => {
       ).rejects.toThrow(/for provider "openai"/);
     });
 
+    it("refuses a provider change that leaves the stored model on the old provider", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(bedrockInstance);
+
+      await expect(controller.update("test-one", { provider: "openai" })).rejects.toThrow(
+        /Invalid model "openai.gpt-oss-120b-1:0" for provider "openai"/,
+      );
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it("refuses clearing the provider when the stored model belongs to another one", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(bedrockInstance);
+
+      await expect(controller.update("test-one", { provider: null })).rejects.toThrow(
+        /Invalid model "openai.gpt-oss-120b-1:0" for provider "openai"/,
+      );
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it("accepts a provider change when the body also clears the model", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(bedrockInstance);
+      mockUpdateInstance.mockResolvedValue({ ...bedrockInstance, provider: "openai", model: null });
+
+      await expect(controller.update("test-one", { provider: "openai", model: null })).resolves.toBeDefined();
+      expect(mockUpdateInstance).toHaveBeenCalled();
+    });
+
+    it("leaves a PATCH that touches neither provider nor model alone", async () => {
+      // A row that predates this check must still accept unrelated edits.
+      const mismatched = { ...fullInstance, provider: "bedrock", model: "gpt-4o" };
+      mockFindInstanceBySlug.mockResolvedValue(mismatched);
+      mockUpdateInstance.mockResolvedValue({ ...mismatched, name: "Renamed" });
+
+      await expect(controller.update("test-one", { name: "Renamed" })).resolves.toBeDefined();
+      expect(mockUpdateInstance).toHaveBeenCalled();
+    });
+
     it("reports a missing agent before judging the model", async () => {
       mockFindInstanceBySlug.mockResolvedValue(null);
 
@@ -693,5 +737,48 @@ describe("InstancesController", () => {
       expect(gpt4o).not.toHaveProperty("costCacheWrite5m");
     });
 
+  });
+
+  // -------------------------------------------------------------------------
+  // Deleting an agent takes the files its users sent along. The keys and the
+  // bucket credentials both go with the agent, so they are read before.
+  // -------------------------------------------------------------------------
+  describe("remove — stored attachments", () => {
+    beforeEach(() => {
+      mockPrepareAttachmentCleanup.mockResolvedValue(mockRunAttachmentCleanup);
+    });
+
+    it("prepares the cleanup before the delete and runs it after", async () => {
+      const order: string[] = [];
+      mockPrepareAttachmentCleanup.mockImplementation(async () => {
+        order.push("prepare");
+        return async () => void order.push("cleanup");
+      });
+      mockDeleteInstance.mockImplementation(async () => {
+        order.push("delete");
+        return true;
+      });
+
+      await controller.remove("test-one");
+
+      expect(mockPrepareAttachmentCleanup).toHaveBeenCalledWith("test-one", { allConversations: true });
+      expect(order).toEqual(["prepare", "delete", "cleanup"]);
+    });
+
+    it("leaves the files alone when there was no agent to delete", async () => {
+      mockDeleteInstance.mockResolvedValue(false);
+
+      await expect(controller.remove("test-one")).rejects.toThrow(NotFoundException);
+      expect(mockRunAttachmentCleanup).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("update — attachmentStorageEnabled", () => {
+    it("refuses a value that is not a boolean, before writing anything", async () => {
+      await expect(
+        controller.update("test-one", { attachmentStorageEnabled: "false" as unknown as boolean }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
   });
 });

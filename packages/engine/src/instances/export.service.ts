@@ -109,6 +109,7 @@ async function assembleInstanceData(instance: Instance): Promise<ExportInstanceD
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
+    attachmentStorageEnabled: instance.attachmentStorageEnabled,
     sttProvider: instance.sttProvider,
     embeddingProvider: instance.embeddingProvider,
     embeddingDim: instance.embeddingDim,

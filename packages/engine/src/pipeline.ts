@@ -789,7 +789,9 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
       provider: ctx.instanceConfig.provider,
       apiKeys: ctx.instanceConfig.apiKeys,
       langsmith: ctx.langsmith,
-      userAttachments: ctx.userAttachments,
+      // Copied to the agent's bucket only when the agent opted in. The model
+      // already had them inline; this decides whether they are kept.
+      userAttachments: ctx.instanceConfig.attachmentStorageEnabled ? ctx.userAttachments : undefined,
       incomingSystemMessages: ctx.incomingSystemMessages,
       inboundMetadata: ctx.inboundMetadata,
       provenance,

@@ -22,7 +22,7 @@ export default defineTool({
     "Supports two path formats, both resolved inside the same sandbox:\n" +
     "• RELATIVE (e.g. `notes.md`, `.repos/owner/repo/README.md`) — more concise, recommended.\n" +
     "• ABSOLUTE — must still reside inside the conversation workspace.\n" +
-    "Returns the file text (truncated to 500 lines or 512 KB).\n" +
+    "Returns at most 500 lines of text; a file over 512 KB is refused whole, with or without a range.\n" +
     "Reading without a range returns the WHOLE file, which stays in the conversation for the rest of the turn — " +
     "use `offset`/`limit` to read a window around what you need, or `tail` for the last N lines of a log.\n" +
     "The result reports the file's total line count, so a window can be paged deliberately.\n" +
@@ -71,7 +71,7 @@ export default defineTool({
       "File path. Relative (recommended) or absolute — in both cases must resolve inside the current conversation's sandboxed workspace.",
     ),
     tail: z.number().int().min(1).nullable()
-      .describe("If specified, returns only the last N lines of the file. Useful for log files."),
+      .describe("If specified, returns only the last N lines of the file (capped at 500). Useful for log files."),
     offset: z.number().int().min(1).nullable()
       .describe("1-indexed first line to return. Pass null to start at the beginning."),
     limit: z.number().int().min(1).nullable()
@@ -124,7 +124,10 @@ export default defineTool({
           return { error: `Path is not a file: ${path}. Use listDirectory to explore directories.` };
         }
         if (fileStat.size > MAX_FILE_SIZE) {
-          return { error: `File too large: ${(fileStat.size / 1024).toFixed(0)} KB (max 512 KB). Read a window of it with offset/limit, or its end with tail.` };
+          // The whole file is refused, range or not: the read below loads it
+          // entire, so suggesting offset/limit or tail here sent the model
+          // into retries that hit this same gate.
+          return { error: `File too large: ${(fileStat.size / 1024).toFixed(0)} KB (max 512 KB). readFile cannot read any part of it.` };
         }
         content = await handle.readFile("utf-8");
       } finally {
@@ -136,7 +139,12 @@ export default defineTool({
 
       let result: string;
       if (tail != null) {
-        result = lines.slice(-tail).join("\n");
+        // Same cap as a window: a huge `tail` must not return the whole file.
+        const count = Math.min(tail, MAX_LINES);
+        result = lines.slice(-count).join("\n");
+        if (tail > MAX_LINES && totalLines > MAX_LINES) {
+          result += `\n\n[lines ${totalLines - count + 1}-${totalLines} of ${totalLines}]`;
+        }
       } else if (offset != null || limit != null) {
         // A window the caller asked for. The MAX_LINES cap still applies, so a
         // huge `limit` cannot undo the point of asking for a range.

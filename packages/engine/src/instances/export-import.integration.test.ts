@@ -112,4 +112,46 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
       itest_crm_api_key: "target-credential",
     });
   });
+
+  it("should_carry_the_attachment_storage_choice_and_keep_the_target_s_own_when_an_older_bundle_has_none", async () => {
+    const source = await createAgent("att-source");
+    const target = await createAgent("att-target");
+    await queryClient`UPDATE instances SET attachment_storage_enabled = true WHERE id IN (${source.id}, ${target.id})`;
+
+    const bundle = await exportInstance(source.slug);
+    expect(bundle.instance.attachmentStorageEnabled).toBe(true);
+    // A bundle from before the switch existed.
+    const legacy = structuredClone(bundle);
+    delete (legacy.instance as { attachmentStorageEnabled?: boolean }).attachmentStorageEnabled;
+
+    const stored = async (slug: string) =>
+      (await queryClient<{ on: boolean }[]>`SELECT attachment_storage_enabled AS on FROM instances WHERE slug = ${slug}`)[0]?.on;
+
+    await importOverwriteInstance(target.slug, legacy);
+    expect(await stored(target.slug)).toBe(true);
+
+    expect(await stored((await importNewInstance(legacy, orgId)).slug)).toBe(false);
+    expect(await stored((await importNewInstance(bundle, orgId)).slug)).toBe(true);
+  });
+
+  it("should_normalise_the_context_field_mapping_and_refuse_one_the_panel_would_refuse", async () => {
+    const source = await createAgent("map-source");
+    const target = await createAgent("map-target");
+    await queryClient`UPDATE instances SET web_context_field_mapping = '{"phone":"caller.phone"}'::jsonb WHERE id = ${target.id}`;
+    const bundle = await exportInstance(source.slug);
+    const mapping = async (slug: string) =>
+      (await queryClient<{ m: Record<string, string> }[]>`SELECT web_context_field_mapping AS m FROM instances WHERE slug = ${slug}`)[0]?.m;
+
+    // Whitespace and an editor's blank row, as the PATCH normalises them.
+    const messy = structuredClone(bundle);
+    messy.instance.webContextFieldMapping = { "  phone ": " customer.phone ", "": "ignored" };
+    expect(await mapping((await importNewInstance(messy, orgId)).slug)).toEqual({ phone: "customer.phone" });
+
+    // An empty path segment: the PATCH answers 400, so the import fails and writes nothing.
+    const invalid = structuredClone(bundle);
+    invalid.instance.webContextFieldMapping = { phone: "customer..phone" };
+    await expect(importOverwriteInstance(target.slug, invalid)).rejects.toThrow(/webContextFieldMapping/);
+    expect(await mapping(target.slug)).toEqual({ phone: "caller.phone" });
+    await expect(importNewInstance(invalid, orgId)).rejects.toThrow(/webContextFieldMapping/);
+  });
 });

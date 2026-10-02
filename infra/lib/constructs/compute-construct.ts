@@ -115,11 +115,18 @@ export class ComputeConstruct extends Construct {
       environment: {
         API_PORT: "4000",
         POSTGRES_SSL: "true",
-        // The engine formats dates in the RUNTIME zone unless an agent declares
-        // its own, so the deployment's zone is `TZ` — there is no engine variable
-        // for it any more. `DEFAULT_INSTANCE_ID` and `DATETIME_LOCALE` are gone
-        // with it: nothing read them.
+        // The engine formats dates in the RUNTIME zone and locale unless an agent
+        // declares its own, so the deployment's zone is `TZ` — there is no engine
+        // variable for it any more. `DATETIME_LOCALE` is gone with it: until 1.1.x
+        // it set the locale of the prompt's current date, of history summaries
+        // and of the debug payload log, and the locale is now the agent's
+        // setting. `DEFAULT_INSTANCE_ID` is gone too: every caller names its
+        // agent, so its fallback could not fire.
         TZ: props.appConfig.timezone,
+        // One proxy hop: the ALB. Without it `req.ip` is the ALB node's own
+        // address for every request, so every per-address rate limit is shared
+        // by all callers, every bot's webhook included.
+        TRUST_PROXY: "1",
         // When ALB OIDC auth is configured, engine trusts x-amzn-oidc-data
         // headers instead of requiring its own Auth.js session.
       },

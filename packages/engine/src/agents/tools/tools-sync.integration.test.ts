@@ -24,6 +24,7 @@ import { instances } from "../../instances/schema.js";
 import { workspaces } from "../../organizations/organization.schema.js";
 import { instanceTools } from "../../instances/instance-tools.schema.js";
 import { tools } from "./tools.schema.js";
+import { skills, skillTools } from "../../skills/schema.js";
 import { syncToolsToDb } from "./tools-sync.js";
 import { _resetRegistryForTests, _registerToolForTests } from "./registry.js";
 import { asInstanceUuid, type InstanceUuid } from "../../instances/identifiers.js";
@@ -32,9 +33,11 @@ const SLUG = "itest-tools-sync";
 const CORE = "itestSyncCore"; // in registry → kept
 const ORPHAN = "itestsync:orphan"; // namespaced, not enabled → pruned
 const KEPT = "itestsync:kept"; // namespaced, enabled on the instance → kept
+const SKILL_LINKED = "itestsync:skillLinked"; // namespaced, linked only by a skill → kept
 const AGENT = "agent:itestsync-fake"; // virtual agent row → kept
 const FLAT_GONE = "itestSyncFlatGone"; // flat, absent from registry → pruned
-const ALL_NAMES = [CORE, ORPHAN, KEPT, AGENT, FLAT_GONE];
+const ALL_NAMES = [CORE, ORPHAN, KEPT, SKILL_LINKED, AGENT, FLAT_GONE];
+const SKILL_SLUG = "itest-tools-sync-skill";
 
 /** Seed instance + catalog rows at module load (top-level await) so `it.skipIf`
  *  sees the resolved value — a beforeAll assignment would be too late.
@@ -69,11 +72,13 @@ async function setup(): Promise<InstanceUuid | undefined> {
 
     // Clean leftovers from a prior failed run, then seed catalog rows + enable KEPT.
     await db.delete(tools).where(inArray(tools.name, ALL_NAMES));
+    await db.delete(skills).where(eq(skills.slug, SKILL_SLUG));
     const seeded = await db
       .insert(tools)
       .values([
         { name: ORPHAN, description: "orphan plugin tool" },
         { name: KEPT, description: "enabled plugin tool" },
+        { name: SKILL_LINKED, description: "plugin tool a skill links" },
         { name: AGENT, description: "virtual agent row", category: "agent" },
         { name: FLAT_GONE, description: "removed core tool" },
       ])
@@ -81,6 +86,14 @@ async function setup(): Promise<InstanceUuid | undefined> {
 
     const keptId = seeded.find((r) => r.name === KEPT)!.id;
     await db.insert(instanceTools).values({ instanceId: instanceUuid, toolId: keptId, source: "manual" });
+    // A renamed tool whose plugin is not installed yet, linked by a skill but
+    // enabled on no agent: the prune used to delete it, and the link with it.
+    const [skill] = await db
+      .insert(skills)
+      .values({ slug: SKILL_SLUG, name: "itest tools-sync skill" })
+      .returning({ id: skills.id });
+    const linkedId = seeded.find((r) => r.name === SKILL_LINKED)!.id;
+    await db.insert(skillTools).values({ skillId: skill!.id, toolId: linkedId });
     return instanceUuid;
   } catch {
     return undefined;
@@ -92,13 +105,14 @@ const instanceUuid = await setup();
 afterAll(async () => {
   if (!instanceUuid) return;
   await db.delete(instances).where(eq(instances.id, instanceUuid)); // cascades instance_tools
+  await db.delete(skills).where(eq(skills.slug, SKILL_SLUG)); // cascades skill_tools
   await db.delete(tools).where(inArray(tools.name, ALL_NAMES));
   _resetRegistryForTests();
 });
 
 describe("syncToolsToDb (integration): namespaced-orphan pruning", () => {
   it.skipIf(!instanceUuid)(
-    "prunes unreferenced namespaced rows, keeps enabled + agent:* rows",
+    "prunes unreferenced namespaced rows, keeps enabled, skill-linked and agent:* rows",
     async () => {
       await syncToolsToDb();
 
@@ -111,6 +125,7 @@ describe("syncToolsToDb (integration): namespaced-orphan pruning", () => {
       expect(remaining.has(ORPHAN)).toBe(false); // orphan pruned
       expect(remaining.has(FLAT_GONE)).toBe(false); // flat-gone pruned
       expect(remaining.has(KEPT)).toBe(true); // enabled → preserved (no FK wipe)
+      expect(remaining.has(SKILL_LINKED)).toBe(true); // linked by a skill → preserved
       expect(remaining.has(AGENT)).toBe(true); // virtual agent row untouched
       expect(remaining.has(CORE)).toBe(true); // in registry → upserted
     },

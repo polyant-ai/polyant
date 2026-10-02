@@ -154,6 +154,13 @@ export const exportInstanceDataSchema = z.object({
   a2aEnabled: z.boolean().default(false),
   toolResultsInHistoryEnabled: z.boolean().default(false),
   debugEnabled: z.boolean().default(false),
+  /**
+   * Optional with no default: a bundle from a build that predates the switch
+   * says nothing about it. A new agent then takes the column default (off), and
+   * an overwrite import leaves the target's current choice alone instead of
+   * turning it off.
+   */
+  attachmentStorageEnabled: z.boolean().optional(),
   sttProvider: z.string().default("openai"),
   // Embedding provider/dim are applied on import-NEW only — switching them on an
   // existing instance is destructive (wipes vectors), so import-OVERWRITE leaves

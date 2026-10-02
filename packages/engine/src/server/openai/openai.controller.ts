@@ -26,6 +26,7 @@ import type {
   ChatCompletionChunk,
   ModelsListResponse,
 } from "./openai.types.js";
+import { TurnStreamRelay } from "./turn-stream-relay.js";
 
 // Restrict model to the instance-slug shape — same pattern as instances.controller.ts.
 // This is the only user-controlled value that we echo back into the SSE stream
@@ -90,24 +91,28 @@ export class OpenAIController {
     }
     // Use the Zod-validated model going forward — guarantees the slug regex.
     body.model = parsed.data.model;
+    // Before the first await, so a client that hangs up early is seen: the
+    // same disconnect rules as chat/stream (see TurnStreamRelay).
+    const relay = body.stream ? new TurnStreamRelay(res) : undefined;
 
-    // Call context writes conversation state: it needs the agent's key even on an open agent.
+    // A web turn: on an agent that maps call context it needs the agent's key
+    // even when the agent is otherwise open (see WebTurn).
     await this.validateAuth(body.model, authHeader, body.context !== undefined && body.context !== null);
 
-    if (body.stream) {
-      return this.handleStreaming(body, res);
+    if (relay) {
+      return this.handleStreaming(body, res, relay);
     }
 
     const result = await this.openaiService.chatCompletion(body);
     res.json(result);
   }
 
-  private async handleStreaming(body: ChatCompletionRequest, res: Response) {
+  private async handleStreaming(body: ChatCompletionRequest, res: Response, relay: TurnStreamRelay) {
     // The pipeline starts BEFORE the first byte: whatever refuses the request
     // (a bad body, a missing key, a hook's error) is then an ordinary HTTP error
     // with its status. Started after the role chunk, it arrived inside a 200 the
     // client was already reading, and the response ended with no `[DONE]`.
-    const stream = await this.openaiService.chatCompletionStream(body);
+    const stream = await this.openaiService.chatCompletionStream(body, relay.signal);
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -115,6 +120,10 @@ export class OpenAIController {
     // Defence-in-depth against reflected-XSS: prevent the response from being
     // sniffed and rendered as HTML by an off-spec client.
     res.setHeader("X-Content-Type-Options", "nosniff");
+    // A long tool call writes nothing for minutes; Node's socket timeout would
+    // otherwise tear the response down, and the heartbeat keeps proxies from it.
+    res.setTimeout(0);
+    relay.startHeartbeat();
 
     const completionId = `chatcmpl-${randomUUID().replace(/-/g, "").slice(0, 24)}`;
     const created = Math.floor(Date.now() / 1000);
@@ -137,6 +146,8 @@ export class OpenAIController {
     let chunkCount = 0;
     try {
       for await (const event of stream.fullStream as AsyncIterable<{ type: string; text?: string; toolName?: string; error?: unknown }>) {
+        if (relay.clientGone) break;
+        relay.observe(event.type);
         chunkCount++;
         if (event.type === "error") {
           const errDetail = event.error instanceof Error ? event.error.message : String(event.error ?? "Unknown error");
@@ -168,6 +179,14 @@ export class OpenAIController {
       res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, errorMsg))}\n\n`);
     }
 
+    relay.stopHeartbeat();
+    // Await completion to trigger post-processor (fire-and-forget side effect)
+    stream.completed.catch((err) => console.error("[SSE] Stream completion error:", err));
+    if (relay.clientGone) {
+      res.end();
+      return;
+    }
+
     // Safety: close think block if still open (e.g. no text response after tools)
     if (thinkOpen) {
       res.write(`data: ${JSON.stringify(this.makeChunk(completionId, created, body.model, "</think>\n"))}\n\n`);
@@ -184,9 +203,6 @@ export class OpenAIController {
     res.write(`data: ${JSON.stringify(finishChunk)}\n\n`);
     res.write("data: [DONE]\n\n");
     res.end();
-
-    // Await completion to trigger post-processor (fire-and-forget side effect)
-    stream.completed.catch((err) => console.error("[SSE] Stream completion error:", err));
   }
 
   private makeChunk(id: string, created: number, model: string, content: string): ChatCompletionChunk {
@@ -199,7 +215,7 @@ export class OpenAIController {
     };
   }
 
-  private async validateAuth(instanceSlug: string, authHeader?: string, requireKey = false) {
-    return validateInstanceApiKey(instanceSlug, authHeader, requireKey);
+  private async validateAuth(instanceSlug: string, authHeader?: string, carriesContext = false) {
+    return validateInstanceApiKey(instanceSlug, authHeader, { carriesContext });
   }
 }

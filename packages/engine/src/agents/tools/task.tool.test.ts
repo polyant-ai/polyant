@@ -82,6 +82,35 @@ describe("createTaskTool", () => {
     }));
   });
 
+  it("runs the sub-agent on the parent's pinned model", async () => {
+    mockChat.mockResolvedValue({ text: "ok", steps: [], durationMs: 1 } as never);
+    const tool = createTaskTool({}, undefined, undefined, undefined, "anthropic", "claude-pinned-model");
+
+    await tool.execute!({ task: "Research", label: null }, { toolCallId: "tc-1", messages: [] } as never);
+
+    expect(mockChat.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ model: "claude-pinned-model" }));
+  });
+
+  it("stops the sub-agent when the parent turn is aborted", async () => {
+    // A provider call that only ends when its signal fires; without a signal it
+    // would run to completion, which is what a cancelled parent must not allow.
+    mockChat.mockImplementation((request) => new Promise((resolve, reject) => {
+      const signal = request.abortSignal;
+      if (!signal) {
+        setTimeout(() => resolve({ text: "kept running", steps: [], durationMs: 1 } as never), 20);
+        return;
+      }
+      signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }));
+    const parent = new AbortController();
+    const tool = createTaskTool({}, undefined, undefined, undefined, undefined, undefined, parent.signal);
+
+    const pending = tool.execute!({ task: "Long research", label: null }, { toolCallId: "tc-1", messages: [] } as never);
+    parent.abort();
+
+    expect(await pending).toEqual({ success: false, result: null, error: "aborted" });
+  });
+
   it("returns error object on chat failure", async () => {
     mockChat.mockRejectedValue(new Error("LLM timeout"));
 

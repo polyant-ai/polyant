@@ -155,6 +155,8 @@ export interface Instance {
   toolResultsInHistoryEnabled: boolean;
   /** When true, the exact LLM request payload (system + messages + tools) is persisted per turn for debug. */
   debugEnabled: boolean;
+  /** When true, inbound attachments are copied to the agent's bucket. */
+  attachmentStorageEnabled: boolean;
   /** GDPR opt-out feature toggle. */
   optoutEnabled: boolean;
   optoutStopKeywords: string[];
@@ -408,6 +410,7 @@ type UpdatableInstanceFields = {
   a2aEnabled?: boolean;
   toolResultsInHistoryEnabled?: boolean;
   debugEnabled?: boolean;
+  attachmentStorageEnabled?: boolean;
   icon?: string | null;
   sttProvider?: string;
   /** Embedder choice. Changing it triggers a destructive wipe in the controller. */
@@ -457,6 +460,7 @@ const UPDATABLE_INSTANCE_KEYS = [
   "a2aEnabled",
   "toolResultsInHistoryEnabled",
   "debugEnabled",
+  "attachmentStorageEnabled",
   "icon",
   "sttProvider",
   "embeddingProvider",

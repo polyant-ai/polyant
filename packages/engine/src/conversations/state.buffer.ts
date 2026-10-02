@@ -14,21 +14,31 @@ export const CHANNEL_STATE_KEY = "_channel";
 export const PRIVATE_STATE_KEY = "_private";
 
 /**
- * State keys nobody outside the engine may target: the server-seeded channel
- * identity (`_channel`) and the prototype-pollution names.
+ * State keys nobody outside the engine may target: the prototype-pollution
+ * names, and every key with a leading underscore. The underscore namespace is
+ * the engine's and its adapters' — the server-seeded channel identity
+ * (`_channel`), plugin-private data (`_private`), and keys channel adapters or
+ * plugins keep for themselves — so a whole prefix is refused rather than a list
+ * that a new adapter key would silently fall outside of.
  *
  * SINGLE SOURCE. Every boundary that lets a caller/client name a state key must
- * narrow on THIS set — the web context field mapping
+ * narrow through `isReservedStateKey` — the web context field mapping
  * (`conversations/field-mapping.ts`) does. A second hand-written copy would
  * diverge the moment a key is added here, and the boundary that kept the stale
  * copy would be the one still accepting it.
  */
 export const RESERVED_STATE_KEYS: ReadonlySet<string> = new Set<string>([
   CHANNEL_STATE_KEY,
+  PRIVATE_STATE_KEY,
   "__proto__",
   "constructor",
   "prototype",
 ]);
+
+/** Whether a caller-named state key is engine-owned; see `RESERVED_STATE_KEYS`. */
+export function isReservedStateKey(key: string): boolean {
+  return key.startsWith("_") || RESERVED_STATE_KEYS.has(key);
+}
 
 /** Max serialized size of a conversation's state blob, enforced at write time so
  *  a tool cannot grow an unbounded JSONB row (indirectly from LLM output). */

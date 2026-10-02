@@ -72,10 +72,21 @@ describe("matchEvent", () => {
   });
 
   it("accepts an Italian yes — the matching prompt is author-written and pulls the reply into its language", async () => {
-    for (const text of ["Sì", "sì, corrisponde", "Si."]) {
+    for (const text of ["Sì", "Si.", "**sì**", "y"]) {
       mockChat.mockResolvedValue(reply(text));
       expect(await matchEvent(PAYLOAD, [def("a")], "inst"), text).toMatchObject({ name: "a" });
     }
+  });
+
+  it("does not take an ordinary sentence that opens with si or y as a yes", async () => {
+    // "Si tratta di…" ("it is about…") and "y = …" open replies that argue, not
+    // verdicts. Read as a yes, each woke the agent up on a payload the
+    // criteria never matched.
+    for (const text of ["Si tratta di un evento di test, non corrisponde.", "y = 3, quindi no", "sì, ma solo in parte"]) {
+      mockChat.mockResolvedValue(reply(text));
+      expect(await matchEvent(PAYLOAD, [def("a")], "inst"), text).toBeNull();
+    }
+    expect(mockWarn).toHaveBeenCalledTimes(3);
   });
 
   it("does not take a word that merely starts with yes as a verdict", async () => {
@@ -143,6 +154,30 @@ describe("matchEvent", () => {
     mockChat.mockResolvedValueOnce(reply("no")).mockResolvedValueOnce(reply("yes"));
     expect(await matchEvent(PAYLOAD, [def("first"), def("second")], "inst")).toMatchObject({ name: "second" });
     expect(mockChat).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends the classifier the projected payload, without the noise the Room never shows", async () => {
+    // A GitHub payload carries a dozen API URL templates per object and is sent
+    // once per definition; the Room drops them at render time, the matcher sent
+    // them every time.
+    mockChat.mockResolvedValue(reply("no"));
+    const github = {
+      action: "labeled",
+      issue: { number: 1, html_url: "https://github.com/o/r/issues/1", events_url: "https://api.github.com/x", node_id: "I_1" },
+    };
+
+    await matchEvent(github, [def("a")], "inst", "github");
+
+    const sent = mockChat.mock.calls[0][0].messages[0].content as string;
+    expect(sent).toContain("https://github.com/o/r/issues/1");
+    expect(sent).not.toContain("events_url");
+    expect(sent).not.toContain("node_id");
+  });
+
+  it("sends an unknown source type's payload unchanged", async () => {
+    mockChat.mockResolvedValue(reply("no"));
+    await matchEvent({ events_url: "kept" }, [def("a")], "inst", "hubspot");
+    expect(mockChat.mock.calls[0][0].messages[0].content).toContain("events_url");
   });
 
   it("returns null when there are no definitions at all", async () => {

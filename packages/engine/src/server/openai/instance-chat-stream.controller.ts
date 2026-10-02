@@ -6,26 +6,7 @@ import { OpenAIService } from "./openai.service.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import { validateInstanceApiKey } from "./instance-api-key-auth.js";
 import type { ChatCompletionRequest } from "./openai.types.js";
-
-/**
- * Keep-alive cadence for the SSE stream. Long, output-less tool calls (e.g.
- * `claudeCode` cloning + analysing a repo for minutes) emit no stream parts, so
- * without a periodic byte an idle timeout on the browser/proxy would sever the
- * connection and the client would miss the final `done`. An SSE comment line
- * (starting with ":") keeps it warm and is ignored by the stream parser. Matches
- * the activity-stream heartbeat so both long-lived SSE endpoints stay warm below
- * the typical 30–60s proxy idle cut-off.
- */
-const HEARTBEAT_MS = 25_000;
-
-/**
- * Stream parts that mean the turn has produced something: from the first of
- * them a client disconnect no longer aborts the pipeline. `tool-input-start`
- * comes as soon as the model begins writing a tool call, before the tool runs.
- */
-const OUTPUT_PARTS = new Set([
-  "text-delta", "reasoning-delta", "tool-input-start", "tool-call", "tool-result",
-]);
+import { TurnStreamRelay } from "./turn-stream-relay.js";
 
 /**
  * Native streaming endpoint for the admin playground (and other first-party UIs).
@@ -65,36 +46,17 @@ export class InstanceChatStreamController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
-    // A client that disconnects aborts the pipeline itself only while the turn
-    // has produced nothing: an aborted turn is not persisted, and once the model
-    // has written text, reasoned or begun a tool call (which may write), the
-    // turn runs to its end and is saved, so its record never goes missing. After
-    // that the disconnect only stops the relay.
-    //
-    // The RESPONSE's `close` is the disconnect signal, registered before the
-    // first await. The request's `close` is not: since Node 16 it fires as soon
-    // as the body has been read — by the body parser, before this handler — with
-    // the client still connected. `writableFinished` tells our own `res.end()`
-    // apart from a client that went away.
-    const abortController = new AbortController();
-    let produced = false;
-    let clientGone = false;
-    let heartbeat: ReturnType<typeof setInterval> | undefined = undefined;
-    res.on("close", () => {
-      if (res.writableFinished) return;
-      clearInterval(heartbeat);
-      clientGone = true;
-      if (!produced && !abortController.signal.aborted) abortController.abort();
-    });
+    // Before the first await: see TurnStreamRelay for what a disconnect does.
+    const relay = new TurnStreamRelay(res);
 
     // Per-instance API key auth (mirrors /v1/chat/completions). The global
     // JWT AuthGuard is skipped via @Public() — this route accepts the same
     // Bearer-token shape as the OpenAI-compatible endpoint, NOT a session
     // cookie. See instance-api-key-auth.ts for the rules.
-    // Call context writes conversation state: it needs the agent's key even
-    // when the agent is otherwise open.
+    // A web turn: on an agent that maps call context it needs the agent's key
+    // even when the agent is otherwise open (see WebTurn).
     await validateInstanceApiKey(slug, req.headers["authorization"] as string | undefined,
-      body.context !== undefined && body.context !== null);
+      { carriesContext: body.context !== undefined && body.context !== null });
 
     // Force the model field to the URL slug — the playground already passes
     // it but we ignore any client-side override to keep the route authoritative.
@@ -114,21 +76,14 @@ export class InstanceChatStreamController {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    // Keep the connection warm during output-less stretches (see HEARTBEAT_MS).
-    heartbeat = setInterval(() => {
-      try {
-        res.write(": ping\n\n");
-      } catch {
-        // Socket already gone; the close handler / finally will clear this.
-      }
-    }, HEARTBEAT_MS);
+    relay.startHeartbeat();
 
     let stream;
     try {
-      stream = await this.openaiService.chatCompletionStream(request, abortController.signal);
+      stream = await this.openaiService.chatCompletionStream(request, relay.signal);
     } catch (err) {
       const message = err instanceof Error ? err.message : "stream initialisation failed";
-      clearInterval(heartbeat);
+      relay.stopHeartbeat();
       send("error", { message });
       send("done", {});
       res.end();
@@ -167,8 +122,8 @@ export class InstanceChatStreamController {
         finishReason?: string;
         error?: unknown;
       }>) {
-        if (clientGone) break;
-        if (OUTPUT_PARTS.has(event.type)) produced = true;
+        if (relay.clientGone) break;
+        relay.observe(event.type);
 
         switch (event.type) {
           case "start-step": {
@@ -238,7 +193,7 @@ export class InstanceChatStreamController {
       const message = err instanceof Error ? err.message : "stream error";
       send("error", { message });
     } finally {
-      clearInterval(heartbeat);
+      relay.stopHeartbeat();
       res.end();
       // Safety net: if the loop threw before `completed` was awaited, swallow
       // its eventual rejection so it never surfaces as an unhandled rejection.

@@ -2,6 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MessageCoordinator } from "./message-coordinator.js";
+import { drainBackgroundTurns, pendingBackgroundTurns } from "./background-turns.js";
 import type { IncomingMessage, OutgoingMessage } from "./types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
@@ -465,5 +466,36 @@ describe("MessageCoordinator", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler.mock.calls[0][0].text).toBe("second");
+  });
+
+  it("keeps an acknowledged burst visible to shutdown until its reply is sent", async () => {
+    // The adapter answered the webhook before the debounce window even
+    // started, so the sender will not retry: shutdown has to wait for the
+    // window, the pipeline and the reply, not just for open HTTP requests.
+    let finishTurn!: (r: OutgoingMessage) => void;
+    const handler = vi.fn(() => new Promise<OutgoingMessage>((r) => (finishTurn = r)));
+    const sendOutbound = vi.fn().mockResolvedValue(undefined);
+    const c = new MessageCoordinator({
+      resolveTimings: async () => ({ softDebounceMs: 2000, typingDelayMs: 1500, maxRestarts: 3 }),
+      handler,
+      sendOutbound,
+    });
+    const before = pendingBackgroundTurns();
+
+    await c.onMessage(makeMsg({ channelId: "+390000000077", text: "ciao" }));
+    expect(pendingBackgroundTurns()).toBe(before + 1);
+
+    const drain = drainBackgroundTurns(60_000);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(pendingBackgroundTurns()).toBe(before + 1);
+
+    finishTurn({ text: "risposta" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sendOutbound).toHaveBeenCalledWith("my-instance", "whatsapp", "+390000000077", "risposta");
+    expect(pendingBackgroundTurns()).toBe(before);
+    c.shutdown();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await drain;
   });
 });

@@ -5,6 +5,7 @@ import type { ChannelAdapter, IncomingMessage, MessageHandler, OutgoingMessage }
 import { CHANNEL_MAX_LENGTH, METADATA_CONVERSATION_ID_OVERRIDE } from "../../types.js";
 import { toSlackMrkdwn } from "./slack-mrkdwn.js";
 import { splitMessage } from "../../split-message.js";
+import { firstDelivery } from "../../inbound-dedupe.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
 
 export interface SlackConfig {
@@ -132,8 +133,15 @@ export class SlackAdapter implements ChannelAdapter {
     });
   }
 
+  /**
+   * Process one event callback. A retried or replayed `event_id` is dropped:
+   * Slack retries an event it thinks was not acknowledged, and each retry
+   * would otherwise run the agent and post the reply again.
+   */
   async handleInbound(body: Record<string, unknown>): Promise<void> {
     if (!this.app) throw new Error("Slack app not initialized");
+    const eventId = body.event_id;
+    if (typeof eventId === "string" && !firstDelivery(`slack:${this.instanceId}:${eventId}`)) return;
     await this.app.processEvent({ body, ack: async () => {} });
   }
 

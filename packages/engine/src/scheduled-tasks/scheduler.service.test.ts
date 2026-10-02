@@ -88,7 +88,7 @@ describe("SchedulerService", () => {
     mockStore.getDueTasks.mockReset().mockResolvedValue([]);
     mockStore.markRunning.mockReset().mockResolvedValue(true);
     mockStore.markCompleted.mockReset().mockResolvedValue(undefined);
-    mockStore.markFailed.mockReset().mockResolvedValue(undefined);
+    mockStore.markFailed.mockReset().mockResolvedValue(true);
     mockRunLog.createRun.mockReset().mockResolvedValue("run-1");
     mockRunLog.completeRun.mockReset().mockResolvedValue(undefined);
     mockRunLog.failRun.mockReset().mockResolvedValue(undefined);
@@ -306,8 +306,23 @@ describe("SchedulerService", () => {
 
       await schedulerService.tick();
 
-      expect(mockStore.markFailed).toHaveBeenCalledWith("task-hung", expect.stringContaining("orphaned"));
+      expect(mockStore.markFailed).toHaveBeenCalledWith("task-hung", expect.stringContaining("orphaned"), expect.anything());
       expect(mockRunLog.failDanglingRuns).toHaveBeenCalledWith(["task-hung"], expect.stringContaining("orphaned"));
+    });
+
+    it("fails only the claim it read, and leaves the run log alone when the row moved on", async () => {
+      // Between the read and the write the hung run may have finished and the
+      // task been claimed again by another replica. The reaper must not fail
+      // that newer claim, nor close its run as orphaned.
+      const hung = runningFor(31 * 60_000);
+      mockStore.findStuckRunning.mockResolvedValue([hung]);
+      mockStore.markFailed.mockResolvedValue(false);
+      schedulerService.initialize(noopHandler);
+
+      await schedulerService.tick();
+
+      expect(mockStore.markFailed).toHaveBeenCalledWith("task-hung", expect.any(String), { runningSince: hung.updatedAt });
+      expect(mockRunLog.failDanglingRuns).not.toHaveBeenCalled();
     });
 
     it("leaves a run alone while it is inside its deadline", async () => {
@@ -328,7 +343,7 @@ describe("SchedulerService", () => {
 
       await schedulerService.tick();
 
-      expect(mockStore.markFailed).toHaveBeenCalledWith("task-hung", expect.stringContaining("60000 ms"));
+      expect(mockStore.markFailed).toHaveBeenCalledWith("task-hung", expect.stringContaining("60000 ms"), expect.anything());
     });
 
     it("runs before the due-task query, so a reaped row can run in the same tick", async () => {

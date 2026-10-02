@@ -616,11 +616,12 @@ describe("supervise", () => {
       expect(builtToolNames).not.toContain("roomNotify");
     });
 
-    it("passes the parent's provider to createTaskTool", async () => {
+    it("passes the parent's provider, pinned model and abort signal to createTaskTool", async () => {
       mockGetEnabledToolNames.mockResolvedValue(new Set(["spawnTask"]));
 
       const apiKeys = { anthropic: "sk-test" };
-      await supervise({ message: "hi", apiKeys, provider: "anthropic", instanceId: asInstanceSlug("my-instance"), conversationId: "conv-1" });
+      const abortSignal = new AbortController().signal;
+      await supervise({ message: "hi", apiKeys, provider: "anthropic", model: "claude-pinned-model", abortSignal, instanceId: asInstanceSlug("my-instance"), conversationId: "conv-1" });
 
       expect(mockCreateTaskTool).toHaveBeenCalledWith(
         expect.any(Object),
@@ -628,6 +629,8 @@ describe("supervise", () => {
         "my-instance",
         "conv-1",
         "anthropic",
+        "claude-pinned-model",
+        abortSignal,
       );
     });
   });

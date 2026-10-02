@@ -3,7 +3,14 @@
 This guide covers upgrades that need an operator decision. For the full list of
 changes see the [changelog](../CHANGELOG.md).
 
-## Upgrading from 1.2.0
+## Upgrading from 1.1.x to 1.2.0
+
+### Node 24
+
+The engine and the panel now run on Node 24, the active LTS. The published
+Docker images carry it, so a deployment that uses them needs nothing. If you
+run from source or build your own images, move to Node 24 (`.nvmrc` names it);
+Node 22 is no longer tested.
 
 ### Migration 0086 rewrites the conversations table
 
@@ -25,6 +32,15 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversation_messages_conversation_
 
 The counter backfill itself always runs in the migration.
 
+The engine runs pending migrations when its container starts, before it answers
+its health check, and a container replaced in the meantime rolls them back. The
+container health check's start period is one limit on how long they may take;
+behind a load balancer the target group's health check, which starts counting
+once the service's health check grace period ends, is usually the shorter one.
+For an upgrade with heavy migrations, run them as a one-off task first (see
+[Running the migrations without starting the engine](#running-the-migrations-without-starting-the-engine)),
+then deploy: the new engine finds nothing left to apply.
+
 ### A second, smaller database pool for analytics
 
 Dashboards and other analytics reads now use their own connection pool, so a
@@ -35,14 +51,24 @@ if it is tight. Statements on that pool stop after 15 seconds
 (`POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS`). The main pool keeps its 10
 connections and is now configurable with `POSTGRES_POOL_MAX`.
 
-## Upgrading from 1.1.x to 1.2.0
+### Running the migrations without starting the engine
 
-### Node 24
+The engine image migrates and starts in one step: its entrypoint runs
+`migrate.js` and then boots the engine. Some of the steps below have to happen
+after the schema is current and before the new engine serves anything, so run the
+migrations on their own first, with the same environment the engine gets:
 
-The engine and the panel now run on Node 24, the active LTS. The published
-Docker images carry it, so a deployment that uses them needs nothing. If you
-run from source or build your own images, move to Node 24 (`.nvmrc` names it);
-Node 22 is no longer tested.
+```bash
+docker run --rm --env-file .env --entrypoint node <engine-image> \
+  packages/engine/dist/database/migrate.js
+```
+
+It prints `Migrations applied successfully.` and exits; starting the engine
+afterwards finds nothing left to apply. On ECS, a `RunTask` override can replace
+the command but not the entrypoint, so register a task definition revision whose
+container sets `entryPoint` to `["node"]` and `command` to
+`["packages/engine/dist/database/migrate.js"]`, and run that once. From source,
+`npm run db:migrate` does the same.
 
 ### Telegram and Slack need a public address
 
@@ -53,14 +79,50 @@ either channel:
 1. Make sure the engine has a public HTTPS address (`BASE_URL`, or the address in
    Settings → General) and that `/webhooks/*` reaches the engine. The CDK stack
    routes it; a hand-built proxy or load balancer needs the rule, without any
-   sign-in in front of it — each webhook authenticates the caller itself.
+   sign-in in front of it — each webhook authenticates the caller itself. Behind
+   a proxy, set `TRUST_PROXY` to the number of hops (the CDK stack sets `1`), so
+   that webhook rate limits, which now count each bot separately, see the
+   sender's address instead of the proxy's.
 2. For each Slack app: switch Socket Mode off, and under Event Subscriptions set
    the Request URL to `<public address>/webhooks/slack/<agent slug>`. The signing
    secret the channel already holds verifies the requests; the app-level token is
    no longer used.
-3. Telegram needs nothing by hand: the engine registers its webhook when the
-   channel starts. Telegram keeps undelivered updates for 24 hours, so messages
+3. Telegram needs nothing by hand: the engine registers its webhook after the
+   channel starts, and retries when Telegram is briefly unavailable; a failed
+   registration no longer disables the channel. The engine registers only an
+   HTTPS address. Telegram keeps undelivered updates for 24 hours, so messages
    sent while the address was unreachable arrive once it is.
+
+### Running more than one engine replica
+
+The engine is built to run as one replica. Several parts of it keep their state
+in the process, so with two or more replicas behind a load balancer the
+following happen. Run one replica, or accept these effects:
+
+- **Live views miss writes made elsewhere.** Following a conversation live and
+  the Playground's activity feed listen to events raised in the process that
+  handled the write. A turn answered by another replica appears only on reload.
+- **A channel change reaches only the replica that saved it.** Saving a
+  Telegram, Slack or WhatsApp channel starts its adapter on the replica that
+  handled the request. The others keep the previous adapter, or none for a new
+  channel, until they restart: their webhooks answer 404 for a new channel and
+  refuse a rotated Telegram token's secret, which the saving replica has
+  already registered with Telegram. Restart every replica after changing a
+  channel; each one registers the Telegram webhook again as it starts.
+- **Fragments of one message burst can be answered separately.** WhatsApp and
+  Telegram messages that arrive close together are merged into one turn per
+  process. Fragments that land on different replicas each get their own reply.
+- **A redelivered webhook can be processed twice.** Telegram and Slack
+  redeliveries are dropped by the replica that saw the first copy; a retry that
+  reaches another replica runs the agent again.
+- **Rate limits apply per replica.** Each replica counts requests on its own, so
+  the effective limit is the configured one times the number of replicas.
+- **A scheduled task that overruns its deadline can run twice.** Each run is
+  claimed in the database, so a task normally runs once however many replicas
+  there are. When a run outlasts its run deadline, the reaper frees the claim,
+  and another replica can start the task again while the first run is still
+  going; one replica alone never does. Give each task a run deadline it does
+  not reach.
 
 ### Review agents without a pinned model
 
@@ -71,20 +133,72 @@ Agents with an explicit model stay pinned, but unpinned conversations and
 background work change model and price. Review their model settings before
 deploying.
 
-### Install and re-enable extracted tools
+Each changed default moves to a different model family. Prices are the 1.2.0
+catalog's, in USD per million input / output tokens:
+
+| Provider | Tier | 1.1.x | 1.2.0 |
+| --- | --- | --- | --- |
+| OpenAI | `fast` | `gpt-4o-mini` ($0.15 / $0.60) | `gpt-6-luna` ($0.10 / $0.50) |
+| OpenAI | `standard` | `gpt-4o` ($2.50 / $10) | `gpt-6-sol` ($2 / $10) |
+| OpenAI | `heavy` | `o3` ($2 / $8) | `gpt-6-astra` ($10 / $50) |
+| Bedrock | `standard` | `eu.anthropic.claude-sonnet-4-6` ($3.30 / $16.50) | `eu.amazon.nova-pro-v1:0` ($0.80 / $3.20) |
+| Bedrock | `heavy` | `eu.anthropic.claude-opus-4-8` ($5.50 / $27.50) | `openai.gpt-oss-120b-1:0` ($0.20 / $0.79) |
+
+What each tier reaches decides who is affected. `standard` answers the turn of
+every agent with no model of its own, and the `spawnTask` sub-agents of those
+agents; a pinned agent's sub-agents run on its pinned model.
+`fast` runs the background jobs (history summaries, memory extraction, prompt
+section updates, room compaction) of every agent on the provider, pinned or not.
+Nothing in the core engine calls `heavy`; it matters only to code of your own
+that asks for it.
+
+On Bedrock, Nova Pro does not reason: an unpinned agent with thinking enabled
+stops reasoning on its turns and in its sub-agents, with no error. gpt-oss 120B
+has no vision and no prompt caching, and it is a plain on-demand model id
+rather than an `eu.` inference profile, so whether a region serves it has to be
+checked per region (the catalog verified it in eu-south-1 only). On OpenAI, the
+GPT-6 models do not take a custom temperature, and `gpt-6-astra` always reasons.
+
+To pin an agent to the model it ran on before, set the model in its settings.
+This lists the agents that have none, by provider (no provider means OpenAI):
+
+```sql
+SELECT coalesce(provider, 'openai') AS provider,
+       count(*) AS agents,
+       string_agg(slug, ', ' ORDER BY slug) AS slugs
+FROM instances
+WHERE model IS NULL
+GROUP BY 1
+ORDER BY 1;
+```
+
+### Install the plugins of extracted tools
 
 The GitHub, Render, HubSpot and Markdown-to-PDF tool families no longer ship in
 the core image. If an agent uses one of them, add its plugin to the image before
 building (see [Loading a plugin — build-time](plugins.md#loading-a-plugin--build-time)),
 or use `PLUGIN_DIRS` in development.
 
-Plugin tools have namespaced names and are new registry entries: for example,
-`ghIssue` is now `github:issue`, `hubspotContact` is now `hubspot:contact`, and
-`markdownToPdf` is now `extra:markdownToPdf`. On first boot the registry removes
-the old flat entries; it does not carry their enabled state to the replacements.
-After installing the plugins, re-enable the required tools for every affected
-agent from its Tools tab and update any skill that names an old tool. The
-integration-specific `verifyDocument` tool was removed without a replacement.
+Plugin tools have namespaced names: `ghIssue`, `ghPR` and `gitCloneRepo` are now
+`github:issue`, `github:pr` and `github:cloneRepo`; `renderService` is
+`render:renderService`; each `hubspotX` tool is `hubspot:x` (`hubspotContact` is
+`hubspot:contact`, `hubspotSendEmail` is `hubspot:sendEmail`); and
+`markdownToPdf` is `extra:markdownToPdf`. Migration `0087_rename_extracted_tools`
+renames the catalog rows in place, so every agent keeps its enablement and every
+skill its tool links and its list of required tools. Until the plugin is
+installed the agent simply does not get the tool; once it is, the tool works
+again with nothing to re-enable. An export bundle from an older version that
+names a tool by its old name enables the new one on import.
+
+The integration-specific `verifyDocument` tool was removed without a
+replacement. The first boot removes it, and every other tool that no loaded
+plugin provides, from the agents that had it enabled, and logs the names of
+those tools once.
+
+An installation that already booted a version without the extracted tools and
+without this migration has lost those enablements: the migration finds no old
+rows to rename. Re-enable the tools from each affected agent's Tools tab after
+installing the plugins, and update any skill that still names an old tool.
 
 ### Custom S3 endpoints are removed
 
@@ -96,6 +210,33 @@ attachment reads will fail rather than continue against that service.
 Before upgrading, move affected buckets to AWS S3 and configure each agent with
 `s3_bucket_name`, `aws_region`, and either static AWS credentials or
 `s3_use_task_role`. Version 1.2.0 has no supported custom-endpoint replacement.
+
+### Attachments stored in the platform bucket
+
+Earlier versions stored attachments in the deployment's bucket
+(`PLATFORM_S3_BUCKET`); 1.2.0 reads them only from each agent's own bucket. An
+installation that had set `PLATFORM_S3_*` keeps those files where they were and
+the conversation view can no longer open them. The keys did not change, so
+copying an agent's prefix into its bucket, and turning on **Store attachments**
+for that agent (see below), makes them readable again:
+
+```bash
+aws s3 sync "s3://<platform bucket>/attachments/<agent slug>/" "s3://<agent bucket>/attachments/<agent slug>/"
+```
+
+### Storing attachments is a per-agent choice
+
+Keeping the files users send is a switch on each agent, **Store attachments**
+under its behaviour parameters. Migration `0088_attachment_storage_opt_in` adds
+it turned off on every agent. Turned on, an agent whose `fileUpload` secrets name
+a bucket stores every inbound attachment under `attachments/<agent slug>/…` in
+that bucket, so the conversation view can reopen it. With it off the model still
+sees each file in the turn; it just is not kept.
+
+Deleting a conversation or an agent also deletes the files stored for it, by the
+keys recorded on its messages. That needs `s3:DeleteObject` on the
+`attachments/` prefix for the agent's credentials or task role; a refused delete
+is logged and leaves the files in place, and never blocks the database delete.
 
 ### Google sign-in is removed
 
@@ -130,6 +271,29 @@ had. Remove them from your environment; none of them needs a replacement value.
 | `DEBUG_LLM_PAYLOAD` | Enable debugging on the individual agent instead. The per-agent capture includes the full prompt, messages and tool definitions and stores them for inspection instead of writing sensitive payloads to stdout |
 | `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_TRACING` | Nothing. They were read by no code at all; tracing is configured per agent |
 
+### Bedrock agents need a region of their own
+
+Until 1.1.x a Bedrock agent with no region of its own used `AWS_REGION`, and
+then `us-east-1`. Both fallbacks are gone, so after the upgrade such an agent
+fails every chat turn, and every embedding if its knowledge or memory runs on
+Bedrock, with an error naming the setting. Before upgrading, list the agents
+that use Bedrock for chat or embeddings and hold no region, and set the region
+in each one's Settings → AI Provider:
+
+```sql
+SELECT i.slug, i.provider, i.embedding_provider
+FROM instances i
+WHERE (i.provider = 'bedrock' OR i.embedding_provider = 'bedrock')
+  AND NOT EXISTS (
+    SELECT 1 FROM instance_secrets s
+    WHERE s.instance_id = i.id AND s.key = 'aws_provider_region'
+  )
+ORDER BY i.slug;
+```
+
+The region is stored encrypted, so the query can only check that one is set. Settings → AI Provider exists in 1.1.x too, so this can be done on the
+running installation.
+
 ### Environment variables the panel now answers
 
 Each of these set one value for a whole installation, for a question an
@@ -150,6 +314,74 @@ your environment — a value left there is read by nothing.
 If you deploy with the CDK stack, drop `defaultInstanceId` and `locale` from the
 `app` block of your `config.yaml`; `timezone` stays and is passed as `TZ`.
 
+### Set a customised analytics retention before upgrading
+
+`ANALYTICS_RETENTION_DAYS` is no longer read from the moment the new engine
+starts, and the first housekeeping run comes about 30 seconds after every start
+of the engine. It deletes logs, traces, tool audit records, hook executions,
+task runs and completed event backlog older than the installation's retention,
+which is 90 days until someone sets it. An installation that kept more than 90
+days therefore loses the difference on the first boot, before anyone can open
+Settings → General.
+
+If you set `ANALYTICS_RETENTION_DAYS` to more than 90, store the same value in
+the database before upgrading. On the 1.1.x database, run the following,
+replacing `365` with your value. The table is the one migration `0080` creates,
+defined the same way, so the migration finds it and keeps the row:
+
+```sql
+CREATE TABLE IF NOT EXISTS "platform_settings" (
+  "id" boolean PRIMARY KEY DEFAULT true,
+  "analytics_retention_days" integer,
+  "sse_max_connections_per_user" integer,
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_by" uuid REFERENCES "users"("id") ON DELETE SET NULL,
+  CONSTRAINT "platform_settings_single_row" CHECK ("id"),
+  CONSTRAINT "platform_settings_analytics_retention_days_positive"
+    CHECK ("analytics_retention_days" IS NULL OR "analytics_retention_days" > 0),
+  CONSTRAINT "platform_settings_sse_max_connections_per_user_positive"
+    CHECK ("sse_max_connections_per_user" IS NULL OR "sse_max_connections_per_user" > 0)
+);
+INSERT INTO "platform_settings" ("id", "analytics_retention_days") VALUES (true, 365)
+  ON CONFLICT ("id") DO UPDATE SET "analytics_retention_days" = EXCLUDED."analytics_retention_days";
+```
+
+The statements are safe to run twice, and safe on a database that is already
+migrated. Alternatively, run the migrations on their own (see above), then
+`UPDATE platform_settings SET analytics_retention_days = 365;`, then start the
+engine. Settings → General shows the stored value afterwards.
+
+### Dates and cron schedules follow the process time zone
+
+`DATETIME_TIMEZONE` and `DATETIME_LOCALE` are no longer read. The date an agent
+sees in its prompt now comes from the agent's own setting in Settings →
+Behaviour, or else from the process: the `TZ` zone and the ICU default locale
+(`LANG`/`LC_ALL`, else the system's). An installation that set the two variables
+and no per-agent value sees its agents' dates in the process zone and locale
+until you either set `TZ` (and the locale) on the engine or set them per agent.
+
+Setting `TZ` has a second effect. A cron task with no time zone of its own runs
+in the process zone, so on an engine that used to run in UTC, setting
+`TZ=Europe/Rome` moves every such task by the zone's offset: `0 9 * * *` runs at
+09:00 Rome time instead of 09:00 UTC. The CDK stack now passes `app.timezone` as
+`TZ`, so a CDK deployment makes this change on upgrade. The next run already
+scheduled keeps its time; the ones after it are computed in the new zone. This
+lists the cron tasks that have no zone:
+
+```sql
+SELECT instance_id AS agent, name, schedule->>'expression' AS cron, enabled, next_run_at
+FROM scheduled_tasks
+WHERE schedule->>'type' = 'cron'
+  AND coalesce(schedule->>'timezone', '') = ''
+ORDER BY 1, 2;
+```
+
+To keep a task on UTC, open it in the agent's Automation → Scheduled section and
+save it: the form fills in `UTC` for a task that has no zone. A cron task an
+agent creates through `scheduleTask` without a zone is now stored with `UTC`,
+the default the tool describes. Leaving `TZ` unset
+keeps every such task on the container's zone, UTC in the published image.
+
 ### Operational limits move to Settings → General
 
 Seven more variables become rows an administrator edits, with the defaults they
@@ -157,8 +389,10 @@ had: `SSE_MAX_CONNECTIONS` (50), `THROTTLE_TTL_MS` (60000), `THROTTLE_LIMIT`
 (30), `AGENT_CALL_TIMEOUT_MS` (60000), `MCP_CONNECT_TIMEOUT_MS` (10000),
 `SCHEDULER_ORPHAN_GRACE_MS` (900000) and `SCHEDULER_DEFAULT_MAX_RUN_MS`
 (1800000). If your deployment set any of them to something other than the
-default, set the same number in Settings → General before removing the variable —
-otherwise the upgrade quietly restores the default.
+default, set the same number in Settings → General: the new engine does not read
+the variable, so the default applies from its first start until you do. To have
+the values in place from the start, run the migrations on their own, set the
+columns of `platform_settings`, then start the engine.
 
 `THROTTLE_ENABLED` stays an environment variable and keeps its meaning.
 

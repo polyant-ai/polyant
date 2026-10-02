@@ -17,6 +17,7 @@ const { mockStore, mockLoadConversationState, mockResolvePrincipalOrgId } = vi.h
     listConversations: vi.fn(),
     searchConversations: vi.fn(),
     renameConversation: vi.fn(),
+    deleteConversation: vi.fn(),
   },
   mockLoadConversationState: vi.fn(),
   mockResolvePrincipalOrgId: vi.fn(),
@@ -24,6 +25,8 @@ const { mockStore, mockLoadConversationState, mockResolvePrincipalOrgId } = vi.h
 
 vi.mock("../../conversations/store.js", () => ({ conversationStore: mockStore }));
 vi.mock("../../conversations/state.store.js", () => ({ loadConversationState: mockLoadConversationState }));
+const { mockPrepareAttachmentCleanup } = vi.hoisted(() => ({ mockPrepareAttachmentCleanup: vi.fn() }));
+vi.mock("../../attachments/attachment-cleanup.js", () => ({ prepareAttachmentCleanup: mockPrepareAttachmentCleanup }));
 
 /**
  * The handlers resolve the caller's organization before reaching the store — the
@@ -219,6 +222,35 @@ describe("ConversationsController — debug + state endpoints", () => {
 
       await expect(controller.getState("acme:web:api-1", "acme")).rejects.toBeInstanceOf(NotFoundException);
       expect(mockLoadConversationState).not.toHaveBeenCalled();
+    });
+  });
+
+  // Deleting a conversation takes the files its user sent along; the keys are
+  // on the messages, so they are read before the rows go.
+  describe("remove — stored attachments", () => {
+    it("prepares the cleanup before the delete and runs it after", async () => {
+      const order: string[] = [];
+      mockStore.getConversation.mockResolvedValue({ instanceId: "acme" });
+      mockPrepareAttachmentCleanup.mockImplementation(async () => {
+        order.push("prepare");
+        return async () => void order.push("cleanup");
+      });
+      mockStore.deleteConversation.mockImplementation(async () => {
+        order.push("delete");
+        return true;
+      });
+
+      await expect(controller.remove("acme:web:api-1", "acme")).resolves.toEqual({ deleted: true });
+
+      expect(mockPrepareAttachmentCleanup).toHaveBeenCalledWith("acme", { conversationIds: ["acme:web:api-1"] });
+      expect(order).toEqual(["prepare", "delete", "cleanup"]);
+    });
+
+    it("deletes nothing from the bucket for a conversation of another agent", async () => {
+      mockStore.getConversation.mockResolvedValue({ instanceId: "other" });
+
+      await expect(controller.remove("other:web:api-1", "acme")).rejects.toBeInstanceOf(NotFoundException);
+      expect(mockPrepareAttachmentCleanup).not.toHaveBeenCalled();
     });
   });
 });

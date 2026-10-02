@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { CHANNEL_STATE_KEY, MAX_STATE_BYTES } from "./state.buffer.js";
+import { CHANNEL_STATE_KEY, MAX_STATE_BYTES, PRIVATE_STATE_KEY } from "./state.buffer.js";
 import { extractMappedFields, MAX_FIELD_MAPPING_ENTRIES, normalizeFieldMapping } from "./field-mapping.js";
 
 describe("extractMappedFields", () => {
@@ -61,6 +61,14 @@ describe("extractMappedFields", () => {
     expect(() => extractMappedFields({ x: 1 }, mapping)).toThrow(/reserved/i);
   });
 
+  it("should_throw_when_state_key_is_in_the_underscore_namespace", () => {
+    // `_private` and any key a channel adapter or plugin keeps under a leading
+    // underscore are engine-owned; a caller payload must not overwrite them.
+    for (const key of [PRIVATE_STATE_KEY, "_adapterOwned"]) {
+      expect(() => extractMappedFields({ x: 1 }, { [key]: "x" })).toThrow(/reserved/i);
+    }
+  });
+
   it("should_throw_when_extracted_state_exceeds_max_bytes", () => {
     const big = "x".repeat(MAX_STATE_BYTES + 1024);
     expect(() => extractMappedFields({ big }, { big: "big" })).toThrow(/exceed/i);
@@ -88,6 +96,8 @@ describe("normalizeFieldMapping", () => {
 
   it("should_refuse_reserved_keys_empty_segments_and_duplicates_after_trimming", () => {
     expect(() => normalizeFieldMapping({ [CHANNEL_STATE_KEY]: "x" }, "m")).toThrow(/reserved/);
+    expect(() => normalizeFieldMapping({ [PRIVATE_STATE_KEY]: "x" }, "m")).toThrow(/reserved/);
+    expect(() => normalizeFieldMapping({ " _adapterOwned": "x" }, "m")).toThrow(/reserved/);
     expect(() => normalizeFieldMapping({ phone: "" }, "m")).toThrow(/dot-path/);
     expect(() => normalizeFieldMapping({ phone: "caller..phone" }, "m")).toThrow(/dot-path/);
     expect(() => normalizeFieldMapping({ phone: "a", " phone": "b" }, "m")).toThrow(/mapped twice/);

@@ -8,6 +8,7 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { skills, skillVersions, skillTools } from "./schema.js";
 import { tools } from "../agents/tools/tools.schema.js";
+import { currentToolName } from "../agents/tools/renamed-tools.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -155,7 +156,7 @@ export async function listVersions(skillId: string): Promise<SkillVersionRow[]> 
  * Sets current_version_id and syncs skill_tools.
  */
 export async function createSkill(data: CreateSkillInput): Promise<SkillWithVersion> {
-  const metadata = data.metadata ?? {};
+  const metadata = withCurrentToolNames(data.metadata ?? {});
   const scriptEntries = data.scripts ?? [];
 
   return db.transaction(async (tx) => {
@@ -219,7 +220,7 @@ export async function updateSkill(
 
   if (!skill) return null;
 
-  const metadata = data.metadata ?? {};
+  const metadata = withCurrentToolNames(data.metadata ?? {});
   const scriptEntries = data.scripts ?? [];
 
   return db.transaction(async (tx) => {
@@ -299,11 +300,11 @@ async function syncSkillToolsInTx(
 
   if (requiredToolNames.length === 0) return;
 
-  // Resolve tool names to IDs
+  // Resolve tool names to IDs, under the name the tool has now.
   const toolRows = await tx
     .select({ id: tools.id })
     .from(tools)
-    .where(inArray(tools.name, requiredToolNames));
+    .where(inArray(tools.name, [...new Set(requiredToolNames.map(currentToolName))]));
 
   if (toolRows.length === 0) return;
 
@@ -313,6 +314,23 @@ async function syncSkillToolsInTx(
       toolId: t.id,
     })),
   );
+}
+
+/**
+ * `metadata` with `requiredTools` under the names the tools have now. A skills
+ * bundle exported before the tools moved into plugins names them flat; the
+ * migration renamed stored versions in place, and an import has to do the
+ * same, or the link resolves no catalog row and the prompt reports the tool
+ * missing on every agent. Order is kept and a duplicate the rename creates is
+ * dropped, as the migration does.
+ */
+function withCurrentToolNames(metadata: Record<string, unknown>): Record<string, unknown> {
+  const required = metadata.requiredTools;
+  if (!Array.isArray(required)) return metadata;
+  const renamed = [
+    ...new Set(required.map((name) => (typeof name === "string" ? currentToolName(name) : name))),
+  ];
+  return { ...metadata, requiredTools: renamed };
 }
 
 /** Increment the minor version: "0.1.0" → "0.2.0", "1.3.2" → "1.4.0". */

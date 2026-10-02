@@ -46,6 +46,8 @@ import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
 import { channelManager } from "../../channels/channel-manager.js";
+import { prepareAttachmentCleanup } from "../../attachments/attachment-cleanup.js";
+import { invalidateAgentS3 } from "../../attachments/agent-storage.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { sanitizeForLog } from "../../utils/create-logger.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
@@ -100,6 +102,7 @@ function toInstanceDto(instance: Instance) {
     a2aEnabled: instance.a2aEnabled,
     toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
     debugEnabled: instance.debugEnabled,
+    attachmentStorageEnabled: instance.attachmentStorageEnabled,
     optoutEnabled: instance.optoutEnabled,
     optoutStopKeywords: instance.optoutStopKeywords,
     optoutResumeKeywords: instance.optoutResumeKeywords,
@@ -350,6 +353,7 @@ export class InstancesController {
       a2aEnabled?: boolean;
       toolResultsInHistoryEnabled?: boolean;
       debugEnabled?: boolean;
+      attachmentStorageEnabled?: boolean;
       sttProvider?: "openai" | "aws" | "deepgram" | "disabled";
       optoutEnabled?: boolean;
       optoutStopKeywords?: string[];
@@ -381,6 +385,11 @@ export class InstancesController {
     if (body.temperature !== undefined) {
       body.temperature = clampTemperature(body.temperature);
     }
+    // A string "false" would reach the column as true: the switch that decides
+    // whether end users' files are kept must be a boolean or nothing.
+    if (body.attachmentStorageEnabled !== undefined && typeof body.attachmentStorageEnabled !== "boolean") {
+      throw new BadRequestException("attachmentStorageEnabled must be a boolean");
+    }
     this.validateAgentSettings(body);
     // Accept the full effort union; the ai-gateway clamps to the chosen model's
     // catalog reasoningLevels at call time (so xhigh/max never reach a model that
@@ -392,16 +401,21 @@ export class InstancesController {
     const before = await findInstanceBySlug(asInstanceSlug(slug));
     if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
 
-    // A PATCH that changes only the model carries no provider, and the agent's
-    // stored one is the one it will run on. Reading the body alone checked the
-    // model against a provider the caller never mentioned: it refused a valid
-    // Bedrock model on a Bedrock agent, and accepted an OpenAI model on one —
-    // which then failed at the first message, far from this edit. `null` is a
-    // deliberate clear, so it falls through to the gateway's default.
-    this.validateModelConfig(
-      body.provider !== undefined ? body.provider : before.provider,
-      body.model,
-    );
+    // The pair the agent will run on after this PATCH is what gets checked:
+    // each field from the body when it carries one, otherwise the stored one.
+    // A PATCH that changes only the model carries no provider; one that changes
+    // only the provider keeps the stored model. Reading the body alone checked a
+    // model against a provider the caller never mentioned, and let a provider
+    // switch keep a model of the old provider — both then failed at the first
+    // message, far from this edit. `null` is a deliberate clear, so it falls
+    // through to the gateway's default. A PATCH that touches neither is left
+    // alone, so an older mismatched row still accepts unrelated edits.
+    if (body.provider !== undefined || body.model !== undefined) {
+      this.validateModelConfig(
+        body.provider !== undefined ? body.provider : before.provider,
+        body.model !== undefined ? body.model : before.model,
+      );
+    }
 
     // Changing the embedding provider abandons the old embedding space (vectors
     // become uninterpretable) — existing memories + knowledge are wiped, never
@@ -464,8 +478,15 @@ export class InstancesController {
       // treated as part of the format string (CodeQL js/tainted-format-string).
       console.error("[instances] failed to stop channels for instance:", sanitizeForLog(slug), err);
     }
+    // Before the delete: the bucket credentials are agent secrets and the keys
+    // live on the messages, and both go with the agent.
+    const cleanupAttachments = await prepareAttachmentCleanup(asInstanceSlug(slug), { allConversations: true });
     const deleted = await deleteInstance(asInstanceSlug(slug));
     if (!deleted) throw new NotFoundException(`Instance "${slug}" not found`);
+    // Slugs are reusable: a cached client would point a new agent of the same
+    // name at this one's bucket.
+    invalidateAgentS3(asInstanceSlug(slug));
+    void cleanupAttachments();
     this.auditLogger.log({
       action: ManagementAuditAction.AgentDelete,
       actor: toManagementAuditActor(user),

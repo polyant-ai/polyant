@@ -273,6 +273,10 @@ interface BuildToolsOptions {
   knowledgeEnabled?: boolean;
   apiKeys?: ChatRequest["apiKeys"];
   provider?: string;
+  /** The agent's pinned model, handed to a spawnTask sub-agent. */
+  model?: string;
+  /** The turn's cancellation signal, handed to a spawnTask sub-agent. */
+  abortSignal?: AbortSignal;
   conversationId?: string;
   toolCallTraces?: ToolCallTrace[];
   includeHarness?: Set<string>;
@@ -286,7 +290,7 @@ interface BuildToolsOptions {
 
 /** Build the tool set scoped to an instance, filtered by DB-stored enabled tool names. */
 async function buildTools(opts: BuildToolsOptions) {
-  const { instanceId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth, stateBuffer } = opts;
+  const { instanceId, instanceUuid, secrets, memoryEnabled, knowledgeEnabled, apiKeys, provider, model, abortSignal, conversationId, toolCallTraces, includeHarness, attachments, signals, agentCallDepth, stateBuffer } = opts;
   // No rows means no tools. This used to mean "enable everything", which made
   // the empty tool set indistinguishable from the full one: disabling every
   // tool in the panel granted the agent the entire registry instead of none of
@@ -330,7 +334,7 @@ async function buildTools(opts: BuildToolsOptions) {
         conversation: conversationId ? buildConversationApi(conversationId) : undefined,
         // Bound to THIS conversation: a handle minted in another one is not
         // takeable here, so the store needs no per-tool authorization of its own.
-        artifacts: artifactApiFor(conversationId ?? null),
+        artifacts: artifactApiFor(instanceId, conversationId),
       };
       // ctx.oauth closes over ctx, so it is assigned after the literal.
       ctx.oauth = makeOAuthAccess(ctx);
@@ -439,7 +443,7 @@ async function buildTools(opts: BuildToolsOptions) {
   // only bounds their blast radius. Moving the merge before this point would
   // silently hand every MCP tool to every sub-agent.
   if (enabledNames.has("spawnTask")) {
-    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId, provider);
+    const spawnTool = createTaskTool({ ...tools }, apiKeys, instanceId, conversationId, provider, model, abortSignal);
     tools.spawnTask = wrapToolWithAudit("spawnTask", spawnTool, instanceId, conversationId, toolCallTraces, signals);
   }
 
@@ -540,6 +544,8 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
     knowledgeEnabled: input.knowledgeEnabled,
     apiKeys: input.apiKeys,
     provider: input.provider,
+    model: input.model,
+    abortSignal: input.abortSignal,
     conversationId: input.conversationId,
     toolCallTraces,
     includeHarness: input.includeHarness,

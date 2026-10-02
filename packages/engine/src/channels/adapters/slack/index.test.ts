@@ -45,6 +45,7 @@ vi.mock("@slack/bolt", () => {
 });
 
 const { SlackAdapter } = await import("./index.js");
+const { resetInboundDedupe } = await import("../../inbound-dedupe.js");
 
 const BOT_USER_ID = "UBOT123";
 
@@ -71,6 +72,7 @@ beforeEach(() => {
   startMock.mockClear();
   stopMock.mockClear();
   processEventMock.mockClear();
+  resetInboundDedupe();
 });
 
 describe("SlackAdapter — initialization", () => {
@@ -91,6 +93,21 @@ describe("SlackAdapter — initialization", () => {
     const body = { type: "event_callback", event: { type: "app_mention" } };
     await adapter.handleInbound(body);
     expect(processEventMock).toHaveBeenCalledWith({ body, ack: expect.any(Function) });
+  });
+
+  it("processes a retried or replayed event once", async () => {
+    // Slack retries an event it thinks went unacknowledged (X-Slack-Retry-Num),
+    // and a signed request can be replayed inside 300 s. Each copy used to run
+    // the agent and post the reply again.
+    const { adapter, init } = makeAdapter(vi.fn());
+    await init();
+    const body = { type: "event_callback", event_id: "Ev01", event: { type: "app_mention" } };
+
+    await adapter.handleInbound(body);
+    await adapter.handleInbound({ ...body });
+    await adapter.handleInbound({ ...body, event_id: "Ev02" });
+
+    expect(processEventMock).toHaveBeenCalledTimes(2);
   });
 
   it("throws if auth.test does not return user_id", async () => {

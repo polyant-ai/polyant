@@ -8,8 +8,14 @@ import { parseRelativeDuration, formatScheduleHuman } from "../../scheduled-task
 import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
 import type { ScheduleConfig } from "../../scheduled-tasks/schema.js";
 
-/** Build a ScheduleConfig from tool params, returning either the config or an error string. */
-function buildScheduleConfig(params: {
+/**
+ * Build a ScheduleConfig from tool params, returning either the config or an error string.
+ *
+ * A cron with no zone is stored as UTC, as the parameter description tells the
+ * model. Left unset it would run in the process zone, so the same expression
+ * would fire at a different hour on a container with `TZ` set.
+ */
+export function buildScheduleConfig(params: {
   scheduleType: "cron" | "interval" | "one-shot";
   cronExpression?: string | null;
   timezone?: string | null;
@@ -22,7 +28,7 @@ function buildScheduleConfig(params: {
       return {
         type: "cron",
         expression: params.cronExpression,
-        timezone: params.timezone ?? undefined,
+        timezone: params.timezone ?? "UTC",
       };
     }
     case "interval": {

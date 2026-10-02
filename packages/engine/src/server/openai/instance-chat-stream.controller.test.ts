@@ -160,12 +160,15 @@ describe("InstanceChatStreamController.stream", () => {
     );
   });
 
-  it("requires the agent key only when the request carries call context", async () => {
+  it("tells the key check whether the web turn carries call context", async () => {
     chatCompletionStream.mockResolvedValue(makeStream([]));
     await controller.stream("acme", { messages: [] } as never, makeReq() as never, makeRes() as never);
     await controller.stream("acme", { messages: [], chat_id: "CA1", context: { phone: "+39000" } } as never,
       makeReq() as never, makeRes() as never);
-    expect(mockValidateInstanceApiKey.mock.calls.map((call) => call[2])).toEqual([false, true]);
+    expect(mockValidateInstanceApiKey.mock.calls.map((call) => call[2])).toEqual([
+      { carriesContext: false },
+      { carriesContext: true },
+    ]);
   });
 
   it("aborts the pipeline when the client disconnects before the turn produced anything", async () => {

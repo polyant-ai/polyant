@@ -37,7 +37,7 @@ function makeCtx(secrets: Record<string, string>): ToolContext {
     instanceId: asInstanceSlug("test-instance"),
     secrets,
     audit: noopAudit as any,
-    artifacts: artifactApiFor(null),
+    artifacts: artifactApiFor("test-agent", null),
   };
 }
 

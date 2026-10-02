@@ -78,6 +78,7 @@ const fakeInstance = {
   a2aEnabled: true,
   toolResultsInHistoryEnabled: false,
   debugEnabled: false,
+  attachmentStorageEnabled: true,
   icon: null,
   sttProvider: "openai",
   optoutEnabled: false,
@@ -149,6 +150,7 @@ describe("instances/config-resolver", () => {
         a2aEnabled: false,
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
+        attachmentStorageEnabled: false,
         optout: {
           enabled: false,
           stopKeywords: ["STOP"],
@@ -215,6 +217,7 @@ describe("instances/config-resolver", () => {
         a2aEnabled: true,
         toolResultsInHistoryEnabled: false,
         debugEnabled: false,
+        attachmentStorageEnabled: true,
         optout: {
           enabled: false,
           stopKeywords: ["STOP"],

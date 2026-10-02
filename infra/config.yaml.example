@@ -17,7 +17,7 @@ dev:
   ecs:
     cpu: 1024                             # Total task CPU (1 vCPU)
     memory: 2048                          # Total task memory (MB)
-    desiredCount: 1
+    desiredCount: 1                       # Above 1, read "Running more than one engine replica" in docs/UPGRADING.md
     stopTimeout: 120                      # Seconds — streaming LLM responses can exceed 30s
     engine:
       cpu: 768

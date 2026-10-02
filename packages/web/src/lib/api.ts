@@ -353,6 +353,7 @@ export const api = {
         a2aEnabled?: boolean;
         toolResultsInHistoryEnabled?: boolean;
         debugEnabled?: boolean;
+        attachmentStorageEnabled?: boolean;
         sttProvider?: "openai" | "aws" | "deepgram" | "disabled";
         optoutEnabled?: boolean;
         optoutStopKeywords?: string[];

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { MAX_STATE_BYTES, RESERVED_STATE_KEYS } from "./state.buffer.js";
+import { MAX_STATE_BYTES, isReservedStateKey } from "./state.buffer.js";
 
 // The reserved keys are NOT redefined here: the list lives in
 // `conversations/state.buffer.ts`, the single source for every boundary that
@@ -39,7 +39,7 @@ export function extractMappedFields(
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [stateKey, dotPath] of Object.entries(mapping)) {
-    if (RESERVED_STATE_KEYS.has(stateKey)) {
+    if (isReservedStateKey(stateKey)) {
       throw new Error(`field mapping: state key "${stateKey}" is reserved`);
     }
     const value = getByDotPath(payload, dotPath);
@@ -78,7 +78,7 @@ export function normalizeFieldMapping(value: unknown, field: string): Record<str
     if (!key) continue;
     if (typeof rawPath !== "string") throw new Error(`${field}.${key} must be a string path`);
     const path = rawPath.trim();
-    if (RESERVED_STATE_KEYS.has(key)) throw new Error(`${field}: state key "${key}" is reserved`);
+    if (isReservedStateKey(key)) throw new Error(`${field}: state key "${key}" is reserved`);
     if (key.length > 128 || path.length > 256) throw new Error(`${field}.${key} is too long`);
     if (!path || path.split(".").some((segment) => !segment)) {
       throw new Error(`${field}.${key} must be a dot-path such as "phone" or "customer.id"`);

@@ -12,7 +12,9 @@ import { emitOutbound } from "../activity-stream/emitters/emit-outbound.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import { getOptoutStatus } from "../optout/index.js";
-import { sanitizeForLog } from "../utils/create-logger.js";
+import { createLogger, sanitizeForLog } from "../utils/create-logger.js";
+
+const log = createLogger();
 import { findInstanceBySlug } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 import {
@@ -166,12 +168,7 @@ export class ChannelManager {
     const adapter = instanceMap.get(channelType);
     if (!adapter) return;
 
-    try {
-      if (opts.deregister) await adapter.deregister?.();
-      await adapter.shutdown();
-    } catch (err) {
-      console.error('Error shutting down %s for instance "%s":', sanitizeForLog(channelType), sanitizeForLog(instanceSlug), err);
-    }
+    await this.stopAdapter(instanceSlug, channelType, adapter, opts);
     instanceMap.delete(channelType);
 
     if (instanceMap.size === 0) {
@@ -193,16 +190,38 @@ export class ChannelManager {
     const instanceMap = this.adapters.get(instanceSlug);
     if (!instanceMap) return;
 
-    const promises = Array.from(instanceMap.entries()).map(async ([type, adapter]) => {
-      try {
-        if (opts.deregister) await adapter.deregister?.();
-        await adapter.shutdown();
-      } catch (err) {
-        console.error('Error shutting down %s for instance "%s":', sanitizeForLog(type), sanitizeForLog(instanceSlug), err);
-      }
-    });
+    const promises = Array.from(instanceMap.entries()).map(([type, adapter]) =>
+      this.stopAdapter(instanceSlug, type, adapter, opts),
+    );
     await Promise.all(promises);
     this.adapters.delete(instanceSlug);
+  }
+
+  /**
+   * Deregister (when asked) and shut down one adapter. The shutdown runs even
+   * when deregistering fails: a Telegram adapter whose deleteWebhook failed
+   * kept its pending registration retry, which could later register the
+   * webhook of a channel that had just been switched off.
+   */
+  private async stopAdapter(
+    instanceSlug: string,
+    channelType: string,
+    adapter: ChannelAdapter,
+    opts: { deregister?: boolean },
+  ): Promise<void> {
+    const logFailure = (step: string, err: unknown) =>
+      log.error("channel-manager", `error ${step} ${channelType} for instance "${instanceSlug}"`, err);
+    try {
+      if (opts.deregister) await adapter.deregister?.();
+    } catch (err) {
+      logFailure("deregistering", err);
+    } finally {
+      try {
+        await adapter.shutdown();
+      } catch (err) {
+        logFailure("shutting down", err);
+      }
+    }
   }
 
   /**

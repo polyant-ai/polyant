@@ -221,7 +221,7 @@ describe("scheduled-tasks/store", () => {
 
     it("increments consecutiveErrors and stores the error message", async () => {
       wireGetById({ ...BASE_TASK, consecutiveErrors: 0 });
-      const updateChain = createChainMock(undefined);
+      const updateChain = createChainMock([{ id: TASK_ID }]);
       mockDb.update.mockReturnValue(updateChain as never);
 
       await markFailed(TASK_ID, "boom");
@@ -236,7 +236,7 @@ describe("scheduled-tasks/store", () => {
 
     it("uses computeRetryDelay backoff when within maxRetries", async () => {
       wireGetById({ ...BASE_TASK, consecutiveErrors: 0, maxRetries: 3 });
-      const updateChain = createChainMock(undefined);
+      const updateChain = createChainMock([{ id: TASK_ID }]);
       mockDb.update.mockReturnValue(updateChain as never);
 
       const beforeMs = Date.now();
@@ -256,7 +256,7 @@ describe("scheduled-tasks/store", () => {
     it("advances to the normal next schedule when consecutive exceeds maxRetries (but under MAX_CONSECUTIVE_ERRORS)", async () => {
       // maxRetries=2, currently at 3 → next consecutive=4 (>2, <5)
       wireGetById({ ...BASE_TASK, consecutiveErrors: 3, maxRetries: 2 });
-      const updateChain = createChainMock(undefined);
+      const updateChain = createChainMock([{ id: TASK_ID }]);
       mockDb.update.mockReturnValue(updateChain as never);
 
       await markFailed(TASK_ID, "still failing");
@@ -271,7 +271,7 @@ describe("scheduled-tasks/store", () => {
     it("disables the task (enabled=false, nextRunAt=null) when consecutiveErrors reaches MAX_CONSECUTIVE_ERRORS", async () => {
       // 4 → next will be 5 = MAX_CONSECUTIVE_ERRORS
       wireGetById({ ...BASE_TASK, consecutiveErrors: 4 });
-      const updateChain = createChainMock(undefined);
+      const updateChain = createChainMock([{ id: TASK_ID }]);
       mockDb.update.mockReturnValue(updateChain as never);
 
       await markFailed(TASK_ID, "give up");

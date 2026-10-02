@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   api,
+  getUserErrorMessage,
   PLATFORM_SETTING_NUMBERS,
   type PlatformSettings,
   type PlatformSettingsResponse,
@@ -61,24 +62,48 @@ function storedAsText(settings: PlatformSettings, key: keyof PlatformSettings): 
  * it: pre-filling would make "unset" and "set to the same number" look
  * identical, and clearing a field back to the default would be impossible to
  * express.
+ *
+ * A failed load replaces the form with the reason and a retry: a skeleton left
+ * on screen would read as "still loading" forever.
  */
 export function PlatformTab() {
   const { t } = useI18n();
   const [data, setData] = useState<PlatformSettingsResponse | null>(null);
   const [fields, setFields] = useState<FormFields>(EMPTY_FIELDS);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const response = await api.platform.settings();
-    setData(response);
-    setFields(
-      Object.fromEntries(ALL_KEYS.map((key) => [key, storedAsText(response.settings, key)])) as FormFields,
-    );
+    setLoadError(null);
+    try {
+      const response = await api.platform.settings();
+      setData(response);
+      setFields(
+        Object.fromEntries(ALL_KEYS.map((key) => [key, storedAsText(response.settings, key)])) as FormFields,
+      );
+    } catch (err: unknown) {
+      setLoadError(getUserErrorMessage(err, t("common.loadFailed")));
+    }
+    // `t` is left out on purpose: a locale switch must not refetch the policies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    load().catch((err: unknown) => toast.error(err instanceof Error ? err.message : String(err)));
+    void load();
   }, [load]);
+
+  if (loadError) {
+    return (
+      <div className="flex max-w-xl flex-col items-start gap-3">
+        <p role="alert" className="text-sm text-destructive">
+          {loadError}
+        </p>
+        <Button variant="outline" onClick={() => void load()}>
+          {t("common.retry")}
+        </Button>
+      </div>
+    );
+  }
 
   if (!data) return <Skeleton className="h-40 w-full" />;
 
@@ -105,7 +130,7 @@ export function PlatformTab() {
       );
       toast.success(t("settings.platform.saved"));
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toast.error(getUserErrorMessage(err, t("settings.platform.saveFailed")));
     } finally {
       setSaving(false);
     }

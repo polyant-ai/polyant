@@ -3,6 +3,7 @@
 import { sanitizeForLog } from "../utils/create-logger.js";
 import type { IncomingMessage, OutgoingMessage } from "./types.js";
 import type { MessageTimingSettings } from "../instances/agent-settings.js";
+import { trackBackgroundTurn } from "./background-turns.js";
 
 /**
  * Per-conversation coordinator for inbound messaging channels that tend to
@@ -90,6 +91,12 @@ interface ConversationState {
   restartCount: number;
   /** Serialization chain for pipeline runs on the same conversation. */
   flushChain: Promise<unknown>;
+  /**
+   * Ends the burst's entry in the background-turn tracker. The adapter has
+   * already acknowledged these fragments, so shutdown waits for the burst —
+   * its debounce window, its pipeline runs and its reply — to finish.
+   */
+  settle: () => void;
 }
 
 function defaultKey(msg: IncomingMessage): string {
@@ -185,6 +192,7 @@ export class MessageCoordinator {
       if (state.typingTimer) clearTimeout(state.typingTimer);
       if (state.pipelineTimer) clearTimeout(state.pipelineTimer);
       if (state.currentAbort) state.currentAbort.abort();
+      state.settle();
     }
     this.states.clear();
   }
@@ -208,6 +216,8 @@ export class MessageCoordinator {
 
   private async installState(key: string, msg: IncomingMessage): Promise<void> {
     const timings = await this.opts.resolveTimings(msg);
+    let settle!: () => void;
+    trackBackgroundTurn(new Promise<void>((resolve) => (settle = resolve)));
     const state: ConversationState = {
       timings,
       buffer: [msg.text],
@@ -220,6 +230,7 @@ export class MessageCoordinator {
       currentAbort: null,
       restartCount: 0,
       flushChain: Promise.resolve(),
+      settle,
     };
     this.states.set(key, state);
     this.armPipelineTimer(key);
@@ -375,6 +386,7 @@ export class MessageCoordinator {
       if (state.typingTimer) clearTimeout(state.typingTimer);
       if (state.pipelineTimer) clearTimeout(state.pipelineTimer);
       this.states.delete(key);
+      state.settle();
     }
   }
 }

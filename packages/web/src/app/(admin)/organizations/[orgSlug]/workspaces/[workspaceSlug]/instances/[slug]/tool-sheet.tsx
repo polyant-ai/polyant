@@ -10,16 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { getUserErrorMessage } from "@/lib/api";
 import {
   Sheet,
@@ -41,6 +31,7 @@ import {
   toolParamSpecs,
   toolProviderSpecs,
 } from "./tools-tab-helpers";
+import { UnsavedChangesDialog } from "./unsaved-changes-dialog";
 
 interface Props {
   tool: ToolState | null;
@@ -267,26 +258,15 @@ export function ToolSheet({
       </SheetContent>
     </Sheet>
 
-    <AlertDialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t("tools.discardTitle")}</AlertDialogTitle>
-          <AlertDialogDescription>{t("tools.discardBody")}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t("tools.keepEditing")}</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              params.reset();
-              setConfirmDiscard(false);
-              onClose();
-            }}
-          >
-            {t("tools.discardConfirm")}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <UnsavedChangesDialog
+      open={confirmDiscard}
+      onOpenChange={setConfirmDiscard}
+      onDiscard={() => {
+        params.reset();
+        setConfirmDiscard(false);
+        onClose();
+      }}
+    />
     </>
   );
 }
