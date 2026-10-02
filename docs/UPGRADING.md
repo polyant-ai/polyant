@@ -90,6 +90,45 @@ Agents with an explicit model stay pinned, but unpinned conversations and
 background work change model and price. Review their model settings before
 deploying.
 
+Each changed default moves to a different model family. Prices are the 1.2.0
+catalog's, in USD per million input / output tokens:
+
+| Provider | Tier | 1.1.x | 1.2.0 |
+| --- | --- | --- | --- |
+| OpenAI | `fast` | `gpt-4o-mini` ($0.15 / $0.60) | `gpt-6-luna` ($0.10 / $0.50) |
+| OpenAI | `standard` | `gpt-4o` ($2.50 / $10) | `gpt-6-sol` ($2 / $10) |
+| OpenAI | `heavy` | `o3` ($2 / $8) | `gpt-6-astra` ($10 / $50) |
+| Bedrock | `standard` | `eu.anthropic.claude-sonnet-4-6` ($3.30 / $16.50) | `eu.amazon.nova-pro-v1:0` ($0.80 / $3.20) |
+| Bedrock | `heavy` | `eu.anthropic.claude-opus-4-8` ($5.50 / $27.50) | `openai.gpt-oss-120b-1:0` ($0.20 / $0.79) |
+
+What each tier reaches decides who is affected. `standard` answers the turn of
+every agent with no model of its own, and every `spawnTask` sub-agent, pinned
+agent or not, because a sub-agent always runs on its provider's `standard` tier.
+`fast` runs the background jobs (history summaries, memory extraction, prompt
+section updates, room compaction) of every agent on the provider, pinned or not.
+Nothing in the core engine calls `heavy`; it matters only to code of your own
+that asks for it.
+
+On Bedrock, Nova Pro does not reason: an unpinned agent with thinking enabled
+stops reasoning on its turns and in its sub-agents, with no error. gpt-oss 120B
+has no vision and no prompt caching, and it is a plain on-demand model id
+rather than an `eu.` inference profile, so whether a region serves it has to be
+checked per region (the catalog verified it in eu-south-1 only). On OpenAI, the
+GPT-6 models do not take a custom temperature, and `gpt-6-astra` always reasons.
+
+To pin an agent to the model it ran on before, set the model in its settings.
+This lists the agents that have none, by provider (no provider means OpenAI):
+
+```sql
+SELECT coalesce(provider, 'openai') AS provider,
+       count(*) AS agents,
+       string_agg(slug, ', ' ORDER BY slug) AS slugs
+FROM instances
+WHERE model IS NULL
+GROUP BY 1
+ORDER BY 1;
+```
+
 ### Install and re-enable extracted tools
 
 The GitHub, Render, HubSpot and Markdown-to-PDF tool families no longer ship in
