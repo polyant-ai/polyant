@@ -105,23 +105,6 @@ export interface ToolContext {
   artifacts: import("./artifact-store.js").ToolArtifactApi;
 }
 
-/** What the engine adds to the SDK's `ToolContext`, until the pinned SDK declares it. */
-interface EngineToolContextFields {
-  artifacts: import("./artifact-store.js").ToolArtifactApi;
-}
-
-// `artifacts` is engine-resolved and rides the runtime context object already;
-// mirror it onto the SDK's own `ToolContext` so a plugin tool body can read
-// `ctx.artifacts`. Merged as a base interface rather than a property: SDK 1.9.0
-// declares `artifacts` itself, with the same shape, and a second property
-// declaration would have to name the very same type, while a base only needs
-// the SDK's to be assignable to it. So this compiles against both pins; remove
-// it once the pin is 1.9.0 or later.
-declare module "@polyant-ai/plugin-sdk" {
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- the members come from the base
-  interface ToolContext extends EngineToolContextFields {}
-}
-
 // ---------------------------------------------------------------------------
 // Definition shape
 //

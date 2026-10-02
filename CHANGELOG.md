@@ -142,7 +142,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A hook that returns `regenerate` or `injectContext` on a Room or webhook turn,
   where those controls are not honored, now logs a warning naming the hook and
   the dropped control.
-- The plugin SDK is pinned at v1.8.0, including plugin knowledge access.
+- The plugin SDK is pinned at v1.9.0, including plugin knowledge access. SDK
+  1.9.0 declares `ctx.artifacts` on `ToolContext`, so plugin tools read it
+  from the SDK's own types; `put` and `take` may return a promise and must be
+  awaited.
 - Runtime dependencies moved to NestJS 12, AI SDK 7, React 19.3, Vitest 5,
   dotenv 18, jsdom 30 and markdown-it 15.
 - Telegram webhook registration happens after the channel starts and is

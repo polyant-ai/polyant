@@ -45,7 +45,7 @@
     "@nestjs/platform-express": "^12.1.2",
     "@nestjs/throttler": "^6.7.1",
     "@panva/hkdf": "^1.2.1",
-    "@polyant-ai/plugin-sdk": "github:polyant-ai/polyant-sdk#v1.8.0",
+    "@polyant-ai/plugin-sdk": "github:polyant-ai/polyant-sdk#v1.9.0",
     "@slack/bolt": "^4.7.3",
     "@tavily/core": "^0.7.13",
     "ai": "^7.0.126",
