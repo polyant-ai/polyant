@@ -268,6 +268,35 @@ migrated. Alternatively, run the migrations on their own (see above), then
 `UPDATE platform_settings SET analytics_retention_days = 365;`, then start the
 engine. Settings → General shows the stored value afterwards.
 
+### Dates and cron schedules follow the process time zone
+
+`DATETIME_TIMEZONE` and `DATETIME_LOCALE` are no longer read. The date an agent
+sees in its prompt now comes from the agent's own setting in Settings →
+Behaviour, or else from the process: the `TZ` zone and the ICU default locale
+(`LANG`/`LC_ALL`, else the system's). An installation that set the two variables
+and no per-agent value sees its agents' dates in the process zone and locale
+until you either set `TZ` (and the locale) on the engine or set them per agent.
+
+Setting `TZ` has a second effect. A cron task with no time zone of its own runs
+in the process zone, so on an engine that used to run in UTC, setting
+`TZ=Europe/Rome` moves every such task by the zone's offset: `0 9 * * *` runs at
+09:00 Rome time instead of 09:00 UTC. The CDK stack now passes `app.timezone` as
+`TZ`, so a CDK deployment makes this change on upgrade. The next run already
+scheduled keeps its time; the ones after it are computed in the new zone. This
+lists the cron tasks that have no zone:
+
+```sql
+SELECT instance_id AS agent, name, schedule->>'expression' AS cron, enabled, next_run_at
+FROM scheduled_tasks
+WHERE schedule->>'type' = 'cron'
+  AND coalesce(schedule->>'timezone', '') = ''
+ORDER BY 1, 2;
+```
+
+To keep a task on UTC, open it in the agent's Automation → Scheduled section and
+save it: the form fills in `UTC` for a task that has no zone. Leaving `TZ` unset
+keeps every such task on the container's zone, UTC in the published image.
+
 ### Operational limits move to Settings → General
 
 Seven more variables become rows an administrator edits, with the defaults they
