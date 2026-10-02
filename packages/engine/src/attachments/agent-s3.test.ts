@@ -6,6 +6,8 @@
  * consequence of a half-filled form.
  */
 
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, it, expect } from "vitest";
 import { describeAgentS3Failure, resolveAgentS3 } from "./agent-s3.js";
 
@@ -83,6 +85,34 @@ describe("resolveAgentS3", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(await resolved(r.config.client.config.forcePathStyle)).toBeFalsy();
+  });
+
+  it("should_bound_every_call_with_a_connection_and_a_request_timeout", async () => {
+    // Without them an endpoint that accepted the connection and never answered
+    // held an attachment upload, or a conversation's cleanup, indefinitely.
+    const server = createServer((_req, res) => res.end("ok"));
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const { port } = server.address() as AddressInfo;
+    try {
+      for (const secrets of [{ ...BUCKET, ...STATIC }, { ...BUCKET, s3_use_task_role: "true" }]) {
+        const r = resolveAgentS3(secrets);
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const handler = r.config.client.config.requestHandler as unknown as {
+          handle(req: object): Promise<unknown>;
+          httpHandlerConfigs(): Record<string, unknown>;
+        };
+        // The handler settles its options on its first request.
+        await handler.handle({ protocol: "http:", hostname: "127.0.0.1", port, method: "GET", path: "/", headers: {}, query: {} });
+        expect(handler.httpHandlerConfigs()).toMatchObject({
+          connectionTimeout: 5_000,
+          requestTimeout: 60_000,
+          throwOnRequestTimeout: true,
+        });
+      }
+    } finally {
+      server.close();
+    }
   });
 
   it("should_name_the_missing_thing_in_every_failure", () => {

@@ -72,7 +72,16 @@ export function resolveAgentS3(secrets: Record<string, string> | undefined): Age
   // exists. Bringing S3-compatible storage back means an endpoint allow-list at
   // the DEPLOYMENT tier (not an agent secret) resolved through that pinning, not
   // this line.
-  const shared = { region };
+  //
+  // Every call is bounded. Without a timeout an S3 endpoint that accepts the
+  // connection and never answers held the attachment upload, and with it the
+  // turn's post-response work, or a conversation's cleanup, for as long as the
+  // socket stayed open. The request bound covers sending the body too, so it
+  // leaves room for the largest attachment on a slow link.
+  const shared = {
+    region,
+    requestHandler: { connectionTimeout: 5_000, requestTimeout: 60_000, throwOnRequestTimeout: true },
+  };
 
   if (accessKeyId && secretAccessKey) {
     return {
