@@ -392,16 +392,21 @@ export class InstancesController {
     const before = await findInstanceBySlug(asInstanceSlug(slug));
     if (!before) throw new NotFoundException(`Instance "${slug}" not found`);
 
-    // A PATCH that changes only the model carries no provider, and the agent's
-    // stored one is the one it will run on. Reading the body alone checked the
-    // model against a provider the caller never mentioned: it refused a valid
-    // Bedrock model on a Bedrock agent, and accepted an OpenAI model on one —
-    // which then failed at the first message, far from this edit. `null` is a
-    // deliberate clear, so it falls through to the gateway's default.
-    this.validateModelConfig(
-      body.provider !== undefined ? body.provider : before.provider,
-      body.model,
-    );
+    // The pair the agent will run on after this PATCH is what gets checked:
+    // each field from the body when it carries one, otherwise the stored one.
+    // A PATCH that changes only the model carries no provider; one that changes
+    // only the provider keeps the stored model. Reading the body alone checked a
+    // model against a provider the caller never mentioned, and let a provider
+    // switch keep a model of the old provider — both then failed at the first
+    // message, far from this edit. `null` is a deliberate clear, so it falls
+    // through to the gateway's default. A PATCH that touches neither is left
+    // alone, so an older mismatched row still accepts unrelated edits.
+    if (body.provider !== undefined || body.model !== undefined) {
+      this.validateModelConfig(
+        body.provider !== undefined ? body.provider : before.provider,
+        body.model !== undefined ? body.model : before.model,
+      );
+    }
 
     // Changing the embedding provider abandons the old embedding space (vectors
     // become uninterpretable) — existing memories + knowledge are wiped, never

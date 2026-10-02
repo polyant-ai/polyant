@@ -508,6 +508,42 @@ describe("InstancesController", () => {
       ).rejects.toThrow(/for provider "openai"/);
     });
 
+    it("refuses a provider change that leaves the stored model on the old provider", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(bedrockInstance);
+
+      await expect(controller.update("test-one", { provider: "openai" })).rejects.toThrow(
+        /Invalid model "openai.gpt-oss-120b-1:0" for provider "openai"/,
+      );
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it("refuses clearing the provider when the stored model belongs to another one", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(bedrockInstance);
+
+      await expect(controller.update("test-one", { provider: null })).rejects.toThrow(
+        /Invalid model "openai.gpt-oss-120b-1:0" for provider "openai"/,
+      );
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+    });
+
+    it("accepts a provider change when the body also clears the model", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(bedrockInstance);
+      mockUpdateInstance.mockResolvedValue({ ...bedrockInstance, provider: "openai", model: null });
+
+      await expect(controller.update("test-one", { provider: "openai", model: null })).resolves.toBeDefined();
+      expect(mockUpdateInstance).toHaveBeenCalled();
+    });
+
+    it("leaves a PATCH that touches neither provider nor model alone", async () => {
+      // A row that predates this check must still accept unrelated edits.
+      const mismatched = { ...fullInstance, provider: "bedrock", model: "gpt-4o" };
+      mockFindInstanceBySlug.mockResolvedValue(mismatched);
+      mockUpdateInstance.mockResolvedValue({ ...mismatched, name: "Renamed" });
+
+      await expect(controller.update("test-one", { name: "Renamed" })).resolves.toBeDefined();
+      expect(mockUpdateInstance).toHaveBeenCalled();
+    });
+
     it("reports a missing agent before judging the model", async () => {
       mockFindInstanceBySlug.mockResolvedValue(null);
 
