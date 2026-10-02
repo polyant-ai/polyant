@@ -22,5 +22,6 @@ test('evidence belongs to the current head, and every ecosystem component needs 
   assert.ok(validateEvidence(body, 'b'.repeat(40)).length);
   assert.ok(validateEvidence(body.replace('- sdk: no-impact: only internal CI tooling changed', '- sdk: TODO'), sha).some((error) => error.startsWith('sdk:')));
   assert.ok(validateEvidence(`<!-- ${body} -->`, sha).length);
+  assert.ok(validateEvidence(body.replace('Reviewed-commit', 'Reviewed-com<!-- hidden -->mit'), sha).length);
   assert.ok(validateEvidence(body.replace('- cli:', '> - cli:'), sha).some((error) => error.startsWith('cli:')));
 });
