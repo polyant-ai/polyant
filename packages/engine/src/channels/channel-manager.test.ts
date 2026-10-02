@@ -5,8 +5,9 @@ import { ChannelManager } from "./channel-manager.js";
 import type { MessageHandler } from "./types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
-const { mockFindInstanceBySlug, mockTelegramInitialize, mockTelegramDeregister } = vi.hoisted(() => ({
+const { mockFindInstanceBySlug, mockTelegramInitialize, mockTelegramDeregister, mockTelegramShutdown } = vi.hoisted(() => ({
   mockFindInstanceBySlug: vi.fn(),
+  mockTelegramShutdown: vi.fn().mockResolvedValue(undefined),
   mockTelegramInitialize: vi.fn().mockResolvedValue(undefined),
   mockTelegramDeregister: vi.fn().mockResolvedValue(undefined),
 }));
@@ -29,7 +30,7 @@ vi.mock("./adapters/telegram/index.js", () => ({
     this.name = "telegram";
     this.initialize = mockTelegramInitialize;
     this.sendMessage = vi.fn().mockResolvedValue(undefined);
-    this.shutdown = vi.fn().mockResolvedValue(undefined);
+    this.shutdown = mockTelegramShutdown;
     this.deregister = mockTelegramDeregister;
   }),
 }));
@@ -58,7 +59,8 @@ describe("ChannelManager", () => {
   beforeEach(() => {
     mockFindInstanceBySlug.mockReset();
     mockTelegramInitialize.mockClear();
-    mockTelegramDeregister.mockClear();
+    mockTelegramDeregister.mockReset().mockResolvedValue(undefined);
+    mockTelegramShutdown.mockClear();
     manager = new ChannelManager();
     manager.setMessageHandler(vi.fn().mockResolvedValue({ text: "ok" }));
   });
@@ -157,6 +159,24 @@ describe("ChannelManager", () => {
       await manager.stopAllForInstance("inst1", { deregister: true });
 
       expect(mockTelegramDeregister).toHaveBeenCalledOnce();
+    });
+
+    it("still shuts the adapter down when removing the registration fails", async () => {
+      // A failed deleteWebhook used to skip the shutdown, so the adapter's
+      // pending registration retry could later re-register a disabled channel.
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockTelegramDeregister.mockRejectedValue(new Error("telegram unreachable"));
+
+      await manager.startChannel("inst1", "telegram", { botToken: "t" });
+      await manager.stopChannel("inst1", "telegram", { deregister: true });
+      expect(mockTelegramShutdown).toHaveBeenCalledOnce();
+      expect(manager.getActiveChannels()).toEqual([]);
+
+      await manager.startChannel("inst2", "telegram", { botToken: "t" });
+      await manager.stopAllForInstance("inst2", { deregister: true });
+      expect(mockTelegramShutdown).toHaveBeenCalledTimes(2);
+      expect(manager.getActiveChannels()).toEqual([]);
+      error.mockRestore();
     });
   });
 
