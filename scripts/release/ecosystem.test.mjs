@@ -22,6 +22,7 @@ test('release coordination pins source versions and rejects omitted components o
     assert.equal(report.length, 5);
     assert.deepEqual(report[0].changedFiles, ['package.json']);
     assert.equal(report[0].consumerRefs['package.json'].sdk, 'git+https://example.invalid/sdk#v1.0.0');
+    assert.equal(inspectRelease({ components: components.map((c) => c.name === 'docs' ? { ...c, tag: undefined, destination: 'site and PDF from the pinned SHA' } : c) }, root).find((c) => c.name === 'docs').tag, null);
     assert.throws(() => inspectRelease({ components: components.slice(1) }, root), /each/);
     assert.throws(() => inspectRelease({ components: components.map((c) => ({ ...c, sha: 'HEAD' })) }, root), /immutable/);
     assert.throws(() => inspectRelease({ components: components.map((c) => ({ ...c, tag: 'v9.0.0' })) }, root), /tag v1.1.0/);

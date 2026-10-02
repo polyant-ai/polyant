@@ -83,6 +83,9 @@ The release manifest is a scratch artifact, not a second version registry. Run
 ```
 
 Use `decision: "unchanged"` with a reason when no publication is needed. The
+docs entry may omit a tag: publish its site/PDF from the pinned SHA and record
+the destination and resulting artifact. Its npm package version is not the engine version.
+The
 script reads committed manifests at the pinned SHA and validates the baseline
 ancestry; it never switches a checkout, executes its scripts or publishes. Its
 consumer refs must be compared with the intended component tags. Components without version tags use `baseline` with an explicitly reviewed full
