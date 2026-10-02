@@ -28,7 +28,8 @@ import { invalidatePromptsCache } from "./prompts.store.js";
 import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
 import { invalidateInstanceConfigCache } from "./config-resolver.js";
 import { isKnownEmbeddingProvider, knownEmbeddingProviders } from "../embeddings-gateway/config.js";
-import { instanceBundleSchema } from "./export.schema.js";
+import { instanceBundleSchema, type ExportInstanceData } from "./export.schema.js";
+import { normalizeFieldMapping } from "../conversations/field-mapping.js";
 import { importPrompts } from "./prompts.import.js";
 import { importSkillAssignments } from "./skill-assignments.import.js";
 import { importManualTools } from "./manual-tools.import.js";
@@ -44,6 +45,20 @@ import type { ImportWarning, ImportResult } from "./import.types.js";
 
 export type { ImportWarning, ImportResult } from "./import.types.js";
 export { importChannels, importMcpServers };
+
+/**
+ * Parse a bundle and hold its operator-written values to the rules the panel
+ * holds them to. A bundle is operator input like a PATCH body; a context field
+ * mapping the PATCH would refuse must not reach the column through an import.
+ * An invalid mapping fails the whole import, before anything is written.
+ */
+function parseBundle(rawBundle: unknown): ExportInstanceData {
+  const data = instanceBundleSchema.parse(rawBundle).instance;
+  return {
+    ...data,
+    webContextFieldMapping: normalizeFieldMapping(data.webContextFieldMapping, "webContextFieldMapping"),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Import as new instance
@@ -61,8 +76,7 @@ export async function importNewInstance(
   rawBundle: unknown,
   orgId?: string,
 ): Promise<ImportResult> {
-  const bundle = instanceBundleSchema.parse(rawBundle);
-  const data = bundle.instance;
+  const data = parseBundle(rawBundle);
   const warnings: ImportWarning[] = [];
 
   // The embedder is the ONE scalar this import writes that the deployment may not
@@ -204,8 +218,7 @@ export async function importOverwriteInstance(
   targetSlug: string,
   rawBundle: unknown,
 ): Promise<ImportResult> {
-  const bundle = instanceBundleSchema.parse(rawBundle);
-  const data = bundle.instance;
+  const data = parseBundle(rawBundle);
   const warnings: ImportWarning[] = [];
 
   // Verify target exists
