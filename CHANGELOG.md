@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> **Migration 0086 rewrites the conversations table, and the engine opens a
+> second, smaller Postgres pool.** See [docs/UPGRADING.md](docs/UPGRADING.md).
+
+### Added
+
+- `POSTGRES_POOL_MAX` sets the main Postgres pool (default 10).
+  `POSTGRES_ANALYTICS_POOL_MAX` (default 3) and
+  `POSTGRES_ANALYTICS_STATEMENT_TIMEOUT_MS` (default 15 seconds) size the new
+  analytics pool and bound its statements.
+
+### Changed
+
+- Conversations carry their message count, user message count and time of
+  the last message. The conversation list, the conversation detail, the
+  search and the analytics read them instead of counting messages, so their
+  cost no longer grows with message history. On 2 million messages the
+  analytics queries run 4 to 10 times faster.
+- Dashboards and other analytics reads run on their own connection pool, so a
+  heavy aggregate no longer holds the connections a conversation turn needs.
+- Connections to MCP servers that do not use OAuth are reused across turns
+  for up to a minute, instead of a new handshake on every turn. A connection
+  that fails is retired and the next turn opens a fresh one.
+- A model call no longer reads the agent's row from the database: the agent's
+  identity is cached for a minute and dropped when the agent changes.
+- The panel loads the changelog only for a Platform Admin, and loads the
+  changelog card's markdown renderer only when the dialog opens.
+
 ## [1.2.0] - 2026-10-02
 
 > **Upgrading from 1.1.2 needs operator action.** The engine and the panel run
