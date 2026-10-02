@@ -6,15 +6,13 @@ import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import {
-  getChannelConfig,
   resolveWhatsAppAuthMode,
   WHATSAPP_CHANNEL_TYPE,
   WHATSAPP_AUTH_MODE_TOKEN,
   WHATSAPP_AUTH_MODE_API_KEY,
 } from "../../instances/channels.store.js";
-import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
-import { channelManager } from "../../channels/channel-manager.js";
 import type { WhatsAppAdapter } from "../../channels/adapters/whatsapp/index.js";
+import { channelWebhookTracker, requireLiveAdapter } from "./live-adapter.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { sanitizeForLog } from "../../utils/create-logger.js";
 import { redactWebhookPath } from "../filters/redact-webhook-path.js";
@@ -87,7 +85,7 @@ function logWebhookUnavailable(reason: string, instanceSlug: string): void {
 
 @Controller("webhooks/twilio")
 export class TwilioWebhookController {
-  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Throttle({ default: { limit: 60, ttl: 60_000, getTracker: channelWebhookTracker(WHATSAPP_CHANNEL_TYPE) } })
   @Public()
   @Post(":instanceSlug/whatsapp")
   @HttpCode(200)
@@ -134,7 +132,7 @@ export class TwilioWebhookController {
    * messaging webhooks cannot carry custom headers, so a path segment is the
    * only channel available; rotation is the mitigation.
    */
-  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Throttle({ default: { limit: 60, ttl: 60_000, getTracker: channelWebhookTracker(WHATSAPP_CHANNEL_TYPE) } })
   @Public()
   @Post(":instanceSlug/whatsapp/:webhookSecret")
   @HttpCode(200)
@@ -167,29 +165,13 @@ export class TwilioWebhookController {
   }
 
   /** Resolve the instance, its stored WhatsApp config and the running adapter. */
-  private async resolveActiveChannel(
+  private resolveActiveChannel(
     instanceSlug: string,
   ): Promise<{ config: Record<string, unknown>; adapter: WhatsAppAdapter }> {
-    const instanceId = await resolveInstanceId(asInstanceSlug(instanceSlug));
-    if (!instanceId) {
-      logWebhookUnavailable("instance not found", instanceSlug);
-      throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
-    }
-
-    const channelConfig = await getChannelConfig(asInstanceSlug(instanceSlug), WHATSAPP_CHANNEL_TYPE);
-    if (!channelConfig || !channelConfig.enabled) {
-      logWebhookUnavailable("channel not configured or disabled", instanceSlug);
-      throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
-    }
-
-    const instanceMap = (channelManager as any).adapters.get(instanceSlug) as Map<string, WhatsAppAdapter> | undefined;
-    const adapter = instanceMap?.get("whatsapp") as WhatsAppAdapter | undefined;
-    if (!adapter) {
-      logWebhookUnavailable("adapter not active", instanceSlug);
-      throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
-    }
-
-    return { config: channelConfig.config, adapter };
+    return requireLiveAdapter<WhatsAppAdapter>(instanceSlug, WHATSAPP_CHANNEL_TYPE, {
+      message: WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE,
+      log: (reason) => logWebhookUnavailable(reason, instanceSlug),
+    });
   }
 
   /** Hand the authenticated message to the pipeline and answer Twilio at once. */

@@ -123,6 +123,21 @@ function machineCredentialBucket(req: TrackableRequest, label: string, value: st
   return bucket;
 }
 
+/**
+ * Bucket for a public channel webhook (Telegram, Slack, Twilio), for an agent
+ * whose adapter is running. Every bot of a deployment sends from the same few
+ * provider addresses, and behind a load balancer without `TRUST_PROXY` every
+ * request arrives from the balancer's own address; keyed on the address alone,
+ * all bots shared one bucket and one busy bot throttled the rest. The agent is
+ * part of the key, so each bot has its own budget; the address stays in it, so
+ * a caller spamming a known webhook URL from elsewhere spends its own budget
+ * rather than the provider's. Only agents with a live adapter get here (the
+ * caller checks), so rotating slugs cannot mint buckets.
+ */
+export function channelWebhookBucket(req: TrackableRequest, agentChannel: string): string {
+  return `${digest("agent", agentChannel)}:ip:${addressOf(req)}`;
+}
+
 /** Drop the per-address cardinality state. Tests only. */
 export function resetThrottleTrackerState(): void {
   machineCredentialsByAddress.clear();

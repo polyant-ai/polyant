@@ -11,6 +11,9 @@ const { mockGetChannelConfig, mockResolveInstanceId, mockChannelManager } = vi.h
   mockResolveInstanceId: vi.fn(),
   mockChannelManager: {
     adapters: new Map(),
+    getAdapter(slug: string, type: string) {
+      return (this.adapters as Map<string, Map<string, unknown>>).get(slug)?.get(type);
+    },
   },
 }));
 

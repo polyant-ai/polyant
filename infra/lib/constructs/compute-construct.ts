@@ -123,6 +123,10 @@ export class ComputeConstruct extends Construct {
         // setting. `DEFAULT_INSTANCE_ID` is gone too: every caller names its
         // agent, so its fallback could not fire.
         TZ: props.appConfig.timezone,
+        // One proxy hop: the ALB. Without it `req.ip` is the ALB node's own
+        // address for every request, so every per-address rate limit is shared
+        // by all callers, every bot's webhook included.
+        TRUST_PROXY: "1",
         // When ALB OIDC auth is configured, engine trusts x-amzn-oidc-data
         // headers instead of requiring its own Auth.js session.
       },
