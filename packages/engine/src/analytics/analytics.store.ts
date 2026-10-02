@@ -9,25 +9,28 @@ import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/sc
 export type { DateRange };
 
 /**
- * Every aggregate in this file counts calls that RETURNED.
+ * Spend counts every call; counts and averages count calls that RETURNED.
  *
  * `ai_logs` gained an `outcome` column (migration 0077) so a turn that dies at
- * the provider leaves a row — those rows carry zero tokens, zero cost and the
- * elapsed time before the failure. Without this predicate they would join the
- * denominators silently: `COUNT(*)` would become "calls attempted", and
- * `AVG(duration_ms)` would mix a 300 ms failure into the average of six-second
- * answers — two hundred failures beside two hundred answers report ~3.1 s where
- * the answer is 6 s. That average is also `previousPeriod.avgResponseTime`, so a
- * changed mix of failures between the two compared windows would move it on its
- * own. How OFTEN calls fail is a different question, and `outcome` is where it
- * is asked directly.
+ * the provider leaves a row. That row carries the tokens and cost of the steps
+ * the call completed before it failed (the provider billed them), and the
+ * elapsed time before the failure. So the two kinds of aggregate split:
  *
- * `outcome` is `NOT NULL DEFAULT 'ok'`, so every row written before 0077
- * satisfies this — the historical series does not move.
+ * - Cost and token SUMS include failed rows. Leaving them out made the
+ *   dashboard read lower than the provider's bill, and lower than the
+ *   conversation views, which sum every row.
+ * - COUNT and AVG(duration_ms) keep to answered calls (`ANSWERED`). Otherwise
+ *   `COUNT(*)` would become "calls attempted", and a 300 ms failure would join
+ *   the average of six-second answers — two hundred failures beside two hundred
+ *   answers report ~3.1 s where the answer is 6 s. How OFTEN calls fail is a
+ *   different question, and `outcome` is where it is asked directly.
+ *
+ * `outcome` is `NOT NULL DEFAULT 'ok'`, so every row written before 0077 is an
+ * answered call — the historical series does not move.
  */
-const ANSWERED_CALLS = sql` AND outcome = 'ok'`;
-/** The same predicate where `ai_logs` is aliased (see the per-agent query). */
-const ANSWERED_CALLS_AL = sql` AND al.outcome = 'ok'`;
+const ANSWERED = sql`FILTER (WHERE outcome = 'ok')`;
+/** The same filter where `ai_logs` is aliased (see the per-agent query). */
+const ANSWERED_AL = sql`FILTER (WHERE al.outcome = 'ok')`;
 
 export interface OverviewStats {
   totalCost: number;
@@ -140,11 +143,11 @@ async function getOverviewStats(
         COALESCE(SUM(completion_tokens), 0)::int AS completion_tokens,
         COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens,
         COALESCE(SUM(cache_creation_input_tokens), 0)::int AS cache_creation_input_tokens,
-        COALESCE(AVG(duration_ms), 0)::float AS avg_duration_ms,
-        COUNT(*)::int AS total_calls
+        COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration_ms,
+        (COUNT(*) ${ANSWERED})::int AS total_calls
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst} ${ANSWERED_CALLS}
+        ${instFilter} ${orgInst}
     `),
   );
 
@@ -171,10 +174,10 @@ async function getOverviewStats(
     await analyticsDb.execute(sql`
       SELECT
         COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost,
-        COALESCE(AVG(duration_ms), 0)::float AS avg_duration_ms
+        COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration_ms
       FROM ai_logs
       WHERE created_at >= ${toISO(prevFrom)} AND created_at <= ${toISO(prevTo)}
-        ${instFilter} ${orgInst} ${ANSWERED_CALLS}
+        ${instFilter} ${orgInst}
     `),
   );
 
@@ -277,7 +280,7 @@ async function getDailyTrend(
         COALESCE(SUM(total_tokens), 0)::int AS tokens
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst} ${ANSWERED_CALLS}
+        ${instFilter} ${orgInst}
       GROUP BY DATE(created_at)
       ORDER BY date
     `),
@@ -403,13 +406,13 @@ async function getModelDistribution(
       SELECT
         provider,
         model,
-        COUNT(*)::int AS calls,
+        (COUNT(*) ${ANSWERED})::int AS calls,
         COALESCE(SUM(total_tokens), 0)::int AS tokens,
         COALESCE(SUM(estimated_cost_usd), 0)::float AS cost,
-        COALESCE(AVG(duration_ms), 0)::float AS avg_duration
+        COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst} ${ANSWERED_CALLS}
+        ${instFilter} ${orgInst}
       GROUP BY provider, model
       ORDER BY cost DESC
     `),
@@ -437,12 +440,12 @@ async function getTierDistribution(
     await analyticsDb.execute(sql`
       SELECT
         tier,
-        COUNT(*)::int AS calls,
+        (COUNT(*) ${ANSWERED})::int AS calls,
         COALESCE(SUM(total_tokens), 0)::int AS tokens,
         COALESCE(SUM(estimated_cost_usd), 0)::float AS cost
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
-        ${instFilter} ${orgInst} ${ANSWERED_CALLS}
+        ${instFilter} ${orgInst}
       GROUP BY tier
       ORDER BY cost DESC
     `),
@@ -504,14 +507,14 @@ async function getInstanceComparison(
       SELECT
         al.instance_id,
         COALESCE(i.name, al.instance_id) AS name,
-        COUNT(DISTINCT al.conversation_id)::int AS conversations,
+        (COUNT(DISTINCT al.conversation_id) ${ANSWERED_AL})::int AS conversations,
         COALESCE(SUM(al.estimated_cost_usd), 0)::float AS cost,
         COALESCE(SUM(al.total_tokens), 0)::int AS tokens
       FROM ai_logs al
       LEFT JOIN instances i ON i.slug = al.instance_id
       WHERE al.created_at >= ${toISO(range.from)} AND al.created_at <= ${toISO(range.to)}
         AND al.instance_id IS NOT NULL
-        ${orgInst} ${ANSWERED_CALLS_AL}
+        ${orgInst}
       GROUP BY al.instance_id, i.name
       ORDER BY cost DESC
     `),
