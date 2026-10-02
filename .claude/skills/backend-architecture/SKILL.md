@@ -41,3 +41,6 @@ npm run lint -w @polyant/engine
 
 Run broader unit or integration suites only when the touched boundary warrants them. Schema
 changes also require the migration-journal guardrail. Report any check that could not run.
+
+At the final PR diff, run the engineering-checkpoint skill once; route changes
+also check generated engine API artifacts and the web proxy.
