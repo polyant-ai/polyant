@@ -62,6 +62,25 @@ exclusion is a decision with a reason, not an omitted test. For permissions veri
 old installations and newly created tenants, allowed and denied roles, and audit
 effects. Route changes require current generated API artifacts and proxy coverage.
 
+For every added/changed feature, especially configuration or options, decide what
+the existing agent Status system can verify. Extend its owning checks and data
+inputs when required prerequisites, invalid settings, missing capabilities or
+observable runtime failures would otherwise go unnoticed. Reuse the current
+catalogue, severity/verdict aggregation and UI consumers; trace their current
+locations in each edition instead of creating a parallel checker.
+
+Checks must be falsifiable, apply only when the feature requires them, and respect
+effective defaults/inherited configuration. An optional or deliberately disabled
+feature is not an error. Missing/unreadable evidence cannot establish healthy
+configuration. Include an actionable explanation and the existing navigation to
+the place that fixes it; translate new messages into every supported locale.
+Respect tenant scope and visibility, and never expose credential values.
+Use behavior tests for valid, missing/invalid and disabled/not-applicable cases,
+plus the owning UI/destination guardrails when affected. Prefer existing safe
+probes; checks must not create external side effects or run paid requests just
+to render Status. Record coverage or a justified non-verifiable/no-impact decision
+in the existing PR evidence; refresh only checks affected by this work.
+
 For supported locales check key parity, duplicate keys, interpolation placeholders,
 retired copy and the changed UI in both languages. Dynamic keys cannot safely be
 deleted by an unused-key grep. Translation quality and removing a supported language
