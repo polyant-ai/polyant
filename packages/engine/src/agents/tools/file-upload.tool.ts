@@ -37,7 +37,7 @@ export default defineTool({
       type: "text",
       label: "AWS access key ID",
       description:
-        "Opzionale. Va impostato insieme ad aws_secret_access_key. Se assenti entrambi, abilita s3_use_task_role per usare il task role.",
+        "Optional. Set together with aws_secret_access_key. If both are unset, enable s3_use_task_role to use the task role.",
       optional: true,
       sensitive: true,
     },
@@ -45,16 +45,16 @@ export default defineTool({
       key: "aws_secret_access_key",
       type: "text",
       label: "AWS secret access key",
-      description: "Opzionale. Va impostato insieme ad aws_access_key_id (credenziali statiche).",
+      description: "Optional. Set together with aws_access_key_id (static credentials).",
       optional: true,
       sensitive: true,
     },
     {
       key: "s3_use_task_role",
       type: "text",
-      label: "Usa il task role (opt-in)",
+      label: "Use the task role (opt-in)",
       description:
-        "Opt-in esplicito ('true'/'1'/'yes'): senza chiavi statiche, usa l'identità di runtime (task role ECS) per l'accesso S3 (anche cross-account via bucket policy). Off = niente uso implicito del task role.",
+        "Explicit opt-in ('true'/'1'/'yes'): without static keys, use the runtime identity (the ECS task role) for S3 access, cross-account too through a bucket policy. Off means the task role is never used implicitly.",
       optional: true,
       sensitive: false,
     },
