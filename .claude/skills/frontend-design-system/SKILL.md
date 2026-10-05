@@ -29,6 +29,9 @@ resolution in feature code.
 - Preserve semantic HTML, labels, keyboard operation, focus visibility, and readable states.
 - Use `request<T>()` for engine calls. A bare engine fetch can silently use another workspace.
 
+For destructive actions or changed data displays/exports, apply the relevant rows of
+`docs/engineering-checkpoints.md` § Lifecycle and deployment during implementation.
+
 ## Verify
 
 Run the narrow component or page test first, then:

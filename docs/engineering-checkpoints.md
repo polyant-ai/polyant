@@ -56,6 +56,11 @@ Deferred fixes link tracked work and the remaining consequence. Weekly review
 collects recurring unresolved lessons within the existing time/action bound.
 Do not rescan all transcripts or launch a new review on every correction.
 
+Each new instruction needs an owning document and a condition that triggers reading it.
+Keep only repository-wide agreements in CLAUDE.md; use path-scoped rules and existing
+skills for conditional procedures. Replace superseded guidance and preserve the existing
+instruction-context budget where present, rather than adding another always-loaded checklist.
+
 When adding or renaming a skill, edit the canonical `.claude/skills/<name>/SKILL.md`
 and run `npm run skills:sync`. It creates missing relative Codex links, is repeatable,
 and refuses conflicting copies/targets. Obsolete entries are reported with a failing
@@ -113,6 +118,23 @@ the configuration fields. A generic documentation homepage is insufficient.
 Contract changes inspect consumers' installed tags, not just local manifest versions.
 Follow-ups name related work and the compatibility consequence. A source change
 does not mean every component must receive a new version.
+
+## Lifecycle and deployment
+
+Use only rows triggered by the changed behavior. Inspect during implementation, then
+confirm the result once at the final checkpoint in existing verification/maintainability
+evidence. Reuse owning tests; these are not new per-PR fields or full-system audits.
+
+| Change | Required decision and focused proof |
+|---|---|
+| Persisted data or migration | Distinguish clean install from upgrade with existing data. State old/new version coexistence, migration ordering and downtime; identify rollback or backup/restore requirements. Test the affected upgrade path and operator recovery procedure where applicable before release. |
+| Destructive setting or operation | Identify lost data, invalidated credentials, rebuild cost and reversibility. Explain consequences before the user acts and require explicit acknowledgment for destructive actions. Test atomicity or the documented partial-failure/recovery contract. |
+| Background work, scheduler or streaming | Define cancellation, process shutdown, restart and completion semantics. Register acknowledged work with the existing drain/lifecycle mechanism; verify the applicable interruption path and preserve the ordering needed to flush records. |
+| Paid provider call or new processing path | Trace applicable cost accounting, usage metrics and budget admission/settlement in the current edition. Include success, failure, partial completion and cancellation semantics; preserve their existing distinction. Test with simulated providers, not paid calls. |
+| Data exposed to users | Follow changed fields through relevant panel lists/details, filters, CSV/PDF/reports and persisted older artifacts. Update owning projections or record an intentional omission; extend existing contract checks and exercise meaningful rendering/export behavior. |
+| In-process state or coordination | State supported replica count and behavior across restart, concurrent processes and deploys. Match actual deployment constraints; document limitations instead of assuming shared memory or introducing distributed infrastructure without a requirement. |
+| Runtime dependency, executable or required asset | Verify inclusion in the distributed package/container, including runtime-only dependencies and plugin requirements. Exercise the affected installed/image path; local development success alone is insufficient. |
+| Upload, import, external request or plugin execution | Reuse appropriate size, duration and concurrency limits plus cancellation. Check relevant limits and understandable failure behavior; avoid unbounded work and a full benchmark on unrelated changes. |
 
 ## Measures and baseline
 
