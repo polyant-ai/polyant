@@ -199,11 +199,41 @@ export async function getDueTasks(now: Date): Promise<ScheduledTask[]> {
   return rows.map((r) => r.task);
 }
 
-/** Atomically mark a task as running. Returns true if the update was applied (no race). */
-export async function markRunning(id: string): Promise<boolean> {
+/**
+ * The identity of one claim on a task: the `last_run_at` its `markRunning` wrote.
+ *
+ * `running` alone cannot tell two runs apart. After the reaper fails an overrunning
+ * run A, another replica can claim the task for run B; A's late completion would then
+ * match B's `running` row, clear B's claim and, with `deleteAfterRun`, delete the task
+ * under it. Every write that ends a run therefore names the claim it ends. `last_run_at`
+ * carries it because nothing else writes that column while a run is live (an API edit
+ * moves `updated_at`, which would make a live run lose its own completion).
+ *
+ * `null` is the claim of a row marked `running` by a process that did not stamp it,
+ * read back as-is by the reaper.
+ */
+export type RunClaim = Date | null;
+
+/** Millisecond precision on both sides: the claim is written from a JS Date. */
+function isClaim(claim: RunClaim) {
+  return claim === null
+    ? isNull(scheduledTasks.lastRunAt)
+    : sql`date_trunc('milliseconds', ${scheduledTasks.lastRunAt}) = ${claim.toISOString()}::timestamptz`;
+}
+
+/**
+ * Atomically mark a task as running. Returns the claim, or `null` when another run
+ * holds the task or (with `dueBy`) the task is no longer due.
+ *
+ * `dueBy` is for scheduled runs: the tick read the task as due, but by the time this
+ * write lands another replica may have run it and moved `next_run_at` forward, and
+ * claiming it anyway would run the same occurrence twice. A manual run omits it.
+ */
+export async function markRunning(id: string, opts: { dueBy?: Date } = {}): Promise<Date | null> {
+  const claim = new Date();
   const result = await db
     .update(scheduledTasks)
-    .set({ lastRunStatus: "running", updatedAt: new Date() })
+    .set({ lastRunStatus: "running", lastRunAt: claim, updatedAt: claim })
     .where(
       and(
         eq(scheduledTasks.id, id),
@@ -211,23 +241,27 @@ export async function markRunning(id: string): Promise<boolean> {
           isNull(scheduledTasks.lastRunStatus),
           sql`${scheduledTasks.lastRunStatus} != 'running'`,
         ),
+        opts.dueBy ? lte(scheduledTasks.nextRunAt, opts.dueBy) : undefined,
       ),
     )
     .returning({ id: scheduledTasks.id });
 
-  return result.length > 0;
+  return result.length > 0 ? claim : null;
 }
 
-/** Mark a task as successfully completed */
-export async function markCompleted(id: string, conversationId: string): Promise<void> {
+/**
+ * Mark the run holding `claim` as successfully completed. Returns the completion
+ * time, or `null` when that claim no longer holds the task (see `RunClaim`).
+ */
+export async function markCompleted(id: string, conversationId: string, claim: RunClaim): Promise<Date | null> {
   const task = await getById(id);
-  if (!task) return;
+  if (!task) return null;
 
   const schedule = task.schedule as ScheduleConfig;
   const now = new Date();
   const nextRunAt = computeNextRun(schedule, now);
 
-  await db
+  const rows = await db
     .update(scheduledTasks)
     .set({
       lastRunAt: now,
@@ -239,24 +273,33 @@ export async function markCompleted(id: string, conversationId: string): Promise
       nextRunAt,
       updatedAt: now,
     })
-    .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.lastRunStatus, "running")));
+    .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.lastRunStatus, "running"), isClaim(claim)))
+    .returning({ id: scheduledTasks.id });
+  return rows.length > 0 ? now : null;
 }
 
 /**
- * Mark a task as failed. Returns whether the row was updated.
- *
- * `runningSince` makes the write a compare-and-set on the run it was read for.
- * The reaper passes the `updated_at` it saw: between that read and this write,
- * the run it judged overdue may have completed and the task been claimed again
- * by another replica (the in-process guard in the scheduler only sees its own
- * process), and failing THAT run would overwrite a live claim and free it for a
- * third execution. The `running` guard alone cannot tell the two runs apart.
+ * Delete a one-shot task after the run that completed at `completedAt`, and only if
+ * nothing has claimed or completed it since. Returns whether the row was deleted.
  */
-export async function markFailed(
-  id: string,
-  error: string,
-  opts: { runningSince?: Date } = {},
-): Promise<boolean> {
+export async function removeAfterRun(id: string, completedAt: Date): Promise<boolean> {
+  const rows = await db
+    .delete(scheduledTasks)
+    .where(and(eq(scheduledTasks.id, id), eq(scheduledTasks.lastRunStatus, "success"), isClaim(completedAt)))
+    .returning({ id: scheduledTasks.id });
+  return rows.length > 0;
+}
+
+/**
+ * Mark the run holding `claim` as failed. Returns whether the row was updated.
+ *
+ * The write is a compare-and-set on the claim it was read for (see `RunClaim`). The
+ * reaper passes the claim it saw: between that read and this write, the run it judged
+ * overdue may have completed and the task been claimed again by another replica (the
+ * in-process guard in the scheduler only sees its own process), and failing THAT run
+ * would overwrite a live claim and free it for a third execution.
+ */
+export async function markFailed(id: string, error: string, claim: RunClaim): Promise<boolean> {
   const task = await getById(id);
   if (!task) return false;
 
@@ -293,10 +336,7 @@ export async function markFailed(
     .where(and(
       eq(scheduledTasks.id, id),
       eq(scheduledTasks.lastRunStatus, "running"),
-      // Millisecond precision on both sides: the claim is written from a JS Date.
-      opts.runningSince
-        ? sql`date_trunc('milliseconds', ${scheduledTasks.updatedAt}) = ${opts.runningSince.toISOString()}::timestamptz`
-        : undefined,
+      isClaim(claim),
     ))
     .returning({ id: scheduledTasks.id });
   return rows.length > 0;

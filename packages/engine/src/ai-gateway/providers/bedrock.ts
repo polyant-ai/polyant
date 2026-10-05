@@ -4,7 +4,7 @@ import type { ModelMessage } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { createProvider, type PrepareMessages } from "./base.js";
-import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
+import { injectCacheBreakpoints, makeStepMarker, withoutProviderCacheMarker, withProviderCacheMarker } from "./prompt-caching.js";
 import { cacheSupported, cacheOnToolMessagesSupported } from "../config.js";
 import type { ReasoningToggle } from "../model-catalog.js";
 
@@ -73,10 +73,11 @@ export const applyBedrockPromptCaching: PrepareMessages = (input) => {
  * (unlike Anthropic, where the within-turn marker drops to a 5m TTL). Wired via
  * `createProvider`'s `stepMarker` hook.
  */
-export const bedrockStepMarker = makeStepMarker(
-  (message, modelId) => markBedrockFor(modelId)(message),
-  (modelId) => cacheSupported("bedrock", modelId),
-);
+export const bedrockStepMarker = makeStepMarker({
+  applyMarker: (message, modelId) => markBedrockFor(modelId)(message),
+  clearMarker: (message) => withoutProviderCacheMarker(message, "bedrock", "cachePoint"),
+  isCacheCapable: (modelId) => cacheSupported("bedrock", modelId),
+});
 
 export const BedrockProvider = createProvider(
   "bedrock",

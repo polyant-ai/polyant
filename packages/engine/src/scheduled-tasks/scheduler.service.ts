@@ -146,9 +146,10 @@ class SchedulerService {
       return;
     }
 
-    // Atomic lock — prevents double execution
-    const locked = await store.markRunning(task.id);
-    if (!locked) return;
+    // Atomic lock — prevents double execution. A scheduled run also re-checks that
+    // the task is still due: another replica may have run it since the tick read it.
+    const claim = await store.markRunning(task.id, triggerType === "scheduled" ? { dueBy: new Date() } : {});
+    if (!claim) return;
 
     this.running.add(task.id);
     const timestamp = Date.now();
@@ -203,9 +204,17 @@ class SchedulerService {
         },
       });
 
-      // Success
-      await store.markCompleted(task.id, conversationId);
-      scheduledTaskLog.info("SchedulerService", `task "${task.name}" completed`);
+      // Success. `null` means this run lost its claim (reaped, then claimed again
+      // elsewhere): the run that holds the task now records its own outcome.
+      const completedAt = await store.markCompleted(task.id, conversationId, claim);
+      if (completedAt) {
+        scheduledTaskLog.info("SchedulerService", `task "${task.name}" completed`);
+      } else {
+        scheduledTaskLog.warn(
+          "SchedulerService",
+          `task "${task.name}" (${task.id}) completed after losing its claim — outcome not recorded on the task`,
+        );
+      }
 
       // Log successful run (strip tool args to avoid persisting PII/secrets)
       if (runId) {
@@ -234,13 +243,14 @@ class SchedulerService {
 
       // Handle one-shot + deleteAfterRun
       const schedule = task.schedule as ScheduleConfig;
-      if (schedule.type === "one-shot" && task.deleteAfterRun) {
-        await store.remove(task.id);
-        scheduledTaskLog.info("SchedulerService", `one-shot task "${task.name}" deleted after run`);
+      if (schedule.type === "one-shot" && task.deleteAfterRun && completedAt) {
+        if (await store.removeAfterRun(task.id, completedAt)) {
+          scheduledTaskLog.info("SchedulerService", `one-shot task "${task.name}" deleted after run`);
+        }
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      await store.markFailed(task.id, errorMsg);
+      await store.markFailed(task.id, errorMsg, claim);
       scheduledTaskLog.error("SchedulerService", `task "${task.name}" failed:`, errorMsg);
 
       // Log failed run
@@ -340,7 +350,7 @@ class SchedulerService {
       const reaped = await store.markFailed(
         task.id,
         `orphaned: run exceeded its deadline of ${deadline} ms (running for ${runningForMs} ms)`,
-        { runningSince: task.updatedAt ?? undefined },
+        task.lastRunAt,
       );
       if (!reaped) continue;
       await runLog.failDanglingRuns([task.id], `orphaned: run exceeded ${deadline} ms`);

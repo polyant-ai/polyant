@@ -85,13 +85,13 @@ conversation of the same agent. Each artifact is limited to 10 MB and at most
 10 minutes; one conversation holds at most 20 handles or 25 MB that nothing has
 taken yet, and the process store at most 100 MB or 1,000 live handles. `put`
 throws when a limit is reached. Always `await` both `put` and `take`: they
-answer synchronously in process, but the SDK types them as possibly
-asynchronous because in dev mode each call is a round trip to the engine.
+answer synchronously in this engine, but the SDK types them as possibly
+asynchronous, so code that awaits them keeps working wherever the store lives.
 Persist anything longer-lived through `fileUpload` instead.
 
 ### Schema rules (OpenAI strict-mode compatible — enforced by `strict-mode.test.ts`)
 - `.nullable()`, **not** `.optional()` / `.default()` (apply defaults in `execute`).
-- No `.transform()` / `.refine()` / `.preprocess()` in `parameters` — move that logic to `execute` and return `{ error }` instead of throwing (see `hubspot-contact.tool.ts`, `http-request.tool.ts`).
+- No `.transform()` / `.refine()` / `.preprocess()` in `parameters` — move that logic to `execute` and return `{ error }` instead of throwing (see `http-request.tool.ts`).
 - No `.url()`/`.email()`/`.uuid()`/`.datetime()` formats — validate strings in `execute`.
 - `z.record(z.string(), z.string())` OK; `z.record(z.unknown())` not.
 
@@ -213,7 +213,7 @@ engine's tree. The same stage collects the `system` blocks described above.
 
 Both the engine and every plugin reference the SDK by pinned tag:
 ```
-"@polyant-ai/plugin-sdk": "git+https://github.com/polyant-ai/polyant-sdk.git#v1.0.0"
+"@polyant-ai/plugin-sdk": "github:polyant-ai/polyant-sdk#v1.9.0"
 ```
 `npm install` clones it and runs its `prepare` (build) → `dist`. The SDK's version
 is the compatibility contract; bump it deliberately and update the ref.

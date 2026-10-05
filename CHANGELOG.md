@@ -142,10 +142,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A hook that returns `regenerate` or `injectContext` on a Room or webhook turn,
   where those controls are not honored, now logs a warning naming the hook and
   the dropped control.
-- The plugin SDK is pinned at v1.9.0, including plugin knowledge access. SDK
-  1.9.0 declares `ctx.artifacts` on `ToolContext`, so plugin tools read it
-  from the SDK's own types; `put` and `take` may return a promise and must be
-  awaited.
+- The plugin SDK is pinned at v1.9.0. SDK 1.9.0 declares `ctx.artifacts` on
+  `ToolContext`, so plugin tools read it from the SDK's own types; `put` and
+  `take` may return a promise and must be awaited. The SDK's knowledge-access
+  declarations (`requiredKnowledge`, `ctx.knowledge`) are not implemented by
+  this engine: a plugin that declares them is loaded, but gets no knowledge
+  base handle.
 - Runtime dependencies moved to NestJS 12, AI SDK 7, React 19.3, Vitest 5,
   dotenv 18, jsdom 30 and markdown-it 15.
 - Telegram webhook registration happens after the channel starts and is
@@ -327,6 +329,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a supported path and the config says so.
 - A failed load of Settings → General shows the reason with a retry instead of
   a skeleton.
+- A Claude turn on Anthropic or Bedrock that ran three or more tool steps no
+  longer fails. Each step added a cache breakpoint and kept the previous ones,
+  so the request passed the provider's limit of four: Bedrock refused it with
+  a 400 (the caller saw a 500) and Anthropic dropped the newest. The
+  within-turn breakpoint now moves to the latest step.
+- A scheduled run that finishes after the reaper failed it no longer clears
+  the claim of the run that replaced it, nor deletes a one-shot task under it.
+  A replica that claims a task another replica has just run no longer runs it
+  a second time.
+- On shutdown the schedulers stop first, so no task starts during the
+  ten-second HTTP grace period to be cut off by the exit, and a step that fails
+  (a trace-store flush against a database already gone, say) is logged and no
+  longer keeps the process alive until the platform kills it.
+- A WhatsApp or Telegram message sent while the previous answer was being
+  cancelled is answered together with the earlier fragments in one reply. When
+  the cancelled run took longer than the debounce window to stop, the contact
+  got one reply to the new fragment and another to the old ones.
+- A Telegram reply in flight when the channel is saved is still delivered, and
+  Telegram file downloads stop after 30 seconds and refuse files over 20 MB.
+- The engine warns at boot when a `PLATFORM_S3_*` variable is still set:
+  1.2.0 no longer reads them.
+- The upgrade guide's pre-step for migration `0086` built an index on
+  `conversations.last_message_at`, a column 1.1.x does not have, so it failed.
+  It now builds only the `conversation_messages` index ahead.
+- The `fileUpload` credential fields are labelled in English.
 
 ### Security
 
@@ -342,6 +369,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are no longer written to logs.
 - Updated undici to 8.11.2 and 7.30.0 for its open security advisories. The
   Next.js, Sharp, js-yaml, Multer and qs updates already shipped in 1.1.2.
+- Updated axios to 1.20.0 for twelve high-severity advisories in 1.19.0.
+- The engine and web images run as the unprivileged `node` user instead of
+  root, and declare a health check (`/health` on the engine, the sign-in page
+  on the web). A volume mounted on the engine's `/app/logs` or
+  `/app/packages/engine/workspaces` must be writable by uid 1000.
 
 ## [1.1.2] - 2026-09-24
 

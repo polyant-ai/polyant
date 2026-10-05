@@ -52,4 +52,15 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+# Run as the image's unprivileged `node` user. The standalone server writes only
+# its image cache under .next/cache, created here and owned by it; the rest of
+# the tree stays root-owned and read-only to the process.
+RUN mkdir -p /app/packages/web/.next/cache && chown node:node /app/packages/web/.next/cache
+USER node
+
+# The sign-in page renders without a session or the engine, so it shows the
+# server itself is up.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/login" || exit 1
+
 CMD ["node", "packages/web/server.js"]

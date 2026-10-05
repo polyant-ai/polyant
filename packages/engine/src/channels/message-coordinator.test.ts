@@ -164,6 +164,44 @@ describe("MessageCoordinator", () => {
     expect(sendOutbound).toHaveBeenCalledWith("my-instance", "whatsapp", "+390000000001", "late-response");
   });
 
+  it("answers old and new fragments in one restart when the aborted run unwinds slower than the debounce", async () => {
+    // The aborted run gives its fragments back only once it has finished
+    // unwinding. Here that takes 5s against a 2s debounce: a restart that read
+    // the buffer when its timer fired answered "second" alone, and a third run
+    // then answered "first".
+    const handler = vi.fn<(m: IncomingMessage, signal: AbortSignal) => Promise<OutgoingMessage>>(
+      async (msg, signal) => {
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, 1000);
+          signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            setTimeout(() => reject(err), 5000);
+          });
+        });
+        return { text: `reply to ${msg.text.replace("\n", "+")}` };
+      },
+    );
+    const sendOutbound = vi.fn().mockResolvedValue(undefined);
+
+    const c = new MessageCoordinator({
+      resolveTimings: async () => ({ softDebounceMs: 2000, typingDelayMs: 1500, maxRestarts: 3 }),
+      handler,
+      sendOutbound,
+    });
+
+    await c.onMessage(makeMsg({ text: "first" }));
+    await vi.advanceTimersByTimeAsync(2000); // run 1 starts with "first"
+    await vi.advanceTimersByTimeAsync(500);
+    await c.onMessage(makeMsg({ text: "second" })); // aborts run 1, which unwinds until t=7500
+    await vi.runAllTimersAsync();
+
+    expect(handler.mock.calls.map(([m]) => m.text)).toEqual(["first", "first\nsecond"]);
+    expect(sendOutbound).toHaveBeenCalledTimes(1);
+    expect(sendOutbound).toHaveBeenCalledWith("my-instance", "whatsapp", "+390000000001", "reply to first+second");
+  });
+
   it("stops cancelling after maxRestarts, accumulating fragments for a follow-up flush", async () => {
     let handlerCalls = 0;
     const handler = vi.fn<(m: IncomingMessage, signal: AbortSignal) => Promise<OutgoingMessage>>(

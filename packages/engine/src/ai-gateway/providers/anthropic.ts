@@ -4,7 +4,7 @@ import type { ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ReasoningToggle } from "../model-catalog.js";
 import { createProvider, type PrepareMessages } from "./base.js";
-import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
+import { injectCacheBreakpoints, makeStepMarker, withoutProviderCacheMarker, withProviderCacheMarker } from "./prompt-caching.js";
 
 /**
  * Beta header that enables interleaved thinking + tool use across multiple
@@ -59,7 +59,10 @@ export const applyAnthropicPromptCaching: PrepareMessages = (input) =>
  * when the instance runs the cross-turn breakpoints at 1h. Wired via
  * `createProvider`'s `stepMarker` hook.
  */
-export const anthropicStepMarker = makeStepMarker(markAnthropic(CACHE_CONTROL_5M));
+export const anthropicStepMarker = makeStepMarker({
+  applyMarker: markAnthropic(CACHE_CONTROL_5M),
+  clearMarker: (message) => withoutProviderCacheMarker(message, "anthropic", "cacheControl"),
+});
 
 export const AnthropicProvider = createProvider(
   "anthropic",

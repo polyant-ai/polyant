@@ -69,7 +69,7 @@ export interface ArtifactApi {
 /**
  * `ctx.artifacts` as a tool sees it: the plugin SDK's contract, under which
  * either method may answer synchronously (this in-process store) or
- * asynchronously (a dev-mode round trip to a remote engine). Callers always
+ * asynchronously (a store outside the process). Callers always
  * `await` both; only the store itself relies on {@link ArtifactApi} being
  * synchronous.
  */

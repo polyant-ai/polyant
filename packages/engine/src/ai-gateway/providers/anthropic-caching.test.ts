@@ -158,3 +158,40 @@ describe("anthropicStepMarker (multi-step prepareStep)", () => {
     expect(JSON.stringify(messages)).toBe(snapshot);
   });
 });
+
+describe("Anthropic cache breakpoints across a multi-step turn", () => {
+  // The SDK feeds the messages `prepareStep` returned into the next step; a
+  // marker that never moves adds one breakpoint per step, and above four the
+  // SDK drops the newest — the one this marker exists to place.
+  it("keeps instructions, history and the latest step marked, at four breakpoints or fewer", () => {
+    const first = applyAnthropicPromptCaching({
+      modelId: "claude-sonnet-4-6",
+      system: "SYSTEM",
+      messages: [
+        { role: "user", content: "turn 1" },
+        { role: "assistant", content: "reply 1" },
+        { role: "user", content: "turn 2 (current)" },
+      ],
+    });
+    let messages = first.messages;
+    for (let step = 1; step <= 3; step++) {
+      messages = [
+        ...messages,
+        { role: "assistant", content: [{ type: "tool-call", toolCallId: `t${step}`, toolName: "lookup", input: {} }] },
+        {
+          role: "tool",
+          content: [
+            { type: "tool-result", toolCallId: `t${step}`, toolName: "lookup", output: { type: "text", value: "ok" } },
+          ],
+        },
+      ];
+      messages = anthropicStepMarker({ stepNumber: step, messages, modelId: "claude-sonnet-4-6" }).messages!;
+      const marked = messages.filter((m) => cacheControlOf(m) !== undefined).length;
+      expect(marked + (cacheControlOf(first.instructions) ? 1 : 0)).toBeLessThanOrEqual(4);
+    }
+    expect(cacheControlOf(first.instructions)).toEqual(EPHEMERAL);
+    expect(cacheControlOf(messages[1])).toEqual(EPHEMERAL);
+    expect(cacheControlOf(messages[messages.length - 1])).toEqual(STEP_EPHEMERAL);
+    expect(messages.slice(2, -1).filter((m) => cacheControlOf(m) !== undefined)).toHaveLength(0);
+  });
+});

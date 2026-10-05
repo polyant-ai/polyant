@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Controller, Get, Module, Res, type INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import type { Response } from "express";
-import { closeHttpServer } from "./graceful-close.js";
+import { closeHttpServer, runShutdownSteps } from "./graceful-close.js";
 
 @Controller()
 class HeldController {
@@ -101,5 +101,43 @@ describe("closeHttpServer", () => {
 
     expect(outcome.forced).toBe(false);
     expect(Date.now() - started).toBeLessThan(1_000);
+  });
+});
+
+describe("runShutdownSteps", () => {
+  it("runs every later step when one rejects, and names the one that failed", async () => {
+    const ran: string[] = [];
+    const errors: unknown[][] = [];
+    const failed = await runShutdownSteps(
+      [
+        { name: "schedulers", run: () => void ran.push("schedulers") },
+        {
+          name: "trace store",
+          run: async () => {
+            ran.push("trace store");
+            throw new Error("connection terminated");
+          },
+        },
+        { name: "sync throw", run: () => { ran.push("sync throw"); throw new Error("boom"); } },
+        { name: "file logger", run: () => void ran.push("file logger") },
+      ],
+      { error: (...args: unknown[]) => void errors.push(args) },
+    );
+
+    expect(ran).toEqual(["schedulers", "trace store", "sync throw", "file logger"]);
+    expect(failed).toEqual(["trace store", "sync throw"]);
+    expect(errors.map((e) => String(e[0]))).toEqual([
+      expect.stringContaining("trace store"),
+      expect.stringContaining("sync throw"),
+    ]);
+  });
+
+  it("waits for each step before starting the next", async () => {
+    const ran: string[] = [];
+    await runShutdownSteps([
+      { name: "slow", run: () => new Promise<void>((resolve) => setTimeout(() => { ran.push("slow"); resolve(); }, 20)) },
+      { name: "after", run: () => void ran.push("after") },
+    ]);
+    expect(ran).toEqual(["slow", "after"]);
   });
 });
