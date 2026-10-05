@@ -22,6 +22,8 @@ human contributors use the same commands; no provider, hook or agent CLI is requ
 5. Decide each affected configuration's export/import, snapshot, migration,
    role defaults, authorization, audit and retention behavior. Prefer existing
    derived guardrails; verify fallback tests isolate the path under examination.
+   Added/changed features, especially configuration/options, also require a Status
+   coverage decision using the existing checks: see § Collateral impact in the guide.
 6. Record SDK, CLI, dev-kit and docs as updated (link the work), follow-up required
    (link the tracked work and compatibility limit), or no-impact (reason).
    Public contract breaks block release until consumers and docs are compatible.

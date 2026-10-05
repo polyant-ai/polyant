@@ -17,6 +17,7 @@ export function changeImpact(files) {
     browser: has(/^packages\/web\/(?:src\/(?!lib\/i18n\/locales\/).*\.[jt]sx?$|e2e\/|next\.config|playwright\.config)/) || has(/^packages\/engine\/src\/(auth|authz|server|organizations)\//),
     checks: [
       ...(engine ? ['engine: focused tests, typecheck, lint'] : []),
+      ...(engine ? ['status: inspect existing agent Status checks for verifiable missing/invalid configuration and runtime failures; record coverage or a no-impact reason'] : []),
       ...(web ? ['web: focused tests, typecheck, lint; locales for copy; browser for changed flows'] : []),
       ...(has(/^packages\/engine\/src\/server\//) ? ['routes: OpenAPI artifacts and web proxy guardrails; real HTTP for framework-shaped input'] : []),
       ...(configuration ? ['configuration: export/import, snapshots, defaults, migrations and purge coverage'] : []),
