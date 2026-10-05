@@ -21,6 +21,39 @@ the presence of a workflow alone does not prevent a merge. Drafts may remain red
 until the completion checkpoint. Write PR titles/descriptions/reviews in English
 and sign commits with DCO. Release promotion also needs a completed checkpoint.
 
+## Lessons from work
+
+Keep a concrete agent correction or escaped defect in the current task notes/PR:
+what happened, expected behavior and the observed example. At the final checkpoint,
+check current code, instructions and enforcement before adding anything. Reuse an
+existing mechanism where it already covers the failure. Repeated gaps and serious
+first failures warrant a durable fix; task-specific preferences stay in the PR.
+
+| Lesson | Owning mechanism |
+|---|---|
+| Incorrect product behavior | Code and observable regression test |
+| Constraint that must hold for every contributor | Existing test, lint, script or CI gate |
+| Missing procedure | Existing task skill |
+| Procedure exists but was missed | Skill description or conditional instruction pointer |
+| Repository-wide working agreement | CLAUDE.md |
+| Durable architectural choice | ADR |
+
+Record the example, chosen mechanism and verification in the existing
+maintainability evidence. Replace superseded guidance and check for duplication.
+For changed skill behavior, exercise one relevant task with independent success
+criteria; file/link tests prove discovery consistency, not agent compliance.
+Deferred fixes link tracked work and the remaining consequence. Weekly review
+collects recurring unresolved lessons within the existing time/action bound.
+Do not rescan all transcripts or launch a new review on every correction.
+
+When adding or renaming a skill, edit the canonical `.claude/skills/<name>/SKILL.md`
+and run `npm run skills:sync`. It creates missing relative Codex links, is repeatable,
+and refuses conflicting copies/targets. Obsolete entries are reported with a failing
+exit status for explicit review; the command never deletes or overwrites them.
+The existing CI entrypoint test rejects missing, obsolete, copied or incorrect links.
+Commit the skill and its link changes in the same PR. Removing a skill requires
+removing its obsolete link after confirming the intended deletion.
+
 ## Collateral impact
 
 For configuration/schema changes decide export/import, snapshot, defaults, upgrade
