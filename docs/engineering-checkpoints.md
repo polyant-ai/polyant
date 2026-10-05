@@ -21,6 +21,16 @@ the presence of a workflow alone does not prevent a merge. Drafts may remain red
 until the completion checkpoint. Write PR titles/descriptions/reviews in English
 and sign commits with DCO. Release promotion also needs a completed checkpoint.
 
+## CI cost boundaries
+
+PR code changes run the existing product checks plus the completion checks. A newer
+commit cancels superseded PR CI, while checks on integrated branches are retained.
+Editing only the PR description validates evidence without rerunning tooling tests
+or producing another inventory artifact. Code updates, merged changes and scheduled
+runs still test tooling and retain inventories. Browser smoke uses the same tests
+with Chromium's headless shell; no full browser download is needed for this suite.
+These checks do not invoke models. Keep full release audits at the release checkpoint.
+
 ## Lessons from work
 
 Keep a concrete agent correction or escaped defect in the current task notes/PR:
