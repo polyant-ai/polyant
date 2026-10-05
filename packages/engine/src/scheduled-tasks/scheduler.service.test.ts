@@ -27,6 +27,7 @@ const { mockStore, mockRunLog, mockChannelManager } = vi.hoisted(() => ({
     markCompleted: vi.fn(),
     markFailed: vi.fn(),
     remove: vi.fn(),
+    removeAfterRun: vi.fn(),
     update: vi.fn(),
     findStuckRunning: vi.fn(),
     countStuckRunning: vi.fn(),
@@ -86,8 +87,9 @@ describe("SchedulerService", () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     mockStore.getDueTasks.mockReset().mockResolvedValue([]);
-    mockStore.markRunning.mockReset().mockResolvedValue(true);
-    mockStore.markCompleted.mockReset().mockResolvedValue(undefined);
+    mockStore.markRunning.mockReset().mockResolvedValue(new Date());
+    mockStore.markCompleted.mockReset().mockResolvedValue(new Date());
+    mockStore.removeAfterRun.mockReset().mockResolvedValue(true);
     mockStore.markFailed.mockReset().mockResolvedValue(true);
     mockRunLog.createRun.mockReset().mockResolvedValue("run-1");
     mockRunLog.completeRun.mockReset().mockResolvedValue(undefined);
@@ -291,6 +293,7 @@ describe("SchedulerService", () => {
       schedule: { type: "cron", expression: "0 8 * * 1" },
       lastRunStatus: "running",
       updatedAt: new Date(Date.now() - ms),
+      lastRunAt: new Date(Date.now() - ms),
       maxRunMs,
       keepHistory: false,
       deleteAfterRun: false,
@@ -321,7 +324,7 @@ describe("SchedulerService", () => {
 
       await schedulerService.tick();
 
-      expect(mockStore.markFailed).toHaveBeenCalledWith("task-hung", expect.any(String), { runningSince: hung.updatedAt });
+      expect(mockStore.markFailed).toHaveBeenCalledWith("task-hung", expect.any(String), hung.lastRunAt);
       expect(mockRunLog.failDanglingRuns).not.toHaveBeenCalled();
     });
 

@@ -4,8 +4,8 @@
  * Unit tests for packages/engine/src/scheduled-tasks/store.ts
  *
  * Covers the critical mutation invariants:
- * - markRunning(id) is an atomic guard: returns true when the row was not
- *   already "running", false on race (no rows updated).
+ * - markRunning(id) is an atomic guard: returns the claim when the row was not
+ *   already "running", null on race (no rows updated).
  * - markFailed increments consecutiveErrors and writes the error message.
  * - markFailed disables the task (enabled = false, nextRunAt = null) when
  *   consecutiveErrors reaches MAX_CONSECUTIVE_ERRORS.
@@ -180,32 +180,32 @@ describe("scheduled-tasks/store", () => {
   // markRunning — atomic guard
   // -----------------------------------------------------------------------
   describe("markRunning", () => {
-    it("returns true when the row was successfully marked running (not previously running)", async () => {
+    it("returns the claim when the row was successfully marked running (not previously running)", async () => {
       // returning() resolves to [{ id }] when one row was updated
       mockDb.update.mockReturnValue(createChainMock([{ id: TASK_ID }]) as never);
 
       const result = await markRunning(TASK_ID);
 
-      expect(result).toBe(true);
+      expect(result).toBeInstanceOf(Date);
       expect(mockDb.update).toHaveBeenCalledTimes(1);
     });
 
-    it("returns false when the row was already 'running' (race lost, zero rows updated)", async () => {
+    it("returns null when the row was already 'running' (race lost, zero rows updated)", async () => {
       // returning() resolves to [] when WHERE clause filtered out the row
       mockDb.update.mockReturnValue(createChainMock([]) as never);
 
       const result = await markRunning(TASK_ID);
 
-      expect(result).toBe(false);
+      expect(result).toBeNull();
     });
   });
 
   it("does not overwrite a task that completed while the scheduler was resolving its outcome", async () => {
     mockDb.select.mockReturnValue(createChainMock([BASE_TASK]) as never);
-    const updateChain = createChainMock(undefined);
+    const updateChain = createChainMock([]);
     mockDb.update.mockReturnValue(updateChain as never);
 
-    await markCompleted(TASK_ID, "conversation-1");
+    await markCompleted(TASK_ID, "conversation-1", new Date());
 
     expect(JSON.stringify(updateChain.where.mock.calls[0][0])).toContain("running");
   });
@@ -224,7 +224,7 @@ describe("scheduled-tasks/store", () => {
       const updateChain = createChainMock([{ id: TASK_ID }]);
       mockDb.update.mockReturnValue(updateChain as never);
 
-      await markFailed(TASK_ID, "boom");
+      await markFailed(TASK_ID, "boom", new Date());
 
       const setArgs = updateChain.set.mock.calls[0][0] as Record<string, unknown>;
       expect(setArgs.consecutiveErrors).toBe(1);
@@ -240,7 +240,7 @@ describe("scheduled-tasks/store", () => {
       mockDb.update.mockReturnValue(updateChain as never);
 
       const beforeMs = Date.now();
-      await markFailed(TASK_ID, "transient");
+      await markFailed(TASK_ID, "transient", new Date());
       const afterMs = Date.now();
 
       // consecutive becomes 1 → computeRetryDelay called with (1 - 1) = 0
@@ -259,7 +259,7 @@ describe("scheduled-tasks/store", () => {
       const updateChain = createChainMock([{ id: TASK_ID }]);
       mockDb.update.mockReturnValue(updateChain as never);
 
-      await markFailed(TASK_ID, "still failing");
+      await markFailed(TASK_ID, "still failing", new Date());
 
       expect(mockComputeRetryDelay).not.toHaveBeenCalled();
       expect(mockComputeNextRun).toHaveBeenCalled();
@@ -274,7 +274,7 @@ describe("scheduled-tasks/store", () => {
       const updateChain = createChainMock([{ id: TASK_ID }]);
       mockDb.update.mockReturnValue(updateChain as never);
 
-      await markFailed(TASK_ID, "give up");
+      await markFailed(TASK_ID, "give up", new Date());
 
       const setArgs = updateChain.set.mock.calls[0][0] as Record<string, unknown>;
       expect(setArgs.consecutiveErrors).toBe(5);
@@ -286,7 +286,7 @@ describe("scheduled-tasks/store", () => {
     it("is a no-op (no update) when the task does not exist", async () => {
       wireGetById(undefined);
 
-      await markFailed(TASK_ID, "ghost");
+      await markFailed(TASK_ID, "ghost", new Date());
 
       expect(mockDb.update).not.toHaveBeenCalled();
     });
