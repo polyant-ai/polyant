@@ -72,7 +72,7 @@ jobs:
           cache: npm
       - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - run: npm exec --workspace @polyant/web --no -- playwright install --with-deps chromium
       - name: Verify login and permission boundaries in the real app
         run: npm run test:e2e -w @polyant/web -- e2e/rbac/members-access.spec.ts
       - uses: actions/upload-artifact@v4
