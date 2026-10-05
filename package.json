@@ -38,7 +38,8 @@
     "licenses": "npx --yes license-checker --excludePackages \"@polyant/engine;@polyant/web;polyant\" --excludePrivatePackages --markdown | grep -v '^\\[@polyant/'",
     "engineering:check": "node scripts/ci/engineering-checkpoint.mjs",
     "engineering:inventory": "node scripts/ci/engineering-checkpoint.mjs --inventory",
-    "release:ecosystem": "node scripts/release/ecosystem.mjs"
+    "release:ecosystem": "node scripts/release/ecosystem.mjs",
+    "skills:sync": "node scripts/dev/sync-skills.mjs"
   },
   "overrides": {
     "path-to-regexp": "^8.4.1",
