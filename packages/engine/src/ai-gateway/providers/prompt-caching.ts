@@ -33,6 +33,22 @@ export function withProviderCacheMarker(
 }
 
 /**
+ * Clone `message` without the `markerKey` entry under
+ * `providerOptions[providerKey]`, dropping containers left empty and keeping
+ * every other option. Returns the input itself when it carries no such marker.
+ */
+export function withoutProviderCacheMarker(message: ModelMessage, providerKey: string, markerKey: string): ModelMessage {
+  const existing = (message as { providerOptions?: Record<string, unknown> }).providerOptions;
+  const forProvider = existing?.[providerKey] as Record<string, unknown> | undefined;
+  if (!existing || !forProvider || !(markerKey in forProvider)) return message;
+  const { [markerKey]: _dropped, ...restForProvider } = forProvider;
+  const { [providerKey]: _provider, ...restProviders } = existing;
+  const providerOptions = Object.keys(restForProvider).length > 0 ? { ...restProviders, [providerKey]: restForProvider } : restProviders;
+  const { providerOptions: _old, ...bare } = message as ModelMessage & { providerOptions?: unknown };
+  return (Object.keys(providerOptions).length > 0 ? { ...bare, providerOptions } : bare) as ModelMessage;
+}
+
+/**
  * Inject up to two cache breakpoints into a folded `{ system, messages }`:
  *
  *  1. **tools + system** — the AI SDK only honours a cache marker on a system
@@ -81,6 +97,19 @@ export function injectCacheBreakpoints(
 /** Input the AI SDK `prepareStep` hook passes us (subset we use) plus the model id. */
 export type StepMarkerInput = { stepNumber: number; messages: ModelMessage[]; modelId: string };
 
+export interface StepMarkerOptions {
+  /**
+   * Provider-specific decorator; it receives the model id because whether a
+   * marker may ride on THIS message can depend on the model (Amazon Nova
+   * refuses one on tool content).
+   */
+  applyMarker: (message: ModelMessage, modelId: string) => ModelMessage;
+  /** Removes the provider's marker from a message (see `withoutProviderCacheMarker`). */
+  clearMarker: (message: ModelMessage) => ModelMessage;
+  /** Gates providers (Bedrock) where marking a non-cache-capable model errors the call. */
+  isCacheCapable?: (modelId: string) => boolean;
+}
+
 /**
  * Build a `prepareStep` marker — the multi-step companion to
  * `injectCacheBreakpoints`. Within one agentic turn the AI SDK grows the messages
@@ -90,26 +119,35 @@ export type StepMarkerInput = { stepNumber: number; messages: ModelMessage[]; mo
  * marks the LAST message on each step so the accumulated prefix is cached
  * step-to-step (a moving breakpoint, on top of the stable system breakpoint).
  *
+ * The breakpoint MOVES: the SDK feeds the messages this hook returns into the
+ * next step, so the previous step's marker is still there. Leaving it would add
+ * one breakpoint per step, and Anthropic and Bedrock reject more than four per
+ * request (400 "A maximum of 4 blocks with cache_control may be provided") —
+ * reached on the third tool step of a turn that also marks instructions and
+ * history. Every marker after the current user turn is a
+ * within-turn one placed here (the history marker sits before that turn), so
+ * they are all cleared before the last message is marked: instructions,
+ * history and one moving marker make three at most.
+ *
  * Skips step 0 on purpose: the initial user turn carries the per-turn volatile
  * `<context>` tail, and single-step turns (maxSteps=1 service calls, or a
  * tool-less answer) must not pay a wasted cache-write. From step 1 onward the
  * last message is a stable within-turn tool-result/assistant message — never the
  * volatile user turn — so this is independent of where the volatile block lives.
  *
- * `applyMarker` is the provider-specific decorator; it receives the model id
- * because whether a marker may ride on THIS message can depend on the model
- * (Amazon Nova refuses one on tool content). `isCacheCapable` gates providers
- * (Bedrock) where marking a non-cache-capable model errors the call.
  * Pure function — never mutates the input array.
  */
-export function makeStepMarker(
-  applyMarker: (message: ModelMessage, modelId: string) => ModelMessage,
-  isCacheCapable?: (modelId: string) => boolean,
-): (input: StepMarkerInput) => { messages?: ModelMessage[] } {
+export function makeStepMarker({
+  applyMarker,
+  clearMarker,
+  isCacheCapable,
+}: StepMarkerOptions): (input: StepMarkerInput) => { messages?: ModelMessage[] } {
   return ({ stepNumber, messages, modelId }) => {
     if (stepNumber < 1 || messages.length === 0) return {};
     if (isCacheCapable && !isCacheCapable(modelId)) return {};
     const out = [...messages];
+    const turnStart = out.map((m) => m.role).lastIndexOf("user");
+    for (let i = turnStart + 1; i < out.length; i++) out[i] = clearMarker(out[i]);
     out[out.length - 1] = applyMarker(out[out.length - 1], modelId);
     return { messages: out };
   };
