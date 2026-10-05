@@ -25,6 +25,9 @@ human contributors use the same commands; no provider, hook or agent CLI is requ
 6. Record SDK, CLI, dev-kit and docs as updated (link the work), follow-up required
    (link the tracked work and compatibility limit), or no-impact (reason).
    Public contract breaks block release until consumers and docs are compatible.
+   Added/changed user-visible features require the relevant usage guide; channel
+   changes also require the setup guide and contextual UI link described in
+   `docs/engineering-checkpoints.md` § Collateral impact.
 7. Fill the PR template in English for the exact head. CI checks completeness;
    it cannot certify the reviewer's judgment. On new commits update only invalidated
    evidence. On body edits run no implementation or full review again.
