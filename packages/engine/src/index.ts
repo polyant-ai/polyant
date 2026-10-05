@@ -16,7 +16,7 @@ import { supervise, superviseStream } from "./agents/supervisor/index.js";
 import { channelManager } from "./channels/channel-manager.js";
 import { listAllInstances } from "./instances/store.js";
 import { startServer } from "./server/main.js";
-import { closeHttpServer, HTTP_SHUTDOWN_GRACE_MS } from "./server/graceful-close.js";
+import { closeHttpServer, runShutdownSteps, HTTP_SHUTDOWN_GRACE_MS } from "./server/graceful-close.js";
 import { drainBackgroundTurns } from "./channels/background-turns.js";
 import { closeActivityStreams } from "./activity-stream/activity-stream.controller.js";
 import { type AgentCallMetadata, type IncomingMessage, type OutgoingMessage, type StreamOutgoingMessage } from "./channels/types.js";
@@ -570,35 +570,54 @@ async function main() {
   console.log(`HTTP API:       http://localhost:${config.server.port}/v1`);
   console.log(`Admin panel:    open the web package separately (default :3000)`);
 
-  // Graceful shutdown
+  // Graceful shutdown. The steps run in order and each on its own (see
+  // `runShutdownSteps`), so one that fails cannot keep the process alive.
   const shutdown = async () => {
     console.log("\nShutting down...");
-    // Activity streams never end on their own, so the HTTP server would wait on
-    // them for good: end them first. Anything else still open (a turn
-    // streaming its reply) gets a bounded grace period, so the flushes and
-    // shutdowns below always run before the platform kills the process.
-    // Turns a webhook already acknowledged (Telegram, Slack, Twilio, event
-    // webhooks) are no longer open requests, and their sender will not retry
-    // them: wait for those within the same grace period.
-    const streams = closeActivityStreams();
-    const [{ forced }, background] = await Promise.all([
-      closeHttpServer(nestApp),
-      drainBackgroundTurns(HTTP_SHUTDOWN_GRACE_MS),
-    ]);
-    console.log(`HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
-    if (background.pending > 0) {
-      console.warn(`${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
+    let failed: string[] = [];
+    try {
+      failed = await runShutdownSteps([
+        {
+          // First: a tick during the HTTP grace period below would start a turn
+          // nothing waits for, cut mid-run by the exit.
+          name: "schedulers",
+          run: () => {
+            schedulerService.shutdown();
+            roomScheduler.shutdown();
+          },
+        },
+        {
+          // Activity streams never end on their own, so the HTTP server would wait
+          // on them for good: end them first. Anything else still open (a turn
+          // streaming its reply) gets a bounded grace period, so the flushes and
+          // shutdowns below always run before the platform kills the process.
+          // Turns a webhook already acknowledged (Telegram, Slack, Twilio, event
+          // webhooks) are no longer open requests, and their sender will not retry
+          // them: wait for those within the same grace period.
+          name: "HTTP server and acknowledged turns",
+          run: async () => {
+            const streams = closeActivityStreams();
+            const [{ forced }, background] = await Promise.all([
+              closeHttpServer(nestApp),
+              drainBackgroundTurns(HTTP_SHUTDOWN_GRACE_MS),
+            ]);
+            console.log(`HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
+            if (background.pending > 0) {
+              console.warn(`${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
+            }
+          },
+        },
+        { name: "channels", run: () => channelManager.shutdownAll() },
+        { name: "MCP client pool", run: () => closeMcpClientPool() },
+        { name: "trace store", run: () => traceStore.shutdown() },
+        { name: "audit store", run: () => auditStore.shutdown() },
+        { name: "management audit store", run: () => managementAuditStore.shutdown() },
+        { name: "AI gateway", run: () => shutdownGateway() },
+        { name: "file logger", run: () => shutdownFileLogger() },
+      ]);
+    } finally {
+      process.exit(failed.length > 0 ? 1 : 0);
     }
-    schedulerService.shutdown();
-    roomScheduler.shutdown();
-    await channelManager.shutdownAll();
-    await closeMcpClientPool();
-    await traceStore.shutdown();
-    await auditStore.shutdown();
-    await managementAuditStore.shutdown();
-    await shutdownGateway();
-    shutdownFileLogger();
-    process.exit(0);
   };
 
   process.on("SIGINT", shutdown);
