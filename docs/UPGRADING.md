@@ -12,6 +12,14 @@ Docker images carry it, so a deployment that uses them needs nothing. If you
 run from source or build your own images, move to Node 24 (`.nvmrc` names it);
 Node 22 is no longer tested.
 
+### The images run as a non-root user
+
+The engine and web images now run as the `node` user (uid 1000) and declare a
+Docker health check. A deployment that mounts a volume on the engine's
+`/app/logs` or `/app/packages/engine/workspaces` must make it writable by that
+user, for example with `chown -R 1000:1000` on the volume, or the engine cannot
+write its log file or the conversation workspaces.
+
 ### Migration 0086 rewrites the conversations table
 
 Conversations now carry their own message counters, which the conversation list
