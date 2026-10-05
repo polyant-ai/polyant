@@ -30,6 +30,10 @@ Follow the pattern in the nearest working sibling instead of applying generic ar
 templates. Do not add barrels, services, factories, or repository layers without an existing
 need demonstrated by multiple callers.
 
+For changed data, asynchronous/paid work, process coordination, runtime requirements
+or resource limits, apply relevant rows of `docs/engineering-checkpoints.md`
+§ Lifecycle and deployment during implementation.
+
 ## Verify
 
 Run the smallest test that exercises the changed behaviour, then:

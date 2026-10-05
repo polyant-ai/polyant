@@ -15,7 +15,8 @@ human contributors use the same commands; no provider, hook or agent CLI is requ
    changed UI flows need browser evidence. Record environmental blockers honestly.
 3. Review this diff once for correctness and simplicity: duplicated ownership,
    avoidable dependencies/abstractions, dead code, hidden errors and tests that only
-   repeat the implementation. Resolve concrete findings or name the remaining debt.
+   repeat the implementation. For changed tests, apply `.claude/rules/tests.md` once.
+   Resolve concrete findings or name the remaining debt.
 4. If a concrete correction or escaped defect arose, follow `docs/engineering-checkpoints.md`
    § Lessons from work once. Record the example, chosen mechanism and focused proof
    in the existing maintainability evidence; keep ordinary task preferences in the PR.
@@ -24,6 +25,7 @@ human contributors use the same commands; no provider, hook or agent CLI is requ
    derived guardrails; verify fallback tests isolate the path under examination.
    Added/changed features, especially configuration/options, also require a Status
    coverage decision using the existing checks: see § Collateral impact in the guide.
+   Apply only triggered rows of § Lifecycle and deployment; reuse relevant proof.
 6. Record SDK, CLI, dev-kit and docs as updated (link the work), follow-up required
    (link the tracked work and compatibility limit), or no-impact (reason).
    Public contract breaks block release until consumers and docs are compatible.

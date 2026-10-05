@@ -30,6 +30,10 @@ from the same filesystem layout used at runtime.
 Plugin and hook retries can repeat side effects. Make operations idempotent where the host
 can replay them, and document a deliberate non-idempotent effect at its call boundary.
 
+For changed data, asynchronous/paid work, process coordination, runtime requirements
+or resource limits, apply relevant rows of `docs/engineering-checkpoints.md`
+§ Lifecycle and deployment during implementation.
+
 ## Verify
 
 Run the definition's focused test plus the registry/strict-mode or plugin-system tests it
