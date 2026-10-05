@@ -41,11 +41,15 @@ export function withoutProviderCacheMarker(message: ModelMessage, providerKey: s
   const existing = (message as { providerOptions?: Record<string, unknown> }).providerOptions;
   const forProvider = existing?.[providerKey] as Record<string, unknown> | undefined;
   if (!existing || !forProvider || !(markerKey in forProvider)) return message;
-  const { [markerKey]: _dropped, ...restForProvider } = forProvider;
-  const { [providerKey]: _provider, ...restProviders } = existing;
-  const providerOptions = Object.keys(restForProvider).length > 0 ? { ...restProviders, [providerKey]: restForProvider } : restProviders;
-  const { providerOptions: _old, ...bare } = message as ModelMessage & { providerOptions?: unknown };
-  return (Object.keys(providerOptions).length > 0 ? { ...bare, providerOptions } : bare) as ModelMessage;
+  const restForProvider = { ...forProvider };
+  delete restForProvider[markerKey];
+  const providerOptions: Record<string, unknown> = { ...existing };
+  if (Object.keys(restForProvider).length > 0) providerOptions[providerKey] = restForProvider;
+  else delete providerOptions[providerKey];
+  const out = { ...message } as { providerOptions?: Record<string, unknown> };
+  if (Object.keys(providerOptions).length > 0) out.providerOptions = providerOptions;
+  else delete out.providerOptions;
+  return out as ModelMessage;
 }
 
 /**
