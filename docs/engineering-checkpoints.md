@@ -68,6 +68,19 @@ deleted by an unused-key grep. Translation quality and removing a supported lang
 are editorial decisions, not automatic repairs.
 
 Every PR records SDK, CLI, dev-kit and docs impact, even when no change is needed.
+Adding or changing a user-visible feature requires updating the relevant product
+guide in the docs repository, including usage, options, defaults and limitations
+that changed. Update API references, README or upgrade notes where affected.
+Link the corresponding docs work in the PR and verify documentation publication
+before releasing the feature; a changelog entry alone is not a usage guide.
+
+For an added or changed channel, update its setup guide and the contextual docs
+link in the channel configuration UI. Explain prerequisites, required permissions,
+where to obtain each identifier/credential, webhook or callback setup, and how to
+verify the connection. Use safe examples. Reuse the current documentation-link
+helper when present; verify the destination page/anchor and keep it aligned with
+the configuration fields. A generic documentation homepage is insufficient.
+
 Contract changes inspect consumers' installed tags, not just local manifest versions.
 Follow-ups name related work and the compatibility consequence. A source change
 does not mean every component must receive a new version.
