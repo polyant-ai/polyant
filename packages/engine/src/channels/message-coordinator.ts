@@ -278,26 +278,41 @@ export class MessageCoordinator {
     if (!state) return;
     state.pipelineTimer = null;
 
-    // Snapshot the fragments to process + clear the buffer. New fragments arriving
-    // during the run go to the fresh buffer; on abort, the snapshot is restored.
-    const fragments = [...state.buffer];
-    state.buffer = [];
-    const burstAttachments = state.attachments.length > 0 ? [...state.attachments] : undefined;
-    state.attachments = [];
-
+    // The controller exists from now, so a fragment arriving while this run
+    // waits for the previous one still supersedes it.
     const abortController = new AbortController();
     state.currentAbort = abortController;
     const signal = abortController.signal;
 
-    const combinedText = fragments.join("\n");
-    const combined: IncomingMessage = {
-      ...state.seed,
-      text: combinedText,
-      attachments: burstAttachments,
-    };
-
     state.flushChain = state.flushChain
-      .then(() => this.doFlush(key, state, combined, signal, fragments, burstAttachments))
+      .then(() => {
+        // Superseded before it started: its fragments are still in the buffer,
+        // for the run that replaced it.
+        if (signal.aborted) return;
+
+        // Snapshot the fragments to process + clear the buffer HERE, once the
+        // previous run has settled. An aborted run puts its fragments back only
+        // when it finishes unwinding, which can take longer than the debounce;
+        // a snapshot taken when the timer fired would miss them, this run would
+        // answer the new fragment alone and a third run the old ones. New
+        // fragments arriving during the run go to the fresh buffer; on abort,
+        // the snapshot is restored.
+        const fragments = [...state.buffer];
+        state.buffer = [];
+        const burstAttachments = state.attachments.length > 0 ? [...state.attachments] : undefined;
+        state.attachments = [];
+        if (fragments.length === 0) {
+          this.finalizePipeline(key, state, signal);
+          return;
+        }
+
+        const combined: IncomingMessage = {
+          ...state.seed,
+          text: fragments.join("\n"),
+          attachments: burstAttachments,
+        };
+        return this.doFlush(key, state, combined, signal, fragments, burstAttachments);
+      })
       .catch((err) => {
         console.error("[coordinator] flushChain unhandled error for", sanitizeForLog(key), err);
       });
