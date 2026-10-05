@@ -118,6 +118,20 @@ COPY packages/engine/src/database/migrations packages/engine/dist/database/migra
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# Run as the image's unprivileged `node` user. The engine writes to two places
+# under /app, both created here and owned by it: the file logger's logs/ and the
+# per-conversation workspaces of writeFile and friends. Everything else it
+# writes goes to /tmp or $HOME (/home/node), already writable. The code and the
+# plugins stay root-owned, so the process cannot rewrite what it runs.
+RUN mkdir -p /app/logs /app/packages/engine/workspaces && \
+    chown node:node /app/logs /app/packages/engine/workspaces
+USER node
+
 EXPOSE 4000
+
+# /health answers once migrations have run and the HTTP server listens; the
+# start period covers the migrations the entrypoint runs first.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD wget -q --spider "http://127.0.0.1:${API_PORT:-4000}/health" || exit 1
 
 ENTRYPOINT ["docker-entrypoint.sh"]
