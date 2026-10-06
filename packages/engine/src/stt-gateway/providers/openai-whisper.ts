@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { STTProviderAdapter, STTRequest, STTResponse } from "../types.js";
-import { STTMissingCredentialsError, STTProviderError } from "../errors.js";
+import { STTMissingCredentialsError, STTProviderError, STTTimeoutError } from "../errors.js";
 
 const DEFAULT_MODEL = "whisper-1";
 const ENDPOINT = "https://api.openai.com/v1/audio/transcriptions";
@@ -21,7 +21,13 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
 
   const controller = new AbortController();
   const timeoutMs = req.timeoutMs ?? 30_000;
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  // Told apart from a caller's abort by this flag, not by the error text: both arrive
+  // as the same AbortError.
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   if (req.abortSignal) {
     req.abortSignal.addEventListener("abort", () => controller.abort(), { once: true });
   }
@@ -37,7 +43,8 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
     });
   } catch (err) {
     if ((err as Error).name === "AbortError") {
-      throw new STTProviderError("openai", `aborted after ${timeoutMs}ms`, { cause: err });
+      if (timedOut) throw new STTTimeoutError("openai", timeoutMs);
+      throw new STTProviderError("openai", "aborted by the caller", { cause: err });
     }
     throw new STTProviderError("openai", `fetch failed: ${(err as Error).message}`, { cause: err });
   } finally {
