@@ -18,7 +18,8 @@ export interface ImportWarning {
     | "event_source_credentials"
     | "mcp_server_credentials"
     | "mcp_server_invalid"
-    | "hook_invalid";
+    | "hook_invalid"
+    | "tool_recompute_failed";
   message: string;
 }
 
