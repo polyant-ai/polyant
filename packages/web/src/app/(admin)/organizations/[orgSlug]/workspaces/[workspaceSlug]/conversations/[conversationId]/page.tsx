@@ -457,7 +457,19 @@ export default function ConversationDetailPage() {
 
       <div className="mt-3 flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+            {live && (
+              <span
+                role="status"
+                title={t(liveConnected ? "conversations.detail.liveConnected" : "conversations.detail.liveConnecting")}
+                className={`inline-flex shrink-0 items-center gap-1.5 text-xs font-medium ${liveConnected ? "text-success" : "text-muted-foreground"}`}
+              >
+                <span className={`size-2 rounded-full ${liveConnected ? "animate-pulse bg-success" : "bg-muted-foreground"}`} />
+                {t("conversations.detail.liveToggle")}
+              </span>
+            )}
+          </div>
           {conversation.title && conversation.summary && (
             <p className="mt-1 text-sm text-muted-foreground">
               {conversation.summary}
@@ -524,7 +536,31 @@ export default function ConversationDetailPage() {
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="min-w-56">
+              {/* View toggles keep the menu open (preventDefault) so both can be flipped in one go. */}
+              <DropdownMenuItem
+                role="menuitemcheckbox"
+                aria-checked={detailed}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  toggleDetailed(!detailed);
+                }}
+              >
+                {t("conversations.detail.detailedToggle")}
+                <Switch checked={detailed} tabIndex={-1} aria-hidden="true" className="pointer-events-none ml-auto" />
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                role="menuitemcheckbox"
+                aria-checked={live}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setLive((v) => !v);
+                }}
+              >
+                {t("conversations.detail.liveToggle")}
+                <Switch checked={live} tabIndex={-1} aria-hidden="true" className="pointer-events-none ml-auto" />
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={handleCopyId}>
                 <Copy />
                 {t("conversations.detail.copyId")}
@@ -541,30 +577,6 @@ export default function ConversationDetailPage() {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center justify-end gap-x-4 gap-y-2 border-y py-2">
-        <Label
-          htmlFor="detailed-view"
-          className="flex items-center gap-2 text-sm font-normal text-muted-foreground"
-        >
-          <Switch id="detailed-view" checked={detailed} onCheckedChange={toggleDetailed} />
-          {t("conversations.detail.detailedToggle")}
-        </Label>
-        <Label
-          htmlFor="live-view"
-          className="flex items-center gap-2 text-sm font-normal text-muted-foreground"
-        >
-          <Switch id="live-view" checked={live} onCheckedChange={setLive} />
-          {t("conversations.detail.liveToggle")}
-          {live && (
-            <span
-              className={`size-2 rounded-full ${liveConnected ? "animate-pulse bg-success" : "bg-muted-foreground"}`}
-              role="status"
-              aria-label={t(liveConnected ? "conversations.detail.liveConnected" : "conversations.detail.liveConnecting")}
-            />
-          )}
-        </Label>
       </div>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
@@ -589,7 +601,7 @@ export default function ConversationDetailPage() {
 
       <div
         ref={scrollContainerRef}
-        className="mt-4 flex-1 min-h-0 space-y-4 overflow-y-auto pr-2"
+        className="mt-6 flex-1 min-h-0 space-y-4 overflow-y-auto pr-2"
       >
         <div ref={topSentinelRef} aria-hidden="true" />
         {loadingMore && (
