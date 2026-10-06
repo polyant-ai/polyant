@@ -6,17 +6,15 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Trash2, Loader2, Zap, Coins, FileText, Mic, SearchCode, Database, Webhook, Link2, Pencil } from "lucide-react";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import { Badge } from "@/components/ui/badge";
+import { Trash2, Loader2, FileText, Mic, SearchCode, Database, Webhook, Link2, Pencil, ArrowLeft, Copy, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,7 +24,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   Tooltip,
@@ -49,6 +46,7 @@ import { MessageExtras } from "@/components/messages/message-extras";
 import { MessageMetadataPills } from "@/components/messages/message-metadata-pills";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { ChannelIcon } from "@/components/channel-icon";
 import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { SystemActivity } from "@/components/messages/system-activity";
 import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
@@ -152,6 +150,8 @@ export default function ConversationDetailPage() {
   const [renameTitle, setRenameTitle] = useState("");
   const [renameId, setRenameId] = useState("");
   const [renaming, setRenaming] = useState(false);
+  // Controlled: the delete confirmation opens from the actions menu, not from its own button.
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [totalMessages, setTotalMessages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -182,6 +182,15 @@ export default function ConversationDetailPage() {
       setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 2600);
     } catch {
       toast.error(t("conversations.detail.linkCopyFailed"));
+    }
+  };
+
+  const handleCopyId = async () => {
+    try {
+      await navigator.clipboard.writeText(conversationId);
+      toast.success(t("conversations.detail.idCopied"));
+    } catch {
+      toast.error(t("conversations.detail.idCopyFailed"));
     }
   };
 
@@ -438,48 +447,52 @@ export default function ConversationDetailPage() {
 
   return (
     <div className="flex h-[calc(100svh-3.5rem-3rem)] flex-col">
-      <Breadcrumb>
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href={paths.workspace("/conversations")}>{t("conversations.detail.breadcrumb")}</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{t("conversations.detail.title")}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
+      <Link
+        href={paths.workspace("/conversations")}
+        className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        {t("conversations.detail.breadcrumb")}
+      </Link>
 
-      <div className="mt-4 flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
+      <div className="mt-3 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+            {live && (
+              <span
+                role="status"
+                title={t(liveConnected ? "conversations.detail.liveConnected" : "conversations.detail.liveConnecting")}
+                className={`inline-flex shrink-0 items-center gap-1.5 text-xs font-medium ${liveConnected ? "text-success" : "text-muted-foreground"}`}
+              >
+                <span className={`size-2 rounded-full ${liveConnected ? "animate-pulse bg-success" : "bg-muted-foreground"}`} />
+                {t("conversations.detail.liveToggle")}
+              </span>
+            )}
+          </div>
           {conversation.title && conversation.summary && (
             <p className="mt-1 text-sm text-muted-foreground">
               {conversation.summary}
             </p>
           )}
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
-              {conversationId}
-            </code>
-            {conversation.instanceName && (
-              <Badge variant="secondary">{conversation.instanceName}</Badge>
-            )}
-            <span>{t("conversations.detail.messages", { count: conversation.messageCount })}</span>
-            <span>&middot;</span>
-            <span>{t("conversations.detail.created", { time: formatRelativeTime(conversation.createdAt, t) })}</span>
-            {conversation.totalTokens > 0 && (
-              <>
-                <span>&middot;</span>
-                <TooltipProvider>
-                  <Tooltip>
+          <TooltipProvider>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+              {[
+                conversation.channel && (
+                  <span key="channel" className="inline-flex items-center gap-1.5 capitalize text-foreground">
+                    <ChannelIcon channel={conversation.channel} className="size-3.5" />
+                    {conversation.channel}
+                  </span>
+                ),
+                conversation.instanceName && <span key="agent">{conversation.instanceName}</span>,
+                <span key="messages">{t("conversations.detail.messages", { count: conversation.messageCount })}</span>,
+                <span key="created">{t("conversations.detail.created", { time: formatRelativeTime(conversation.createdAt, t) })}</span>,
+                conversation.totalTokens > 0 && (
+                  <Tooltip key="tokens">
                     <TooltipTrigger asChild>
-                      <Badge variant="outline" className="gap-1 font-normal tabular-nums cursor-help">
-                        <Zap className="h-3 w-3" />
-                        {fmt.number(conversation.totalTokens)} tokens
-                      </Badge>
+                      <span tabIndex={0} className="cursor-help tabular-nums underline decoration-dotted underline-offset-4">
+                        {t("conversations.detail.totalTokens", { count: fmt.number(conversation.totalTokens) })}
+                      </span>
                     </TooltipTrigger>
                     <TooltipContent>
                       <p>{t("conversations.detail.conversationCost")}: {fmt.number(conversation.conversationTokens)}</p>
@@ -491,88 +504,104 @@ export default function ConversationDetailPage() {
                       )}
                     </TooltipContent>
                   </Tooltip>
-                </TooltipProvider>
-              </>
-            )}
-            {conversation.totalCost > 0 && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge variant="outline" className="gap-1 font-normal tabular-nums cursor-help">
-                      <Coins className="h-3 w-3" />
-                      ${conversation.totalCost.toFixed(4)}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{t("conversations.detail.conversationCost")}: ${conversation.conversationCost.toFixed(4)}</p>
-                    <p className="text-muted-foreground">{t("conversations.detail.serviceCost")}: ${conversation.serviceCost.toFixed(4)}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-          </div>
+                ),
+                conversation.totalCost > 0 && (
+                  <Tooltip key="cost">
+                    <TooltipTrigger asChild>
+                      <span tabIndex={0} className="cursor-help tabular-nums underline decoration-dotted underline-offset-4">
+                        ${conversation.totalCost.toFixed(4)}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{t("conversations.detail.conversationCost")}: ${conversation.conversationCost.toFixed(4)}</p>
+                      <p className="text-muted-foreground">{t("conversations.detail.serviceCost")}: ${conversation.serviceCost.toFixed(4)}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ),
+              ]
+                .filter(Boolean)
+                .flatMap((item, i) => (i === 0 ? [item] : [<span key={`sep-${i}`} aria-hidden="true">&middot;</span>, item]))}
+            </div>
+          </TooltipProvider>
         </div>
-        <div className="flex items-center gap-1">
-        <Label
-          htmlFor="detailed-view"
-          className="mr-2 flex items-center gap-2 text-sm font-normal text-muted-foreground"
-        >
-          <Switch id="detailed-view" checked={detailed} onCheckedChange={toggleDetailed} />
-          {t("conversations.detail.detailedToggle")}
-        </Label>
-        <Label
-          htmlFor="live-view"
-          className="mr-2 flex items-center gap-2 text-sm font-normal text-muted-foreground"
-        >
-          <Switch id="live-view" checked={live} onCheckedChange={setLive} />
-          {t("conversations.detail.liveToggle")}
-          {live && (
-            <span
-              className={`size-2 rounded-full ${liveConnected ? "animate-pulse bg-success" : "bg-muted-foreground"}`}
-              role="status"
-              aria-label={t(liveConnected ? "conversations.detail.liveConnected" : "conversations.detail.liveConnecting")}
-            />
-          )}
-        </Label>
-        <Button variant="ghost" size="sm" onClick={() => setStateOpen(true)}>
-          <Database className="h-4 w-4" />
-          {t("conversations.state.button")}
-        </Button>
-        <Button variant="ghost" size="sm" onClick={openRename}>
-          <Pencil className="h-4 w-4" />
-          {t("conversations.detail.renameButton")}
-        </Button>
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="ghost" size="sm" className="text-destructive">
-              <Trash2 className="h-4 w-4" />
-              {t("conversations.detail.deleteButton")}
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t("conversations.detail.deleteTitle")}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {t("conversations.detail.deleteDescription")}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDelete}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setStateOpen(true)}>
+            <Database className="h-4 w-4" />
+            {t("conversations.state.button")}
+          </Button>
+          {/* Non-modal so the rename/delete dialogs it opens get focus and pointer events back. */}
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon-sm" aria-label={t("conversations.detail.moreActions")}>
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-56">
+              {/* View toggles keep the menu open (preventDefault) so both can be flipped in one go. */}
+              <DropdownMenuItem
+                role="menuitemcheckbox"
+                aria-checked={detailed}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  toggleDetailed(!detailed);
+                }}
               >
-                {t("common.delete")}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+                {t("conversations.detail.detailedToggle")}
+                <Switch checked={detailed} tabIndex={-1} aria-hidden="true" className="pointer-events-none ml-auto" />
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                role="menuitemcheckbox"
+                aria-checked={live}
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setLive((v) => !v);
+                }}
+              >
+                {t("conversations.detail.liveToggle")}
+                <Switch checked={live} tabIndex={-1} aria-hidden="true" className="pointer-events-none ml-auto" />
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={handleCopyId}>
+                <Copy />
+                {t("conversations.detail.copyId")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={openRename}>
+                <Pencil />
+                {t("conversations.detail.renameButton")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onSelect={() => setDeleteOpen(true)}>
+                <Trash2 />
+                {t("conversations.detail.deleteButton")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("conversations.detail.deleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("conversations.detail.deleteDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div
         ref={scrollContainerRef}
-        className="mt-8 flex-1 min-h-0 space-y-4 overflow-y-auto pr-2"
+        className="mt-6 flex-1 min-h-0 space-y-4 overflow-y-auto pr-2"
       >
         <div ref={topSentinelRef} aria-hidden="true" />
         {loadingMore && (
