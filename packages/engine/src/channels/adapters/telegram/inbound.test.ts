@@ -62,6 +62,21 @@ describe("Telegram inbound turn", () => {
     expect(sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("hi there"), expect.anything());
   });
 
+  it("drops a message without a sender when an allowlist is set, instead of throwing", async () => {
+    const onMessage = vi.fn(async (_msg: IncomingMessage): Promise<OutgoingMessage> => ({ text: "" }));
+    const adapter = new TelegramAdapter(
+      asInstanceSlug("shop"),
+      { botToken: "fixture", allowedUserIds: "7" },
+      "https://engine.test/x",
+    );
+    await adapter.initialize(onMessage);
+
+    await expect(
+      handlers.get("message:text")!({ ...textCtx("hello"), from: undefined }),
+    ).resolves.toBeUndefined();
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
   it("does not download a file Telegram reports as over the cap", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);

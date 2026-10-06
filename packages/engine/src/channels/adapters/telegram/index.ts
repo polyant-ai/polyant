@@ -125,7 +125,10 @@ export class TelegramAdapter implements ChannelAdapter {
 
     /** Shared handler for messages that may have text and/or attachments. */
     const handleMessage = async (ctx: any) => {
-      if (allowedIds?.length && !allowedIds.includes(String(ctx.from.id))) {
+      // A message can come without a sender (a channel post, an anonymous admin):
+      // with an allowlist it cannot be matched, so it is dropped rather than crashing.
+      const fromId = ctx.from?.id;
+      if (allowedIds?.length && (fromId === undefined || !allowedIds.includes(String(fromId)))) {
         return;
       }
 
@@ -194,7 +197,9 @@ export class TelegramAdapter implements ChannelAdapter {
         channelType: "telegram",
         channelId: String(ctx.chat.id),
         instanceId: this.instanceId,
-        userName: ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : ""),
+        userName: ctx.from
+          ? ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : "")
+          : (ctx.chat.title ?? String(ctx.chat.id)),
         text,
         attachments: attachments.length > 0 ? attachments : undefined,
         metadata: {
