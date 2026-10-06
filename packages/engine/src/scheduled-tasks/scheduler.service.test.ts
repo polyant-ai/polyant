@@ -50,6 +50,16 @@ vi.mock("./run-log.store.js", () => mockRunLog);
 vi.mock("../channels/channel-manager.js", () => ({
   channelManager: mockChannelManager,
 }));
+const { mockConversationStore } = vi.hoisted(() => ({
+  mockConversationStore: { ensureConversation: vi.fn(), appendMessages: vi.fn() },
+}));
+vi.mock("../conversations/index.js", () => ({ conversationStore: mockConversationStore }));
+vi.mock("../instances/store.js", () => ({
+  findInstanceBySlug: vi.fn(async () => ({ status: "active" })),
+}));
+vi.mock("../activity-stream/emit-helpers.js", () => ({
+  resolveInstanceMeta: vi.fn(async () => undefined),
+}));
 vi.mock("./schedule-utils.js", () => ({
   computeNextRun: vi.fn(() => new Date()),
   computeRetryDelay: vi.fn(() => 30_000),
@@ -424,6 +434,65 @@ describe("SchedulerService", () => {
   // -----------------------------------------------------------------------
   // Observability: the failure here is the absence of success
   // -----------------------------------------------------------------------
+  describe("outbound delivery", () => {
+    const outboundTask = (channel: string, target: string) => ({
+      id: "task-out",
+      name: "reminder",
+      instanceId: "acme",
+      schedule: { type: "cron", expression: "0 9 * * *" },
+      prompt: "remind",
+      outboundChannel: channel,
+      outboundTarget: target,
+      keepHistory: true,
+      deleteAfterRun: false,
+      maxRetries: 3,
+      consecutiveErrors: 0,
+    });
+
+    beforeEach(() => {
+      mockConversationStore.ensureConversation.mockReset().mockResolvedValue({ created: true });
+      mockConversationStore.appendMessages.mockReset().mockResolvedValue(undefined);
+      mockChannelManager.sendOutbound.mockReset().mockResolvedValue(undefined);
+    });
+
+    it("records the delivered message in the contact's conversation, keyed as their replies are", async () => {
+      // The contact's reply arrives on `+39…` and is keyed `acme:whatsapp:+39…` by the
+      // inbound pipeline; the reminder it answers must be in that same conversation.
+      schedulerService.initialize(noopHandler);
+      await schedulerService.runNow(outboundTask("whatsapp", "whatsapp:+393331234567") as never);
+
+      expect(mockChannelManager.sendOutbound).toHaveBeenCalledWith(
+        "acme", "whatsapp", "whatsapp:+393331234567", "ok", { throwOnSuppressed: true },
+      );
+      expect(mockConversationStore.ensureConversation).toHaveBeenCalledWith(
+        "acme:whatsapp:+393331234567",
+        "acme",
+        expect.objectContaining({ channel: "whatsapp", userIdentifier: "+393331234567" }),
+      );
+      expect(mockConversationStore.appendMessages).toHaveBeenCalledWith("acme:whatsapp:+393331234567", [
+        expect.objectContaining({ role: "assistant", content: "ok" }),
+      ]);
+    });
+
+    it("keys the conversation on the id the adapter reports for the delivery", async () => {
+      mockChannelManager.sendOutbound.mockResolvedValue({ channelId: "D0DM42" });
+      schedulerService.initialize(noopHandler);
+
+      await schedulerService.runNow(outboundTask("slack", "U0USER1") as never);
+
+      expect(mockConversationStore.appendMessages).toHaveBeenCalledWith("acme:slack:D0DM42", expect.any(Array));
+    });
+
+    it("records nothing when the delivery fails or is suppressed", async () => {
+      mockChannelManager.sendOutbound.mockRejectedValue(new Error("Outbound suppressed by recipient opt-out"));
+      schedulerService.initialize(noopHandler);
+
+      await schedulerService.runNow(outboundTask("whatsapp", "+393331234567") as never);
+
+      expect(mockConversationStore.appendMessages).not.toHaveBeenCalled();
+    });
+  });
+
   describe("health", () => {
     it("reports free slots and stuck rows in numbers", async () => {
       mockStore.countStuckRunning.mockResolvedValue(2);

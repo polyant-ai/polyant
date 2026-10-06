@@ -404,28 +404,3 @@ export async function disableTask(id: string): Promise<void> {
     .set({ enabled: false, updatedAt: new Date() })
     .where(eq(scheduledTasks.id, id));
 }
-
-/** Find an active task whose outbound matches the given channel + target for an instance.
- *  Used to detect if an incoming channel message is a reply to a scheduled task's output. */
-export async function findActiveTaskByOutbound(
-  instanceId: InstanceSlug,
-  channelType: string,
-  channelId: string,
-): Promise<ScheduledTask | undefined> {
-  const rows = await db
-    .select()
-    .from(scheduledTasks)
-    .where(
-      and(
-        eq(scheduledTasks.instanceId, instanceId),
-        eq(scheduledTasks.outboundChannel, channelType),
-        eq(scheduledTasks.outboundTarget, channelId),
-        eq(scheduledTasks.enabled, true),
-        eq(scheduledTasks.keepHistory, true),
-        sql`${scheduledTasks.lastConversationId} IS NOT NULL`,
-      ),
-    )
-    .orderBy(sql`${scheduledTasks.lastRunAt} DESC NULLS LAST`)
-    .limit(1);
-  return rows[0];
-}

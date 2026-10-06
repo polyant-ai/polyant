@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { ChannelAdapter, MessageHandler, IncomingMessage, OutgoingMessage } from "./types.js";
+import type { ChannelAdapter, MessageHandler, IncomingMessage, OutboundDelivery, OutgoingMessage } from "./types.js";
 import type { ChannelType } from "../instances/channels.store.js";
 import { listEnabledChannelConfigs, disableChannel } from "../instances/channels.store.js";
 import { TelegramAdapter, type TelegramConfig } from "./adapters/telegram/index.js";
@@ -89,8 +89,9 @@ export class ChannelManager {
           }
         },
         handler: (msg, signal) => loggedPipeline(msg, signal),
-        sendOutbound: (slug, channelType, channelId, text) =>
-          this.sendOutbound(slug, channelType, channelId, text, { skipOptoutCheck: true }),
+        sendOutbound: async (slug, channelType, channelId, text) => {
+          await this.sendOutbound(slug, channelType, channelId, text, { skipOptoutCheck: true });
+        },
         sendTyping: (slug, channelType, channelId, messageSid) =>
           this.dispatchSendTyping(slug, channelType, channelId, messageSid),
       });
@@ -259,8 +260,8 @@ export class ChannelManager {
     channelType: string,
     channelId: string,
     message: string,
-    opts?: { mediaUrl?: string | string[]; skipOptoutCheck?: boolean },
-  ): Promise<void> {
+    opts?: { mediaUrl?: string | string[]; skipOptoutCheck?: boolean; throwOnSuppressed?: boolean },
+  ): Promise<OutboundDelivery | void> {
     const instanceMap = this.adapters.get(instanceSlug);
     if (!instanceMap) throw new Error(`No active channels for instance "${instanceSlug}"`);
 
@@ -269,17 +270,19 @@ export class ChannelManager {
 
     if (!opts?.skipOptoutCheck && (await this.isOptoutSuppressed(instanceSlug, channelType, channelId))) {
       console.log(`[channel-manager] outbound suppressed (opt-out): ${sanitizeForLog(instanceSlug)} ${sanitizeForLog(channelType)}:${sanitizeForLog(channelId)}`);
+      if (opts?.throwOnSuppressed) throw new Error("Outbound suppressed by recipient opt-out");
       return;
     }
 
     let ok = false;
     let errorMessage: string | undefined;
     try {
-      await adapter.sendMessage(channelId, {
+      const delivery = await adapter.sendMessage(channelId, {
         text: message,
         ...(opts?.mediaUrl ? { mediaUrl: opts.mediaUrl } : {}),
       });
       ok = true;
+      return delivery;
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : String(err);
       throw err;

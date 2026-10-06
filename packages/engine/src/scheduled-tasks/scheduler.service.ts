@@ -6,6 +6,8 @@ import * as store from "./store.js";
 import * as runLog from "./run-log.store.js";
 import { computeNextRun } from "./schedule-utils.js";
 import { channelManager } from "../channels/channel-manager.js";
+import { contactChannelId, contactConversationId } from "../channels/outbound-conversation.js";
+import { conversationStore } from "../conversations/index.js";
 import { scheduledTaskLog } from "./scheduled-task-logger.js";
 import { emitCron } from "../activity-stream/emitters/emit-cron.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
@@ -235,14 +237,34 @@ class SchedulerService {
       // Send output to configured outbound channel
       if (task.outboundChannel && task.outboundTarget && result.text) {
         try {
-          await channelManager.sendOutbound(
+          const delivery = await channelManager.sendOutbound(
             task.instanceId,
             task.outboundChannel,
             task.outboundTarget,
             result.text,
+            { throwOnSuppressed: true },
           );
+
+          // Record the delivered message in the contact's own conversation, where their
+          // reply will arrive, so the reply is answered with the message it responds to.
+          const contactId = delivery?.channelId ?? contactChannelId(task.outboundChannel, task.outboundTarget);
+          const contactConversation = contactConversationId(task.instanceId, task.outboundChannel, contactId);
+          await conversationStore.ensureConversation(contactConversation, asInstanceSlug(task.instanceId), {
+            channel: task.outboundChannel,
+            userIdentifier: contactId,
+            source: "scheduled_task",
+          });
+          await conversationStore.appendMessages(contactConversation, [{
+            role: "assistant",
+            content: result.text,
+            metadata: {
+              source: "scheduled_task",
+              scheduledTaskId: task.id,
+              ...(runId ? { scheduledTaskRunId: runId } : {}),
+            },
+          }]);
         } catch (outboundErr) {
-          scheduledTaskLog.error("SchedulerService", `failed to send outbound for "${task.name}":`, outboundErr);
+          scheduledTaskLog.error("SchedulerService", `failed to deliver or record outbound for "${task.name}":`, outboundErr);
         }
       }
 
