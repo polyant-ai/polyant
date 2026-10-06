@@ -1234,6 +1234,8 @@
   "status.check.skillsMissingEnv.body": "Dichiarano variabili d’ambiente che non sono state valorizzate: {names}.",
   "status.check.providerCredentials.title": "L’agente non può rispondere",
   "status.check.providerCredentials.body": "Non c’è nessuna chiave per {provider}, né sull’agente né sull’organizzazione: ogni turno fallisce al primo token.",
+  "status.check.providerRegion.title": "L’agente non può rispondere",
+  "status.check.providerRegion.body": "L’agente usa Bedrock ma non ha una regione AWS: ogni turno fallisce. Impostala nella sezione Modello.",
   "status.check.embedderCredentials.title": "Gli embedding non possono essere calcolati",
   "status.check.embedderCredentials.body": "L’embedder scelto non ha credenziali: ogni documento caricato finirà in errore e nessuna memoria verrà salvata.",
   "status.check.sttCredentials.title": "La trascrizione audio non è disponibile",

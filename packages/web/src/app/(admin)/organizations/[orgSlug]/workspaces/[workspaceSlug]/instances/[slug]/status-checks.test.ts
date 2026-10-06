@@ -291,6 +291,35 @@ describe("runStatusChecks — the provider key", () => {
     ).not.toContain("provider-no-credentials");
   });
 
+  /**
+   * The region is the one AWS setting with no fallback: the provider refuses the
+   * turn without it, whatever authenticates the call.
+   */
+  it("catches a bedrock agent with no region", () => {
+    const found = runStatusChecks(
+      input({ instance: agent({ provider: "bedrock" }), secrets: [] }),
+    ).find((c) => c.id === "provider-no-region");
+    expect(found?.severity).toBe("broken");
+    expect(found?.section).toBe("settings");
+  });
+
+  it("stays quiet when the bedrock region is set", () => {
+    expect(
+      ids(
+        input({
+          instance: agent({ provider: "bedrock" }),
+          secrets: [{ key: "aws_provider_region", configured: true }] as StatusCheckInput["secrets"],
+        }),
+      ),
+    ).not.toContain("provider-no-region");
+  });
+
+  it("skips the region check when the caller cannot read secrets", () => {
+    expect(
+      ids(input({ instance: agent({ provider: "bedrock" }), secrets: null })),
+    ).not.toContain("provider-no-region");
+  });
+
   it("checks the runtime fallback when provider and model overrides are empty", () => {
     const instance = agent({ provider: null, model: null }) as Instance & {
       effectiveProvider: string;
