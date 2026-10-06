@@ -142,6 +142,29 @@ describe("SchedulerService", () => {
       expect(schedulerService.isRunning).toBe(true);
     });
 
+    it("arms the tick loop even when a recovered missed task never settles", async () => {
+      // A missed task found at startup runs an ordinary pipeline. If it hangs, the reaper
+      // in the tick loop is its only supervision, and boot must not wait on it either.
+      const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+      mockStore.getDueTasks.mockResolvedValue([{
+        id: "task-missed",
+        name: "missed",
+        instanceId: "acme",
+        schedule: { type: "cron", expression: "0 6 * * *" },
+        prompt: "noop",
+        keepHistory: false,
+        deleteAfterRun: false,
+        maxRetries: 3,
+        consecutiveErrors: 0,
+      }]);
+      schedulerService.initialize(() => new Promise(() => {}));
+
+      await schedulerService.start();
+
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
+      expect(schedulerService.isRunning).toBe(true);
+    });
+
     it("shutdown() clears the interval and sets isRunning=false", async () => {
       const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
       schedulerService.initialize(noopHandler);

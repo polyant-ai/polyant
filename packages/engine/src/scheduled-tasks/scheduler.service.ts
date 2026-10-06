@@ -64,20 +64,25 @@ class SchedulerService {
 
     scheduledTaskLog.info("SchedulerService", "starting...");
 
+    // Arm the tick loop FIRST. The tick carries the reaper, the only supervision a hung
+    // run has; armed after the missed-task pass, a recovered pipeline that never settles
+    // would keep both the reaper and every later tick from ever starting.
+    this.timer = setInterval(() => {
+      this.tick().catch((err) => scheduledTaskLog.error("SchedulerService", "tick error:", err));
+    }, TICK_INTERVAL_MS);
+    this.started = true;
+
     // Recover rows abandoned by a process that is gone. MUST run before
     // handleMissedTasks: `getDueTasks` skips rows marked `running`, so without this the
     // missed-task pass would not see exactly the tasks that were interrupted.
     await this.recoverOrphanedRuns();
 
-    // Handle missed tasks on startup
-    await this.handleMissedTasks();
+    // Missed tasks run in the background: their pipelines are ordinary runs, supervised
+    // by the reaper above, and boot must not wait on one that hangs.
+    this.handleMissedTasks().catch((err) =>
+      scheduledTaskLog.error("SchedulerService", "missed-task pass failed:", err),
+    );
 
-    // Start the tick loop
-    this.timer = setInterval(() => {
-      this.tick().catch((err) => scheduledTaskLog.error("SchedulerService", "tick error:", err));
-    }, TICK_INTERVAL_MS);
-
-    this.started = true;
     scheduledTaskLog.info("SchedulerService", `running (tick every ${TICK_INTERVAL_MS / 1000}s)`);
   }
 
