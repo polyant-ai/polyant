@@ -28,7 +28,7 @@ The `auth:` block in `config.yaml` is optional. Omit it and the app runs open (u
 
 Any OIDC provider works: Cognito (with or without a federated upstream IdP), Okta, Auth0, Azure AD / Entra ID, Keycloak, etc.
 
-### Enterprise pattern: Cognito as broker → corporate IdP
+### Recommended pattern: Cognito as broker → corporate IdP
 
 If your org runs AWS IAM Identity Center, Okta, or Entra ID, the recommended shape is:
 
@@ -65,7 +65,7 @@ auth:
 
 ALB appends its own params with `&`, so a pre-set query string is preserved. `<ProviderName>` is the name you gave the IdP on the User Pool (e.g. `Google`, `EntraID`, or the name of your SAML provider).
 
-The cleaner alternative is to disable local sign-in on the App Client entirely (see the enterprise pattern above) — then there's no chooser to skip in the first place.
+The cleaner alternative is to disable local sign-in on the App Client entirely (see the recommended pattern above) — then there's no chooser to skip in the first place.
 
 ### 3. Group claims do not reach Polyant
 

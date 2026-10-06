@@ -33,9 +33,9 @@ export interface InstanceSecret {
  * state was entangled in one 1500-line form's `secretFields` map, so moving a
  * single field meant copying the machine.
  *
- * A credential here is the AGENT's, full stop. Enterprise adds a second source —
- * an organization's shared keys, which the engine falls back to — and there the
- * hook carries a separate `inherited` fact beside `configured`, because
+ * A credential here is the AGENT's, full stop. In a build with a second source —
+ * an organization's shared keys, which the engine falls back to — the hook
+ * carries a separate `inherited` fact beside `configured`, because
  * collapsing the two would report "not configured" about a credential that is
  * working. There is no organization-level secret store in this build, so the
  * fact does not exist and `SecretField`'s `inherited` prop is simply never passed.

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * AC guard (RBAC Stream 7): the EE `authz_audit_logs` table must have NO write
- * path in OSS. The schema is declared (so enabling EE later needs no migration),
+ * AC guard (RBAC Stream 7): the `authz_audit_logs` table must have NO write
+ * path in this build. The schema is declared (so a build that writes it needs no migration),
  * but nothing in the OSS engine source may `insert(...)` into it. This test
  * fails the build the moment an OSS write path is introduced.
  */

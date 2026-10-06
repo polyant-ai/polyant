@@ -341,7 +341,7 @@ function InstanceDetailContent() {
         </TabsContent>
 
         {/* Governance — the gates, the compliance artifacts and the retention
-            policy are Enterprise; what ships here is the opt-out. */}
+            policy are not part of this build; what ships here is the opt-out. */}
         <TabsContent value="privacy">
           <PrivacyTab
             instance={instance}

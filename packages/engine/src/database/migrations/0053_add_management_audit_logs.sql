@@ -2,7 +2,7 @@
 --
 -- Creates `management_audit_logs`: the forensic trail of *destructive*
 -- management mutations (agent create/delete, secret write/delete, member
--- removal) recording actor + target + action. Distinct from the EE
+-- removal) recording actor + target + action. Distinct from the
 -- `authz_audit_logs` (authorization read/access) and the AI-runtime
 -- `tool_audit_logs` (per-tool-call pipeline audit).
 --

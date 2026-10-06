@@ -28,9 +28,8 @@
  * value that no longer names a section degrades to the landing page like any other
  * unknown value.
  *
- * Enterprise adds sections to this list — the model card, the governance gates,
- * compliance, retention and the tool traces — through its own copy of this file.
- * The shape is identical so the two stay mergeable; only the rows differ.
+ * A build with more sections (governance gates, compliance, retention, tool
+ * traces) adds rows to this list; the shape stays the same, only the rows differ.
  */
 
 import {
@@ -146,11 +145,10 @@ export const AGENT_SECTIONS: readonly AgentSectionDef[] = [
   { tab: "scheduled", titleKey: "triggers.scheduled", macro: "automation", icon: CalendarClock },
   { tab: "room", titleKey: "instances.detail.tabRoom", macro: "automation", icon: DoorOpen },
 
-  // Governance — gates, policies, retention and compliance are Enterprise; what
-  // ships here is the data-privacy section.
+  // Governance — what ships here is the data-privacy section.
   { tab: "privacy", titleKey: "instances.detail.tabPrivacy", macro: "governance", icon: EyeOff },
 
-  // Attività — what this agent has DONE. The tool traces are Enterprise.
+  // Attività — what this agent has DONE.
   { tab: "conversations", titleKey: "nav.conversations", macro: "activity", icon: MessagesSquare },
   { tab: "memories", titleKey: "nav.memory", macro: "activity", icon: Brain },
   { tab: "logs", titleKey: "instances.detail.tabLogs", macro: "activity", icon: History },

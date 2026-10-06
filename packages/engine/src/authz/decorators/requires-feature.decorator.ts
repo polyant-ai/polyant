@@ -6,7 +6,7 @@ import type { FeatureKey } from "../entitlement.service.js";
 export const REQUIRES_FEATURE_KEY = "authz:requires_feature";
 
 /**
- * Gate a route behind an Enterprise license feature. The PermissionGuard checks
+ * Gate a route behind a licensed feature. The PermissionGuard checks
  * `EntitlementService.isAvailable(feature)` and denies (404-equivalent 403) when
  * the feature is not licensed. In OSS builds every feature is unavailable, so
  * any `@RequiresFeature()` route is unreachable — enforced even in shadow mode

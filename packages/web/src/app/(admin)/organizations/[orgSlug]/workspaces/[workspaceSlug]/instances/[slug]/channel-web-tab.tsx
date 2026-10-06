@@ -31,14 +31,14 @@ interface Props {
  *
  * It sits in the channel picker beside Telegram and Slack because that is what it
  * is to a reader — a way in. It is NOT a channel type: `CHANNEL_TYPES` has no
- * `web`, in this build or in enterprise. It is a panel over two things the agent
+ * `web`. It is a panel over two things the agent
  * already has, `instances.auth_enabled` and the `auth_api_key` secret.
  *
  * Why it exists here at all: `auth_enabled` defaults to false, so a new agent's
  * api routes are open, and the agent's Status page correctly calls that `broken`
  * and sends the reader to this section. For a while the section had no control —
- * this panel was written, then dropped from OSS alongside the genuinely
- * enterprise `http` channel — so the product named a defect and offered no way to
+ * this panel was written, then dropped alongside an `http` channel this build
+ * does not ship — so the product named a defect and offered no way to
  * fix it short of a hand-written PATCH.
  *
  * The switch governs EVERY api route that speaks to this agent — the

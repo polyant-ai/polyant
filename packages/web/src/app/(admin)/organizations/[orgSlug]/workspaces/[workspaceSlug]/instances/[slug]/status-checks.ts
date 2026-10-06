@@ -119,9 +119,9 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
   const configuredSecrets = new Set(
     (secrets ?? []).filter((s) => s.configured).map((s) => s.key),
   );
-  // An agent's own keys are all there is here. Enterprise adds a second source —
-  // its organization's shared credentials, which the engine falls back to — and
-  // there this set is the union of the two, in that order.
+  // An agent's own keys are all there is here. A build with organization-shared
+  // credentials, which the engine falls back to, makes this set the union of the
+  // two, in that order.
   const effectiveSecrets = configuredSecrets;
 
   // ── Silently broken ──────────────────────────────────────────────────
@@ -413,10 +413,10 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
   // ── Exposed ──────────────────────────────────────────────────────────
 
   /*
-    Debug stores the full payload of every turn, PII included. Enterprise pairs
-    this with its retention policy — where "on, and nothing is ever deleted" is a
-    single, worse row — but retention is an Enterprise feature, so here the switch
-    stands on its own.
+    Debug stores the full payload of every turn, PII included. Paired with a
+    retention policy, "on, and nothing is ever deleted" would be a single, worse
+    row — but this build has no retention policy, so here the switch stands on
+    its own.
   */
   if (instance.debugEnabled) {
     checks.push({
