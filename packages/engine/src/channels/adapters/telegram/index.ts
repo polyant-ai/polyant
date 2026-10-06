@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { Bot } from "grammy";
-import { createHash } from "node:crypto";
 import type { ChannelAdapter, Attachment, MessageHandler, OutgoingMessage } from "../../types.js";
 import { CHANNEL_MAX_LENGTH } from "../../types.js";
 import { toTelegramMarkdownV2 } from "./markdown-v2.js";
@@ -18,6 +17,8 @@ const log = createLogger();
 export interface TelegramConfig {
   botToken: string;
   allowedUserIds?: string;
+  /** The per-channel `secret_token` the store minted; see `ensureTelegramWebhookSecret`. */
+  webhookSecret: string;
 }
 
 /** The only update type this adapter handles; also what the registration asks for. */
@@ -85,7 +86,8 @@ export class TelegramAdapter implements ChannelAdapter {
     private readonly cfg: TelegramConfig,
     private readonly webhookUrl: string,
   ) {
-    this.webhookSecret = createHash("sha256").update(cfg.botToken).digest("hex");
+    if (!cfg.webhookSecret) throw new Error("Telegram channel has no webhook secret");
+    this.webhookSecret = cfg.webhookSecret;
   }
 
   async initialize(onMessage: MessageHandler): Promise<void> {
@@ -247,10 +249,10 @@ export class TelegramAdapter implements ChannelAdapter {
       return;
     }
     try {
-      // Always set it, even when Telegram already holds this URL: the secret is
-      // derived from the bot token and Telegram never reports the one it holds,
-      // so after a token rotation only a fresh setWebhook makes it send the new
-      // secret. The call is idempotent, and a fleet restart's 429 is retried below.
+      // Always set it, even when Telegram already holds this URL: Telegram never
+      // reports the secret it holds, so only a fresh setWebhook guarantees it
+      // sends the stored one (a channel whose secret was just minted, or a new
+      // bot token). The call is idempotent, and a fleet restart's 429 is retried below.
       await bot.api.setWebhook(this.webhookUrl, {
         secret_token: this.webhookSecret,
         allowed_updates: [...ALLOWED_UPDATES],
@@ -275,9 +277,8 @@ export class TelegramAdapter implements ChannelAdapter {
   }
 
   /**
-   * Process one update. A redelivered `update_id` is dropped: update ids are
-   * per bot, and the secret is derived from the bot token, so the key names
-   * the bot rather than the agent that currently holds it.
+   * Process one update. A redelivered `update_id` is dropped; the key carries
+   * a prefix of the channel's own secret, so two channels never share a key.
    */
   async handleInbound(update: Parameters<Bot["handleUpdate"]>[0]): Promise<void> {
     if (!this.bot) throw new Error("Telegram bot not initialized");

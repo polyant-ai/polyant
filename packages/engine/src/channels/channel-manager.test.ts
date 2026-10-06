@@ -5,8 +5,9 @@ import { ChannelManager } from "./channel-manager.js";
 import type { MessageHandler } from "./types.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
-const { mockFindInstanceBySlug, mockTelegramInitialize, mockTelegramDeregister, mockTelegramShutdown } = vi.hoisted(() => ({
+const { mockFindInstanceBySlug, mockTelegramInitialize, mockTelegramDeregister, mockTelegramShutdown, mockEnsureTelegramWebhookSecret } = vi.hoisted(() => ({
   mockFindInstanceBySlug: vi.fn(),
+  mockEnsureTelegramWebhookSecret: vi.fn().mockResolvedValue("minted-secret"),
   mockTelegramShutdown: vi.fn().mockResolvedValue(undefined),
   mockTelegramInitialize: vi.fn().mockResolvedValue(undefined),
   mockTelegramDeregister: vi.fn().mockResolvedValue(undefined),
@@ -20,6 +21,7 @@ vi.mock("../platform/platform-settings.store.js", () => ({
 // Mock DB-dependent imports
 vi.mock("../instances/channels.store.js", () => ({
   listEnabledChannelConfigs: vi.fn().mockResolvedValue([]),
+  ensureTelegramWebhookSecret: mockEnsureTelegramWebhookSecret,
   // Keep in sync with the real tuple in instances/channels.store.ts —
   // any new API-configurable channel type must be added here.
   CHANNEL_TYPES: ["telegram", "slack", "whatsapp", "agent"],
@@ -76,6 +78,22 @@ describe("ChannelManager", () => {
       await manager.startChannel("my-instance", "telegram", { botToken: "test-token" });
       const active = manager.getActiveChannels();
       expect(active).toEqual([{ instanceSlug: "my-instance", channelType: "telegram" }]);
+    });
+
+    it("mints and stores a secret for a Telegram channel saved without one, and starts with it", async () => {
+      const { TelegramAdapter } = await import("./adapters/telegram/index.js");
+      mockEnsureTelegramWebhookSecret.mockClear();
+
+      await manager.startChannel("legacy", "telegram", { botToken: "test-token" });
+
+      expect(mockEnsureTelegramWebhookSecret).toHaveBeenCalledWith("legacy");
+      expect(vi.mocked(TelegramAdapter).mock.calls.at(-1)![1]).toMatchObject({ webhookSecret: "minted-secret" });
+    });
+
+    it("starts a Telegram channel on its stored secret without minting another", async () => {
+      mockEnsureTelegramWebhookSecret.mockClear();
+      await manager.startChannel("current", "telegram", { botToken: "test-token", webhookSecret: "stored" });
+      expect(mockEnsureTelegramWebhookSecret).not.toHaveBeenCalled();
     });
 
     it("starts multiple channels for the same instance", async () => {

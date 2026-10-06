@@ -50,7 +50,7 @@ describe("Telegram inbound turn", () => {
     const onMessage = vi.fn(
       (_msg: IncomingMessage) => new Promise<OutgoingMessage>((resolve) => (finishTurn = resolve)),
     );
-    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture" }, "https://engine.test/x");
+    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture", webhookSecret: "channel-secret" }, "https://engine.test/x");
     await adapter.initialize(onMessage);
 
     const turn = handlers.get("message:text")!(textCtx("hello"));
@@ -66,7 +66,7 @@ describe("Telegram inbound turn", () => {
     const onMessage = vi.fn(async (_msg: IncomingMessage): Promise<OutgoingMessage> => ({ text: "" }));
     const adapter = new TelegramAdapter(
       asInstanceSlug("shop"),
-      { botToken: "fixture", allowedUserIds: "7" },
+      { botToken: "fixture", allowedUserIds: "7", webhookSecret: "channel-secret" },
       "https://engine.test/x",
     );
     await adapter.initialize(onMessage);
@@ -82,7 +82,7 @@ describe("Telegram inbound turn", () => {
     vi.stubGlobal("fetch", fetchSpy);
     getFile.mockResolvedValue({ file_path: "docs/big.pdf", file_size: FILE_DOWNLOAD_MAX_BYTES + 1 });
     const onMessage = vi.fn(async (_msg: IncomingMessage): Promise<OutgoingMessage> => ({ text: "" }));
-    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture" }, "https://engine.test/x");
+    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture", webhookSecret: "channel-secret" }, "https://engine.test/x");
     await adapter.initialize(onMessage);
 
     await handlers.get("message:document")!({
@@ -99,7 +99,7 @@ describe("Telegram inbound turn", () => {
     vi.stubGlobal("fetch", fetchSpy);
     getFile.mockResolvedValue({ file_path: "docs/small.pdf", file_size: 3 });
     const onMessage = vi.fn(async (_msg: IncomingMessage): Promise<OutgoingMessage> => ({ text: "" }));
-    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture" }, "https://engine.test/x");
+    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture", webhookSecret: "channel-secret" }, "https://engine.test/x");
     await adapter.initialize(onMessage);
 
     await handlers.get("message:document")!({

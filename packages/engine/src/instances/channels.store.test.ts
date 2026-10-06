@@ -130,18 +130,18 @@ describe("instances/channels.store", () => {
   // setChannelConfig (telegram/slack — generic path, no WhatsApp invariant)
   // -----------------------------------------------------------------------
   describe("setChannelConfig", () => {
-    it("validates config, encrypts JSON, and upserts (telegram)", async () => {
+    it("validates config, encrypts JSON, and upserts", async () => {
       const chain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(chain as any);
 
-      const config = { botToken: "123:ABC" };
-      await setChannelConfig(INSTANCE_UUID, "telegram", config, true);
+      const config = { botToken: "slack-bot-token", signingSecret: "secret123" };
+      await setChannelConfig(INSTANCE_UUID, "slack", config, true);
 
       expect(mockEncrypt).toHaveBeenCalledWith(JSON.stringify(config));
       expect(mockDb.insert).toHaveBeenCalled();
       expect(chain.values).toHaveBeenCalledWith({
         instanceId: INSTANCE_UUID,
-        channelType: "telegram",
+        channelType: "slack",
         enabled: true,
         config: `encrypted:${JSON.stringify(config)}`,
       });
@@ -153,7 +153,7 @@ describe("instances/channels.store", () => {
       mockDb.insert.mockReturnValue(chain as any);
 
       const config = {
-        botToken: "xoxb-token",
+        botToken: "slack-bot-token",
         signingSecret: "secret123",
       };
       await setChannelConfig(INSTANCE_UUID, "slack", config, false);
@@ -166,20 +166,11 @@ describe("instances/channels.store", () => {
       const chain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(chain as any);
 
-      const config = { botToken: "123:ABC" };
-      const result = await setChannelConfig(INSTANCE_UUID, "telegram", config, true);
+      const config = { botToken: "slack-bot-token", signingSecret: "secret123" };
+      const result = await setChannelConfig(INSTANCE_UUID, "slack", config, true);
 
       expect(result.config).toEqual(config);
       expect(result.mintedWebhookSecret).toBe(false);
-    });
-
-    it("throws ZodError for invalid telegram config (missing botToken)", async () => {
-      await expect(
-        setChannelConfig(INSTANCE_UUID, "telegram", {}, true),
-      ).rejects.toThrow(ZodError);
-
-      expect(mockEncrypt).not.toHaveBeenCalled();
-      expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
     it("throws ZodError for invalid slack config (missing fields)", async () => {
@@ -190,11 +181,11 @@ describe("instances/channels.store", () => {
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
-    it("does not query the DB for a non-whatsapp save (no carry-forward read to make)", async () => {
+    it("does not query the DB for a save with no inbound secret to carry forward", async () => {
       const chain = createChainMock(undefined);
       mockDb.insert.mockReturnValue(chain as any);
 
-      await setChannelConfig(INSTANCE_UUID, "telegram", { botToken: "123:ABC" }, true);
+      await setChannelConfig(INSTANCE_UUID, "slack", { botToken: "slack-bot-token", signingSecret: "secret123" }, true);
 
       expect(mockDb.select).not.toHaveBeenCalled();
     });
