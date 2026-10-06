@@ -244,3 +244,30 @@ describe("chunker input length cap", () => {
     expect(() => splitSentences(oversized)).toThrow(RangeError);
   });
 });
+
+describe("splitSentences characterization", () => {
+  // Recorded outputs that pin the abbreviation and boundary rules, including the
+  // accented-letter range the word-before-the-dot lookup accepts.
+  it.each([
+    ["Il Sig.ra Rossi è arrivata. Poi è andata via.", ["Il Sig.ra Rossi è arrivata. ", "Poi è andata via."]],
+    ["Vedi ecc. per dettagli. Fine.", ["Vedi ecc. per dettagli. ", "Fine."]],
+    ["Il dott. Bianchi visita. Il Prof. Verdi no.", ["Il dott. Bianchi visita. ", "Il Prof. Verdi no."]],
+    ["Prezzo 3.5 euro. Sconto x.y applicato. Ok", ["Prezzo 3.5 euro. ", "Sconto x.y applicato. ", "Ok"]],
+    ["città. Èlite parte. àbc. ×. Ultimo", ["città. ", "Èlite parte. àbc. ×. ", "Ultimo"]],
+    ["...e poi. Nulla", ["...e poi. ", "Nulla"]],
+    ["a.b.c. D", ["a.b.c. ", "D"]],
+    ["End of line.\nNext line. lower case. Upper.", ["End of line.\n", "Next line. lower case. ", "Upper."]],
+  ])("%j", (input, expected) => {
+    expect(splitSentences(input)).toEqual(expected);
+  });
+
+  it("stays linear on a long run of short dotted words", () => {
+    // Re-scanning the growing sentence at every dot made this quadratic: tens of
+    // seconds for an input far below the chunker's 10 MiB cap.
+    const input = "a.".repeat(100_000);
+    const started = performance.now();
+    const sentences = splitSentences(input);
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(sentences.join("")).toBe(input);
+  });
+});
