@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi } from "vitest";
-import { parseSseEvent, dispatch } from "./stream-parser";
+import { parseSseEvent, dispatch, streamChatCompletion } from "./stream-parser";
 import type { StreamCallbacks } from "./stream-parser";
 
 function makeCallbacks(): StreamCallbacks & { calls: Array<[string, unknown[]]> } {
@@ -172,5 +172,32 @@ describe("smoke: makeCallbacks does not require real fetch", () => {
     expect(typeof cb.onError).toBe("function");
     // Suppress vi unused-import lint
     vi.fn();
+  });
+});
+
+describe("streamChatCompletion on a non-2xx answer", () => {
+  const run = async (response: Response) => {
+    vi.stubGlobal("fetch", vi.fn(async () => response));
+    const onError = vi.fn();
+    await streamChatCompletion(
+      { instanceSlug: "shop", messages: [], chatId: "c1" },
+      { ...makeCallbacks(), onError },
+    );
+    vi.unstubAllGlobals();
+    return (onError.mock.calls[0]![0] as Error).message;
+  };
+
+  it("does not show the engine's raw body to the user", async () => {
+    const body = JSON.stringify({ message: "Error: boom\n    at /app/packages/engine/dist/pipeline.js:12:3" });
+    const message = await run(new Response(body, { status: 500 }));
+
+    expect(message).not.toContain("/app/packages");
+    expect(message).toContain("500");
+  });
+
+  it("shows a short, readable engine message", async () => {
+    const message = await run(new Response(JSON.stringify({ message: "Agent not found" }), { status: 404 }));
+
+    expect(message).toBe("Agent not found");
   });
 });

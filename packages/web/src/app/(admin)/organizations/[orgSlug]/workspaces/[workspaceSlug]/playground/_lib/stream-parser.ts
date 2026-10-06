@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { API_BASE, type HookEvent } from "@/lib/api";
+import { API_BASE, ApiError, getUserErrorMessage, type HookEvent } from "@/lib/api";
 
 const HOOK_EVENTS: readonly HookEvent[] = [
   "conversation_start",
@@ -109,8 +109,18 @@ export async function streamChatCompletion(
   }
 
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    callbacks.onError(new Error(`HTTP ${response.status}: ${body}`));
+    // The engine's raw body (a stack, an internal path) is not shown to the user:
+    // only its message, through the same filter every other panel request uses.
+    const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
+    const message = typeof body?.message === "string" ? body.message : response.statusText;
+    callbacks.onError(
+      new Error(
+        getUserErrorMessage(
+          new ApiError(response.status, message),
+          `The agent could not answer (HTTP ${response.status}).`,
+        ),
+      ),
+    );
     return;
   }
 
