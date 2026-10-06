@@ -18,6 +18,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { scheduledTasks } from "./schema.js";
 import * as store from "./store.js";
+import * as runLog from "./run-log.store.js";
 
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const created: string[] = [];
@@ -149,5 +150,42 @@ describe.skipIf(!DB_AVAILABLE)("scheduled task run claims (integration)", () => 
     expect(await store.markRunning(id, { dueBy: new Date() })).toBeNull();
     // A manual run is not bound to the schedule.
     expect(await store.markRunning(id)).toBeInstanceOf(Date);
+  });
+  it("startup recovery does not clear a claim made after the one it read", async () => {
+    const id = await newTask();
+    const runA = await claim(id);
+    const seen = await readClaim(id);
+
+    // Meanwhile run A is closed and a new run B claims the task.
+    await store.markCompleted(id, "conversation-1", runA);
+    await tick();
+    await claim(id);
+
+    expect(await store.clearRunningMarker([{ id, claim: seen }])).toEqual([]);
+    expect((await store.getById(id))?.lastRunStatus).toBe("running");
+  });
+
+  it("startup recovery clears the claim it read", async () => {
+    const id = await newTask();
+    await claim(id);
+    const seen = await readClaim(id);
+
+    expect(await store.clearRunningMarker([{ id, claim: seen }])).toEqual([id]);
+    expect((await store.getById(id))?.lastRunStatus).toBeNull();
+  });
+
+  it("closes only the dangling runs it observed, never a run started afterwards", async () => {
+    const id = await newTask();
+    const task = await store.getById(id);
+    const runA = await runLog.createRun(id, asInstanceSlug(task!.instanceId), "scheduled");
+    const observed = await runLog.findDanglingRuns([id]);
+    // A new run B is created after the observation.
+    const runB = await runLog.createRun(id, asInstanceSlug(task!.instanceId), "scheduled");
+
+    expect(observed).toEqual([runA]);
+    expect(await runLog.failDanglingRuns(observed, "orphaned")).toBe(1);
+    const { runs } = await runLog.listRuns(asInstanceSlug(task!.instanceId), { taskId: id });
+    expect(runs.find((r) => r.id === runA)?.status).toBe("error");
+    expect(runs.find((r) => r.id === runB)?.status).toBe("running");
   });
 });

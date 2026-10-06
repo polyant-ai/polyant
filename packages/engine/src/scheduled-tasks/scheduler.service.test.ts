@@ -38,6 +38,7 @@ const { mockStore, mockRunLog, mockChannelManager } = vi.hoisted(() => ({
     completeRun: vi.fn(),
     failRun: vi.fn(),
     failDanglingRuns: vi.fn(),
+    findDanglingRuns: vi.fn(),
   },
   mockChannelManager: {
     sendOutbound: vi.fn(),
@@ -95,6 +96,7 @@ describe("SchedulerService", () => {
     mockRunLog.completeRun.mockReset().mockResolvedValue(undefined);
     mockRunLog.failRun.mockReset().mockResolvedValue(undefined);
     mockRunLog.failDanglingRuns.mockReset().mockResolvedValue(0);
+    mockRunLog.findDanglingRuns.mockReset().mockResolvedValue([]);
     mockStore.findStuckRunning.mockReset().mockResolvedValue([]);
     mockStore.countStuckRunning.mockReset().mockResolvedValue(0);
     mockStore.clearRunningMarker.mockReset().mockResolvedValue([]);
@@ -192,6 +194,7 @@ describe("SchedulerService", () => {
       schedule: { type: "cron", expression: "0 6 * * *" },
       lastRunStatus: "running",
       updatedAt: new Date(Date.now() - 60 * 60_000),
+      lastRunAt: new Date(Date.now() - 60 * 60_000),
       maxRunMs: null,
       keepHistory: false,
       deleteAfterRun: false,
@@ -213,6 +216,10 @@ describe("SchedulerService", () => {
         calls.push("clearRunningMarker");
         return ["task-orphan"];
       });
+      mockRunLog.findDanglingRuns.mockImplementation(async () => {
+        calls.push("findDanglingRuns");
+        return ["run-orphan"];
+      });
       mockRunLog.failDanglingRuns.mockImplementation(async () => {
         calls.push("failDanglingRuns");
         return 1;
@@ -226,11 +233,34 @@ describe("SchedulerService", () => {
       await schedulerService.start();
 
       expect(calls.indexOf("clearRunningMarker")).toBeLessThan(calls.indexOf("getDueTasks"));
-      expect(mockStore.clearRunningMarker).toHaveBeenCalledWith(["task-orphan"]);
       expect(mockRunLog.failDanglingRuns).toHaveBeenCalledWith(
-        ["task-orphan"],
+        ["run-orphan"],
         expect.stringContaining("orphaned"),
       );
+    });
+
+    it("clears only the claim it read, and closes only the runs it observed before clearing", async () => {
+      // Once the marker is cleared another replica may claim the task for a new run B.
+      // Recovery must neither clear B's marker nor close B's run-log row, so it names
+      // the claim it read and reads the dangling runs while the marker still holds.
+      const task = orphan();
+      const calls: string[] = [];
+      mockStore.findStuckRunning.mockResolvedValue([task]);
+      mockRunLog.findDanglingRuns.mockImplementation(async () => {
+        calls.push("findDanglingRuns");
+        return ["run-a"];
+      });
+      mockStore.clearRunningMarker.mockImplementation(async () => {
+        calls.push("clearRunningMarker");
+        return ["task-orphan"];
+      });
+      schedulerService.initialize(noopHandler);
+
+      await schedulerService.start();
+
+      expect(mockStore.clearRunningMarker).toHaveBeenCalledWith([{ id: "task-orphan", claim: task.lastRunAt }]);
+      expect(calls).toEqual(["findDanglingRuns", "clearRunningMarker"]);
+      expect(mockRunLog.failDanglingRuns).toHaveBeenCalledWith(["run-a"], expect.any(String));
     });
 
     it("does NOT count a failure for an interrupted run", async () => {
@@ -305,12 +335,13 @@ describe("SchedulerService", () => {
       // Here the failure IS the task's own behaviour: it had its declared time and did not
       // finish, so the retry backoff is the right response.
       mockStore.findStuckRunning.mockResolvedValue([runningFor(31 * 60_000)]);
+      mockRunLog.findDanglingRuns.mockResolvedValue(["run-hung"]);
       schedulerService.initialize(noopHandler);
 
       await schedulerService.tick();
 
       expect(mockStore.markFailed).toHaveBeenCalledWith("task-hung", expect.stringContaining("orphaned"), expect.anything());
-      expect(mockRunLog.failDanglingRuns).toHaveBeenCalledWith(["task-hung"], expect.stringContaining("orphaned"));
+      expect(mockRunLog.failDanglingRuns).toHaveBeenCalledWith(["run-hung"], expect.stringContaining("orphaned"));
     });
 
     it("fails only the claim it read, and leaves the run log alone when the row moved on", async () => {

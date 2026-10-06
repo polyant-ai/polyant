@@ -296,11 +296,17 @@ class SchedulerService {
     );
     if (stuck.length === 0) return;
 
-    const ids = stuck.map((t) => t.id);
-    const clearedIds = await store.clearRunningMarker(ids);
+    // The dangling runs are read BEFORE the markers are cleared, and each marker is
+    // cleared only on the claim read above: once a marker is cleared a new run may claim
+    // the task, and neither its marker nor its run-log row is this recovery's to close.
+    const danglingByTask = new Map<string, string[]>();
+    for (const task of stuck) danglingByTask.set(task.id, await runLog.findDanglingRuns([task.id]));
+    const clearedIds = await store.clearRunningMarker(
+      stuck.map((t) => ({ id: t.id, claim: t.lastRunAt })),
+    );
     if (clearedIds.length === 0) return;
     const closed = await runLog.failDanglingRuns(
-      clearedIds,
+      clearedIds.flatMap((id) => danglingByTask.get(id) ?? []),
       "orphaned: the process running this task did not survive to report an outcome",
     );
 
@@ -347,13 +353,16 @@ class SchedulerService {
       // run itself finishing and the task being claimed again, may have moved
       // the row on since. Failing that newer claim would free it for a duplicate
       // execution, so a lost race leaves the row alone.
+      // The run-log rows are read while the row is still held by this claim, so a run
+      // claimed after `markFailed` frees the task is not closed with it.
+      const dangling = await runLog.findDanglingRuns([task.id]);
       const reaped = await store.markFailed(
         task.id,
         `orphaned: run exceeded its deadline of ${deadline} ms (running for ${runningForMs} ms)`,
         task.lastRunAt,
       );
       if (!reaped) continue;
-      await runLog.failDanglingRuns([task.id], `orphaned: run exceeded ${deadline} ms`);
+      await runLog.failDanglingRuns(dangling, `orphaned: run exceeded ${deadline} ms`);
       scheduledTaskLog.warn(
         "SchedulerService",
         `reaped task "${task.name}" (${task.instanceId}): running for ${runningForMs} ms, ` +
