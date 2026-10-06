@@ -359,3 +359,24 @@ describe("SlackAdapter — outbound mrkdwn conversion on replies", () => {
     expect(payload.text).not.toContain("**");
   });
 });
+
+describe("SlackAdapter — proactive delivery", () => {
+  it("reports the DM channel a user id was answered on, where the user's replies arrive", async () => {
+    const { adapter, init } = makeAdapter(vi.fn());
+    await init();
+    conversationsOpenMock.mockResolvedValue({ ok: true, channel: { id: "D0DM42" } });
+    chatPostMessageMock.mockResolvedValue({ ok: true });
+
+    const delivery = await adapter.sendMessage("U0USER1", { text: "reminder" });
+
+    expect(delivery).toEqual({ channelId: "D0DM42" });
+  });
+
+  it("reports a channel target unchanged", async () => {
+    const { adapter, init } = makeAdapter(vi.fn());
+    await init();
+    chatPostMessageMock.mockResolvedValue({ ok: true });
+
+    expect(await adapter.sendMessage("C0CHAN", { text: "digest" })).toEqual({ channelId: "C0CHAN" });
+  });
+});

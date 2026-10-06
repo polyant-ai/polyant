@@ -25,7 +25,8 @@ import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { instanceMcpServers } from "./mcp-servers.schema.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
-import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
+import { asInstanceSlug, asInstanceUuid, type InstanceUuid } from "./identifiers.js";
+import { sanitizeForLog } from "../utils/create-logger.js";
 import { invalidateInstanceConfigCache } from "./config-resolver.js";
 import { isKnownEmbeddingProvider, knownEmbeddingProviders } from "../embeddings-gateway/config.js";
 import { instanceBundleSchema, type ExportInstanceData } from "./export.schema.js";
@@ -202,10 +203,7 @@ export async function importNewInstance(
     return id;
   });
 
-  // Recompute tools outside transaction (uses its own transaction internally)
-  await recomputeInstanceTools(instanceId);
-  invalidatePromptsCache(instanceId);
-  invalidateHooksCache(asInstanceSlug(slug));
+  await finishCommittedImport(instanceId, slug, warnings);
 
   return { slug, instanceId, warnings };
 }
@@ -348,12 +346,34 @@ export async function importOverwriteInstance(
     warnings.push(...(await importSecrets(tx, instanceId, data.secrets)));
   });
 
-  await recomputeInstanceTools(instanceId);
-  invalidatePromptsCache(instanceId);
-  invalidateInstanceConfigCache(asInstanceSlug(targetSlug));
-  invalidateHooksCache(asInstanceSlug(targetSlug));
+  await finishCommittedImport(instanceId, targetSlug, warnings);
 
   return { slug: targetSlug, instanceId, warnings };
+}
+
+/**
+ * The work after an import has committed: recompute tool access, then drop the caches
+ * that hold the agent's previous configuration.
+ *
+ * The import is already durable here, so a failing recompute must neither skip the
+ * cache invalidation (the agent would keep running on its old prompts and hooks) nor
+ * fail the request for data that was written. It is reported as a warning instead.
+ */
+async function finishCommittedImport(instanceId: InstanceUuid, slug: string, warnings: ImportWarning[]): Promise<void> {
+  try {
+    // Outside the import transaction: it opens its own.
+    await recomputeInstanceTools(instanceId);
+  } catch (err) {
+    console.error('[import] tool recompute failed for "%s" after a committed import:', sanitizeForLog(slug), err);
+    warnings.push({
+      type: "tool_recompute_failed",
+      message: "The agent was imported, but its tool access could not be recomputed; save its tools again to apply it.",
+    });
+  } finally {
+    invalidatePromptsCache(instanceId);
+    invalidateInstanceConfigCache(asInstanceSlug(slug));
+    invalidateHooksCache(asInstanceSlug(slug));
+  }
 }
 
 // ---------------------------------------------------------------------------

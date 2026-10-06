@@ -33,11 +33,11 @@ import { ChannelsTab } from "./channels-tab";
  * Web/API leads: every agent has it, and it is the one that used to hide in the
  * model settings as "Autenticazione API".
  *
- * It is not a channel TYPE — `CHANNEL_TYPES` has no `web`, here or in enterprise.
+ * It is not a channel TYPE — `CHANNEL_TYPES` has no `web`.
  * It is a panel over `instances.auth_enabled` plus the `auth_api_key` secret, and
- * it is listed here because to a reader it is what it looks like: a way in. The
- * genuinely enterprise channel is `http`, and that one stays out — the panel would
- * offer a page for an adapter this build does not ship.
+ * it is listed here because to a reader it is what it looks like: a way in. An
+ * `http` channel stays out — the panel would offer a page for an adapter this
+ * build does not ship.
  */
 const CHANNELS: readonly {
   type: string;

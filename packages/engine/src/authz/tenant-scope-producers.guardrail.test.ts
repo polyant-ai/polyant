@@ -10,12 +10,12 @@
  *
  *   1. A scope built from an UNVERIFIED id. `orgScope(user.orgId)` compiles and
  *      reads like the right thing, but `instances.orgId` in the JWT is a
- *      LANDING PREFERENCE, not a scope (CLAUDE.md → Enterprise): it says which
+ *      LANDING PREFERENCE, not a scope: it says which
  *      organization the caller is shown first, never which one they may act in.
  *      Same for anything off the request — `query`, `body`, `params`, headers.
  *      The sanctioned path is to RESOLVE the organization first
- *      (`resolvePrincipalOrgId`, and in the enterprise build the workspace
- *      resolvers), then build the scope from what came back.
+ *      (`resolvePrincipalOrgId`, or a workspace resolver in a build that
+ *      registers one), then build the scope from what came back.
  *
  *   2. The cross-tenant scope, which is the one variant that constrains
  *      nothing. Every use is a place where a query answers across every

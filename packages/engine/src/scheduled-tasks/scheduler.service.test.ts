@@ -38,6 +38,7 @@ const { mockStore, mockRunLog, mockChannelManager } = vi.hoisted(() => ({
     completeRun: vi.fn(),
     failRun: vi.fn(),
     failDanglingRuns: vi.fn(),
+    findDanglingRuns: vi.fn(),
   },
   mockChannelManager: {
     sendOutbound: vi.fn(),
@@ -48,6 +49,16 @@ vi.mock("./store.js", () => mockStore);
 vi.mock("./run-log.store.js", () => mockRunLog);
 vi.mock("../channels/channel-manager.js", () => ({
   channelManager: mockChannelManager,
+}));
+const { mockConversationStore } = vi.hoisted(() => ({
+  mockConversationStore: { ensureConversation: vi.fn(), appendMessages: vi.fn() },
+}));
+vi.mock("../conversations/index.js", () => ({ conversationStore: mockConversationStore }));
+vi.mock("../instances/store.js", () => ({
+  findInstanceBySlug: vi.fn(async () => ({ status: "active" })),
+}));
+vi.mock("../activity-stream/emit-helpers.js", () => ({
+  resolveInstanceMeta: vi.fn(async () => undefined),
 }));
 vi.mock("./schedule-utils.js", () => ({
   computeNextRun: vi.fn(() => new Date()),
@@ -95,6 +106,7 @@ describe("SchedulerService", () => {
     mockRunLog.completeRun.mockReset().mockResolvedValue(undefined);
     mockRunLog.failRun.mockReset().mockResolvedValue(undefined);
     mockRunLog.failDanglingRuns.mockReset().mockResolvedValue(0);
+    mockRunLog.findDanglingRuns.mockReset().mockResolvedValue([]);
     mockStore.findStuckRunning.mockReset().mockResolvedValue([]);
     mockStore.countStuckRunning.mockReset().mockResolvedValue(0);
     mockStore.clearRunningMarker.mockReset().mockResolvedValue([]);
@@ -136,6 +148,29 @@ describe("SchedulerService", () => {
 
       expect(setIntervalSpy).toHaveBeenCalledTimes(1);
       // TICK_INTERVAL_MS = 30_000
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
+      expect(schedulerService.isRunning).toBe(true);
+    });
+
+    it("arms the tick loop even when a recovered missed task never settles", async () => {
+      // A missed task found at startup runs an ordinary pipeline. If it hangs, the reaper
+      // in the tick loop is its only supervision, and boot must not wait on it either.
+      const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
+      mockStore.getDueTasks.mockResolvedValue([{
+        id: "task-missed",
+        name: "missed",
+        instanceId: "acme",
+        schedule: { type: "cron", expression: "0 6 * * *" },
+        prompt: "noop",
+        keepHistory: false,
+        deleteAfterRun: false,
+        maxRetries: 3,
+        consecutiveErrors: 0,
+      }]);
+      schedulerService.initialize(() => new Promise(() => {}));
+
+      await schedulerService.start();
+
       expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
       expect(schedulerService.isRunning).toBe(true);
     });
@@ -192,6 +227,7 @@ describe("SchedulerService", () => {
       schedule: { type: "cron", expression: "0 6 * * *" },
       lastRunStatus: "running",
       updatedAt: new Date(Date.now() - 60 * 60_000),
+      lastRunAt: new Date(Date.now() - 60 * 60_000),
       maxRunMs: null,
       keepHistory: false,
       deleteAfterRun: false,
@@ -213,6 +249,10 @@ describe("SchedulerService", () => {
         calls.push("clearRunningMarker");
         return ["task-orphan"];
       });
+      mockRunLog.findDanglingRuns.mockImplementation(async () => {
+        calls.push("findDanglingRuns");
+        return ["run-orphan"];
+      });
       mockRunLog.failDanglingRuns.mockImplementation(async () => {
         calls.push("failDanglingRuns");
         return 1;
@@ -226,11 +266,34 @@ describe("SchedulerService", () => {
       await schedulerService.start();
 
       expect(calls.indexOf("clearRunningMarker")).toBeLessThan(calls.indexOf("getDueTasks"));
-      expect(mockStore.clearRunningMarker).toHaveBeenCalledWith(["task-orphan"]);
       expect(mockRunLog.failDanglingRuns).toHaveBeenCalledWith(
-        ["task-orphan"],
+        ["run-orphan"],
         expect.stringContaining("orphaned"),
       );
+    });
+
+    it("clears only the claim it read, and closes only the runs it observed before clearing", async () => {
+      // Once the marker is cleared another replica may claim the task for a new run B.
+      // Recovery must neither clear B's marker nor close B's run-log row, so it names
+      // the claim it read and reads the dangling runs while the marker still holds.
+      const task = orphan();
+      const calls: string[] = [];
+      mockStore.findStuckRunning.mockResolvedValue([task]);
+      mockRunLog.findDanglingRuns.mockImplementation(async () => {
+        calls.push("findDanglingRuns");
+        return ["run-a"];
+      });
+      mockStore.clearRunningMarker.mockImplementation(async () => {
+        calls.push("clearRunningMarker");
+        return ["task-orphan"];
+      });
+      schedulerService.initialize(noopHandler);
+
+      await schedulerService.start();
+
+      expect(mockStore.clearRunningMarker).toHaveBeenCalledWith([{ id: "task-orphan", claim: task.lastRunAt }]);
+      expect(calls).toEqual(["findDanglingRuns", "clearRunningMarker"]);
+      expect(mockRunLog.failDanglingRuns).toHaveBeenCalledWith(["run-a"], expect.any(String));
     });
 
     it("does NOT count a failure for an interrupted run", async () => {
@@ -305,12 +368,13 @@ describe("SchedulerService", () => {
       // Here the failure IS the task's own behaviour: it had its declared time and did not
       // finish, so the retry backoff is the right response.
       mockStore.findStuckRunning.mockResolvedValue([runningFor(31 * 60_000)]);
+      mockRunLog.findDanglingRuns.mockResolvedValue(["run-hung"]);
       schedulerService.initialize(noopHandler);
 
       await schedulerService.tick();
 
       expect(mockStore.markFailed).toHaveBeenCalledWith("task-hung", expect.stringContaining("orphaned"), expect.anything());
-      expect(mockRunLog.failDanglingRuns).toHaveBeenCalledWith(["task-hung"], expect.stringContaining("orphaned"));
+      expect(mockRunLog.failDanglingRuns).toHaveBeenCalledWith(["run-hung"], expect.stringContaining("orphaned"));
     });
 
     it("fails only the claim it read, and leaves the run log alone when the row moved on", async () => {
@@ -370,6 +434,65 @@ describe("SchedulerService", () => {
   // -----------------------------------------------------------------------
   // Observability: the failure here is the absence of success
   // -----------------------------------------------------------------------
+  describe("outbound delivery", () => {
+    const outboundTask = (channel: string, target: string) => ({
+      id: "task-out",
+      name: "reminder",
+      instanceId: "acme",
+      schedule: { type: "cron", expression: "0 9 * * *" },
+      prompt: "remind",
+      outboundChannel: channel,
+      outboundTarget: target,
+      keepHistory: true,
+      deleteAfterRun: false,
+      maxRetries: 3,
+      consecutiveErrors: 0,
+    });
+
+    beforeEach(() => {
+      mockConversationStore.ensureConversation.mockReset().mockResolvedValue({ created: true });
+      mockConversationStore.appendMessages.mockReset().mockResolvedValue(undefined);
+      mockChannelManager.sendOutbound.mockReset().mockResolvedValue(undefined);
+    });
+
+    it("records the delivered message in the contact's conversation, keyed as their replies are", async () => {
+      // The contact's reply arrives on `+39…` and is keyed `acme:whatsapp:+39…` by the
+      // inbound pipeline; the reminder it answers must be in that same conversation.
+      schedulerService.initialize(noopHandler);
+      await schedulerService.runNow(outboundTask("whatsapp", "whatsapp:+393331234567") as never);
+
+      expect(mockChannelManager.sendOutbound).toHaveBeenCalledWith(
+        "acme", "whatsapp", "whatsapp:+393331234567", "ok", { throwOnSuppressed: true },
+      );
+      expect(mockConversationStore.ensureConversation).toHaveBeenCalledWith(
+        "acme:whatsapp:+393331234567",
+        "acme",
+        expect.objectContaining({ channel: "whatsapp", userIdentifier: "+393331234567" }),
+      );
+      expect(mockConversationStore.appendMessages).toHaveBeenCalledWith("acme:whatsapp:+393331234567", [
+        expect.objectContaining({ role: "assistant", content: "ok" }),
+      ]);
+    });
+
+    it("keys the conversation on the id the adapter reports for the delivery", async () => {
+      mockChannelManager.sendOutbound.mockResolvedValue({ channelId: "D0DM42" });
+      schedulerService.initialize(noopHandler);
+
+      await schedulerService.runNow(outboundTask("slack", "U0USER1") as never);
+
+      expect(mockConversationStore.appendMessages).toHaveBeenCalledWith("acme:slack:D0DM42", expect.any(Array));
+    });
+
+    it("records nothing when the delivery fails or is suppressed", async () => {
+      mockChannelManager.sendOutbound.mockRejectedValue(new Error("Outbound suppressed by recipient opt-out"));
+      schedulerService.initialize(noopHandler);
+
+      await schedulerService.runNow(outboundTask("whatsapp", "+393331234567") as never);
+
+      expect(mockConversationStore.appendMessages).not.toHaveBeenCalled();
+    });
+  });
+
   describe("health", () => {
     it("reports free slots and stuck rows in numbers", async () => {
       mockStore.countStuckRunning.mockResolvedValue(2);

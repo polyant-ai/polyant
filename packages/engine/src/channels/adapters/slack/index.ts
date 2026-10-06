@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { App, isValidSlackRequest } from "@slack/bolt";
-import type { ChannelAdapter, IncomingMessage, MessageHandler, OutgoingMessage } from "../../types.js";
+import type { ChannelAdapter, IncomingMessage, MessageHandler, OutboundDelivery, OutgoingMessage } from "../../types.js";
 import { CHANNEL_MAX_LENGTH, METADATA_CONVERSATION_ID_OVERRIDE } from "../../types.js";
 import { toSlackMrkdwn } from "./slack-mrkdwn.js";
 import { splitMessage } from "../../split-message.js";
@@ -145,7 +145,7 @@ export class SlackAdapter implements ChannelAdapter {
     await this.app.processEvent({ body, ack: async () => {} });
   }
 
-  async sendMessage(channelId: string, msg: OutgoingMessage): Promise<void> {
+  async sendMessage(channelId: string, msg: OutgoingMessage): Promise<OutboundDelivery> {
     if (!this.app) throw new Error("Slack app not initialized");
 
     // If target is a user ID (U...), open a DM first
@@ -161,6 +161,8 @@ export class SlackAdapter implements ChannelAdapter {
         text,
       });
     }
+    // A user id is answered on the DM it opened: the user's replies carry the DM's id.
+    return { channelId: resolvedChannel };
   }
 
   async shutdown(): Promise<void> {

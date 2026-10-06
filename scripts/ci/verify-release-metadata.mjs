@@ -4,11 +4,9 @@ import path from "node:path";
 import { releaseFacts, releaseNoteHeading } from "../release/release-facts.mjs";
 
 const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-// The manifest list, the product name and the edition suffix are the only
-// things this check knows about the product, and all three come from
-// release-facts.mjs — the module the Enterprise build overrides wholesale. This
-// file used to carry them as literals and diverged between the two repositories
-// in three places, each re-resolved by hand on every merge.
+// The manifest list and the product name are the only things this check knows
+// about the product, and both come from release-facts.mjs, shared with the
+// release preparer and auditor so the three cannot disagree.
 const manifestPaths = releaseFacts.manifests;
 
 async function readManifest(rootDir, relativePath) {
@@ -39,12 +37,6 @@ export async function validateReleaseMetadata(rootDir) {
 
   if (typeof rootVersion !== "string" || !semverPattern.test(rootVersion)) {
     throw new Error("package.json must define a valid SemVer version.");
-  }
-
-  if (releaseFacts.versionSuffix && !rootVersion.endsWith(releaseFacts.versionSuffix)) {
-    throw new Error(
-      `package.json must define a ${releaseFacts.productName} release version ending in ${releaseFacts.versionSuffix}.`,
-    );
   }
 
   for (const { relativePath, manifest } of manifests.slice(1)) {

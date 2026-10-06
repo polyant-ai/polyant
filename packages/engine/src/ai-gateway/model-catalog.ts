@@ -345,8 +345,8 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     // caching, vision AND reasoning together, so this is a choice between them.
     //
     // `heavy` is gpt-oss-120b for its reasoning: its consumers are the semantic
-    // governance gates (prompt-injection, PII, topic guardrail in the builds that
-    // ship them), which send a short one-shot prompt — so the missing cache costs
+    // governance gates (prompt-injection, PII, topic guardrail in a deployment that
+    // registers them), which send a short one-shot prompt — so the missing cache costs
     // nothing — and parse a JSON verdict, FAILING OPEN when it does not arrive.
     // CAVEAT, and it is the sharp one: this is a raw on-demand id, not an eu.*/
     // global. inference profile, so its availability is PER-REGION and verified

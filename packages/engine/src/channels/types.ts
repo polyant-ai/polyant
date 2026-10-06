@@ -127,6 +127,12 @@ export interface StreamOutgoingMessage {
 
 export type StreamMessageHandler = (msg: IncomingMessage, signal?: AbortSignal) => Promise<StreamOutgoingMessage>;
 
+/** Where a proactive message went, as the contact's own messages name it. */
+export interface OutboundDelivery {
+  /** The channel id inbound messages from this contact carry. */
+  channelId: string;
+}
+
 export interface ChannelAdapter {
   /** Unique channel name */
   name: MessageChannelType;
@@ -134,8 +140,12 @@ export interface ChannelAdapter {
   /** Initialize the adapter (connect, start polling/webhooks) */
   initialize(onMessage: MessageHandler): Promise<void>;
 
-  /** Send a message to a specific channel/chat */
-  sendMessage(channelId: string, msg: OutgoingMessage): Promise<void>;
+  /**
+   * Send a message to a specific channel/chat. An adapter whose target can differ from
+   * the id the contact's replies carry (a Slack user id answered on a DM, a prefixed
+   * WhatsApp number) returns that id, which keys the contact's conversation.
+   */
+  sendMessage(channelId: string, msg: OutgoingMessage): Promise<OutboundDelivery | void>;
 
   /**
    * Send a structured template (implemented only by adapters that support it,

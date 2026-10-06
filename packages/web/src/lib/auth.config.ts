@@ -19,9 +19,9 @@ const ENGINE_URL = process.env.INTERNAL_ENGINE_URL ?? "http://localhost:4000";
  * The federated half is a seam on purpose. It used to be a Google provider
  * built inline from `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, guarded so a
  * half-configured deployment did not construct it with `undefined` and crash on
- * the first click. Single sign-on is an enterprise capability now, so the guard
+ * the first click. This build ships no single sign-on provider, so the guard
  * has nothing left to guard and this file no longer names a provider it cannot
- * offer.
+ * offer (see `auth-providers.ts`).
  */
 function buildProviders(): Provider[] {
   return [

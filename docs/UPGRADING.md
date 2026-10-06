@@ -108,6 +108,29 @@ either channel:
    HTTPS address. Telegram keeps undelivered updates for 24 hours, so messages
    sent while the address was unreachable arrive once it is.
 
+### Telegram channels get a new webhook secret
+
+Telegram's webhook secret is now random and stored with each channel; it used to
+be derived from the bot token. Nothing is done by hand: on the first start after
+the upgrade, or when a channel is next enabled, the engine mints the secret,
+stores it and registers the webhook with Telegram again. Until that
+re-registration, updates Telegram sends with the old secret are refused, and
+Telegram retries them for up to 24 hours. Start the engine on the new version
+promptly after the deployment, and check each bot's `getWebhookInfo` if
+messages do not arrive.
+
+### LangSmith metadata key renamed
+
+Traces sent to LangSmith carry the conversation id under `conversation_id`
+instead of `oa_conversation_id`. Update any dashboard, filter or automation that
+reads the old key; earlier traces keep it.
+
+### The createSkill tool is opt-in
+
+The new `createSkill` tool lets an agent add a skill to the shared library and
+enable it on itself. No agent, new or existing, has it until an operator enables
+it in the agent's tools; enable it only on agents whose users may write skills.
+
 ### Running more than one engine replica
 
 The engine is built to run as one replica. Several parts of it keep their state

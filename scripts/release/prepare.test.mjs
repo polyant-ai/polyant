@@ -15,15 +15,11 @@ import {
 } from "./prepare.mjs";
 import { validateReleaseMetadata } from "../ci/verify-release-metadata.mjs";
 
-// Versions and package names come from the facts, never from literals: this
-// file is shared verbatim between the two builds, whose releases differ in both
-// (`1.2.0` vs `1.2.0-ee`, `@polyant/*` vs `@polyant-enterprise/*`). A hardcoded
-// fixture would pass on one build and fail on the other for reasons that have
-// nothing to do with the code under test.
-const suffix = releaseFacts.versionSuffix ?? "";
-const OLD = `1.1.0${suffix}`;
-const NEW = `1.2.0${suffix}`;
-const STALE = `1.0.0${suffix}`;
+// Package names and the repository come from the facts, so the fixture follows
+// them when they change instead of testing a stale copy.
+const OLD = "1.1.0";
+const NEW = "1.2.0";
+const STALE = "1.0.0";
 
 /** A repository shaped like this one, at OLD, with the Docker stubs deliberately
  *  left behind at an older version — the drift this tool exists to end. */
@@ -95,30 +91,21 @@ async function withFixture(callback) {
   }
 }
 
-/** Versions carry dots, and one build's carries a dash: quote before regexing. */
+/** Versions carry dots: quote before regexing. */
 const quote = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const read = (rootDir, rel) => readFile(path.join(rootDir, rel), "utf8");
 const readJson = async (rootDir, rel) => JSON.parse(await read(rootDir, rel));
 
-test("isValidReleaseVersion honours the edition suffix this build declares", () => {
-  const plain = { ...releaseFacts, versionSuffix: null };
-  const ee = { ...releaseFacts, versionSuffix: "-ee" };
-
-  assert.equal(isValidReleaseVersion("1.2.0", plain), true);
-  assert.equal(isValidReleaseVersion("1.2.0-ee", plain), false, "a suffix this build does not use");
-  assert.equal(isValidReleaseVersion("1.2.0-ee", ee), true);
-  assert.equal(isValidReleaseVersion("1.2.0", ee), false, "the suffix is mandatory where declared");
-  assert.equal(isValidReleaseVersion("v1.2.0", plain), false, "the tag prefix is not part of the version");
-  assert.equal(isValidReleaseVersion("1.2", plain), false);
+test("isValidReleaseVersion accepts plain SemVer only", () => {
+  assert.equal(isValidReleaseVersion("1.2.0"), true);
+  assert.equal(isValidReleaseVersion("1.2.0-rc.1"), false, "a prerelease is not a release");
+  assert.equal(isValidReleaseVersion("v1.2.0"), false, "the tag prefix is not part of the version");
+  assert.equal(isValidReleaseVersion("1.2"), false);
 });
 
-test("releaseNoteHeading names the product, so the two builds cannot share a heading", () => {
+test("releaseNoteHeading names the product", () => {
   assert.equal(releaseNoteHeading("1.2.0", { ...releaseFacts, productName: "Polyant" }), "# Polyant v1.2.0");
-  assert.equal(
-    releaseNoteHeading("1.2.0-ee", { ...releaseFacts, productName: "Polyant Enterprise" }),
-    "# Polyant Enterprise v1.2.0-ee",
-  );
 });
 
 test("applyVersion rewrites every manifest AND every Docker stub", async () => {
@@ -229,18 +216,6 @@ test("foreignChanges reports tracked work in progress, and ignores untracked fil
   ].join("\n");
 
   assert.deepEqual(foreignChanges(porcelain, owned), ["packages/engine/src/pipeline.ts"]);
-});
-
-test("ownedPaths follows the generated artefacts this build declares, if any", () => {
-  const withArtefacts = ownedPaths(NEW, {
-    ...releaseFacts,
-    generatedArtefacts: { script: "openapi:generate", files: ["packages/engine/openapi.json"] },
-  });
-  assert.ok(withArtefacts.has("packages/engine/openapi.json"));
-
-  // This build commits no API contract, so the paths must not appear — and
-  // `release:prepare` must not try to run a script the workspace does not have.
-  assert.ok(!ownedPaths(NEW, { ...releaseFacts, generatedArtefacts: null }).has("packages/engine/openapi.json"));
 });
 
 test("ownedPaths covers every mirror the command writes", () => {

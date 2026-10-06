@@ -50,7 +50,7 @@ describe("Telegram inbound turn", () => {
     const onMessage = vi.fn(
       (_msg: IncomingMessage) => new Promise<OutgoingMessage>((resolve) => (finishTurn = resolve)),
     );
-    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture" }, "https://engine.test/x");
+    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture", webhookSecret: "channel-secret" }, "https://engine.test/x");
     await adapter.initialize(onMessage);
 
     const turn = handlers.get("message:text")!(textCtx("hello"));
@@ -62,12 +62,27 @@ describe("Telegram inbound turn", () => {
     expect(sendMessage).toHaveBeenCalledWith("42", expect.stringContaining("hi there"), expect.anything());
   });
 
+  it("drops a message without a sender when an allowlist is set, instead of throwing", async () => {
+    const onMessage = vi.fn(async (_msg: IncomingMessage): Promise<OutgoingMessage> => ({ text: "" }));
+    const adapter = new TelegramAdapter(
+      asInstanceSlug("shop"),
+      { botToken: "fixture", allowedUserIds: "7", webhookSecret: "channel-secret" },
+      "https://engine.test/x",
+    );
+    await adapter.initialize(onMessage);
+
+    await expect(
+      handlers.get("message:text")!({ ...textCtx("hello"), from: undefined }),
+    ).resolves.toBeUndefined();
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
   it("does not download a file Telegram reports as over the cap", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     getFile.mockResolvedValue({ file_path: "docs/big.pdf", file_size: FILE_DOWNLOAD_MAX_BYTES + 1 });
     const onMessage = vi.fn(async (_msg: IncomingMessage): Promise<OutgoingMessage> => ({ text: "" }));
-    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture" }, "https://engine.test/x");
+    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture", webhookSecret: "channel-secret" }, "https://engine.test/x");
     await adapter.initialize(onMessage);
 
     await handlers.get("message:document")!({
@@ -84,7 +99,7 @@ describe("Telegram inbound turn", () => {
     vi.stubGlobal("fetch", fetchSpy);
     getFile.mockResolvedValue({ file_path: "docs/small.pdf", file_size: 3 });
     const onMessage = vi.fn(async (_msg: IncomingMessage): Promise<OutgoingMessage> => ({ text: "" }));
-    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture" }, "https://engine.test/x");
+    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture", webhookSecret: "channel-secret" }, "https://engine.test/x");
     await adapter.initialize(onMessage);
 
     await handlers.get("message:document")!({

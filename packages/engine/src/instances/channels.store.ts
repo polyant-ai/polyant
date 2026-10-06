@@ -60,6 +60,9 @@ export type ChannelType = (typeof CHANNEL_TYPES)[number];
  */
 export const WHATSAPP_CHANNEL_TYPE = "whatsapp" as const satisfies ChannelType;
 
+/** Named handle for the Telegram channel type. */
+export const TELEGRAM_CHANNEL_TYPE = "telegram" as const satisfies ChannelType;
+
 /** Named handle for the virtual agent-to-agent channel type, to avoid inline `"agent"` literals at call sites. */
 export const AGENT_CHANNEL_TYPE = "agent" as const satisfies ChannelType;
 
@@ -79,6 +82,13 @@ export const channelConfigSchemas: Record<ChannelType, z.ZodType> = {
   telegram: z.object({
     botToken: z.string().min(1),
     allowedUserIds: z.string().optional(),
+    /**
+     * The `secret_token` Telegram sends with every update. Minted server-side
+     * (see `setChannelConfig`), never accepted from a caller, never derived from
+     * the bot token: a value computable from the token would let anyone who once
+     * saw the token forge updates for as long as the channel lives.
+     */
+    webhookSecret: z.string().min(1).optional(),
   }),
   slack: z.object({
     botToken: z.string().min(1),
@@ -257,6 +267,18 @@ export async function setChannelConfig(
   enabled: boolean,
   options: SetChannelConfigOptions = {},
 ): Promise<SetChannelConfigResult> {
+  if (channelType === TELEGRAM_CHANNEL_TYPE) {
+    // Same invariant as WhatsApp's: the secret is the store's, carried forward
+    // across saves (a save must not invalidate the webhook Telegram holds) and
+    // minted when there is none. A value inside `config` is ignored.
+    const rest = { ...config };
+    delete rest.webhookSecret;
+    return db.transaction(async (tx) => {
+      const existing = await readWebhookSecretForUpdate(instanceId, TELEGRAM_CHANNEL_TYPE, tx);
+      const withSecret = { ...rest, webhookSecret: existing ?? generateToken(32) };
+      return persistChannelConfig(tx, instanceId, channelType, withSecret, enabled, false);
+    });
+  }
   if (channelType !== WHATSAPP_CHANNEL_TYPE) {
     return persistChannelConfig(db, instanceId, channelType, config, enabled, false);
   }
@@ -276,6 +298,51 @@ export async function setChannelConfig(
     const existingSecret = await readExistingApiKeyWebhookSecretForUpdate(instanceId, tx);
     const withSecret = { ...pruned, webhookSecret: existingSecret ?? generateToken(32) };
     return persistChannelConfig(tx, instanceId, channelType, withSecret, enabled, !existingSecret);
+  });
+}
+
+/** The stored `webhookSecret` of a channel row, read under a row lock. */
+async function readWebhookSecretForUpdate(
+  instanceId: InstanceUuid,
+  channelType: ChannelType,
+  tx: DbTransaction,
+): Promise<string | undefined> {
+  const rows = await tx
+    .select({ config: instanceChannels.config })
+    .from(instanceChannels)
+    .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, channelType)))
+    .for("update")
+    .limit(1);
+  const secret = rows[0] ? safeDecryptConfig(rows[0].config).webhookSecret : undefined;
+  return typeof secret === "string" && secret ? secret : undefined;
+}
+
+/**
+ * The Telegram channel's webhook secret, minted and stored first when the row has
+ * none: a channel saved before secrets were per channel. Called when the adapter
+ * starts, whose `setWebhook` then hands Telegram the stored value, so such a
+ * channel heals on its next start without anyone saving it again.
+ */
+export async function ensureTelegramWebhookSecret(instanceSlug: InstanceSlug): Promise<string> {
+  const instanceId = await resolveInstanceId(instanceSlug);
+  if (!instanceId) throw new Error(`Instance "${instanceSlug}" not found`);
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ config: instanceChannels.config })
+      .from(instanceChannels)
+      .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, TELEGRAM_CHANNEL_TYPE)))
+      .for("update")
+      .limit(1);
+    if (!rows[0]) throw new Error(`Instance "${instanceSlug}" has no Telegram channel`);
+    const config = safeDecryptConfig(rows[0].config);
+    if (typeof config.webhookSecret === "string" && config.webhookSecret) return config.webhookSecret;
+
+    const webhookSecret = generateToken(32);
+    await tx
+      .update(instanceChannels)
+      .set({ config: encrypt(JSON.stringify({ ...config, webhookSecret })), updatedAt: new Date() })
+      .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, TELEGRAM_CHANNEL_TYPE)));
+    return webhookSecret;
   });
 }
 

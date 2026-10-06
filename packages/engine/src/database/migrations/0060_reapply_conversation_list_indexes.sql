@@ -1,9 +1,9 @@
 -- Re-apply the conversation-list performance indexes as a trailing migration.
 --
--- These indexes were first introduced by 0055_conversation_list_indexes (OSS) /
--- 0058_conversation_list_indexes (enterprise). On enterprise the migration was
--- renumbered on merge but kept the original OSS `when` (1780444800000), which is
--- BELOW the enterprise-only 0056/0057 timestamps — so drizzle's "apply only when
+-- These indexes were first introduced by 0055_conversation_list_indexes. A
+-- downstream build renumbered that migration on merge but kept its original
+-- `when` (1780444800000), which is BELOW timestamps of migrations only that build
+-- has — so drizzle's "apply only when
 -- `when` > max(created_at)" rule silently SKIPS it forever (the journal footgun in
 -- CLAUDE.md). Without them the conversation-list LATERAL token/cost aggregation
 -- seq-scans the whole ai_logs table once per conversation (~57s on a real dataset).

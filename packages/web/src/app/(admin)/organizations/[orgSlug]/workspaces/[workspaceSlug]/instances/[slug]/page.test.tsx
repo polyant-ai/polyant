@@ -223,7 +223,7 @@ const DROPPED_ADDRESSES = [
   "toolSecrets",
   // The provider keys' page: each key is set in the Model block of the task that uses it.
   "credentials",
-  // Enterprise sections. They are not aliases either: an address that names
+  // Sections this build does not ship. They are not aliases either: an address that names
   // nothing in this build lands on the default section like any other.
   "policy",
   "compliance",

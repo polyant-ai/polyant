@@ -157,6 +157,27 @@ describe("RoleBindingService", () => {
     });
   });
 
+  describe("rank reads under the organization lock", () => {
+    // Two admins acting at once: ranks read outside the lock's transaction could
+    // be stale, letting one change a member the other just promoted above them.
+    it.each([
+      ["assignMemberRole", (s: RoleBindingService) =>
+        s.assignMemberRole({ organizationId: ORG, userId: "target", roleKey: "member", actorId: "actor" })],
+      ["removeMember", (s: RoleBindingService) =>
+        s.removeMember({ organizationId: ORG, userId: "target", actorId: "actor" })],
+    ])("%s reads both ranks through the lock's transaction", async (_name, act) => {
+      const lockTx = { lock: "tx" };
+      mockWithOrganizationMemberLock.mockImplementation(async (_organizationId, mutation) => mutation(lockTx));
+      const { service } = makeService();
+
+      await act(service);
+
+      const rankReads = mockGetOrgScopeRoleKey.mock.calls.filter(([, user]) => user === "actor" || user === "target");
+      expect(rankReads.map(([, user]) => user)).toEqual(expect.arrayContaining(["actor", "target"]));
+      for (const call of rankReads) expect(call[2]).toBe(lockTx);
+    });
+  });
+
   describe("role hierarchy (escalation guard)", () => {
     // Resolve each user's current role by id so actor and target can differ.
     function rolesByUser(map: Record<string, string | null>) {

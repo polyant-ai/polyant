@@ -17,8 +17,8 @@ import { TriggersRunsTab } from "./triggers-runs-tab";
  * repeated those names, and a table titled "Log esecuzioni" inside a section
  * titled "Log": three levels of heading saying the same word.
  *
- * Enterprise adds two more blocks here — the governance events and the retention
- * purges — for the same reason and in the same shape.
+ * A build that ships governance events or retention purges adds them here as
+ * further blocks, for the same reason and in the same shape.
  */
 export function LogsTab({ slug }: { slug: string }) {
   const { t } = useI18n();

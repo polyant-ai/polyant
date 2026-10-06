@@ -31,9 +31,8 @@ import { seedInitialAdmin } from "./users/seed.js";
 import { schedulerService } from "./scheduled-tasks/scheduler.service.js";
 import { roomScheduler } from "./room/room-scheduler.js";
 import { getRoomBySlug, type RoomConfig } from "./room/room.store.js";
-import { asInstanceSlug, type InstanceSlug } from "./instances/identifiers.js";
+import { asInstanceSlug } from "./instances/identifiers.js";
 import { getActiveTrigger } from "./webhooks/active-triggers.js";
-import { findActiveTaskByOutbound } from "./scheduled-tasks/store.js";
 import { TtlCache } from "./utils/ttl-cache.js";
 import {
   isMissingApiKeyError,
@@ -61,22 +60,6 @@ async function getCachedRoom(slug: string): Promise<RoomConfig | null> {
   const room = await getRoomBySlug(asInstanceSlug(slug));
   roomCache.set(slug, room);
   return room;
-}
-
-// Cached outbound-task lookup to avoid DB query on every incoming message
-type TaskOutboundResult = { lastConversationId: string | null } | null | undefined;
-const taskOutboundCache = new TtlCache<string, TaskOutboundResult>({ maxSize: 500, ttlMs: 30_000 });
-
-async function getCachedTaskOutbound(
-  instanceId: InstanceSlug,
-  channelType: string,
-  channelId: string,
-): Promise<TaskOutboundResult> {
-  const key = `${instanceId}:${channelType}:${channelId}`;
-  if (taskOutboundCache.has(key)) return taskOutboundCache.get(key);
-  const result = await findActiveTaskByOutbound(instanceId, channelType, channelId);
-  taskOutboundCache.set(key, result);
-  return result;
 }
 
 /**
@@ -196,17 +179,8 @@ async function main() {
       }
     }
 
-    // Check if this message is a reply to a scheduled task's outbound channel.
-    // Resolved internally — never read the override from msg.metadata (untrusted channel data).
-    const taskMatch = await getCachedTaskOutbound(
-      msg.instanceId,
-      msg.channelType,
-      msg.channelId,
-    );
-    const taskConversationOverride = taskMatch?.lastConversationId ?? null;
-
     // Phase 1: Context preparation
-    const pre = await runPipelinePre(msg, taskConversationOverride, abortSignal);
+    const pre = await runPipelinePre(msg, undefined, abortSignal);
     // Pre-generate the assistant message id so the pipeline trace can be linked
     // to the persisted message by id (not fragile ordinal matching).
     return runBufferedTurn(msg, pre, abortSignal, randomUUID());

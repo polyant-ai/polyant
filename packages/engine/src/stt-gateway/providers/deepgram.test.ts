@@ -2,7 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { deepgramAdapter } from "./deepgram.js";
-import { STTProviderError, STTMissingCredentialsError } from "../errors.js";
+import { STTProviderError, STTMissingCredentialsError, STTTimeoutError } from "../errors.js";
 
 describe("deepgramAdapter", () => {
   const originalFetch = global.fetch;
@@ -93,5 +93,42 @@ describe("deepgramAdapter", () => {
 
     const url = (global.fetch as any).mock.calls[0][0] as string;
     expect(url).toContain("language=it");
+  });
+
+  const abortableFetch = () =>
+    (global.fetch as any).mockImplementation((_url: string, init: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () => {
+          const err = new Error("This operation was aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+      }),
+    );
+
+  it("throws STTTimeoutError when its own deadline fires", async () => {
+    abortableFetch();
+    await expect(
+      deepgramAdapter.transcribe({
+        audio: Buffer.from([0]),
+        mimeType: "audio/ogg",
+        credentials: { deepgram: { apiKey: "dg-test" } },
+        timeoutMs: 5,
+      }),
+    ).rejects.toBeInstanceOf(STTTimeoutError);
+  });
+
+  it("throws a provider error, not a timeout, when the caller aborts", async () => {
+    abortableFetch();
+    const caller = new AbortController();
+    const pending = deepgramAdapter.transcribe({
+      audio: Buffer.from([0]),
+      mimeType: "audio/ogg",
+      credentials: { deepgram: { apiKey: "dg-test" } },
+      timeoutMs: 60_000,
+      abortSignal: caller.signal,
+    });
+    caller.abort();
+    await expect(pending).rejects.toBeInstanceOf(STTProviderError);
   });
 });

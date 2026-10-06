@@ -18,6 +18,7 @@ vi.mock("../stt-gateway/index.js", () => ({
 }));
 
 import { transcribeAudio } from "./audio-transcription.js";
+import { STTProviderError, STTTimeoutError } from "../stt-gateway/errors.js";
 
 const FAKE_OPENAI_CONFIG = {
   stt: {
@@ -142,5 +143,20 @@ describe("transcribeAudio", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("unsupported_format");
+  });
+
+  it("reports a timeout from the timeout error type", async () => {
+    transcribeMock.mockRejectedValue(new STTTimeoutError("openai", 30_000));
+    const result = await transcribeAudio({ audio: Buffer.from([0]), mimeType: "audio/ogg", instanceSlug: "demo" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("timeout");
+  });
+
+  it("does not read a timeout into a provider error whose message mentions an abort", async () => {
+    // The provider's own text (an HTTP body, say) is not a signal of what happened.
+    transcribeMock.mockRejectedValue(new STTProviderError("openai", "HTTP 400: request aborted"));
+    const result = await transcribeAudio({ audio: Buffer.from([0]), mimeType: "audio/ogg", instanceSlug: "demo" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("provider_error");
   });
 });

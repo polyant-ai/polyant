@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { eq, and, lte, lt, or, isNull, inArray, count, sql } from "drizzle-orm";
+import { eq, and, lte, lt, or, isNull, count, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { instances } from "../instances/schema.js";
 import { scheduledTasks, type ScheduledTask, type ScheduleConfig } from "./schema.js";
@@ -377,15 +377,22 @@ export async function countStuckRunning(since: Date): Promise<number> {
  * run into the future. The interrupted run itself is closed in the run log as an error —
  * the audit says what happened, the schedule carries on as if the tick had not fired.
  *
- * The `running` guard in the WHERE clause keeps this idempotent and race-free: a row that
- * a live process has meanwhile completed is not touched.
+ * Each row is matched on the claim the recovery READ, not on `running` alone: between the
+ * read and this write the interrupted run may have been closed and a new run B claimed
+ * the task, and clearing B's marker would let the next tick start the task a second time
+ * while B is still live. A row whose claim moved on is left alone.
  */
-export async function clearRunningMarker(ids: string[]): Promise<string[]> {
-  if (ids.length === 0) return [];
+export async function clearRunningMarker(
+  observed: Array<{ id: string; claim: RunClaim }>,
+): Promise<string[]> {
+  if (observed.length === 0) return [];
   const rows = await db
     .update(scheduledTasks)
     .set({ lastRunStatus: null, updatedAt: new Date() })
-    .where(and(inArray(scheduledTasks.id, ids), eq(scheduledTasks.lastRunStatus, "running")))
+    .where(and(
+      eq(scheduledTasks.lastRunStatus, "running"),
+      or(...observed.map(({ id, claim }) => and(eq(scheduledTasks.id, id), isClaim(claim)))),
+    ))
     .returning({ id: scheduledTasks.id });
   return rows.map((row) => row.id);
 }
@@ -396,29 +403,4 @@ export async function disableTask(id: string): Promise<void> {
     .update(scheduledTasks)
     .set({ enabled: false, updatedAt: new Date() })
     .where(eq(scheduledTasks.id, id));
-}
-
-/** Find an active task whose outbound matches the given channel + target for an instance.
- *  Used to detect if an incoming channel message is a reply to a scheduled task's output. */
-export async function findActiveTaskByOutbound(
-  instanceId: InstanceSlug,
-  channelType: string,
-  channelId: string,
-): Promise<ScheduledTask | undefined> {
-  const rows = await db
-    .select()
-    .from(scheduledTasks)
-    .where(
-      and(
-        eq(scheduledTasks.instanceId, instanceId),
-        eq(scheduledTasks.outboundChannel, channelType),
-        eq(scheduledTasks.outboundTarget, channelId),
-        eq(scheduledTasks.enabled, true),
-        eq(scheduledTasks.keepHistory, true),
-        sql`${scheduledTasks.lastConversationId} IS NOT NULL`,
-      ),
-    )
-    .orderBy(sql`${scheduledTasks.lastRunAt} DESC NULLS LAST`)
-    .limit(1);
-  return rows[0];
 }

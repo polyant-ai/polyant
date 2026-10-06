@@ -271,6 +271,20 @@ describe("importOverwriteInstance — destructive delete-then-reimport orchestra
     expect(mockImportScheduledTasks).not.toHaveBeenCalled();
   });
 
+  it("should_still_invalidate_caches_and_succeed_with_a_warning_when_the_post_commit_tool_recompute_fails", async () => {
+    // The import has committed by then: failing the request would report an error
+    // for written data, and skipping invalidation would leave the old config cached.
+    mockRecomputeInstanceTools.mockRejectedValueOnce(new Error("recompute failed"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await importOverwriteInstance(TARGET_SLUG, makeBundle());
+
+    expect(mockInvalidatePromptsCache).toHaveBeenCalledWith(INSTANCE_ID);
+    expect(mockInvalidateInstanceConfigCache).toHaveBeenCalledWith(TARGET_SLUG);
+    expect(mockInvalidateHooksCache).toHaveBeenCalledWith(TARGET_SLUG);
+    expect(result.warnings.map((w) => w.type)).toContain("tool_recompute_failed");
+  });
+
   it("should_invalidate_caches_in_the_fixed_order_after_the_transaction_commits", async () => {
     await importOverwriteInstance(TARGET_SLUG, makeBundle());
 

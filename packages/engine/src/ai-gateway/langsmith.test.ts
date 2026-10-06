@@ -71,7 +71,7 @@ describe("langsmith", () => {
 
       const call = (createLangSmithProviderOptions as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(call.metadata).toEqual({
-        oa_conversation_id: "conv-123",
+        conversation_id: "conv-123",
         thread_id: "conv-123",
         instance_id: "inst-456",
       });
@@ -89,7 +89,7 @@ describe("langsmith", () => {
 
       const call = (createLangSmithProviderOptions as ReturnType<typeof vi.fn>).mock.calls[0][0];
       expect(call.metadata).toEqual({
-        oa_conversation_id: "conv-123",
+        conversation_id: "conv-123",
         thread_id: "conv-123-service",
         instance_id: "inst-456",
       });
@@ -116,7 +116,7 @@ describe("langsmith", () => {
         project_name: "proj",
         tracingEnabled: true,
         metadata: {
-          oa_conversation_id: "conv-1",
+          conversation_id: "conv-1",
           thread_id: "conv-1",
         },
         processOutputs: expect.any(Function),

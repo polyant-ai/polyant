@@ -305,17 +305,20 @@ describe("clearRunningMarker", () => {
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
-  it("clears ONLY rows still marked running, and leaves the error counters untouched", async () => {
+  it("clears ONLY rows still marked running under the claim it read, and leaves the error counters untouched", async () => {
     const chain = createChainMock([{ id: "a" }, { id: "b" }]);
     mockDb.update.mockReturnValue(chain);
+    const claimA = new Date("2026-06-01T06:00:00.000Z");
 
-    const cleared = await clearRunningMarker(["a", "b"]);
+    const cleared = await clearRunningMarker([{ id: "a", claim: claimA }, { id: "b", claim: null }]);
 
     expect(cleared).toEqual(["a", "b"]);
-    // The `running` guard in the WHERE clause is what makes this race-free: a row a live
-    // process completed in the meantime must not be reopened.
-    const whereArg = (chain as unknown as { where: ReturnType<typeof vi.fn> }).where.mock.calls[0]![0];
-    expect(JSON.stringify(whereArg)).toContain("running");
+    // The `running` guard plus the observed claim is what makes this race-free: a row a
+    // live process completed or re-claimed in the meantime must not be reopened.
+    const whereArg = JSON.stringify((chain as unknown as { where: ReturnType<typeof vi.fn> }).where.mock.calls[0]![0]);
+    expect(whereArg).toContain("running");
+    expect(whereArg).toContain(claimA.toISOString());
+    expect(whereArg).toContain("isNull");
     // No retry accounting: an interrupted run is not the task's failure.
     const setArg = (chain as unknown as { set: ReturnType<typeof vi.fn> }).set.mock.calls[0]![0] as Record<string, unknown>;
     expect(setArg).toHaveProperty("lastRunStatus", null);
