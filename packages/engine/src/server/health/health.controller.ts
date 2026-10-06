@@ -5,6 +5,13 @@ import { SkipThrottle } from "@nestjs/throttler";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
 
+/**
+ * How long one scheduler reading answers `/health/scheduler`. The route is public and
+ * unthrottled and each reading queries the database, so without this every anonymous
+ * request is a query; a monitor scraping every few seconds still sees fresh numbers.
+ */
+export const SCHEDULER_HEALTH_TTL_MS = 5_000;
+
 @SkipThrottle()
 @Public()
 @Controller("health")
@@ -36,12 +43,24 @@ export class HealthController {
    * Counts only — no instance names, no task names, nothing an unauthenticated caller
    * could use to enumerate tenants.
    */
+  private schedulerReading: { at: number; value: Promise<Awaited<ReturnType<typeof schedulerService.health>>> } | null =
+    null;
+
   @Get("scheduler")
   async scheduler() {
+    const now = Date.now();
+    if (!this.schedulerReading || now - this.schedulerReading.at >= SCHEDULER_HEALTH_TTL_MS) {
+      const value = schedulerService.health();
+      this.schedulerReading = { at: now, value };
+      // A failed reading is not served again from the cache.
+      value.catch(() => {
+        if (this.schedulerReading?.value === value) this.schedulerReading = null;
+      });
+    }
     return {
       status: "ok",
       timestamp: new Date().toISOString(),
-      scheduler: await schedulerService.health(),
+      scheduler: await this.schedulerReading.value,
     };
   }
 }
