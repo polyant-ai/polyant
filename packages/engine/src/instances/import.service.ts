@@ -26,7 +26,6 @@ import { instanceMcpServers } from "./mcp-servers.schema.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
 import { asInstanceSlug, asInstanceUuid, type InstanceUuid } from "./identifiers.js";
-import { sanitizeForLog } from "../utils/create-logger.js";
 import { invalidateInstanceConfigCache } from "./config-resolver.js";
 import { isKnownEmbeddingProvider, knownEmbeddingProviders } from "../embeddings-gateway/config.js";
 import { instanceBundleSchema, type ExportInstanceData } from "./export.schema.js";
