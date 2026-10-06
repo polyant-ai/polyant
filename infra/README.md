@@ -18,13 +18,13 @@ See `config.yaml.example` for the full set of knobs.
 
 ## Authentication model
 
-The ALB does the OIDC dance via the `authenticate-oidc` listener action. ECS only accepts ingress from the ALB security group (`vpc-construct.ts`), so the engine trusts the `x-amzn-oidc-data` header without re-verifying the JWT signature — the network boundary is the trust boundary. See `packages/engine/src/auth/alb-oidc.service.ts` for the parser.
+The ALB does the OIDC dance via the `authenticate-oidc` listener action. That is an outer gate only: a request that has not signed in at the IdP never reaches the containers, but the engine does not read the identity the ALB forwards (`x-amzn-oidc-data`). Users still sign in to Polyant itself with its own accounts, and every engine route applies its own authentication rules behind the gate.
 
 The `auth:` block in `config.yaml` is optional. Omit it and the app runs open (useful for early-stage testing). Fill it in and the web UI, the management API (`/api/*`, `/memories/*`) and `/v1/models` sit behind the IdP.
 
 **Exception — the OpenAI-compatible completions endpoint stays public.** `POST /v1/chat/completions` is routed by a dedicated ALB rule (`CompletionsPublic`, priority 8) that is **not** wrapped in the OIDC action, so programmatic clients keep working when auth is on. The engine still protects it: it is `@Public()` but authenticated per-instance via API keys and rate-limited. The rest of `/v1` (e.g. `/v1/models`) remains behind the IdP.
 
-> **Web admin panel + OIDC caveat.** In ALB-OIDC mode the Next.js web container does not read the gateway identity header: its Auth.js middleware looks for an `authjs.session-token` cookie, doesn't find one (the ALB uses its own Cognito cookie), and redirects to `/login`. Until a gateway-bypass is added on the web side (tracked follow-up), protect the panel with **local email/password accounts** (session mode) instead — see the secrets note below.
+> **Web admin panel + OIDC caveat.** Neither container reads the gateway identity header, so passing the ALB gate does not sign anyone in: the panel's Auth.js middleware looks for its own `authjs.session-token` cookie (the ALB uses its own Cognito cookie) and redirects to `/login`. Behind the gate, users sign in with **local email/password accounts** — see the secrets note below.
 
 Any OIDC provider works: Cognito (with or without a federated upstream IdP), Okta, Auth0, Azure AD / Entra ID, Keycloak, etc.
 
@@ -67,15 +67,9 @@ ALB appends its own params with `&`, so a pre-set query string is preserved. `<P
 
 The cleaner alternative is to disable local sign-in on the App Client entirely (see the enterprise pattern above) — then there's no chooser to skip in the first place.
 
-### 3. Group claim name is hardcoded to `cognito:groups`
+### 3. Group claims do not reach Polyant
 
-`packages/engine/src/auth/alb-oidc.service.ts` reads the user's groups from the `cognito:groups` claim. Cognito emits this name natively; other IdPs don't.
-
-- **Okta**: configure the OIDC app to emit a `groups` claim, then map it through Cognito as `cognito:groups`, **or** patch the parser to read `groups` directly.
-- **Entra ID / Azure AD**: emits `groups` as an array of GUIDs. Same options as Okta.
-- **Keycloak**: emits `groups` by default. Same options.
-
-If you bypass Cognito and point ALB directly at a non-Cognito OIDC provider, you almost certainly need to either teach `alb-oidc.service.ts` about a different claim name or remap the claim at the IdP.
+The ALB gate admits whoever the IdP authenticates; Polyant does not read the groups (or any other claim) from the token the ALB forwards. Restrict who may pass the gate at the IdP (for example, assign only the right users or groups to the App Client), and manage roles inside Polyant itself.
 
 ### 4. `scope` is hardcoded to `openid email profile`
 
