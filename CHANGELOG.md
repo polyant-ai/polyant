@@ -314,6 +314,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   limited on their own bucket instead of sharing one per client address. The
   CDK stack sets `TRUST_PROXY=1`, so the engine sees the caller's address
   behind the load balancer.
+  The check is kept in memory in each process: with several replicas, a retry
+  that reaches another replica is answered again. Run one replica, or accept
+  the occasional duplicate.
 - The scheduler reaper fails only the run it judged overdue, never a newer
   claim of the same task.
 - A cron task that `scheduleTask` creates without a zone is stored with `UTC`,
