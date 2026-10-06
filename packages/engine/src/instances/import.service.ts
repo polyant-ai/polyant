@@ -364,7 +364,7 @@ async function finishCommittedImport(instanceId: InstanceUuid, slug: string, war
     // Outside the import transaction: it opens its own.
     await recomputeInstanceTools(instanceId);
   } catch (err) {
-    console.error('[import] tool recompute failed for "%s" after a committed import:', sanitizeForLog(slug), err);
+    console.error("[import] tool recompute failed for agent %s after a committed import:", instanceId, err);
     warnings.push({
       type: "tool_recompute_failed",
       message: "The agent was imported, but its tool access could not be recomputed; save its tools again to apply it.",
