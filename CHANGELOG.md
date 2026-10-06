@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.2.0] - 2026-10-02
+## [1.2.0] - 2026-10-06
 
 > **Upgrading from 1.1.2 needs operator action.** The engine and the panel run
 > on Node 24. Google sign-in is removed. Several built-in tool families now
@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A `createSkill` tool lets an agent write a skill from the conversation and
+  enable it on itself. It is opt-in: no agent has it until an operator enables
+  it in the agent's tools.
 - Settings → General holds the installation's operational policies, for a
   platform admin: analytics retention, the engine's public address, the
   per-user and global live-stream caps, the rate-limit window and request
@@ -92,6 +95,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — the LangSmith trace metadata key `oa_conversation_id` is now
+  `conversation_id`.** Dashboards and filters built on the old key need
+  updating.
 - **BREAKING — the engine and the panel run on Node 24**, the active LTS. The
   published images carry it; a deployment that runs from source or builds its
   own images must move to Node 24, and Node 22 is no longer tested. Under load
@@ -357,6 +363,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **BREAKING — each Telegram channel now has its own random webhook secret.** It
+  used to be derived from the bot token, so anyone who had seen the token could
+  forge updates. Existing channels get a new secret and re-register their
+  webhook on the next engine start or channel enable; until then Telegram's
+  deliveries fail verification. See docs/UPGRADING.md.
 - Removed the agent-controlled S3 endpoint that could direct file PUTs and GETs
   to arbitrary hosts, including private network addresses.
 - Closed cross-tenant keyword search and mutation paths by making tenant scope
