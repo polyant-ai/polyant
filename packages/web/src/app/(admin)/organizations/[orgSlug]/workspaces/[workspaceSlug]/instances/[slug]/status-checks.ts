@@ -11,6 +11,7 @@ import type {
   SkillState,
   ToolState,
 } from "@/lib/api";
+import { SECRET_KEYS } from "@/lib/provider-secrets";
 
 /**
  * What the agent page cannot see by looking at one section: configurations that
@@ -175,6 +176,7 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
     AWS is deliberately absent from the required set: Bedrock falls back to the
     host's AWS profile or IAM role (the Modello page says so), so "no key" is
     a normal, working configuration there and an alert would be a false alarm.
+    Its region has no such fallback and is checked on its own below.
   */
   const effectiveProvider = instance.effectiveProvider ?? instance.provider;
   if (secrets !== null && effectiveProvider && PROVIDER_REQUIRED_SECRET[effectiveProvider]) {
@@ -190,6 +192,27 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
         sectionKey: "instances.detail.tabSettings",
       });
     }
+  }
+
+  /*
+    Bedrock with no region: the key pair is optional, the region is not. The
+    provider refuses every turn without it (`providers/bedrock.ts`) and there is
+    no deployment-wide fallback, so the agent stops answering exactly like a
+    missing key.
+  */
+  if (
+    secrets !== null &&
+    effectiveProvider === "bedrock" &&
+    !effectiveSecrets.has(SECRET_KEYS.AWS_PROVIDER_REGION)
+  ) {
+    checks.push({
+      id: "provider-no-region",
+      severity: "broken",
+      titleKey: "status.check.providerRegion.title",
+      bodyKey: "status.check.providerRegion.body",
+      section: "settings",
+      sectionKey: "instances.detail.tabSettings",
+    });
   }
 
   if (secrets !== null && instance.sttProvider) {

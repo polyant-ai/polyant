@@ -1234,6 +1234,8 @@
   "status.check.skillsMissingEnv.body": "They declare environment variables that have no value: {names}.",
   "status.check.providerCredentials.title": "The agent cannot answer",
   "status.check.providerCredentials.body": "There is no key for {provider}, on the agent or on the organization: every turn fails at the first token.",
+  "status.check.providerRegion.title": "The agent cannot answer",
+  "status.check.providerRegion.body": "The agent runs on Bedrock but has no AWS region: every turn fails. Set it in the Model section.",
   "status.check.embedderCredentials.title": "Embeddings cannot be computed",
   "status.check.embedderCredentials.body": "The selected embedder has no credentials: every uploaded document will end in error and no memory will be saved.",
   "status.check.sttCredentials.title": "Audio transcription is unavailable",
