@@ -1,41 +1,19 @@
 // ---------------------------------------------------------------------------
-// The product facts a release depends on — the ONE place the two builds differ
+// The product facts a release depends on
 // ---------------------------------------------------------------------------
 //
-// Polyant ships as two products from two repositories that share almost all of
-// this tooling: the OSS build releases `X.Y.Z`, the Enterprise build releases
-// `X.Y.Z-ee` under a different product name and package scope. Everything else
-// about a release — which manifests carry the version, which Docker stages
-// restate it, what the verifier insists on — is identical.
-//
-// Keeping those few differing VALUES here, rather than spread through the
-// scripts as literals, is what makes the OSS -> Enterprise merge a change to one
-// file instead of a conflict in every one of them. Before this module the
-// verifier alone diverged in three places, each maintained by hand on every
-// merge.
-//
-// When porting to the Enterprise build, this file is the diff:
-//   productName:   "Polyant Enterprise"
-//   versionSuffix: "-ee"
-//   repositoryUrl: ".../polyant-enterprise"
-//   engineWorkspace / dockerStubs[].package: the @polyant-enterprise scope
+// The values a release restates — the product name, the repository, which
+// manifests carry the version and which Docker stages repeat it — live here
+// rather than as literals spread through the scripts, so the preparer, the
+// auditor and the verifier cannot disagree about them.
 
-/** @typedef {{ productName: string, versionSuffix: string | null, repositoryUrl: string,
+/** @typedef {{ productName: string, repositoryUrl: string,
  *              engineWorkspace: string, manifests: string[], lockfileRoots: string[],
- *              dockerStubs: { file: string, package: string }[],
- *              generatedArtefacts: { script: string, files: string[] } | null }} ReleaseFacts */
+ *              dockerStubs: { file: string, package: string }[] }} ReleaseFacts */
 
 /** @type {ReleaseFacts} */
 export const releaseFacts = {
   productName: "Polyant",
-
-  /**
-   * The edition marker every release version of this build must carry, or
-   * `null` where versions are plain SemVer. It is NOT a prerelease: it names
-   * the edition, which is why `plugin-manifest.ts` compares major.minor.patch
-   * alone rather than letting semver rank it below its own release.
-   */
-  versionSuffix: null,
 
   repositoryUrl: "https://github.com/polyant-ai/polyant",
   engineWorkspace: "@polyant/engine",
@@ -62,29 +40,13 @@ export const releaseFacts = {
     { file: "Dockerfile.web", package: "@polyant/engine" },
   ],
 
-  /**
-   * Generated files that restate the engine version, and the workspace script
-   * that rewrites them — or `null` where this build generates none.
-   *
-   * The Enterprise build commits an API contract (`api-index.md` +
-   * `openapi.json`) whose header carries the version; this build has neither the
-   * artefacts nor the script. Naming it here rather than assuming it is why
-   * `release:prepare` does not fail on the build that has nothing to generate.
-   */
-  generatedArtefacts: null,
 };
 
 const SEMVER_CORE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
-/** The release version this build accepts: SemVer core plus the declared edition suffix, if any. */
-export function isValidReleaseVersion(version, facts = releaseFacts) {
-  if (typeof version !== "string") return false;
-  const suffix = facts.versionSuffix;
-  if (suffix) {
-    if (!version.endsWith(suffix)) return false;
-    return SEMVER_CORE.test(version.slice(0, -suffix.length));
-  }
-  return SEMVER_CORE.test(version);
+/** A release version: plain SemVer core, with no prerelease or build suffix. */
+export function isValidReleaseVersion(version) {
+  return typeof version === "string" && SEMVER_CORE.test(version);
 }
 
 /** The exact first line of `docs/releases/v<version>.md`, which the verifier compares byte for byte. */
