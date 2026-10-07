@@ -6,7 +6,7 @@ import { db } from "../database/client.js";
 import { conversationMessages, conversations } from "../conversations/schema.js";
 import { getAllSecrets } from "../instances/secrets.store.js";
 import type { InstanceSlug } from "../instances/identifiers.js";
-import { resolveAgentS3 } from "./agent-s3.js";
+import { describeAgentS3Failure, resolveAgentS3 } from "./agent-s3.js";
 import { attachmentsLog } from "./attachments-logger.js";
 
 /**
@@ -29,7 +29,8 @@ import { attachmentsLog } from "./attachments-logger.js";
  *
  * The recorded keys, rather than listing the bucket: a renamed conversation's
  * files keep their original key, only `s3:DeleteObject` is needed, and an object
- * the `fileUpload` tool wrote is never touched — it lives outside `attachments/`.
+ * anything else wrote to the same bucket is never touched — it lives outside
+ * `attachments/`.
  */
 
 export type AttachmentCleanup = () => Promise<void>;
@@ -107,10 +108,17 @@ export async function prepareAttachmentCleanup(
   if ("conversationIds" in target && target.conversationIds.length === 0) return NOTHING;
   try {
     const resolution = resolveAgentS3(await getAllSecrets(instanceId));
-    // No bucket the engine can reach: nothing it could delete either.
-    if (!resolution.ok) return NOTHING;
     const keys = await storedKeys(instanceId, target);
     if (keys.length === 0) return NOTHING;
+    // Files were stored, but the engine can no longer reach the bucket: they
+    // stay behind, and the operator is told why rather than left to find them.
+    if (!resolution.ok) {
+      attachmentsLog.warn(
+        "Cleanup",
+        `${instanceId}: ${keys.length} stored attachment(s) left in the bucket — ${describeAgentS3Failure(resolution)}`,
+      );
+      return NOTHING;
+    }
     const { client, bucket } = resolution.config;
 
     return async () => {
