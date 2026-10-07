@@ -3,6 +3,30 @@
 This guide covers upgrades that need an operator decision. For the full list of
 changes see the [changelog](../CHANGELOG.md).
 
+## Upgrading from 1.2.x to the next release
+
+### Install the extra plugin for fileUpload
+
+`fileUpload` no longer ships in core; it is `extra:fileUpload` in the extra
+plugin. Migration `0089_rename_extracted_tools_file_upload` renames the catalog
+row in place, as `0087` did for the earlier extractions, so agents keep the tool
+enabled and skills keep their links. Until the extra plugin is installed the
+agents simply do not get the tool.
+
+### The task-role credential mode is removed
+
+`s3_use_task_role` is no longer read. Attachment storage reaches an agent's
+bucket with that agent's `aws_access_key_id` and `aws_secret_access_key` only,
+never the deployment's runtime identity. An agent that relied on the task role
+stops storing attachments, and each upload logs that `s3_use_task_role` is no
+longer supported. Files already stored stay in the bucket; deleting their
+conversation logs how many could not be removed.
+
+Before upgrading, create an access key that may write, read and delete under
+`attachments/` in each affected bucket, and set it on the agent's Advanced page
+under **Store attachments**, where the bucket and region now live too. Then
+delete the agent's `s3_use_task_role` secret.
+
 ## Upgrading from 1.1.x to 1.2.0
 
 ### Node 24

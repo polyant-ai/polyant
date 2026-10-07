@@ -87,7 +87,8 @@ taken yet, and the process store at most 100 MB or 1,000 live handles. `put`
 throws when a limit is reached. Always `await` both `put` and `take`: they
 answer synchronously in this engine, but the SDK types them as possibly
 asynchronous, so code that awaits them keeps working wherever the store lives.
-Persist anything longer-lived through `fileUpload` instead.
+Persist anything longer-lived through a storage tool such as the extra plugin's
+`extra:fileUpload` instead.
 
 ### Schema rules (OpenAI strict-mode compatible — enforced by `strict-mode.test.ts`)
 - `.nullable()`, **not** `.optional()` / `.default()` (apply defaults in `execute`).

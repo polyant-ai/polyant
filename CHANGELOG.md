@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING — `fileUpload` moved out of core into the extra plugin** as
+  `extra:fileUpload`. Migration `0089` renames the catalog row in place, so
+  agents keep the tool enabled and skills keep their links and required-tool
+  lists; an import of an older bundle maps the old name too. The tool works
+  again once the extra plugin is installed.
+- An agent's attachment bucket is set on its Advanced page, in a card that holds
+  the **Store attachments** switch and, once it is on, the bucket, region and
+  access keys. The switch moved there from the behaviour parameters.
+
+### Removed
+
+- **BREAKING — the `s3_use_task_role` credential mode.** An agent's bucket is
+  reached only with its own `aws_access_key_id` and `aws_secret_access_key`. An
+  agent that still sets `s3_use_task_role` without static keys stores no
+  attachments, and the engine logs that the setting is no longer supported and
+  what to set instead.
+
 ## [1.2.0] - 2026-10-06
 
 > **Upgrading from 1.1.2 needs operator action.** The engine and the panel run
