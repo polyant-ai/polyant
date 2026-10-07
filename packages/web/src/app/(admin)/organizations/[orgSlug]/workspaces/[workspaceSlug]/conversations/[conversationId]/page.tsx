@@ -58,6 +58,7 @@ import { useFormat } from "@/lib/use-format";
 import { useDetailedView } from "@/hooks/use-detailed-view";
 import { currentTurn, useLiveConversation } from "@/hooks/use-live-conversation";
 import { useFollowBottom } from "@/hooks/use-follow-bottom";
+import { JumpToLatest } from "@/components/messages/jump-to-latest";
 import { LiveTurn } from "@/components/messages/live-turn";
 
 const MESSAGES_PAGE_SIZE = 50;
@@ -280,7 +281,7 @@ export default function ConversationDetailPage() {
   // Keep the newest activity in view while following, unless the reader has
   // scrolled up to read something older.
   const liveContent = useMemo(() => [pendingLive, messages], [pendingLive, messages]);
-  useFollowBottom(scrollContainerRef, live, liveContent);
+  const { following, jumpToBottom } = useFollowBottom(scrollContainerRef, live, liveContent, { smooth: true });
 
   // After the initial fetch resolves, jump to the bottom (latest message visible).
   // Re-pin on each image load — lazy-loaded images grow the scrollHeight after the
@@ -730,6 +731,7 @@ export default function ConversationDetailPage() {
         </TooltipProvider>
 
         <LiveTurn events={pendingLive} showActivity={detailed} />
+        {live && !following && <JumpToLatest onClick={jumpToBottom} />}
 
         {messages.length === 0 && pendingLive.length === 0 && (
           <p className="text-center text-muted-foreground">

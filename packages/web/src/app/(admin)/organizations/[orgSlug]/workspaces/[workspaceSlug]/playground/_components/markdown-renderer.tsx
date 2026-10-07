@@ -9,6 +9,7 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { rehypeStreamWords } from "@/lib/markdown/rehype-stream-words";
 
 // Allow highlight.js class names on code/span elements
 const sanitizeSchema = {
@@ -23,6 +24,8 @@ const sanitizeSchema = {
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  /** The text is still streaming: its words fade in as they arrive. */
+  streaming?: boolean;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -45,12 +48,15 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
+export function MarkdownRenderer({ content, className, streaming = false }: MarkdownRendererProps) {
   return (
     <div className={cn("prose-sm max-w-none", className)}>
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHighlight, [rehypeSanitize, sanitizeSchema]]}
+      // Word spans are added after sanitizing, which would otherwise strip their class.
+      rehypePlugins={streaming
+        ? [rehypeHighlight, [rehypeSanitize, sanitizeSchema], rehypeStreamWords]
+        : [rehypeHighlight, [rehypeSanitize, sanitizeSchema]]}
       components={{
         pre({ children, ...props }) {
           // Extract text content for copy button

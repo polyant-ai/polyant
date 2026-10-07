@@ -29,7 +29,7 @@ export function MessageBubble({ message, showActivity, onDebugClick }: MessageBu
   }
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}${message.sentHere ? " animate-conversation-enter" : ""}`}>
       <div className={`${isUser ? "max-w-[75%]" : "max-w-[85%]"} min-w-0`}>
         {!isUser && showActivity && (message.hookExecutions.length > 0 || message.reasoning.length > 0 || message.steps.some((step) => step.toolCalls.length > 0)) && (
           <div className="mb-3">
@@ -45,7 +45,7 @@ export function MessageBubble({ message, showActivity, onDebugClick }: MessageBu
           {isUser ? (
             <p className="whitespace-pre-wrap text-sm">{message.content}</p>
           ) : message.content ? (
-            <div className="text-sm"><MarkdownRenderer content={message.content} /></div>
+            <div className="text-sm"><MarkdownRenderer content={message.content} streaming={message.isStreaming} /></div>
           ) : message.isStreaming ? (
             <div className="flex items-center gap-1 py-1">
               <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:0ms]" />
