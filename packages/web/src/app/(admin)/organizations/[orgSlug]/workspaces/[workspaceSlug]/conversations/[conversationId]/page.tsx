@@ -73,9 +73,7 @@ function storedAt(message: ConversationMessage): number {
  * Each key SEGMENT is percent-encoded, never the key as a whole — the slashes
  * are the route's structure and must survive. Interpolating the raw key made a
  * filename carrying `#` unreachable (everything after it became the fragment
- * and never left the browser) and one carrying `?` land as a query string. The
- * `fileUpload` tool already builds its display URL exactly this way; this is the
- * same rule on the reading side.
+ * and never left the browser) and one carrying `?` land as a query string.
  */
 function attachmentHref(s3Key: string): string {
   return `/api/attachments/${s3Key.split("/").map(encodeURIComponent).join("/")}`;

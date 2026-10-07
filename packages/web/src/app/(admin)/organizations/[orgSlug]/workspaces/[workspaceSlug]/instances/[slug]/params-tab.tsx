@@ -5,6 +5,7 @@
 import type { Instance } from "@/lib/api";
 import { MemoryCard } from "./memory-card";
 import { LangsmithCard } from "./langsmith-card";
+import { AttachmentStorageCard } from "./attachment-storage-card";
 import { SettingsTab } from "./settings-tab";
 
 /**
@@ -12,8 +13,9 @@ import { SettingsTab } from "./settings-tab";
  * about both — the page called "Avanzate".
  *
  * Order matters: the per-turn parameters first (the reason most people open this
- * page), then memory (what survives the turn), then the tracing. It reads as the
- * life of a turn, from what goes in to what is left behind.
+ * page), then memory (what survives the turn), then the files users sent (kept
+ * after it), then the tracing. It reads as the life of a turn, from what goes in
+ * to what is left behind.
  *
  * Three things that were in three different destinations and are one subject:
  * the per-turn parameters lived under the model picker (none of them is a
@@ -21,7 +23,7 @@ import { SettingsTab } from "./settings-tab";
  * the agent's identity and the knowledge documents, and LangSmith sat under the
  * agent's name — where "what traces this agent" reads as part of its label.
  *
- * Three independent forms on one page, each with its own dirty state, all served
+ * Independent forms on one page, each with its own dirty state, all served
  * by the header's single Save: `PageActionsProvider` aggregates them and writes
  * only what changed, in sequence.
  */
@@ -36,6 +38,7 @@ export function ParamsTab({
     <div className="space-y-8">
       <SettingsTab instance={instance} onUpdate={onUpdate} section="params" />
       <MemoryCard instance={instance} onUpdate={onUpdate} />
+      <AttachmentStorageCard instance={instance} onUpdate={onUpdate} />
       <LangsmithCard instance={instance} onUpdate={onUpdate} />
     </div>
   );

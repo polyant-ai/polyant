@@ -251,11 +251,6 @@ export function SettingsTab({
   // DEBUG mode: persist the exact LLM request payload per turn (default off).
   const [debugEnabled, setDebugEnabled] = useState(instance.debugEnabled ?? false);
 
-  // Keep the files users send in the agent's bucket (default off).
-  const [attachmentStorageEnabled, setAttachmentStorageEnabled] = useState(
-    instance.attachmentStorageEnabled ?? false,
-  );
-
   // Memory
 
   // Knowledge
@@ -506,8 +501,7 @@ export function SettingsTab({
     datetimeInjectionEnabled !== instance.datetimeInjectionEnabled ||
     overridesDirty ||
     toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
-    debugEnabled !== (instance.debugEnabled ?? false) ||
-    attachmentStorageEnabled !== (instance.attachmentStorageEnabled ?? false);
+    debugEnabled !== (instance.debugEnabled ?? false);
 
   // The two secret pages are dirty on their fields; the two settings pages on
   // theirs. Nothing overlaps, so no page can save another's values.
@@ -567,7 +561,6 @@ export function SettingsTab({
                 datetimeInjectionEnabled,
                 toolResultsInHistoryEnabled,
                 debugEnabled,
-                attachmentStorageEnabled,
                 // Empty means "hand this back to the deployment default", which
                 // the API spells as an explicit null — not as an omitted field,
                 // which would leave the column as it is.
@@ -941,26 +934,6 @@ export function SettingsTab({
               <p className="text-xs text-muted-foreground">{t("settings.tab.debugHelp")}</p>
             </div>
             <Switch id="agent-debug" checked={debugEnabled} onCheckedChange={setDebugEnabled} />
-          </div>
-
-          {/*
-            Attachment storage. When on, files users send are copied to the
-            agent's own bucket (the fileUpload tool's settings) so the
-            conversation view can reopen them. Default off — it keeps end users'
-            files at rest; the model sees them inline either way.
-          */}
-          <div className="flex items-start justify-between gap-4 border-t pt-4">
-            <div className="space-y-1">
-              <Label htmlFor="agent-attachment-storage" className="text-sm font-medium">
-                {t("settings.tab.attachmentStorage")}
-              </Label>
-              <p className="text-xs text-muted-foreground">{t("settings.tab.attachmentStorageHelp")}</p>
-            </div>
-            <Switch
-              id="agent-attachment-storage"
-              checked={attachmentStorageEnabled}
-              onCheckedChange={setAttachmentStorageEnabled}
-            />
           </div>
         </section>
   );

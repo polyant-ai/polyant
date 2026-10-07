@@ -13,7 +13,8 @@ import { randomUUID } from "crypto";
  * the handle to the conversation that produced it.
  *
  * Not a cache and not storage: one `take` consumes the entry, and everything
- * expires. Anything that must outlive the turn belongs in S3 via `fileUpload`.
+ * expires. Anything that must outlive the turn belongs in durable storage, such
+ * as the extra plugin's `extra:fileUpload` tool.
  */
 
 const DEFAULT_TTL_MS = 10 * 60 * 1000;

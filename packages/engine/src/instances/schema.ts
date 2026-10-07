@@ -88,10 +88,10 @@ export const instances = pgTable("instances", {
   debugEnabled: boolean("debug_enabled").notNull().default(false),
   /**
    * When true, files a user sends (photos, documents, voice notes) are copied to
-   * the agent's own bucket — the `fileUpload` secrets — so the conversation view
-   * can reopen them. Default false: holding end users' files is a decision about
-   * personal data, separate from configuring a bucket for the tool. The model
-   * sees an attachment inline either way.
+   * the agent's own bucket (`s3_bucket_name`, `aws_region` and its static keys)
+   * so the conversation view can reopen them. Default false: holding end users'
+   * files is a decision about personal data, separate from configuring a bucket.
+   * The model sees an attachment inline either way.
    */
   attachmentStorageEnabled: boolean("attachment_storage_enabled").notNull().default(false),
   /**

@@ -118,7 +118,7 @@ export async function syncToolsToDb(): Promise<void> {
     // A pruned flat row takes every agent's enablement of it along (the FK
     // cascades), and afterwards nothing records that it was there. Say so once,
     // at the boot that drops it. Tools renamed into a plugin namespace do not
-    // land here: migration rename_extracted_tools moved their rows in place.
+    // land here: the rename_extracted_tools migrations moved their rows in place.
     const enabled = new Set(enabledToolIds);
     const droppedEnablements = pruned.filter((r) => enabled.has(r.id)).map((r) => r.name);
     if (droppedEnablements.length > 0) {

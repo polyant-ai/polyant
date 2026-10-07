@@ -485,29 +485,6 @@ describe("SettingsTab", () => {
     expect(mockToastSuccess).toHaveBeenCalledWith("settings.tab.saved");
   });
 
-  it("saves the attachment storage choice from the params page", async () => {
-    // Off unless the operator turns it on: keeping end users' files is a choice.
-    const user = userEvent.setup();
-    const instance = makeInstance({ attachmentStorageEnabled: false });
-    mockInstanceUpdate.mockResolvedValueOnce({ instance: makeInstance({ attachmentStorageEnabled: true }) });
-
-    renderWithProvider(<SettingsTab instance={instance} onUpdate={onUpdate} section="params" />);
-
-    const row = (await screen.findByText("settings.tab.attachmentStorageHelp")).closest("div")?.parentElement;
-    const toggle = within(row as HTMLElement).getByRole("switch");
-    expect(toggle).toHaveAttribute("aria-checked", "false");
-
-    await user.click(toggle);
-    await user.click(screen.getByText("common.save"));
-
-    await waitFor(() => {
-      expect(mockInstanceUpdate).toHaveBeenCalledWith(
-        "test-instance",
-        expect.objectContaining({ attachmentStorageEnabled: true }),
-      );
-    });
-  });
-
   it("prompts for a destructive wipe and confirms it when the embedder changes (openai→bedrock)", async () => {
     const user = userEvent.setup();
     const instance = makeInstance({ memoryEnabled: true });
