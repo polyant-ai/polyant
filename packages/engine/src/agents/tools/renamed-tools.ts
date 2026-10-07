@@ -4,8 +4,8 @@
  * Former flat names of the tools that moved into plugins, mapped to the
  * namespaced name the plugin registers.
  *
- * Migration `rename_extracted_tools` renames the catalog rows in place with the
- * same pairs, so an agent's enablement and a skill's tool links survive the move.
+ * The `rename_extracted_tools*` migrations rename the catalog rows in place
+ * with the same pairs, so an agent's enablement and a skill's tool links survive the move.
  * This map serves what the migration cannot reach: an export bundle written
  * before the move still names the old tool, and the importer translates it
  * here. A test holds the two lists equal.
@@ -25,6 +25,7 @@ export const RENAMED_TOOLS: ReadonlyMap<string, string> = new Map([
   ["hubspotSendEmail", "hubspot:sendEmail"],
   ["hubspotTicket", "hubspot:ticket"],
   ["markdownToPdf", "extra:markdownToPdf"],
+  ["fileUpload", "extra:fileUpload"],
 ]);
 
 /** The current name of `name`: its namespaced successor, or itself. */

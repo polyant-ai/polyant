@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Migration rename_extracted_tools against a real Postgres, followed by the boot
+ * The rename_extracted_tools migrations against a real Postgres, followed by the boot
  * sync of an engine that has NOT loaded the plugins yet. The break it catches:
  * an agent that had a HubSpot or PDF tool enabled before the tools moved into
  * plugins loses the enablement, and a skill its tool link, at the first boot —
@@ -35,14 +35,18 @@ const NAMES = [
   "hubspot:contact",
   "hubspotNote",
   "hubspot:note",
+  "fileUpload",
+  "extra:fileUpload",
   "verifyDocument",
 ];
 
 async function runMigration() {
   const dir = new URL("../../database/migrations/", import.meta.url);
-  const file = readdirSync(dir).find((f) => f.endsWith("_rename_extracted_tools.sql"));
-  expect(file).toBeDefined();
-  await db.execute(sql.raw(readFileSync(new URL(file!, dir), "utf8")));
+  const files = readdirSync(dir)
+    .filter((f) => /_rename_extracted_tools(_[a-z0-9_]+)?\.sql$/.test(f))
+    .sort();
+  expect(files.length).toBeGreaterThan(0);
+  for (const file of files) await db.execute(sql.raw(readFileSync(new URL(file, dir), "utf8")));
 }
 
 async function enabledNames(instanceId: string) {
@@ -64,7 +68,7 @@ afterAll(async () => {
   _resetRegistryForTests();
 });
 
-describe("migration rename_extracted_tools (integration)", () => {
+describe("migrations rename_extracted_tools (integration)", () => {
   it.skipIf(!DB_AVAILABLE)(
     "keeps enablement and skill links across the rename and the first boot without plugins",
     async () => {
@@ -88,13 +92,14 @@ describe("migration rename_extracted_tools (integration)", () => {
           { name: "hubspotContact", description: "old" },
           { name: "hubspotNote", description: "old" },
           { name: "hubspot:note", description: "plugin" },
+          { name: "fileUpload", description: "old" },
           { name: "verifyDocument", description: "removed" },
         ])
         .returning({ id: tools.id, name: tools.name });
       const id = (name: string) => seeded.find((r) => r.name === name)!.id;
 
       await db.insert(instanceTools).values(
-        ["hubspotContact", "hubspotNote", "verifyDocument"].map((name) => ({
+        ["hubspotContact", "hubspotNote", "fileUpload", "verifyDocument"].map((name) => ({
           instanceId: instanceId!,
           toolId: id(name),
           source: "manual",
@@ -127,7 +132,12 @@ describe("migration rename_extracted_tools (integration)", () => {
       // Renamed in place: the same row, so the links on it never moved.
       const [contact] = await db.select({ id: tools.id }).from(tools).where(eq(tools.name, "hubspot:contact"));
       expect(contact?.id).toBe(id("hubspotContact"));
-      expect(await enabledNames(instanceId!)).toEqual(["hubspot:contact", "hubspot:note", "verifyDocument"]);
+      expect(await enabledNames(instanceId!)).toEqual([
+        "extra:fileUpload",
+        "hubspot:contact",
+        "hubspot:note",
+        "verifyDocument",
+      ]);
 
       const links = await db
         .select({ name: tools.name })
@@ -151,7 +161,7 @@ describe("migration rename_extracted_tools (integration)", () => {
 
       // The renamed rows survive, enabled, until the plugin is installed; the
       // tool with no successor is dropped, and the boot says which one it was.
-      expect(await enabledNames(instanceId!)).toEqual(["hubspot:contact", "hubspot:note"]);
+      expect(await enabledNames(instanceId!)).toEqual(["extra:fileUpload", "hubspot:contact", "hubspot:note"]);
       expect(warnings.some((w) => w.includes("verifyDocument"))).toBe(true);
     },
   );

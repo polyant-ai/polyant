@@ -8,7 +8,7 @@
  * per variable, naming where to set it instead.
  */
 const PER_AGENT_BUCKET =
-  "each agent's fileUpload tool (s3_bucket_name, aws_region and its credentials); files already in the platform bucket are copied as docs/UPGRADING.md shows";
+  "each agent's Advanced → Attachment storage (s3_bucket_name, aws_region and its access keys); files already in the platform bucket are copied as docs/UPGRADING.md shows";
 
 export const RETIRED_ENVIRONMENT_VARIABLES: ReadonlyMap<string, string> = new Map([
   ["AGENT_CALL_TIMEOUT_MS", "Settings → General"],
@@ -22,8 +22,8 @@ export const RETIRED_ENVIRONMENT_VARIABLES: ReadonlyMap<string, string> = new Ma
   ["MESSAGE_SOFT_DEBOUNCE_MS", "the agent's Settings → Behaviour"],
   ["MESSAGE_TYPING_DELAY_MS", "the agent's Settings → Behaviour"],
   ["PDF_CONCURRENCY", "the Markdown-to-PDF plugin's own configuration"],
-  // The deployment-wide bucket is gone: attachments and fileUpload use each
-  // agent's own bucket, configured on its fileUpload tool.
+  // The deployment-wide bucket is gone: attachments use each agent's own
+  // bucket, configured beside its attachment-storage switch.
   ["PLATFORM_S3_ACCESS_KEY_ID", PER_AGENT_BUCKET],
   ["PLATFORM_S3_BUCKET", PER_AGENT_BUCKET],
   ["PLATFORM_S3_REGION", PER_AGENT_BUCKET],
