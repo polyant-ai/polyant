@@ -57,6 +57,7 @@ import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useFormat } from "@/lib/use-format";
 import { useDetailedView } from "@/hooks/use-detailed-view";
 import { currentTurn, useLiveConversation } from "@/hooks/use-live-conversation";
+import { useFollowBottom } from "@/hooks/use-follow-bottom";
 import { LiveTurn } from "@/components/messages/live-turn";
 
 const MESSAGES_PAGE_SIZE = 50;
@@ -280,12 +281,8 @@ export default function ConversationDetailPage() {
 
   // Keep the newest activity in view while following, unless the reader has
   // scrolled up to read something older.
-  useEffect(() => {
-    if (!live) return;
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTop = el.scrollHeight;
-  }, [live, pendingLive, messages]);
+  const liveContent = useMemo(() => [pendingLive, messages], [pendingLive, messages]);
+  useFollowBottom(scrollContainerRef, live, liveContent);
 
   // After the initial fetch resolves, jump to the bottom (latest message visible).
   // Re-pin on each image load — lazy-loaded images grow the scrollHeight after the
