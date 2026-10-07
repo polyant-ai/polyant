@@ -84,6 +84,7 @@
   "conversations.detail.liveConnected": "Connected: the conversation updates as it happens",
   "conversations.detail.liveConnecting": "Connecting",
   "conversations.detail.liveWorking": "The agent is working",
+  "conversations.detail.jumpToLatest": "Jump to latest",
   "conversations.detail.share": "Copy link to message",
   "conversations.detail.linkCopied": "Link copied to clipboard",
   "conversations.detail.linkCopyFailed": "Couldn't copy the link",

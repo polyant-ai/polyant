@@ -55,6 +55,12 @@ export interface ChatMessage {
    * message and while streaming. For loaded conversations the row `id` IS the DB id.
    */
   dbMessageId?: string;
+  /**
+   * Sent in this session, as opposed to loaded with a conversation: only these
+   * enter with an animation, so opening a past conversation does not replay
+   * its whole transcript.
+   */
+  sentHere?: boolean;
 }
 
 export interface ChatState {
@@ -141,6 +147,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         hookExecutions: [],
         isStreaming: false,
         createdAt: now,
+        sentHere: true,
       };
       const assistantMsg: ChatMessage = {
         id: generateId(),
@@ -151,6 +158,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         hookExecutions: [],
         isStreaming: true,
         createdAt: null,
+        sentHere: true,
       };
       return {
         ...state,

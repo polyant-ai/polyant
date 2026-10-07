@@ -24,6 +24,8 @@ import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-s
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
 import { useI18n } from "@/lib/i18n/context";
 import { useDetailedView } from "@/hooks/use-detailed-view";
+import { useFollowBottom } from "@/hooks/use-follow-bottom";
+import { JumpToLatest } from "@/components/messages/jump-to-latest";
 import type { ChatMessage } from "../_hooks/use-chat";
 import type { ConversationListItem, HookExecution } from "@/lib/api";
 
@@ -63,7 +65,7 @@ export function ChatArea({
   onSelectConversation,
 }: ChatAreaProps) {
   const { t, locale } = useI18n();
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [showKeyValue, setShowKeyValue] = useState(false);
   const [debugTarget, setDebugTarget] = useState<DebugSheetTarget | null>(null);
@@ -81,12 +83,18 @@ export function ChatArea({
     return items.sort((a, b) => a.ts - b.ts);
   }, [messages, historicalHookExecutions]);
 
-  // Auto-scroll to bottom on new messages or streaming updates
+  // Follow the conversation as it grows, gliding while a reply streams in,
+  // unless the reader has scrolled up to read something older.
+  const { following, jumpToBottom } = useFollowBottom(scrollRef, true, timeline, { smooth: isStreaming });
+  // Another conversation, or a new message of one's own, starts at the bottom
+  // whatever was being read before.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({
-      behavior: isStreaming ? "smooth" : "instant",
-    });
-  }, [messages, isStreaming]);
+    jumpToBottom();
+  }, [activeConversationId, jumpToBottom]);
+  const send = (text: string) => {
+    jumpToBottom();
+    onSend(text);
+  };
 
   return (
     <div className="flex flex-1 flex-col">
@@ -166,7 +174,7 @@ export function ChatArea({
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="flex h-full min-h-[400px] flex-col items-center justify-center text-center">
             <MessageSquareCode className="size-12 text-muted-foreground/30" />
@@ -210,9 +218,9 @@ export function ChatArea({
                 />
               );
             })}
-            <div ref={bottomRef} />
           </div>
         )}
+        {!following && <JumpToLatest onClick={jumpToBottom} />}
       </div>
 
       {/* Error */}
@@ -224,7 +232,7 @@ export function ChatArea({
 
       {/* Input */}
       <ChatInput
-        onSend={onSend}
+        onSend={send}
         onStop={onStop}
         isStreaming={isStreaming}
         disabled={!instanceSlug}

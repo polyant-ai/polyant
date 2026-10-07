@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { useFollowBottom } from "./use-follow-bottom";
 
@@ -29,12 +29,44 @@ function container(height: number, clientHeight = 500) {
   };
 }
 
-function render(c: ReturnType<typeof container>, active = true) {
+function render(c: ReturnType<typeof container>, active = true, smooth = false) {
   const ref = { current: c.el };
-  return renderHook(({ active, content }) => useFollowBottom(ref, active, content), {
+  return renderHook(({ active, content }) => useFollowBottom(ref, active, content, { smooth }), {
     initialProps: { active, content: 0 },
   });
 }
+
+/** Animation frames run by hand, 16 ms apart. */
+function frames() {
+  let now = 0;
+  let queue: FrameRequestCallback[] = [];
+  vi.spyOn(performance, "now").mockImplementation(() => now);
+  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+    queue.push(cb);
+    return queue.length;
+  });
+  vi.stubGlobal("cancelAnimationFrame", () => {
+    queue = [];
+  });
+  return {
+    run(count: number) {
+      for (let i = 0; i < count; i++) {
+        now += 16;
+        const due = queue;
+        queue = [];
+        for (const cb of due) cb(now);
+      }
+    },
+    get pending() {
+      return queue.length;
+    },
+  };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("useFollowBottom", () => {
   it("follows content taller than the threshold while the reader is at the bottom", () => {
@@ -85,5 +117,54 @@ describe("useFollowBottom", () => {
 
     hook.rerender({ active: true, content: 0 });
     expect(c.el.scrollTop).toBe(500);
+  });
+  it("says when the reader has left the bottom, and jumps back on request", () => {
+    const c = container(1000);
+    const hook = render(c);
+    expect(hook.result.current.following).toBe(true);
+
+    act(() => c.userScrollTo(100));
+    expect(hook.result.current.following).toBe(false);
+
+    act(() => hook.result.current.jumpToBottom());
+    expect(hook.result.current.following).toBe(true);
+    expect(c.el.scrollTop).toBe(500);
+  });
+
+  it("glides to the bottom over several frames when smooth, and ends exactly there", () => {
+    const f = frames();
+    const c = container(1000);
+    const hook = render(c, true, true);
+    f.run(60);
+    expect(c.el.scrollTop).toBe(500);
+
+    c.grow(800);
+    hook.rerender({ active: true, content: 1 });
+    f.run(3);
+    const midway = c.el.scrollTop;
+    expect(midway).toBeGreaterThan(500);
+    expect(midway).toBeLessThan(1300);
+
+    f.run(60);
+    expect(c.el.scrollTop).toBe(1300);
+    expect(f.pending).toBe(0);
+  });
+
+  it("stops gliding the moment the reader wheels up", () => {
+    const f = frames();
+    const c = container(1000);
+    const hook = render(c, true, true);
+    f.run(60);
+    c.grow(800);
+    hook.rerender({ active: true, content: 1 });
+    f.run(2);
+
+    act(() => {
+      c.el.dispatchEvent(Object.assign(new Event("wheel"), { deltaY: -40 }));
+    });
+    const held = c.el.scrollTop;
+    f.run(30);
+    expect(c.el.scrollTop).toBe(held);
+    expect(hook.result.current.following).toBe(false);
   });
 });

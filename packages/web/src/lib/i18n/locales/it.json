@@ -84,6 +84,7 @@
   "conversations.detail.liveConnected": "Collegato: la conversazione si aggiorna mentre avviene",
   "conversations.detail.liveConnecting": "Collegamento in corso",
   "conversations.detail.liveWorking": "L'agente sta lavorando",
+  "conversations.detail.jumpToLatest": "Vai in fondo",
   "conversations.detail.share": "Copia link al messaggio",
   "conversations.detail.linkCopied": "Link copiato negli appunti",
   "conversations.detail.linkCopyFailed": "Impossibile copiare il link",

@@ -4,6 +4,7 @@
 
 import { Brain, CheckCircle2, Loader2, Wrench, XCircle } from "lucide-react";
 import { ActivityRow } from "./activity-row";
+import { StreamingText } from "./streaming-text";
 import { useI18n } from "@/lib/i18n/context";
 import { eventKind, type EventKind, type FeedEvent } from "@/lib/activity-stream/types";
 
@@ -39,6 +40,10 @@ function segments(turn: FeedEvent[]): { inbound?: FeedEvent; work: FeedEvent[] }
  * stored and the transcript takes over. Laid out like a stored turn: the
  * agent's activity above its reply, in one column. Previews are capped by the
  * engine, so a long reply shows in full only once it is stored.
+ *
+ * Everything here is new by definition, so each part rises in as it appears
+ * and the reply's words fade in as they stream. The stored rows that replace
+ * it do not animate: they are the same turn, already on screen.
  */
 export function LiveTurn({ events, showActivity }: { events: FeedEvent[]; showActivity: boolean }) {
   const { t } = useI18n();
@@ -93,19 +98,27 @@ export function LiveTurn({ events, showActivity }: { events: FeedEvent[]; showAc
         return (
           <div key={inbound?.id ?? `segment-${index}`} className="space-y-4">
             {inbound && (
-              <div className="flex justify-end">
+              <div className="flex animate-conversation-enter justify-end">
                 <div className="min-w-0 max-w-[75%] overflow-hidden break-words rounded-2xl bg-primary px-4 py-3 text-sm text-primary-foreground">
                   <p className="whitespace-pre-wrap">{inbound.responsePreview ?? inbound.text}</p>
                 </div>
               </div>
             )}
-            <div className="flex justify-start">
+            <div className="flex animate-conversation-enter justify-start">
               <div className="min-w-0 max-w-[85%]">
-                {activity.length > 0 && <div className="mb-3">{activity.map(activityRow)}</div>}
+                {activity.length > 0 && (
+                  <div className="mb-3">
+                    {activity.map((evt) => (
+                      <div key={evt.id} className="animate-conversation-enter">{activityRow(evt)}</div>
+                    ))}
+                  </div>
+                )}
                 <div className="w-fit min-w-0 max-w-full overflow-hidden break-words rounded-2xl bg-muted px-4 py-3 text-sm">
                   {reply ? (
                     // A failed stream arrives as an error reply carrying the failure text.
-                    <p className={`whitespace-pre-wrap ${reply.status === "error" ? "text-destructive" : ""}`}>{reply.responsePreview ?? reply.text}</p>
+                    <p className={`whitespace-pre-wrap ${reply.status === "error" ? "text-destructive" : ""}`}>
+                      {reply.status === "error" ? reply.responsePreview ?? reply.text : <StreamingText text={reply.responsePreview ?? reply.text} />}
+                    </p>
                   ) : (
                     <Dots label={t("conversations.detail.liveWorking")} />
                   )}
