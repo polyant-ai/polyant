@@ -137,7 +137,7 @@ async function getOverviewStats(
   const [aiStats] = asRows<OverviewAiRow>(
     await analyticsDb.execute(sql`
       SELECT
-        COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost,
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS total_cost,
         COALESCE(SUM(total_tokens), 0)::int AS total_tokens,
         COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
         COALESCE(SUM(completion_tokens), 0)::int AS completion_tokens,
@@ -173,7 +173,7 @@ async function getOverviewStats(
   const [prevAi] = asRows<OverviewPrevAiRow>(
     await analyticsDb.execute(sql`
       SELECT
-        COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost,
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS total_cost,
         COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration_ms
       FROM ai_logs
       WHERE created_at >= ${toISO(prevFrom)} AND created_at <= ${toISO(prevTo)}
@@ -276,7 +276,7 @@ async function getDailyTrend(
     await analyticsDb.execute(sql`
       SELECT
         DATE(created_at) AS date,
-        COALESCE(SUM(estimated_cost_usd), 0)::float AS cost,
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost,
         COALESCE(SUM(total_tokens), 0)::int AS tokens
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
@@ -408,7 +408,7 @@ async function getModelDistribution(
         model,
         (COUNT(*) ${ANSWERED})::int AS calls,
         COALESCE(SUM(total_tokens), 0)::int AS tokens,
-        COALESCE(SUM(estimated_cost_usd), 0)::float AS cost,
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost,
         COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
@@ -442,7 +442,7 @@ async function getTierDistribution(
         tier,
         (COUNT(*) ${ANSWERED})::int AS calls,
         COALESCE(SUM(total_tokens), 0)::int AS tokens,
-        COALESCE(SUM(estimated_cost_usd), 0)::float AS cost
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
         ${instFilter} ${orgInst}
@@ -508,7 +508,7 @@ async function getInstanceComparison(
         al.instance_id,
         COALESCE(i.name, al.instance_id) AS name,
         (COUNT(DISTINCT al.conversation_id) ${ANSWERED_AL})::int AS conversations,
-        COALESCE(SUM(al.estimated_cost_usd), 0)::float AS cost,
+        COALESCE(SUM(al.estimated_cost_usd::float8), 0)::float AS cost,
         COALESCE(SUM(al.total_tokens), 0)::int AS tokens
       FROM ai_logs al
       LEFT JOIN instances i ON i.slug = al.instance_id
