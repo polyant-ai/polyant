@@ -462,6 +462,7 @@
   "settings.tab.catalogSearchPlaceholder": "Search models…",
   "settings.tab.catalogAllProviders": "All providers",
   "settings.tab.catalogNoResults": "No models match your filters.",
+  "settings.tab.catalogLongPrompt": "Prompts over {above}K tokens: ${input} / ${output}",
   "settings.tab.apiKeys": "API Keys",
   "settings.tab.apiKeysHelp": "Model provider keys (chat and embedder). Independent of tool secrets.",
   "settings.tab.openaiKey": "OpenAI API Key",

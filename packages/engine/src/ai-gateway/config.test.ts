@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, reasoningLevelsFor, resolveReasoningLevel, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
+import { resolveModel, estimateCost, estimateCostBreakdown, estimateTurnCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, reasoningLevelsFor, resolveReasoningLevel, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
 
 describe("resolveModel", () => {
   // The gpt-4o family these used to name is in OpenAI's deprecated list; the
@@ -19,7 +19,7 @@ describe("resolveModel", () => {
   });
 
   it("resolves anthropic fast tier", () => {
-    expect(resolveModel("anthropic", "fast")).toBe("claude-haiku-4-5-20251001");
+    expect(resolveModel("anthropic", "fast")).toBe("claude-haiku-5-5");
   });
 
   it("resolves anthropic standard tier", () => {
@@ -198,6 +198,71 @@ describe("estimateCost", () => {
   it("leaves a pre-4.5 Bedrock eu.* profile at its old price, as the premium does not reach it", () => {
     const base = (1000 * 3.0) / 1_000_000 + (500 * 15.0) / 1_000_000;
     expect(estimateCost("bedrock", "eu.anthropic.claude-sonnet-4-20250514-v1:0", 1000, 500)).toBeCloseTo(base, 12);
+  });
+});
+
+/**
+ * Claude Haiku 5.5 is priced by prompt length: past 100K prompt tokens EVERY rate
+ * of that call is 5× (input, output, cache), and the threshold is judged per
+ * model call — a step of a tool loop — never on the turn's sum.
+ */
+describe("prompt-length pricing (Claude Haiku 5.5)", () => {
+  const usd = (n: number) => n / 1_000_000;
+
+  it("bills a prompt of exactly 100K tokens at the base rates", () => {
+    expect(estimateCost("anthropic", "claude-haiku-5-5", 100_000, 1_000)).toBeCloseTo(usd(100_000 * 0.1 + 1_000 * 0.5), 12);
+  });
+
+  it("bills every bucket of a longer prompt at the long rates, cache included", () => {
+    const cost = estimateCostBreakdown("anthropic", "claude-haiku-5-5", 150_000, 2_000, {
+      cachedInputTokens: 90_000,
+      cacheCreationInputTokens: 20_000,
+      cacheCreation5mInputTokens: 5_000,
+    });
+    expect(cost.input).toBeCloseTo(usd(40_000 * 0.5), 12);
+    expect(cost.cacheRead).toBeCloseTo(usd(90_000 * 0.05), 12);
+    expect(cost.cacheWrite).toBeCloseTo(usd(15_000 * 1.0 + 5_000 * 0.625), 12);
+    expect(cost.output).toBeCloseTo(usd(2_000 * 2.5), 12);
+  });
+
+  it("counts cache reads and writes toward the threshold", () => {
+    // 10K uncached, but a 95K cache read takes the prompt past 100K.
+    const cost = estimateCostBreakdown("anthropic", "claude-haiku-5-5", 105_000, 0, { cachedInputTokens: 95_000 });
+    expect(cost.input).toBeCloseTo(usd(10_000 * 0.5), 12);
+  });
+
+  it("prices a turn call by call, so steps under the threshold stay at the base rates", () => {
+    const step = { promptTokens: 40_000, completionTokens: 500 };
+    const total = { promptTokens: 120_000, completionTokens: 1_500 };
+    const cost = estimateTurnCostBreakdown("anthropic", "claude-haiku-5-5", total, [step, step, step]);
+    expect(cost.total).toBeCloseTo(usd(3 * (40_000 * 0.1 + 500 * 0.5)), 12);
+    // Priced on the sum, the same turn would have crossed the threshold.
+    expect(estimateTurnCostBreakdown("anthropic", "claude-haiku-5-5", total, undefined).total).toBeCloseTo(
+      usd(120_000 * 0.5 + 1_500 * 2.5),
+      12,
+    );
+  });
+
+  it("prices only the calls that crossed the threshold at the long rates", () => {
+    const cost = estimateTurnCostBreakdown(
+      "anthropic",
+      "claude-haiku-5-5",
+      { promptTokens: 210_000, completionTokens: 0 },
+      [{ promptTokens: 90_000, completionTokens: 0 }, { promptTokens: 120_000, completionTokens: 0 }],
+    );
+    expect(cost.total).toBeCloseTo(usd(90_000 * 0.1 + 120_000 * 0.5), 12);
+  });
+
+  it("leaves a model with one price at every length on the turn's total", () => {
+    const total = { promptTokens: 120_000, completionTokens: 1_500, cachedInputTokens: 60_000 };
+    expect(estimateTurnCostBreakdown("anthropic", "claude-sonnet-5", total, [{ promptTokens: 1, completionTokens: 1 }])).toEqual(
+      estimateCostBreakdown("anthropic", "claude-sonnet-5", 120_000, 1_500, { cachedInputTokens: 60_000 }),
+    );
+  });
+
+  it("keeps the long-prompt tier on the Bedrock profiles, with the EU 10% premium", () => {
+    expect(estimateCost("bedrock", "global.anthropic.claude-haiku-5-5", 200_000, 0)).toBeCloseTo(usd(200_000 * 0.5), 12);
+    expect(estimateCost("bedrock", "eu.anthropic.claude-haiku-5-5", 200_000, 0)).toBeCloseTo(usd(200_000 * 0.55), 12);
   });
 });
 

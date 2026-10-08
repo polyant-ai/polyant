@@ -217,6 +217,19 @@ export interface ModelInfo {
   costCacheWrite: number;
   /** Rate of the writes a message reports as 5m TTL, on models with two write tiers (Anthropic 1P). */
   costCacheWrite5m?: number;
+  /**
+   * Only on models priced by prompt length (Claude Haiku 5.5): the rates of a
+   * single model call whose prompt exceeds `above` tokens. They replace every
+   * rate above for that call.
+   */
+  costLongPrompt?: {
+    above: number;
+    costInput: number;
+    costOutput: number;
+    costCacheRead: number;
+    costCacheWrite: number;
+    costCacheWrite5m?: number;
+  };
   /** True when the provider+model has real prompt caching (a discount) — a UI hint. */
   supportsCache: boolean;
   /**

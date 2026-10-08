@@ -71,6 +71,14 @@ export interface StepDetail {
   finishReason: string;
   promptTokens?: number;
   completionTokens?: number;
+  /**
+   * This step's cache reads, cache writes and their 5-minute share: subsets of
+   * `promptTokens`, recorded when the provider reports them. A step is one model
+   * call, which is the unit a model priced by prompt length is billed on.
+   */
+  cachedInputTokens?: number;
+  cacheCreationInputTokens?: number;
+  cacheCreation5mInputTokens?: number;
   durationMs: number;
   legacy?: boolean;
 }

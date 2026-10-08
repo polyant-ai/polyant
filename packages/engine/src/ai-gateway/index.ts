@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateCostBreakdown, isReasoningAlwaysOn, isThinkingCapable, reasoningControlFor, reasoningOffFor, resolveReasoningLevel, wireDialectFor } from "./config.js";
+import { resolveModel, estimateTurnCostBreakdown, isReasoningAlwaysOn, isThinkingCapable, reasoningControlFor, reasoningOffFor, resolveReasoningLevel, wireDialectFor, type CallUsage } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
 import { buildOpenAIReasoningOffOptions, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { buildAnthropicThinkingOffOptions, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
@@ -201,16 +201,11 @@ function logAndRecordUsage(
     response.steps?.reduce((acc, s) => acc + s.toolCalls.length, 0) ?? 0,
   );
 
-  const cost = estimateCostBreakdown(
+  const cost = estimateTurnCostBreakdown(
     config.providerName,
     config.modelId,
-    response.usage.promptTokens,
-    response.usage.completionTokens,
-    {
-      cachedInputTokens: response.usage.cachedInputTokens,
-      cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
-      cacheCreation5mInputTokens: response.usage.cacheCreation5mInputTokens,
-    },
+    response.usage,
+    stepCalls(response.steps),
   );
   // Propagate the split up to the pipeline (persisted per-message on pipeline_traces).
   response.cost = cost;
@@ -246,11 +241,23 @@ function costOfUsage(
   config: { providerName: string; modelId: string },
   usage: NonNullable<ReturnType<typeof usageCompletedBeforeFailure>>,
 ): number {
-  return estimateCostBreakdown(config.providerName, config.modelId, usage.promptTokens, usage.completionTokens, {
-    cachedInputTokens: usage.cachedInputTokens,
-    cacheCreationInputTokens: usage.cacheCreationInputTokens,
-    cacheCreation5mInputTokens: usage.cacheCreation5mInputTokens,
-  }).total;
+  return estimateTurnCostBreakdown(config.providerName, config.modelId, usage, usage.calls).total;
+}
+
+/**
+ * Each step's usage as one model call, for a model priced per call. Undefined
+ * unless every step reported its prompt: pricing the reported steps alone would
+ * drop the rest of the turn's cost, so the turn's total is used instead.
+ */
+function stepCalls(steps: ChatResponse["steps"]): CallUsage[] | undefined {
+  if (steps.length === 0 || steps.some((s) => s.promptTokens === undefined)) return undefined;
+  return steps.map((s) => ({
+    promptTokens: s.promptTokens ?? 0,
+    completionTokens: s.completionTokens ?? 0,
+    cachedInputTokens: s.cachedInputTokens,
+    cacheCreationInputTokens: s.cacheCreationInputTokens,
+    cacheCreation5mInputTokens: s.cacheCreation5mInputTokens,
+  }));
 }
 
 /**

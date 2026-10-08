@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Model: Claude Haiku 5.5 on Anthropic and on Bedrock (EU and global profiles).
+  It is priced by prompt length: a model call whose prompt passes 100K tokens
+  pays 5× on every rate, input, output and cache. Each call of a tool loop is
+  priced on its own prompt, and `GET /api/instances/models` returns the higher
+  rates as `costLongPrompt`.
+
 ### Changed
+
+- The Anthropic `fast` tier runs Claude Haiku 5.5 instead of Haiku 4.5, with
+  thinking switched off for the calls that do not ask for it (titles, memory,
+  summaries).
 
 - **BREAKING — `fileUpload` moved out of core into the extra plugin** as
   `extra:fileUpload`. Migration `0089` renames the catalog row in place, so

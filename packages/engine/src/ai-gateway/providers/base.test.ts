@@ -205,6 +205,24 @@ describe("buildSteps", () => {
     expect(steps[1].toolResults).toBeUndefined();
   });
 
+  it("records each step's own cache reads and writes, so a step can be priced as one model call", () => {
+    const steps = buildSteps(
+      [
+        {
+          stepType: "initial",
+          text: "",
+          toolCalls: [],
+          finishReason: "tool-calls",
+          usage: { promptTokens: 1000, completionTokens: 10, cachedInputTokens: 800, cacheCreationInputTokens: 150, cacheCreation5mInputTokens: 50 },
+        },
+        { stepType: "tool-result", text: "ok", toolCalls: [], finishReason: "stop", usage: { promptTokens: 1200, completionTokens: 20 } },
+      ],
+      100,
+    );
+    expect(steps[0]).toMatchObject({ promptTokens: 1000, completionTokens: 10, cachedInputTokens: 800, cacheCreationInputTokens: 150, cacheCreation5mInputTokens: 50 });
+    expect(steps[1].cachedInputTokens).toBeUndefined();
+  });
+
   it("normalises reasoningDetails per step (text+signature, redacted, drops unknowns)", () => {
     const steps = buildSteps(
       [
@@ -371,6 +389,11 @@ describe("createProvider – usage of the steps completed before a failure", () 
       cachedInputTokens: 100,
       cacheCreationInputTokens: 0,
       cacheCreation5mInputTokens: 0,
+      // Each step stays a call of its own, for a model priced by prompt length.
+      calls: [
+        { promptTokens: 400, completionTokens: 30, cachedInputTokens: 100, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 },
+        { promptTokens: 600, completionTokens: 50, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 },
+      ],
     });
   });
 

@@ -1054,6 +1054,15 @@ export function SettingsTab({
                                     {m.tier}
                                   </Badge>
                                 )}
+                                {m.costLongPrompt && (
+                                  <span className="mt-1 block text-[10px] text-muted-foreground">
+                                    {t("settings.tab.catalogLongPrompt", {
+                                      above: Math.round(m.costLongPrompt.above / 1000),
+                                      input: m.costLongPrompt.costInput.toFixed(2),
+                                      output: m.costLongPrompt.costOutput.toFixed(2),
+                                    })}
+                                  </span>
+                                )}
                               </TableCell>
                               <TableCell className="text-right text-xs tabular-nums">
                                 ${m.costInput.toFixed(2)}
