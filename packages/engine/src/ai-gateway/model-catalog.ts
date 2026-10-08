@@ -260,9 +260,12 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // reasoningAlwaysOn: LIVE-VERIFIED — with reasoning OFF they still spend
       // reasoning tokens (sol 105 / terra 51 / luna 88), so there is no true off
       // (unlike gpt-5.4, which goes to 0). The UI locks the thinking toggle ON.
-      // Sol's price is promotional, "available at least through November 21, 2026"
-      // (pricing page, read 2026-10-08): re-read it after that date.
-      "gpt-5.6-sol": { input: 4.00, output: 20.00, cacheRead: 0.40, cacheWrite: 5.00, longPrompt: { above: 272_000, input: 8.00, output: 30.00, cacheRead: 0.80, cacheWrite: 10.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      // Sol is catalogued at its FULL price, $5/$30, not the promotional $4/$20
+      // OpenAI publishes "at least through November 21, 2026" (pricing page, read
+      // 2026-10-08): the catalog carries no promotional or transitional rates, so
+      // a spend cap never trips late because a promotion ended. Cache and the
+      // long-context rates follow from it by the family's multipliers.
+      "gpt-5.6-sol": { input: 5.00, output: 30.00, cacheRead: 0.50, cacheWrite: 6.25, longPrompt: { above: 272_000, input: 10.00, output: 45.00, cacheRead: 1.00, cacheWrite: 12.50 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
       "gpt-5.6-terra": { input: 2.00, output: 12.00, cacheRead: 0.20, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 18.00, cacheRead: 0.40, cacheWrite: 5.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
       "gpt-5.6-luna": { input: 0.20, output: 1.20, cacheRead: 0.02, cacheWrite: 0.25, longPrompt: { above: 272_000, input: 0.40, output: 1.80, cacheRead: 0.04, cacheWrite: 0.50 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
       // GPT-6 family (Astra/Sol/Luna), the generation OpenAI now points at. Prices
@@ -423,7 +426,10 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // budgetTokens) — the old regex wrongly excluded it.
       // Haiku 5.5 keeps its 1P prompt-length pricing here (`longPrompt`, past
       // 100K) and its `disabled` off-switch; both profiles are listed in
-      // eu-south-1 (2026-10-08). Thinking on this profile is NOT live-verified yet.
+      // eu-south-1, and LIVE-VERIFIED there (2026-10-08): with `thinking` omitted
+      // it returns a signed thinking block, with `disabled` none; cache writes
+      // and reads are reported. Prices match the AWS price list (Long Context SKUs
+      // included). Sonnet 5.5 reads its cache at $0.10 here too, as on 1P.
       "eu.anthropic.claude-haiku-5-5": { input: 0.11, output: 0.55, cacheRead: 0.011, cacheWrite: 0.1375, longPrompt: { above: 100_000, input: 0.55, output: 2.75, cacheRead: 0.055, cacheWrite: 0.6875 }, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
       "eu.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.10, output: 5.50, cacheRead: 0.11, cacheWrite: 1.375, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "eu.anthropic.claude-sonnet-4-20250514-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
@@ -445,7 +451,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "global.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-sonnet-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
-      "global.anthropic.claude-sonnet-5-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-between-tools" }, vision: true, temperature: false, cache: true },
+      "global.anthropic.claude-sonnet-5-5": { input: 2.00, output: 10.00, cacheRead: 0.10, cacheWrite: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-between-tools" }, vision: true, temperature: false, cache: true },
       "global.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
