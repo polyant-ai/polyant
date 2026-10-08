@@ -29,8 +29,8 @@ const cache = new TtlCache<string, EmbeddingContext>({ maxSize: 200, ttlMs: 30_0
  * the surface whose only job is to be trusted about that.
  *
  * Bedrock is the asymmetric one on purpose: only the REGION is required, because
- * the access-key pair is optional (the host's AWS profile or IAM role stands in),
- * which mirrors `resolveEmbeddingContext`.
+ * its credentials are all optional — a Bedrock API key, else the access-key pair,
+ * else the host's AWS profile or IAM role — which mirrors `resolveEmbeddingContext`.
  */
 export function requiredSecretKeysFor(provider: EmbeddingProvider): readonly string[] {
   const registration = getEmbeddingProvider(provider);
@@ -107,6 +107,7 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
       providerName: "bedrock",
       credentials: {
         provider: "bedrock",
+        apiKey: secrets[SECRET_KEYS.BEDROCK_API_KEY],
         accessKeyId: secrets[SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID],
         secretAccessKey: secrets[SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY],
         region,
