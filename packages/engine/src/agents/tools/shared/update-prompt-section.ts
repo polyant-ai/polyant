@@ -53,7 +53,7 @@ export function createPromptUpdaterTool(config: PromptUpdaterConfig): ToolDefini
               },
             ],
           },
-          { instanceId: ctx.instanceId, callType: "service" },
+          { instanceId: ctx.instanceId, conversationId: ctx.conversationId, callType: "service" },
         );
 
         const newContent = response.text.trim() + "\n";
