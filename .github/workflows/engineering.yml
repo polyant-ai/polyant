@@ -1,0 +1,54 @@
+name: Engineering checkpoints
+
+on:
+  pull_request:
+    branches: [develop, main]
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+  push:
+    branches: [develop]
+  schedule:
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engineering-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checkpoint:
+    name: Engineering evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Test checkpoint tooling
+        if: github.event_name != 'pull_request' || github.event.action != 'edited'
+        run: node --test scripts/ci/*.test.mjs scripts/release/*.test.mjs
+      - name: Check PR evidence and report impacts
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/ci/engineering-checkpoint.mjs --base "$BASE_SHA" --event "$GITHUB_EVENT_PATH"
+      - name: Report merged change impacts
+        if: github.event_name == 'push'
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: node scripts/ci/engineering-checkpoint.mjs --base "$BASE_SHA"
+      - name: Record bounded maintenance inventory
+        if: always() && (github.event_name != 'pull_request' || github.event.action != 'edited')
+        run: node scripts/ci/engineering-checkpoint.mjs --inventory > engineering-inventory.json
+      - uses: actions/upload-artifact@v4
+        if: always() && (github.event_name != 'pull_request' || github.event.action != 'edited')
+        with:
+          name: engineering-inventory
+          path: engineering-inventory.json
+          retention-days: 30

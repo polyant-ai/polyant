@@ -1,0 +1,85 @@
+name: Browser verification
+
+on:
+  pull_request:
+    branches: [develop, main]
+  schedule:
+    - cron: '30 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: Browser scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      browser: ${{ steps.scope.outputs.browser }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            node scripts/ci/engineering-checkpoint.mjs --base "$BASE_SHA" > impact.json
+            node -e 'const r=require("./impact.json"); console.log("browser="+r.browser)' >> "$GITHUB_OUTPUT"
+          else
+            echo 'browser=true' >> "$GITHUB_OUTPUT"
+          fi
+  browser:
+    name: Browser smoke
+    needs: scope
+    if: needs.scope.outputs.browser == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: polyant
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U polyant"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      POSTGRES_USER: polyant
+      POSTGRES_PASSWORD: test
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: '5432'
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+      - run: npm ci
+      - run: npm exec --workspace @polyant/web --no -- playwright install --with-deps --only-shell chromium
+      - name: Verify login and permission boundaries in the real app
+        run: npm run test:e2e -w @polyant/web -- e2e/rbac/members-access.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-evidence
+          path: |
+            packages/web/playwright-report
+            packages/web/test-results
+          retention-days: 14

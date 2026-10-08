@@ -29,6 +29,9 @@ resolution in feature code.
 - Preserve semantic HTML, labels, keyboard operation, focus visibility, and readable states.
 - Use `request<T>()` for engine calls. A bare engine fetch can silently use another workspace.
 
+For destructive actions or changed data displays/exports, apply the relevant rows of
+`docs/engineering-checkpoints.md` § Lifecycle and deployment during implementation.
+
 ## Verify
 
 Run the narrow component or page test first, then:
@@ -40,3 +43,6 @@ npm run lint -w @polyant/web
 
 Run `npm run build:web` when changing routes, imports, server/client boundaries, configuration,
 or anything only the Next.js build validates. Report any check that could not run.
+
+At the final PR diff, run the engineering-checkpoint skill once; route changes
+also check generated engine API artifacts and the web proxy.

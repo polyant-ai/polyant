@@ -22,6 +22,16 @@ npm run release:verify
 If evidence is missing or inconsistent, report the exact blocker. Do not repair or publish
 while auditing.
 
+Before preparation, follow `docs/engineering-checkpoints.md` § Release coordination.
+Run `npm run release:ecosystem -- <manifest.json>` with pinned product, SDK, CLI,
+dev-kit and docs candidates; record independent versions, compatibility evidence,
+security review and performance evidence. Unchanged components need a reason.
+The report is an inventory, not proof the listed checks ran.
+
+For changed data, migrations or runtime requirements, verify applicable upgrade,
+recovery, deployment and distribution evidence from `docs/engineering-checkpoints.md`
+§ Lifecycle and deployment before preparing the candidate.
+
 ## Prepare
 
 Preparation requires an explicit SemVer version and agreed target. Run the repository

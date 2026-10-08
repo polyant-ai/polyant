@@ -14,3 +14,6 @@ paths:
   entry.
 - Add indexes required by the access path, especially for foreign keys and tenant filters.
 - Verify migration-journal tests and the affected store/query tests before completion.
+
+For existing-data upgrades and recovery/coexistence requirements, follow the persisted-data
+row in `docs/engineering-checkpoints.md` § Lifecycle and deployment.

@@ -153,11 +153,20 @@ Skills are task procedures, not an extra source of product truth. They must be s
 twice, inspect current state before mutation, and use repository scripts instead of assuming
 a particular agent or shell alias.
 
+## Completion checkpoints
+
+- At the final PR diff, read `.claude/skills/engineering-checkpoint/SKILL.md` once.
+  Record SDK, CLI, dev-kit and docs impact even when no update is needed.
+- Reuse evidence after merge; later commits refresh only invalidated checks. Full
+  security/performance and ecosystem audits belong at release, not every small task.
+
 ## Git and releases
 
 - Work on a topic branch from the intended base. `develop` is integration; `main` carries
   releases. Never push directly to either protected branch.
 - Use focused conventional commits in English and add the DCO sign-off with `git commit -s`.
+- Write PR titles, descriptions and review comments in English. Shared product changes
+  start here on a topic branch from `develop`; complete the PR before downstream integration.
 - Check the current branch and staged diff immediately before every commit.
 - Before any release preparation, promotion, tag, or publication, load
   `.claude/skills/release/SKILL.md`. Release publication always requires an explicit final
