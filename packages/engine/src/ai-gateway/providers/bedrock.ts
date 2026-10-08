@@ -68,9 +68,10 @@ export const applyBedrockPromptCaching: PrepareMessages = (input) => {
 /**
  * Moving cache breakpoint for the multi-step loop — marks the last message on
  * each step (from step 1), gated to cache-capable model families so a
- * `cachePoint` never reaches a model that rejects it. Bedrock's `cachePoint` has
- * no TTL variants, so the step marker reuses the same block as the cross-turn one
- * (unlike Anthropic, where the within-turn marker drops to a 5m TTL). Wired via
+ * `cachePoint` never reaches a model that rejects it. Polyant's `cachePoint`
+ * names no TTL, so every marker is Bedrock's default 5m and the step marker
+ * reuses the same block as the cross-turn one (unlike Anthropic, where the
+ * within-turn marker drops to a 5m TTL under a 1h cross-turn one). Wired via
  * `createProvider`'s `stepMarker` hook.
  */
 export const bedrockStepMarker = makeStepMarker({

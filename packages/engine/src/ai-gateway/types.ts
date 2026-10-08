@@ -6,7 +6,7 @@ import { type InstanceSlug } from "../instances/identifiers.js";
 
 export type ModelTier = "fast" | "standard" | "heavy";
 
-/** Cross-turn prompt-cache TTL (Anthropic). Bedrock is 5m only; OpenAI/Nebius ignore it. */
+/** Cross-turn prompt-cache TTL (Anthropic). Bedrock always uses its default 5m; OpenAI/Nebius ignore it. */
 export type CacheTtl = "5m" | "1h";
 
 export interface ChatRequest {
