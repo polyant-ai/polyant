@@ -186,7 +186,12 @@ export interface AILogEntry {
   stepCount?: number;
   conversationId?: string;
   instanceId?: InstanceSlug;
-  callType?: "conversation" | "service";
+  /**
+   * "conversation" for an agent's turn, "service" for the gateway calls around
+   * it (titles, memory, summaries), "embedding" for an embedder call. Cost sums
+   * count all three; call counts and response times keep to model calls.
+   */
+  callType?: "conversation" | "service" | "embedding";
   createdAt?: Date;
   /**
    * Whether the provider call returned ("ok"), died before returning ("error"),

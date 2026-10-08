@@ -337,6 +337,24 @@ export function estimateTurnCostBreakdown(
   return sum;
 }
 
+/**
+ * Embedding prices, USD per 1M input tokens, keyed by embedder name
+ * (`instances.embedding_provider`) and model id. OpenAI from its pricing page;
+ * Titan from the AWS Price List API at eu-south-1 (Milan), the Region every
+ * deployment calls from (2026-10-06). A registered OpenAI-compatible embedder
+ * has no row, so its calls are logged with their tokens and a cost of 0.
+ */
+export const embeddingPricingPerMillion: Record<string, Record<string, number>> = {
+  openai: { "text-embedding-3-small": 0.02 },
+  bedrock: { "amazon.titan-embed-text-v2:0": 0.023 },
+};
+
+export function estimateEmbeddingCost(provider: string, model: string, tokens: number): number {
+  if (!Number.isFinite(tokens) || tokens <= 0) return 0;
+  const perMillion = embeddingPricingPerMillion[provider]?.[model];
+  return perMillion == null ? 0 : (tokens * perMillion) / 1_000_000;
+}
+
 export const sttPricingPerMinute: Record<string, Record<string, number>> = {
   openai: {
     "whisper-1": 0.006,

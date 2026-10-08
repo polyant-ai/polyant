@@ -126,7 +126,7 @@ export class AILogger {
     stepCount: number,
     conversationId?: string,
     instanceId?: InstanceSlug,
-    callType?: "conversation" | "service",
+    callType?: AILogEntry["callType"],
     cachedInputTokens?: number,
     cacheCreationInputTokens?: number,
     outcome: AILogEntry["outcome"] = "ok",

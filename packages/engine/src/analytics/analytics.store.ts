@@ -27,10 +27,18 @@ export type { DateRange };
  *
  * `outcome` is `NOT NULL DEFAULT 'ok'`, so every row written before 0077 is an
  * answered call — the historical series does not move.
+ *
+ * Embedder calls (`call_type = 'embedding'`) are priced rows like any other, so
+ * the sums count them. The overview's call count and response time measure
+ * MODEL calls (`ANSWERED_MODEL_CALLS`): a 100 ms embedding beside every
+ * retrieval would pull the average down and double the count. The per-model
+ * breakdown keeps them — there each row is its own model — and the tier
+ * breakdown leaves them out, an embedder having no tier.
  */
 const ANSWERED = sql`FILTER (WHERE outcome = 'ok')`;
 /** The same filter where `ai_logs` is aliased (see the per-agent query). */
 const ANSWERED_AL = sql`FILTER (WHERE al.outcome = 'ok')`;
+const ANSWERED_MODEL_CALLS = sql`FILTER (WHERE outcome = 'ok' AND call_type <> 'embedding')`;
 
 export interface OverviewStats {
   totalCost: number;
@@ -143,8 +151,8 @@ async function getOverviewStats(
         COALESCE(SUM(completion_tokens), 0)::int AS completion_tokens,
         COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens,
         COALESCE(SUM(cache_creation_input_tokens), 0)::int AS cache_creation_input_tokens,
-        COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration_ms,
-        (COUNT(*) ${ANSWERED})::int AS total_calls
+        COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS avg_duration_ms,
+        (COUNT(*) ${ANSWERED_MODEL_CALLS})::int AS total_calls
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
         ${instFilter} ${orgInst}
@@ -174,7 +182,7 @@ async function getOverviewStats(
     await analyticsDb.execute(sql`
       SELECT
         COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS total_cost,
-        COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration_ms
+        COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS avg_duration_ms
       FROM ai_logs
       WHERE created_at >= ${toISO(prevFrom)} AND created_at <= ${toISO(prevTo)}
         ${instFilter} ${orgInst}
@@ -445,6 +453,7 @@ async function getTierDistribution(
         COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
+        AND call_type <> 'embedding'
         ${instFilter} ${orgInst}
       GROUP BY tier
       ORDER BY cost DESC
