@@ -185,6 +185,25 @@ describe("AI Gateway", () => {
       expect(aiLogger.log).toHaveBeenCalled();
     });
 
+    it("prices a model billed by prompt length step by step, not on the turn's sum", async () => {
+      const step = { index: 0, stepType: "initial", text: "", toolCalls: [], finishReason: "tool-calls", durationMs: 1, promptTokens: 40_000, completionTokens: 500 };
+      const anthropicChat = vi.fn().mockResolvedValue(
+        makeChatResponse({
+          model: "claude-haiku-5-5",
+          provider: "anthropic",
+          usage: { promptTokens: 120_000, completionTokens: 1_500, totalTokens: 121_500, cachedInputTokens: 0, cacheCreationInputTokens: 0 },
+          steps: [step, { ...step, index: 1 }, { ...step, index: 2 }],
+        }),
+      );
+      const { AnthropicProvider } = await import("./providers/anthropic.js");
+      (AnthropicProvider as unknown as { chat: unknown }).chat = anthropicChat;
+
+      const result = await chat(makeRequest({ provider: "anthropic", model: "claude-haiku-5-5" }));
+
+      // Three 40K calls under the 100K threshold, not one 120K prompt over it.
+      expect(result.cost?.total).toBeCloseTo((3 * (40_000 * 0.1 + 500 * 0.5)) / 1_000_000, 12);
+    });
+
     it("passes conversationId, instanceId, and callType to logger", async () => {
       mockProviderChat.mockResolvedValue(makeChatResponse());
 
@@ -356,6 +375,20 @@ describe("AI Gateway", () => {
         expect(sent).not.toHaveProperty("effort");
       });
 
+      it("switches thinking off on the anthropic fast tier, so service jobs do not reason on Haiku 5.5", async () => {
+        const anthropicChat = vi.fn().mockResolvedValue(makeChatResponse());
+        const { AnthropicProvider } = await import("./providers/anthropic.js");
+        (AnthropicProvider as unknown as { chat: unknown }).chat = anthropicChat;
+
+        await chat(makeRequest({ provider: "anthropic", tier: "fast" }));
+
+        expect(anthropicChat.mock.calls[0][1]).toBe("claude-haiku-5-5");
+        const sent = anthropicChat.mock.calls[0][0].providerOptions.anthropic;
+        expect(sent.thinking).toEqual({ type: "disabled" });
+        // `disabled` is refused above effort high, so an off turn must carry no effort.
+        expect(sent).not.toHaveProperty("effort");
+      });
+
       it("sends nothing to a model that has no off-switch at all", async () => {
         // gpt-6-astra publishes no `none` effort: it reasons on every call, so a
         // payload claiming to switch it off would be a parameter it rejects and a
@@ -460,7 +493,7 @@ describe("AI Gateway", () => {
       );
 
       const cfg = mockBedrockChat.mock.calls[0][0].providerOptions.bedrock.reasoningConfig;
-      expect(cfg).toEqual({ type: "adaptive", maxReasoningEffort: "high" });
+      expect(cfg).toEqual({ type: "adaptive", maxReasoningEffort: "high", display: "summarized" });
       expect(cfg).not.toHaveProperty("budgetTokens");
     });
 

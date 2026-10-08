@@ -53,13 +53,13 @@ export function reasoningCapableFallback(provider: string, modelId: string): boo
       return /^(o[134]|gpt-5|gpt-6)/.test(modelId);
     case "anthropic":
       // Claude 3.7 + the Claude 4 family (sonnet, opus, haiku), sonnet-5, opus-5,
-      // fable-5 (which also covers fable-5-1).
-      return /^claude-(3-7|opus-4|opus-5|sonnet-4|sonnet-5|haiku-4|fable-5)/.test(modelId);
+      // haiku-5, fable-5 (which also covers fable-5-1).
+      return /^claude-(3-7|opus-4|opus-5|sonnet-4|sonnet-5|haiku-4|haiku-5|fable-5)/.test(modelId);
     case "bedrock":
       // Anthropic Claude 4+ (haiku/sonnet/opus — haiku LIVE-VERIFIED to reason on
       // Bedrock) + OpenAI gpt-oss (effort) + MiniMax M (live-verified), with or
       // without a cross-region inference-profile prefix (eu./us./apac./global.).
-      return /^(?:(?:eu|us|apac|global)\.)?(?:anthropic\.claude-(?:haiku-4|sonnet-4|sonnet-5|opus-4|opus-5)|openai\.gpt-oss)|^minimax\.minimax-m/.test(modelId);
+      return /^(?:(?:eu|us|apac|global)\.)?(?:anthropic\.claude-(?:haiku-4|haiku-5|sonnet-4|sonnet-5|opus-4|opus-5)|openai\.gpt-oss)|^minimax\.minimax-m/.test(modelId);
     case "nebius":
       // Reasoning families served by Nebius (emit reasoning_content). IDs carry an
       // org prefix, so match the model segment case-insensitively.
@@ -100,7 +100,7 @@ export function reasoningAlwaysOnFallback(modelId: string): boolean {
  *     reasoning OFF (200) and 400s only with reasoning ON, so it is temperature:true
  *     (the reasoning-ON case is handled by temperatureSupported, not by omitting the
  *     param wholesale). Mirrors reasoningAlwaysOnFallback's OpenAI split.
- *   - Anthropic removed sampling params on Opus 4.7/4.8, Sonnet 5, Fable 5.
+ *   - Anthropic removed sampling params on Opus 4.7/4.8, Sonnet 5, Haiku 5, Fable 5.
  *   - Bedrock serves the same Claude models via optional region profiles.
  */
 export function temperatureRejectedFallback(provider: string, modelId: string): boolean {
@@ -110,9 +110,9 @@ export function temperatureRejectedFallback(provider: string, modelId: string): 
       // top-level `|`, so without the group `my-gpt-5.6-tune` would match too.
       return /^(?:o[134]\b|gpt-5\.6|gpt-6)/.test(modelId);
     case "anthropic":
-      return /^claude-(opus-4-[78]|opus-5|sonnet-5|fable-5)/.test(modelId);
+      return /^claude-(opus-4-[78]|opus-5|sonnet-5|haiku-5|fable-5)/.test(modelId);
     case "bedrock":
-      return /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-(opus-4-[78]|opus-5|sonnet-5|fable-5)/.test(modelId);
+      return /^(?:(?:eu|us|apac|global)\.)?anthropic\.claude-(opus-4-[78]|opus-5|sonnet-5|haiku-5|fable-5)/.test(modelId);
     default:
       return false;
   }
@@ -123,7 +123,7 @@ export function temperatureRejectedFallback(provider: string, modelId: string): 
  * wire, for un-catalogued ids. Consolidates the last two mechanism regexes here
  * (adaptive-Claude + Bedrock gpt-oss effort) so NO provider file branches on a
  * model-id regex. Returns `undefined` for non-reasoning ids.
- *   - adaptive: Anthropic/Bedrock Claude Opus 4.7/4.8, Sonnet 5, Fable 5 (reject
+ *   - adaptive: Anthropic/Bedrock Claude Opus 4.7/4.8, Sonnet 5, Haiku 5, Fable 5 (reject
  *     the legacy `enabled`+budgetTokens shape with a 400 — live-verified).
  *   - effort: OpenAI/Nebius reasoning_effort; Bedrock gpt-oss + MiniMax
  *     maxReasoningEffort (MiniMax ignores the level — always reasons — but the effort
@@ -137,7 +137,7 @@ export function reasoningControlFallback(
   if (!reasoningCapableFallback(provider, modelId)) return undefined;
   const claudeAdaptive =
     (provider === "anthropic" || provider === "bedrock") &&
-    /claude-(?:opus-4-[78]|opus-5|sonnet-5|fable-5)/.test(modelId);
+    /claude-(?:opus-4-[78]|opus-5|sonnet-5|haiku-5|fable-5)/.test(modelId);
   if (claudeAdaptive) return "adaptive";
   switch (provider) {
     case "openai":
@@ -203,6 +203,18 @@ export interface CacheTokenUsage {
   cacheCreation5mInputTokens?: number;
 }
 
+/** The rates one model call is billed at. */
+type CallRates = Pick<ModelCapabilities, "input" | "output" | "cacheRead" | "cacheWrite" | "cacheWrite5m">;
+
+/**
+ * The rates of ONE model call with a prompt of `promptTokens`: the model's
+ * `longPrompt` rates past its threshold, its base rates otherwise.
+ */
+function ratesForPrompt(pricing: ModelCapabilities, promptTokens: number): CallRates {
+  const long = pricing.longPrompt;
+  return long && promptTokens > long.above ? long : pricing;
+}
+
 /**
  * Resolve the ABSOLUTE per-1M cache read/write rates for a model. Cache rates
  * live directly on the catalog entry (`cacheRead`/`cacheWrite`, published $/1M —
@@ -211,7 +223,7 @@ export interface CacheTokenUsage {
  * discount (Nebius) and for non-cacheable families. This is the single pricing
  * source — there is no separate multiplier table.
  */
-function resolveCacheRates(pricing: ModelCapabilities): { read: number; write: number; write5m: number } {
+function resolveCacheRates(pricing: CallRates): { read: number; write: number; write5m: number } {
   const write = pricing.cacheWrite ?? pricing.input;
   return {
     read: pricing.cacheRead ?? pricing.input,
@@ -244,6 +256,10 @@ export function estimateCost(
  * Like `estimateCost`, but returns the per-bucket split (regular input, cache
  * read+write, output) alongside the total. Persisted per-message on
  * `pipeline_traces` so the admin panel can show input/cache/output costs.
+ *
+ * The tokens are those of ONE model call when the model is priced by prompt
+ * length (`longPrompt`), since its threshold is judged per call; a turn of
+ * several calls goes through `estimateTurnCostBreakdown`.
  */
 export function estimateCostBreakdown(
   provider: string,
@@ -261,13 +277,14 @@ export function estimateCostBreakdown(
   // not reported) are billed at `cacheWrite`, exactly as before the split.
   const cacheWrite5m = Math.min(cacheWrite, Math.max(0, cache?.cacheCreation5mInputTokens ?? 0));
   const regularInput = Math.max(0, promptTokens - cacheRead - cacheWrite);
-  const rates = resolveCacheRates(pricing);
+  const callRates = ratesForPrompt(pricing, promptTokens);
+  const rates = resolveCacheRates(callRates);
 
-  const input = (regularInput * pricing.input) / 1_000_000;
+  const input = (regularInput * callRates.input) / 1_000_000;
   const cacheReadCost = (cacheRead * rates.read) / 1_000_000;
   const cacheWriteCost = ((cacheWrite - cacheWrite5m) * rates.write + cacheWrite5m * rates.write5m) / 1_000_000;
   const cacheCost = cacheReadCost + cacheWriteCost;
-  const output = (completionTokens * pricing.output) / 1_000_000;
+  const output = (completionTokens * callRates.output) / 1_000_000;
 
   return {
     input,
@@ -277,6 +294,47 @@ export function estimateCostBreakdown(
     output,
     total: input + cacheCost + output,
   };
+}
+
+/** The token usage of one model call: one step of a tool loop, or a whole turn. */
+export interface CallUsage extends CacheTokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
+/**
+ * The cost of a turn, which can be several model calls (the steps of a tool
+ * loop). A model priced by prompt length is priced call by call from `calls`,
+ * because its threshold applies to each call: three 40K-token steps are three
+ * calls under a 100K threshold, while their 120K sum is over it. Every other
+ * model costs the same per token at any length, so it is priced on `total`,
+ * exactly as before; so is a priced-by-length turn whose calls were not
+ * reported, which is then billed at the rates its total falls in.
+ */
+export function estimateTurnCostBreakdown(
+  provider: string,
+  model: string,
+  total: CallUsage,
+  calls: readonly CallUsage[] | undefined,
+): CostBreakdown {
+  const ofCall = (u: CallUsage) =>
+    estimateCostBreakdown(provider, model, u.promptTokens, u.completionTokens, {
+      cachedInputTokens: u.cachedInputTokens,
+      cacheCreationInputTokens: u.cacheCreationInputTokens,
+      cacheCreation5mInputTokens: u.cacheCreation5mInputTokens,
+    });
+  if (!getModelCapabilities(provider, model)?.longPrompt || !calls?.length) return ofCall(total);
+  const sum: CostBreakdown = { input: 0, cache: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 };
+  for (const call of calls) {
+    const c = ofCall(call);
+    sum.input += c.input;
+    sum.cache += c.cache;
+    sum.cacheRead += c.cacheRead;
+    sum.cacheWrite += c.cacheWrite;
+    sum.output += c.output;
+    sum.total += c.total;
+  }
+  return sum;
 }
 
 export const sttPricingPerMinute: Record<string, Record<string, number>> = {

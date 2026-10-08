@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { resolveModel, estimateCost, estimateCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, reasoningLevelsFor, resolveReasoningLevel, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
+import { resolveModel, estimateCost, estimateCostBreakdown, estimateTurnCostBreakdown, estimateSttCost, providerConfigs, isThinkingCapable, isReasoningAlwaysOn, reasoningControlFor, reasoningLevelsFor, resolveReasoningLevel, clampTemperature, temperatureSupported, cacheSupported } from "./config.js";
 
 describe("resolveModel", () => {
   // The gpt-4o family these used to name is in OpenAI's deprecated list; the
@@ -19,7 +19,7 @@ describe("resolveModel", () => {
   });
 
   it("resolves anthropic fast tier", () => {
-    expect(resolveModel("anthropic", "fast")).toBe("claude-haiku-4-5-20251001");
+    expect(resolveModel("anthropic", "fast")).toBe("claude-haiku-5-5");
   });
 
   it("resolves anthropic standard tier", () => {
@@ -155,22 +155,22 @@ describe("estimateCost", () => {
 
   it("prices a GPT-6 Luna cache write at the published $0.125/1M", () => {
     // Written as 0 before, so a GPT-6 turn's writes cost nothing and a cached
-    // run looked ~2.5x cheaper than it was.
-    expect(estimateCost("openai", "gpt-6-luna", 1_000_000, 0, { cacheCreationInputTokens: 1_000_000 })).toBeCloseTo(
-      0.125,
+    // run looked ~2.5x cheaper than it was. (One call under the 272K long-context
+    // threshold, so the base rate applies.)
+    expect(estimateCost("openai", "gpt-6-luna", 200_000, 0, { cacheCreationInputTokens: 200_000 })).toBeCloseTo(
+      0.025,
       12,
     );
   });
 
-  it("recosts a whole GPT-6 Luna eval run with its cache writes", () => {
-    // Totals of a 148-conversation run: $0.110 when writes were free.
-    const cost = estimateCost("openai", "gpt-6-luna", 10_525_296, 36_570, {
-      cachedInputTokens: 9_186_532,
-      cacheCreationInputTokens: 1_336_289,
+  it("recosts a cached GPT-6 Luna call with its cache writes", () => {
+    // One call shaped like the average of a 148-conversation eval run.
+    const cost = estimateCost("openai", "gpt-6-luna", 105_252, 365, {
+      cachedInputTokens: 91_865,
+      cacheCreationInputTokens: 13_362,
     });
-    const expected = ((10_525_296 - 9_186_532 - 1_336_289) * 0.1 + 9_186_532 * 0.01 + 1_336_289 * 0.125 + 36_570 * 0.5) / 1_000_000;
+    const expected = ((105_252 - 91_865 - 13_362) * 0.1 + 91_865 * 0.01 + 13_362 * 0.125 + 365 * 0.5) / 1_000_000;
     expect(cost).toBeCloseTo(expected, 12);
-    expect(cost).toBeCloseTo(0.277, 3);
   });
 
   it("keeps pre-5.6 OpenAI cache writes free", () => {
@@ -201,13 +201,98 @@ describe("estimateCost", () => {
   });
 });
 
+/**
+ * Claude Haiku 5.5 is priced by prompt length: past 100K prompt tokens EVERY rate
+ * of that call is 5× (input, output, cache), and the threshold is judged per
+ * model call — a step of a tool loop — never on the turn's sum.
+ */
+describe("prompt-length pricing (Claude Haiku 5.5)", () => {
+  const usd = (n: number) => n / 1_000_000;
+
+  it("bills a prompt of exactly 100K tokens at the base rates", () => {
+    expect(estimateCost("anthropic", "claude-haiku-5-5", 100_000, 1_000)).toBeCloseTo(usd(100_000 * 0.1 + 1_000 * 0.5), 12);
+  });
+
+  it("bills every bucket of a longer prompt at the long rates, cache included", () => {
+    const cost = estimateCostBreakdown("anthropic", "claude-haiku-5-5", 150_000, 2_000, {
+      cachedInputTokens: 90_000,
+      cacheCreationInputTokens: 20_000,
+      cacheCreation5mInputTokens: 5_000,
+    });
+    expect(cost.input).toBeCloseTo(usd(40_000 * 0.5), 12);
+    expect(cost.cacheRead).toBeCloseTo(usd(90_000 * 0.05), 12);
+    expect(cost.cacheWrite).toBeCloseTo(usd(15_000 * 1.0 + 5_000 * 0.625), 12);
+    expect(cost.output).toBeCloseTo(usd(2_000 * 2.5), 12);
+  });
+
+  it("counts cache reads and writes toward the threshold", () => {
+    // 10K uncached, but a 95K cache read takes the prompt past 100K.
+    const cost = estimateCostBreakdown("anthropic", "claude-haiku-5-5", 105_000, 0, { cachedInputTokens: 95_000 });
+    expect(cost.input).toBeCloseTo(usd(10_000 * 0.5), 12);
+  });
+
+  it("prices a turn call by call, so steps under the threshold stay at the base rates", () => {
+    const step = { promptTokens: 40_000, completionTokens: 500 };
+    const total = { promptTokens: 120_000, completionTokens: 1_500 };
+    const cost = estimateTurnCostBreakdown("anthropic", "claude-haiku-5-5", total, [step, step, step]);
+    expect(cost.total).toBeCloseTo(usd(3 * (40_000 * 0.1 + 500 * 0.5)), 12);
+    // Priced on the sum, the same turn would have crossed the threshold.
+    expect(estimateTurnCostBreakdown("anthropic", "claude-haiku-5-5", total, undefined).total).toBeCloseTo(
+      usd(120_000 * 0.5 + 1_500 * 2.5),
+      12,
+    );
+  });
+
+  it("prices only the calls that crossed the threshold at the long rates", () => {
+    const cost = estimateTurnCostBreakdown(
+      "anthropic",
+      "claude-haiku-5-5",
+      { promptTokens: 210_000, completionTokens: 0 },
+      [{ promptTokens: 90_000, completionTokens: 0 }, { promptTokens: 120_000, completionTokens: 0 }],
+    );
+    expect(cost.total).toBeCloseTo(usd(90_000 * 0.1 + 120_000 * 0.5), 12);
+  });
+
+  it("leaves a model with one price at every length on the turn's total", () => {
+    const total = { promptTokens: 120_000, completionTokens: 1_500, cachedInputTokens: 60_000 };
+    expect(estimateTurnCostBreakdown("anthropic", "claude-sonnet-5", total, [{ promptTokens: 1, completionTokens: 1 }])).toEqual(
+      estimateCostBreakdown("anthropic", "claude-sonnet-5", 120_000, 1_500, { cachedInputTokens: 60_000 }),
+    );
+  });
+
+  it("keeps the long-prompt tier on the Bedrock profiles, with the EU 10% premium", () => {
+    expect(estimateCost("bedrock", "global.anthropic.claude-haiku-5-5", 200_000, 0)).toBeCloseTo(usd(200_000 * 0.5), 12);
+    expect(estimateCost("bedrock", "eu.anthropic.claude-haiku-5-5", 200_000, 0)).toBeCloseTo(usd(200_000 * 0.55), 12);
+  });
+});
+
+describe("prompt-length pricing (OpenAI GPT-5.4 / 5.6 / 6, past 272K input tokens)", () => {
+  const usd = (n: number) => n / 1_000_000;
+
+  it("bills a call over 272K input tokens at the long-context rates, cache reads and writes included", () => {
+    const cost = estimateCostBreakdown("openai", "gpt-6-sol", 300_000, 1_000, { cachedInputTokens: 200_000, cacheCreationInputTokens: 50_000 });
+    expect(cost.input).toBeCloseTo(usd(50_000 * 4), 12);
+    expect(cost.cacheRead).toBeCloseTo(usd(200_000 * 0.4), 12);
+    expect(cost.cacheWrite).toBeCloseTo(usd(50_000 * 5), 12);
+    expect(cost.output).toBeCloseTo(usd(1_000 * 15), 12);
+  });
+
+  it("bills a call of exactly 272K input tokens at the base rates", () => {
+    expect(estimateCost("openai", "gpt-6-sol", 272_000, 1_000)).toBeCloseTo(usd(272_000 * 2 + 1_000 * 10), 12);
+  });
+
+  it("leaves the models capped at 272K on one price", () => {
+    expect(estimateCost("openai", "gpt-5.4-mini", 400_000, 0)).toBeCloseTo(usd(400_000 * 0.75), 12);
+  });
+});
+
 describe("estimateCostBreakdown – Anthropic cache writes priced by TTL", () => {
-  // Sonnet 5.5, published $/1M: input 2, 5m write 2.50, 1h write 4, read 0.20, output 10.
+  // Sonnet 5.5, published $/1M: input 2, 5m write 2.50, 1h write 4, read 0.10, output 10.
   const INPUT = 16_840_640;
   const READ = 14_832_729;
   const WRITE = 1_429_569;
   const OUTPUT = 78_572;
-  const base = (INPUT - READ - WRITE) * 2 + READ * 0.2 + OUTPUT * 10;
+  const base = (INPUT - READ - WRITE) * 2 + READ * 0.1 + OUTPUT * 10;
 
   it("bills a write with no reported TTL split at the 1h rate, as before the split existed", () => {
     const cost = estimateCostBreakdown("anthropic", "claude-sonnet-5-5", INPUT, OUTPUT, {
@@ -216,7 +301,7 @@ describe("estimateCostBreakdown – Anthropic cache writes priced by TTL", () =>
     });
     expect(cost.cacheWrite).toBeCloseTo((WRITE * 4) / 1_000_000, 12);
     expect(cost.total).toBeCloseTo((base + WRITE * 4) / 1_000_000, 12);
-    expect(cost.total).toBeCloseTo(10.627, 3);
+    expect(cost.total).toBeCloseTo(9.144, 3);
   });
 
   it("bills writes reported as 5m at 1.25x input", () => {
@@ -226,7 +311,7 @@ describe("estimateCostBreakdown – Anthropic cache writes priced by TTL", () =>
       cacheCreation5mInputTokens: WRITE,
     });
     expect(cost.total).toBeCloseTo((base + WRITE * 2.5) / 1_000_000, 12);
-    expect(cost.total).toBeCloseTo(8.483, 3);
+    expect(cost.total).toBeCloseTo(7.0, 3);
   });
 
   it("bills a turn mixing 5m and 1h writes at each one's own rate", () => {
@@ -237,9 +322,9 @@ describe("estimateCostBreakdown – Anthropic cache writes priced by TTL", () =>
       cacheCreation5mInputTokens: 1_000,
     });
     expect(cost.cacheWrite).toBeCloseTo((2_000 * 4 + 1_000 * 2.5) / 1_000_000, 12);
-    expect(cost.cacheRead).toBeCloseTo((6_000 * 0.2) / 1_000_000, 12);
+    expect(cost.cacheRead).toBeCloseTo((6_000 * 0.1) / 1_000_000, 12);
     expect(cost.input).toBeCloseTo((1_000 * 2) / 1_000_000, 12);
-    expect(cost.total).toBeCloseTo((1_000 * 2 + 6_000 * 0.2 + 2_000 * 4 + 1_000 * 2.5 + 200 * 10) / 1_000_000, 12);
+    expect(cost.total).toBeCloseTo((1_000 * 2 + 6_000 * 0.1 + 2_000 * 4 + 1_000 * 2.5 + 200 * 10) / 1_000_000, 12);
   });
 
   it("ignores a 5m count on a model with a single write rate", () => {

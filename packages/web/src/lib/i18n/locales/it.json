@@ -462,6 +462,7 @@
   "settings.tab.catalogSearchPlaceholder": "Cerca modelli…",
   "settings.tab.catalogAllProviders": "Tutti i provider",
   "settings.tab.catalogNoResults": "Nessun modello corrisponde ai filtri.",
+  "settings.tab.catalogLongPrompt": "Prompt oltre {above}K token: ${input} / ${output}",
   "settings.tab.apiKeys": "Chiavi API",
   "settings.tab.apiKeysHelp": "Chiavi dei provider modello (chat ed embedder). Sono indipendenti dai secret dei tool.",
   "settings.tab.openaiKey": "Chiave API OpenAI",

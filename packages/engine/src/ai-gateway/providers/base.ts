@@ -160,10 +160,13 @@ interface MappedUsage {
  * read — never arrives. Keyed by the thrown error, so the gateway reading it
  * learns the usage of exactly that failed call.
  */
-const usageBeforeFailure = new WeakMap<object, Required<MappedUsage>>();
+const usageBeforeFailure = new WeakMap<object, UsageBeforeFailure>();
+
+/** The summed usage of the completed steps, and each step's own (`calls`). */
+type UsageBeforeFailure = Required<MappedUsage> & { calls: Required<MappedUsage>[] };
 
 /** The usage of the steps a failed or aborted call completed, or null when it completed none. */
-export function usageCompletedBeforeFailure(err: unknown): Required<MappedUsage> | null {
+export function usageCompletedBeforeFailure(err: unknown): UsageBeforeFailure | null {
   return err !== null && typeof err === "object" ? usageBeforeFailure.get(err) ?? null : null;
 }
 
@@ -171,19 +174,22 @@ export function usageCompletedBeforeFailure(err: unknown): Required<MappedUsage>
 function completedStepsUsage() {
   // A 5m count of 0 prices exactly like an absent split (every write at `cacheWrite`).
   const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
-  let steps = 0;
+  const calls: Required<MappedUsage>[] = [];
   return {
     onStepEnd: (step: { usage?: unknown }) => {
       const usage = mapUsage(step.usage);
-      total.promptTokens += usage.promptTokens ?? 0;
-      total.completionTokens += usage.completionTokens ?? 0;
-      total.cachedInputTokens += usage.cachedInputTokens ?? 0;
-      total.cacheCreationInputTokens += usage.cacheCreationInputTokens ?? 0;
-      total.cacheCreation5mInputTokens += usage.cacheCreation5mInputTokens ?? 0;
-      steps++;
+      const call = {
+        promptTokens: usage.promptTokens ?? 0,
+        completionTokens: usage.completionTokens ?? 0,
+        cachedInputTokens: usage.cachedInputTokens ?? 0,
+        cacheCreationInputTokens: usage.cacheCreationInputTokens ?? 0,
+        cacheCreation5mInputTokens: usage.cacheCreation5mInputTokens ?? 0,
+      };
+      for (const key of Object.keys(total) as (keyof typeof total)[]) total[key] += call[key];
+      calls.push(call);
     },
     pinTo(err: unknown): void {
-      if (steps > 0 && err !== null && typeof err === "object") usageBeforeFailure.set(err, { ...total });
+      if (calls.length > 0 && err !== null && typeof err === "object") usageBeforeFailure.set(err, { ...total, calls: [...calls] });
     },
   };
 }
@@ -372,6 +378,9 @@ export function buildSteps(steps: SdkStep[], totalDurationMs: number): StepDetai
     if (reasoning) detail.reasoning = reasoning;
     if (s.usage?.promptTokens !== undefined) detail.promptTokens = safeTokens(s.usage.promptTokens);
     if (s.usage?.completionTokens !== undefined) detail.completionTokens = safeTokens(s.usage.completionTokens);
+    if (s.usage?.cachedInputTokens !== undefined) detail.cachedInputTokens = safeTokens(s.usage.cachedInputTokens);
+    if (s.usage?.cacheCreationInputTokens !== undefined) detail.cacheCreationInputTokens = safeTokens(s.usage.cacheCreationInputTokens);
+    if (s.usage?.cacheCreation5mInputTokens !== undefined) detail.cacheCreation5mInputTokens = safeTokens(s.usage.cacheCreation5mInputTokens);
     return detail;
   });
 }

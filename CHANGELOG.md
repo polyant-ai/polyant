@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Model: Claude Haiku 5.5 on Anthropic and on Bedrock (EU and global profiles).
+  It is priced by prompt length: a model call whose prompt passes 100K tokens
+  pays 5× on every rate, input, output and cache. Each call of a tool loop is
+  priced on its own prompt, and `GET /api/instances/models` returns the higher
+  rates as `costLongPrompt`.
+- OpenAI GPT-5.4, GPT-5.6 and GPT-6 are priced by prompt length too: a call
+  with more than 272K input tokens pays the long-context rates for the whole
+  request.
+
+### Fixed
+
+- Claude Sonnet 5.5 cache reads cost $0.10 per million tokens on Anthropic and
+  on the Bedrock global profile, not $0.20.
+- Claude models with adaptive thinking (Opus 4.7 and later, Sonnet 5 and 5.5,
+  Haiku 5.5, Fable) show their reasoning again. They return it with empty text
+  unless a summary is requested, so the panel, the logs and the stored turn had
+  none although the reasoning was billed; the gateway now asks for the summary
+  on Anthropic and on Bedrock.
+- GPT-5.6 Sol is priced at its full $5 / $30 rather than the promotional
+  $4 / $20, so a spend cap does not loosen when the promotion ends.
+
 ### Changed
+
+- The Anthropic `fast` tier runs Claude Haiku 5.5 instead of Haiku 4.5, with
+  thinking switched off for the calls that do not ask for it (titles, memory,
+  summaries).
 
 - **BREAKING — `fileUpload` moved out of core into the extra plugin** as
   `extra:fileUpload`. Migration `0089` renames the catalog row in place, so
