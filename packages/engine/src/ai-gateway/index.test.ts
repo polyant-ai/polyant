@@ -709,10 +709,10 @@ describe("AI Gateway", () => {
       expect(entry.costUsd).toBeGreaterThan(0);
     });
 
-    it("writes NOTHING when the turn was preempted by the message coordinator", async () => {
+    it("writes NOTHING when the turn was preempted before any model call answered", async () => {
       // cancel-and-restart is the routine path — it fires whenever a user sends a
-      // second message before the first reply lands. Counting it as a provider
-      // failure would make a failure rate mostly measure how fast people type.
+      // second message before the first reply lands. A turn it stopped before
+      // anything was billed has no cost to record and is no failure.
       const controller = new AbortController();
       controller.abort();
       mockProviderChat.mockRejectedValue(new Error("aborted"));
@@ -720,6 +720,25 @@ describe("AI Gateway", () => {
       await expect(chat(makeRequest({ abortSignal: controller.signal }))).rejects.toThrow();
 
       expect(aiLogger.log).not.toHaveBeenCalled();
+    });
+
+    it("logs a preempted turn's billed model calls as `aborted`, never as an error", async () => {
+      // The coordinator aborted after the provider had answered: that answer
+      // was billed. Sums of cost count the row; error rates, which read
+      // `outcome = 'error'`, do not.
+      const controller = new AbortController();
+      controller.abort();
+      const err = new Error("aborted");
+      pinnedUsage.set(err, { promptTokens: 88, completionTokens: 17, cachedInputTokens: 0, cacheCreationInputTokens: 0 });
+      mockProviderChat.mockRejectedValue(err);
+
+      await expect(chat(makeRequest({ abortSignal: controller.signal }))).rejects.toBe(err);
+
+      const entry = loggedEntry();
+      expect(entry.outcome).toBe("aborted");
+      expect(entry.errorKind).toBeNull();
+      expect(entry.promptTokens).toBe(88);
+      expect(entry.costUsd).toBeGreaterThan(0);
     });
 
     it("writes exactly one row when a stream fails after being established", async () => {

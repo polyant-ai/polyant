@@ -27,10 +27,18 @@ export type { DateRange };
  *
  * `outcome` is `NOT NULL DEFAULT 'ok'`, so every row written before 0077 is an
  * answered call — the historical series does not move.
+ *
+ * Embedder calls (`call_type = 'embedding'`) are priced rows like any other, so
+ * the sums count them. The overview's call count and response time measure
+ * MODEL calls (`ANSWERED_MODEL_CALLS`): a 100 ms embedding beside every
+ * retrieval would pull the average down and double the count. The per-model
+ * breakdown keeps them — there each row is its own model — and the tier
+ * breakdown leaves them out, an embedder having no tier.
  */
 const ANSWERED = sql`FILTER (WHERE outcome = 'ok')`;
 /** The same filter where `ai_logs` is aliased (see the per-agent query). */
 const ANSWERED_AL = sql`FILTER (WHERE al.outcome = 'ok')`;
+const ANSWERED_MODEL_CALLS = sql`FILTER (WHERE outcome = 'ok' AND call_type <> 'embedding')`;
 
 export interface OverviewStats {
   totalCost: number;
@@ -137,14 +145,14 @@ async function getOverviewStats(
   const [aiStats] = asRows<OverviewAiRow>(
     await analyticsDb.execute(sql`
       SELECT
-        COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost,
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS total_cost,
         COALESCE(SUM(total_tokens), 0)::int AS total_tokens,
         COALESCE(SUM(prompt_tokens), 0)::int AS prompt_tokens,
         COALESCE(SUM(completion_tokens), 0)::int AS completion_tokens,
         COALESCE(SUM(cached_input_tokens), 0)::int AS cached_input_tokens,
         COALESCE(SUM(cache_creation_input_tokens), 0)::int AS cache_creation_input_tokens,
-        COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration_ms,
-        (COUNT(*) ${ANSWERED})::int AS total_calls
+        COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS avg_duration_ms,
+        (COUNT(*) ${ANSWERED_MODEL_CALLS})::int AS total_calls
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
         ${instFilter} ${orgInst}
@@ -173,8 +181,8 @@ async function getOverviewStats(
   const [prevAi] = asRows<OverviewPrevAiRow>(
     await analyticsDb.execute(sql`
       SELECT
-        COALESCE(SUM(estimated_cost_usd), 0)::float AS total_cost,
-        COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration_ms
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS total_cost,
+        COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS avg_duration_ms
       FROM ai_logs
       WHERE created_at >= ${toISO(prevFrom)} AND created_at <= ${toISO(prevTo)}
         ${instFilter} ${orgInst}
@@ -276,7 +284,7 @@ async function getDailyTrend(
     await analyticsDb.execute(sql`
       SELECT
         DATE(created_at) AS date,
-        COALESCE(SUM(estimated_cost_usd), 0)::float AS cost,
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost,
         COALESCE(SUM(total_tokens), 0)::int AS tokens
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
@@ -408,7 +416,7 @@ async function getModelDistribution(
         model,
         (COUNT(*) ${ANSWERED})::int AS calls,
         COALESCE(SUM(total_tokens), 0)::int AS tokens,
-        COALESCE(SUM(estimated_cost_usd), 0)::float AS cost,
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost,
         COALESCE(AVG(duration_ms) ${ANSWERED}, 0)::float AS avg_duration
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
@@ -442,9 +450,10 @@ async function getTierDistribution(
         tier,
         (COUNT(*) ${ANSWERED})::int AS calls,
         COALESCE(SUM(total_tokens), 0)::int AS tokens,
-        COALESCE(SUM(estimated_cost_usd), 0)::float AS cost
+        COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS cost
       FROM ai_logs
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
+        AND call_type <> 'embedding'
         ${instFilter} ${orgInst}
       GROUP BY tier
       ORDER BY cost DESC
@@ -508,7 +517,7 @@ async function getInstanceComparison(
         al.instance_id,
         COALESCE(i.name, al.instance_id) AS name,
         (COUNT(DISTINCT al.conversation_id) ${ANSWERED_AL})::int AS conversations,
-        COALESCE(SUM(al.estimated_cost_usd), 0)::float AS cost,
+        COALESCE(SUM(al.estimated_cost_usd::float8), 0)::float AS cost,
         COALESCE(SUM(al.total_tokens), 0)::int AS tokens
       FROM ai_logs al
       LEFT JOIN instances i ON i.slug = al.instance_id

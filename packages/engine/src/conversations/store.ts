@@ -582,11 +582,11 @@ export class ConversationStore {
         LEFT JOIN instances i ON i.slug = c.instance_id
         LEFT JOIN LATERAL (
           SELECT SUM(al.total_tokens) AS total_tokens,
-                 SUM(al.estimated_cost_usd) AS total_cost,
+                 SUM(al.estimated_cost_usd::float8) AS total_cost,
                  SUM(al.total_tokens) FILTER (WHERE al.call_type = 'conversation') AS conversation_tokens,
-                 SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
+                 SUM(al.estimated_cost_usd::float8) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
                  SUM(al.total_tokens) FILTER (WHERE al.call_type = 'service') AS service_tokens,
-                 SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost,
+                 SUM(al.estimated_cost_usd::float8) FILTER (WHERE al.call_type = 'service') AS service_cost,
                  SUM(al.cached_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cached_input_tokens,
                  SUM(al.cache_creation_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cache_creation_input_tokens
           FROM ai_logs al
@@ -667,11 +667,11 @@ export class ConversationStore {
       LEFT JOIN instances i ON i.slug = c.instance_id
       LEFT JOIN LATERAL (
         SELECT SUM(al.total_tokens) AS total_tokens,
-               SUM(al.estimated_cost_usd) AS total_cost,
+               SUM(al.estimated_cost_usd::float8) AS total_cost,
                SUM(al.total_tokens) FILTER (WHERE al.call_type = 'conversation') AS conversation_tokens,
-               SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
+               SUM(al.estimated_cost_usd::float8) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
                SUM(al.total_tokens) FILTER (WHERE al.call_type = 'service') AS service_tokens,
-               SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost,
+               SUM(al.estimated_cost_usd::float8) FILTER (WHERE al.call_type = 'service') AS service_cost,
                SUM(al.cached_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cached_input_tokens,
                SUM(al.cache_creation_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cache_creation_input_tokens
         FROM ai_logs al
@@ -842,11 +842,11 @@ export class ConversationStore {
           AND cm.search_vector @@ ${tsQuery}
         LEFT JOIN LATERAL (
           SELECT SUM(al.total_tokens) AS total_tokens,
-                 SUM(al.estimated_cost_usd) AS total_cost,
+                 SUM(al.estimated_cost_usd::float8) AS total_cost,
                  SUM(al.total_tokens) FILTER (WHERE al.call_type = 'conversation') AS conversation_tokens,
-                 SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
+                 SUM(al.estimated_cost_usd::float8) FILTER (WHERE al.call_type = 'conversation') AS conversation_cost,
                  SUM(al.total_tokens) FILTER (WHERE al.call_type = 'service') AS service_tokens,
-                 SUM(al.estimated_cost_usd) FILTER (WHERE al.call_type = 'service') AS service_cost,
+                 SUM(al.estimated_cost_usd::float8) FILTER (WHERE al.call_type = 'service') AS service_cost,
                  SUM(al.cached_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cached_input_tokens,
                  SUM(al.cache_creation_input_tokens) FILTER (WHERE al.call_type = 'conversation') AS cache_creation_input_tokens
           FROM ai_logs al

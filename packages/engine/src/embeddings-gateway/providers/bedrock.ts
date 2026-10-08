@@ -3,7 +3,7 @@
 import { embed, embedMany } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
-import type { EmbeddingDim } from "../types.js";
+import type { EmbeddingDim, EmbeddingResult } from "../types.js";
 import { EMBEDDING_MODEL_IDS, assertDimSupported } from "../config.js";
 
 interface BedrockCallOptions {
@@ -42,29 +42,26 @@ function buildModel(opts: BedrockCallOptions) {
   return provider.embedding(EMBEDDING_MODEL_IDS.bedrock);
 }
 
-export async function embedBedrock(text: string, opts: BedrockCallOptions): Promise<number[]> {
+export async function embedBedrock(text: string, opts: BedrockCallOptions): Promise<EmbeddingResult> {
   assertDimSupported("bedrock", opts.dimensions);
   const model = buildModel(opts);
-  const { embedding } = await embed({
+  const { embedding, usage } = await embed({
     model,
     value: text,
     providerOptions: { bedrock: { dimensions: opts.dimensions } },
   });
-  return embedding;
+  return { embeddings: [embedding], tokens: usage?.tokens ?? 0 };
 }
 
-export async function embedManyBedrock(texts: string[], opts: BedrockCallOptions): Promise<number[][]> {
-  if (texts.length === 0) return [];
-  if (texts.length === 1) {
-    const single = await embedBedrock(texts[0], opts);
-    return [single];
-  }
+export async function embedManyBedrock(texts: string[], opts: BedrockCallOptions): Promise<EmbeddingResult> {
+  if (texts.length === 0) return { embeddings: [], tokens: 0 };
+  if (texts.length === 1) return embedBedrock(texts[0], opts);
   assertDimSupported("bedrock", opts.dimensions);
   const model = buildModel(opts);
-  const { embeddings } = await embedMany({
+  const { embeddings, usage } = await embedMany({
     model,
     values: texts,
     providerOptions: { bedrock: { dimensions: opts.dimensions } },
   });
-  return embeddings;
+  return { embeddings, tokens: usage?.tokens ?? 0 };
 }

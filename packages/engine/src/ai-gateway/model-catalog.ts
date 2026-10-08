@@ -401,12 +401,20 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // eu.amazon.nova-lite-v1:0). Raw model IDs are omitted: they are not
       // invocable on-demand from EU regions, only via these eu.* profiles.
       // Nova is not reasoning-capable; nova-micro is text-only (no vision).
-      "eu.amazon.nova-micro-v1:0": { input: 0.035, output: 0.14, cacheRead: 0.0035, cacheWrite: 0.04375, reasoning: false, vision: false, temperature: true, cache: true, cacheOnToolMessages: false },
-      "eu.amazon.nova-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
-      "eu.amazon.nova-2-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
-      "eu.amazon.nova-pro-v1:0": { input: 0.80, output: 3.20, cacheRead: 0.08, cacheWrite: 1.00, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
-      // Anthropic via Bedrock — EU inference profiles. Bedrock caches at 5m only →
-      // cache read 0.1× input, cache WRITE 1.25× input (absolute rates below).
+      // An inference profile is billed at the price of the Region that CALLS it,
+      // not the US list price: these are eu-south-1 (Milan), the Region every
+      // deployment calls from, read from the AWS Price List API (offer
+      // AmazonBedrock, 2026-10-06). Frankfurt is ~20% cheaper. Nova reads its
+      // cache at 0.25× input and writes it for nothing — the price list carries
+      // a $0 cache-write SKU — so `cacheWrite` is 0, not a 1.25× premium.
+      "eu.amazon.nova-micro-v1:0": { input: 0.056, output: 0.224, cacheRead: 0.014, cacheWrite: 0, reasoning: false, vision: false, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-lite-v1:0": { input: 0.096, output: 0.384, cacheRead: 0.024, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-2-lite-v1:0": { input: 0.528, output: 4.411, cacheRead: 0.132, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-pro-v1:0": { input: 1.28, output: 5.21, cacheRead: 0.32, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
+      // Anthropic via Bedrock — EU inference profiles. Polyant caches at Bedrock's
+      // default 5m TTL (its `cachePoint` names no ttl) → cache read 0.1× input,
+      // cache WRITE 1.25× input (absolute rates below). Bedrock also sells a 1h
+      // TTL, at 2× input; it is not used, so it is not priced here.
       // Token rates track Anthropic first-party, and for Claude 4.5 and later a
       // REGIONAL or multi-region endpoint — which an `eu.` inference profile is —
       // carries a 10% premium over the global one (Anthropic's pricing page,
@@ -468,7 +476,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "qwen.qwen3-coder-30b-a3b-v1:0": { input: 0.20, output: 0.79, reasoning: false, vision: false, temperature: true, cache: false },
       "qwen.qwen3-235b-a22b-2507-v1:0": { input: 0.29, output: 1.16, reasoning: false, vision: false, temperature: true, cache: false },
       // Qwen3-Next 80B (MoE A3B) — newer arch than 235b-2507, eval candidate.
-      "qwen.qwen3-next-80b-a3b": { input: 0.18, output: 1.41, reasoning: false, vision: false, temperature: true, cache: false },
+      "qwen.qwen3-next-80b-a3b": { input: 0.168, output: 1.44, reasoning: false, vision: false, temperature: true, cache: false },
       // NVIDIA Nemotron — reasoning-capable in general, but its Bedrock Converse
       // reasoning parameter is unverified, so reasoning:false until validated.
       "nvidia.nemotron-super-3-120b": { input: 0.18, output: 0.78, reasoning: false, vision: false, temperature: true, cache: false },

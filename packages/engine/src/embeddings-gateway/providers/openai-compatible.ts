@@ -2,7 +2,7 @@
 
 import { embed, embedMany } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { EmbeddingDim } from "../types.js";
+import type { EmbeddingDim, EmbeddingResult } from "../types.js";
 import { assertDimSupported } from "../config.js";
 import type { EmbeddingProviderRegistration } from "../registry.js";
 
@@ -39,26 +39,26 @@ function buildModel(opts: CompatibleCallOptions) {
   return factory.textEmbeddingModel(registration.modelId);
 }
 
-export async function embedCompatible(text: string, opts: CompatibleCallOptions): Promise<number[]> {
+export async function embedCompatible(text: string, opts: CompatibleCallOptions): Promise<EmbeddingResult> {
   assertDimSupported(opts.registration.name, opts.dimensions);
-  const { embedding } = await embed({
+  const { embedding, usage } = await embed({
     model: buildModel(opts),
     value: text,
     providerOptions: { [opts.registration.name]: { dimensions: opts.dimensions } },
   });
-  return assertVectorLength([embedding], opts)[0];
+  return { embeddings: assertVectorLength([embedding], opts), tokens: usage?.tokens ?? 0 };
 }
 
-export async function embedManyCompatible(texts: string[], opts: CompatibleCallOptions): Promise<number[][]> {
-  if (texts.length === 0) return [];
-  if (texts.length === 1) return [await embedCompatible(texts[0], opts)];
+export async function embedManyCompatible(texts: string[], opts: CompatibleCallOptions): Promise<EmbeddingResult> {
+  if (texts.length === 0) return { embeddings: [], tokens: 0 };
+  if (texts.length === 1) return embedCompatible(texts[0], opts);
   assertDimSupported(opts.registration.name, opts.dimensions);
-  const { embeddings } = await embedMany({
+  const { embeddings, usage } = await embedMany({
     model: buildModel(opts),
     values: texts,
     providerOptions: { [opts.registration.name]: { dimensions: opts.dimensions } },
   });
-  return assertVectorLength(embeddings, opts);
+  return { embeddings: assertVectorLength(embeddings, opts), tokens: usage?.tokens ?? 0 };
 }
 
 /**

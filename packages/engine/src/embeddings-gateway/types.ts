@@ -65,6 +65,19 @@ export interface EmbedOptions {
    * ingestion pipeline carries it under one name.
    */
   readonly providerName: EmbeddingProvider;
+  /**
+   * The slug of the agent the call is made for. When present the call is
+   * logged to `ai_logs` as a service call of that agent, with its tokens and
+   * cost — `ai_logs` keys agents by slug. Every context built by
+   * `resolveEmbeddingContext` carries it.
+   */
+  readonly instanceSlug?: string;
+}
+
+/** The vectors of one embedding call, and the input tokens the provider billed for it. */
+export interface EmbeddingResult {
+  readonly embeddings: number[][];
+  readonly tokens: number;
 }
 
 export interface EmbeddingContext extends EmbedOptions {

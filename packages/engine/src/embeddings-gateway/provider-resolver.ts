@@ -89,6 +89,7 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
     }
     ctx = {
       instanceId: instance.id,
+      instanceSlug: instance.slug,
       dimensions,
       providerName: registration.name,
       credentials: { provider: "openai-compatible", name: registration.name, apiKey },
@@ -103,6 +104,7 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
     }
     ctx = {
       instanceId: instance.id,
+      instanceSlug: instance.slug,
       dimensions,
       providerName: "bedrock",
       credentials: {
@@ -122,6 +124,7 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
     }
     ctx = {
       instanceId: instance.id,
+      instanceSlug: instance.slug,
       dimensions,
       providerName: "openai",
       credentials: { provider: "openai", apiKey },

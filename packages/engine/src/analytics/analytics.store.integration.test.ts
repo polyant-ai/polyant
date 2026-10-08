@@ -26,7 +26,7 @@ const AGENT = `${MARKER}-agent`;
 let scope: TenantScope;
 
 async function teardown(): Promise<void> {
-  await queryClient`DELETE FROM ai_logs WHERE instance_id = ${AGENT}`;
+  await queryClient`DELETE FROM ai_logs WHERE instance_id LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM instances WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM workspaces WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
@@ -81,6 +81,55 @@ describe.skipIf(!DB_AVAILABLE)("analytics cost totals (integration)", () => {
 
     expect(data.instanceComparison).toEqual([
       expect.objectContaining({ instanceId: AGENT, cost: expect.closeTo(1.25), tokens: 130 }),
+    ]);
+  });
+});
+
+describe.skipIf(!DB_AVAILABLE)("analytics over preempted turns and embedder calls (integration)", () => {
+  // A turn the message coordinator preempted is logged `aborted` with what its
+  // model calls cost; an embedder call is logged with its own call type. Both
+  // are billed, so both reach the spend totals; neither is an answered model
+  // call, so neither moves the response time.
+  const EMBED_AGENT = `${MARKER}-embed-agent`;
+  let embedScope: TenantScope;
+
+  beforeAll(async () => {
+    const [{ id: orgId }] = await queryClient<{ id: string }[]>`
+      INSERT INTO organizations (slug, name, is_default) VALUES (${MARKER + "-e"}, 'e', false) RETURNING id`;
+    const [{ id: wsId }] = await queryClient<{ id: string }[]>`
+      INSERT INTO workspaces (organization_id, slug, name, is_default) VALUES (${orgId}, ${MARKER + "-e"}, 'e', false) RETURNING id`;
+    await queryClient`INSERT INTO instances (slug, name, workspace_id) VALUES (${EMBED_AGENT}, 'e', ${wsId})`;
+    embedScope = orgScope(orgId);
+
+    await queryClient`
+      INSERT INTO ai_logs (provider, model, tier, prompt_tokens, completion_tokens, total_tokens,
+                           estimated_cost_usd, duration_ms, instance_id, outcome, call_type, created_at)
+      VALUES ('openai', 'gpt-test', 'standard', 80, 20, 100, 1.0, 6000, ${EMBED_AGENT}, 'ok', 'conversation', now() - interval '1 hour'),
+             ('openai', 'gpt-test', 'standard', 40, 10, 50, 0.1, 200, ${EMBED_AGENT}, 'aborted', 'conversation', now() - interval '1 hour'),
+             ('openai', 'text-embedding-3-small', 'fast', 500, 0, 500, 0.01, 90, ${EMBED_AGENT}, 'ok', 'embedding', now() - interval '1 hour')`;
+  });
+
+  const range = () => ({ from: new Date(Date.now() - 24 * 3600_000), to: new Date() });
+
+  it("counts both in the spend totals", async () => {
+    const data = await getAnalytics(embedScope, range(), asInstanceSlug(EMBED_AGENT));
+
+    expect(data.overview.totalCost).toBeCloseTo(1.11);
+    expect(data.overview.totalTokens).toBe(650);
+    expect(data.modelDistribution).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ model: "gpt-test", cost: expect.closeTo(1.1), calls: 1 }),
+        expect.objectContaining({ model: "text-embedding-3-small", cost: expect.closeTo(0.01), calls: 1 }),
+      ]),
+    );
+  });
+
+  it("keeps the response time and the tier breakdown to model calls", async () => {
+    const data = await getAnalytics(embedScope, range(), asInstanceSlug(EMBED_AGENT));
+
+    expect(data.overview.avgResponseTime).toBe(6000);
+    expect(data.tierDistribution).toEqual([
+      expect.objectContaining({ tier: "standard", cost: expect.closeTo(1.1), calls: 1 }),
     ]);
   });
 });

@@ -126,10 +126,10 @@ export class AILogger {
     stepCount: number,
     conversationId?: string,
     instanceId?: InstanceSlug,
-    callType?: "conversation" | "service",
+    callType?: AILogEntry["callType"],
     cachedInputTokens?: number,
     cacheCreationInputTokens?: number,
-    outcome: "ok" | "error" = "ok",
+    outcome: AILogEntry["outcome"] = "ok",
     errorKind: string | null = null,
   ): AILogEntry {
     // Sanitize numeric values — AI SDK may return undefined in some edge cases

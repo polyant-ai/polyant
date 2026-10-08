@@ -6,7 +6,7 @@ import { type InstanceSlug } from "../instances/identifiers.js";
 
 export type ModelTier = "fast" | "standard" | "heavy";
 
-/** Cross-turn prompt-cache TTL (Anthropic). Bedrock is 5m only; OpenAI/Nebius ignore it. */
+/** Cross-turn prompt-cache TTL (Anthropic). Bedrock always uses its default 5m; OpenAI/Nebius ignore it. */
 export type CacheTtl = "5m" | "1h";
 
 export interface ChatRequest {
@@ -186,11 +186,21 @@ export interface AILogEntry {
   stepCount?: number;
   conversationId?: string;
   instanceId?: InstanceSlug;
-  callType?: "conversation" | "service";
+  /**
+   * "conversation" for an agent's turn, "service" for the gateway calls around
+   * it (titles, memory, summaries), "embedding" for an embedder call. Cost sums
+   * count all three; call counts and response times keep to model calls.
+   */
+  callType?: "conversation" | "service" | "embedding";
   createdAt?: Date;
-  /** Whether the provider call returned ("ok") or died before returning ("error"). */
-  outcome?: "ok" | "error";
-  /** The CLASS of a provider failure (never its message — see classifyProviderError). Null when outcome is "ok". */
+  /**
+   * Whether the provider call returned ("ok"), died before returning ("error"),
+   * or was preempted by its caller after some model calls had been billed
+   * ("aborted"). Cost and token sums count every outcome; counts of answered
+   * calls keep to "ok".
+   */
+  outcome?: "ok" | "error" | "aborted";
+  /** The CLASS of a provider failure (never its message — see classifyProviderError). Null unless outcome is "error". */
   errorKind?: string | null;
 }
 

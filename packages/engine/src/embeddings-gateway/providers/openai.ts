@@ -2,7 +2,7 @@
 
 import { embed, embedMany } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import type { EmbeddingDim } from "../types.js";
+import type { EmbeddingDim, EmbeddingResult } from "../types.js";
 import { EMBEDDING_MODEL_IDS, assertDimSupported } from "../config.js";
 
 interface OpenAICallOptions {
@@ -22,29 +22,26 @@ function buildModel(apiKey: string) {
   return provider.embedding(EMBEDDING_MODEL_IDS.openai);
 }
 
-export async function embedOpenAI(text: string, opts: OpenAICallOptions): Promise<number[]> {
+export async function embedOpenAI(text: string, opts: OpenAICallOptions): Promise<EmbeddingResult> {
   assertDimSupported("openai", opts.dimensions);
   const model = buildModel(opts.apiKey);
-  const { embedding } = await embed({
+  const { embedding, usage } = await embed({
     model,
     value: text,
     providerOptions: { openai: { dimensions: opts.dimensions } },
   });
-  return embedding;
+  return { embeddings: [embedding], tokens: usage?.tokens ?? 0 };
 }
 
-export async function embedManyOpenAI(texts: string[], opts: OpenAICallOptions): Promise<number[][]> {
-  if (texts.length === 0) return [];
-  if (texts.length === 1) {
-    const single = await embedOpenAI(texts[0], opts);
-    return [single];
-  }
+export async function embedManyOpenAI(texts: string[], opts: OpenAICallOptions): Promise<EmbeddingResult> {
+  if (texts.length === 0) return { embeddings: [], tokens: 0 };
+  if (texts.length === 1) return embedOpenAI(texts[0], opts);
   assertDimSupported("openai", opts.dimensions);
   const model = buildModel(opts.apiKey);
-  const { embeddings } = await embedMany({
+  const { embeddings, usage } = await embedMany({
     model,
     values: texts,
     providerOptions: { openai: { dimensions: opts.dimensions } },
   });
-  return embeddings;
+  return { embeddings, tokens: usage?.tokens ?? 0 };
 }
