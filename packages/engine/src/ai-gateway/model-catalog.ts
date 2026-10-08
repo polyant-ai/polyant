@@ -234,6 +234,10 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // input-token rate" (https://developers.openai.com/api/docs/pricing and the
       // prompt-caching guide, read 2026-09-29). OpenAI reports them in
       // `usage.input_tokens_details.cache_write_tokens`.
+      // GPT-5.4, 5.6 and 6 are priced by prompt length (`longPrompt`): a call with
+      // more than 272K input tokens pays the long-context rates for the whole
+      // request, about 2× input and cache, 1.5× output (pricing page, 2026-10-08).
+      // gpt-5.4-mini and -nano cap input at 272K, so they never reach it.
       // GPT-4o family (cached 0.5× input)
       "gpt-4o-mini": { input: 0.15, output: 0.60, cacheRead: 0.075, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
       "gpt-4o": { input: 2.50, output: 10.00, cacheRead: 1.25, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
@@ -248,7 +252,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // Anthropic model regardless of reasoningAlwaysOn — so gpt-5.4 keeps
       // temperature only with reasoning OFF).
       // Cached 0.1× input (official).
-      "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
+      "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 0, longPrompt: { above: 272_000, input: 5.00, output: 22.50, cacheRead: 0.50, cacheWrite: 0 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       "gpt-5.4-mini": { input: 0.75, output: 4.50, cacheRead: 0.075, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       "gpt-5.4-nano": { input: 0.20, output: 1.25, cacheRead: 0.02, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       // GPT-5.6 family (Sol/Terra/Luna). Cache write is the published 1.25× input
@@ -256,9 +260,11 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // reasoningAlwaysOn: LIVE-VERIFIED — with reasoning OFF they still spend
       // reasoning tokens (sol 105 / terra 51 / luna 88), so there is no true off
       // (unlike gpt-5.4, which goes to 0). The UI locks the thinking toggle ON.
-      "gpt-5.6-sol": { input: 4.00, output: 20.00, cacheRead: 0.40, cacheWrite: 5.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.6-terra": { input: 2.00, output: 12.00, cacheRead: 0.20, cacheWrite: 2.50, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.6-luna": { input: 0.20, output: 1.20, cacheRead: 0.02, cacheWrite: 0.25, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      // Sol's price is promotional, "available at least through November 21, 2026"
+      // (pricing page, read 2026-10-08): re-read it after that date.
+      "gpt-5.6-sol": { input: 4.00, output: 20.00, cacheRead: 0.40, cacheWrite: 5.00, longPrompt: { above: 272_000, input: 8.00, output: 30.00, cacheRead: 0.80, cacheWrite: 10.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      "gpt-5.6-terra": { input: 2.00, output: 12.00, cacheRead: 0.20, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 18.00, cacheRead: 0.40, cacheWrite: 5.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      "gpt-5.6-luna": { input: 0.20, output: 1.20, cacheRead: 0.02, cacheWrite: 0.25, longPrompt: { above: 272_000, input: 0.40, output: 1.80, cacheRead: 0.04, cacheWrite: 0.50 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
       // GPT-6 family (Astra/Sol/Luna), the generation OpenAI now points at. Prices
       // and capabilities read from the published pricing and model pages
       // (2026-09-23); cache write is the published 1.25× input column, like
@@ -274,9 +280,9 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       //
       // Astra is the exception inside its own family: its published effort set has
       // no `none`, so it cannot be switched off and is `reasoningAlwaysOn`.
-      "gpt-6-astra": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 12.50, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
-      "gpt-6-sol": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
-      "gpt-6-luna": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0.125, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
+      "gpt-6-astra": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 12.50, longPrompt: { above: 272_000, input: 20.00, output: 75.00, cacheRead: 2.00, cacheWrite: 25.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "gpt-6-sol": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 15.00, cacheRead: 0.40, cacheWrite: 5.00 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
+      "gpt-6-luna": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0.125, longPrompt: { above: 272_000, input: 0.20, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
       // Reasoning — o-series is a pure reasoning model: LIVE-VERIFIED it reasons
       // even with reasoning OFF (576 tokens), so reasoningAlwaysOn.
       "o3": { input: 2.00, output: 8.00, cacheRead: 0.50, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: false, cache: true },
@@ -312,10 +318,12 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // Both run adaptive when `thinking` is omitted, so a turn with thinking off
       // keeps reasoning unless the row declares its off-switch. They differ in
       // which one: Sonnet 5 takes `disabled`; Sonnet 5.5 (released 2026-09-28,
-      // same prices) answers `disabled` with a 400 and takes `between_tools`,
+      // same input/output prices, but cache read at 0.05× input like Opus 5.5 —
+      // $0.10, no end date on the model page, read 2026-10-08) answers `disabled`
+      // with a 400 and takes `between_tools`,
       // accepted only at effort high or below — which an off turn satisfies,
       // because it sends no effort at all.
-      "claude-sonnet-5-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, cacheWrite5m: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-between-tools" }, vision: true, temperature: false, cache: true },
+      "claude-sonnet-5-5": { input: 2.00, output: 10.00, cacheRead: 0.10, cacheWrite: 4.00, cacheWrite5m: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-between-tools" }, vision: true, temperature: false, cache: true },
       "claude-sonnet-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, cacheWrite5m: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
       "claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, cacheWrite5m: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, cacheWrite5m: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },

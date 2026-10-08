@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pays 5× on every rate, input, output and cache. Each call of a tool loop is
   priced on its own prompt, and `GET /api/instances/models` returns the higher
   rates as `costLongPrompt`.
+- OpenAI GPT-5.4, GPT-5.6 and GPT-6 are priced by prompt length too: a call
+  with more than 272K input tokens pays the long-context rates for the whole
+  request.
+
+### Fixed
+
+- Claude Sonnet 5.5 cache reads cost $0.10 per million tokens on Anthropic, not
+  $0.20.
 
 ### Changed
 
