@@ -203,7 +203,7 @@ catalog's, in USD per million input / output tokens:
 | OpenAI | `fast` | `gpt-4o-mini` ($0.15 / $0.60) | `gpt-6-luna` ($0.10 / $0.50) |
 | OpenAI | `standard` | `gpt-4o` ($2.50 / $10) | `gpt-6-sol` ($2 / $10) |
 | OpenAI | `heavy` | `o3` ($2 / $8) | `gpt-6-astra` ($10 / $50) |
-| Bedrock | `standard` | `eu.anthropic.claude-sonnet-4-6` ($3.30 / $16.50) | `eu.amazon.nova-pro-v1:0` ($0.80 / $3.20) |
+| Bedrock | `standard` | `eu.anthropic.claude-sonnet-4-6` ($3.30 / $16.50) | `eu.amazon.nova-pro-v1:0` ($1.28 / $5.21) |
 | Bedrock | `heavy` | `eu.anthropic.claude-opus-4-8` ($5.50 / $27.50) | `openai.gpt-oss-120b-1:0` ($0.20 / $0.79) |
 
 What each tier reaches decides who is affected. `standard` answers the turn of

@@ -374,6 +374,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Analytics cost and token totals include what the provider billed for calls
   that failed after completing steps; call counts and response times still
   describe answered calls.
+- Amazon Nova on Bedrock is priced at the eu-south-1 rates. An `eu.*`
+  inference profile is billed at the price of the Region that calls it, and
+  the catalog carried the us-east-1 price, a cache read at a tenth of the input
+  rate instead of a quarter, and a cache write AWS does not charge for. A
+  warm-cache Nova Lite turn was recorded at a third of its cost. Nova Lite is
+  now $0.096 / $0.384, Nova Pro $1.28 / $5.21, Nova Micro $0.056 / $0.224 and
+  Nova 2 Lite $0.528 / $4.411 per million input / output tokens; Qwen3-Next
+  80B moves to its Milan price too.
+- A turn preempted by a follow-up message (cancel-and-restart) is logged with
+  what its model calls were billed, as `outcome = 'aborted'`. It used to leave
+  no row, so that spend was missing from every cost total. Cost and token sums
+  count it; call counts, response times and error rates do not.
+- Embedding calls are logged with their tokens and cost, as `call_type =
+  'embedding'`. Knowledge ingestion, memory extraction and retrieval were
+  billed by the provider and left no row. `text-embedding-3-small` is priced at
+  $0.02 and Titan Text v2 at $0.023 per million tokens; a registered
+  OpenAI-compatible embedder is logged with no cost.
+- Cost totals are summed in double precision. The `real` column was summed as
+  a `real`, so a total over many rows lost precision: a million rows of
+  $0.000123 summed to $122.19 instead of $123.00.
+- The model call behind the prompt-section tools counts in its conversation's
+  cost, like the other service calls of the turn.
 - An import normalises the web context field mapping as the panel does, and
   refuses an invalid one before writing anything.
 - `readFile` caps `tail` at 500 lines like other windows, and its refusal of a
