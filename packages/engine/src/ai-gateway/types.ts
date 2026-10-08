@@ -188,9 +188,14 @@ export interface AILogEntry {
   instanceId?: InstanceSlug;
   callType?: "conversation" | "service";
   createdAt?: Date;
-  /** Whether the provider call returned ("ok") or died before returning ("error"). */
-  outcome?: "ok" | "error";
-  /** The CLASS of a provider failure (never its message — see classifyProviderError). Null when outcome is "ok". */
+  /**
+   * Whether the provider call returned ("ok"), died before returning ("error"),
+   * or was preempted by its caller after some model calls had been billed
+   * ("aborted"). Cost and token sums count every outcome; counts of answered
+   * calls keep to "ok".
+   */
+  outcome?: "ok" | "error" | "aborted";
+  /** The CLASS of a provider failure (never its message — see classifyProviderError). Null unless outcome is "error". */
   errorKind?: string | null;
 }
 

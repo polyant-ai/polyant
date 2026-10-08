@@ -129,7 +129,7 @@ export class AILogger {
     callType?: "conversation" | "service",
     cachedInputTokens?: number,
     cacheCreationInputTokens?: number,
-    outcome: "ok" | "error" = "ok",
+    outcome: AILogEntry["outcome"] = "ok",
     errorKind: string | null = null,
   ): AILogEntry {
     // Sanitize numeric values — AI SDK may return undefined in some edge cases

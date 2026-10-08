@@ -268,15 +268,16 @@ function stepCalls(steps: ChatResponse["steps"]): CallUsage[] | undefined {
  * completed none, and with the error's CLASS only, never its message — the
  * message can quote the request, and the request is the prompt.
  *
- * Skips logging entirely when `request.abortSignal` is already aborted: that
+ * A turn whose `request.abortSignal` is already aborted is not a failure: that
  * abort is the message coordinator preempting an in-flight turn because a
- * follow-up message arrived (`message-coordinator.ts`'s cancel-and-restart),
- * not the provider failing. It is the routine path, not a fault — it happens
- * every time a user sends a second message before the first reply lands.
- * Counting every preempted turn as an error would make a later failure RATE
- * mostly measure how often people type quickly. An aborted turn writes nothing
- * at all here — it is not a success either, so no third `outcome` value is
- * invented for it.
+ * follow-up message arrived (`message-coordinator.ts`'s cancel-and-restart).
+ * It is the routine path — it happens every time a user sends a second message
+ * before the first reply lands — so it is never an `error`, which would make
+ * the failure rate measure how often people type quickly. But the model calls
+ * it had already made were billed, so when there are any, the turn is logged
+ * as `aborted` with their usage and cost: sums of cost and tokens count it,
+ * counts of answered and failed calls do not. A turn aborted before any model
+ * call answered cost nothing and writes nothing.
  */
 function logFailedCall(
   config: { providerName: string; modelId: string },
@@ -285,9 +286,9 @@ function logFailedCall(
   options: ChatCallOptions | undefined,
   durationMs: number,
 ): void {
-  if (request.abortSignal?.aborted) return;
-
   const usage = usageCompletedBeforeFailure(err);
+  const aborted = request.abortSignal?.aborted === true;
+  if (aborted && !usage) return;
   const cost = usage ? costOfUsage(config, usage) : 0;
   aiLogger.log(
     aiLogger.createEntry(
@@ -307,8 +308,8 @@ function logFailedCall(
       options?.callType,
       usage?.cachedInputTokens ?? 0,
       usage?.cacheCreationInputTokens ?? 0,
-      "error",
-      classifyProviderError(err),
+      aborted ? "aborted" : "error",
+      aborted ? null : classifyProviderError(err),
     ),
   );
 }

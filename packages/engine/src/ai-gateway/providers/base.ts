@@ -152,32 +152,37 @@ interface MappedUsage {
 }
 
 /**
- * What the steps a call completed had cost, once the call has failed.
+ * What the model calls a turn completed had cost, once the turn has failed.
  *
  * A `chat()` is up to `maxSteps` model calls. When step N throws (a provider
- * error, a context-length overflow) or the call is aborted, steps 1..N-1 were
- * billed by the provider, but the SDK's result — the only other place usage is
- * read — never arrives. Keyed by the thrown error, so the gateway reading it
- * learns the usage of exactly that failed call.
+ * error, a context-length overflow) or the call is aborted, the model calls
+ * that had already answered were billed by the provider, but the SDK's result
+ * — the only other place usage is read — never arrives. Keyed by the thrown
+ * error, so the gateway reading it learns the usage of exactly that failed call.
+ *
+ * Counted per MODEL CALL (`onLanguageModelCallEnd`), not per step: a step ends
+ * only after its tools have run, so a turn aborted while a tool was running —
+ * the message coordinator's cancel-and-restart, typically — had an answered,
+ * billed model call that no step ever reported.
  */
 const usageBeforeFailure = new WeakMap<object, UsageBeforeFailure>();
 
 /** The summed usage of the completed steps, and each step's own (`calls`). */
 type UsageBeforeFailure = Required<MappedUsage> & { calls: Required<MappedUsage>[] };
 
-/** The usage of the steps a failed or aborted call completed, or null when it completed none. */
+/** The usage of the model calls a failed or aborted turn completed, or null when none had answered. */
 export function usageCompletedBeforeFailure(err: unknown): UsageBeforeFailure | null {
   return err !== null && typeof err === "object" ? usageBeforeFailure.get(err) ?? null : null;
 }
 
-/** Sums each completed step's usage (`onStepEnd`) and pins it to the call's error. */
-function completedStepsUsage() {
+/** Sums each answered model call's usage (`onLanguageModelCallEnd`) and pins it to the turn's error. */
+function completedCallsUsage() {
   // A 5m count of 0 prices exactly like an absent split (every write at `cacheWrite`).
   const total = { promptTokens: 0, completionTokens: 0, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 };
   const calls: Required<MappedUsage>[] = [];
   return {
-    onStepEnd: (step: { usage?: unknown }) => {
-      const usage = mapUsage(step.usage);
+    onLanguageModelCallEnd: (event: { usage?: unknown }) => {
+      const usage = mapUsage(event.usage);
       const call = {
         promptTokens: usage.promptTokens ?? 0,
         completionTokens: usage.completionTokens ?? 0,
@@ -729,7 +734,7 @@ export function createProvider(
 
       const { instructions, messages } = prepare(request, modelId);
       const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const completed = completedStepsUsage();
+      const completed = completedCallsUsage();
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
         tracedGenerateText({
           model: createModel(modelId, request.apiKeys),
@@ -738,7 +743,7 @@ export function createProvider(
           tools: request.tools,
           stopWhen: isStepCount(request.maxSteps ?? 1),
           abortSignal: request.abortSignal,
-          onStepEnd: completed.onStepEnd,
+          onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
           ...(prepareStep ? { prepareStep } : {}),
           ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
           ...temperatureCallParam(providerName, modelId, request),
@@ -773,7 +778,7 @@ export function createProvider(
       // tracing happens at the model middleware level, not the streamText level.
       const { instructions, messages } = prepare(request, modelId);
       const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const completed = completedStepsUsage();
+      const completed = completedCallsUsage();
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
         tracedStreamText({
           model: createModel(modelId, request.apiKeys),
@@ -782,7 +787,7 @@ export function createProvider(
           tools: request.tools,
           stopWhen: isStepCount(request.maxSteps ?? 1),
           abortSignal: request.abortSignal,
-          onStepEnd: completed.onStepEnd,
+          onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
           ...(prepareStep ? { prepareStep } : {}),
           ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
           ...temperatureCallParam(providerName, modelId, request),

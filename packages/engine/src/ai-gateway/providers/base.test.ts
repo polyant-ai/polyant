@@ -369,14 +369,14 @@ const baseRequest: import("../types.js").ChatRequest = {
  * earlier ones were billed, and the SDK result that carries usage never
  * arrives — so the provider pins what the completed steps used to the error.
  */
-describe("createProvider – usage of the steps completed before a failure", () => {
-  type StepEndOptions = { onStepEnd: (step: { usage?: unknown }) => void };
+describe("createProvider – usage of the model calls answered before a failure", () => {
+  type CallEndOptions = { onLanguageModelCallEnd: (event: { usage?: unknown }) => void };
 
-  it("chat: pins the completed steps' usage to the error the call throws", async () => {
+  it("chat: pins the answered model calls' usage to the error the call throws", async () => {
     const failure = new Error("context length exceeded");
-    vi.mocked(tracedGenerateText).mockImplementationOnce((async (options: StepEndOptions) => {
-      options.onStepEnd({ usage: { inputTokens: 400, outputTokens: 30, inputTokenDetails: { cacheReadTokens: 100 } } });
-      options.onStepEnd({ usage: { inputTokens: 600, outputTokens: 50 } });
+    vi.mocked(tracedGenerateText).mockImplementationOnce((async (options: CallEndOptions) => {
+      options.onLanguageModelCallEnd({ usage: { inputTokens: 400, outputTokens: 30, inputTokenDetails: { cacheReadTokens: 100 } } });
+      options.onLanguageModelCallEnd({ usage: { inputTokens: 600, outputTokens: 50 } });
       throw failure;
     }) as never);
 
@@ -389,7 +389,7 @@ describe("createProvider – usage of the steps completed before a failure", () 
       cachedInputTokens: 100,
       cacheCreationInputTokens: 0,
       cacheCreation5mInputTokens: 0,
-      // Each step stays a call of its own, for a model priced by prompt length.
+      // Each model call stays a call of its own, for a model priced by prompt length.
       calls: [
         { promptTokens: 400, completionTokens: 30, cachedInputTokens: 100, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 },
         { promptTokens: 600, completionTokens: 50, cachedInputTokens: 0, cacheCreationInputTokens: 0, cacheCreation5mInputTokens: 0 },
@@ -397,10 +397,10 @@ describe("createProvider – usage of the steps completed before a failure", () 
     });
   });
 
-  it("chat: pins the completed steps' 5m cache writes, so a failed turn is priced by TTL too", async () => {
+  it("chat: pins the answered model calls' 5m cache writes, so a failed turn is priced by TTL too", async () => {
     const failure = new Error("overloaded");
-    vi.mocked(tracedGenerateText).mockImplementationOnce((async (options: StepEndOptions) => {
-      options.onStepEnd({
+    vi.mocked(tracedGenerateText).mockImplementationOnce((async (options: CallEndOptions) => {
+      options.onLanguageModelCallEnd({
         usage: {
           inputTokens: 1000,
           outputTokens: 10,
@@ -417,7 +417,7 @@ describe("createProvider – usage of the steps completed before a failure", () 
     expect(usageCompletedBeforeFailure(failure)).toMatchObject({ cacheCreationInputTokens: 300, cacheCreation5mInputTokens: 120 });
   });
 
-  it("chat: pins nothing when the call failed before completing a step", async () => {
+  it("chat: pins nothing when the call failed before any model call answered", async () => {
     const failure = new Error("unauthorized");
     vi.mocked(tracedGenerateText).mockRejectedValueOnce(failure);
 
@@ -427,10 +427,10 @@ describe("createProvider – usage of the steps completed before a failure", () 
     expect(usageCompletedBeforeFailure(failure)).toBeNull();
   });
 
-  it("chatStream: pins the completed steps' usage to the error the stream settles with", async () => {
+  it("chatStream: pins the answered model calls' usage to the error the stream settles with", async () => {
     const failure = new Error("stream broke");
-    vi.mocked(tracedStreamText).mockImplementationOnce((async (options: StepEndOptions) => {
-      options.onStepEnd({ usage: { inputTokens: 250, outputTokens: 20 } });
+    vi.mocked(tracedStreamText).mockImplementationOnce((async (options: CallEndOptions) => {
+      options.onLanguageModelCallEnd({ usage: { inputTokens: 250, outputTokens: 20 } });
       return {
         ...fakeStreamTextResult,
         text: Promise.reject(failure),
@@ -444,6 +444,27 @@ describe("createProvider – usage of the steps completed before a failure", () 
     await expect(stream.response).rejects.toBe(failure);
 
     expect(usageCompletedBeforeFailure(failure)).toMatchObject({ promptTokens: 250, completionTokens: 20 });
+  });
+
+  it("chatStream: pins a model call that answered although its step never ended", async () => {
+    // The message coordinator aborts while the step's tool runs: the model call
+    // was billed, its step never reaches onStepEnd.
+    const aborted = new DOMException("This operation was aborted", "AbortError");
+    vi.mocked(tracedStreamText).mockImplementationOnce((async (options: CallEndOptions & { onStepEnd?: unknown }) => {
+      options.onLanguageModelCallEnd({ usage: { inputTokens: 88, outputTokens: 17 } });
+      return {
+        ...fakeStreamTextResult,
+        text: Promise.reject(aborted),
+        steps: Promise.resolve([]),
+        reasoning: Promise.resolve(undefined),
+      };
+    }) as never);
+
+    const adapter = createProvider("openai", (_modelId) => ({}) as any);
+    const stream = await adapter.chatStream!({ ...baseRequest }, "gpt-6-luna");
+    await expect(stream.response).rejects.toBe(aborted);
+
+    expect(usageCompletedBeforeFailure(aborted)).toMatchObject({ promptTokens: 88, completionTokens: 17 });
   });
 });
 
