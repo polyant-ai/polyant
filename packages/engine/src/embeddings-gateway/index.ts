@@ -19,6 +19,7 @@ export async function embed(text: string, opts: EmbedOptions): Promise<number[]>
     });
   }
   return embedBedrock(text, {
+    apiKey: credentials.apiKey,
     accessKeyId: credentials.accessKeyId,
     secretAccessKey: credentials.secretAccessKey,
     region: credentials.region,
@@ -39,6 +40,7 @@ export async function embedMany(texts: string[], opts: EmbedOptions): Promise<nu
     });
   }
   return embedManyBedrock(texts, {
+    apiKey: credentials.apiKey,
     accessKeyId: credentials.accessKeyId,
     secretAccessKey: credentials.secretAccessKey,
     region: credentials.region,

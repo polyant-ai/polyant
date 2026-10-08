@@ -33,6 +33,28 @@ describe("embedBedrock", () => {
     await embedBedrock("hi", { region: "eu-west-1", dimensions: 1024 });
     expect(createBedrock).toHaveBeenCalledWith(expect.objectContaining({ credentialProvider: "CHAIN" }));
   });
+  // An agent authenticated only by a Bedrock API key used to embed through the
+  // host's provider chain instead, so on a host without AWS credentials every
+  // memory and knowledge write failed while chat worked on the same key.
+  it("authenticates with the Bedrock API key when one is set, ahead of the key pair", async () => {
+    await embedBedrock("hi", {
+      apiKey: "bearer-token",
+      accessKeyId: "id",
+      secretAccessKey: "sec",
+      region: "eu-west-1",
+      dimensions: 1024,
+    });
+    expect(createBedrock).toHaveBeenCalledTimes(1);
+    expect(createBedrock).toHaveBeenCalledWith({ apiKey: "bearer-token", region: "eu-west-1" });
+  });
+  it("uses the key pair, not the provider chain, when there is no API key", async () => {
+    await embedBedrock("hi", { accessKeyId: "id", secretAccessKey: "sec", region: "eu-west-1", dimensions: 1024 });
+    expect(createBedrock).toHaveBeenCalledWith({ accessKeyId: "id", secretAccessKey: "sec", region: "eu-west-1" });
+  });
+  it("uses the provider chain only when there is neither an API key nor a key pair", async () => {
+    await embedBedrock("hi", { apiKey: "  ", region: "eu-west-1", dimensions: 1024 });
+    expect(createBedrock).toHaveBeenCalledWith({ region: "eu-west-1", credentialProvider: "CHAIN" });
+  });
   it("rejects 1536 dims", async () => {
     await expect(embedBedrock("hi", { region: "eu-west-1", dimensions: 1536 })).rejects.toThrow(/does not support 1536/);
   });

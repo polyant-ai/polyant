@@ -20,6 +20,8 @@ export interface OpenAICredentials {
 
 export interface BedrockCredentials {
   readonly provider: "bedrock";
+  /** Bedrock API key (bearer token); wins over the SigV4 pair when set. */
+  readonly apiKey?: string;
   readonly accessKeyId?: string;
   readonly secretAccessKey?: string;
   readonly region: string;
