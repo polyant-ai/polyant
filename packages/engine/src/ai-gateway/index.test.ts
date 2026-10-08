@@ -493,7 +493,7 @@ describe("AI Gateway", () => {
       );
 
       const cfg = mockBedrockChat.mock.calls[0][0].providerOptions.bedrock.reasoningConfig;
-      expect(cfg).toEqual({ type: "adaptive", maxReasoningEffort: "high" });
+      expect(cfg).toEqual({ type: "adaptive", maxReasoningEffort: "high", display: "summarized" });
       expect(cfg).not.toHaveProperty("budgetTokens");
     });
 

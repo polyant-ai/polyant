@@ -154,7 +154,9 @@ export function buildBedrockReasoningOptions(
   // accept up to `max`; gpt-oss only low/medium/high). budget maps to a token
   // preset (budget models expose only the three preset levels).
   if (control === "adaptive") {
-    return { reasoningConfig: { type: "adaptive", maxReasoningEffort: level } };
+    // Adaptive Claude returns its thinking with empty text unless asked for a
+    // summary (see `buildAnthropicThinkingOptions`); the SDK forwards `display`.
+    return { reasoningConfig: { type: "adaptive", maxReasoningEffort: level, display: "summarized" } };
   }
   if (control === "effort") {
     return { reasoningConfig: { type: "enabled", maxReasoningEffort: level } };

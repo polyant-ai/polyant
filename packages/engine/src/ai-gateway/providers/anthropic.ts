@@ -87,7 +87,7 @@ export const AnthropicProvider = createProvider(
 
 type AnthropicThinkingOptions =
   | { thinking: { type: "enabled"; budgetTokens: number } }
-  | { thinking: { type: "adaptive" }; effort: string };
+  | { thinking: { type: "adaptive"; display: "summarized" }; effort: string };
 
 /**
  * Build the `providerOptions.anthropic` object for a thinking-enabled call, at
@@ -96,7 +96,10 @@ type AnthropicThinkingOptions =
  *     "adaptive"` + top-level `effort` (SDK maps to `output_config.effort`).
  *     `effort` is forwarded as-is — the gateway already clamped it to the model's
  *     catalog `reasoningLevels` (adaptive Claude accept low/medium/high/xhigh/max).
- *     These REJECT the legacy shape with a 400.
+ *     These REJECT the legacy shape with a 400. They also return their thinking
+ *     with EMPTY text unless asked otherwise (display "omitted" is their default,
+ *     from Opus 4.7 on), which left the reasoning out of the panel, the logs and
+ *     the stored turn while it was still billed — hence `display: "summarized"`.
  *   - legacy models (Opus 4.6 and earlier, Haiku/Sonnet 4.x) → `thinking.type:
  *     "enabled"` + a per-level token budget (budget models expose only the three
  *     preset levels, so the budget key is always one of low/medium/high).
@@ -121,7 +124,7 @@ export function buildAnthropicThinkingOffOptions(
 }
 
 export function buildAnthropicThinkingOptions(level: string, adaptive: boolean): AnthropicThinkingOptions {
-  if (adaptive) return { thinking: { type: "adaptive" }, effort: level };
+  if (adaptive) return { thinking: { type: "adaptive", display: "summarized" }, effort: level };
   const budgetKey: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";
   return { thinking: { type: "enabled", budgetTokens: ANTHROPIC_THINKING_BUDGETS[budgetKey] } };
 }

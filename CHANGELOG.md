@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Claude Sonnet 5.5 cache reads cost $0.10 per million tokens on Anthropic and
   on the Bedrock global profile, not $0.20.
+- Claude models with adaptive thinking (Opus 4.7 and later, Sonnet 5 and 5.5,
+  Haiku 5.5, Fable) show their reasoning again. They return it with empty text
+  unless a summary is requested, so the panel, the logs and the stored turn had
+  none although the reasoning was billed; the gateway now asks for the summary
+  on Anthropic and on Bedrock.
 - GPT-5.6 Sol is priced at its full $5 / $30 rather than the promotional
   $4 / $20, so a spend cap does not loosen when the promotion ends.
 
