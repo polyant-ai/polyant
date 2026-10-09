@@ -18,6 +18,8 @@ const LOG_PREFIX = "management-api-keys";
  */
 const TOKEN_PREFIX = "pk_";
 const TOKEN_SEPARATOR = "_";
+/** The id is a uuid column; anything else would reach Postgres as a cast error. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface ParsedManagementApiKeyToken {
   readonly id: string;
@@ -27,7 +29,7 @@ export interface ParsedManagementApiKeyToken {
 /**
  * Split a raw `pk_<id>_<secret>` token into its parts. Pure and DB-free so a
  * malformed token is rejected before any query. Returns null when the token
- * does not carry both a non-empty id and a non-empty secret.
+ * does not carry both a uuid id and a non-empty secret.
  */
 export function parseManagementApiKeyToken(
   raw: string,
@@ -40,7 +42,7 @@ export function parseManagementApiKeyToken(
 
   const id = body.slice(0, separatorIndex);
   const secret = body.slice(separatorIndex + 1);
-  if (!id || !secret) return null;
+  if (!UUID_RE.test(id) || !secret) return null;
 
   return { id, secret };
 }

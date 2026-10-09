@@ -79,6 +79,13 @@ describe("parseManagementApiKeyToken", () => {
   it("returns null for an empty token", () => {
     expect(parseManagementApiKeyToken("")).toBeNull();
   });
+
+  // The id is a uuid column. Any other value made Postgres raise a cast error,
+  // logged at error level, on every anonymous request that sent one.
+  it("returns null when the id is not a uuid", () => {
+    expect(parseManagementApiKeyToken("pk_x_y")).toBeNull();
+    expect(parseManagementApiKeyToken("pk_1111-2222_secret")).toBeNull();
+  });
 });
 
 describe("validateManagementApiKey", () => {
