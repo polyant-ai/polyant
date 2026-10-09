@@ -29,12 +29,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on Anthropic and on Bedrock.
 - GPT-5.6 Sol is priced at its full $5 / $30 rather than the promotional
   $4 / $20, so a spend cap does not loosen when the promotion ends.
+- A skill whose required tool comes from a plugin is offered to the model
+  again. Its namespaced name was compared with the name the tool is given to
+  the provider, so every such skill was left out of the prompt.
+- An agent configured with its own Bedrock access-key pair signs its chat and
+  embedding calls with that pair even when `AWS_BEARER_TOKEN_BEDROCK` is set on
+  the host; the deployment's token used to win.
+- Text document uploads, knowledge imports and agent imports accept JSON bodies
+  up to 50 MB. They were refused above 100 KB, so an export larger than that
+  could not be imported back. Every other route keeps the 100 KB limit.
+- A stored attachment is read and deleted in the bucket it was written to. After
+  an agent's bucket changed, older files could not be opened and a deleted
+  conversation left them in the old bucket while counting them as removed.
+  Files stored before this release still use the agent's current bucket.
+- Knowledge documents left uploading or processing by a process that died are
+  failed within minutes, at boot and periodically after. A restart within five
+  minutes used to leave them looking busy for good.
+- The live conversation view shows a turn that starts seconds after the
+  previous one was stored, instead of hiding it until it finished.
+- A model call aborted by its caller's deadline is logged as an error of kind
+  `timeout` rather than as a user preemption.
+- Voice notes transcribed by Deepgram Nova-3 ($0.0043 per minute) and Amazon
+  Transcribe ($0.0001667 per second) are priced; they were logged at $0.
+- Conversation history replays a tool that moved into a plugin under the name
+  it has now, not its old flat name.
+- Importing a bundle exported before custom S3 endpoints and the task-role mode
+  were removed no longer asks for `s3_endpoint` or `s3_use_task_role`; for the
+  task role it asks for the bucket's access keys.
+- The agent page opens for a custom role that holds `agent:read` without the
+  tool, skill or prompt read permissions; it used to answer "agent not found".
+- The playground's error messages, its copy button and the badge of a
+  transcribed voice message follow the panel's language.
+- Messages that sent people to "an administrator" name the Organization Owner
+  and Admin, and a Platform Admin where one is the right person.
+- A management key whose id is not a UUID is refused before the lookup instead
+  of reaching Postgres as an error.
 
 ### Changed
 
 - The Anthropic `fast` tier runs Claude Haiku 5.5 instead of Haiku 4.5, with
   thinking switched off for the calls that do not ask for it (titles, memory,
   summaries).
+- Management keys are verified against a SHA-256 digest instead of bcrypt,
+  which held the event loop for about 250 ms on every request a key
+  authenticated. A key stored as bcrypt keeps working and is rewritten the
+  first time it is used.
 
 - **BREAKING — `fileUpload` moved out of core into the extra plugin** as
   `extra:fileUpload`. Migration `0089` renames the catalog row in place, so
