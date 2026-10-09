@@ -2,7 +2,10 @@
 
 import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "crypto";
-import type { AttachmentMeta } from "../conversations/schema.js";
+import { and, eq, sql } from "drizzle-orm";
+import { db } from "../database/client.js";
+import { conversationMessages, type AttachmentMeta } from "../conversations/schema.js";
+import { parseAttachmentKey } from "./attachment-key.js";
 import { extensionFromMime } from "../utils/mime.js";
 import { getAllSecrets } from "../instances/secrets.store.js";
 import type { InstanceSlug } from "../instances/identifiers.js";
@@ -128,6 +131,7 @@ export async function uploadAttachment(
     mimeType: opts.mimeType,
     fileName: opts.fileName,
     s3Key,
+    bucket: resolved.bucket,
     sizeBytes: data.length,
   };
 }
@@ -140,6 +144,28 @@ export interface AttachmentStreamResult {
   body: ReadableStream | NodeJS.ReadableStream;
   contentType: string;
   contentLength?: number;
+}
+
+/**
+ * The bucket a stored file was written to, as its message recorded it. The
+ * agent's bucket may have changed since; a file stored before the bucket was
+ * recorded, or under a conversation id that has since changed, has none.
+ */
+async function recordedBucket(s3Key: string): Promise<string | undefined> {
+  const parsed = parseAttachmentKey(s3Key);
+  if (!parsed) return undefined;
+  const [row] = await db
+    .select({ attachments: conversationMessages.attachments })
+    .from(conversationMessages)
+    .where(
+      and(
+        eq(conversationMessages.conversationId, parsed.conversationId),
+        sql`${conversationMessages.attachments} @> ${JSON.stringify([{ s3Key: parsed.key }])}::text::jsonb`,
+      ),
+    )
+    .limit(1);
+  const bucket = row?.attachments?.find((a) => a.s3Key === parsed.key)?.bucket;
+  return typeof bucket === "string" && bucket ? bucket : undefined;
 }
 
 /**
@@ -161,7 +187,7 @@ export async function getAttachmentStream(
   }
 
   const response = await resolved.client.send(new GetObjectCommand({
-    Bucket: resolved.bucket,
+    Bucket: (await recordedBucket(s3Key)) ?? resolved.bucket,
     Key: s3Key,
   }));
 

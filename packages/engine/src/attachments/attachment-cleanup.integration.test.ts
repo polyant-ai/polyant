@@ -94,6 +94,31 @@ describe("prepareAttachmentCleanup (integration)", () => {
     expect((cmd as DeleteObjectsCommand).input.Bucket).toBe("itest-bucket");
   });
 
+  // The bucket is a secret the operator can change. A file written before the
+  // change is still in the old bucket: deleting its key from the new one
+  // succeeds (S3 ignores missing keys) and the file stays where it was.
+  it.skipIf(!DB_AVAILABLE)("deletes a file from the bucket it was written to, not the agent's current one", async () => {
+    const C3 = "itest-att-cleanup:whatsapp:+393";
+    await conversationStore.ensureConversation(C3, SLUG);
+    await conversationStore.appendMessages(C3, [
+      { role: "user", content: "vecchio", attachments: [{ ...att(`attachments/${SLUG}/${C3}/old.png`), bucket: "previous-bucket" }] },
+      { role: "user", content: "nuovo", attachments: [att(`attachments/${SLUG}/${C3}/new.png`)] },
+    ]);
+    const cleanup = await prepareAttachmentCleanup(SLUG, { conversationIds: [C3] });
+    await conversationStore.deleteConversation(C3, allTenantsScope("integration test"));
+
+    await cleanup();
+
+    const byBucket = new Map<string, string[]>();
+    for (const [cmd] of send.mock.calls as unknown[][]) {
+      if (!(cmd instanceof DeleteObjectsCommand)) continue;
+      const keys = (cmd.input.Delete?.Objects ?? []).map((o) => o.Key!);
+      byBucket.set(cmd.input.Bucket!, [...(byBucket.get(cmd.input.Bucket!) ?? []), ...keys]);
+    }
+    expect(byBucket.get("previous-bucket")).toEqual([`attachments/${SLUG}/${C3}/old.png`]);
+    expect(byBucket.get("itest-bucket")).toEqual([`attachments/${SLUG}/${C3}/new.png`]);
+  });
+
   it.skipIf(!DB_AVAILABLE)("deletes every stored file of an agent even though its secrets cascade with it", async () => {
     const cleanup = await prepareAttachmentCleanup(SLUG, { allConversations: true });
     await deleteInstance(SLUG);

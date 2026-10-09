@@ -51,9 +51,17 @@ function errorName(err: unknown): string {
   return err instanceof Error ? err.name : "unknown error";
 }
 
-/** Every stored key of the target conversations that belongs to this agent. */
-async function storedKeys(instanceId: InstanceSlug, target: AttachmentCleanupTarget): Promise<string[]> {
-  const rows: Array<{ attachments: Array<{ s3Key?: unknown }> | null }> = [];
+/**
+ * Every stored key of the target conversations that belongs to this agent,
+ * grouped by the bucket it was written to. Files stored before the bucket was
+ * recorded are filed under `undefined`: the agent's current bucket is the only
+ * guess there is for them.
+ */
+async function storedKeys(
+  instanceId: InstanceSlug,
+  target: AttachmentCleanupTarget,
+): Promise<Map<string | undefined, string[]>> {
+  const rows: Array<{ attachments: Array<{ s3Key?: unknown; bucket?: unknown }> | null }> = [];
   if ("allConversations" in target) {
     rows.push(
       ...(await db
@@ -87,13 +95,17 @@ async function storedKeys(instanceId: InstanceSlug, target: AttachmentCleanupTar
   // Only this agent's own prefix: the bucket is this agent's, and a key naming
   // another agent is not one this cleanup has any business deleting.
   const prefix = `attachments/${instanceId}/`;
-  const keys = new Set<string>();
+  const byBucket = new Map<string | undefined, Set<string>>();
   for (const row of rows) {
     for (const att of row.attachments ?? []) {
-      if (typeof att?.s3Key === "string" && att.s3Key.startsWith(prefix)) keys.add(att.s3Key);
+      if (typeof att?.s3Key !== "string" || !att.s3Key.startsWith(prefix)) continue;
+      const bucket = typeof att.bucket === "string" && att.bucket ? att.bucket : undefined;
+      const keys = byBucket.get(bucket) ?? new Set<string>();
+      keys.add(att.s3Key);
+      byBucket.set(bucket, keys);
     }
   }
-  return [...keys];
+  return new Map([...byBucket].map(([bucket, keys]) => [bucket, [...keys]]));
 }
 
 /**
@@ -108,43 +120,57 @@ export async function prepareAttachmentCleanup(
   if ("conversationIds" in target && target.conversationIds.length === 0) return NOTHING;
   try {
     const resolution = resolveAgentS3(await getAllSecrets(instanceId));
-    const keys = await storedKeys(instanceId, target);
-    if (keys.length === 0) return NOTHING;
+    const stored = await storedKeys(instanceId, target);
+    const total = [...stored.values()].reduce((n, keys) => n + keys.length, 0);
+    if (total === 0) return NOTHING;
     // Files were stored, but the engine can no longer reach the bucket: they
     // stay behind, and the operator is told why rather than left to find them.
     if (!resolution.ok) {
       attachmentsLog.warn(
         "Cleanup",
-        `${instanceId}: ${keys.length} stored attachment(s) left in the bucket — ${describeAgentS3Failure(resolution)}`,
+        `${instanceId}: ${total} stored attachment(s) left in the bucket — ${describeAgentS3Failure(resolution)}`,
       );
       return NOTHING;
     }
-    const { client, bucket } = resolution.config;
+    const { client, bucket: currentBucket } = resolution.config;
+
+    // A file is deleted from the bucket it was written to. The operator can
+    // change the agent's bucket, and S3 reports no error for a key that is not
+    // there, so deleting an old file from the new bucket would count it as gone
+    // while it stays where it was. A bucket these credentials cannot reach
+    // answers with an error, which is counted as a failure.
+    const byBucket = new Map<string, string[]>();
+    for (const [bucket, keys] of stored) {
+      const target = bucket ?? currentBucket;
+      byBucket.set(target, [...(byBucket.get(target) ?? []), ...keys]);
+    }
 
     return async () => {
       let failed = 0;
-      for (let i = 0; i < keys.length; i += DELETE_BATCH) {
-        const batch = keys.slice(i, i + DELETE_BATCH);
-        try {
-          const result = await client.send(
-            new DeleteObjectsCommand({
-              Bucket: bucket,
-              Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
-            }),
-          );
-          failed += result.Errors?.length ?? 0;
-        } catch (err) {
-          failed += batch.length;
-          attachmentsLog.warn("Cleanup", `${instanceId}: deleting stored attachments failed (${errorName(err)})`);
+      for (const [bucket, keys] of byBucket) {
+        for (let i = 0; i < keys.length; i += DELETE_BATCH) {
+          const batch = keys.slice(i, i + DELETE_BATCH);
+          try {
+            const result = await client.send(
+              new DeleteObjectsCommand({
+                Bucket: bucket,
+                Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+              }),
+            );
+            failed += result.Errors?.length ?? 0;
+          } catch (err) {
+            failed += batch.length;
+            attachmentsLog.warn("Cleanup", `${instanceId}: deleting stored attachments failed (${errorName(err)})`);
+          }
         }
       }
       if (failed > 0) {
         attachmentsLog.warn(
           "Cleanup",
-          `${instanceId}: ${failed} of ${keys.length} stored attachments were not deleted from the agent's bucket`,
+          `${instanceId}: ${failed} of ${total} stored attachments were not deleted from the agent's bucket`,
         );
       } else {
-        attachmentsLog.info("Cleanup", `${instanceId}: deleted ${keys.length} stored attachments`);
+        attachmentsLog.info("Cleanup", `${instanceId}: deleted ${total} stored attachments`);
       }
     };
   } catch (err) {

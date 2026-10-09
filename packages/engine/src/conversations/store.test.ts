@@ -1132,6 +1132,32 @@ describe("ConversationStore", () => {
       expect(result.messages[0].metadata).toEqual(audioMeta);
     });
 
+    // The bucket an attachment was written to is storage configuration, kept
+    // for the deletes; a reader of the transcript sees the reference only.
+    it("leaves the storage bucket out of the attachments it returns", async () => {
+      const msgRows = [
+        {
+          id: "msg-1",
+          role: "user",
+          content: "foto",
+          steps: null,
+          attachments: [{ type: "image", s3Key: "attachments/a/c/x.jpg", bucket: "acme-private", sizeBytes: 3 }],
+          metadata: null,
+          createdAt: new Date("2025-06-01"),
+        },
+      ];
+      const msgChain = createChainMock(msgRows);
+      const countChain = createChainMock([{ total: 1 }]);
+      let selectCallCount = 0;
+      mockDb.select.mockImplementation(() => {
+        selectCallCount++;
+        return selectCallCount === 1 ? (msgChain as any) : (countChain as any);
+      });
+
+      const result = await conversationStore.getMessages("conv-1");
+      expect(result.messages[0].attachments).toEqual([{ type: "image", s3Key: "attachments/a/c/x.jpg", sizeBytes: 3 }]);
+    });
+
     it("uses default limit 50 and offset 0", async () => {
       const msgChain = createChainMock([]);
       const countChain = createChainMock([{ total: 0 }]);

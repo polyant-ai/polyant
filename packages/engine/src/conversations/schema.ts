@@ -39,6 +39,12 @@ export interface AttachmentMeta {
   fileName?: string;
   /** Platform S3 key where the file is stored. */
   s3Key: string;
+  /**
+   * The bucket the file was written to. The agent's bucket can change later,
+   * and a delete must reach the file where it is. Absent on files stored
+   * before it was recorded. Kept out of API responses.
+   */
+  bucket?: string;
   sizeBytes?: number;
 }
 

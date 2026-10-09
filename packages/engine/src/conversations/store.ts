@@ -744,7 +744,9 @@ export class ConversationStore {
         content: r.content,
         steps: (r.steps as StepDetail[] | null) ?? null,
         reasoning: (r.reasoning as ReasoningDetail[] | null) ?? null,
-        attachments: (r.attachments as AttachmentMeta[] | null) ?? null,
+        // The bucket is storage configuration, read only by the deletes.
+        attachments:
+          (r.attachments as AttachmentMeta[] | null)?.map(({ bucket: _bucket, ...attachment }) => attachment) ?? null,
         metadata: (r.metadata as Record<string, unknown> | null) ?? null,
         createdAt: r.createdAt ?? null,
       })),
