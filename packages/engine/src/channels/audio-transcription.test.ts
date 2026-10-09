@@ -19,6 +19,7 @@ vi.mock("../stt-gateway/index.js", () => ({
 
 import { transcribeAudio } from "./audio-transcription.js";
 import { STTProviderError, STTTimeoutError } from "../stt-gateway/errors.js";
+import { aiLogger } from "../ai-gateway/logger.js";
 
 const FAKE_OPENAI_CONFIG = {
   stt: {
@@ -130,6 +131,30 @@ describe("transcribeAudio", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("empty_transcript");
+  });
+
+  it("logs the cost of an empty transcript, since the provider billed the audio", async () => {
+    const logSpy = vi.spyOn(aiLogger, "log").mockImplementation(() => undefined);
+    transcribeMock.mockResolvedValue({
+      text: "",
+      durationSec: 30,
+      provider: "openai",
+      model: "whisper-1",
+      latencyMs: 400,
+    });
+
+    const result = await transcribeAudio({
+      audio: Buffer.from([0]),
+      mimeType: "audio/ogg",
+      instanceSlug: "demo",
+      conversationId: "c1",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("empty_transcript");
+    expect(logSpy).toHaveBeenCalledOnce();
+    expect(logSpy.mock.calls[0][0].estimatedCostUsd).toBeGreaterThan(0);
+    logSpy.mockRestore();
   });
 
   it("maps STTUnsupportedFormatError to unsupported_format", async () => {

@@ -263,4 +263,36 @@ describe("runPipelinePost persistence gate", () => {
     expect(flush).toHaveBeenCalled();
     await vi.waitFor(() => expect(conversationStore.appendMessages).toHaveBeenCalled());
   });
+
+  it("persists nothing when the run is aborted while response_generated hooks run", async () => {
+    const ac = new AbortController();
+    vi.mocked(runHooks).mockImplementationOnce(async () => {
+      ac.abort();
+      return [];
+    });
+    const ctx = ctxWith({ stateBuffer: { flush, api: () => ({}) } as never, contextPrompt: "one-shot" });
+
+    await runPipelinePost({ ...postOptions(ctx), abortSignal: ac.signal });
+
+    expect(traceStore.record).not.toHaveBeenCalled();
+    expect(flush).not.toHaveBeenCalled();
+    expect(conversationStore.clearContextPrompt).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(conversationStore.appendMessages).not.toHaveBeenCalled();
+    expect(runHooks).not.toHaveBeenCalledWith("response_sent", expect.anything(), expect.anything());
+  });
+
+  it("writes no messages when the run is aborted while the state flush is awaited", async () => {
+    const ac = new AbortController();
+    const abortingFlush = vi.fn(async () => {
+      ac.abort();
+    });
+    const ctx = ctxWith({ stateBuffer: { flush: abortingFlush, api: () => ({}) } as never });
+
+    await runPipelinePost({ ...postOptions(ctx), abortSignal: ac.signal });
+
+    expect(abortingFlush).toHaveBeenCalledOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(conversationStore.appendMessages).not.toHaveBeenCalled();
+  });
 });
