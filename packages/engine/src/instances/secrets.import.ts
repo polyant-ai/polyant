@@ -24,6 +24,19 @@ export async function importSecrets(
   const warnings: ImportWarning[] = [];
 
   for (const secret of secrets) {
+    // Keys of removed storage modes, still named by older bundles (see
+    // `attachments/agent-s3.ts`). An endpoint does nothing now; a task-role
+    // flag would make storage refuse to run, so the bucket's keys are asked for.
+    if (secret.key === "s3_endpoint") continue;
+    if (secret.key === "s3_use_task_role") {
+      warnings.push({
+        type: "secret_required",
+        message:
+          "s3_use_task_role is no longer supported and was not imported: set aws_access_key_id and aws_secret_access_key for the agent's bucket",
+      });
+      continue;
+    }
+
     if (secret.value === undefined || !readable.has(secret.key)) {
       warnings.push({
         type: "secret_required",

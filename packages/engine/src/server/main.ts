@@ -9,6 +9,7 @@ import { ServerModule } from "./server.module.js";
 import { OpenAIService } from "./openai/openai.service.js";
 import { A2aHandlerRegistry } from "./a2a/a2a-handler.registry.js";
 import { GlobalExceptionFilter } from "./filters/http-exception.filter.js";
+import { allowLargeJsonBodies } from "./body-limits.js";
 import { config } from "../config.js";
 import type { MessageHandler, StreamMessageHandler } from "../channels/types.js";
 
@@ -88,6 +89,9 @@ export async function startServer(
 
   // Cookie parser for session token extraction from Auth.js cookies
   app.use(cookieParser());
+
+  // Document and bundle uploads exceed the default 100 KB JSON limit.
+  allowLargeJsonBodies(app);
 
   // Global exception filter for standardized error responses
   app.useGlobalFilters(new GlobalExceptionFilter());

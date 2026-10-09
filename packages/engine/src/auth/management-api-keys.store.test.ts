@@ -37,7 +37,9 @@ vi.mock("../users/password.util.js", () => ({
   verifyPassword: mockVerifyPassword,
 }));
 
+import { createHash } from "node:crypto";
 import {
+  hashManagementApiKeySecret,
   parseManagementApiKeyToken,
   validateManagementApiKey,
 } from "./management-api-keys.store.js";
@@ -78,6 +80,13 @@ describe("parseManagementApiKeyToken", () => {
 
   it("returns null for an empty token", () => {
     expect(parseManagementApiKeyToken("")).toBeNull();
+  });
+
+  // The id is a uuid column. Any other value made Postgres raise a cast error,
+  // logged at error level, on every anonymous request that sent one.
+  it("returns null when the id is not a uuid", () => {
+    expect(parseManagementApiKeyToken("pk_x_y")).toBeNull();
+    expect(parseManagementApiKeyToken("pk_1111-2222_secret")).toBeNull();
   });
 });
 
@@ -149,5 +158,56 @@ describe("validateManagementApiKey", () => {
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({ lastUsedAt: expect.any(Date) }),
     );
+  });
+});
+
+// bcrypt at cost 12 takes about 250 ms of event-loop time, and it ran on every
+// request a management key authenticated. The secret is 32 random bytes, which
+// a slow hash adds nothing to, so a SHA-256 digest is stored instead.
+describe("validateManagementApiKey — key hash", () => {
+  const sha256Of = (secret: string) => `sha256:${createHash("sha256").update(secret).digest("hex")}`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("hashes a secret as a SHA-256 digest", () => {
+    expect(hashManagementApiKeySecret("s3cret")).toBe(sha256Of("s3cret"));
+  });
+
+  it("accepts a key stored as a SHA-256 digest without running bcrypt", async () => {
+    mockSelectRows.mockResolvedValue([row({ keyHash: sha256Of("s3cret") })]);
+    wireUpdateChain();
+
+    const result = await validateManagementApiKey(`pk_${VALID_ID}_s3cret`);
+
+    expect(result?.orgId).toBe("org-1");
+    expect(mockVerifyPassword).not.toHaveBeenCalled();
+  });
+
+  it("refuses a wrong secret against a SHA-256 digest", async () => {
+    mockSelectRows.mockResolvedValue([row({ keyHash: sha256Of("s3cret") })]);
+
+    expect(await validateManagementApiKey(`pk_${VALID_ID}_other`)).toBeNull();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("stores the SHA-256 digest of a bcrypt key the first time it verifies", async () => {
+    mockSelectRows.mockResolvedValue([row()]);
+    mockVerifyPassword.mockResolvedValue(true);
+    const { set } = wireUpdateChain();
+
+    await validateManagementApiKey(`pk_${VALID_ID}_s3cret`);
+
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ keyHash: sha256Of("s3cret") }));
+  });
+
+  it("leaves a bcrypt key alone when the secret does not match", async () => {
+    mockSelectRows.mockResolvedValue([row()]);
+    mockVerifyPassword.mockResolvedValue(false);
+
+    await validateManagementApiKey(`pk_${VALID_ID}_wrong`);
+
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });

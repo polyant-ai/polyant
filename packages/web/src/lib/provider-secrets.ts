@@ -99,8 +99,8 @@ export const PROVIDER_SECRET_SECTIONS: readonly ProviderSecretSection[] = [
  * speech-to-text picker and so has no section of its own.
  *
  * Its use is subtractive: no OTHER surface may render one of these. A tool is
- * free to declare a provider key in its `requiredSecrets` (`claudeCode` asks for
- * `anthropic_api_key`) and reads the very key the agent already holds — so a
+ * free to declare a provider key in its `requiredSecrets` (a plugin tool may ask
+ * for `anthropic_api_key`) and reads the very key the agent already holds — so a
  * tool's panel points to the Modello section rather than offering a second field
  * for one credential, which is how "where do I put this key" came to have two
  * answers. `auth_api_key` is deliberately not here: it authenticates a caller

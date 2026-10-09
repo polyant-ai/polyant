@@ -65,6 +65,15 @@ export interface StreamRequestOptions {
   chatId: string;
   signal?: AbortSignal;
   authToken?: string;
+  /** What the user reads when the request fails, in the panel's language. */
+  errorMessages: StreamErrorMessages;
+}
+
+export interface StreamErrorMessages {
+  network: string;
+  noBody: string;
+  streamRead: string;
+  httpFailed: (status: number) => string;
 }
 
 /**
@@ -81,7 +90,7 @@ export async function streamChatCompletion(
   options: StreamRequestOptions,
   callbacks: StreamCallbacks,
 ): Promise<void> {
-  const { instanceSlug, messages, chatId, signal, authToken } = options;
+  const { instanceSlug, messages, chatId, signal, authToken, errorMessages } = options;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
@@ -104,7 +113,7 @@ export async function streamChatCompletion(
     );
   } catch (err) {
     if (signal?.aborted) return;
-    callbacks.onError(err instanceof Error ? err : new Error("Network error"));
+    callbacks.onError(err instanceof Error ? err : new Error(errorMessages.network));
     return;
   }
 
@@ -117,7 +126,7 @@ export async function streamChatCompletion(
       new Error(
         getUserErrorMessage(
           new ApiError(response.status, message),
-          `The agent could not answer (HTTP ${response.status}).`,
+          errorMessages.httpFailed(response.status),
         ),
       ),
     );
@@ -126,7 +135,7 @@ export async function streamChatCompletion(
 
   const reader = response.body?.getReader();
   if (!reader) {
-    callbacks.onError(new Error("No response body"));
+    callbacks.onError(new Error(errorMessages.noBody));
     return;
   }
 
@@ -160,7 +169,7 @@ export async function streamChatCompletion(
     callbacks.onDone();
   } catch (err) {
     if (signal?.aborted) return;
-    callbacks.onError(err instanceof Error ? err : new Error("Stream read error"));
+    callbacks.onError(err instanceof Error ? err : new Error(errorMessages.streamRead));
   }
 }
 

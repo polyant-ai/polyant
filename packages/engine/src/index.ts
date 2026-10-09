@@ -10,7 +10,7 @@ import { retiredEnvironmentWarnings } from "./config-retired.js";
 import { db } from "./database/client.js";
 import { initAIGateway, shutdown as shutdownGateway } from "./ai-gateway/index.js";
 import { initMemory } from "./memory/index.js";
-import { resetStuckProcessingAll } from "./knowledge/store.js";
+import { startStuckDocumentSweep } from "./knowledge/stuck-document-sweep.js";
 import { resetStuckProcessingEvents } from "./webhooks/webhook-backlog.store.js";
 import { supervise, superviseStream } from "./agents/supervisor/index.js";
 import { channelManager } from "./channels/channel-manager.js";
@@ -121,18 +121,9 @@ async function main() {
   // 3. Initialize memory layer (pgvector)
   const pgvectorStatus = await initMemory();
 
-  // 3a. Recover knowledge documents stuck in "processing" from a previous crash
-  try {
-    const reset = await resetStuckProcessingAll();
-    if (reset > 0) {
-      console.log(`[Knowledge] Reset ${reset} stale processing doc(s) to error`);
-    }
-  } catch (err) {
-    console.error(
-      "[Knowledge] Boot cleanup failed (non-fatal):",
-      err instanceof Error ? err.message : String(err),
-    );
-  }
+  // 3a. Fail knowledge documents whose ingestion died with its process, now and
+  // periodically after.
+  const stopStuckDocumentSweep = await startStuckDocumentSweep();
 
   // 3b. Recover webhook events stuck in "processing" — see follow-up to #81.
   // A fresh boot has no in-flight room cycle, so anything in PROCESSING is a
@@ -558,6 +549,7 @@ async function main() {
           run: () => {
             schedulerService.shutdown();
             roomScheduler.shutdown();
+            stopStuckDocumentSweep();
           },
         },
         {

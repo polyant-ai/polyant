@@ -344,8 +344,11 @@ export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
   // Fill missing nullable keys (recursively) THEN validate against the JSON
   // Schema — the serialized analogue of the legacy Zod validation path. Fill so
   // non-strict models that omit nullable keys still pass; validate so off-schema
-  // args (wrong type, hallucinated keys) get a correctable error instead of
-  // silently reaching execute. The tool's own execute still does semantic checks.
+  // args (a wrong type, a missing required key) get a correctable error instead
+  // of silently reaching execute. A key the schema does not declare is removed
+  // without an error, as a non-strict z.object does (see the ajv setup above):
+  // a misspelled nullable key is therefore dropped and then filled with null.
+  // The tool's own execute still does semantic checks.
   return tool({
     description,
     inputSchema: jsonSchema(def.inputSchema as Parameters<typeof jsonSchema>[0], {

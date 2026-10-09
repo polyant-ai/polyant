@@ -355,9 +355,24 @@ export function estimateEmbeddingCost(provider: string, model: string, tokens: n
   return perMillion == null ? 0 : (tokens * perMillion) / 1_000_000;
 }
 
+/**
+ * Speech-to-text prices, USD per minute of audio, keyed by provider and the
+ * model the response reports. List prices, never promotional ones:
+ * - Deepgram Nova-3 monolingual, pre-recorded pay-as-you-go (the engine posts
+ *   the whole file to /v1/listen), from deepgram.com/pricing.
+ * - Amazon Transcribe standard streaming, $0.0001667 per second in every
+ *   Region that offers it, from the AWS Price List API (published 2026-09-11).
+ *   Billed per second with no minimum.
+ */
 export const sttPricingPerMinute: Record<string, Record<string, number>> = {
   openai: {
     "whisper-1": 0.006,
+  },
+  deepgram: {
+    "nova-3": 0.0043,
+  },
+  aws: {
+    "transcribe-streaming": 0.0001667 * 60,
   },
 };
 

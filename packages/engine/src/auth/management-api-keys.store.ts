@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { createHash, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { createLogger } from "../utils/create-logger.js";
@@ -13,11 +14,13 @@ const LOG_PREFIX = "management-api-keys";
 
 /**
  * Token format presented in the `X-Polyant-Key` header. The public `id`
- * selects the row (indexed) and the `secret` is bcrypt-verified against the
- * stored hash. Keeping the id in the token avoids a full-table bcrypt scan.
+ * selects the row (indexed) and the `secret` is verified against the
+ * stored hash. Keeping the id in the token avoids a scan over every key.
  */
 const TOKEN_PREFIX = "pk_";
 const TOKEN_SEPARATOR = "_";
+/** The id is a uuid column; anything else would reach Postgres as a cast error. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface ParsedManagementApiKeyToken {
   readonly id: string;
@@ -27,7 +30,7 @@ export interface ParsedManagementApiKeyToken {
 /**
  * Split a raw `pk_<id>_<secret>` token into its parts. Pure and DB-free so a
  * malformed token is rejected before any query. Returns null when the token
- * does not carry both a non-empty id and a non-empty secret.
+ * does not carry both a uuid id and a non-empty secret.
  */
 export function parseManagementApiKeyToken(
   raw: string,
@@ -40,7 +43,7 @@ export function parseManagementApiKeyToken(
 
   const id = body.slice(0, separatorIndex);
   const secret = body.slice(separatorIndex + 1);
-  if (!id || !secret) return null;
+  if (!UUID_RE.test(id) || !secret) return null;
 
   return { id, secret };
 }
@@ -50,12 +53,38 @@ function isExpired(expiresAt: Date | null): boolean {
 }
 
 /**
- * Refresh the key's `last_used_at`. Fire-and-forget observability: a failure
- * here must never affect the auth decision, so it is logged and swallowed.
+ * How a key's secret is stored: the hex SHA-256 digest, prefixed.
+ *
+ * The secret is random and high-entropy, so a slow hash adds no resistance to
+ * guessing, and bcrypt at cost 12 cost about 250 ms of event-loop time on
+ * every request a key authenticated. Keys hashed with bcrypt before this still
+ * verify, and are rewritten to this form the first time they do.
  */
-function touchLastUsed(id: string): void {
+const SHA256_PREFIX = "sha256:";
+
+export function hashManagementApiKeySecret(secret: string): string {
+  return SHA256_PREFIX + createHash("sha256").update(secret).digest("hex");
+}
+
+async function secretMatches(secret: string, keyHash: string): Promise<boolean> {
+  if (keyHash.startsWith(SHA256_PREFIX)) {
+    const expected = Buffer.from(keyHash.slice(SHA256_PREFIX.length), "hex");
+    const actual = createHash("sha256").update(secret).digest();
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  }
+  // verifyPassword wraps bcrypt.compare and returns false (never throws) on a
+  // malformed hash, so a corrupt row degrades to a clean 401 instead of a 500.
+  return verifyPassword(secret, keyHash);
+}
+
+/**
+ * Refresh the key's `last_used_at`, and store `rehash` when the key was still
+ * bcrypt. Fire-and-forget: a failure here must never affect the auth decision,
+ * so it is logged and swallowed.
+ */
+function touchLastUsed(id: string, rehash?: string): void {
   db.update(managementApiKeys)
-    .set({ lastUsedAt: new Date() })
+    .set({ lastUsedAt: new Date(), ...(rehash ? { keyHash: rehash } : {}) })
     .where(eq(managementApiKeys.id, id))
     .catch((error: unknown) => {
       logger.warn(LOG_PREFIX, `failed to update last_used_at: ${String(error)}`);
@@ -66,7 +95,7 @@ function touchLastUsed(id: string): void {
  * Validate an `X-Polyant-Key` token and resolve it to a {@link ServicePrincipal}.
  *
  * Returns null (→ 401 upstream) for a malformed token, an unknown id, a secret
- * that fails bcrypt, or an expired key. On success it refreshes `last_used_at`
+ * that does not match, or an expired key. On success it refreshes `last_used_at`
  * (best-effort) and returns the org-scoped principal with its permission set.
  */
 export async function validateManagementApiKey(
@@ -97,12 +126,12 @@ export async function validateManagementApiKey(
   if (!key) return null;
   if (isExpired(key.expiresAt)) return null;
 
-  // verifyPassword wraps bcrypt.compare and returns false (never throws) on a
-  // malformed hash, so a corrupt row degrades to a clean 401 instead of a 500.
-  const matches = await verifyPassword(parsed.secret, key.keyHash);
-  if (!matches) return null;
+  if (!(await secretMatches(parsed.secret, key.keyHash))) return null;
 
-  touchLastUsed(key.id);
+  touchLastUsed(
+    key.id,
+    key.keyHash.startsWith(SHA256_PREFIX) ? undefined : hashManagementApiKeySecret(parsed.secret),
+  );
 
   return {
     principalType: "service",

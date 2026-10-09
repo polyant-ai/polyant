@@ -3,6 +3,7 @@
 "use client";
 
 import { useReducer, useCallback, useRef } from "react";
+import { useI18n } from "@/lib/i18n/context";
 import {
   streamChatCompletion,
   type ChatMessage as SSEMessage,
@@ -406,6 +407,7 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 // ── Hook ────────────────────────────────────────────────────────────
 
 export function useChat(defaultInstanceSlug: string) {
+  const { t } = useI18n();
   const [state, dispatch] = useReducer(
     chatReducer,
     defaultInstanceSlug,
@@ -435,6 +437,12 @@ export function useChat(defaultInstanceSlug: string) {
           chatId: state.chatId,
           signal: controller.signal,
           authToken,
+          errorMessages: {
+            network: t("playground.error.network"),
+            noBody: t("playground.error.noBody"),
+            streamRead: t("playground.error.streamRead"),
+            httpFailed: (status) => t("playground.error.httpFailed", { status }),
+          },
         },
         {
           onTextDelta: (text) => dispatch({ type: "TEXT_DELTA", text }),
@@ -463,7 +471,7 @@ export function useChat(defaultInstanceSlug: string) {
         },
       );
     },
-    [state.isStreaming, state.instanceSlug, state.messages, state.chatId],
+    [state.isStreaming, state.instanceSlug, state.messages, state.chatId, t],
   );
 
   const stopStreaming = useCallback(() => {

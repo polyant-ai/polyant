@@ -665,7 +665,7 @@ export default function ConversationDetailPage() {
                         if (a?.language) parts.push(a.language);
                         return parts.length ? `Audio · ${parts.join(" · ")}` : "Audio";
                       })()}
-                      aria-label="Messaggio originato da audio"
+                      aria-label={t("conversations.detail.audioOrigin")}
                     >
                       <Mic className="h-3 w-3" />
                     </span>

@@ -100,18 +100,24 @@ function InstanceDetailContent() {
 
   useEffect(() => {
     const slug = params.slug;
+    // Only the agent decides whether the page exists. Its tools, skills and
+    // prompts are each read with their own permission, so one the caller's role
+    // lacks leaves that part empty instead of turning the agent into "not found".
+    const unlessRefused = <T,>(read: Promise<T>) => read.catch(() => null);
     Promise.all([
       api.instances.get(slug),
-      api.tools.list(slug),
-      api.skills.list(slug),
-      api.prompts.list(slug),
+      unlessRefused(api.tools.list(slug)),
+      unlessRefused(api.skills.list(slug)),
+      unlessRefused(api.prompts.list(slug)),
     ])
       .then(([instanceRes, toolsRes, skillsRes, promptsRes]) => {
         setInstance(instanceRes.instance);
-        setTools(toolsRes.tools);
-        setToolPlugins(toolsRes.plugins ?? []);
-        setSkills(skillsRes.skills);
-        setPrompts(promptsRes.prompts);
+        if (toolsRes) {
+          setTools(toolsRes.tools);
+          setToolPlugins(toolsRes.plugins ?? []);
+        }
+        if (skillsRes) setSkills(skillsRes.skills);
+        if (promptsRes) setPrompts(promptsRes.prompts);
       })
       .catch(() => {
         toast.error(t("instances.detail.notFound"));

@@ -133,6 +133,58 @@ describe("McpServersController", () => {
     );
   });
 
+  // The stored token belongs to the server it was entered for. Moving the URL to
+  // another host while echoing the mask used to send that token to the new host,
+  // on save and on test — reachable by a role that may edit MCP servers but
+  // never read their secrets.
+  describe("when the server's address moves to another origin", () => {
+    const stored = {
+      id: "row-1",
+      slug: "gh",
+      name: "GH",
+      url: "https://mcp.example.com",
+      authMode: "static",
+      enabled: true,
+      config: { auth: { type: "bearer", token: "real-secret-1234" } },
+    };
+    const moved = {
+      name: "GH",
+      url: "https://collector.attacker.test",
+      authMode: "static",
+      enabled: true,
+      config: { auth: { type: "bearer", token: "••••1234" } },
+    };
+
+    it("refuses to save it with the stored token", async () => {
+      store.getMcpServer.mockResolvedValue(stored);
+      const c = new McpServersController();
+
+      await expect(c.set("acme", "gh", moved as any)).rejects.toBeInstanceOf(BadRequestException);
+      expect(store.setMcpServer).not.toHaveBeenCalled();
+    });
+
+    it("refuses to test it with the stored token", async () => {
+      store.getMcpServer.mockResolvedValue(stored);
+      const { testMcpConnection } = await import("../../agents/tools/mcp/mcp-test.js");
+      vi.mocked(testMcpConnection).mockClear();
+      const c = new McpServersController();
+
+      await expect(c.test("acme", { slug: "gh", ...moved } as any)).rejects.toBeInstanceOf(BadRequestException);
+      expect(testMcpConnection).not.toHaveBeenCalled();
+    });
+
+    it("accepts it when the token is entered again", async () => {
+      store.getMcpServer.mockResolvedValue(stored);
+      const c = new McpServersController();
+
+      await c.set("acme", "gh", { ...moved, config: { auth: { type: "bearer", token: "new-token" } } } as any);
+      expect(store.setMcpServer).toHaveBeenCalledWith(
+        "uuid-1",
+        expect.objectContaining({ config: { auth: { type: "bearer", token: "new-token" } } }),
+      );
+    });
+  });
+
   it("should_skip_the_secret_merge_when_testing_a_brand_new_unsaved_server", async () => {
     const c = new McpServersController();
 

@@ -175,12 +175,45 @@ describe("smoke: makeCallbacks does not require real fetch", () => {
   });
 });
 
+// The panel's language reaches the parser through these: it is not a component
+// and cannot read the translations itself.
+const MESSAGES = {
+  network: "msg:network",
+  noBody: "msg:noBody",
+  streamRead: "msg:streamRead",
+  httpFailed: (status: number) => `msg:http ${status}`,
+};
+
+describe("streamChatCompletion on a failed request", () => {
+  it("tells the user the agent could not be reached, in the panel's language", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+    const onError = vi.fn();
+    await streamChatCompletion(
+      { instanceSlug: "shop", messages: [], chatId: "c1", errorMessages: MESSAGES },
+      { ...makeCallbacks(), onError },
+    );
+    vi.unstubAllGlobals();
+    expect((onError.mock.calls[0]![0] as Error).message).toBe("fetch failed");
+  });
+
+  it("uses the translated text when the failure carries none", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw "offline"; }));
+    const onError = vi.fn();
+    await streamChatCompletion(
+      { instanceSlug: "shop", messages: [], chatId: "c1", errorMessages: MESSAGES },
+      { ...makeCallbacks(), onError },
+    );
+    vi.unstubAllGlobals();
+    expect((onError.mock.calls[0]![0] as Error).message).toBe("msg:network");
+  });
+});
+
 describe("streamChatCompletion on a non-2xx answer", () => {
   const run = async (response: Response) => {
     vi.stubGlobal("fetch", vi.fn(async () => response));
     const onError = vi.fn();
     await streamChatCompletion(
-      { instanceSlug: "shop", messages: [], chatId: "c1" },
+      { instanceSlug: "shop", messages: [], chatId: "c1", errorMessages: MESSAGES },
       { ...makeCallbacks(), onError },
     );
     vi.unstubAllGlobals();

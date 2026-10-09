@@ -146,6 +146,8 @@ vi.mock("./hooks-tab", () => ({ HooksTab: () => <div>tab-body:hooks</div> }));
 vi.mock("./privacy-tab", () => ({ PrivacyTab: () => <div>tab-body:privacy</div> }));
 
 import InstanceDetailPage from "./page";
+import { api } from "@/lib/api";
+import { toast } from "sonner";
 import { DEFAULT_AGENT_TAB } from "@/lib/nav/agent-sections";
 
 function makeInstance(overrides: Partial<Instance> = {}): Instance {
@@ -313,6 +315,17 @@ describe("InstanceDetailPage — sections", () => {
     expect(
       screen.getByRole("heading", { name: "instances.detail.tabHooks", level: 2 }),
     ).toBeInTheDocument();
+  });
+
+  // Prompts, tools and skills are each read with their own permission. A custom
+  // role holding agent:read without one of them used to see "agent not found"
+  // and be sent back to the list, even for the Providers or Overview section.
+  it("opens the agent when a secondary read is refused", async () => {
+    vi.mocked(api.prompts.list).mockRejectedValueOnce(new Error("403"));
+    render(<InstanceDetailPage />);
+
+    await screen.findByText("tab-body:status:provider-no-credentials");
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it("falls back to the overview for an unknown `?tab=` value", async () => {

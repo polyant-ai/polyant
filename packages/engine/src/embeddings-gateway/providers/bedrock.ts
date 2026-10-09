@@ -28,8 +28,10 @@ function buildProvider(opts: BedrockCallOptions) {
 
   const accessKeyId = opts.accessKeyId?.trim();
   const secretAccessKey = opts.secretAccessKey?.trim();
+  // `apiKey: ""` keeps the SDK from filling the key from
+  // AWS_BEARER_TOKEN_BEDROCK, which would outrank this key pair.
   if (accessKeyId && secretAccessKey) {
-    return createAmazonBedrock({ accessKeyId, secretAccessKey, region });
+    return createAmazonBedrock({ apiKey: "", accessKeyId, secretAccessKey, region });
   }
 
   return createAmazonBedrock({ region, credentialProvider: fromNodeProviderChain() });

@@ -278,6 +278,10 @@ function stepCalls(steps: ChatResponse["steps"]): CallUsage[] | undefined {
  * as `aborted` with their usage and cost: sums of cost and tokens count it,
  * counts of answered and failed calls do not. A turn aborted before any model
  * call answered cost nothing and writes nothing.
+ *
+ * A signal aborted by the caller's own deadline (`AbortSignal.timeout`, alone
+ * or inside `AbortSignal.any`) carries a `TimeoutError` reason. Nobody
+ * preempted that call: the provider was too slow, which is a failure.
  */
 function logFailedCall(
   config: { providerName: string; modelId: string },
@@ -287,7 +291,9 @@ function logFailedCall(
   durationMs: number,
 ): void {
   const usage = usageCompletedBeforeFailure(err);
-  const aborted = request.abortSignal?.aborted === true;
+  const signal = request.abortSignal;
+  const timedOut = signal?.aborted === true && (signal.reason as { name?: unknown } | undefined)?.name === "TimeoutError";
+  const aborted = signal?.aborted === true && !timedOut;
   if (aborted && !usage) return;
   const cost = usage ? costOfUsage(config, usage) : 0;
   aiLogger.log(
@@ -309,7 +315,7 @@ function logFailedCall(
       usage?.cachedInputTokens ?? 0,
       usage?.cacheCreationInputTokens ?? 0,
       aborted ? "aborted" : "error",
-      aborted ? null : classifyProviderError(err),
+      aborted ? null : timedOut ? "timeout" : classifyProviderError(err),
     ),
   );
 }

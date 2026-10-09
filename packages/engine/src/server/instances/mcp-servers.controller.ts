@@ -7,7 +7,7 @@ import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { asInstanceUuid } from "../../instances/identifiers.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
-import { maskMcpConfig, mergeMaskedMcpSecrets } from "./mcp-config-mask.js";
+import { maskMcpConfig, McpSecretOriginChangedError, restoreMcpSecretsForUrl } from "./mcp-config-mask.js";
 import {
   setMcpServer,
   getMcpServer,
@@ -40,6 +40,18 @@ const setBodySchema = z.object({
 const testBodySchema = setBodySchema.extend({
   slug: z.string().optional(),
 });
+
+/** Restore masked secrets for the same server, or answer 400 when its address moved elsewhere. */
+function restoreSecretsOrRefuse(
+  ...args: Parameters<typeof restoreMcpSecretsForUrl>
+): Record<string, unknown> {
+  try {
+    return restoreMcpSecretsForUrl(...args);
+  } catch (err) {
+    if (err instanceof McpSecretOriginChangedError) throw new BadRequestException(err.message);
+    throw err;
+  }
+}
 
 @Controller("api/instances")
 export class McpServersController {
@@ -75,11 +87,7 @@ export class McpServersController {
     // client re-submitting the masked GET response doesn't overwrite the
     // real secret (nested paths — see mcp-config-mask.ts).
     const existing = await getMcpServer(asInstanceUuid(inst.id), serverSlug);
-    const effective = mergeMaskedMcpSecrets(
-      parsed.data.authMode,
-      parsed.data.config,
-      existing?.config as Record<string, unknown> | undefined,
-    );
+    const effective = restoreSecretsOrRefuse(parsed.data.authMode, parsed.data.config, existing, parsed.data.url);
     try {
       mcpServerConfigSchema(parsed.data.authMode, effective); // validate the effective config
     } catch (err) {
@@ -145,11 +153,7 @@ export class McpServersController {
     // the candidate identifies an existing server (`slug` present) — a
     // brand-new/unsaved server has nothing to restore from.
     const existing = parsed.data.slug ? await getMcpServer(asInstanceUuid(inst.id), parsed.data.slug) : undefined;
-    const effective = mergeMaskedMcpSecrets(
-      parsed.data.authMode,
-      parsed.data.config,
-      existing?.config as Record<string, unknown> | undefined,
-    );
+    const effective = restoreSecretsOrRefuse(parsed.data.authMode, parsed.data.config, existing, parsed.data.url);
 
     return testMcpConnection({
       url: parsed.data.url,
