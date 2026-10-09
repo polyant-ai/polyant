@@ -9,8 +9,8 @@
 //     third-party plugin schemas get no engine-side check otherwise (a violation
 //     would only surface as a cryptic `invalid_function_parameters` at call time).
 //
-// Past violations: `.url()` in http-request, `.optional()` in hubspot-contact.
-// See CLAUDE.md → Important Caveats.
+// Past violations: `.url()` in http-request, `.optional()` in the HubSpot
+// contact tool (now in the hubspot plugin).
 
 const FORBIDDEN_FORMATS = new Set([
   "uri",
@@ -67,7 +67,7 @@ function walk(node: unknown, path: string, violations: string[]): void {
     // R3: additionalProperties must be `false` OR a constrained schema (non-empty).
     // OpenAI strict-mode formally requires `false`, but in practice it accepts
     // `additionalProperties: { type: <something> }` (z.record(z.string()))
-    // — see `hubspotContact.customProperties`. We reject ONLY unbounded cases:
+    // — a record of strings, as a plugin's free-form properties map declares. We reject ONLY unbounded cases:
     // `true` or empty `{}` (typical of z.record(z.unknown())).
     if (n.additionalProperties !== false) {
       const ap = n.additionalProperties;
