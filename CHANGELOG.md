@@ -64,6 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Admin, and a Platform Admin where one is the right person.
 - A management key whose id is not a UUID is refused before the lookup instead
   of reaching Postgres as an error.
+- Changing an MCP server's address to another host no longer reuses its stored
+  credential: saving or testing it there answers 400 until the credential is
+  entered again. Anyone allowed to edit MCP servers could otherwise send the
+  stored token to a host of their choosing.
 
 ### Changed
 
