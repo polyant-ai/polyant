@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/table";
 import { api, getUserErrorMessage, type McpAuthMode, type McpServer, type McpTestResult } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { SectionActions } from "./section-actions";
 
 interface Props {
   slug: string;
@@ -304,19 +305,14 @@ export function McpServersTab({ slug }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        {/* No heading of its own: the section IS "MCP" now, and the h3 under it
-            said "Server MCP" — the same thing twice. It earned its place while
-            this was a block at the bottom of the Tools page, which it no longer
-            is. The description stays; it says something the title cannot. */}
-        <div>
-          <p className="text-sm text-muted-foreground">{t("mcp.description")}</p>
-        </div>
+      {/* The page draws the title and the line under it; the long explanation
+          of static and OAuth servers lives in the server's dialog. */}
+      <SectionActions>
         <Button onClick={openCreate} size="sm">
           <Plus className="mr-1 size-4" />
           {t("mcp.add")}
         </Button>
-      </div>
+      </SectionActions>
 
       {servers.length === 0 ? (
         <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground">

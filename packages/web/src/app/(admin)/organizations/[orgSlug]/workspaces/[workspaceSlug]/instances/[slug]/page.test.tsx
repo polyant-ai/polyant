@@ -117,11 +117,7 @@ vi.mock("./tools-tab", () => ({ ToolsTab: () => <div>tab-body:tools</div> }));
 vi.mock("./mcp-servers-tab", () => ({ McpServersTab: () => <div>tab-body:mcp</div> }));
 vi.mock("./skills-tab", () => ({ SkillsTab: () => <div>tab-body:skills</div> }));
 vi.mock("./knowledge-tab", () => ({ KnowledgeTab: () => <div>tab-body:knowledge</div> }));
-// One component, two sections: which half it renders is the `section` prop, and
-// the stub reports it — a copy-paste leaving both addresses on one half fails here.
-vi.mock("./settings-tab", () => ({
-  SettingsTab: ({ section }: { section: string }) => <div>tab-body:settings:{section}</div>,
-}));
+vi.mock("./model-tab", () => ({ ModelTab: () => <div>tab-body:model</div> }));
 vi.mock("./channels-section", () => ({ ChannelsSection: () => <div>tab-body:channels</div> }));
 vi.mock("./analytics-tab", () => ({ AnalyticsTab: () => <div>tab-body:analytics</div> }));
 // Stubbed like every other body: this file is about navigation, and the status
@@ -204,9 +200,7 @@ const EVERY_SECTION = [
 /** Which stub body a section renders, where the two differ. */
 const BODY_OF: Record<string, string> = {
   overview: "status:provider-no-credentials",
-  // One component, two pages: the stub reports which half it was asked for, so a
-  // copy-paste leaving two addresses on one section fails here.
-  settings: "settings:model",
+  settings: "model",
 };
 
 /**
@@ -326,6 +320,20 @@ describe("InstanceDetailPage — sections", () => {
 
     await screen.findByText("tab-body:status:provider-no-credentials");
     expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  // Every section is introduced the same way, by the page: the line under the
+  // title is never a section's own paragraph, so no two sections word or place
+  // their intro differently.
+  it("writes the line under every section's title, the same way", async () => {
+    for (const value of EVERY_SECTION) {
+      resetSearch(`tab=${value}`);
+      const { unmount } = render(<InstanceDetailPage />);
+      await waitFor(() => expect(screen.getByText(`tab-body:${BODY_OF[value] ?? value}`)).toBeInTheDocument());
+      const heading = screen.getByRole("heading", { level: 2 });
+      expect(heading.nextElementSibling?.textContent).toMatch(new RegExp(`^agentSection\\.${value}`));
+      unmount();
+    }
   });
 
   it("falls back to the overview for an unknown `?tab=` value", async () => {

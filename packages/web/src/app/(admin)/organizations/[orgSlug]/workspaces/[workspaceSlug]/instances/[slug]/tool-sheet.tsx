@@ -31,7 +31,7 @@ import {
   toolParamSpecs,
   toolProviderSpecs,
 } from "./tools-tab-helpers";
-import { UnsavedChangesDialog } from "./unsaved-changes-dialog";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 
 interface Props {
   tool: ToolState | null;

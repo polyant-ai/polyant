@@ -10,7 +10,7 @@
  * Self-skips without a database; CI_REQUIRE_DB makes an absent database a failure there.
  */
 
-import { resolveDatabaseAvailability } from "../database/test-db.js";
+import { resolveDatabaseAvailability, lockToolsTable } from "../database/test-db.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { queryClient } from "../database/client.js";
 import { importSkillsCatalog } from "./skills-export.service.js";
@@ -54,6 +54,15 @@ async function storedState(): Promise<{ requiredTools: unknown; linked: string[]
 }
 
 describe.skipIf(!DB_AVAILABLE)("skills catalog import of a bundle written before the tool renames", () => {
+  // Serialized with any suite that prunes namespaced tool rows (`database/test-db.ts`).
+  let releaseToolsLock: () => Promise<void> = async () => {};
+  beforeAll(async () => {
+    releaseToolsLock = await lockToolsTable("shared");
+  });
+  afterAll(async () => {
+    await releaseToolsLock();
+  });
+
   beforeAll(async () => {
     await queryClient`DELETE FROM skills WHERE slug = ${SLUG}`;
     const inserted = await queryClient<{ name: string }[]>`

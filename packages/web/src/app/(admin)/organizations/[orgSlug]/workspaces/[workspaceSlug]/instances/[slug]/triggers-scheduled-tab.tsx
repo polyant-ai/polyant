@@ -67,6 +67,7 @@ import { api, getUserErrorMessage, type ScheduledTask, type ScheduledTaskSchedul
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { formatDateTime } from "@/lib/format";
+import { SectionActions } from "./section-actions";
 
 interface Props {
   slug: string;
@@ -336,16 +337,12 @@ export function TriggersScheduledTab({ slug }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-medium">{t("scheduledTasks.title")}</h3>
-          <p className="text-sm text-muted-foreground">{t("scheduledTasks.description")}</p>
-        </div>
+      <SectionActions>
         <Button onClick={openCreate} size="sm">
           <Plus className="mr-1 size-4" />
           {t("scheduledTasks.newTask")}
         </Button>
-      </div>
+      </SectionActions>
 
       {tasks.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">

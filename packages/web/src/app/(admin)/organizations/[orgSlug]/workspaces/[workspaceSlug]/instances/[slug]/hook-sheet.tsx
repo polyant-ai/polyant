@@ -28,7 +28,7 @@ import { getUserErrorMessage, type HookEvent, type HookFunctionInfo, type Instan
 import { useI18n } from "@/lib/i18n/context";
 import { SecretSpecField, humanizeSecretKey } from "@/components/instance-secret/secret-spec-field";
 import type { SecretSpecsForm } from "@/components/instance-secret/use-secret-specs";
-import { UnsavedChangesDialog } from "./unsaved-changes-dialog";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 
 export const HOOK_EVENTS: HookEvent[] = [
   "conversation_start",

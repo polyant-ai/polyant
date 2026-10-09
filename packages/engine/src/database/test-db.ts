@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { sql } from "drizzle-orm";
-import { db } from "./client.js";
+import { db, queryClient } from "./client.js";
 
 /**
  * Is a database reachable for the integration tier?
@@ -61,4 +61,37 @@ export async function resolveDatabaseAvailability(): Promise<boolean> {
     );
   }
   return available;
+}
+
+/**
+ * Hold a Postgres advisory lock for the length of a suite, on one reserved
+ * connection so the release reaches the session that took it. `shared` holders
+ * run alongside each other; an `exclusive` holder runs alone. For suites that
+ * act on the WHOLE shared test database (a prune, a backfill) and the suites
+ * whose rows that would touch.
+ *
+ * Call before the suite seeds anything, and the returned release once it has
+ * cleaned up. No database: the suites skip themselves, and nothing is held.
+ */
+export async function lockTestResource(key: string, mode: "shared" | "exclusive"): Promise<() => Promise<void>> {
+  if (!(await probeDatabase())) return async () => {};
+  const connection = await queryClient.reserve();
+  if (mode === "exclusive") await connection`SELECT pg_advisory_lock(hashtext(${key}))`;
+  else await connection`SELECT pg_advisory_lock_shared(hashtext(${key}))`;
+  return async () => {
+    if (mode === "exclusive") await connection`SELECT pg_advisory_unlock(hashtext(${key}))`;
+    else await connection`SELECT pg_advisory_unlock_shared(hashtext(${key}))`;
+    connection.release();
+  };
+}
+
+/**
+ * The shared `tools` table: `syncToolsToDb()` prunes every namespaced tool
+ * whose plugin is not loaded — on a test database that is every row another
+ * suite inserted for its own plugin (`hubspot:note`, `<marker>-crm:search`, …).
+ * A suite that prunes holds it `exclusive`; a suite whose rows a prune would
+ * delete holds it `shared`.
+ */
+export function lockToolsTable(mode: "shared" | "exclusive"): Promise<() => Promise<void>> {
+  return lockTestResource("itest:tools-table-namespaced", mode);
 }

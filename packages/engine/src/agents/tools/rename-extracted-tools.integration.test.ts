@@ -16,7 +16,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { db } from "../../database/client.js";
-import { resolveDatabaseAvailability } from "../../database/test-db.js";
+import { resolveDatabaseAvailability, lockToolsTable } from "../../database/test-db.js";
 import { instances } from "../../instances/schema.js";
 import { workspaces } from "../../organizations/organization.schema.js";
 import { instanceTools } from "../../instances/instance-tools.schema.js";
@@ -57,6 +57,12 @@ async function enabledNames(instanceId: string) {
     .where(eq(instanceTools.instanceId, instanceId));
   return rows.map((r) => r.name).sort();
 }
+
+// It prunes namespaced tool rows: exclusive, so no suite seeding its own is running.
+const releaseToolsLock = await lockToolsTable("exclusive");
+afterAll(async () => {
+  await releaseToolsLock();
+});
 
 let instanceId: string | undefined;
 

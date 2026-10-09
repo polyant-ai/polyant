@@ -49,6 +49,7 @@ import {
   StreamingWarning,
   type HookSettings,
 } from "./hook-sheet";
+import { SectionActions } from "./section-actions";
 
 interface Props {
   slug: string;
@@ -202,16 +203,12 @@ export function HooksTab({ slug }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-lg font-medium">{t("hooks.title")}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{t("hooks.description")}</p>
-        </div>
+      <SectionActions>
         <Button size="sm" onClick={openCreate} className="gap-1.5">
           <Plus className="h-4 w-4" />
           {t("hooks.add")}
         </Button>
-      </div>
+      </SectionActions>
 
       {hooks.length === 0 ? (
         <p className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
