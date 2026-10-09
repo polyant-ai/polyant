@@ -3,7 +3,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { BedrockProvider } from "./bedrock.js";
 import { embedBedrock } from "../../embeddings-gateway/providers/bedrock.js";
-import type { ChatRequest } from "./base.js";
+import type { ChatRequest } from "../types.js";
 
 // The real @ai-sdk/amazon-bedrock is used on purpose: the defect lives in how
 // it fills an option this code leaves undefined. Only the network is stubbed,
