@@ -28,6 +28,7 @@ import { skills, skillTools } from "../../skills/schema.js";
 import { syncToolsToDb } from "./tools-sync.js";
 import { _resetRegistryForTests, _registerToolForTests } from "./registry.js";
 import { asInstanceUuid, type InstanceUuid } from "../../instances/identifiers.js";
+import { lockToolsTable } from "../../database/test-db.js";
 
 const SLUG = "itest-tools-sync";
 const CORE = "itestSyncCore"; // in registry → kept
@@ -99,6 +100,12 @@ async function setup(): Promise<InstanceUuid | undefined> {
     return undefined;
   }
 }
+
+// It prunes namespaced tool rows: exclusive, so no suite seeding its own is running.
+const releaseToolsLock = await lockToolsTable("exclusive");
+afterAll(async () => {
+  await releaseToolsLock();
+});
 
 const instanceUuid = await setup();
 
