@@ -35,15 +35,12 @@ async function main(): Promise<number> {
     secrets: {
       // Provide common secrets so requiredSecrets gating doesn't matter — we
       // only call `def.create()`, never `execute()`.
-      hubspot_api_key: "x",
       openai_api_key: "x",
       anthropic_api_key: "x",
       tavily_api_key: "x",
-      github_token: "x",
       langsmith_api_key: "x",
       auth_api_key: "x",
       http_api_key: "x",
-      s3_bucket_name: "x",
       deepgram_api_key: "x",
     },
     apiKeys: { openai: "x" },
