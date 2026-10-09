@@ -741,6 +741,21 @@ describe("AI Gateway", () => {
       expect(entry.costUsd).toBeGreaterThan(0);
     });
 
+    // A caller's own deadline (`AbortSignal.timeout`) aborts the signal too,
+    // but nobody preempted the call: the provider was too slow. Read as a
+    // preemption it wrote no row at all, and `timeout` could never be recorded.
+    it("logs a call its deadline aborted as a timeout error", async () => {
+      const controller = new AbortController();
+      controller.abort(new DOMException("The operation timed out.", "TimeoutError"));
+      mockProviderChat.mockRejectedValue(controller.signal.reason);
+
+      await expect(chat(makeRequest({ abortSignal: controller.signal }))).rejects.toThrow();
+
+      const entry = loggedEntry();
+      expect(entry.outcome).toBe("error");
+      expect(entry.errorKind).toBe("timeout");
+    });
+
     it("writes exactly one row when a stream fails after being established", async () => {
       const err = apiError(529);
       mockProviderChatStream.mockResolvedValue({
