@@ -17,6 +17,7 @@ import {
   REMOTE_TOOL_DESCRIPTION_TAG,
 } from "../tools/mcp/mcp-tool-naming.js";
 import { PRIVATE_STATE_KEY } from "../../conversations/state.buffer.js";
+import { toModelToolName } from "../../utils/model-tool-wire.js";
 
 export { normalizeRequiredEnv, type RequiredEnvEntry } from "../../utils/frontmatter.js";
 
@@ -274,9 +275,10 @@ async function discoverSkills(
     // Skip if required env vars are not configured
     if (envEntries.length > 0 && !envResults.get(row.skillSlug)) continue;
 
-    // Skip if required tools are not available
+    // Skip if required tools are not available. A skill names its tools
+    // canonically; the tool set is keyed by the model-facing identifier.
     if (meta?.requiredTools && enabledToolNames) {
-      const missingTools = meta.requiredTools.filter((t) => !enabledToolNames.has(t));
+      const missingTools = meta.requiredTools.filter((t) => !enabledToolNames.has(toModelToolName(t)));
       if (missingTools.length > 0) continue;
     }
 
