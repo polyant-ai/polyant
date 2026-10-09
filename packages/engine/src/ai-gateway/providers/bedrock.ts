@@ -111,8 +111,11 @@ export const BedrockProvider = createProvider(
     // default provider chain so ECS task roles, EC2 instance metadata, SSO, shared
     // credentials, and the AWS_BEARER_TOKEN_BEDROCK env var all work —
     // @ai-sdk/amazon-bedrock only reads env vars by default.
+    // `apiKey: ""` keeps the SDK from filling the key from
+    // AWS_BEARER_TOKEN_BEDROCK: a bearer token outranks SigV4, so the
+    // deployment's token would otherwise sign the calls of the agent's own pair.
     if (accessKeyId && secretAccessKey) {
-      return createAmazonBedrock({ accessKeyId, secretAccessKey, region })(modelId);
+      return createAmazonBedrock({ apiKey: "", accessKeyId, secretAccessKey, region })(modelId);
     }
 
     return createAmazonBedrock({

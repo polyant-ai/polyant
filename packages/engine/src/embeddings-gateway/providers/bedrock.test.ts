@@ -49,7 +49,7 @@ describe("embedBedrock", () => {
   });
   it("uses the key pair, not the provider chain, when there is no API key", async () => {
     await embedBedrock("hi", { accessKeyId: "id", secretAccessKey: "sec", region: "eu-west-1", dimensions: 1024 });
-    expect(createBedrock).toHaveBeenCalledWith({ accessKeyId: "id", secretAccessKey: "sec", region: "eu-west-1" });
+    expect(createBedrock).toHaveBeenCalledWith({ apiKey: "", accessKeyId: "id", secretAccessKey: "sec", region: "eu-west-1" });
   });
   it("uses the provider chain only when there is neither an API key nor a key pair", async () => {
     await embedBedrock("hi", { apiKey: "  ", region: "eu-west-1", dimensions: 1024 });
