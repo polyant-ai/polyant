@@ -56,6 +56,7 @@ import {
   toolDisplayName,
   uniqueSpecs,
 } from "./tools-tab-helpers";
+import { SectionActions } from "./section-actions";
 
 interface Props {
   slug: string;
@@ -326,18 +327,19 @@ export function ToolsTab({
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <p className="max-w-prose text-sm text-muted-foreground">{t("tools.description")}</p>
-        <Button onClick={() => setPickerOpen(true)}>{t("tools.enable")}</Button>
-      </div>
+      <SectionActions>
+        <Button size="sm" onClick={() => setPickerOpen(true)}>
+          {t("tools.enable")}
+        </Button>
+      </SectionActions>
 
       {listed.length === 0 && alwaysOn.length === 0 ? (
-        <p className="mt-8 rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
+        <p className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
           {t("tools.noneEnabled")}
         </p>
       ) : (
         <>
-          <div className="relative mt-8">
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <Input
               value={search}
@@ -355,7 +357,7 @@ export function ToolsTab({
           {rows.length === 0 && systemRows.length === 0 ? (
             <p className="py-12 text-center text-sm text-muted-foreground">{t("tools.noMatch")}</p>
           ) : (
-            <Table className="mt-4 table-fixed">
+            <Table flush className="mt-4 table-fixed">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="w-[32%]">{t("tools.columnName")}</TableHead>

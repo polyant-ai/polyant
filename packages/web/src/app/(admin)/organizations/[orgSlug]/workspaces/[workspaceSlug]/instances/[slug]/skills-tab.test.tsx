@@ -126,14 +126,6 @@ describe("SkillsTab", () => {
     expect(screen.getByText("Send emails via SMTP")).toBeInTheDocument();
   });
 
-  it("renders description text", () => {
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    expect(screen.getByText("skills.tab.description")).toBeInTheDocument();
-  });
-
   it("shows switches reflecting skill enabled state", () => {
     render(
       <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,

@@ -5,7 +5,6 @@
 import { useEffect, useState } from "react";
 import { Globe, Send, Hash, MessageCircle, Bot } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Label } from "@/components/ui/label";
 import { api, type ChannelConfig, type Instance } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
@@ -87,9 +86,9 @@ export function ChannelsSection({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
-        <Label>{t("instances.section.channelsPicker")}</Label>
-        <div className="flex flex-wrap gap-2">
+      <div>
+        {/* No label: the section's title above already says "Canali". */}
+        <div className="flex flex-wrap gap-2" role="group" aria-label={t("instances.section.channelsPicker")}>
           {CHANNELS.map((channel) => {
             const Icon = channel.icon;
             const isSelected = channel.type === selected;

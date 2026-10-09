@@ -6,11 +6,17 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+/**
+ * `flush`: the cells' text lines up with the headings and paragraphs around the
+ * table — the cell padding moves into a negative margin, so a row's highlight
+ * keeps its inset. For a list placed directly in a page's content; a table
+ * inside a bordered or scrolling box keeps the default.
+ */
+function Table({ className, flush = false, ...props }: React.ComponentProps<"table"> & { flush?: boolean }) {
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      className={cn("relative w-full overflow-x-auto", flush && "-mx-2 w-[calc(100%+1rem)]")}
     >
       <table
         data-slot="table"

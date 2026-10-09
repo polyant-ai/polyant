@@ -167,7 +167,6 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
       {/* No max-width and no flex column: the section rail became a row of
           anchors above, so the editors take the full page width. */}
       <div className="min-w-0">
-        <p className="mb-6 text-sm text-muted-foreground">{t("prompts.description")}</p>
         <div className="space-y-10">
           {prompts.map((prompt) => {
             const Icon = PROMPT_ICONS[prompt.key] ?? Sparkles;

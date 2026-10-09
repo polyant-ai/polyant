@@ -36,7 +36,7 @@ export function ParamsTab({
 }) {
   return (
     <div className="space-y-8">
-      <SettingsTab instance={instance} onUpdate={onUpdate} section="params" />
+      <SettingsTab instance={instance} onUpdate={onUpdate} />
       <MemoryCard instance={instance} onUpdate={onUpdate} />
       <AttachmentStorageCard instance={instance} onUpdate={onUpdate} />
       <LangsmithCard instance={instance} onUpdate={onUpdate} />

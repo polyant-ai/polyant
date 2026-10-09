@@ -32,7 +32,7 @@ import { PromptsTab } from "./prompts-tab";
 import { ToolsTab } from "./tools-tab";
 import { McpServersTab } from "./mcp-servers-tab";
 import { SkillsTab } from "./skills-tab";
-import { SettingsTab } from "./settings-tab";
+import { ModelTab } from "./model-tab";
 import { KnowledgeTab } from "./knowledge-tab";
 import { ChannelsSection } from "./channels-section";
 import { AnalyticsTab } from "./analytics-tab";
@@ -49,6 +49,7 @@ import { PrivacyTab } from "./privacy-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { useI18n } from "@/lib/i18n/context";
 import { agentSection, agentSectionsByMacro, resolveAgentTab } from "@/lib/nav/agent-sections";
+import { SectionActionsSlot } from "./section-actions";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useStatusChecks } from "./use-status-checks";
 
@@ -71,6 +72,12 @@ function HeaderSaveButton() {
       </Button>
     </div>
   );
+}
+
+/** The line under a section's title, from the registry: every section is introduced the same way. */
+function SectionDescription({ tab }: { tab: string }) {
+  const { t } = useI18n();
+  return <p className="mt-1 text-sm text-muted-foreground">{t(agentSection(tab).descriptionKey)}</p>;
 }
 
 function InstanceDetailContent() {
@@ -96,6 +103,7 @@ function InstanceDetailContent() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
   const status = useStatusChecks({ instance, tools, skills });
 
   useEffect(() => {
@@ -256,10 +264,18 @@ function InstanceDetailContent() {
         began mid-sentence. One heading, from the same registry the sidebar reads,
         so the two cannot drift.
       */}
-      <h2 className="mt-8 text-2xl font-semibold tracking-tight">
-        {t(section.macro === "automation" ? "instances.macro.automation" : section.titleKey)}
-      </h2>
+      <div className="mt-8 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-semibold tracking-tight">
+            {t(section.macro === "automation" ? "instances.macro.automation" : section.titleKey)}
+          </h2>
+          <SectionDescription tab={section.tab} />
+        </div>
+        {/* The section's own buttons land here (`SectionActions`), beside its title. */}
+        <div ref={setActionsSlot} className="flex shrink-0 flex-wrap items-center gap-2" />
+      </div>
 
+      <SectionActionsSlot value={actionsSlot}>
       <Tabs value={activeTab} onValueChange={(tab) => router.push(`${pathname}?tab=${tab}`)} className="mt-6">
         {section.macro === "automation" && (
           <TabsList>
@@ -281,12 +297,7 @@ function InstanceDetailContent() {
           <GeneralTab instance={instance} onUpdate={setInstance} />
         </TabsContent>
         <TabsContent value="settings">
-          <SettingsTab
-            instance={instance}
-            onUpdate={setInstance}
-            section="model"
-            onConfigurationChanged={status.refresh}
-          />
+          <ModelTab instance={instance} onUpdate={setInstance} onConfigurationChanged={status.refresh} />
         </TabsContent>
         <TabsContent value="channels">
           <ChannelsSection instance={instance} onUpdate={setInstance} />
@@ -371,6 +382,7 @@ function InstanceDetailContent() {
           <LogsTab slug={instance.slug} />
         </TabsContent>
       </Tabs>
+      </SectionActionsSlot>
     </div>
     </PageActionsProvider>
   );
