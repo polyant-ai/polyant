@@ -725,6 +725,12 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   }
   const provenance = hookProvenance(hookExecutions) ?? opts.provenance;
 
+  // The coordinator can abort while the hooks above were awaited (a new fragment
+  // arrived). Re-check before any write: an aborted run persists nothing.
+  if (opts.abortSignal?.aborted) {
+    return { finalText, hookExecutions };
+  }
+
   const totalMs = Date.now() - ctx.pipelineStart;
   pipelineLog.response(ctx.instanceId, totalMs);
 
@@ -761,7 +767,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   }
 
   // Persist conversation state (commit-on-success): reached only when not aborted
-  // (the abort gate above already returned). Awaited — a single fast upsert — so a
+  // (the abort gates above already returned). Awaited — a single fast upsert — so a
   // tool's derived value is durable before the next turn reads it.
   if (persist && ctx.stateBuffer) {
     try {
@@ -769,6 +775,12 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     } catch (err) {
       console.error(`Failed to flush conversation state for ${ctx.conversationId}:`, err);
     }
+  }
+
+  // The flush is awaited, so the coordinator may have aborted meanwhile. The state
+  // upsert is idempotent for the restarted run; the messages must not be written.
+  if (opts.abortSignal?.aborted) {
+    return { finalText, hookExecutions };
   }
 
   if (persist) {
