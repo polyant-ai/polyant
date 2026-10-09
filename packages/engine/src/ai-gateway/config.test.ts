@@ -389,8 +389,18 @@ describe("estimateSttCost", () => {
     expect(estimateSttCost("openai", "whisper-1", 120)).toBeCloseTo(0.012, 10);
   });
 
+  // Every voice note on Deepgram or Amazon Transcribe was logged at $0, so the
+  // spend those providers bill never reached the analytics.
+  it("prices Deepgram Nova-3 at its pre-recorded list rate of $0.0043 per minute", () => {
+    expect(estimateSttCost("deepgram", "nova-3", 60)).toBeCloseTo(0.0043, 10);
+  });
+
+  it("prices Amazon Transcribe streaming at $0.0001667 per second", () => {
+    expect(estimateSttCost("aws", "transcribe-streaming", 90)).toBeCloseTo(90 * 0.0001667, 10);
+  });
+
   it("returns 0 for unknown provider", () => {
-    expect(estimateSttCost("aws", "transcribe-streaming", 60)).toBe(0);
+    expect(estimateSttCost("other", "transcribe-streaming", 60)).toBe(0);
   });
 
   it("returns 0 for unknown model", () => {
