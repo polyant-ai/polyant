@@ -350,6 +350,10 @@ export async function createInstance(data: {
       model: data.model ?? null,
       // New instances default to 1024d; the DB default (1536) stays for legacy rows.
       embeddingDim: DEFAULT_EMBEDDING_DIM,
+      // A new agent needs its API key to be reached; turning that off is a
+      // deliberate, confirmed act in the panel. Channels need no seeding: none
+      // exists until someone configures it, so a new agent starts with all off.
+      authEnabled: true,
       // Default the embedder to match the chat provider (bedrock chat → bedrock
       // embeddings, else openai). It is independently changeable afterwards.
       embeddingProvider: embeddingProviderFor(data.provider),

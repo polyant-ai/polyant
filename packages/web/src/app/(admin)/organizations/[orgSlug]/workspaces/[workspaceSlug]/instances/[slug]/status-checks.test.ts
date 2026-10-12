@@ -36,7 +36,7 @@ function input(overrides: Partial<StatusCheckInput> = {}): StatusCheckInput {
     instance: agent(),
     tools: [{ name: "t1", description: "", category: "general", enabled: true } as ToolState],
     skills: [],
-    secrets: [{ key: "openai_api_key", configured: true }],
+    secrets: [{ key: "openai_api_key", configured: true }, { key: "auth_api_key", configured: true }],
     channels: [{ channelType: "telegram", enabled: true, config: { botToken: "x" } }],
     documents: [],
     hooks: [],
@@ -297,6 +297,19 @@ describe("runStatusChecks — exposed", () => {
     const withoutA2a = runStatusChecks(input({ instance: agent({ authEnabled: false }) }));
     expect(withoutA2a.map((c) => c.id)).toContain("api-open");
     expect(withoutA2a.find((c) => c.id === "api-open")?.severity).toBe("broken");
+  });
+
+  it("warns when authentication is on and no API key is saved", () => {
+    const noKey = runStatusChecks(input({ secrets: [{ key: "openai_api_key", configured: true }] }));
+    expect(noKey.find((c) => c.id === "api-key-missing")?.severity).toBe("warning");
+
+    const withKey = runStatusChecks(
+      input({ secrets: [{ key: "openai_api_key", configured: true }, { key: "auth_api_key", configured: true }] }),
+    );
+    expect(withKey.map((c) => c.id)).not.toContain("api-key-missing");
+
+    const unknown = runStatusChecks(input({ secrets: null }));
+    expect(unknown.map((c) => c.id)).not.toContain("api-key-missing");
   });
 
   it("counts only the opt-outs of the last week, above the threshold", () => {
