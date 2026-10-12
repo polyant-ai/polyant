@@ -8,6 +8,7 @@ import {
   timestamp,
   integer,
   boolean,
+  jsonb,
   primaryKey,
   index,
 } from "drizzle-orm/pg-core";
@@ -36,6 +37,12 @@ export const users = pgTable("users", {
    * `role` column to derive it from, or to drift out of sync with it.
    */
   isPlatformAdmin: boolean("is_platform_admin").notNull().default(false),
+  /**
+   * First-access guidance state (wizard, interface tour, agent tour). NULL means
+   * the user has never recorded a choice, which reads as "show it". The shape and
+   * its validation live in `users/onboarding.ts`.
+   */
+  onboarding: jsonb("onboarding"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

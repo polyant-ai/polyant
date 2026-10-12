@@ -4,6 +4,12 @@ import { eq, sql, desc } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { users, sessions } from "../auth/users.schema.js";
 import { invalidateSuperadminCache } from "../authz/authz.caches.js";
+import {
+  applyOnboardingPatch,
+  normalizeOnboarding,
+  type OnboardingPatch,
+  type OnboardingState,
+} from "./onboarding.js";
 
 export interface UserRow {
   id: string;
@@ -210,4 +216,38 @@ export async function deleteUserById(id: string): Promise<boolean> {
  * until expiry — this is documented in CLAUDE.md as a known trade-off. */
 export async function deleteSessionsForUser(userId: string): Promise<void> {
   await db.delete(sessions).where(eq(sessions.userId, userId));
+}
+
+/** The user's guidance state, or null when no such user exists. */
+export async function getOnboarding(userId: string): Promise<OnboardingState | null> {
+  const [row] = await db
+    .select({ onboarding: users.onboarding })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return row ? normalizeOnboarding(row.onboarding) : null;
+}
+
+/**
+ * Merge a patch into ONE user's record. The row is locked for the read-modify-
+ * write so two quick updates (the wizard marks a step while a tour marks itself
+ * seen) cannot overwrite each other's `steps`. Keyed on the user id alone: there
+ * is no way to name another user's row from here.
+ */
+export async function patchOnboarding(
+  userId: string,
+  patch: OnboardingPatch,
+): Promise<OnboardingState | null> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ onboarding: users.onboarding })
+      .from(users)
+      .where(eq(users.id, userId))
+      .for("update")
+      .limit(1);
+    if (!row) return null;
+    const next = applyOnboardingPatch(normalizeOnboarding(row.onboarding), patch);
+    await tx.update(users).set({ onboarding: next }).where(eq(users.id, userId));
+    return next;
+  });
 }

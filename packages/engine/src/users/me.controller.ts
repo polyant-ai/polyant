@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { Body, Controller, Get, Inject, Post } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Patch, Post } from "@nestjs/common";
 import { UsersService } from "./users.service.js";
 import { CurrentUser } from "../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
@@ -34,7 +34,23 @@ export class MeController {
   @AuthenticatedOnly()
   @Get()
   async context(@CurrentUser() actor: AuthenticatedUser) {
-    return this.tenant.getContextFor(actor);
+    const [tenancy, onboarding] = await Promise.all([
+      this.tenant.getContextFor(actor),
+      this.users.getOwnOnboarding(actor),
+    ]);
+    return { ...tenancy, onboarding };
+  }
+
+  /**
+   * Record the caller's own first-access guidance state (wizard, interface tour,
+   * agent tour, wizard steps). Identity is the whole check, like the password
+   * route: the row written is the authenticated user's, and only the four known
+   * keys with their listed values are accepted.
+   */
+  @AuthenticatedOnly()
+  @Patch("onboarding")
+  async updateOnboarding(@CurrentUser() actor: AuthenticatedUser, @Body() body: unknown) {
+    return { onboarding: await this.users.updateOwnOnboarding(actor, body) };
   }
 
   /**

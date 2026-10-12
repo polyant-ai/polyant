@@ -11,9 +11,11 @@ import {
   deleteSessionsForUser,
   deleteUserById,
   getUserByEmail,
+  getOnboarding,
   getUserById,
   insertUser,
   listUsers,
+  patchOnboarding,
   stripSecret,
   updateUserMeta,
   updateUserPassword,
@@ -29,6 +31,11 @@ import {
 import { isLastOwnerOfAnyOrg } from "../organizations/members.store.js";
 import { generateToken } from "../crypto/index.js";
 import { isUniqueViolation } from "../utils/db-errors.js";
+import {
+  NEW_ONBOARDING,
+  parseOnboardingPatch,
+  type OnboardingState,
+} from "./onboarding.js";
 
 // RFC 5321 caps an email address at 254 chars. Enforce it before the regex
 // runs so the polynomial-ish backtracking cost of the [^\s@]+ groups can
@@ -222,6 +229,23 @@ export class UsersService {
     const refreshed = await getUserById(id);
     if (!refreshed) throw new NotFoundException(`User ${id} not found`);
     return { user: stripSecret(refreshed), generatedPassword: generated };
+  }
+
+  /** The caller's own guidance state; a caller with no user row has not seen it. */
+  async getOwnOnboarding(actor: { userId: string }): Promise<OnboardingState> {
+    return (await getOnboarding(actor.userId)) ?? { ...NEW_ONBOARDING, steps: {} };
+  }
+
+  /**
+   * Update the caller's own guidance state. The target is the authenticated
+   * user's id and nothing in the body can change it: the body is validated down
+   * to the four known keys before it reaches the store.
+   */
+  async updateOwnOnboarding(actor: { userId: string }, body: unknown): Promise<OnboardingState> {
+    const patch = parseOnboardingPatch(body);
+    const next = await patchOnboarding(actor.userId, patch);
+    if (!next) throw new NotFoundException("User not found");
+    return next;
   }
 
   async changeOwnPassword(

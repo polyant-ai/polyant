@@ -603,6 +603,13 @@
       "when": 1791970000000,
       "tag": "0092_playground_use",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792050000000,
+      "tag": "0093_user_onboarding",
+      "breakpoints": true
     }
   ]
 }
