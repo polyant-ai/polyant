@@ -914,8 +914,8 @@ export type WizardStepId =
   | "provider"
   | "model"
   | "agent"
-  | "channels"
   | "chat"
+  | "channels"
   | "knowledge";
 export type WizardStepState = "todo" | "done" | "skip";
 

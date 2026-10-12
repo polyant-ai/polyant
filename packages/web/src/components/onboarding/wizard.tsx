@@ -74,7 +74,6 @@ export function Wizard() {
   const [web, setWeb] = useState<WebState>(NO_WEB);
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [sending, setSending] = useState(false);
-  const [keyInput, setKeyInput] = useState("");
   const [kbTitle, setKbTitle] = useState("");
   const [kbText, setKbText] = useState("");
   const [kbAdded, setKbAdded] = useState(false);
@@ -180,7 +179,6 @@ export function Wizard() {
       if (on) {
         const key = await enableWebWithKey(agent.slug);
         setWeb((w) => ({ ...w, enabled: true, authEnabled: true, keyConfigured: true, freshKey: key }));
-        setKeyInput("");
       } else {
         await disableWeb(agent.slug);
         setWeb((w) => ({ ...w, enabled: false }));
@@ -217,24 +215,26 @@ export function Wizard() {
       {
         messages: history,
         chatId: chatId.current,
-        agentKey: web.freshKey ?? (keyInput.trim() || undefined),
         signal: abort.current.signal,
-        errors: { network: t("onboarding.chat.network"), http: (s) => t("onboarding.chat.http", { status: s }) },
+        errorMessages: {
+          network: t("playground.error.network"),
+          noBody: t("playground.error.noBody"),
+          streamRead: t("playground.error.streamRead"),
+          httpFailed: (status) => t("playground.error.httpFailed", { status }),
+        },
       },
-      {
-        onText: (delta) =>
-          setLines((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === "assistant") next[next.length - 1] = { ...last, content: last.content + delta };
-            return next;
-          }),
-      },
+      (delta) =>
+        setLines((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role === "assistant") next[next.length - 1] = { ...last, content: last.content + delta };
+          return next;
+        }),
     )
       .catch((err: unknown) => {
         if (abort.current?.signal.aborted) return;
         setLines((prev) => prev.slice(0, -1));
-        setError(err instanceof Error ? err.message : t("onboarding.chat.network"));
+        setError(err instanceof Error ? err.message : t("playground.error.network"));
       })
       .finally(() => setSending(false));
   };
@@ -327,7 +327,7 @@ export function Wizard() {
     onToggleWeb,
     onToggleAuth,
     onRegenerateKey,
-    chat: { lines, sending, keyInput, setKeyInput, send: sendChat },
+    chat: { lines, sending, send: sendChat },
     kb: { title: kbTitle, text: kbText, added: kbAdded, setTitle: setKbTitle, setText: setKbText, add: addKnowledge },
   };
 

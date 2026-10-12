@@ -64,8 +64,6 @@ export interface StepProps {
   chat: {
     lines: ChatLine[];
     sending: boolean;
-    keyInput: string;
-    setKeyInput: (value: string) => void;
     send: (text: string) => void;
   };
   kb: { title: string; text: string; added: boolean; setTitle: (v: string) => void; setText: (v: string) => void; add: () => void };
@@ -430,83 +428,53 @@ function ChatStep({ p }: { p: StepProps }) {
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight });
   }, [p.chat.lines]);
-  const needsKey = p.web.authEnabled && !p.web.freshKey;
   return (
     <div>
       <StepHeading id="chat" />
       <div className="mt-5">
         <AgentGate p={p}>
-          {!p.web.enabled ? (
-            <div role="status" className="space-y-3 rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
-              <p>{t("onboarding.chat.webOff")}</p>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" disabled={p.busy || !p.web.loaded} onClick={() => p.onToggleWeb(true)}>
-                  {t("onboarding.chat.turnOnWeb")}
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => p.goTo("channels")}>
-                  {t("onboarding.chat.goChannels")}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">{t("onboarding.chat.consent")}</p>
-              {p.error && <p role="alert" className="text-destructive">{p.error}</p>}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {needsKey && (
-                <div className="max-w-md space-y-1.5">
-                  <Label htmlFor="wizard-chat-key">{t("onboarding.chat.keyLabel")}</Label>
-                  <Input
-                    id="wizard-chat-key"
-                    type="password"
-                    autoComplete="off"
-                    value={p.chat.keyInput}
-                    onChange={(e) => p.chat.setKeyInput(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">{t("onboarding.chat.keyHint")}</p>
-                </div>
+          <div className="space-y-3">
+            <div
+              ref={log}
+              role="log"
+              aria-live="polite"
+              aria-label={t("onboarding.chat.log")}
+              className="h-64 space-y-2 overflow-y-auto rounded-lg border bg-muted/30 p-3"
+            >
+              {p.chat.lines.length === 0 && (
+                <p className="text-sm text-muted-foreground">{t("onboarding.chat.empty")}</p>
               )}
-              <div
-                ref={log}
-                role="log"
-                aria-live="polite"
-                aria-label={t("onboarding.chat.log")}
-                className="h-64 space-y-2 overflow-y-auto rounded-lg border bg-muted/30 p-3"
-              >
-                {p.chat.lines.length === 0 && (
-                  <p className="text-sm text-muted-foreground">{t("onboarding.chat.empty")}</p>
-                )}
-                {p.chat.lines.map((line, i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      "max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
-                      line.role === "user" ? "ml-auto bg-primary text-primary-foreground" : "bg-card border",
-                    )}
-                  >
-                    {line.content || "…"}
-                  </div>
-                ))}
-              </div>
-              {p.error && <p role="alert" className="text-sm text-destructive">{p.error}</p>}
-              <form
-                className="flex gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const value = input.current?.value.trim() ?? "";
-                  if (!value || p.chat.sending) return;
-                  p.chat.send(value);
-                  if (input.current) input.current.value = "";
-                }}
-              >
-                <Input ref={input} aria-label={t("onboarding.chat.placeholder")} placeholder={t("onboarding.chat.placeholder")} autoComplete="off" />
-                <Button type="submit" disabled={p.chat.sending}>
-                  <Send className="size-4" />
-                  <span className="sr-only sm:not-sr-only">{t("onboarding.chat.send")}</span>
-                </Button>
-              </form>
-              <p className="text-xs text-muted-foreground">{t("onboarding.chat.hint")}</p>
+              {p.chat.lines.map((line, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
+                    line.role === "user" ? "ml-auto bg-primary text-primary-foreground" : "bg-card border",
+                  )}
+                >
+                  {line.content || "…"}
+                </div>
+              ))}
             </div>
-          )}
+            {p.error && <p role="alert" className="text-sm text-destructive">{p.error}</p>}
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const value = input.current?.value.trim() ?? "";
+                if (!value || p.chat.sending) return;
+                p.chat.send(value);
+                if (input.current) input.current.value = "";
+              }}
+            >
+              <Input ref={input} aria-label={t("onboarding.chat.placeholder")} placeholder={t("onboarding.chat.placeholder")} autoComplete="off" />
+              <Button type="submit" disabled={p.chat.sending}>
+                <Send className="size-4" />
+                <span className="sr-only sm:not-sr-only">{t("onboarding.chat.send")}</span>
+              </Button>
+            </form>
+            <p className="text-xs text-muted-foreground">{t("onboarding.chat.hint")}</p>
+          </div>
         </AgentGate>
       </div>
     </div>

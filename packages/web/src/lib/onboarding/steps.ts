@@ -5,23 +5,22 @@ import type { OnboardingState, WizardStepId, WizardStepState } from "@/lib/api-t
 /**
  * The guided setup, as data. The wizard renders one body per id; everything the
  * rest of the panel needs to know about a step (its order, which need an agent)
- * lives here. Channels come before the chat test: the test goes through the Web
- * channel with the agent key, so Web must be on first. so the Dashboard card and the wizard cannot disagree.
+ * lives here. so the Dashboard card and the wizard cannot disagree.
  */
 export const WIZARD_STEP_IDS: readonly WizardStepId[] = [
   "welcome",
   "provider",
   "model",
   "agent",
-  "channels",
   "chat",
+  "channels",
   "knowledge",
 ];
 
 /** Steps that only make sense once an agent exists. */
 export const STEPS_NEEDING_AGENT: ReadonlySet<WizardStepId> = new Set([
-  "channels",
   "chat",
+  "channels",
   "knowledge",
 ]);
 

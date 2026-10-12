@@ -31,7 +31,7 @@ describe("First steps card", () => {
 describe("Resuming", () => {
   it("lists skipped and untouched steps, in wizard order", () => {
     const state = { ...base, wizard: "skipped" as const, steps: { welcome: "done", provider: "skip", agent: "done" } as OnboardingState["steps"] };
-    expect(remainingSteps(state)).toEqual(["provider", "model", "channels", "chat", "knowledge"]);
+    expect(remainingSteps(state)).toEqual(["provider", "model", "chat", "channels", "knowledge"]);
   });
 
   it("reopens at the first step that is not done", () => {
@@ -40,7 +40,7 @@ describe("Resuming", () => {
 });
 
 describe("Step order", () => {
-  it("puts the channels before the chat test, which goes through the Web channel", () => {
-    expect(WIZARD_STEP_IDS.indexOf("channels")).toBeLessThan(WIZARD_STEP_IDS.indexOf("chat"));
+  it("tries the agent in chat before turning on channels, since the chat needs no channel", () => {
+    expect(WIZARD_STEP_IDS).toEqual(["welcome", "provider", "model", "agent", "chat", "channels", "knowledge"]);
   });
 });

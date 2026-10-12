@@ -17,8 +17,8 @@ export const WIZARD_STEPS = [
   "provider",
   "model",
   "agent",
-  "channels",
   "chat",
+  "channels",
   "knowledge",
 ] as const;
 export const STEP_STATES = ["todo", "done", "skip"] as const;
