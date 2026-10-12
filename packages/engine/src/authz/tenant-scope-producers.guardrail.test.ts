@@ -30,7 +30,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, dirname, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -86,12 +86,12 @@ interface Occurrence {
 
 function collectSourceFiles(dir: string): string[] {
   const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules") continue;
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules") continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
       out.push(...collectSourceFiles(full));
-    } else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) {
+    } else if (entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
       out.push(full);
     }
   }

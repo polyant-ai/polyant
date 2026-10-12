@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,12 +16,12 @@ const ENGINE_SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function collectTsFiles(dir: string): string[] {
   const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules") continue;
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules") continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
       out.push(...collectTsFiles(full));
-    } else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) {
+    } else if (entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
       out.push(full);
     }
   }

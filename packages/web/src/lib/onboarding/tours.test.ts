@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AGENT_TOUR, INTERFACE_TOUR, isOnTourPage, tourHref, tourSteps } from "./tours";
@@ -56,10 +56,13 @@ describe("tour addresses", () => {
 describe("tour targets exist in the source", () => {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
   function sources(dir: string): string[] {
-    return readdirSync(dir).flatMap((name) => {
-      const full = join(dir, name);
-      if (statSync(full).isDirectory()) return sources(full);
-      return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) && !full.includes(join("lib", "onboarding", "tours.ts"))
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) return sources(full);
+      return entry.isFile() &&
+        /\.tsx?$/.test(entry.name) &&
+        !/\.test\.tsx?$/.test(entry.name) &&
+        !full.includes(join("lib", "onboarding", "tours.ts"))
         ? [readFileSync(full, "utf8")]
         : [];
     });
