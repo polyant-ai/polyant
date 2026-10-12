@@ -18,3 +18,17 @@ globalThis.ResizeObserver ??= class {
   unobserve() {}
   disconnect() {}
 };
+
+// The panel follows the browser language when no locale is stored. Tests
+// assert the Italian copy, so pin the browser to Italian; the i18n context
+// tests override this where they exercise detection.
+if (typeof navigator !== "undefined") {
+  Object.defineProperty(navigator, "languages", {
+    value: ["it-IT", "it"],
+    configurable: true,
+  });
+  Object.defineProperty(navigator, "language", {
+    value: "it-IT",
+    configurable: true,
+  });
+}

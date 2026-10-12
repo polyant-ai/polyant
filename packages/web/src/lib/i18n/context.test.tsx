@@ -93,8 +93,43 @@ describe("I18nProvider + useI18n", () => {
 
     const { result } = renderHook(() => useI18n(), { wrapper });
 
-    // Should fall back to DEFAULT_LOCALE ("it") since "fr" is not valid
+    // "fr" is not valid, so the browser language (pinned to Italian) applies
     expect(result.current.locale).toBe("it");
+  });
+
+  describe("browser language detection", () => {
+    function setBrowser(languages: string[]) {
+      Object.defineProperty(navigator, "languages", {
+        value: languages,
+        configurable: true,
+      });
+    }
+    afterEach(() => setBrowser(["it-IT", "it"]));
+
+    it("starts in English for an English browser with nothing stored", () => {
+      setBrowser(["en-GB", "en"]);
+      const { result } = renderHook(() => useI18n(), { wrapper });
+      expect(result.current.locale).toBe("en");
+    });
+
+    it("picks the first supported language in the browser preference list", () => {
+      setBrowser(["fr-FR", "it-IT", "en"]);
+      const { result } = renderHook(() => useI18n(), { wrapper });
+      expect(result.current.locale).toBe("it");
+    });
+
+    it("falls back to English when no browser language is supported", () => {
+      setBrowser(["fr-FR", "de"]);
+      const { result } = renderHook(() => useI18n(), { wrapper });
+      expect(result.current.locale).toBe("en");
+    });
+
+    it("lets a stored choice win over the browser language", () => {
+      setBrowser(["en-US"]);
+      localStorage.setItem("locale", "it");
+      const { result } = renderHook(() => useI18n(), { wrapper });
+      expect(result.current.locale).toBe("it");
+    });
   });
 
   it("handles multiple placeholder substitutions", () => {

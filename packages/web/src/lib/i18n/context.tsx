@@ -11,11 +11,26 @@ import {
   type ReactNode,
 } from "react";
 import type { Locale, TranslationKey, Translations } from "./types";
-import { DEFAULT_LOCALE } from "./types";
+import { DEFAULT_LOCALE, LOCALES } from "./types";
 import en from "./locales/en.json";
 import it from "./locales/it.json";
 
 const STORAGE_KEY = "locale";
+
+/**
+ * Picks the first supported locale among the browser's preferred languages
+ * (matching on the primary subtag, so "it-IT" -> "it"); English when none matches.
+ */
+export function detectBrowserLocale(
+  languages: readonly string[] | undefined,
+): Locale {
+  for (const lang of languages ?? []) {
+    const primary = lang.toLowerCase().split("-")[0];
+    const match = LOCALES.find((l) => l === primary);
+    if (match) return match;
+  }
+  return "en";
+}
 
 const TRANSLATIONS: Record<Locale, Translations> = {
   en: en as Translations,
@@ -42,7 +57,14 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === "en" || stored === "it") {
       setLocaleState(stored);
+      return;
     }
+    // No explicit choice yet: follow the browser. Done after mount so the
+    // server-rendered markup and the first client render still match.
+    const preferred = navigator.languages?.length
+      ? navigator.languages
+      : [navigator.language];
+    setLocaleState(detectBrowserLocale(preferred));
   }, []);
 
   useEffect(() => {
