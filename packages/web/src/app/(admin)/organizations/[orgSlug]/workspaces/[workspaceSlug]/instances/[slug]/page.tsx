@@ -96,6 +96,9 @@ function InstanceDetailContent() {
   const section = agentSection(activeTab);
   const [instance, setInstance] = useState<Instance | null>(null);
   const [tools, setTools] = useState<ToolState[]>([]);
+  // False when the role cannot read the tool list: the status page must not
+  // report a missing tool it was never allowed to see.
+  const [toolsReadable, setToolsReadable] = useState(true);
   // How the Tools section names each plugin; fixed for the engine's lifetime.
   const [toolPlugins, setToolPlugins] = useState<ToolPluginInfo[]>([]);
   const [skills, setSkills] = useState<SkillState[]>([]);
@@ -104,7 +107,7 @@ function InstanceDetailContent() {
   const [exporting, setExporting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
-  const status = useStatusChecks({ instance, tools, skills });
+  const status = useStatusChecks({ instance, tools, toolsReadable, skills });
 
   useEffect(() => {
     const slug = params.slug;
@@ -120,6 +123,7 @@ function InstanceDetailContent() {
     ])
       .then(([instanceRes, toolsRes, skillsRes, promptsRes]) => {
         setInstance(instanceRes.instance);
+        setToolsReadable(toolsRes !== null);
         if (toolsRes) {
           setTools(toolsRes.tools);
           setToolPlugins(toolsRes.plugins ?? []);

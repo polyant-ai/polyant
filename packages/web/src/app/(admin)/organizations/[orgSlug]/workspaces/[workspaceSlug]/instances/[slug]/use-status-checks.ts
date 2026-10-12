@@ -35,10 +35,12 @@ const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 export function useStatusChecks({
   instance,
   tools,
+  toolsReadable = true,
   skills,
 }: {
   instance: Instance | null;
   tools: ToolState[];
+  toolsReadable?: boolean;
   skills: SkillState[];
 }): {
   checks: AgentCheck[];
@@ -80,6 +82,7 @@ export function useStatusChecks({
         runStatusChecks({
           instance,
           tools,
+          toolsReadable,
           skills,
           optedOutCount: optOutList === null ? null : optOutList.length,
           secrets: (value(secrets)?.secrets ?? null) as SecretStatus[] | null,
@@ -104,7 +107,7 @@ export function useStatusChecks({
     return () => {
       cancelled = true;
     };
-  }, [instance, tools, skills, revision]);
+  }, [instance, tools, toolsReadable, skills, revision]);
 
   return { checks, verdict: statusVerdict(checks), loading, refresh };
 }

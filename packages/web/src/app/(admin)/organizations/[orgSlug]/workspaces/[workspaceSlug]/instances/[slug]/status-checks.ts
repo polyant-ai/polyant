@@ -59,6 +59,8 @@ export interface AgentCheck {
 export interface StatusCheckInput {
   instance: Instance;
   tools: ToolState[];
+  /** `false` when the tool list could not be read (a role without that permission): the tool checks are skipped. */
+  toolsReadable?: boolean;
   skills: SkillState[];
   /** `null` when the caller could not read them (a viewer): the secret checks are skipped. */
   secrets: SecretStatus[] | null;
@@ -105,6 +107,7 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
   const {
     instance,
     tools,
+    toolsReadable = true,
     skills,
     secrets,
     channels,
@@ -243,6 +246,27 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
       bodyKey: "status.check.embedderCredentials.body",
       section: "settings",
       sectionKey: "instances.detail.tabSettings",
+    });
+  }
+
+  /*
+    Turning Knowledge on assigns the search tool, but the author can remove it
+    later, and agents that had Knowledge on before that behaviour never got it.
+    Without `searchKnowledge` the documents are indexed and never read. Skipped
+    when the tool list could not be read: an unreadable list is not a missing tool.
+  */
+  if (
+    instance.knowledgeEnabled &&
+    toolsReadable &&
+    !tools.some((tool) => tool.name === "searchKnowledge" && tool.enabled)
+  ) {
+    checks.push({
+      id: "knowledge-no-search-tool",
+      severity: "warning",
+      titleKey: "status.check.knowledgeNoSearchTool.title",
+      bodyKey: "status.check.knowledgeNoSearchTool.body",
+      section: "tools",
+      sectionKey: "instances.detail.tabTools",
     });
   }
 
