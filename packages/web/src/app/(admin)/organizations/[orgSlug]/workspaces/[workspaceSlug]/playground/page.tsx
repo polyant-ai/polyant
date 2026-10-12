@@ -2,15 +2,34 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatArea } from "./_components/chat-area";
 import { useChat } from "./_hooks/use-chat";
 import { useConversations } from "./_hooks/use-conversations";
+import { api } from "@/lib/api";
+
+const AUTH_STORAGE_PREFIX = "playground_auth_";
 
 export default function PlaygroundPage() {
   const { conversations, loading, refresh } = useConversations();
   const chat = useChat("");
+  const [authToken, setAuthToken] = useState("");
   const instanceSlug = chat.state.instanceSlug;
+
+  // The Web channel switch of the selected agent: chat/stream answers 404 while it is off.
+  const [webOff, setWebOff] = useState(false);
+  useEffect(() => {
+    setWebOff(false);
+    if (!instanceSlug) return;
+    let current = true;
+    api.channels.list(instanceSlug).then(
+      (res) => {
+        if (current) setWebOff(!res.channels.some((c) => c.channelType === "web" && c.enabled));
+      },
+      () => { /* unknown: leave the playground usable; a refused turn reports itself */ },
+    );
+    return () => { current = false; };
+  }, [instanceSlug]);
 
   // Refresh conversation list when streaming completes
   const wasStreamingRef = useRef(false);
@@ -21,11 +40,35 @@ export default function PlaygroundPage() {
     wasStreamingRef.current = chat.state.isStreaming;
   }, [chat.state.isStreaming, refresh]);
 
+  // Load auth token from localStorage when instance changes
+  useEffect(() => {
+    if (instanceSlug) {
+      const stored = localStorage.getItem(`${AUTH_STORAGE_PREFIX}${instanceSlug}`);
+      setAuthToken(stored ?? "");
+    } else {
+      setAuthToken("");
+    }
+  }, [instanceSlug]);
+
+  const handleAuthTokenChange = useCallback(
+    (token: string) => {
+      setAuthToken(token);
+      if (instanceSlug) {
+        if (token) {
+          localStorage.setItem(`${AUTH_STORAGE_PREFIX}${instanceSlug}`, token);
+        } else {
+          localStorage.removeItem(`${AUTH_STORAGE_PREFIX}${instanceSlug}`);
+        }
+      }
+    },
+    [instanceSlug],
+  );
+
   const handleSend = useCallback(
     (text: string) => {
-      chat.sendMessage(text);
+      chat.sendMessage(text, authToken || undefined);
     },
-    [chat],
+    [chat, authToken],
   );
 
   const handleNewChat = useCallback(() => {
@@ -62,6 +105,9 @@ export default function PlaygroundPage() {
         conversations={conversations}
         conversationsLoading={loading}
         activeConversationId={chat.state.conversationId}
+        webOff={webOff}
+        authToken={authToken}
+        onAuthTokenChange={handleAuthTokenChange}
         onSend={handleSend}
         onStop={chat.stopStreaming}
         onInstanceChange={handleInstanceChange}

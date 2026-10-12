@@ -77,9 +77,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PUT /api/instances/:slug/channels/web`). With Web off they answer 404, the way a
   switched-off Telegram or Slack webhook does, and `GET /v1/models` with the agent's
   own key lists nothing. Switching Web on needs the agent's API key unless
-  authentication is turned off. The panel's Playground talks to the new
-  `POST /api/instances/:slug/playground/stream`, which uses the panel session and
-  `agent:write`, so it works with Web off and no longer asks for the key. Migration
+  authentication is turned off. The panel's Playground still calls
+  `chat/stream` with the key typed in its key field, so it needs Web on too: with Web
+  off it shows a notice linking to the agent's Channels section. Migration
   `0091` switches Web on for every existing agent, with its `auth_enabled` as it was;
   bundles carry the `web` channel (format 1.3) and an older bundle restores the
   endpoint on. A2A keeps its own `a2a_enabled` switch.

@@ -171,16 +171,15 @@ describe("InstanceChatStreamController.stream", () => {
     ]);
   });
 
-  it("serves the panel playground without the Web channel or the agent key", async () => {
-    chatCompletionStream.mockResolvedValue(makeStream([]));
-    const res = makeRes();
-    await controller.playground("acme", { model: "x", messages: [], context: { a: 1 } } as never, res as never);
+  it("has no playground route: the panel uses the gated chat/stream", () => {
+    expect((controller as unknown as Record<string, unknown>).playground).toBeUndefined();
+  });
 
-    expect(mockValidateInstanceApiKey).not.toHaveBeenCalled();
-    expect(chatCompletionStream).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "acme", stream: true, context: undefined }),
-      expect.any(AbortSignal),
-    );
+  it("keeps chat/stream gated: a refused key never opens the turn", async () => {
+    mockValidateInstanceApiKey.mockRejectedValue(new Error("Invalid API key"));
+    await expect(controller.stream("acme", { messages: [] } as never, makeReq("Bearer bad") as never, makeRes() as never))
+      .rejects.toThrow("Invalid API key");
+    expect(chatCompletionStream).not.toHaveBeenCalled();
   });
 
   it("aborts the pipeline when the client disconnects before the turn produced anything", async () => {

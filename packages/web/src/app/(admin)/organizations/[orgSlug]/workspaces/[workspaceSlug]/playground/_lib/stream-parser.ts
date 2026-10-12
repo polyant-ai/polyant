@@ -64,6 +64,7 @@ export interface StreamRequestOptions {
   messages: ChatMessage[];
   chatId: string;
   signal?: AbortSignal;
+  authToken?: string;
   /** What the user reads when the request fails, in the panel's language. */
   errorMessages: StreamErrorMessages;
 }
@@ -77,7 +78,7 @@ export interface StreamErrorMessages {
 
 /**
  * Connects to the engine's native typed SSE streaming endpoint
- * (`POST /api/instances/:slug/playground/stream`) and dispatches typed callbacks.
+ * (`POST /api/instances/:slug/chat/stream`) and dispatches typed callbacks.
  *
  * The endpoint emits structured SSE events:
  *   step-start, reasoning-delta, reasoning-signature, reasoning-redacted,
@@ -89,14 +90,15 @@ export async function streamChatCompletion(
   options: StreamRequestOptions,
   callbacks: StreamCallbacks,
 ): Promise<void> {
-  const { instanceSlug, messages, chatId, signal, errorMessages } = options;
+  const { instanceSlug, messages, chatId, signal, authToken, errorMessages } = options;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
 
   let response: Response;
   try {
     response = await fetch(
-      `${API_BASE}/api/instances/${encodeURIComponent(instanceSlug)}/playground/stream`,
+      `${API_BASE}/api/instances/${encodeURIComponent(instanceSlug)}/chat/stream`,
       {
         method: "POST",
         headers,
