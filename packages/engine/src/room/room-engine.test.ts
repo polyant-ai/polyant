@@ -445,7 +445,8 @@ describe("executeRoomCycle", () => {
 
       const message = mockSupervise.mock.calls[0][0].message as string;
       expect(message).toContain("[Room context usage:");
-      expect(message).toContain("/ 128,000 tokens");
+      // The product formats with the process locale; build the expectation the same way.
+      expect(message).toContain(`/ ${(128_000).toLocaleString()} tokens`);
     });
   });
 

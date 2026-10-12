@@ -13,7 +13,7 @@ interface OpenAICallOptions {
 function buildModel(apiKey: string) {
   if (!apiKey) {
     throw new Error(
-      "OpenAI API key required for embeddings. Configure it in admin panel under Settings → AI Provider.",
+      "OpenAI API key required for embeddings. Set it in the agent's Model section, under Embeddings.",
     );
   }
   const provider = createOpenAI({ apiKey });

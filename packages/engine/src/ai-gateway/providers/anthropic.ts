@@ -69,7 +69,7 @@ export const AnthropicProvider = createProvider(
   (modelId, apiKeys) => {
     const apiKey = apiKeys?.anthropic;
     if (!apiKey) {
-      throw new Error("Anthropic API key not configured for this instance. Set it in the admin panel under Settings → AI Provider API Keys.");
+      throw new Error("Anthropic API key not configured for this instance. Set it in the agent's Model section, under Conversation.");
     }
     return createAnthropic({
       apiKey,

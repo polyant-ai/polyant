@@ -28,7 +28,7 @@ function buildModel(opts: CompatibleCallOptions) {
   const { registration, apiKey } = opts;
   if (!apiKey) {
     throw new Error(
-      `${registration.label} API key required for embeddings. Configure it in the admin panel under Settings → AI Provider.`,
+      `${registration.label} API key required for embeddings. Set the "${registration.apiKeySecret}" secret on the agent through the management API.`,
     );
   }
   const factory = createOpenAICompatible({

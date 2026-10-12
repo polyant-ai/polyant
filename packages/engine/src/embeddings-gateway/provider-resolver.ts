@@ -84,7 +84,7 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
     const apiKey = secrets[registration.apiKeySecret];
     if (!apiKey) {
       throw new Error(
-        `${registration.label} API key required for embeddings on instance "${instance.slug}". Configure it in Settings → AI Provider.`,
+        `${registration.label} API key required for embeddings on instance "${instance.slug}". Set the "${registration.apiKeySecret}" secret through the management API (PUT /api/instances/${instance.slug}/secrets).`,
       );
     }
     ctx = {
@@ -99,7 +99,7 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
     const region = secrets[SECRET_KEYS.AWS_PROVIDER_REGION];
     if (!region) {
       throw new Error(
-        `AWS region is required for Bedrock embeddings on instance "${instance.slug}". Configure the AWS provider region in Settings → AI Provider.`,
+        `AWS region is required for Bedrock embeddings on instance "${instance.slug}". Set it in the agent's Model section, under Embeddings.`,
       );
     }
     ctx = {
@@ -119,7 +119,7 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
     const apiKey = secrets[SECRET_KEYS.OPENAI_API_KEY];
     if (!apiKey) {
       throw new Error(
-        `OpenAI API key required for embeddings on instance "${instance.slug}". Configure it in Settings → AI Provider.`,
+        `OpenAI API key required for embeddings on instance "${instance.slug}". Set it in the agent's Model section, under Embeddings.`,
       );
     }
     ctx = {

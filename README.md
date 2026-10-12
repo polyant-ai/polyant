@@ -97,37 +97,35 @@ cd polyant
 npm install
 ```
 
-### 2. Start infrastructure
-
-```bash
-docker compose up -d
-```
-
-Starts PostgreSQL 16 with pgvector on port 5432.
-
-### 3. Configure environment
+### 2. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Generate the three required secrets and paste each into `.env`:
+Generate the required secrets and paste each into `.env`:
 
 ```bash
 openssl rand -hex 32   # → ENCRYPTION_KEY
 openssl rand -hex 32   # → AUTH_SECRET
-openssl rand -hex 32   # → AUTH_INTERNAL_SECRET
+openssl rand -hex 32   # → AUTH_INTERNAL_SECRET (without it nobody can sign in to the panel)
 ```
 
-Set an initial admin account (used for the first sign-in) in `.env`:
+The sample database password is `changeme`, set in both `POSTGRES_PASSWORD` and
+`DATABASE_URL`. It works for a local machine as it is. If you change it, change it in
+both places: the container takes `POSTGRES_PASSWORD`, the engine connects with
+`DATABASE_URL`.
+
+Set the initial admin account in `.env`. The admin is created when the engine first
+boots, and the panel asks for a new password at the first sign-in:
 
 ```bash
 INITIAL_ADMIN_EMAIL=admin@example.com
 INITIAL_ADMIN_PASSWORD=choose-a-strong-password
 ```
 
-The admin panel (Next.js) does not read the root `.env`. Mirror the values
-into `packages/web/.env.local`:
+The admin panel (Next.js) does not read the root `.env`. Create
+`packages/web/.env.local` with the same secrets and the database:
 
 ```bash
 # packages/web/.env.local
@@ -135,10 +133,19 @@ into `packages/web/.env.local`:
 AUTH_SECRET=<same value as .env>
 AUTH_INTERNAL_SECRET=<same value as .env>
 AUTH_TRUST_HOST=true
-DATABASE_URL=postgresql://polyant:changeme@localhost:5432/polyant
+DATABASE_URL=postgresql://polyant:changeme@localhost:5432/polyant   # same password as .env
 NEXT_PUBLIC_API_URL=http://localhost:4000
 INTERNAL_ENGINE_URL=http://localhost:4000
 ```
+
+### 3. Start PostgreSQL
+
+```bash
+docker compose up -d --wait
+```
+
+Starts PostgreSQL 16 with pgvector on port 5432 and returns once the database accepts
+connections. Compose reads `POSTGRES_PASSWORD` from `.env`, so step 2 comes first.
 
 ### 4. Run migrations and start
 
@@ -148,7 +155,10 @@ npm run dev          # engine on :4000
 npm run dev:web      # admin panel on :3000 (separate terminal)
 ```
 
-Open `http://localhost:3000`, sign in with the admin credentials from step 3, create an instance, and configure your AI provider keys in the Settings tab.
+Open `http://localhost:3000` and sign in with `INITIAL_ADMIN_EMAIL` and
+`INITIAL_ADMIN_PASSWORD`. The panel asks you to choose a new password, then create an
+agent and open its **Model** section to set the provider key for each task
+(Conversation, Embeddings).
 
 ## Architecture
 
@@ -159,7 +169,7 @@ Open `http://localhost:3000`, sign in with the admin credentials from step 3, cr
 └─────────────────┬────────────────────────────┘
                   │ REST API + cookie auth
 ┌─────────────────┴────────────────────────────┐
-│        packages/engine  (NestJS 11)          │
+│        packages/engine  (NestJS 12)          │
 ├──────────────────────────────────────────────┤
 │  HTTP Server     OpenAI-compatible API       │
 │  Channel Layer   Telegram · Slack · WhatsApp │
@@ -262,7 +272,7 @@ For vulnerability reports, see [SECURITY.md](SECURITY.md) — please do not file
 | Monorepo | npm workspaces |
 | Language | TypeScript / Node.js (ESM) |
 | Agent Framework | Vercel AI SDK v6 |
-| Engine Server | NestJS 11 |
+| Engine Server | NestJS 12 |
 | Admin Panel | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui |
 | Database | PostgreSQL 16 + pgvector (Drizzle ORM) |
 | Memory | pgvector cosine similarity + PostgreSQL FTS (RRF fusion) |
