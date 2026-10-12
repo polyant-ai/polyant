@@ -42,6 +42,8 @@ npx tsx packages/engine/tests/guardrails/run-guardrails.ts
 npx tsx packages/engine/tests/guardrails/run-guardrails.ts --api-url http://localhost:5000
 ```
 
+The target agent (slug `polyant`) needs its Web channel on; with authentication on, add `--api-key <agent key>`. With Web off the first request fails with a 404 that says so.
+
 The runner:
 1. Verifies that the API is reachable
 2. Sends each test case in streaming mode (`POST /v1/chat/completions?stream=true`)
