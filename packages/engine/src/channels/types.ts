@@ -77,9 +77,15 @@ export interface IncomingMessage {
   metadata: Record<string, unknown>;
 }
 
+/** Why a turn produced a warning instead of an answer. Channels ignore it; API bridges map it to an error status. */
+export type TurnFailure = "missing_provider_key";
+
 export interface OutgoingMessage {
   /** Response text */
   text: string;
+
+  /** Set when `text` is a warning about a failed turn rather than the agent's answer. */
+  failure?: TurnFailure;
 
   /** Optional structured attachments */
   attachments?: Attachment[];
@@ -107,6 +113,8 @@ export interface Attachment {
 export type MessageHandler = (msg: IncomingMessage, signal?: AbortSignal) => Promise<OutgoingMessage>;
 
 export interface StreamOutgoingMessage {
+  /** Set when the stream carries only a warning about a failed turn (see OutgoingMessage.failure). */
+  failure?: TurnFailure;
   textStream: AsyncIterable<string>;
   fullStream: AsyncIterable<unknown>;
   completed: Promise<{

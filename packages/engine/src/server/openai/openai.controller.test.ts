@@ -216,3 +216,44 @@ describe("OpenAIController — streaming request refused by the pipeline", () =>
     expect(res.write).not.toHaveBeenCalled();
   });
 });
+
+describe("OpenAIController — agent without a provider key", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindInstanceBySlug.mockResolvedValue({ id: "test-id", slug: "my-bot", status: "active" });
+    mockResolveInstanceConfig.mockResolvedValue({ authEnabled: false });
+  });
+
+  const refusal = async () => {
+    const { MissingProviderKeyException } = await import("./missing-provider-key.exception.js");
+    return new MissingProviderKeyException("no key");
+  };
+  const makeRes = () => ({ setHeader: vi.fn(), write: vi.fn(), end: vi.fn(), json: vi.fn(), on: vi.fn() });
+
+  it("sets x-should-retry: false and rethrows the 503, non-streaming", async () => {
+    const err = await refusal();
+    const controller = new (OpenAIController as any)({ chatCompletion: vi.fn().mockRejectedValue(err) });
+    const res = makeRes();
+
+    await expect(
+      controller.chatCompletions({ model: "my-bot", messages: [{ role: "user", content: "ciao" }] }, res),
+    ).rejects.toBe(err);
+
+    expect(res.setHeader).toHaveBeenCalledWith("x-should-retry", "false");
+    expect(res.json).not.toHaveBeenCalled();
+  });
+
+  it("answers before any stream byte or stream header, streaming", async () => {
+    const err = await refusal();
+    const controller = new (OpenAIController as any)({ chatCompletionStream: vi.fn().mockRejectedValue(err) });
+    const res = makeRes();
+
+    await expect(
+      controller.chatCompletions({ model: "my-bot", stream: true, messages: [{ role: "user", content: "ciao" }] }, res),
+    ).rejects.toBe(err);
+
+    expect(res.setHeader).toHaveBeenCalledTimes(1);
+    expect(res.setHeader).toHaveBeenCalledWith("x-should-retry", "false");
+    expect(res.write).not.toHaveBeenCalled();
+  });
+});

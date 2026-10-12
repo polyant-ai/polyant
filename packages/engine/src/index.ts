@@ -36,7 +36,8 @@ import { getActiveTrigger } from "./webhooks/active-triggers.js";
 import { TtlCache } from "./utils/ttl-cache.js";
 import {
   isMissingApiKeyError,
-  MISSING_KEY_RESPONSE,
+  missingKeyOutgoing,
+  missingKeyStream,
   runPipelinePre,
   runPipelinePost,
   hasResponseMutatingHook,
@@ -272,7 +273,7 @@ async function main() {
     } catch (err) {
       if (isMissingApiKeyError(err)) {
         pipelineLog.response(ctx.instanceId, Date.now() - ctx.pipelineStart);
-        return { text: MISSING_KEY_RESPONSE };
+        return missingKeyOutgoing();
       }
       throw err;
     }
@@ -443,12 +444,7 @@ async function main() {
     } catch (err) {
       if (isMissingApiKeyError(err)) {
         pipelineLog.response(ctx.instanceId, Date.now() - ctx.pipelineStart);
-        async function* singleChunk() { yield MISSING_KEY_RESPONSE; }
-        return {
-          textStream: singleChunk(),
-          fullStream: (async function* () { yield { type: "text-delta", text: MISSING_KEY_RESPONSE }; })(),
-          completed: Promise.resolve({ text: MISSING_KEY_RESPONSE }),
-        };
+        return missingKeyStream();
       }
       throw err;
     }

@@ -6,6 +6,9 @@ import {
   hasResponseMutatingHook,
   runResponseGeneratedHooks,
   runPipelinePost,
+  missingKeyOutgoing,
+  missingKeyStream,
+  MISSING_KEY_RESPONSE,
   type PipelineContext,
 } from "./pipeline.js";
 import { asInstanceSlug } from "./instances/identifiers.js";
@@ -294,5 +297,25 @@ describe("runPipelinePost persistence gate", () => {
     expect(abortingFlush).toHaveBeenCalledOnce();
     await new Promise((r) => setTimeout(r, 10));
     expect(conversationStore.appendMessages).not.toHaveBeenCalled();
+  });
+});
+
+describe("missing provider key turn", () => {
+  it("marks the outgoing message as a missing_provider_key failure carrying the warning", () => {
+    expect(missingKeyOutgoing()).toEqual({ text: MISSING_KEY_RESPONSE, failure: "missing_provider_key" });
+  });
+
+  it("marks the stream up front and still delivers the warning as text", async () => {
+    const stream = missingKeyStream();
+    expect(stream.failure).toBe("missing_provider_key");
+    const chunks: string[] = [];
+    for await (const c of stream.textStream) chunks.push(c);
+    expect(chunks).toEqual([MISSING_KEY_RESPONSE]);
+    expect(await stream.completed).toEqual({ text: MISSING_KEY_RESPONSE });
+  });
+
+  it("points at the agent's Model section, a place that exists", () => {
+    expect(MISSING_KEY_RESPONSE).toContain("Model section");
+    expect(MISSING_KEY_RESPONSE).not.toContain("Settings tab");
   });
 });
