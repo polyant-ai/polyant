@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- First-access guidance in the panel. A new user gets a full-screen guided setup
+  (provider and key, model, agent, channels and agent key, a chat test through the
+  Web channel, optional knowledge), then an interface tour; the first time a
+  real agent's page opens, a small offer starts a tour of its sections. Every
+  step can be skipped, "Don't show again" is available at each stage, and the new
+  Help menu in the header reopens all three and links to the documentation, the
+  marketplace and the product site. The state is stored per user on the engine
+  (`users.onboarding`, returned by `GET /api/me` and written with
+  `PATCH /api/me/onboarding`), so it follows the person across devices.
+  Accounts that exist when migration 0092 runs start as dismissed.
 - Model: Claude Haiku 5.5 on Anthropic and on Bedrock (EU and global profiles).
   It is priced by prompt length: a model call whose prompt passes 100K tokens
   pays 5× on every rate, input, output and cache. Each call of a tool loop is
