@@ -368,8 +368,8 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     // Tier defaults deliberately avoid Anthropic: on Bedrock the Claude families
     // sit behind a per-account use-case form, so an account that has not been
     // granted them fails EVERY tier at once — including the service jobs (title,
-    // memory, the semantic governance gates) an operator cannot redirect, since
-    // `instances.model` overrides only the supervisor turn.
+    // memory, summaries) an operator cannot redirect, since `instances.model`
+    // overrides only the supervisor turn.
     //
     // `standard` is Nova Pro: the only non-Anthropic family here with BOTH prompt
     // caching and vision (`cacheCapableFallback` limits Bedrock caching to
@@ -380,17 +380,15 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     // gates thinking on the capability). No non-Anthropic Bedrock family offers
     // caching, vision AND reasoning together, so this is a choice between them.
     //
-    // `heavy` is gpt-oss-120b for its reasoning: its consumers are the semantic
-    // governance gates (prompt-injection, PII, topic guardrail in a deployment that
-    // registers them), which send a short one-shot prompt — so the missing cache costs
-    // nothing — and parse a JSON verdict, FAILING OPEN when it does not arrive.
+    // `heavy` is gpt-oss-120b for its reasoning. Nothing in the core engine asks
+    // for `heavy`; it serves code that requests the tier itself, typically a short
+    // one-shot prompt where the missing cache costs nothing.
     // CAVEAT, and it is the sharp one: this is a raw on-demand id, not an eu.*/
     // global. inference profile, so its availability is PER-REGION and verified
     // only in eu-south-1. In a region that does not serve it, fast and standard
     // keep working through the Nova profiles while heavy raises a
-    // ValidationException its only callers swallow: the gates then block nothing,
-    // and the deployment sees one warn line per call. Deploying elsewhere means
-    // re-pointing `heavy` at a model that region actually serves.
+    // ValidationException. Deploying elsewhere means re-pointing `heavy` at a
+    // model that region actually serves.
     tiers: {
       fast: "eu.amazon.nova-lite-v1:0",
       standard: "eu.amazon.nova-pro-v1:0",

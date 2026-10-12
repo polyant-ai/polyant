@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-12
+
+> **Upgrading from 1.1.2 needs operator action.** The engine and the panel run
+> on Node 24. Several built-in tool families and
+> `fileUpload` now require plugins (agents keep them enabled under their new
+> names). Attachment storage uses each agent's own bucket and access keys, with
+> no custom S3 endpoints and no task-role mode, and storing inbound attachments
+> becomes a per-agent choice, off for every agent. Telegram and Slack arrive
+> through webhooks and need a public address. A new agent starts with its Web
+> channel off and requires its API key. Environment variables that set product
+> behaviour are gone, and a non-default value has to be entered in the panel
+> before the upgrade. Migration `0086` rewrites the conversations table. See
+> [docs/UPGRADING.md](docs/UPGRADING.md).
+
 ### Added
 
 - First-access guidance in the panel. A new user gets a full-screen guided setup
@@ -19,130 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`users.onboarding`, returned by `GET /api/me` and written with
   `PATCH /api/me/onboarding`), so it follows the person across devices.
   Accounts that exist when migration 0093 runs start as dismissed.
-- Model: Claude Haiku 5.5 on Anthropic and on Bedrock (EU and global profiles).
-  It is priced by prompt length: a model call whose prompt passes 100K tokens
-  pays 5× on every rate, input, output and cache. Each call of a tool loop is
-  priced on its own prompt, and `GET /api/instances/models` returns the higher
-  rates as `costLongPrompt`.
-- OpenAI GPT-5.4, GPT-5.6 and GPT-6 are priced by prompt length too: a call
-  with more than 272K input tokens pays the long-context rates for the whole
-  request.
-
-### Fixed
-
-- Claude Sonnet 5.5 cache reads cost $0.10 per million tokens on Anthropic and
-  on the Bedrock global profile, not $0.20.
-- Claude models with adaptive thinking (Opus 4.7 and later, Sonnet 5 and 5.5,
-  Haiku 5.5, Fable) show their reasoning again. They return it with empty text
-  unless a summary is requested, so the panel, the logs and the stored turn had
-  none although the reasoning was billed; the gateway now asks for the summary
-  on Anthropic and on Bedrock.
-- GPT-5.6 Sol is priced at its full $5 / $30 rather than the promotional
-  $4 / $20, so a spend cap does not loosen when the promotion ends.
-- A skill whose required tool comes from a plugin is offered to the model
-  again. Its namespaced name was compared with the name the tool is given to
-  the provider, so every such skill was left out of the prompt.
-- An agent configured with its own Bedrock access-key pair signs its chat and
-  embedding calls with that pair even when `AWS_BEARER_TOKEN_BEDROCK` is set on
-  the host; the deployment's token used to win.
-- Text document uploads, knowledge imports and agent imports accept JSON bodies
-  up to 50 MB. They were refused above 100 KB, so an export larger than that
-  could not be imported back. Every other route keeps the 100 KB limit.
-- A stored attachment is read and deleted in the bucket it was written to. After
-  an agent's bucket changed, older files could not be opened and a deleted
-  conversation left them in the old bucket while counting them as removed.
-  Files stored before this release still use the agent's current bucket.
-- Knowledge documents left uploading or processing by a process that died are
-  failed within minutes, at boot and periodically after. A restart within five
-  minutes used to leave them looking busy for good.
-- The live conversation view shows a turn that starts seconds after the
-  previous one was stored, instead of hiding it until it finished.
-- A model call aborted by its caller's deadline is logged as an error of kind
-  `timeout` rather than as a user preemption.
-- Voice notes transcribed by Deepgram Nova-3 ($0.0043 per minute) and Amazon
-  Transcribe ($0.0001667 per second) are priced; they were logged at $0.
-- Conversation history replays a tool that moved into a plugin under the name
-  it has now, not its old flat name.
-- Importing a bundle exported before custom S3 endpoints and the task-role mode
-  were removed no longer asks for `s3_endpoint` or `s3_use_task_role`; for the
-  task role it asks for the bucket's access keys.
-- The agent page opens for a custom role that holds `agent:read` without the
-  tool, skill or prompt read permissions; it used to answer "agent not found".
-- The playground's error messages, its copy button and the badge of a
-  transcribed voice message follow the panel's language.
-- Messages that sent people to "an administrator" name the Organization Owner
-  and Admin, and a Platform Admin where one is the right person.
-- A management key whose id is not a UUID is refused before the lookup instead
-  of reaching Postgres as an error.
-- Changing an MCP server's address to another host no longer reuses its stored
-  credential: saving or testing it there answers 400 until the credential is
-  entered again. Anyone allowed to edit MCP servers could otherwise send the
-  stored token to a host of their choosing.
-
-### Changed
-
-- **BREAKING for new agents — Web is a channel and starts off.** The agent's public
-  HTTP endpoints (`POST /v1/chat/completions`, `POST /api/instances/:slug/chat/stream`)
-  answer only while the agent's `web` channel is enabled (Channels section,
-  `PUT /api/instances/:slug/channels/web`). With Web off they answer 404, the way a
-  switched-off Telegram or Slack webhook does, and `GET /v1/models` with the agent's
-  own key lists nothing. Switching Web on needs the agent's API key unless
-  authentication is turned off. The panel's Playground talks to the new
-  `POST /api/instances/:slug/playground/stream`, which uses the panel session and the
-  new permission `agent.playground:use` on the agent, so it works with Web off and
-  asks for no key. Every built-in role holds the permission, viewer included (migration
-  `0092` grants it to existing roles). Migration
-  `0091` switches Web on for every existing agent, with its `auth_enabled` as it was;
-  bundles carry the `web` channel (format 1.3) and an older bundle restores the
-  endpoint on. A2A keeps its own `a2a_enabled` switch.
-- A new agent now requires its API key (`auth_enabled` defaults to true, migration
-  `0090`). It cannot be reached until a key is saved; the Web channel panel can
-  generate one. Turning authentication off asks the reader to accept the risk
-  first. Existing agents and imported bundles keep their current setting.
-- The Anthropic `fast` tier runs Claude Haiku 5.5 instead of Haiku 4.5, with
-  thinking switched off for the calls that do not ask for it (titles, memory,
-  summaries).
-- Management keys are verified against a SHA-256 digest instead of bcrypt,
-  which held the event loop for about 250 ms on every request a key
-  authenticated. A key stored as bcrypt keeps working and is rewritten the
-  first time it is used.
-
-- **BREAKING — `fileUpload` moved out of core into the extra plugin** as
-  `extra:fileUpload`. Migration `0089` renames the catalog row in place, so
-  agents keep the tool enabled and skills keep their links and required-tool
-  lists; an import of an older bundle maps the old name too. The tool works
-  again once the extra plugin is installed.
-- An agent's attachment bucket is set on its Advanced page, in a card that holds
-  the **Store attachments** switch and, once it is on, the bucket, region and
-  access keys. The switch moved there from the behaviour parameters.
-
-### Removed
-
-- The seeded `demo-agent` (authentication off). Migration `0091` deletes it on a
-  database where it was never used (no conversation, memory, knowledge document,
-  scheduled task or secret, and its row never updated); a `demo-agent` that was
-  used or edited stays and is treated like any existing agent. A fresh install has
-  no agent until you create one.
-- **BREAKING — the `s3_use_task_role` credential mode.** An agent's bucket is
-  reached only with its own `aws_access_key_id` and `aws_secret_access_key`. An
-  agent that still sets `s3_use_task_role` without static keys stores no
-  attachments, and the engine logs that the setting is no longer supported and
-  what to set instead.
-
-## [1.2.0] - 2026-10-06
-
-> **Upgrading from 1.1.2 needs operator action.** The engine and the panel run
-> on Node 24. Google sign-in is removed. Several built-in tool families now
-> require plugins (agents keep them enabled under their new names), and custom
-> S3 endpoints are no longer supported. Storing inbound attachments becomes a
-> per-agent choice, off for every agent. Telegram and Slack arrive through
-> webhooks and need a public address. Environment variables that set product
-> behaviour are gone, and a non-default value has to be entered in the panel
-> before the upgrade. Migration `0086` rewrites the conversations table. See
-> [docs/UPGRADING.md](docs/UPGRADING.md).
-
-### Added
-
 - A `createSkill` tool lets an agent write a skill from the conversation and
   enable it on itself. It is opt-in: no agent has it until an operator enables
   it in the agent's tools.
@@ -189,6 +79,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Nemotron 3.5 Lightning. On Bedrock, Claude Opus 5 and Opus 5.5 (EU and
   global profiles) and Sonnet 5.5 (global only, the one profile AWS publishes
   for it).
+- Model: Claude Haiku 5.5 on Anthropic and on Bedrock (EU and global profiles).
+  It is priced by prompt length: a model call whose prompt passes 100K tokens
+  pays 5× on every rate, input, output and cache. Each call of a tool loop is
+  priced on its own prompt, and `GET /api/instances/models` returns the higher
+  rates as `costLongPrompt`.
+- OpenAI GPT-5.4, GPT-5.6 and GPT-6 are priced by prompt length too: a call
+  with more than 272K input tokens pays the long-context rates for the whole
+  request.
 - AI providers and OpenAI-compatible embedders can be registered at boot
   (`registerAiProvider`, `registerEmbeddingProvider`) instead of edited into the
   maps every request reads. The embedder selector in an agent's settings lists
@@ -235,6 +133,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `verifyDocument` was removed without a replacement: the first boot removes
   it, and any other tool no plugin provides, from the agents that had it and
   logs their names.
+- **BREAKING — `fileUpload` moved out of core into the extra plugin** as
+  `extra:fileUpload`. Migration `0089` renames the catalog row in place, so
+  agents keep the tool enabled and skills keep their links and required-tool
+  lists; an import of an older bundle maps the old name too. The tool works
+  again once the extra plugin is installed.
 - **BREAKING — Telegram and Slack now arrive through webhooks.** Telegram used
   long polling and Slack Socket Mode, so both worked without a public address.
   Now the engine registers `<public address>/webhooks/telegram/<agent>` with
@@ -243,18 +146,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   engine needs a public HTTPS address and `/webhooks/*` must reach it.
 - **BREAKING — attachment storage is configured per agent, and storing inbound
   files is opt-in.** The four `PLATFORM_S3_*` variables are gone; attachment
-  persistence and `fileUpload` share the agent's bucket and support either
-  static credentials or the explicit `s3_use_task_role` opt-in. An agent keeps
-  the files its users send only when **Store attachments** is on in its
-  behaviour parameters; migration `0088` adds the switch off for every agent,
-  and the model sees each file in the turn either way. Stored files are deleted
-  with their conversation and with the agent. Files earlier versions stored in
-  the platform bucket stay there; the upgrade guide shows how to copy them.
+  persistence and `extra:fileUpload` share the agent's bucket, reached only with
+  the agent's own `aws_access_key_id` and `aws_secret_access_key`. There is no
+  task-role mode: an agent that still sets `s3_use_task_role` without static
+  keys stores no attachments, and the engine logs that the setting is not
+  supported and what to set instead. The bucket, region and keys are set on the
+  agent's Advanced page, in a card that holds the **Store attachments** switch;
+  an agent keeps the files its users send only while the switch is on.
+  Migration `0088` adds the switch off for every agent, and the model sees each
+  file in the turn either way. Stored files are deleted with their conversation
+  and with the agent. Files earlier versions stored in the platform bucket stay
+  there; the upgrade guide shows how to copy them.
+- **BREAKING for new agents — Web is a channel and starts off.** The agent's public
+  HTTP endpoints (`POST /v1/chat/completions`, `POST /api/instances/:slug/chat/stream`)
+  answer only while the agent's `web` channel is enabled (Channels section,
+  `PUT /api/instances/:slug/channels/web`). With Web off they answer 404, the way a
+  switched-off Telegram or Slack webhook does, and `GET /v1/models` with the agent's
+  own key lists nothing. Switching Web on needs the agent's API key unless
+  authentication is turned off. The panel's Playground talks to the new
+  `POST /api/instances/:slug/playground/stream`, which uses the panel session and the
+  new permission `agent.playground:use` on the agent, so it works with Web off and
+  asks for no key. Every built-in role holds the permission, viewer included (migration
+  `0092` grants it to existing roles). Migration
+  `0091` switches Web on for every existing agent, with its `auth_enabled` as it was;
+  bundles carry the `web` channel (format 1.3) and an older bundle restores the
+  endpoint on. A2A keeps its own `a2a_enabled` switch.
+- A new agent now requires its API key (`auth_enabled` defaults to true, migration
+  `0090`). It cannot be reached until a key is saved; the Web channel panel can
+  generate one. Turning authentication off asks the reader to accept the risk
+  first. Existing agents and imported bundles keep their current setting.
 - **The OpenAI tiers moved to the gpt-6 family** (`fast` → `gpt-6-luna`,
   `standard` → `gpt-6-sol`, `heavy` → `gpt-6-astra`). They pointed at
   `gpt-4o-mini`/`gpt-4o`, which OpenAI lists as deprecated. Every OpenAI agent
   without a pinned model, and its background jobs, lands on the new models; the
   deprecated ones stay in the catalog so a pinned agent keeps its costs priced.
+- The Anthropic `fast` tier runs Claude Haiku 5.5 instead of Haiku 4.5, with
+  thinking switched off for the calls that do not ask for it (titles, memory,
+  summaries). The `fast` tier runs the background jobs of every Anthropic
+  agent, pinned or not.
 - Bedrock's default `standard` and `heavy` tiers no longer require Anthropic
   model access: they use Amazon Nova Pro and OpenAI gpt-oss 120B respectively.
   Nova keeps system-prompt caching without placing an invalid cache marker on
@@ -296,13 +225,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   identity is cached for a minute and dropped when the agent changes.
 - The panel loads the changelog only for a Platform Admin, and loads the
   changelog card's markdown renderer only when the dialog opens.
+- Management keys are verified against a SHA-256 digest instead of bcrypt,
+  which held the event loop for about 250 ms on every request a key
+  authenticated. A key stored as bcrypt keeps working and is rewritten the
+  first time it is used.
 
 ### Removed
 
-- **BREAKING — Google sign-in is removed.** Email and password is the only
-  sign-in method in this edition. Accounts that only used Google need a password
-  before upgrading; `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and the
-  deployment-wide domain allowlist are gone.
 - **BREAKING — `s3_endpoint` is removed.** Migration
   `0081_drop_s3_endpoint_secret` deletes stored values. MinIO, Cloudflare R2 and
   other custom endpoints are unsupported in 1.2.0 and fall back to AWS
@@ -332,6 +261,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The CDK stack no longer passes `DEFAULT_INSTANCE_ID` or `DATETIME_LOCALE` to
   the engine container, and sets the deployment's time zone as `TZ`. The `app`
   block of `config.yaml` keeps only `timezone`.
+- The seeded `demo-agent` (authentication off). Migration `0091` deletes it on a
+  database where it was never used (no conversation, memory, knowledge document,
+  scheduled task or secret, and its row never updated); a `demo-agent` that was
+  used or edited stays and is treated like any existing agent. A fresh install has
+  no agent until you create one.
 
 ### Fixed
 
@@ -417,9 +351,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent behaviour overrides are persisted and type-validated, and two
   concurrent fragments can no longer overwrite each other while a message burst
   is starting.
-- `fileUpload` is available with either supported credential shape. Attachment
-  routes now accept Express 5 wildcard segments, and filenames containing
-  spaces, `#`, `?`, or harmless dot runs remain reachable.
+- Attachment routes accept Express 5 wildcard segments, and filenames
+  containing spaces, `#`, `?`, or harmless dot runs remain reachable.
 - An agent PATCH validates the provider and model the agent will run on
   together, whenever it changes either, so changing only the provider can no
   longer leave the agent pinned to a model of the previous one.
@@ -506,15 +439,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The upgrade guide's pre-step for migration `0086` built an index on
   `conversations.last_message_at`, a column 1.1.x does not have, so it failed.
   It now builds only the `conversation_messages` index ahead.
-- The `fileUpload` credential fields are labelled in English.
+- Claude Sonnet 5.5 cache reads cost $0.10 per million tokens on Anthropic and
+  on the Bedrock global profile, not $0.20.
+- Claude models with adaptive thinking (Opus 4.7 and later, Sonnet 5 and 5.5,
+  Haiku 5.5, Fable) show their reasoning again. They return it with empty text
+  unless a summary is requested, so the panel, the logs and the stored turn had
+  none although the reasoning was billed; the gateway now asks for the summary
+  on Anthropic and on Bedrock.
+- GPT-5.6 Sol is priced at its full $5 / $30 rather than the promotional
+  $4 / $20, so a spend cap does not loosen when the promotion ends.
+- A skill whose required tool comes from a plugin is offered to the model
+  again. Its namespaced name was compared with the name the tool is given to
+  the provider, so every such skill was left out of the prompt.
+- An agent configured with its own Bedrock access-key pair signs its chat and
+  embedding calls with that pair even when `AWS_BEARER_TOKEN_BEDROCK` is set on
+  the host; the deployment's token used to win.
+- Text document uploads, knowledge imports and agent imports accept JSON bodies
+  up to 50 MB. They were refused above 100 KB, so an export larger than that
+  could not be imported back. Every other route keeps the 100 KB limit.
+- A stored attachment is read and deleted in the bucket it was written to. After
+  an agent's bucket changed, older files could not be opened and a deleted
+  conversation left them in the old bucket while counting them as removed.
+  Files stored without a recorded bucket still use the agent's current bucket.
+- Knowledge documents left uploading or processing by a process that died are
+  failed within minutes, at boot and periodically after. A restart within five
+  minutes used to leave them looking busy for good.
+- The live conversation view shows a turn that starts seconds after the
+  previous one was stored, instead of hiding it until it finished.
+- A model call aborted by its caller's deadline is logged as an error of kind
+  `timeout` rather than as a user preemption.
+- Voice notes transcribed by Deepgram Nova-3 ($0.0043 per minute) and Amazon
+  Transcribe ($0.0001667 per second) are priced; they were logged at $0.
+- Conversation history replays a tool that moved into a plugin under the name
+  it has now, not its old flat name.
+- Importing a bundle exported before custom S3 endpoints and the task-role mode
+  were removed no longer asks for `s3_endpoint` or `s3_use_task_role`; for the
+  task role it asks for the bucket's access keys.
+- The agent page opens for a custom role that holds `agent:read` without the
+  tool, skill or prompt read permissions; it used to answer "agent not found".
+- The playground's error messages, its copy button and the badge of a
+  transcribed voice message follow the panel's language.
+- Messages that sent people to "an administrator" name the Organization Owner
+  and Admin, and a Platform Admin where one is the right person.
+- A management key whose id is not a UUID is refused before the lookup instead
+  of reaching Postgres as an error.
+- Changing an MCP server's address to another host no longer reuses its stored
+  credential: saving or testing it there answers 400 until the credential is
+  entered again. Anyone allowed to edit MCP servers could otherwise send the
+  stored token to a host of their choosing.
 
 ### Security
 
-- **BREAKING — each Telegram channel now has its own random webhook secret.** It
-  used to be derived from the bot token, so anyone who had seen the token could
-  forge updates. Existing channels get a new secret and re-register their
-  webhook on the next engine start or channel enable; until then Telegram's
-  deliveries fail verification. See docs/UPGRADING.md.
+- **BREAKING — each Telegram channel has its own random webhook secret**, stored
+  with the channel. Pre-release builds derived it from the bot token, so anyone
+  who had seen the token could forge updates. The engine mints the secret and
+  registers the webhook on the first start of 1.2.0 or when the channel is next
+  enabled; until then Telegram's deliveries are not accepted. See
+  docs/UPGRADING.md.
 - Removed the agent-controlled S3 endpoint that could direct file PUTs and GETs
   to arbitrary hosts, including private network addresses.
 - Closed cross-tenant keyword search and mutation paths by making tenant scope
