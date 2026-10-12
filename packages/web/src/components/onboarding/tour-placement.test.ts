@@ -28,6 +28,18 @@ describe("bubble placement", () => {
     expect(placeBubble(box, size, { w: 390, h: 700 }, "right", true).side).toMatch(/top|bottom/);
   });
 
+  it("docks as a bottom sheet on a narrow screen when the element is taller than the room beside it", () => {
+    const tall = { x1: 16, y1: 0, x2: 374, y2: 844 };
+    const at = placeBubble(tall, { w: 358, h: 180 }, { w: 390, h: 844 }, "bottom", true);
+    expect(at.docked).toBe(true);
+    expect(at.x).toBe(16);
+    expect(at.y + 180).toBeLessThanOrEqual(844 - 16);
+  });
+
+  it("does not dock when the bubble fits above or below", () => {
+    expect(placeBubble(box, size, { w: 390, h: 844 }, "bottom", true).docked).toBeUndefined();
+  });
+
   it("centres the bubble when there is no element", () => {
     const at = placeBubble(null, size, viewport, "bottom", false);
     expect(at.side).toBeNull();

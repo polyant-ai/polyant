@@ -34,7 +34,7 @@ export function placeBubble(
   viewport: { w: number; h: number },
   preferred: TourPlace,
   narrow: boolean,
-): { x: number; y: number; side: TourPlace | null } {
+): { x: number; y: number; side: TourPlace | null; docked?: boolean } {
   const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
   if (!box) {
     return { x: (viewport.w - size.w) / 2, y: Math.max(GUTTER, (viewport.h - size.h) / 2), side: null };
@@ -71,6 +71,9 @@ export function placeBubble(
     const c = tries[side]();
     if (c.ok) return { x: c.x, y: c.y, side };
   }
+  // Nowhere beside the element: on a phone the bubble docks as a bottom sheet and
+  // the spotlight is clipped to what shows above it.
+  if (narrow) return { x: GUTTER, y: viewport.h - GUTTER - size.h, side: null, docked: true };
   return {
     x: clamp(cx - size.w / 2, GUTTER, viewport.w - GUTTER - size.w),
     y: viewport.h - GUTTER - size.h,
@@ -109,7 +112,9 @@ export function TourOverlay() {
 
   const [box, setBox] = useState<Box | null>(null);
   const [settled, setSettled] = useState(false);
-  const [bubble, setBubble] = useState<{ x: number; y: number; side: TourPlace | null } | null>(null);
+  const [bubble, setBubble] = useState<{ x: number; y: number; side: TourPlace | null; docked?: boolean } | null>(null);
+  // Where the docked sheet starts, so the spotlight can stop above it.
+  const [dockTop, setDockTop] = useState<number | null>(null);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const stepKey = tour && step ? `${tour.kind}:${step.id}` : null;
 
@@ -209,7 +214,15 @@ export function TourOverlay() {
     const vh = window.innerHeight;
     const w = Math.min(340, vw - 2 * GUTTER);
     el.style.width = `${w}px`;
-    setBubble(placeBubble(box, { w, h: el.offsetHeight }, { w: vw, h: vh }, step.place, vw < 768));
+    const placed = placeBubble(box, { w, h: el.offsetHeight }, { w: vw, h: vh }, step.place, vw < 768);
+    setBubble(placed);
+    if (placed.docked) {
+      // The sheet spans the screen minus the gutters; its height follows the new width.
+      el.style.width = `${vw - 2 * GUTTER}px`;
+      setDockTop(el.getBoundingClientRect().top);
+    } else {
+      setDockTop(null);
+    }
   }, [box, step, stepKey, settled]);
 
   // Focus the bubble when a step appears, so a screen reader announces it.
@@ -256,25 +269,31 @@ export function TourOverlay() {
     />
   );
   const click = step.action === "click";
+  // A docked sheet covers the bottom of the screen: the spotlight keeps to what is above it.
+  const lit =
+    box && bubble?.docked && dockTop !== null
+      ? { ...box, y2: Math.max(box.y1 + 24, Math.min(box.y2, dockTop - 8)) }
+      : box;
 
   return createPortal(
-    <div data-tour-layer className="fixed inset-0 z-[200]" style={{ pointerEvents: "none" }}>
+    // Above sonner's toaster (z-index 999999999): a toast must never cover the bubble's buttons.
+    <div data-tour-layer className="fixed inset-0" style={{ pointerEvents: "none", zIndex: 2147483000 }}>
       <div aria-hidden style={{ pointerEvents: "auto" }}>
-        {box ? (
+        {lit ? (
           <>
-            {panel("t", 0, 0, vw, box.y1)}
-            {panel("b", 0, box.y2, vw, vh - box.y2)}
-            {panel("l", 0, box.y1, box.x1, box.y2 - box.y1)}
-            {panel("r", box.x2, box.y1, vw - box.x2, box.y2 - box.y1)}
+            {panel("t", 0, 0, vw, lit.y1)}
+            {panel("b", 0, lit.y2, vw, vh - lit.y2)}
+            {panel("l", 0, lit.y1, lit.x1, lit.y2 - lit.y1)}
+            {panel("r", lit.x2, lit.y1, vw - lit.x2, lit.y2 - lit.y1)}
             <div
               className="pointer-events-none fixed rounded-lg border-2 border-primary"
-              style={{ left: box.x1, top: box.y1, width: box.x2 - box.x1, height: box.y2 - box.y1 }}
+              style={{ left: lit.x1, top: lit.y1, width: lit.x2 - lit.x1, height: lit.y2 - lit.y1 }}
             />
             {/* An info step is looked at, not used: the hole swallows clicks. */}
             {!click && (
               <div
                 className="fixed"
-                style={{ left: box.x1, top: box.y1, width: box.x2 - box.x1, height: box.y2 - box.y1 }}
+                style={{ left: lit.x1, top: lit.y1, width: lit.x2 - lit.x1, height: lit.y2 - lit.y1 }}
               />
             )}
           </>
@@ -291,8 +310,9 @@ export function TourOverlay() {
         tabIndex={-1}
         className="fixed rounded-lg border bg-popover p-4 text-popover-foreground shadow-lg outline-none"
         style={{
-          left: bubble?.x ?? 0,
-          top: bubble?.y ?? 0,
+          ...(bubble?.docked
+            ? { left: GUTTER, right: GUTTER, bottom: "calc(16px + env(safe-area-inset-bottom))" }
+            : { left: bubble?.x ?? 0, top: bubble?.y ?? 0 }),
           visibility: bubble && settled ? "visible" : "hidden",
           pointerEvents: "auto",
         }}

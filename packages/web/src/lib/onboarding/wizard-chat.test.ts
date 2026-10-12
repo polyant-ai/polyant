@@ -54,8 +54,8 @@ describe("chat test through the playground session route", () => {
     await expect(sendWizardChat("bot", opts, () => {})).rejects.toThrow("no provider key");
   });
 
-  it("reports a network failure", async () => {
+  it("passes a network failure on as the stream client reports it", async () => {
     fetchMock.mockRejectedValue(new TypeError("offline"));
-    await expect(sendWizardChat("bot", opts, () => {})).rejects.toThrow("network");
+    await expect(sendWizardChat("bot", opts, () => {})).rejects.toThrow("offline");
   });
 });
