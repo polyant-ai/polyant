@@ -207,6 +207,20 @@ See [Architecture](https://docs.polyant.ai/concepts/architecture) for the full t
 
 All channel configs are stored encrypted per-instance. Adapters start/stop dynamically without a restart.
 
+## Management API and polyant-cli
+
+Scripts and [polyant-cli](https://github.com/polyant-ai/polyant-cli) call the
+engine's management API with a **management API key** in the `X-Polyant-Key`
+header. An organization Owner issues one from **API keys** in the panel's
+organization navigation: give it a name and, optionally, an expiry, then copy
+the token, which is shown only once. A key acts with the Owner permission set
+within its organization until it expires or is revoked from the same page, and
+it cannot issue or revoke keys itself.
+
+```bash
+curl -H "X-Polyant-Key: $POLYANT_KEY" http://localhost:4000/api/instances
+```
+
 ## Plugins & the SDK
 
 Polyant is **framework-first** — it ships generic tools, and domain-specific ones (a CRM's

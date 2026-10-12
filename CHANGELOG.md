@@ -35,6 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A `createSkill` tool lets an agent write a skill from the conversation and
   enable it on itself. It is opt-in: no agent has it until an operator enables
   it in the agent's tools.
+- Organization Owners issue and revoke management API keys from the panel,
+  under **API keys** in the organization's navigation, so `polyant-cli` and
+  scripts can authenticate with `X-Polyant-Key` on an OSS deployment. A key
+  carries the Owner permission set and an optional expiry, and its token is
+  shown once. The routes are `GET`/`POST /api/organizations/:orgSlug/api-keys`
+  and `DELETE /api/organizations/:orgSlug/api-keys/:keyId`; they need
+  `org:write`, and issuing and revoking refuse a request authenticated with a
+  key, so a key cannot mint or revoke keys; it can list its own organization's.
+  Issuing and revoking are recorded in the management audit log.
 - Settings → General holds the installation's operational policies, for a
   platform admin: analytics retention, the engine's public address, the
   per-user and global live-stream caps, the rate-limit window and request
