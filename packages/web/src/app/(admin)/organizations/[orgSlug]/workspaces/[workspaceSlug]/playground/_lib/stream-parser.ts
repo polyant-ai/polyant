@@ -64,8 +64,6 @@ export interface StreamRequestOptions {
   messages: ChatMessage[];
   chatId: string;
   signal?: AbortSignal;
-  /** The agent's key, for a user who can read the agent but not write it. */
-  authToken?: string;
   /** What the user reads when the request fails, in the panel's language. */
   errorMessages: StreamErrorMessages;
 }
@@ -91,11 +89,9 @@ export async function streamChatCompletion(
   options: StreamRequestOptions,
   callbacks: StreamCallbacks,
 ): Promise<void> {
-  const { instanceSlug, messages, chatId, signal, authToken, errorMessages } = options;
+  const { instanceSlug, messages, chatId, signal, errorMessages } = options;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  // Not `Authorization`: that header carries the panel session.
-  if (authToken) headers["X-Agent-Key"] = authToken;
 
   let response: Response;
   try {
