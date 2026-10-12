@@ -326,7 +326,7 @@ had. Remove them from your environment; none of them needs a replacement value.
 | `AUTH_MODE` | Nothing. `session` was the only value that booted, and gateway mode is deleted — see [ADR-0001](adr/0001-gateway-authenticated-mode.md). A stack whose CDK config sets `auth:` no longer receives this variable; it was already refused at startup |
 | `AUTH_ALLOWED_DOMAIN`, `AUTH_ALLOWED_DOMAINS` | Federated sign-in is no longer restricted by a deployment-wide domain list. The two variables were one list twice (the parser concatenated them), and the restriction belongs to the organization |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Nothing, and read the next paragraph first: **federated sign-in is gone from this edition entirely**, not merely unconfigured. Email and password is the only way in |
-| `AWS_REGION` | Set the AWS provider region on each agent (Settings → AI Provider). There is no deployment-wide fallback and no `us-east-1` default: a Bedrock agent with no region configured is now refused with a message naming the setting, on chat as well as on embeddings |
+| `AWS_REGION` | Set the AWS provider region on each agent (Model section, under Conversation or Embeddings; Settings → AI Provider before 1.2). There is no deployment-wide fallback and no `us-east-1` default: a Bedrock agent with no region configured is now refused with a message naming the setting, on chat as well as on embeddings |
 | `DEFAULT_INSTANCE_ID` | Nothing. Every caller already names its agent — the OpenAI-compatible route validates `model` and answers 400 without it — so the fallback could not fire |
 | `WORKSPACES_ROOT` | Nothing. The per-conversation sandbox stays under `packages/engine/workspaces`; the variable survives only as a test seam and is no longer documented as deployment configuration |
 | `PLATFORM_ADMIN_EMAIL` | Nothing, on an installation that already booted with it: the standing it granted lives in `users.is_platform_admin` and stays. The platform admin is now the account `INITIAL_ADMIN_EMAIL` names, seeded already privileged and made Owner of the default organization on the same boot. The internal `POST /api/auth/credentials/bootstrap-owner` endpoint it needed is gone with it |
@@ -340,7 +340,7 @@ then `us-east-1`. Both fallbacks are gone, so after the upgrade such an agent
 fails every chat turn, and every embedding if its knowledge or memory runs on
 Bedrock, with an error naming the setting. Before upgrading, list the agents
 that use Bedrock for chat or embeddings and hold no region, and set the region
-in each one's Settings → AI Provider:
+in each one's Model section (Settings → AI Provider before 1.2):
 
 ```sql
 SELECT i.slug, i.provider, i.embedding_provider
@@ -353,7 +353,7 @@ WHERE (i.provider = 'bedrock' OR i.embedding_provider = 'bedrock')
 ORDER BY i.slug;
 ```
 
-The region is stored encrypted, so the query can only check that one is set. Settings → AI Provider exists in 1.1.x too, so this can be done on the
+The region is stored encrypted, so the query can only check that one is set. The same field exists in 1.1.x under Settings → AI Provider, so this can be done on the
 running installation.
 
 ### Environment variables the panel now answers
@@ -366,9 +366,9 @@ your environment — a value left there is read by nothing.
 
 | Removed | Where the value lives now |
 | --- | --- |
-| `DATETIME_TIMEZONE`, `DATETIME_LOCALE` | The agent's Settings → Behaviour overrides. An agent that declares neither formats dates in the runtime's zone and locale, so a deployment-wide zone is now `TZ` |
-| `DEDUP_SIMILARITY_THRESHOLD` | The agent's Settings → Behaviour overrides; the default is 0.90 |
-| `MESSAGE_SOFT_DEBOUNCE_MS`, `MESSAGE_TYPING_DELAY_MS`, `MESSAGE_MAX_RESTARTS` | The agent's Settings → Behaviour overrides; the defaults are 2000 ms, 1500 ms and 3 |
+| `DATETIME_TIMEZONE`, `DATETIME_LOCALE` | The agent's Advanced → Behaviour overrides. An agent that declares neither formats dates in the runtime's zone and locale, so a deployment-wide zone is now `TZ` |
+| `DEDUP_SIMILARITY_THRESHOLD` | The agent's Advanced → Behaviour overrides; the default is 0.90 |
+| `MESSAGE_SOFT_DEBOUNCE_MS`, `MESSAGE_TYPING_DELAY_MS`, `MESSAGE_MAX_RESTARTS` | The agent's Advanced → Behaviour overrides; the defaults are 2000 ms, 1500 ms and 3 |
 | `KNOWLEDGE_MAX_DOCS_PER_INSTANCE` | The organization's knowledge-document entitlement; the default is 500 per agent |
 | `ANALYTICS_RETENTION_DAYS`, `SSE_MAX_CONNECTIONS_PER_USER` | Settings → General, for a platform admin; the defaults are 90 days and 5 connections |
 | `PDF_CONCURRENCY` | The Markdown-to-PDF plugin, which reads it itself and documents it in its own README |
@@ -416,8 +416,8 @@ engine. Settings → General shows the stored value afterwards.
 ### Dates and cron schedules follow the process time zone
 
 `DATETIME_TIMEZONE` and `DATETIME_LOCALE` are no longer read. The date an agent
-sees in its prompt now comes from the agent's own setting in Settings →
-Behaviour, or else from the process: the `TZ` zone and the ICU default locale
+sees in its prompt now comes from the agent's own setting in Advanced →
+Behaviour overrides, or else from the process: the `TZ` zone and the ICU default locale
 (`LANG`/`LC_ALL`, else the system's). An installation that set the two variables
 and no per-agent value sees its agents' dates in the process zone and locale
 until you either set `TZ` (and the locale) on the engine or set them per agent.

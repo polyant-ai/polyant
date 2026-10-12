@@ -27,7 +27,7 @@ export const NebiusProvider = createProvider("nebius", (modelId, apiKeys) => {
   const apiKey = apiKeys?.nebius;
   if (!apiKey) {
     throw new Error(
-      "Nebius API key not configured for this instance. Set it in the admin panel under Settings → AI Provider API Keys.",
+      "Nebius API key not configured for this instance. Set it in the agent's Model section, under Conversation.",
     );
   }
   const factory = createOpenAICompatible({

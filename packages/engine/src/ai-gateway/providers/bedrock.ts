@@ -97,7 +97,7 @@ export const BedrockProvider = createProvider(
     const region = apiKeys?.bedrock_region?.trim();
     if (!region) {
       throw new Error(
-        "AWS region is required for Bedrock. Configure the AWS provider region in Settings → AI Provider.",
+        "AWS region is required for Bedrock. Set it in the agent's Model section, under Conversation.",
       );
     }
 

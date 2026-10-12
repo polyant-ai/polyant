@@ -13,14 +13,14 @@ const PER_AGENT_BUCKET =
 export const RETIRED_ENVIRONMENT_VARIABLES: ReadonlyMap<string, string> = new Map([
   ["AGENT_CALL_TIMEOUT_MS", "Settings → General"],
   ["ANALYTICS_RETENTION_DAYS", "Settings → General"],
-  ["DATETIME_LOCALE", "the agent's Settings → Behaviour"],
-  ["DATETIME_TIMEZONE", "the agent's Settings → Behaviour (a deployment-wide zone is TZ)"],
-  ["DEDUP_SIMILARITY_THRESHOLD", "the agent's Settings → Behaviour"],
+  ["DATETIME_LOCALE", "the agent's Advanced → Behaviour overrides"],
+  ["DATETIME_TIMEZONE", "the agent's Advanced → Behaviour overrides (a deployment-wide zone is TZ)"],
+  ["DEDUP_SIMILARITY_THRESHOLD", "the agent's Advanced → Behaviour overrides"],
   ["KNOWLEDGE_MAX_DOCS_PER_INSTANCE", "the organization's knowledge-document entitlement"],
   ["MCP_CONNECT_TIMEOUT_MS", "Settings → General"],
-  ["MESSAGE_MAX_RESTARTS", "the agent's Settings → Behaviour"],
-  ["MESSAGE_SOFT_DEBOUNCE_MS", "the agent's Settings → Behaviour"],
-  ["MESSAGE_TYPING_DELAY_MS", "the agent's Settings → Behaviour"],
+  ["MESSAGE_MAX_RESTARTS", "the agent's Advanced → Behaviour overrides"],
+  ["MESSAGE_SOFT_DEBOUNCE_MS", "the agent's Advanced → Behaviour overrides"],
+  ["MESSAGE_TYPING_DELAY_MS", "the agent's Advanced → Behaviour overrides"],
   ["PDF_CONCURRENCY", "the Markdown-to-PDF plugin's own configuration"],
   // The deployment-wide bucket is gone: attachments use each agent's own
   // bucket, configured beside its attachment-storage switch.
