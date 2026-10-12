@@ -416,7 +416,7 @@ export function useChat(defaultInstanceSlug: string) {
   const abortRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
-    (text: string, authToken?: string) => {
+    (text: string) => {
       if (!text.trim() || state.isStreaming || !state.instanceSlug) return;
 
       dispatch({ type: "SEND_MESSAGE", text });
@@ -436,7 +436,6 @@ export function useChat(defaultInstanceSlug: string) {
           messages: history,
           chatId: state.chatId,
           signal: controller.signal,
-          authToken,
           errorMessages: {
             network: t("playground.error.network"),
             noBody: t("playground.error.noBody"),

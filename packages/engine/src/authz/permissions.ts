@@ -13,6 +13,7 @@ export const Permission = {
   AGENT_READ: "agent:read",
   AGENT_WRITE: "agent:write",
   AGENT_DELETE: "agent:delete",
+  PLAYGROUND_USE: "agent.playground:use",
   SECRET_READ: "agent.secret:read",
   SECRET_WRITE: "agent.secret:write",
   CHANNEL_READ: "agent.channel:read",
@@ -72,9 +73,11 @@ export function roleLevel(key: SystemRoleKey): number {
   return ROLE_LEVEL[key];
 }
 
-/** All read-only permissions a Viewer holds (secrets excluded by design). */
+/** The read-only permissions a Viewer holds (secrets excluded by design), plus the playground. */
 const VIEWER_PERMISSIONS: readonly PermissionKey[] = [
   Permission.AGENT_READ,
+  // Testing an agent from the panel is not editing it: every role may.
+  Permission.PLAYGROUND_USE,
   Permission.CHANNEL_READ,
   Permission.SKILL_INSTANCE_READ,
   Permission.TOOL_READ,

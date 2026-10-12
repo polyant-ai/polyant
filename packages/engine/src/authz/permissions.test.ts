@@ -18,6 +18,7 @@ const EXPECTED_MATRIX: Record<PermissionKey, Record<string, boolean>> = {
   "agent:read": { owner: true, admin: true, member: true, viewer: true },
   "agent:write": { owner: true, admin: true, member: true, viewer: false },
   "agent:delete": { owner: true, admin: true, member: false, viewer: false },
+  "agent.playground:use": { owner: true, admin: true, member: true, viewer: true },
   "agent.secret:read": { owner: true, admin: true, member: true, viewer: false },
   "agent.secret:write": { owner: true, admin: true, member: true, viewer: false },
   "agent.channel:read": { owner: true, admin: true, member: true, viewer: true },

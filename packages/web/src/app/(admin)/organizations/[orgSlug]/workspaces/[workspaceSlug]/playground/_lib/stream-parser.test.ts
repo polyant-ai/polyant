@@ -234,3 +234,18 @@ describe("streamChatCompletion on a non-2xx answer", () => {
     expect(message).toBe("Agent not found");
   });
 });
+
+describe("streamChatCompletion route", () => {
+  it("calls the panel-session playground route, with no agent key or Authorization header", async () => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await streamChatCompletion(
+      { instanceSlug: "shop", messages: [], chatId: "c1", errorMessages: MESSAGES },
+      makeCallbacks(),
+    );
+    vi.unstubAllGlobals();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("/api/instances/shop/playground/stream");
+    expect(init.headers).toEqual({ "Content-Type": "application/json" });
+  });
+});

@@ -36,8 +36,7 @@ export interface WebTurn {
  * A web turn also needs the agent's Web channel to be on. When it is off, or
  * the slug is unknown, the answer is a 404 that says nothing about which of the
  * two it is — the same answer a switched-off Telegram or Slack webhook gives.
- * The panel's playground is a client of chat/stream like any other: with Web off
- * it gets this 404 too.
+ * The panel's playground does not come through here (see the playground route).
  *
  * Throws `UnauthorizedException`:
  *  - "Unknown model"                          slug not found (not a web turn)

@@ -5,11 +5,12 @@ import type { Request, Response } from "express";
 import { OpenAIService } from "./openai.service.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import { validateInstanceApiKey } from "./instance-api-key-auth.js";
+import { RequirePermission, Permission } from "../../authz/index.js";
 import type { ChatCompletionRequest } from "./openai.types.js";
 import { TurnStreamRelay } from "./turn-stream-relay.js";
 
 /**
- * Native typed-SSE streaming endpoint of the Web channel (public, key-gated); the admin playground uses it too.
+ * Native typed-SSE streaming: `chat/stream` is the Web channel's endpoint (public, key-gated), `playground/stream` is the panel's own (session-gated).
  *
  * Unlike `/v1/chat/completions` (OpenAI-compatible), this endpoint emits a
  * **typed SSE stream** that exposes the full multi-step + reasoning timeline
@@ -39,8 +40,8 @@ export class InstanceChatStreamController {
   constructor(@Inject(OpenAIService) private readonly openaiService: OpenAIService) {}
 
   /**
-   * Public, gated by the Web channel switch and the agent's API key (see
-   * `validateInstanceApiKey`). The panel's playground calls it like any client.
+   * The Web channel's streaming endpoint: public, gated by the channel switch
+   * and the agent's API key (see `validateInstanceApiKey`).
    */
   @Public()
   @Post(":slug/chat/stream")
@@ -62,6 +63,23 @@ export class InstanceChatStreamController {
       { carriesContext: body.context !== undefined && body.context !== null });
 
     await this.pipe(slug, body, res, relay);
+  }
+
+  /**
+   * The panel's playground: an authenticated panel user talking to an agent. It
+   * is not the Web channel, so it works whatever that channel's state and needs
+   * no agent key; the session and `agent.playground:use` on this agent decide.
+   */
+  @RequirePermission(Permission.PLAYGROUND_USE)
+  @Post(":slug/playground/stream")
+  async playground(
+    @Param("slug") slug: string,
+    @Body() body: ChatCompletionRequest,
+    @Res() res: Response,
+  ): Promise<void> {
+    const relay = new TurnStreamRelay(res);
+    // Panel turns carry no call context.
+    await this.pipe(slug, { ...body, context: undefined }, res, relay);
   }
 
   private async pipe(slug: string, body: ChatCompletionRequest, res: Response, relay: TurnStreamRelay): Promise<void> {
