@@ -15,6 +15,7 @@ import {
   Settings,
   Activity,
   Users,
+  KeyRound,
   Info,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -78,6 +79,9 @@ const overviewDefs: NavItemDef[] = [
 // refusal — visible-then-explained beats correct-for-one-role-by-accident.
 const orgManagementDefs: NavItemDef[] = [
   { titleKey: "nav.members", path: "/members", scope: "org", icon: Users },
+  // `org:write`, Owner only. Offered to every role for the same reason as
+  // Members; the page explains the refusal.
+  { titleKey: "nav.apiKeys", path: "/api-keys", scope: "org", icon: KeyRound },
 ];
 
 // Settings is platform-admin-only: it hosts both general system settings and the

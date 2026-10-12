@@ -9,6 +9,8 @@ export type {
   ResetPasswordResponse,
   MemberRole,
   OrganizationMember,
+  ManagementApiKey,
+  CreatedManagementApiKey,
   Instance,
   SecretStatus,
   ChannelConfig,
@@ -122,6 +124,8 @@ import type {
   OptoutContact,
   EmbeddingWipeResult,
   OrganizationMember,
+  ManagementApiKey,
+  CreatedManagementApiKey,
   McpAuthMode,
   McpServer,
   McpTestResult,
@@ -317,6 +321,22 @@ export const api = {
     remove: (userId: string, orgSlug: string) =>
       request<{ removed: boolean }>(
         `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
+        { method: "DELETE" },
+      ),
+  },
+  apiKeys: {
+    list: (orgSlug: string) =>
+      request<{ keys: ManagementApiKey[] }>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/api-keys`,
+      ),
+    create: (orgSlug: string, data: { name: string; expiresAt?: string }) =>
+      request<CreatedManagementApiKey>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/api-keys`,
+        { method: "POST", body: JSON.stringify(data) },
+      ),
+    remove: (orgSlug: string, keyId: string) =>
+      request<{ deleted: boolean }>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/api-keys/${encodeURIComponent(keyId)}`,
         { method: "DELETE" },
       ),
   },

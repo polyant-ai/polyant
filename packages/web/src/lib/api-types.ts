@@ -50,6 +50,24 @@ export interface OrganizationMember {
   roleKey: MemberRole | null;
 }
 
+// ── Management API keys ─────────────────────────────────────────────
+
+/** A management API key as listed. The secret is never returned after creation. */
+export interface ManagementApiKey {
+  id: string;
+  name: string;
+  permissions: string[];
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+
+/** The creation response: the only time the plaintext token is available. */
+export interface CreatedManagementApiKey {
+  key: ManagementApiKey;
+  token: string;
+}
+
 // ── Instances ───────────────────────────────────────────────────────
 
 export interface Instance {
