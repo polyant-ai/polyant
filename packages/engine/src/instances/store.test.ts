@@ -331,6 +331,7 @@ describe("instances/store", () => {
         provider: "openai",
         model: "gpt-4o",
         embeddingDim: DEFAULT_EMBEDDING_DIM,
+        authEnabled: true,
         embeddingProvider: "openai",
         workspaceId: "ws-default",
       });
@@ -351,9 +352,20 @@ describe("instances/store", () => {
         provider: null,
         model: null,
         embeddingDim: DEFAULT_EMBEDDING_DIM,
+        authEnabled: true,
         embeddingProvider: "openai",
         workspaceId: "ws-default",
       });
+    });
+
+    it("should_create_new_agents_with_authentication_required", async () => {
+      mockDefaultWorkspaceSelect();
+      const chain = createChainMock([fakeInstance]);
+      mockDb.insert.mockReturnValue(chain as any);
+
+      await createInstance({ slug: asInstanceSlug("secure"), name: "Secure" }, NO_TRANSACTION);
+
+      expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({ authEnabled: true }));
     });
 
     it("should_insert_into_the_caller_org_workspace_when_an_orgId_is_given", async () => {

@@ -479,6 +479,18 @@ export function runStatusChecks(input: StatusCheckInput): AgentCheck[] {
     );
   }
 
+  // Auth on and no key: every caller gets 401. Safe, but the agent cannot be
+  // reached either, which is where a new agent starts.
+  if (instance.authEnabled && secrets !== null && !configuredSecrets.has(SECRET_KEYS.AUTH)) {
+    checks.push({
+      id: "api-key-missing",
+      severity: "warning",
+      titleKey: "status.check.apiKeyMissing.title",
+      bodyKey: "status.check.apiKeyMissing.body",
+      section: "channels",
+      sectionKey: "instances.detail.tabChannels",
+    });
+  }
 
   /*
     The opt-out switch is not a preference: `evaluateOptout` returns `pass`

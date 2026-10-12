@@ -15,7 +15,7 @@ export const instances = pgTable("instances", {
   knowledgeEnabled: boolean("knowledge_enabled").notNull().default(false),
   langsmithEnabled: boolean("langsmith_enabled").notNull().default(false),
   langsmithProject: varchar("langsmith_project", { length: 255 }),
-  authEnabled: boolean("auth_enabled").notNull().default(false),
+  authEnabled: boolean("auth_enabled").notNull().default(true),
   thinkingEnabled: boolean("thinking_enabled").notNull().default(false),
   // Reasoning intensity when thinkingEnabled. Currently consumed only by the
   // Nebius provider (maps to reasoning_effort). Portable set: low|medium|high.

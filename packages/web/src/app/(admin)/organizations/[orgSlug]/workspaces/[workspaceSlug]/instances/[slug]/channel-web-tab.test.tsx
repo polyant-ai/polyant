@@ -159,4 +159,55 @@ describe("ChannelWebTab", () => {
       expect(screen.queryByText("common.save")).not.toBeInTheDocument();
     });
   });
+
+  describe("turning authentication off", () => {
+    beforeEach(() => {
+      mockInstanceUpdate.mockResolvedValue({ instance: agent({ authEnabled: false }) });
+    });
+
+    it("should_not_save_until_the_risk_is_accepted", async () => {
+      renderTab(agent({ authEnabled: true }));
+      await userEvent.click(screen.getByLabelText("settings.tab.authEnabled"));
+      await userEvent.click(await screen.findByText("common.save"));
+
+      expect(screen.getByText("channels.tab.webAuthOffDescription")).toBeInTheDocument();
+      expect(mockInstanceUpdate).not.toHaveBeenCalled();
+
+      await userEvent.click(screen.getByText("common.cancel"));
+      expect(mockInstanceUpdate).not.toHaveBeenCalled();
+    });
+
+    it("should_save_authentication_off_once_the_risk_is_accepted", async () => {
+      renderTab(agent({ authEnabled: true }));
+      await userEvent.click(screen.getByLabelText("settings.tab.authEnabled"));
+      await userEvent.click(await screen.findByText("common.save"));
+      await userEvent.click(screen.getByText("channels.tab.webAuthOffAccept"));
+
+      await waitFor(() =>
+        expect(mockInstanceUpdate).toHaveBeenCalledWith(
+          "bot-1",
+          expect.objectContaining({ authEnabled: false }),
+        ),
+      );
+    });
+
+    it("should_not_ask_when_authentication_stays_on", async () => {
+      renderTab(agent({ authEnabled: true }));
+      mockSecretsList.mockResolvedValue({ secrets: [{ key: "auth_api_key", configured: true }] });
+      await userEvent.click(screen.getByLabelText("settings.tab.authEnabled"));
+      await userEvent.click(screen.getByLabelText("settings.tab.authEnabled"));
+
+      expect(screen.queryByText("common.save")).not.toBeInTheDocument();
+      expect(screen.queryByText("channels.tab.webAuthOffDescription")).not.toBeInTheDocument();
+    });
+  });
+
+  it("should_generate_a_key_into_the_field_when_none_exists", async () => {
+    renderTab(agent({ authEnabled: true }));
+    await userEvent.click(await screen.findByText("channels.tab.webKeyGenerate"));
+
+    const field = screen.getByPlaceholderText("settings.tab.authKeyPlaceholder") as HTMLInputElement;
+    expect(field.value).toMatch(/^[0-9a-f]{64}$/);
+    expect(field.type).toBe("text");
+  });
 });

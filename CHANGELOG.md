@@ -71,6 +71,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A new agent now requires its API key (`auth_enabled` defaults to true, migration
+  `0090`). It cannot be reached until a key is saved; the Web/API panel can
+  generate one. Turning authentication off asks the reader to accept the risk
+  first. Existing agents and imported bundles keep their current setting.
 - The Anthropic `fast` tier runs Claude Haiku 5.5 instead of Haiku 4.5, with
   thinking switched off for the calls that do not ask for it (titles, memory,
   summaries).

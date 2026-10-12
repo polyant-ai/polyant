@@ -4,7 +4,18 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { SecretField } from "@/components/instance-secret/secret-field";
 import { useInstanceSecret } from "@/components/instance-secret/use-instance-secret";
@@ -18,6 +29,12 @@ import { FieldMappingEditor, mappingFromRows, type MappingRow, rowsFromMapping }
 function sameMapping(a: Record<string, string>, b: Record<string, string>): boolean {
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every((key) => b[key] === a[key]);
+}
+
+/** 256 random bits as hex: long enough to be unguessable, and safe to paste in a header. */
+function generateApiKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 interface Props {
@@ -60,6 +77,7 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
   const { t } = useI18n();
   const [authEnabled, setAuthEnabled] = useState(instance.authEnabled);
   const [saving, setSaving] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const apiKey = useInstanceSecret(instance.slug, SECRET_KEYS.AUTH);
   const savedMapping = instance.webContextFieldMapping ?? {};
   const [mappingRows, setMappingRows] = useState<MappingRow[]>(() => rowsFromMapping(savedMapping));
@@ -68,7 +86,13 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
 
   const isDirty = authEnabled !== instance.authEnabled || apiKey.dirty || !sameMapping(mapping, savedMapping);
 
-  const handleSave = async () => {
+  const handleSave = async (riskAccepted = false) => {
+    // Opening the agent is allowed, but never silently: the reader accepts the
+    // risk on screen first. A notice, not a permission gate.
+    if (instance.authEnabled && !authEnabled && !riskAccepted) {
+      setConfirmOpen(true);
+      return;
+    }
     // Turning auth ON with no key — neither stored nor typed — saves a state the
     // engine answers with 401 "Auth enabled but no API key configured" to every
     // `/v1` and `/chat/stream` caller. `apiKey.save()` is a no-op when nothing
@@ -103,7 +127,7 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
     }
   };
 
-  usePageSaveAction({ isDirty, saving, onSave: handleSave });
+  usePageSaveAction({ isDirty, saving, onSave: () => handleSave() });
 
   return (
     <div className="space-y-8">
@@ -141,6 +165,27 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
             onRemove={apiKey.configured ? apiKey.remove : undefined}
           />
         )}
+        {(authEnabled || mapsContext) && !apiKey.loading && (
+          <div className="space-y-2">
+            {!apiKey.configured && (
+              <p className="text-sm text-muted-foreground">{t("channels.tab.webKeyNeeded")}</p>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                apiKey.setValue(generateApiKey());
+                if (!apiKey.visible) apiKey.toggleVisibility();
+              }}
+            >
+              {t(apiKey.configured ? "channels.tab.webKeyRegenerate" : "channels.tab.webKeyGenerate")}
+            </Button>
+            {apiKey.value && (
+              <p className="text-xs text-muted-foreground">{t("channels.tab.webKeyGeneratedHint")}</p>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="space-y-2 rounded-lg border p-4">
@@ -152,6 +197,27 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
           pathPlaceholder={t("channels.tab.webContextMappingPath")}
         />
       </section>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("channels.tab.webAuthOffTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("channels.tab.webAuthOffDescription")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOpen(false);
+                void handleSave(true);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("channels.tab.webAuthOffAccept")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
