@@ -2,7 +2,8 @@
 
 import "reflect-metadata";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { Body, Controller, Module, Param, Post, type INestApplication } from "@nestjs/common";
+import { Body, Controller, Module, Param, Post, Req, type INestApplication, type RawBodyRequest } from "@nestjs/common";
+import type { Request } from "express";
 import { NestFactory } from "@nestjs/core";
 import { allowLargeJsonBodies, LARGE_JSON_BODY_ROUTES } from "./body-limits.js";
 
@@ -16,7 +17,15 @@ class BundleRoutes {
   @Post(":slug/memories") other(@Param("slug") _s: string, @Body() b: { s: string }) { return { n: b.s.length }; }
 }
 
-@Module({ controllers: [BundleRoutes] })
+// Stands in for a signed webhook: the signature is checked over `req.rawBody`.
+@Controller("api/webhooks")
+class WebhookRoute {
+  @Post("signed") signed(@Req() req: RawBodyRequest<Request>, @Body() b: { s: string }) {
+    return { s: b.s, raw: req.rawBody?.toString("utf8") ?? null };
+  }
+}
+
+@Module({ controllers: [BundleRoutes, WebhookRoute] })
 class TestModule {}
 
 let app: INestApplication;
@@ -56,7 +65,22 @@ describe("JSON body limits", () => {
   // route above met before it was listed.
   it("keeps the default limit everywhere else", async () => {
     const res = await post("/api/instances/support-bot/memories", twoMegabytes);
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(413);
+  });
+
+  // The large parser must not stand in for Nest's own: Nest skips registering
+  // its JSON parser when it finds one with the same function name, which left
+  // every other route — login included — with an empty body.
+  it("still parses JSON on every other route", async () => {
+    const res = await post("/api/instances/support-bot/memories", JSON.stringify({ s: "abc" }));
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ n: 3 });
+  });
+
+  it("keeps the raw body that webhook signatures are checked against", async () => {
+    const body = JSON.stringify({ s: "signed" });
+    const res = await post("/api/webhooks/signed", body);
+    expect(await res.json()).toEqual({ s: "signed", raw: body });
   });
 
   it("names every route it raises, so a new bundle route is added on purpose", () => {
