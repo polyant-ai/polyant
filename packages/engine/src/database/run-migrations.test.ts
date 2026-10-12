@@ -60,7 +60,7 @@ describe("waitForDatabase", () => {
 
   it("returns at once when the database answers", async () => {
     const { sql, calls } = fakeSql([null]);
-    const sleep = vi.fn(async () => {});
+    const sleep = vi.fn<(ms: number) => Promise<void>>(async () => {});
     await waitForDatabase(sql, { sleep });
     expect(calls()).toBe(1);
     expect(sleep).not.toHaveBeenCalled();
@@ -68,7 +68,7 @@ describe("waitForDatabase", () => {
 
   it("retries on connection refused with the backoff delays, then succeeds", async () => {
     const { sql, calls } = fakeSql([pgError("ECONNREFUSED", "r"), pgError("EAI_AGAIN", "d"), null]);
-    const sleep = vi.fn(async () => {});
+    const sleep = vi.fn<(ms: number) => Promise<void>>(async () => {});
     await waitForDatabase(sql, { sleep });
     expect(calls()).toBe(3);
     expect(sleep.mock.calls.map((c) => c[0])).toEqual(CONNECT_RETRY_DELAYS_MS.slice(0, 2));
@@ -77,17 +77,17 @@ describe("waitForDatabase", () => {
   it("gives up after about 60 s of waiting and rethrows the last error", async () => {
     const errs = Array.from({ length: CONNECT_RETRY_DELAYS_MS.length + 1 }, () => pgError("ECONNREFUSED", "r"));
     const { sql, calls } = fakeSql(errs);
-    const sleep = vi.fn(async () => {});
+    const sleep = vi.fn<(ms: number) => Promise<void>>(async () => {});
     await expect(waitForDatabase(sql, { sleep })).rejects.toThrow("r");
     expect(calls()).toBe(CONNECT_RETRY_DELAYS_MS.length + 1);
-    const total = sleep.mock.calls.reduce((a, c) => a + (c[0] as number), 0);
+    const total = sleep.mock.calls.reduce((a, c) => a + c[0], 0);
     expect(total).toBeGreaterThanOrEqual(55_000);
     expect(total).toBeLessThanOrEqual(65_000);
   });
 
   it("does not retry errors that waiting cannot fix", async () => {
     const { sql, calls } = fakeSql([pgError("28P01", "password authentication failed")]);
-    const sleep = vi.fn(async () => {});
+    const sleep = vi.fn<(ms: number) => Promise<void>>(async () => {});
     await expect(waitForDatabase(sql, { sleep })).rejects.toThrow("password");
     expect(calls()).toBe(1);
     expect(sleep).not.toHaveBeenCalled();
