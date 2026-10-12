@@ -41,5 +41,15 @@ export const DEFAULT_TOOL_NAMES: string[] = [
   "spawnTask",
 ];
 
+/**
+ * Tools an agent gets when Knowledge is turned on for it: the two read-only ones.
+ * `writeKnowledge` is not here: it changes the knowledge base, so granting it is
+ * a decision the agent's author makes in the Tools section.
+ */
+export const KNOWLEDGE_DEFAULT_TOOL_NAMES: string[] = [
+  "searchKnowledge",
+  "getKnowledge",
+];
+
 /** Default skills for new instances. */
 export const DEFAULT_SKILL_SLUGS: string[] = [];

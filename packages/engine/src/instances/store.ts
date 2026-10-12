@@ -3,7 +3,8 @@
 import { and, asc, desc, eq, sql, inArray } from "drizzle-orm";
 import { NO_TRANSACTION, db, type DbExecutor } from "../database/client.js";
 import { seedInstancePrompts } from "./prompts.store.js";
-import { seedInstanceTools } from "./instance-tools.store.js";
+import { enableToolsByName, seedInstanceTools } from "./instance-tools.store.js";
+import { KNOWLEDGE_DEFAULT_TOOL_NAMES } from "./defaults.js";
 import { seedInstanceSkills } from "./instance-skills.store.js";
 import { DEFAULT_EMBEDDING_DIM, embeddingProviderFor } from "../embeddings-gateway/config.js";
 import type { EmbeddingProvider } from "../embeddings-gateway/types.js";
@@ -510,12 +511,36 @@ export async function updateInstance(
       (patch as Record<string, unknown>)[key] = data[key];
     }
   }
-  const rows = await db
-    .update(instances)
-    .set({ ...patch, updatedAt: sql`now()` })
-    .where(eq(instances.slug, slug))
-    .returning();
-  return rows[0] ? toInstance(rows[0]) : undefined;
+  if (patch.knowledgeEnabled !== true) {
+    const rows = await db
+      .update(instances)
+      .set({ ...patch, updatedAt: sql`now()` })
+      .where(eq(instances.slug, slug))
+      .returning();
+    return rows[0] ? toInstance(rows[0]) : undefined;
+  }
+
+  // Knowledge is being turned on. Only the off -> on transition assigns the
+  // knowledge tools: re-saving an agent that already has Knowledge on must not
+  // bring back a tool its author removed. Turning Knowledge off deletes
+  // nothing; the supervisor hides the tools while it is off.
+  return db.transaction(async (tx) => {
+    const [before] = await tx
+      .select({ knowledgeEnabled: instances.knowledgeEnabled })
+      .from(instances)
+      .where(eq(instances.slug, slug))
+      .for("update");
+    const rows = await tx
+      .update(instances)
+      .set({ ...patch, updatedAt: sql`now()` })
+      .where(eq(instances.slug, slug))
+      .returning();
+    if (!rows[0]) return undefined;
+    if (before && !before.knowledgeEnabled) {
+      await enableToolsByName(asInstanceUuid(rows[0].id), KNOWLEDGE_DEFAULT_TOOL_NAMES, tx);
+    }
+    return toInstance(rows[0]);
+  });
 }
 
 /**

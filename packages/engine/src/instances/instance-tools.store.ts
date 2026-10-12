@@ -181,6 +181,27 @@ async function applyToolRowDiff(
   }
 }
 
+/**
+ * Enable `toolNames` for an instance as manual rows. Idempotent: a tool that is
+ * already assigned (under any source) is left as it is, and names missing from
+ * the tool catalog are skipped.
+ */
+export async function enableToolsByName(
+  instanceId: InstanceUuid,
+  toolNames: string[],
+  executor: DbExecutor,
+): Promise<void> {
+  const toolRows = await executor
+    .select({ id: tools.id })
+    .from(tools)
+    .where(inArray(tools.name, toolNames));
+  if (toolRows.length === 0) return;
+  await executor
+    .insert(instanceTools)
+    .values(toolRows.map((t) => ({ instanceId, toolId: t.id, source: "manual" as const })))
+    .onConflictDoNothing();
+}
+
 // ---------------------------------------------------------------------------
 // Seeding
 // ---------------------------------------------------------------------------
