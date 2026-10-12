@@ -31,6 +31,28 @@ function handleHttpException(exception: HttpException, method: string, path: str
 }
 
 /**
+ * Errors raised by Express middleware (body-parser: 413 too large, 415
+ * unsupported charset, 400 malformed JSON) follow the http-errors convention:
+ * a 4xx `status` plus `expose: true`, which is the library's own statement that
+ * the message is safe for the client. Anything not marked that way stays
+ * generic.
+ */
+function exposedClientError(exception: unknown): { status: number; message: string } | null {
+  if (typeof exception !== "object" || exception === null) return null;
+  const e = exception as { expose?: unknown; status?: unknown; statusCode?: unknown; message?: unknown };
+  const status = typeof e.status === "number" ? e.status : e.statusCode;
+  if (e.expose !== true || typeof status !== "number" || !Number.isInteger(status) || status < 400 || status > 499) {
+    return null;
+  }
+  return { status, message: typeof e.message === "string" ? e.message : "Request error" };
+}
+
+function handleExposedClientError(error: { status: number; message: string }, method: string, path: string): HandledError {
+  console.warn(`[${method}] ${path} -> ${error.status}: ${error.message}`);
+  return { status: error.status, body: { statusCode: error.status, message: error.message } };
+}
+
+/**
  * TypeError / RangeError almost always indicate a malformed request body
  * (wrong shape, missing key, wrong types) hitting a controller that assumed
  * the right shape. Surfaced as 400 with a GENERIC client message — the raw
@@ -79,6 +101,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private resolve(exception: unknown, method: string, path: string): HandledError {
     if (exception instanceof HttpException) {
       return handleHttpException(exception, method, path);
+    }
+    const exposed = exposedClientError(exception);
+    if (exposed) {
+      return handleExposedClientError(exposed, method, path);
     }
     if (exception instanceof TypeError || exception instanceof RangeError) {
       return handleValidationError(exception, method, path);

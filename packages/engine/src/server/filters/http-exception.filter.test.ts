@@ -37,6 +37,29 @@ function createMockRequest(method = "GET", url = "/test") {
 describe("GlobalExceptionFilter", () => {
   const filter = new GlobalExceptionFilter();
 
+  it("passes through an exposed 4xx middleware error (http-errors convention)", () => {
+    const res = createMockResponse();
+    const host = createMockHost(res, createMockRequest("POST", "/api/test"));
+    const err = Object.assign(new Error("request entity too large"), { status: 413, expose: true });
+
+    filter.catch(err, host);
+
+    expect(res.statusCode).toBe(413);
+    expect(res.body).toEqual({ statusCode: 413, message: "request entity too large" });
+  });
+
+  it("does not leak the message of a non-exposed or non-4xx error", () => {
+    for (const extra of [{ status: 413 }, { status: 500, expose: true }, { statusCode: 302, expose: true }]) {
+      const res = createMockResponse();
+      const host = createMockHost(res, createMockRequest("POST", "/api/test"));
+
+      filter.catch(Object.assign(new Error("internal detail"), extra), host);
+
+      expect(res.statusCode).toBe(500);
+      expect(JSON.stringify(res.body)).not.toContain("internal detail");
+    }
+  });
+
   it("returns HttpException status and message as-is (string body)", () => {
     const res = createMockResponse();
     const host = createMockHost(res, createMockRequest("POST", "/api/test"));

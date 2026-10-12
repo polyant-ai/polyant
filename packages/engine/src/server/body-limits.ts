@@ -23,21 +23,25 @@ export const LARGE_JSON_BODY_ROUTES: readonly string[] = [
 export const LARGE_JSON_BODY_LIMIT_BYTES = 50 * 1024 * 1024;
 
 /**
- * Parse the routes above with the larger limit. Must run before the first
- * request: body-parser marks a parsed request, so Nest's default JSON parser,
- * registered later, leaves it alone.
+ * Parse POST requests on the routes above with the larger limit. Must be
+ * called before the app initialises (listen), so it runs ahead of Nest's
+ * default JSON parser, which leaves an already-parsed request alone; call it
+ * after enableCors so a refused body still carries the CORS headers.
  *
- * The parser is wrapped under its own name on purpose. Nest decides whether
- * to register its JSON parser by looking for a middleware named `jsonParser`;
- * body-parser's function has that name, so mounting it bare made Nest skip its
- * own parser and every other route lost both `req.body` and `req.rawBody`.
+ * Mounted as an Express route (exact path and method) rather than with
+ * `app.use`, which matches path prefixes and every method. It stays a
+ * separate middleware instead of `app.useBodyParser("json", { limit })`
+ * because that would raise the limit on every route, public webhooks included.
+ * Nest's default parser stays registered, so other routes keep `req.body` and
+ * `req.rawBody`.
  */
 export function allowLargeJsonBodies(
   app: INestApplication,
   routes: readonly string[] = LARGE_JSON_BODY_ROUTES,
 ): void {
   const parse = json({ limit: LARGE_JSON_BODY_LIMIT_BYTES });
-  app.use([...routes], function largeJsonBodyParser(req: Request, res: Response, next: NextFunction) {
-    parse(req, res, next);
-  });
+  const express = app.getHttpAdapter().getInstance() as {
+    post: (paths: string[], handler: (req: Request, res: Response, next: NextFunction) => void) => void;
+  };
+  express.post([...routes], (req, res, next) => parse(req, res, next));
 }
