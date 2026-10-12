@@ -216,14 +216,15 @@ export function TourOverlay() {
     el.style.width = `${w}px`;
     const placed = placeBubble(box, { w, h: el.offsetHeight }, { w: vw, h: vh }, step.place, vw < 768);
     setBubble(placed);
-    if (placed.docked) {
-      // The sheet spans the screen minus the gutters; its height follows the new width.
-      el.style.width = `${vw - 2 * GUTTER}px`;
-      setDockTop(el.getBoundingClientRect().top);
-    } else {
-      setDockTop(null);
-    }
+    // The sheet spans the screen minus the gutters; its height follows the new width.
+    if (placed.docked) el.style.width = `${vw - 2 * GUTTER}px`;
   }, [box, step, stepKey, settled]);
+
+  // Once the docked styles are committed, note where the sheet starts.
+  useLayoutEffect(() => {
+    const el = bubbleRef.current;
+    setDockTop(bubble?.docked && el ? el.getBoundingClientRect().top : null);
+  }, [bubble]);
 
   // Focus the bubble when a step appears, so a screen reader announces it.
   useEffect(() => {
