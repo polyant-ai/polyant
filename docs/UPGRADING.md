@@ -144,12 +144,9 @@ either channel:
 Telegram's webhook secret is random and stored with each channel. Nothing is
 done by hand: on the first start after the upgrade, or when a channel is next
 enabled, the engine mints the secret, stores it and registers the webhook with
-Telegram. A channel set up on a pre-release build, which derived the secret from
-the bot token, gets a new one the same way; until the re-registration, updates
-Telegram sends with the old secret are refused. Telegram keeps or retries
-undelivered updates for up to 24 hours, so start the engine on the new version
-promptly after the deployment, and check each bot's `getWebhookInfo` if messages
-do not arrive.
+Telegram. Telegram keeps undelivered updates for up to 24 hours, so start the
+engine on the new version promptly after the deployment, and check each bot's
+`getWebhookInfo` if messages do not arrive.
 
 ### LangSmith metadata key renamed
 
@@ -268,10 +265,10 @@ Plugin tools have namespaced names: `ghIssue`, `ghPR` and `gitCloneRepo` are now
 `hubspot:contact`, `hubspotSendEmail` is `hubspot:sendEmail`); and
 `markdownToPdf` is `extra:markdownToPdf`; `fileUpload` is `extra:fileUpload`, in
 the same extra plugin. Migrations `0087_rename_extracted_tools` and
-`0089_rename_extracted_tools_file_upload` rename the catalog rows in place, so every agent keeps its enablement and every
-skill its tool links and its list of required tools. Until the plugin is
-installed the agent simply does not get the tool; once it is, the tool works
-again with nothing to re-enable. An export bundle from an older version that
+`0089_rename_extracted_tools_file_upload` rename the catalog rows in place, so
+every agent keeps its enablement and every skill its tool links and its list of
+required tools. Until the plugin is installed the agent simply does not get the
+tool; once it is, the tool works again with nothing to re-enable. An export bundle from an older version that
 names a tool by its old name enables the new one on import.
 
 The integration-specific `verifyDocument` tool was removed without a
@@ -283,17 +280,6 @@ An installation that already booted a version without the extracted tools and
 without this migration has lost those enablements: the migration finds no old
 rows to rename. Re-enable the tools from each affected agent's Tools tab after
 installing the plugins, and update any skill that still names an old tool.
-
-### Custom S3 endpoints are removed
-
-`s3_endpoint` is no longer read, and migration `0081_drop_s3_endpoint_secret`
-deletes every stored value. An agent configured for MinIO, Cloudflare R2 or
-another S3-compatible endpoint falls back to AWS addressing, so uploads and
-attachment reads will fail rather than continue against that service.
-
-Before upgrading, move affected buckets to AWS S3 and configure each agent's
-bucket, region and access keys as described below. Version 1.2.0 has no
-supported custom-endpoint replacement.
 
 ### Attachments stored in the platform bucket
 
@@ -322,9 +308,8 @@ The bucket is reached only with the agent's own `aws_access_key_id` and
 `aws_secret_access_key`, never the deployment's runtime identity such as an ECS
 task role. Before upgrading, create an access key that may write, read and
 delete under `attachments/` in each bucket an agent should use, and set it on
-the agent. An agent that still carries an `s3_use_task_role` secret from a
-pre-release build stores no attachments while it has no keys, and each upload
-logs that the setting is not supported; set the keys, then delete that secret.
+the agent. Pre-release builds of 1.2.0 that used `s3_use_task_role` store no
+attachments until the agent has access keys; set them, then delete that secret.
 
 Deleting a conversation or an agent also deletes the files stored for it, by the
 keys recorded on its messages. That needs `s3:DeleteObject` on the

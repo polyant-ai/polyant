@@ -12,9 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > **Upgrading from 1.1.2 needs operator action.** The engine and the panel run
 > on Node 24. Several built-in tool families and
 > `fileUpload` now require plugins (agents keep them enabled under their new
-> names). Attachment storage uses each agent's own bucket and access keys, with
-> no custom S3 endpoints and no task-role mode, and storing inbound attachments
-> becomes a per-agent choice, off for every agent. Telegram and Slack arrive
+> names). Attachment storage uses each agent's own bucket and access keys, and
+> storing inbound attachments becomes a per-agent choice, off for every agent. Telegram and Slack arrive
 > through webhooks and need a public address. A new agent starts with its Web
 > channel off and requires its API key. Environment variables that set product
 > behaviour are gone, and a non-default value has to be entered in the panel
@@ -147,10 +146,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING — attachment storage is configured per agent, and storing inbound
   files is opt-in.** The four `PLATFORM_S3_*` variables are gone; attachment
   persistence and `extra:fileUpload` share the agent's bucket, reached only with
-  the agent's own `aws_access_key_id` and `aws_secret_access_key`. There is no
-  task-role mode: an agent that still sets `s3_use_task_role` without static
-  keys stores no attachments, and the engine logs that the setting is not
-  supported and what to set instead. The bucket, region and keys are set on the
+  the agent's own `aws_access_key_id` and `aws_secret_access_key`. The bucket,
+  region and keys are set on the
   agent's Advanced page, in a card that holds the **Store attachments** switch;
   an agent keeps the files its users send only while the switch is on.
   Migration `0088` adds the switch off for every agent, and the model sees each
@@ -229,13 +226,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which held the event loop for about 250 ms on every request a key
   authenticated. A key stored as bcrypt keeps working and is rewritten the
   first time it is used.
+- `/v1/chat/completions` answers 503 in OpenAI's error shape, with
+  `code: missing_provider_key` and `x-should-retry: false`, when the agent has
+  no API key for its AI provider, before any stream byte. Channels and the
+  panel keep showing the warning.
+- With no language chosen, the panel starts in the browser's language when it
+  is one the panel supports, and in English otherwise. A stored choice still
+  wins.
+- Turning Knowledge on gives the agent the read-only knowledge tools
+  (`searchKnowledge`, `getKnowledge`). Only the switch from off to on assigns
+  them, so re-saving the agent does not bring back a tool its author removed.
 
 ### Removed
 
-- **BREAKING — `s3_endpoint` is removed.** Migration
-  `0081_drop_s3_endpoint_secret` deletes stored values. MinIO, Cloudflare R2 and
-  other custom endpoints are unsupported in 1.2.0 and fall back to AWS
-  addressing.
 - **BREAKING — deployment configuration was narrowed.** `AUTH_MODE`,
   `DEFAULT_INSTANCE_ID`, `AWS_REGION`, `PLATFORM_ADMIN_EMAIL`,
   `WORKSPACES_ROOT`, `DEBUG_LLM_PAYLOAD` and the unused `LANGSMITH_*` variables
@@ -457,6 +460,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Text document uploads, knowledge imports and agent imports accept JSON bodies
   up to 50 MB. They were refused above 100 KB, so an export larger than that
   could not be imported back. Every other route keeps the 100 KB limit.
+- A request body over its size limit is answered 413, and one of an
+  unsupported content type 415, instead of 500.
 - A stored attachment is read and deleted in the bucket it was written to. After
   an agent's bucket changed, older files could not be opened and a deleted
   conversation left them in the old bucket while counting them as removed.
@@ -472,11 +477,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Transcribe ($0.0001667 per second) are priced; they were logged at $0.
 - Conversation history replays a tool that moved into a plugin under the name
   it has now, not its old flat name.
-- Importing a bundle exported before custom S3 endpoints and the task-role mode
-  were removed no longer asks for `s3_endpoint` or `s3_use_task_role`; for the
-  task role it asks for the bucket's access keys.
-- The agent page opens for a custom role that holds `agent:read` without the
-  tool, skill or prompt read permissions; it used to answer "agent not found".
 - The playground's error messages, its copy button and the badge of a
   transcribed voice message follow the panel's language.
 - Messages that sent people to "an administrator" name the Organization Owner
@@ -490,14 +490,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **BREAKING — each Telegram channel has its own random webhook secret**, stored
-  with the channel. Pre-release builds derived it from the bot token, so anyone
-  who had seen the token could forge updates. The engine mints the secret and
-  registers the webhook on the first start of 1.2.0 or when the channel is next
-  enabled; until then Telegram's deliveries are not accepted. See
-  docs/UPGRADING.md.
-- Removed the agent-controlled S3 endpoint that could direct file PUTs and GETs
-  to arbitrary hosts, including private network addresses.
+- Each Telegram channel has its own random webhook secret, stored with the
+  channel and independent of the bot token. The engine mints it and registers
+  the webhook when the channel starts.
+- Message text, reply previews, contact names, the memory extractor's
+  unparseable replies and the full error of a failed Telegram or outbound send
+  are logged at debug level only; the normal levels keep the error message and
+  stable ids.
 - Closed cross-tenant keyword search and mutation paths by making tenant scope
   explicit, branded and fail-closed throughout the affected stores.
 - Disabled skills can no longer resolve their retained credential placeholders;
