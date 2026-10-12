@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { api, type Instance } from "@/lib/api";
-import {
-  credentialSection,
-  taskCredential,
-} from "@/app/(admin)/organizations/[orgSlug]/workspaces/[workspaceSlug]/instances/[slug]/model-tasks";
+import { credentialSection, taskCredential } from "@/lib/provider-credentials";
 import { SECRET_KEYS } from "@/lib/provider-secrets";
 
 /**

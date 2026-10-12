@@ -14,16 +14,18 @@ import type { OnboardingState } from "@/lib/api-types";
 const h = vi.hoisted(() => ({
   pathname: { value: "/organizations/acme" },
   tab: { value: null as string | null },
+  params: { value: { workspaceSlug: "general" } as { workspaceSlug?: string } },
   push: vi.fn(),
+  replace: vi.fn(),
   update: vi.fn(),
   getInstance: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => h.pathname.value,
-  useParams: () => ({}),
+  useParams: () => h.params.value,
   useSearchParams: () => new URLSearchParams(h.tab.value ? `tab=${h.tab.value}` : ""),
-  useRouter: () => ({ push: h.push, replace: h.push }),
+  useRouter: () => ({ push: h.push, replace: h.replace }),
 }));
 
 vi.mock("@/lib/api", async () => {
@@ -110,6 +112,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.pathname.value = "/organizations/acme";
   h.tab.value = null;
+  h.params.value = { workspaceSlug: "general" };
   h.update.mockResolvedValue({ onboarding: state() });
   h.getInstance.mockResolvedValue({ instance: { slug: "support" } });
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
@@ -123,6 +126,23 @@ describe("what opens by itself", () => {
     mount();
     expect(await screen.findByRole("dialog", { name: "Guided setup" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Welcome to Polyant" })).toBeInTheDocument();
+  });
+
+  it("moves to the default workspace before showing the wizard when the URL has none", async () => {
+    onboardingFromEngine = state();
+    h.params.value = {};
+    mount();
+    await waitFor(() =>
+      expect(h.replace).toHaveBeenCalledWith("/organizations/acme/workspaces/general/instances"),
+    );
+    expect(screen.queryByRole("dialog", { name: "Guided setup" })).not.toBeInTheDocument();
+  });
+
+  it("does not move when the URL already names a workspace", async () => {
+    onboardingFromEngine = state();
+    mount();
+    await screen.findByRole("dialog", { name: "Guided setup" });
+    expect(h.replace).not.toHaveBeenCalled();
   });
 
   it("offers the interface tour, not the wizard, when only the wizard was dismissed", async () => {
