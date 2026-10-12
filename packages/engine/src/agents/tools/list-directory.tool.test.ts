@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
 const mockReaddir = vi.hoisted(() => vi.fn());
 const mockStat = vi.hoisted(() => vi.fn());
 const mockRealpath = vi.hoisted(() => vi.fn(async (p: string) => p));
-
-import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("fs/promises", () => ({
   readdir: mockReaddir,

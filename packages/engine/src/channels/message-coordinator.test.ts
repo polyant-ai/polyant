@@ -180,7 +180,7 @@ describe("MessageCoordinator", () => {
             setTimeout(() => reject(err), 5000);
           });
         });
-        return { text: `reply to ${msg.text.replace("\n", "+")}` };
+        return { text: `reply to ${msg.text.replaceAll("\n", "+")}` };
       },
     );
     const sendOutbound = vi.fn().mockResolvedValue(undefined);
