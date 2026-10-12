@@ -153,6 +153,7 @@ import {
   updateInstance,
   deleteInstance,
   listAllInstances,
+  listAgentWorkspaceSlugs,
   resolveWorkspaceIdForPrincipal,
   createInstanceWithDefaults,
 } from "./store.js";
@@ -236,6 +237,22 @@ describe("instances/store", () => {
       const result = await listActiveInstances(testScope({ organizationId: "org-test" }));
 
       expect(result).toEqual([]);
+    });
+  });
+
+  describe("listAgentWorkspaceSlugs", () => {
+    it("maps agent slug to workspace slug and applies the tenant scope", async () => {
+      const chain = createChainMock([{ slug: "a", workspaceSlug: "ws-1" }]);
+      mockDb.select.mockReturnValue(chain as any);
+      mockBuildOrgScopedAgentFilter.mockClear();
+
+      const result = await listAgentWorkspaceSlugs(testScope({ organizationId: "org-test" }));
+
+      expect(result).toEqual(new Map([["a", "ws-1"]]));
+      // The scope predicate (agents of another org are excluded) is the one
+      // every agent-list read uses, bound to the caller's organization.
+      expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-test", "slug");
+      expect(chain.where).toHaveBeenCalledWith({ type: "orgFilter", orgId: "org-test", column: "slug" });
     });
   });
 

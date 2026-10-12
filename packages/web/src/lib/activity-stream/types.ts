@@ -16,6 +16,8 @@ export interface InstanceMeta {
   slug: string;
   name: string;
   icon: string | null;
+  /** The agent's own workspace; set by the live endpoint, absent on older payloads. */
+  workspaceSlug?: string;
 }
 
 export interface ToolMeta {

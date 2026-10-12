@@ -32,12 +32,13 @@ import type { FeedEvent } from "./activity-stream.types.js";
 import { CurrentUser } from "../auth/index.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { RequirePermission, Permission } from "../authz/index.js";
-import { listAllInstances, resolvePrincipalOrgId } from "../instances/store.js";
+import { listAgentWorkspaceSlugs, resolvePrincipalOrgId } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
-import { NO_TRANSACTION } from "../database/client.js";
 import { conversationStore } from "../conversations/store.js";
 import { subscribeConversationChanges } from "../conversations/live-updates.js";
 import { callerTenantScope } from "../server/utils/caller-tenant-scope.js";
+import { orgScope } from "../authz/scope-filter.js";
+import { NO_TRANSACTION } from "../database/client.js";
 
 /**
  * Per-client backpressure cap. If a slow client accumulates more than this
@@ -90,13 +91,14 @@ export function closeActivityStreams(): number {
  * No platform-admin bypass, deliberately: the sibling org-scoped read paths
  * (conversations, analytics, audit) do not grant one either.
  */
-async function resolveVisibleSlugs(user: AuthenticatedUser | undefined): Promise<Set<string>> {
+async function resolveVisibleSlugs(user: AuthenticatedUser | undefined): Promise<Map<string, string>> {
   const orgId = await resolvePrincipalOrgId(user?.orgId, NO_TRANSACTION);
-  // No resolvable organization → nothing is provably visible. Fail closed.
-  if (!orgId) return new Set();
+  // No resolvable organization → nothing is provably visible. Fail closed, but
+  // keep the stream open (empty): the web treats a non-200 as a lost connection.
+  if (!orgId) return new Map();
 
-  const instances = await listAllInstances(orgId);
-  return new Set(instances.map((i) => i.slug));
+  // agent slug -> its workspace slug, so forwarded events can carry the workspace.
+  return listAgentWorkspaceSlugs(orgScope(orgId));
 }
 
 /** Answer 503 when the installation-wide subscriber cap is reached. */
@@ -122,7 +124,7 @@ function openFeed(
   res: Response,
   user: AuthenticatedUser | undefined,
   maxPerUser: number,
-  accept: (evt: FeedEvent) => boolean,
+  accept: (evt: FeedEvent) => FeedEvent | null,
   extra?: (send: (event: string) => void) => () => void,
 ): void {
   // Per-user cap. Unauthenticated requests are blocked by the global AuthGuard,
@@ -187,7 +189,8 @@ function openFeed(
   };
 
   const unsubscribe = activityBus.subscribe((evt) => {
-    if (accept(evt)) enqueue(`data: ${JSON.stringify(evt)}\n\n`);
+    const out = accept(evt);
+    if (out) enqueue(`data: ${JSON.stringify(out)}\n\n`);
   });
   const unsubscribeExtra = extra?.((event) => enqueue(`event: ${event}\ndata: {}\n\n`));
 
@@ -278,10 +281,12 @@ export class ActivityStreamController {
       // process-global, so without this the socket carries every organization's
       // agent slugs, tool summaries, channel senders and handoff prompts.
       // An event with no agent cannot be attributed, so it is not forwarded.
-      if (!evt.instance?.slug || !visibleSlugs.has(evt.instance.slug)) return false;
+      const workspaceSlug = evt.instance?.slug ? visibleSlugs.get(evt.instance.slug) : undefined;
+      if (!evt.instance?.slug || workspaceSlug === undefined) return null;
       // Server-side filter: when the client passed `?instance=<slug>` only
       // forward events scoped to that instance.
-      return !instance || evt.instance.slug === instance;
+      if (instance && evt.instance.slug !== instance) return null;
+      return { ...evt, instance: { ...evt.instance, workspaceSlug } };
     });
   }
 
@@ -325,7 +330,7 @@ export class ActivityStreamController {
       res,
       user,
       sseMaxConnectionsPerUser,
-      (evt) => evt.conversationId === id,
+      (evt) => (evt.conversationId === id ? evt : null),
       (send) => subscribeConversationChanges(id, () => send("persisted")),
     );
   }
