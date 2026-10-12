@@ -93,6 +93,31 @@ describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () 
     });
   });
 
+  it("should_carry_the_web_channel_state_through_a_round_trip", async () => {
+    const webOf = async (slug: string) =>
+      (await queryClient<{ enabled: boolean }[]>`
+        SELECT c.enabled FROM instance_channels c JOIN instances i ON i.id = c.instance_id
+        WHERE i.slug = ${slug} AND c.channel_type = 'web'`)[0]?.enabled;
+
+    // A new agent has no web row, which means off; the bundle says so explicitly.
+    const off = await createAgent("web-off");
+    expect(await webOf(off.slug)).toBeUndefined();
+    const offBundle = await exportInstance(off.slug);
+    expect(offBundle.instance.channels).toContainEqual({ channelType: "web", enabled: false, config: {} });
+    expect(await webOf((await importNewInstance(offBundle, orgId)).slug)).toBe(false);
+
+    // Switched on, it stays on.
+    const on = await createAgent("web-on");
+    await queryClient`INSERT INTO instance_channels (instance_id, channel_type, enabled, config)
+      VALUES (${on.id}, 'web', true, '')`;
+    const onBundle = await exportInstance(on.slug);
+    expect(await webOf((await importNewInstance(onBundle, orgId)).slug)).toBe(true);
+
+    // A bundle from before Web was a channel has no row: its endpoint was online.
+    const legacy = { ...offBundle, version: "1.2" as const, instance: { ...offBundle.instance, channels: [] } };
+    expect(await webOf((await importNewInstance(legacy, orgId)).slug)).toBe(true);
+  });
+
   it("should_replace_a_parameter_on_overwrite_and_leave_the_target_credential_alone", async () => {
     const source = await createAgent("ow-source");
     await queryClient`UPDATE instances SET thinking_level = 'max' WHERE id = ${source.id}`;

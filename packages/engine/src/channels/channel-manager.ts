@@ -406,6 +406,9 @@ export class ChannelManager {
       case "agent":
         // agent: virtual in-process, dispatched directly via adapter.dispatch()
         return new AgentChannelAdapter();
+      case "web":
+        // web: the public HTTP endpoints; nothing to start, the row is the switch.
+        return null;
       default:
         console.warn(`Unknown channel type: ${sanitizeForLog(channelType)}`);
         return null;

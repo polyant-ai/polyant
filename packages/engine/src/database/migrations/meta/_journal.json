@@ -589,6 +589,13 @@
       "when": 1791794360000,
       "tag": "0090_new_agents_require_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1791880000000,
+      "tag": "0091_web_channel",
+      "breakpoints": true
     }
   ]
 }

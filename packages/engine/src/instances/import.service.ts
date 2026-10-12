@@ -34,6 +34,7 @@ import { importPrompts } from "./prompts.import.js";
 import { importSkillAssignments } from "./skill-assignments.import.js";
 import { importManualTools } from "./manual-tools.import.js";
 import { importChannels } from "./channels.import.js";
+import { WEB_CHANNEL_TYPE } from "./channels.store.js";
 import { importSkillEnv, importSkillEnvOverwrite } from "./skill-env.import.js";
 import { importHooks } from "./hooks.import.js";
 import { importRoom } from "./room.import.js";
@@ -53,9 +54,18 @@ export { importChannels, importMcpServers };
  * An invalid mapping fails the whole import, before anything is written.
  */
 function parseBundle(rawBundle: unknown): ExportInstanceData {
-  const data = instanceBundleSchema.parse(rawBundle).instance;
+  const bundle = instanceBundleSchema.parse(rawBundle);
+  const data = bundle.instance;
+  // Before 1.3 Web was not a channel: every agent's HTTP endpoint was online,
+  // so a bundle without the `web` row restores it switched on, as it was.
+  // From 1.3 on the row is always present and says what it means.
+  const channels =
+    bundle.version !== "1.3" && !data.channels.some((c) => c.channelType === WEB_CHANNEL_TYPE)
+      ? [...data.channels, { channelType: WEB_CHANNEL_TYPE, enabled: true, config: {} }]
+      : data.channels;
   return {
     ...data,
+    channels,
     webContextFieldMapping: normalizeFieldMapping(data.webContextFieldMapping, "webContextFieldMapping"),
   };
 }

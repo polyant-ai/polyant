@@ -51,10 +51,3 @@ These are **reference examples**, not runnable scripts. To use one:
 3. Enable it on your instance via the **Tools** tab.
 
 See [Quickstart](https://docs.polyant.ai/getting-started/quickstart) for an end-to-end walkthrough.
-
-## Bootstrap
-
-If you just want to try Polyant quickly, the project ships a `demo-agent`
-instance created automatically at first boot by the database seed migration.
-See the **Quickstart with demo-agent** section in
-[Quickstart](https://docs.polyant.ai/getting-started/quickstart).

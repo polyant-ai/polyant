@@ -12,6 +12,9 @@ const { mockListActiveInstances, mockFindInstanceBySlug, mockResolvePrincipalOrg
     mockResolvePrincipalOrgId: vi.fn(),
   }));
 
+const { mockIsWebChannelEnabled } = vi.hoisted(() => ({ mockIsWebChannelEnabled: vi.fn() }));
+vi.mock("../../instances/channels.store.js", () => ({ isWebChannelEnabled: mockIsWebChannelEnabled }));
+
 vi.mock("../../instances/store.js", () => ({
   listActiveInstances: mockListActiveInstances,
   findInstanceBySlug: mockFindInstanceBySlug,
@@ -66,8 +69,18 @@ describe("OpenAIService", () => {
       mockResolvePrincipalOrgId.mockImplementation(async (orgId?: string) => orgId ?? null);
     });
 
+    it("should_return_nothing_when_the_instance_key_agent_has_web_off", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(agentA);
+      mockIsWebChannelEnabled.mockResolvedValue(false);
+
+      const result = await new OpenAIService().listInstances({ kind: "instance", instanceSlug: "agent-a" });
+
+      expect(result).toEqual([]);
+    });
+
     it("should_return_only_its_own_agent_when_the_caller_is_an_instance_api_key", async () => {
       mockFindInstanceBySlug.mockResolvedValue(agentA);
+      mockIsWebChannelEnabled.mockResolvedValue(true);
 
       const result = await new OpenAIService().listInstances({
         kind: "instance",

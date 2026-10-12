@@ -3,11 +3,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, MessageSquareCode, KeyRound, Eye, EyeOff, Database } from "lucide-react";
+import { Plus, MessageSquareCode, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 
 import {
   Tooltip,
@@ -38,8 +37,6 @@ interface ChatAreaProps {
   conversations: ConversationListItem[];
   conversationsLoading: boolean;
   activeConversationId: string | null;
-  authToken: string;
-  onAuthTokenChange: (token: string) => void;
   onSend: (text: string) => void;
   onStop: () => void;
   onInstanceChange: (slug: string) => void;
@@ -56,8 +53,6 @@ export function ChatArea({
   conversations,
   conversationsLoading,
   activeConversationId,
-  authToken,
-  onAuthTokenChange,
   onSend,
   onStop,
   onInstanceChange,
@@ -66,8 +61,6 @@ export function ChatArea({
 }: ChatAreaProps) {
   const { t, locale } = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [showKeyInput, setShowKeyInput] = useState(false);
-  const [showKeyValue, setShowKeyValue] = useState(false);
   const [debugTarget, setDebugTarget] = useState<DebugSheetTarget | null>(null);
   const [stateOpen, setStateOpen] = useState(false);
   const [showActivity, setShowActivity] = useDetailedView();
@@ -106,46 +99,11 @@ export function ChatArea({
           disabled={isStreaming}
         />
 
-        {/* Auth token inline input */}
-        {showKeyInput && (
-          <div className="relative flex-1 max-w-xs">
-            <Input
-              type={showKeyValue ? "text" : "password"}
-              value={authToken}
-              onChange={(e) => onAuthTokenChange(e.target.value)}
-              placeholder={t("playground.authKeyPlaceholder")}
-              className="h-8 pr-8 text-xs"
-            />
-            <button
-              type="button"
-              onClick={() => setShowKeyValue(!showKeyValue)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              {showKeyValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            </button>
-          </div>
-        )}
-
         <div className="ml-auto flex items-center gap-2">
           <Label htmlFor="playground-activity" className="mr-2 flex items-center gap-2 text-sm font-normal text-muted-foreground">
             <Switch id="playground-activity" checked={showActivity} onCheckedChange={setShowActivity} />
             {t("conversations.detail.detailedToggle")}
           </Label>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={authToken ? "default" : "ghost"}
-                size="icon"
-                className="size-8"
-                onClick={() => setShowKeyInput(!showKeyInput)}
-              >
-                <KeyRound className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {t("playground.authKeyToggle")}
-            </TooltipContent>
-          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

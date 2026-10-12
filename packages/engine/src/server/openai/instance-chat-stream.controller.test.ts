@@ -171,6 +171,18 @@ describe("InstanceChatStreamController.stream", () => {
     ]);
   });
 
+  it("serves the panel playground without the Web channel or the agent key", async () => {
+    chatCompletionStream.mockResolvedValue(makeStream([]));
+    const res = makeRes();
+    await controller.playground("acme", { model: "x", messages: [], context: { a: 1 } } as never, res as never);
+
+    expect(mockValidateInstanceApiKey).not.toHaveBeenCalled();
+    expect(chatCompletionStream).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "acme", stream: true, context: undefined }),
+      expect.any(AbortSignal),
+    );
+  });
+
   it("aborts the pipeline when the client disconnects before the turn produced anything", async () => {
     let signal: AbortSignal | undefined;
     chatCompletionStream.mockImplementation(async (_request: unknown, abort: AbortSignal) => {

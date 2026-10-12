@@ -22,6 +22,7 @@ import { NO_TRANSACTION } from "../../database/client.js";
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { extractMappedFields } from "../../conversations/field-mapping.js";
 import { flushConversationState } from "../../conversations/state.store.js";
+import { isWebChannelEnabled } from "../../instances/channels.store.js";
 
 /**
  * The two principal shapes that can reach GET /v1/models (see AuthGuard): a
@@ -57,7 +58,8 @@ export class OpenAIService {
   async listInstances(principal?: ModelsPrincipal): Promise<Instance[]> {
     if (principal?.kind === "instance") {
       const own = await findInstanceBySlug(asInstanceSlug(principal.instanceSlug));
-      return own && own.status === "active" ? [own] : [];
+      // The key is the Web channel's credential: with Web off it lists nothing.
+      return own && own.status === "active" && (await isWebChannelEnabled(own.id)) ? [own] : [];
     }
     const organizationId = await resolvePrincipalOrgId(principal?.orgId, NO_TRANSACTION);
     return organizationId ? listActiveInstances(orgScope(organizationId)) : [];

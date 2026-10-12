@@ -38,8 +38,8 @@ export {
  *
  * NOT the same as `MessageChannelType` in `channels/types.ts`, which is the
  * WIDE set covering every possible provenance of a pipeline message
- * (additionally includes `web`, `scheduled`, `room` which have no
- * per-instance stored credentials and are not API-configurable).
+ * (additionally includes `scheduled` and `room`, which have no per-instance
+ * row and are not API-configurable).
  *
  * Adding a new API-configurable channel:
  *   1. Append the literal to this tuple.
@@ -48,7 +48,7 @@ export {
  *   4. `MessageChannelType` widens automatically.
  *   5. Update any test mocks that hardcode this tuple.
  */
-export const CHANNEL_TYPES = ["telegram", "slack", "whatsapp", "agent"] as const;
+export const CHANNEL_TYPES = ["telegram", "slack", "whatsapp", "agent", "web"] as const;
 export type ChannelType = (typeof CHANNEL_TYPES)[number];
 
 /**
@@ -65,6 +65,15 @@ export const TELEGRAM_CHANNEL_TYPE = "telegram" as const satisfies ChannelType;
 
 /** Named handle for the virtual agent-to-agent channel type, to avoid inline `"agent"` literals at call sites. */
 export const AGENT_CHANNEL_TYPE = "agent" as const satisfies ChannelType;
+
+/**
+ * Named handle for the virtual `web` channel: the agent's public HTTP endpoints
+ * (`/v1/chat/completions`, `/api/instances/:slug/chat/stream`). Like `agent` it
+ * has no adapter and no credentials; its row's `enabled` flag is the switch, and
+ * a missing row means off. Authentication stays on the agent (`auth_enabled` and
+ * the `auth_api_key` secret) because A2A shares it.
+ */
+export const WEB_CHANNEL_TYPE = "web" as const satisfies ChannelType;
 
 /** Safely decrypt channel config. Returns empty object if config is empty/invalid. */
 function safeDecryptConfig(encrypted: string): Record<string, unknown> {
@@ -104,6 +113,8 @@ export const channelConfigSchemas: Record<ChannelType, z.ZodType> = {
    * schema migration.
    */
   agent: z.object({}).passthrough(),
+  /** Virtual: no configuration, the row's `enabled` flag is the whole channel. */
+  web: z.object({}).passthrough(),
 };
 
 /**
@@ -124,6 +135,7 @@ export const CHANNEL_CONFIG_KEYS: Record<ChannelType, readonly string[]> = {
   slack: ["botToken", "signingSecret"],
   whatsapp: ["authMode", "accountSid", "authToken", "apiKeySid", "apiKeySecret", "whatsappNumber"],
   agent: [],
+  web: [],
 };
 
 export interface ChannelConfig {
@@ -430,4 +442,17 @@ export async function deleteChannelConfig(instanceId: InstanceUuid, channelType:
   await db
     .delete(instanceChannels)
     .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, channelType)));
+}
+
+/**
+ * Whether the agent's public HTTP endpoints may answer. A missing row is off,
+ * so an agent is never reachable over HTTP until someone switched Web on.
+ */
+export async function isWebChannelEnabled(instanceId: InstanceUuid): Promise<boolean> {
+  const rows = await db
+    .select({ enabled: instanceChannels.enabled })
+    .from(instanceChannels)
+    .where(and(eq(instanceChannels.instanceId, instanceId), eq(instanceChannels.channelType, WEB_CHANNEL_TYPE)))
+    .limit(1);
+  return rows[0]?.enabled === true;
 }

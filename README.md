@@ -39,11 +39,11 @@ Read the long version in **[Why Polyant](docs/why-polyant.md)**.
 
 - **Supervisor Agent** — Central orchestrator with tool use, up to 15 reasoning steps per request (Vercel AI SDK)
 - **Long-term Memory** — Automatic fact extraction via LLM; hybrid search with pgvector cosine similarity + PostgreSQL FTS fused via Reciprocal Rank Fusion
-- **Multi-channel** — Telegram, Slack, WhatsApp, and an OpenAI-compatible HTTP API (with file attachment support)
+- **Multi-channel** — Telegram, Slack, WhatsApp, and a Web channel with an OpenAI-compatible HTTP API (with file attachment support). Web is a channel like the others and starts off for a new agent
 - **Provider-agnostic** — Switch between OpenAI, Anthropic, Amazon Bedrock, and Nebius Token Factory per agent from the admin panel; the embedding provider is chosen independently of the chat provider. A tier abstraction (`fast | standard | heavy`) decouples code from model names, and a model catalog carries per-model pricing, vision, reasoning, and prompt-caching capabilities
 - **Tools & Plugins** — Author a tool as `export default defineTool(...)` from `@polyant-ai/plugin-sdk`; the engine loader collects it at boot with no wiring. Tools live in-engine or in external **plugin** repos loaded via `PLUGIN_DIRS` — see [Plugins & the SDK](#plugins--the-sdk)
 - **MCP Client** — Equip an agent with tools from external **Model Context Protocol** servers, configured per agent. Three auth modes (`none` for public or network-isolated servers, `static` for a bearer token or custom header, `oauth` for OAuth 2.1 including Dynamic Client Registration); credentials are stored AES-256-GCM encrypted and never returned by the API. A slow or dead server is skipped for the turn rather than stalling it, on a connect budget set in Settings → General
-- **A2A Server** — Expose an agent to other agents over the **Agent2Agent** protocol: an Agent Card at `GET /a2a/:slug/.well-known/agent-card.json` and JSON-RPC at `POST /a2a/:slug/jsonrpc`. Opt-in per agent (`a2a_enabled`, default off) and authenticated with the agent's own API key
+- **A2A Server** — Expose an agent to other agents over the **Agent2Agent** protocol: an Agent Card at `GET /a2a/:slug/.well-known/agent-card.json` and JSON-RPC at `POST /a2a/:slug/jsonrpc`. Opt-in per agent (`a2a_enabled`, default off, independent of the Web channel) and authenticated with the agent's own API key
 - **Skill System** — Markdown-based skill definitions stored in the database; per-instance encrypted env vars for skills that need API keys
 - **Multi-instance** — Independent configuration of prompts, skills, tool availability, and identity per instance; instances exposed as selectable "models" via the OpenAI-compatible API
 - **Per-instance Secrets** — API keys, channel config, and LangSmith settings stored AES-256-GCM encrypted per instance
@@ -200,7 +200,7 @@ See [Architecture](https://docs.polyant.ai/concepts/architecture) for the full t
 
 | Channel | Protocol | Notes |
 |---------|----------|-------|
-| **HTTP API** | OpenAI-compatible (`/v1/chat/completions`) | Instances appear as selectable models |
+| **Web** | OpenAI-compatible HTTP API (`/v1/chat/completions`) and native stream (`/api/instances/:slug/chat/stream`) | Off until switched on in Channels; requires the agent's API key unless authentication is turned off. Instances appear as selectable models. The panel's Playground does not depend on it |
 | **Telegram** | HTTPS webhook (grammY) | Text, photos, document attachments |
 | **Slack** | Events API webhook (@slack/bolt) | Per-instance configuration |
 | **WhatsApp** | Webhook via Twilio (Auth Token or API Key) | Text and media attachments |
