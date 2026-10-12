@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { createHash, timingSafeEqual } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { createLogger } from "../utils/create-logger.js";
 import { verifyPassword } from "../users/password.util.js";
@@ -138,4 +138,94 @@ export async function validateManagementApiKey(
     orgId: key.organizationId,
     permissions: new Set<PermissionKey>(key.permissions),
   };
+}
+
+/**
+ * A key as anyone administering it sees it. Never the hash, never the secret:
+ * the plaintext exists only in the {@link createManagementApiKey} result.
+ */
+export interface ManagementApiKeySummary {
+  readonly id: string;
+  readonly name: string;
+  readonly permissions: PermissionKey[];
+  readonly expiresAt: Date | null;
+  readonly lastUsedAt: Date | null;
+  readonly createdAt: Date;
+}
+
+const SUMMARY_COLUMNS = {
+  id: managementApiKeys.id,
+  name: managementApiKeys.name,
+  permissions: managementApiKeys.permissions,
+  expiresAt: managementApiKeys.expiresAt,
+  lastUsedAt: managementApiKeys.lastUsedAt,
+  createdAt: managementApiKeys.createdAt,
+};
+
+/** 32 random bytes, hex-encoded: no separator character can appear in it. */
+const SECRET_BYTES = 32;
+
+/** The keys of one organization, newest first. */
+export async function listManagementApiKeys(
+  organizationId: string,
+): Promise<ManagementApiKeySummary[]> {
+  return db
+    .select(SUMMARY_COLUMNS)
+    .from(managementApiKeys)
+    .where(eq(managementApiKeys.organizationId, organizationId))
+    .orderBy(desc(managementApiKeys.createdAt));
+}
+
+export interface CreateManagementApiKeyInput {
+  readonly organizationId: string;
+  readonly name: string;
+  readonly permissions: readonly PermissionKey[];
+  readonly expiresAt: Date | null;
+}
+
+/**
+ * Issue a key and return its plaintext token, the only time it exists. The id
+ * is generated here rather than by the column default because it is half of
+ * the token, which has to be built before the row is written.
+ */
+export async function createManagementApiKey(
+  input: CreateManagementApiKeyInput,
+): Promise<{ key: ManagementApiKeySummary; token: string }> {
+  const id = randomUUID();
+  const secret = randomBytes(SECRET_BYTES).toString("hex");
+  const [key] = await db
+    .insert(managementApiKeys)
+    .values({
+      id,
+      organizationId: input.organizationId,
+      name: input.name,
+      keyHash: hashManagementApiKeySecret(secret),
+      permissions: [...input.permissions],
+      expiresAt: input.expiresAt,
+    })
+    .returning(SUMMARY_COLUMNS);
+  return { key, token: `${TOKEN_PREFIX}${id}${TOKEN_SEPARATOR}${secret}` };
+}
+
+/**
+ * Delete a key of `organizationId`. Returns false when no such key exists in
+ * that organization, including when the id belongs to another one: the
+ * organization is part of the predicate, so a caller can never reach a key
+ * outside the tenant it was authorized for.
+ */
+export async function deleteManagementApiKey(
+  organizationId: string,
+  id: string,
+): Promise<boolean> {
+  if (!UUID_RE.test(id)) return false;
+  const rows = await db
+    .delete(managementApiKeys)
+    .where(
+      and(
+        eq(managementApiKeys.id, id),
+        eq(managementApiKeys.organizationId, organizationId),
+      ),
+    )
+    .returning({ id: managementApiKeys.id });
+  return rows.length > 0;
 }

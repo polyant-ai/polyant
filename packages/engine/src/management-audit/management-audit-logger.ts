@@ -35,6 +35,13 @@ export const ManagementAuditAction = {
    * current value and `updated_by`, both overwritten by the next change.
    */
   PlatformSettingsUpdate: "platform_settings.update",
+  /**
+   * A management API key issued or revoked. A key is a bearer credential with
+   * the Owner permission set and records nothing about who issued it, so this
+   * row is the only trace of who handed one out, or took one away.
+   */
+  ApiKeyCreate: "api_key.create",
+  ApiKeyDelete: "api_key.delete",
 } as const;
 
 export type ManagementAuditActionValue =
@@ -50,6 +57,8 @@ export const ManagementAuditTarget = {
   User: "user",
   /** The installation itself — the single `platform_settings` row. */
   PlatformSettings: "platform_settings",
+  /** A management API key (`management_api_keys`), by id. */
+  ApiKey: "api_key",
 } as const;
 
 export type ManagementAuditTargetValue =
