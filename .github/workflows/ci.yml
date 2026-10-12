@@ -170,3 +170,19 @@ jobs:
       # Every build- and release-tooling test, so a new script cannot land untested.
       - run: node --test scripts/*.test.mjs scripts/ci/*.test.mjs scripts/release/*.test.mjs
       - run: npm run build
+      # The compiled migrator reads its SQL from dist; a build that does not ship
+      # it boots into "Can't find meta/_journal.json".
+      - run: diff -r packages/engine/src/database/migrations packages/engine/dist/database/migrations
+
+  docker:
+    name: Docker build (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [engine, web]
+    steps:
+      - uses: actions/checkout@v7
+      # Build only, no push: catches a Dockerfile that no longer builds from a
+      # clean checkout (missing dirs, stray context files) before a release does.
+      - run: docker build --file Dockerfile.${{ matrix.image }} .
