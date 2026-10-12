@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { I18nProvider } from "@/lib/i18n/context";
+import { getServerLocale } from "@/lib/i18n/server";
 import { AuthSessionProvider } from "@/components/auth/session-provider";
 import { Toaster } from "sonner";
 import "./globals.css";
@@ -40,13 +41,14 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getServerLocale();
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider
           attribute="class"
@@ -55,7 +57,7 @@ export default function RootLayout({
           storageKey="theme"
         >
           <AuthSessionProvider>
-            <I18nProvider>
+            <I18nProvider initialLocale={locale}>
               {children}
               <Toaster position="bottom-right" />
             </I18nProvider>

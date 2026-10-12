@@ -16,7 +16,7 @@ function ev(overrides: Partial<FeedEvent> & { id: string }): FeedEvent {
 }
 
 function renderWithI18n(ui: React.ReactElement) {
-  return render(<I18nProvider>{ui}</I18nProvider>);
+  return render(<I18nProvider initialLocale="it">{ui}</I18nProvider>);
 }
 
 describe("TickerRow", () => {

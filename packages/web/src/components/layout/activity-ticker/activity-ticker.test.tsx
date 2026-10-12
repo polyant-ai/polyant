@@ -37,7 +37,7 @@ afterEach(() => {
 
 function Wrapper({ children }: { children: ReactNode }) {
   return (
-    <I18nProvider>
+    <I18nProvider initialLocale="it">
       <ActivityStreamProvider>{children}</ActivityStreamProvider>
     </I18nProvider>
   );
