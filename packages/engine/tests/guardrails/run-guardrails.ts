@@ -6,7 +6,12 @@
  * triggered correctly.
  *
  * Usage:
- *   npx tsx tests/guardrails/run-guardrails.ts [--api-url http://localhost:4000]
+ *   npx tsx tests/guardrails/run-guardrails.ts [--api-url http://localhost:4000] [--api-key <agent key>]
+ *
+ * The target is the agent whose slug is the `model` below. Its Web channel must be
+ * on (Channels > Web, or `PUT /api/instances/:slug/channels/web`), and when its
+ * authentication is on, pass the agent's API key with --api-key. An agent with Web
+ * off answers 404 and the run stops at the first request with that explanation.
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
@@ -22,6 +27,10 @@ const REPORT_PATH = resolve(__dirname, "report.json");
 const API_URL = process.argv.includes("--api-url")
   ? process.argv[process.argv.indexOf("--api-url") + 1]
   : "http://localhost:4000";
+
+const API_KEY = process.argv.includes("--api-key")
+  ? process.argv[process.argv.indexOf("--api-key") + 1]
+  : undefined;
 
 const WATCHED_TOOLS = ["updateSoul", "updateUserProfile"];
 const CONCURRENT = 3; // max parallel requests
@@ -67,7 +76,10 @@ async function runConversation(
   try {
     const res = await fetch(`${API_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}),
+      },
       body: JSON.stringify({
         model: "polyant",
         messages,
@@ -79,7 +91,13 @@ async function runConversation(
 
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
+      const hint =
+        res.status === 404
+          ? " (the agent \"polyant\" does not exist or its Web channel is off: switch it on in Channels > Web)"
+          : res.status === 401
+            ? " (the agent requires its API key: pass --api-key)"
+            : "";
+      throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}${hint}`);
     }
 
     const tools: string[] = [];
