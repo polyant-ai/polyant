@@ -8,7 +8,7 @@ import { splitMessage } from "../../split-message.js";
 import { transcribeAudio } from "../../audio-transcription.js";
 import { firstDelivery } from "../../inbound-dedupe.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
-import { createLogger } from "../../../utils/create-logger.js";
+import { createLogger, shouldLog } from "../../../utils/create-logger.js";
 
 // Webhook registration logs go through the structured logger, which sanitizes
 // the agent id and the Telegram error text (both reach the log line).
@@ -316,7 +316,10 @@ export class TelegramAdapter implements ChannelAdapter {
         const v2 = toTelegramMarkdownV2(chunk);
         await bot.api.sendMessage(chatId, v2, { parse_mode: "MarkdownV2" });
       } catch (err) {
-        console.warn("[telegram] MarkdownV2 send failed, falling back to plain text:", err);
+        // grammY's error carries the request payload, which holds the message text:
+        // the full object is debug only.
+        console.warn("[telegram] MarkdownV2 send failed, falling back to plain text:", err instanceof Error ? err.message : String(err));
+        if (shouldLog("debug")) console.debug("[telegram] MarkdownV2 send error detail:", err);
         await bot.api.sendMessage(chatId, chunk);
       }
     }

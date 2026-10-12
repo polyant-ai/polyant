@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
 const mockChat = vi.fn();
@@ -301,5 +301,37 @@ describe("extractMemories", () => {
     }));
 
     expect(results).toHaveLength(2);
+  });
+});
+
+describe("extractMemories unparseable reply logging", () => {
+  const original = process.env.LOG_LEVEL;
+  afterEach(() => {
+    if (original === undefined) delete process.env.LOG_LEVEL;
+    else process.env.LOG_LEVEL = original;
+    vi.restoreAllMocks();
+  });
+
+  async function outputAt(level: string): Promise<string> {
+    vi.resetModules();
+    process.env.LOG_LEVEL = level;
+    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    mockResolveEmbeddingContext.mockResolvedValue({});
+    mockGetRecentMessages.mockResolvedValue([{ role: "user", content: "x", createdAt: new Date() }]);
+    mockChat.mockResolvedValue({ text: "SECRET-CONVERSATION-ECHO not json" });
+    const { extractMemories: fresh } = await import("./extractor.js");
+    await fresh("conv-1", asInstanceSlug("user-1"));
+    return [...out.mock.calls, ...err.mock.calls].map((c) => String(c[0])).join("\n");
+  }
+
+  it("does not print the model reply at info", async () => {
+    const o = await outputAt("info");
+    expect(o).toContain("Failed to parse");
+    expect(o).not.toContain("SECRET-CONVERSATION-ECHO");
+  });
+
+  it("prints the model reply at debug", async () => {
+    expect(await outputAt("debug")).toContain("SECRET-CONVERSATION-ECHO");
   });
 });
