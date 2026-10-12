@@ -8,6 +8,7 @@ import { upsertMemory } from "./memory-store.js";
 import type { UpsertResult } from "./memory-store.js";
 import type { ExtractedFact } from "./types.js";
 import { memoryLog } from "./memory-logger.js";
+import { shouldLog } from "../utils/create-logger.js";
 import { emitMemory } from "../activity-stream/emitters/emit-memory.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
@@ -95,7 +96,11 @@ export async function extractMemories(
       return [];
     }
   } catch {
-    memoryLog.error("MemoryExtractor", `[${instanceId}] Failed to parse LLM extraction response: ${response.text}`);
+    memoryLog.error("MemoryExtractor", `[${instanceId}] Failed to parse LLM extraction response (${response.text.length} chars)`);
+    // The raw reply can echo conversation content: debug only, truncated.
+    if (shouldLog("debug")) {
+      memoryLog.debug("MemoryExtractor", `[${instanceId}] Unparseable extraction response: ${response.text.slice(0, 500)}`);
+    }
     return [];
   }
 

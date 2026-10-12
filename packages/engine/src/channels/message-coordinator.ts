@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { sanitizeForLog } from "../utils/create-logger.js";
+import { sanitizeForLog, shouldLog } from "../utils/create-logger.js";
 import type { IncomingMessage, OutgoingMessage } from "./types.js";
 import type { MessageTimingSettings } from "../instances/agent-settings.js";
 import { trackBackgroundTurn } from "./background-turns.js";
@@ -358,11 +358,14 @@ export class MessageCoordinator {
           response.text,
         );
       } catch (err) {
+        // Adapter errors (e.g. grammY) can carry the reply text in their payload:
+        // the full object is debug only.
         console.error(
           "[coordinator] sendOutbound failed for",
           sanitizeForLog(`${combined.channelType}:${combined.channelId}`),
-          err,
+          err instanceof Error ? err.message : String(err),
         );
+        if (shouldLog("debug")) console.debug("[coordinator] sendOutbound error detail:", err);
       }
     }
 

@@ -99,6 +99,7 @@ export function shouldLog(level: LogLevel): boolean {
 }
 
 export interface Logger {
+  debug(prefix: string, msg: string): void;
   info(prefix: string, msg: string): void;
   warn(prefix: string, msg: string): void;
   error(prefix: string, msg: string, err?: unknown): void;
@@ -117,6 +118,10 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
   }
 
   return {
+    debug(prefix: string, msg: string): void {
+      if (!shouldLog("debug")) return;
+      process.stdout.write(fmt("info", prefix, msg) + "\n");
+    },
     info(prefix: string, msg: string): void {
       if (!shouldLog("info")) return;
       process.stdout.write(fmt("info", prefix, msg) + "\n");
