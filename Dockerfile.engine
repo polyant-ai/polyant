@@ -70,7 +70,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/engine/node_modules ./packages/engine/node_modules
 COPY package.json package-lock.json ./
 COPY packages/engine/ packages/engine/
-# Use tsconfig.build.json to exclude test files from compilation
+# Use tsconfig.build.json to exclude test files from compilation; the script also
+# copies the migration SQL next to the compiled migrate.js (dist/database/migrations).
 RUN npm run build:docker -w @polyant/engine
 
 # ── Stage 3: Runtime ───────────────────────────────────────────
@@ -107,13 +108,6 @@ COPY --from=build /app/packages/engine/dist ./packages/engine/dist
 COPY --from=plugins /build/plugins/ ./packages/engine/dist/plugins/
 COPY packages/engine/package.json packages/engine/
 COPY package.json ./
-
-# Copy migration SQL next to the COMPILED migrate.js. The entrypoint runs
-# dist/database/migrate.js (not the src .ts via tsx), so config.js and all its
-# transitive imports resolve from dist/ — src is not shipped in the runtime image.
-# migrate.js reads migrationsFolder = resolve(__dirname, "migrations"), i.e.
-# packages/engine/dist/database/migrations.
-COPY packages/engine/src/database/migrations packages/engine/dist/database/migrations
 
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

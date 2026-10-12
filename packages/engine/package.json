@@ -17,8 +17,8 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "node --watch --import tsx/esm src/index.ts",
-    "build": "tsc",
-    "build:docker": "tsc -p tsconfig.build.json",
+    "build": "tsc && node scripts/copy-migrations.mjs",
+    "build:docker": "tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "start": "node dist/index.js",
     "db:generate": "tsx ../../node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "tsx src/database/migrate.ts",
