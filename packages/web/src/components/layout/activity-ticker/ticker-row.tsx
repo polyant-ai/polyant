@@ -104,15 +104,16 @@ export function TickerRow({ ev }: Props) {
   const narrative = narrate(ev, labels);
   const instanceName = ev.instance?.name ?? t("activityStream.fallbackInstance");
 
-  // The header is mounted outside workspace routes too (platform, org pages);
-  // there is no workspace to build the URL from, so the row stays plain text.
-  const { orgSlug, workspaceSlug } =
-    useParams<{ orgSlug?: string; workspaceSlug?: string }>() ?? {};
+  // The link addresses the agent's own workspace (carried by the event), never
+  // the workspace in the current URL, so the tenant in the URL is the tenant of
+  // the conversation. Org pages and events without a workspace stay plain text.
+  const { orgSlug } = useParams<{ orgSlug?: string }>() ?? {};
+  const eventWorkspace = ev.instance?.workspaceSlug;
   const href =
-    ev.conversationId && orgSlug && workspaceSlug
+    ev.conversationId && orgSlug && eventWorkspace
       ? workspacePath(
           orgSlug,
-          workspaceSlug,
+          eventWorkspace,
           `/conversations/${encodeURIComponent(ev.conversationId)}`,
         )
       : null;

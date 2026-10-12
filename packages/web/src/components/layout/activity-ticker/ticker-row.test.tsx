@@ -6,6 +6,10 @@ import { I18nProvider } from "@/lib/i18n/context";
 import type { FeedEvent } from "@/lib/activity-stream/types";
 import { TickerRow } from "./ticker-row";
 
+function inst(workspaceSlug: string) {
+  return { id: "i1", slug: "a", name: "Sofia", icon: null, workspaceSlug };
+}
+
 const params = vi.hoisted(() => ({ current: {} as Record<string, string> }));
 vi.mock("next/navigation", () => ({ useParams: () => params.current }));
 
@@ -28,7 +32,7 @@ describe("TickerRow", () => {
   });
 
   test("links an event with a conversation to its tenant-scoped page", () => {
-    renderWithI18n(<TickerRow ev={ev({ id: "a", conversationId: "inst-1:chat/42" })} />);
+    renderWithI18n(<TickerRow ev={ev({ id: "a", conversationId: "inst-1:chat/42", instance: inst("main") })} />);
     const link = screen.getByRole("link", { name: /Apri conversazione/ });
     expect(link).toHaveAttribute(
       "href",
@@ -37,13 +41,35 @@ describe("TickerRow", () => {
   });
 
   test("renders no link for an event without a conversation", () => {
-    renderWithI18n(<TickerRow ev={ev({ id: "b" })} />);
+    renderWithI18n(<TickerRow ev={ev({ id: "b", instance: inst("main") })} />);
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
-  test("renders no link outside a workspace route", () => {
+  test("renders no link outside an organization route", () => {
     params.current = {};
-    renderWithI18n(<TickerRow ev={ev({ id: "c", conversationId: "inst-1:x" })} />);
+    renderWithI18n(<TickerRow ev={ev({ id: "c", conversationId: "inst-1:x", instance: inst("main") })} />);
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  test("links to the agent's own workspace, not the one in the URL", () => {
+    params.current = { orgSlug: "acme", workspaceSlug: "main" };
+    renderWithI18n(<TickerRow ev={ev({ id: "d", conversationId: "inst-2:x", instance: inst("other") })} />);
+    expect(screen.getByRole("link")).toHaveAttribute(
+      "href",
+      "/organizations/acme/workspaces/other/conversations/inst-2%3Ax",
+    );
+  });
+
+  test("renders no link when the event does not name the agent's workspace", () => {
+    renderWithI18n(
+      <TickerRow
+        ev={ev({
+          id: "e",
+          conversationId: "inst-1:x",
+          instance: { id: "i1", slug: "a", name: "Sofia", icon: null },
+        })}
+      />,
+    );
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 

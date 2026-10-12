@@ -16,8 +16,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockListAllInstances, mockResolvePrincipalOrgId, mockGetConversation } = vi.hoisted(() => ({
-  mockListAllInstances: vi.fn(),
+const { mockListAgentWorkspaceSlugs, mockResolvePrincipalOrgId, mockGetConversation } = vi.hoisted(() => ({
+  mockListAgentWorkspaceSlugs: vi.fn(),
   mockResolvePrincipalOrgId: vi.fn(),
   mockGetConversation: vi.fn(),
 }));
@@ -31,7 +31,7 @@ vi.mock("../server/utils/caller-tenant-scope.js", () => ({
 }));
 
 vi.mock("../instances/store.js", () => ({
-  listAllInstances: mockListAllInstances,
+  listAgentWorkspaceSlugs: mockListAgentWorkspaceSlugs,
   resolvePrincipalOrgId: mockResolvePrincipalOrgId,
 }));
 
@@ -112,7 +112,12 @@ describe("GET /api/activity-stream/live — organization scoping", () => {
     controller = new ActivityStreamController();
     activityBus.__clearBuffer();
     mockResolvePrincipalOrgId.mockResolvedValue(ORG_A);
-    mockListAllInstances.mockResolvedValue([{ slug: "agent-a" }, { slug: "agent-a2" }]);
+    mockListAgentWorkspaceSlugs.mockResolvedValue(
+      new Map([
+        ["agent-a", "ws-1"],
+        ["agent-a2", "ws-2"],
+      ]),
+    );
   });
 
   afterEach(() => {
@@ -136,6 +141,17 @@ describe("GET /api/activity-stream/live — organization scoping", () => {
 
     expect(dataEvents(written)).toHaveLength(1);
     expect(dataEvents(written)[0]).toContain("agent-a");
+  });
+
+  it("stamps each forwarded event with its agent's own workspace slug", async () => {
+    const { written } = await connect(callerOfOrgA);
+
+    activityBus.emitEvent(eventFor("agent-a"));
+    activityBus.emitEvent(eventFor("agent-a2"));
+
+    const [first, second] = dataEvents(written).map((d) => JSON.parse(d.replace(/^data: /, "")));
+    expect(first.instance.workspaceSlug).toBe("ws-1");
+    expect(second.instance.workspaceSlug).toBe("ws-2");
   });
 
   it("does NOT forward an event for an agent of another organization", async () => {
@@ -175,7 +191,7 @@ describe("GET /api/activity-stream/live — organization scoping", () => {
 
     // Fail closed: ownership is unprovable, so nothing is provably visible.
     expect(dataEvents(written)).toHaveLength(0);
-    expect(mockListAllInstances).not.toHaveBeenCalled();
+    expect(mockListAgentWorkspaceSlugs).not.toHaveBeenCalled();
   });
 
   it("drops an event that names no agent, since it cannot be attributed", async () => {
@@ -189,7 +205,7 @@ describe("GET /api/activity-stream/live — organization scoping", () => {
   it("scopes the agent lookup to the resolved organization", async () => {
     await connect(callerOfOrgA);
 
-    expect(mockListAllInstances).toHaveBeenCalledWith(ORG_A);
+    expect(mockListAgentWorkspaceSlugs).toHaveBeenCalledWith(ORG_A);
   });
 });
 
@@ -209,7 +225,7 @@ describe("GET /api/activity-stream/live — teardown releases resources", () => 
     controller = new ActivityStreamController();
     activityBus.__clearBuffer();
     mockResolvePrincipalOrgId.mockResolvedValue(ORG_A);
-    mockListAllInstances.mockResolvedValue([{ slug: "agent-a" }]);
+    mockListAgentWorkspaceSlugs.mockResolvedValue(new Map([["agent-a", "ws-1"]]));
   });
 
   afterEach(() => {
@@ -264,7 +280,7 @@ describe("closeActivityStreams — shutdown ends every open stream", () => {
     controller = new ActivityStreamController();
     activityBus.__clearBuffer();
     mockResolvePrincipalOrgId.mockResolvedValue(ORG_A);
-    mockListAllInstances.mockResolvedValue([{ slug: "agent-a" }]);
+    mockListAgentWorkspaceSlugs.mockResolvedValue(new Map([["agent-a", "ws-1"]]));
   });
 
   afterEach(() => {
