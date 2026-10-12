@@ -27,10 +27,7 @@ vi.mock("../conversations/store.js", () => ({
 }));
 
 vi.mock("../server/utils/caller-tenant-scope.js", () => ({
-  callerTenantScope: async (user?: { orgId?: string }) => {
-    if (!user?.orgId) throw new Error("no org scope");
-    return { kind: "org", orgId: user.orgId };
-  },
+  callerTenantScope: async (user?: { orgId?: string }) => ({ kind: "org", orgId: user?.orgId }),
 }));
 
 vi.mock("../instances/store.js", () => ({
@@ -39,6 +36,7 @@ vi.mock("../instances/store.js", () => ({
 }));
 
 import { ActivityStreamController, closeActivityStreams } from "./activity-stream.controller.js";
+import { orgScope } from "../authz/scope-filter.js";
 import { activityBus } from "./activity-bus.js";
 import type { FeedEvent } from "./activity-stream.types.js";
 import { notifyConversationChanged } from "../conversations/live-updates.js";
@@ -186,9 +184,14 @@ describe("GET /api/activity-stream/live — organization scoping", () => {
     expect(dataEvents(written)[0]).toContain("agent-a");
   });
 
-  it("refuses the connection when the caller's organization cannot be resolved", async () => {
-    // Fail closed: callerTenantScope refuses before any header or slot is taken.
-    await expect(connect({ ...callerOfOrgA, orgId: undefined })).rejects.toThrow();
+  it("forwards nothing when the caller's organization cannot be resolved", async () => {
+    mockResolvePrincipalOrgId.mockResolvedValue(null);
+    const { written } = await connect({ ...callerOfOrgA, orgId: undefined });
+
+    activityBus.emitEvent(eventFor("agent-a"));
+
+    // Fail closed: ownership is unprovable, so nothing is provably visible.
+    expect(dataEvents(written)).toHaveLength(0);
     expect(mockListAgentWorkspaceSlugs).not.toHaveBeenCalled();
   });
 
@@ -203,7 +206,7 @@ describe("GET /api/activity-stream/live — organization scoping", () => {
   it("scopes the agent lookup to the resolved organization", async () => {
     await connect(callerOfOrgA);
 
-    expect(mockListAgentWorkspaceSlugs).toHaveBeenCalledWith({ kind: "org", orgId: ORG_A });
+    expect(mockListAgentWorkspaceSlugs).toHaveBeenCalledWith(orgScope(ORG_A));
   });
 });
 

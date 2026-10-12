@@ -32,11 +32,13 @@ import type { FeedEvent } from "./activity-stream.types.js";
 import { CurrentUser } from "../auth/index.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { RequirePermission, Permission } from "../authz/index.js";
-import { listAgentWorkspaceSlugs } from "../instances/store.js";
+import { listAgentWorkspaceSlugs, resolvePrincipalOrgId } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
 import { conversationStore } from "../conversations/store.js";
 import { subscribeConversationChanges } from "../conversations/live-updates.js";
 import { callerTenantScope } from "../server/utils/caller-tenant-scope.js";
+import { orgScope } from "../authz/scope-filter.js";
+import { NO_TRANSACTION } from "../database/client.js";
 
 /**
  * Per-client backpressure cap. If a slow client accumulates more than this
@@ -90,10 +92,13 @@ export function closeActivityStreams(): number {
  * (conversations, analytics, audit) do not grant one either.
  */
 async function resolveVisibleSlugs(user: AuthenticatedUser | undefined): Promise<Map<string, string>> {
-  // No resolvable organization → callerTenantScope refuses (403) before any
-  // header is sent: nothing is provably visible. Fail closed.
+  const orgId = await resolvePrincipalOrgId(user?.orgId, NO_TRANSACTION);
+  // No resolvable organization → nothing is provably visible. Fail closed, but
+  // keep the stream open (empty): the web treats a non-200 as a lost connection.
+  if (!orgId) return new Map();
+
   // agent slug -> its workspace slug, so forwarded events can carry the workspace.
-  return listAgentWorkspaceSlugs(await callerTenantScope(user));
+  return listAgentWorkspaceSlugs(orgScope(orgId));
 }
 
 /** Answer 503 when the installation-wide subscriber cap is reached. */
