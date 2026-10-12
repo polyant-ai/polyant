@@ -234,3 +234,28 @@ describe("streamChatCompletion on a non-2xx answer", () => {
     expect(message).toBe("Agent not found");
   });
 });
+
+describe("streamChatCompletion agent key", () => {
+  const headersSent = async (authToken?: string) => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await streamChatCompletion(
+      { instanceSlug: "shop", messages: [], chatId: "c1", authToken, errorMessages: MESSAGES },
+      makeCallbacks(),
+    );
+    vi.unstubAllGlobals();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    return { url, headers: init.headers as Record<string, string> };
+  };
+
+  it("sends the key in X-Agent-Key, never as the Authorization header that carries the session", async () => {
+    const { url, headers } = await headersSent("k-123");
+    expect(url).toContain("/api/instances/shop/playground/stream");
+    expect(headers["X-Agent-Key"]).toBe("k-123");
+    expect(headers["Authorization"]).toBeUndefined();
+  });
+
+  it("sends no key header when there is no key", async () => {
+    expect((await headersSent()).headers["X-Agent-Key"]).toBeUndefined();
+  });
+});

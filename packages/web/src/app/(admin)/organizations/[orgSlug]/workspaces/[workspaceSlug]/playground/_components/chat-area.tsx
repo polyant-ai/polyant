@@ -17,6 +17,7 @@ import { MessageBubble } from "./message-bubble";
 import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { formatActivityTimestamp, parseUTC } from "@/lib/format";
 import { ChatInput } from "./chat-input";
+import { AgentKeyField } from "./agent-key-field";
 import { InstanceSelector } from "./instance-selector";
 import { ChatHistoryDialog } from "./chat-sidebar";
 import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
@@ -37,6 +38,10 @@ interface ChatAreaProps {
   conversations: ConversationListItem[];
   conversationsLoading: boolean;
   activeConversationId: string | null;
+  /** The user can read this agent but not write it: the playground needs its key. */
+  keyRequired: boolean;
+  authToken: string;
+  onAuthTokenChange: (token: string) => void;
   onSend: (text: string) => void;
   onStop: () => void;
   onInstanceChange: (slug: string) => void;
@@ -53,6 +58,9 @@ export function ChatArea({
   conversations,
   conversationsLoading,
   activeConversationId,
+  keyRequired,
+  authToken,
+  onAuthTokenChange,
   onSend,
   onStop,
   onInstanceChange,
@@ -98,6 +106,8 @@ export function ChatArea({
           onChange={onInstanceChange}
           disabled={isStreaming}
         />
+
+        {keyRequired && <AgentKeyField value={authToken} onChange={onAuthTokenChange} />}
 
         <div className="ml-auto flex items-center gap-2">
           <Label htmlFor="playground-activity" className="mr-2 flex items-center gap-2 text-sm font-normal text-muted-foreground">

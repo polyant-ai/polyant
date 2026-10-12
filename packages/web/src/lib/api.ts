@@ -316,6 +316,9 @@ export const api = {
     list: () => request<{ instances: Instance[] }>("/api/instances"),
     get: (slug: string) =>
       request<{ instance: Instance }>(`/api/instances/${encodeURIComponent(slug)}`),
+    /** Whether the playground asks this user for the agent's key (read access without write). */
+    playgroundAccess: (slug: string) =>
+      request<{ keyRequired: boolean }>(`/api/instances/${encodeURIComponent(slug)}/playground/access`),
     create: (data: { slug: string; name: string; description?: string; provider?: string; model?: string }) =>
       request<{ instance: Instance }>("/api/instances", {
         method: "POST",

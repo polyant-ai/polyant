@@ -26,6 +26,7 @@ vi.mock("../../ai-gateway/langsmith.js", async () => {
 import { MockLanguageModelV4 } from "ai/test";
 import { InstanceChatStreamController } from "./instance-chat-stream.controller.js";
 import { OpenAIService } from "./openai.service.js";
+import { AuthorizationService } from "../../authz/authorization.service.js";
 import { createProvider } from "../../ai-gateway/providers/base.js";
 
 let pulled = 0;
@@ -49,7 +50,10 @@ const chatCompletionStream = vi.fn(async (_request?: unknown, _signal?: AbortSig
 
 @Module({
   controllers: [InstanceChatStreamController],
-  providers: [{ provide: OpenAIService, useValue: { chatCompletionStream } }],
+  providers: [
+    { provide: OpenAIService, useValue: { chatCompletionStream } },
+    { provide: AuthorizationService, useValue: {} },
+  ],
 })
 class StreamTestModule {}
 

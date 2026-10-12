@@ -6,11 +6,13 @@ import { useCallback, useEffect, useRef } from "react";
 import { ChatArea } from "./_components/chat-area";
 import { useChat } from "./_hooks/use-chat";
 import { useConversations } from "./_hooks/use-conversations";
+import { useAgentKey } from "./_hooks/use-agent-key";
 
 export default function PlaygroundPage() {
   const { conversations, loading, refresh } = useConversations();
   const chat = useChat("");
   const instanceSlug = chat.state.instanceSlug;
+  const agentKey = useAgentKey(instanceSlug);
 
   // Refresh conversation list when streaming completes
   const wasStreamingRef = useRef(false);
@@ -23,9 +25,9 @@ export default function PlaygroundPage() {
 
   const handleSend = useCallback(
     (text: string) => {
-      chat.sendMessage(text);
+      chat.sendMessage(text, agentKey.keyRequired ? agentKey.key || undefined : undefined);
     },
-    [chat],
+    [chat, agentKey.keyRequired, agentKey.key],
   );
 
   const handleNewChat = useCallback(() => {
@@ -62,6 +64,9 @@ export default function PlaygroundPage() {
         conversations={conversations}
         conversationsLoading={loading}
         activeConversationId={chat.state.conversationId}
+        keyRequired={agentKey.keyRequired}
+        authToken={agentKey.key}
+        onAuthTokenChange={agentKey.setKey}
         onSend={handleSend}
         onStop={chat.stopStreaming}
         onInstanceChange={handleInstanceChange}

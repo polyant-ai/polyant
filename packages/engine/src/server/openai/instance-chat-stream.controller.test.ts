@@ -20,6 +20,9 @@ vi.mock("./instance-api-key-auth.js", () => ({
   validateInstanceApiKey: mockValidateInstanceApiKey,
 }));
 
+const { mockResolveInstanceConfig } = vi.hoisted(() => ({ mockResolveInstanceConfig: vi.fn() }));
+vi.mock("../../instances/config-resolver.js", () => ({ resolveInstanceConfig: mockResolveInstanceConfig }));
+
 vi.mock("./openai.service.js", () => ({
   OpenAIService: vi.fn(),
 }));
@@ -113,12 +116,16 @@ function makeStream(events: Record<string, unknown>[]) {
 describe("InstanceChatStreamController.stream", () => {
   let controller: InstanceChatStreamController;
   let chatCompletionStream: ReturnType<typeof vi.fn>;
+  let authz: { isPlatformAdmin: ReturnType<typeof vi.fn>; resolveAgentScope: ReturnType<typeof vi.fn>; can: ReturnType<typeof vi.fn> };
+  const scope = { agentId: "a", workspaceId: "w", organizationId: "o" };
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockValidateInstanceApiKey.mockResolvedValue(undefined);
     chatCompletionStream = vi.fn();
-    controller = new InstanceChatStreamController({ chatCompletionStream } as never);
+    authz = { isPlatformAdmin: vi.fn(async () => false), resolveAgentScope: vi.fn(async () => scope), can: vi.fn(async () => false) };
+    mockResolveInstanceConfig.mockResolvedValue({ authEnabled: true });
+    controller = new InstanceChatStreamController({ chatCompletionStream } as never, authz as never);
   });
 
   it("maps v6 fullStream parts to typed SSE events and emits done", async () => {
@@ -171,16 +178,79 @@ describe("InstanceChatStreamController.stream", () => {
     ]);
   });
 
-  it("serves the panel playground without the Web channel or the agent key", async () => {
-    chatCompletionStream.mockResolvedValue(makeStream([]));
-    const res = makeRes();
-    await controller.playground("acme", { model: "x", messages: [], context: { a: 1 } } as never, res as never);
+  describe("playground", () => {
+    const userReq = (headers: Record<string, string> = {}) =>
+      ({ headers, on: vi.fn(), user: { principalType: "user", userId: "u1" } }) as never;
+    const asWriter = () => authz.can.mockImplementation(async (_u: string, _s: unknown, p: string) => p === "agent:write");
 
-    expect(mockValidateInstanceApiKey).not.toHaveBeenCalled();
-    expect(chatCompletionStream).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "acme", stream: true, context: undefined }),
-      expect.any(AbortSignal),
-    );
+    it("serves a writer with no key, whatever the Web channel's state", async () => {
+      asWriter();
+      chatCompletionStream.mockResolvedValue(makeStream([]));
+      const res = makeRes();
+      await controller.playground("acme", { model: "x", messages: [], context: { a: 1 } } as never, userReq(), res as never);
+
+      expect(mockValidateInstanceApiKey).not.toHaveBeenCalled();
+      expect(chatCompletionStream).toHaveBeenCalledWith(
+        expect.objectContaining({ model: "acme", stream: true, context: undefined }),
+        expect.any(AbortSignal),
+      );
+    });
+
+    it("serves a platform admin with no key", async () => {
+      authz.isPlatformAdmin.mockResolvedValue(true);
+      chatCompletionStream.mockResolvedValue(makeStream([]));
+      await controller.playground("acme", { messages: [] } as never, userReq(), makeRes() as never);
+      expect(mockValidateInstanceApiKey).not.toHaveBeenCalled();
+      expect(chatCompletionStream).toHaveBeenCalled();
+    });
+
+    it("refuses a viewer with no key, and never opens the turn", async () => {
+      mockValidateInstanceApiKey.mockRejectedValue(new Error("Missing Bearer token"));
+      await expect(controller.playground("acme", { messages: [] } as never, userReq(), makeRes() as never))
+        .rejects.toThrow("Missing Bearer token");
+      expect(mockValidateInstanceApiKey).toHaveBeenCalledWith("acme", undefined);
+      expect(chatCompletionStream).not.toHaveBeenCalled();
+    });
+
+    it("refuses a viewer with a wrong key", async () => {
+      mockValidateInstanceApiKey.mockRejectedValue(new Error("Invalid API key"));
+      await expect(controller.playground("acme", { messages: [] } as never, userReq({ "x-agent-key": "nope" }), makeRes() as never))
+        .rejects.toThrow("Invalid API key");
+      expect(mockValidateInstanceApiKey).toHaveBeenCalledWith("acme", "Bearer nope");
+      expect(chatCompletionStream).not.toHaveBeenCalled();
+    });
+
+    it("serves a viewer with the right key, with no Web-channel check", async () => {
+      chatCompletionStream.mockResolvedValue(makeStream([]));
+      await controller.playground("acme", { messages: [] } as never, userReq({ "x-agent-key": "k" }), makeRes() as never);
+      // No web-turn argument: the validator skips the channel switch.
+      expect(mockValidateInstanceApiKey).toHaveBeenCalledWith("acme", "Bearer k");
+      expect(chatCompletionStream).toHaveBeenCalled();
+    });
+
+    it("treats a management key without agent:write as a viewer", async () => {
+      const req = { headers: {}, on: vi.fn(), user: { principalType: "service", orgId: "o", permissions: new Set(["agent:read"]) } };
+      mockValidateInstanceApiKey.mockRejectedValue(new Error("Missing Bearer token"));
+      await expect(controller.playground("acme", { messages: [] } as never, req as never, makeRes() as never)).rejects.toThrow();
+    });
+  });
+
+  describe("playgroundAccess", () => {
+    const req = { headers: {}, user: { principalType: "user", userId: "u1" } } as never;
+
+    it("asks no key of a writer", async () => {
+      authz.can.mockResolvedValue(true);
+      expect(await controller.playgroundAccess("acme", req)).toEqual({ keyRequired: false });
+    });
+
+    it("asks a viewer for the key when the agent has authentication on", async () => {
+      expect(await controller.playgroundAccess("acme", req)).toEqual({ keyRequired: true });
+    });
+
+    it("asks a viewer for nothing when the agent has authentication off", async () => {
+      mockResolveInstanceConfig.mockResolvedValue({ authEnabled: false });
+      expect(await controller.playgroundAccess("acme", req)).toEqual({ keyRequired: false });
+    });
   });
 
   it("aborts the pipeline when the client disconnects before the turn produced anything", async () => {

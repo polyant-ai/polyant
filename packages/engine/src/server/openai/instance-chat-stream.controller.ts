@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { Body, Controller, Inject, Param, Post, Req, Res } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Req, Res } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { OpenAIService } from "./openai.service.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import { validateInstanceApiKey } from "./instance-api-key-auth.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
+import { AuthorizationService } from "../../authz/authorization.service.js";
+import type { AuthenticatedUser, ServicePrincipal } from "../../auth/auth.types.js";
+import { resolveInstanceConfig } from "../../instances/config-resolver.js";
+import { asInstanceSlug } from "../../instances/identifiers.js";
 import type { ChatCompletionRequest } from "./openai.types.js";
 import { TurnStreamRelay } from "./turn-stream-relay.js";
 
@@ -37,7 +41,10 @@ import { TurnStreamRelay } from "./turn-stream-relay.js";
  */
 @Controller("api/instances")
 export class InstanceChatStreamController {
-  constructor(@Inject(OpenAIService) private readonly openaiService: OpenAIService) {}
+  constructor(
+    @Inject(OpenAIService) private readonly openaiService: OpenAIService,
+    @Inject(AuthorizationService) private readonly authz: AuthorizationService,
+  ) {}
 
   /**
    * The Web channel's streaming endpoint: public, gated by the channel switch
@@ -67,19 +74,50 @@ export class InstanceChatStreamController {
 
   /**
    * The panel's playground: an authenticated panel user talking to an agent. It
-   * is not the Web channel, so it works whatever that channel's state and needs
-   * no agent key; the session and the permission decide.
+   * is not the Web channel, so it works whatever that channel's state.
+   *
+   * A user who can write the agent needs no key. A user who can only read it
+   * (a viewer) must present the agent's key in `X-Agent-Key`, checked by the
+   * same validator the public endpoints use, so a viewer can test exactly what
+   * they could before the playground had its own route: with the key. The key
+   * has its own header because `Authorization: Bearer` is where the panel
+   * session travels. On an agent with authentication off there is no key to
+   * present, and the public endpoint was open too, so a viewer gets in.
    */
-  @RequirePermission(Permission.AGENT_WRITE)
+  @RequirePermission(Permission.AGENT_READ)
   @Post(":slug/playground/stream")
   async playground(
     @Param("slug") slug: string,
     @Body() body: ChatCompletionRequest,
+    @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
     const relay = new TurnStreamRelay(res);
+    if (!(await this.canWrite(slug, req))) {
+      const key = req.headers["x-agent-key"];
+      await validateInstanceApiKey(slug, typeof key === "string" && key ? `Bearer ${key}` : undefined);
+    }
     // Panel turns carry no call context.
     await this.pipe(slug, { ...body, context: undefined }, res, relay);
+  }
+
+  /** Whether the playground asks this caller for the agent's key. */
+  @RequirePermission(Permission.AGENT_READ)
+  @Get(":slug/playground/access")
+  async playgroundAccess(@Param("slug") slug: string, @Req() req: Request): Promise<{ keyRequired: boolean }> {
+    if (await this.canWrite(slug, req)) return { keyRequired: false };
+    const config = await resolveInstanceConfig(asInstanceSlug(slug));
+    return { keyRequired: config.authEnabled };
+  }
+
+  /** `agent:write` on this agent, decided as the permission guard decides it. */
+  private async canWrite(slug: string, req: Request): Promise<boolean> {
+    const principal = (req as Request & { user?: AuthenticatedUser | ServicePrincipal }).user;
+    if (principal?.principalType === "service") return principal.permissions.has(Permission.AGENT_WRITE);
+    if (principal?.principalType !== "user") return false;
+    if (await this.authz.isPlatformAdmin(principal.userId)) return true;
+    const scope = await this.authz.resolveAgentScope(slug);
+    return scope ? this.authz.can(principal.userId, scope, Permission.AGENT_WRITE) : false;
   }
 
   private async pipe(slug: string, body: ChatCompletionRequest, res: Response, relay: TurnStreamRelay): Promise<void> {
