@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { render, screen } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { I18nProvider } from "@/lib/i18n/context";
 import type { FeedEvent } from "@/lib/activity-stream/types";
 import { TickerRow } from "./ticker-row";
+
+const params = vi.hoisted(() => ({ current: {} as Record<string, string> }));
+vi.mock("next/navigation", () => ({ useParams: () => params.current }));
 
 function ev(overrides: Partial<FeedEvent> & { id: string }): FeedEvent {
   return {
@@ -20,6 +23,30 @@ function renderWithI18n(ui: React.ReactElement) {
 }
 
 describe("TickerRow", () => {
+  beforeEach(() => {
+    params.current = { orgSlug: "acme", workspaceSlug: "main" };
+  });
+
+  test("links an event with a conversation to its tenant-scoped page", () => {
+    renderWithI18n(<TickerRow ev={ev({ id: "a", conversationId: "inst-1:chat/42" })} />);
+    const link = screen.getByRole("link", { name: /Apri conversazione/ });
+    expect(link).toHaveAttribute(
+      "href",
+      "/organizations/acme/workspaces/main/conversations/inst-1%3Achat%2F42",
+    );
+  });
+
+  test("renders no link for an event without a conversation", () => {
+    renderWithI18n(<TickerRow ev={ev({ id: "b" })} />);
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  test("renders no link outside a workspace route", () => {
+    params.current = {};
+    renderWithI18n(<TickerRow ev={ev({ id: "c", conversationId: "inst-1:x" })} />);
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
   test("renders narrative text", () => {
     renderWithI18n(
       <TickerRow
