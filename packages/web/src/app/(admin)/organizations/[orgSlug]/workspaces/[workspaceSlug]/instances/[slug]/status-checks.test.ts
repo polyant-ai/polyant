@@ -175,6 +175,43 @@ describe("runStatusChecks — silently broken", () => {
     );
   });
 
+  describe("knowledge-no-search-tool", () => {
+    const tool = (name: string, enabled: boolean) =>
+      ({ name, description: "", category: "knowledge", enabled }) as ToolState;
+    const withKnowledge = (overrides: Partial<StatusCheckInput>) =>
+      input({ instance: agent({ knowledgeEnabled: true }), ...overrides });
+
+    it("warns, pointing at the Tools section, when Knowledge is on and the tool is not assigned", () => {
+      const found = runStatusChecks(withKnowledge({ tools: [] })).find(
+        (c) => c.id === "knowledge-no-search-tool",
+      );
+      expect(found?.severity).toBe("warning");
+      expect(found?.section).toBe("tools");
+    });
+
+    it("warns when the tool is assigned but disabled", () => {
+      expect(ids(withKnowledge({ tools: [tool("searchKnowledge", false)] }))).toContain(
+        "knowledge-no-search-tool",
+      );
+    });
+
+    it("stays silent when searchKnowledge is enabled", () => {
+      expect(ids(withKnowledge({ tools: [tool("searchKnowledge", true)] }))).not.toContain(
+        "knowledge-no-search-tool",
+      );
+    });
+
+    it("stays silent when the tool list could not be read", () => {
+      expect(ids(withKnowledge({ tools: [], toolsReadable: false }))).not.toContain(
+        "knowledge-no-search-tool",
+      );
+    });
+
+    it("stays silent when Knowledge is off", () => {
+      expect(ids(input({ tools: [] }))).not.toContain("knowledge-no-search-tool");
+    });
+  });
+
   it("catches documents nobody searches", () => {
     expect(
       ids(
