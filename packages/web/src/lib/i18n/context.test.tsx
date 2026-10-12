@@ -3,11 +3,22 @@
 import { renderHook, act } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { I18nProvider, useI18n } from "./context";
+import type { Locale } from "./types";
 
 // ── Wrapper ────────────────────────────────────────────────────────────
 
-function wrapper({ children }: { children: ReactNode }) {
-  return <I18nProvider>{children}</I18nProvider>;
+function wrapperFor(initialLocale: Locale) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return <I18nProvider initialLocale={initialLocale}>{children}</I18nProvider>;
+  };
+}
+const wrapper = wrapperFor("it");
+
+function readCookie() {
+  return document.cookie
+    .split("; ")
+    .find((c) => c.startsWith("locale="))
+    ?.slice("locale=".length);
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -15,16 +26,22 @@ function wrapper({ children }: { children: ReactNode }) {
 describe("I18nProvider + useI18n", () => {
   beforeEach(() => {
     localStorage.clear();
+    document.cookie = "locale=; path=/; max-age=0";
     document.documentElement.lang = "";
   });
 
-  it("returns Italian translation by default (DEFAULT_LOCALE is 'it')", () => {
+  it("renders the server-given locale on the first render", () => {
     const { result } = renderHook(() => useI18n(), { wrapper });
 
     expect(result.current.locale).toBe("it");
     // "nav.playground" is "Playground" in both, pick one that differs
     // "nav.instances" = "Agenti" in it, "Agents" in en
     expect(result.current.t("nav.instances")).toBe("Agenti");
+  });
+
+  it("renders English on the first render when the server says so", () => {
+    const { result } = renderHook(() => useI18n(), { wrapper: wrapperFor("en") });
+    expect(result.current.t("nav.instances")).toBe("Agents");
   });
 
   it("returns the key itself for unknown keys", () => {
@@ -55,25 +72,24 @@ describe("I18nProvider + useI18n", () => {
     expect(result.current.t("nav.instances")).toBe("Agents");
   });
 
-  it("persists locale to localStorage when setLocale() is called", () => {
+  it("persists the choice to a cookie when setLocale() is called", () => {
     const { result } = renderHook(() => useI18n(), { wrapper });
 
     act(() => {
       result.current.setLocale("en");
     });
 
-    expect(localStorage.getItem("locale")).toBe("en");
+    expect(readCookie()).toBe("en");
   });
 
-  it("reads initial locale from localStorage", () => {
+  it("migrates a legacy localStorage choice to the cookie once", () => {
     localStorage.setItem("locale", "en");
 
     const { result } = renderHook(() => useI18n(), { wrapper });
 
-    // useEffect runs after render, so we need to wait for the effect
-    // renderHook with RTL will flush effects automatically
     expect(result.current.locale).toBe("en");
-    expect(result.current.t("nav.instances")).toBe("Agents");
+    expect(readCookie()).toBe("en");
+    expect(localStorage.getItem("locale")).toBeNull();
   });
 
   it("sets document.documentElement.lang to the current locale", () => {
@@ -88,48 +104,13 @@ describe("I18nProvider + useI18n", () => {
     expect(document.documentElement.lang).toBe("en");
   });
 
-  it("ignores invalid locale values in localStorage", () => {
+  it("ignores an invalid legacy localStorage value", () => {
     localStorage.setItem("locale", "fr");
 
     const { result } = renderHook(() => useI18n(), { wrapper });
 
-    // "fr" is not valid, so the browser language (pinned to Italian) applies
     expect(result.current.locale).toBe("it");
-  });
-
-  describe("browser language detection", () => {
-    function setBrowser(languages: string[]) {
-      Object.defineProperty(navigator, "languages", {
-        value: languages,
-        configurable: true,
-      });
-    }
-    afterEach(() => setBrowser(["it-IT", "it"]));
-
-    it("starts in English for an English browser with nothing stored", () => {
-      setBrowser(["en-GB", "en"]);
-      const { result } = renderHook(() => useI18n(), { wrapper });
-      expect(result.current.locale).toBe("en");
-    });
-
-    it("picks the first supported language in the browser preference list", () => {
-      setBrowser(["fr-FR", "it-IT", "en"]);
-      const { result } = renderHook(() => useI18n(), { wrapper });
-      expect(result.current.locale).toBe("it");
-    });
-
-    it("falls back to English when no browser language is supported", () => {
-      setBrowser(["fr-FR", "de"]);
-      const { result } = renderHook(() => useI18n(), { wrapper });
-      expect(result.current.locale).toBe("en");
-    });
-
-    it("lets a stored choice win over the browser language", () => {
-      setBrowser(["en-US"]);
-      localStorage.setItem("locale", "it");
-      const { result } = renderHook(() => useI18n(), { wrapper });
-      expect(result.current.locale).toBe("it");
-    });
+    expect(readCookie()).toBeUndefined();
   });
 
   it("handles multiple placeholder substitutions", () => {

@@ -30,7 +30,7 @@ describe("AboutPage", () => {
 
   it("shows the public Polyant release information in Italian by default", () => {
     render(
-      <I18nProvider>
+      <I18nProvider initialLocale="it">
         <AboutPage />
       </I18nProvider>,
     );
@@ -57,7 +57,7 @@ describe("AboutPage", () => {
 
   it("hides the changelog history from a non-platform-admin user", () => {
     render(
-      <I18nProvider>
+      <I18nProvider initialLocale="it">
         <AboutPage />
       </I18nProvider>,
     );
@@ -75,7 +75,7 @@ describe("AboutPage", () => {
     }) as unknown as typeof fetch;
 
     render(
-      <I18nProvider>
+      <I18nProvider initialLocale="it">
         <AboutPage />
       </I18nProvider>,
     );
