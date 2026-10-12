@@ -193,11 +193,13 @@ export const exportInstanceDataSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /** Current bundle format version emitted by the exporter. */
-export const INSTANCE_BUNDLE_VERSION = "1.2" as const;
+export const INSTANCE_BUNDLE_VERSION = "1.3" as const;
 
 export const instanceBundleSchema = z.object({
-  // Accept the legacy 1.0/1.1 formats plus the current 1.2 (additive) format.
-  version: z.union([z.literal("1.0"), z.literal("1.1"), z.literal("1.2")]),
+  // Accept the legacy 1.0-1.2 formats plus the current 1.3 (additive) format.
+  // 1.3 always carries the `web` channel row; an older bundle has none and its
+  // agent's endpoint was online, which `parseBundle` in import.service.ts keeps.
+  version: z.union([z.literal("1.0"), z.literal("1.1"), z.literal("1.2"), z.literal("1.3")]),
   exportedAt: z.string(),
   type: z.literal("instance"),
   instance: exportInstanceDataSchema,

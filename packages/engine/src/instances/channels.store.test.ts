@@ -121,8 +121,8 @@ describe("instances/channels.store", () => {
   // CHANNEL_TYPES constant
   // -----------------------------------------------------------------------
   describe("CHANNEL_TYPES", () => {
-    it("exports the four supported channel types (telegram, slack, whatsapp, agent)", () => {
-      expect(CHANNEL_TYPES).toEqual(["telegram", "slack", "whatsapp", "agent"]);
+    it("exports the supported channel types (telegram, slack, whatsapp, agent, web)", () => {
+      expect(CHANNEL_TYPES).toEqual(["telegram", "slack", "whatsapp", "agent", "web"]);
     });
   });
 

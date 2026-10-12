@@ -352,7 +352,7 @@ export async function createInstance(data: {
       embeddingDim: DEFAULT_EMBEDDING_DIM,
       // A new agent needs its API key to be reached; turning that off is a
       // deliberate, confirmed act in the panel. Channels need no seeding: none
-      // exists until someone configures it, so a new agent starts with all off.
+      // exists until someone configures it, so a new agent starts with all off, Web included (no `web` row means off).
       authEnabled: true,
       // Default the embedder to match the chat provider (bedrock chat → bedrock
       // embeddings, else openai). It is independently changeable afterwards.

@@ -211,3 +211,46 @@ describe("importNewInstance — the embedder the snapshot names", () => {
     expect(insertedValues(insertChain).embeddingProvider).toBe("openai");
   });
 });
+
+describe("importNewInstance — the Web channel", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.transaction.mockImplementation(
+      async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb),
+    );
+    mockDb.select.mockReturnValue(createChainMock([]) as never);
+    mockResolveWorkspaceIdForPrincipal.mockResolvedValue("ws");
+  });
+
+  /** The `web` rows written by the import, whatever order the inserts ran in. */
+  async function importAndGetWebRows(bundle: ReturnType<typeof makeBundle> | Record<string, unknown>) {
+    const insertChain = createChainMock([{ id: "new-uuid" }]);
+    mockDb.insert.mockReturnValue(insertChain as never);
+    await importNewInstance(bundle, "org-a");
+    const calls = (insertChain as unknown as Record<string, { mock: { calls: unknown[][] } }>).values.mock.calls;
+    return calls.map((c) => c[0] as Record<string, unknown>).filter((v) => v.channelType === "web");
+  }
+
+  it("restores the endpoint online when the bundle predates Web as a channel (1.2, no web row)", async () => {
+    const bundle = makeBundle();
+    (bundle as { version: string }).version = "1.2";
+    const rows = await importAndGetWebRows(bundle);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].enabled).toBe(true);
+  });
+
+  it("keeps an explicit web row of a 1.3 bundle as it says (off)", async () => {
+    const bundle = makeBundle();
+    (bundle as { version: string }).version = "1.3";
+    (bundle.instance.channels as unknown[]).push({ channelType: "web", enabled: false, config: {} });
+    const rows = await importAndGetWebRows(bundle);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].enabled).toBe(false);
+  });
+
+  it("reads a 1.3 bundle without a web row as off", async () => {
+    const bundle = makeBundle();
+    (bundle as { version: string }).version = "1.3";
+    expect(await importAndGetWebRows(bundle)).toHaveLength(0);
+  });
+});

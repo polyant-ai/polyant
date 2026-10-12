@@ -281,35 +281,47 @@ describe("runStatusChecks — exposed", () => {
     expect(ids(input({ instance: agent({ debugEnabled: true }) }))).toEqual(["debug-enabled"]);
   });
 
+  const webOn = { channelType: "web", enabled: true, config: {} };
+  const webOff = { channelType: "web", enabled: false, config: {} };
+  const telegram = { channelType: "telegram", enabled: true, config: { botToken: "x" } };
+
   /**
    * Both are breaks — an endpoint that answers as the agent and spends the budget
-   * is not a "look at it later". A2A only changes WHICH row is shown: same cause,
-   * worse consequence, and saying it twice would be the noise the list avoids.
+   * is not a "look at it later". What counts is an endpoint that ANSWERS: Web on,
+   * or A2A on. With Web off the endpoints are 404 whatever authentication says.
    */
-  it("names the A2A row instead of the API one when A2A is on", () => {
+  it("calls the API open only when the Web channel is on and authentication is off", () => {
+    const open = (channels: StatusCheckInput["channels"]) =>
+      ids(input({ instance: agent({ authEnabled: false }), channels }));
+
+    expect(open([telegram, webOn])).toContain("api-open");
+    expect(open([telegram, webOff])).not.toContain("api-open");
+    expect(open([telegram])).not.toContain("api-open");
+    expect(open(null)).not.toContain("api-open");
+    expect(runStatusChecks(input({ instance: agent({ authEnabled: false }), channels: [telegram, webOn] }))
+      .find((c) => c.id === "api-open")?.severity).toBe("broken");
+  });
+
+  it("names the A2A row when A2A is on with authentication off, whatever Web says", () => {
     const withA2a = runStatusChecks(
-      input({ instance: agent({ authEnabled: false, a2aEnabled: true }) }),
+      input({ instance: agent({ authEnabled: false, a2aEnabled: true }), channels: [telegram, webOff] }),
     );
     expect(withA2a.map((c) => c.id)).toContain("a2a-open");
     expect(withA2a.map((c) => c.id)).not.toContain("api-open");
     expect(withA2a.find((c) => c.id === "a2a-open")?.severity).toBe("broken");
-
-    const withoutA2a = runStatusChecks(input({ instance: agent({ authEnabled: false }) }));
-    expect(withoutA2a.map((c) => c.id)).toContain("api-open");
-    expect(withoutA2a.find((c) => c.id === "api-open")?.severity).toBe("broken");
   });
 
-  it("warns when authentication is on and no API key is saved", () => {
-    const noKey = runStatusChecks(input({ secrets: [{ key: "openai_api_key", configured: true }] }));
-    expect(noKey.find((c) => c.id === "api-key-missing")?.severity).toBe("warning");
+  it("warns about a missing API key only once something answers", () => {
+    const noKey = [{ key: "openai_api_key", configured: true }];
 
-    const withKey = runStatusChecks(
-      input({ secrets: [{ key: "openai_api_key", configured: true }, { key: "auth_api_key", configured: true }] }),
-    );
-    expect(withKey.map((c) => c.id)).not.toContain("api-key-missing");
+    expect(runStatusChecks(input({ secrets: noKey, channels: [telegram, webOn] }))
+      .find((c) => c.id === "api-key-missing")?.severity).toBe("warning");
+    expect(ids(input({ secrets: noKey, channels: [telegram, webOff] }))).not.toContain("api-key-missing");
+    expect(ids(input({ secrets: noKey, channels: [telegram] }))).not.toContain("api-key-missing");
 
-    const unknown = runStatusChecks(input({ secrets: null }));
-    expect(unknown.map((c) => c.id)).not.toContain("api-key-missing");
+    const withKey = [{ key: "openai_api_key", configured: true }, { key: "auth_api_key", configured: true }];
+    expect(ids(input({ secrets: withKey, channels: [telegram, webOn] }))).not.toContain("api-key-missing");
+    expect(ids(input({ secrets: null, channels: [telegram, webOn] }))).not.toContain("api-key-missing");
   });
 
   it("counts only the opt-outs of the last week, above the threshold", () => {

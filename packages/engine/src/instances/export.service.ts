@@ -15,6 +15,7 @@ import { tools } from "../agents/tools/tools.schema.js";
 import { instanceSecrets } from "./secrets.schema.js";
 import { instanceChannels } from "./channels.schema.js";
 import { stripSensitiveKeys } from "./channel-config-sanitize.js";
+import { WEB_CHANNEL_TYPE } from "./channels.store.js";
 import { instanceSkillEnv } from "./skill-env.schema.js";
 import { decrypt } from "../crypto/index.js";
 import { readableSecretKeys } from "./readable-secret-keys.js";
@@ -230,7 +231,7 @@ async function exportChannels(instanceId: string) {
     })
     .from(instanceChannels)
     .where(eq(instanceChannels.instanceId, instanceId));
-  return rows.map((r) => ({
+  const exported = rows.map((r) => ({
     channelType: r.channelType,
     enabled: r.enabled,
     // Decrypt the stored config and strip credential-like keys — the bundle
@@ -238,6 +239,13 @@ async function exportChannels(instanceId: string) {
     // and the credential-less `agent` channel's passthrough config).
     config: stripSensitiveKeys(safeDecryptChannelConfig(r.config)),
   }));
+  // Web has no row until someone switches it on, and no row means off. The
+  // bundle says so explicitly: an importer reads a missing row as "older bundle,
+  // endpoint was online".
+  if (!exported.some((c) => c.channelType === WEB_CHANNEL_TYPE)) {
+    exported.push({ channelType: WEB_CHANNEL_TYPE, enabled: false, config: {} });
+  }
+  return exported;
 }
 
 /** Decrypt a channel config blob, tolerating empty/legacy/invalid values. */

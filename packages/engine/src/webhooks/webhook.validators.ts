@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { CHANNEL_TYPES } from "../instances/channels.store.js";
+import type { ChannelType } from "../instances/channels.store.js";
+
+// Channels an event can be sent out on: `web` has no outbound adapter.
+const OUTBOUND_CHANNEL_TYPES = ["telegram", "slack", "whatsapp", "agent"] as const satisfies readonly ChannelType[];
 
 export const createEventSourceSchema = z.object({
   name: z.string().min(1),
@@ -22,7 +25,7 @@ export const createDefinitionSchema = z.object({
   interpretationPrompt: z.string().default(""),
   action: z.enum(["backlog", "conversation"]).default("backlog"),
   contextPrompt: z.string().min(1).optional(),
-  outboundChannel: z.enum(CHANNEL_TYPES).optional(),
+  outboundChannel: z.enum(OUTBOUND_CHANNEL_TYPES).optional(),
   outboundTarget: z.string().min(1).optional(),
   enabled: z.boolean().optional(),
 }).refine(
@@ -50,7 +53,7 @@ export const updateDefinitionSchema = z.object({
   interpretationPrompt: z.string().optional(),
   action: z.enum(["backlog", "conversation"]).optional(),
   contextPrompt: z.string().nullable().optional(),
-  outboundChannel: z.enum(CHANNEL_TYPES).nullable().optional(),
+  outboundChannel: z.enum(OUTBOUND_CHANNEL_TYPES).nullable().optional(),
   outboundTarget: z.string().nullable().optional(),
   enabled: z.boolean().optional(),
 }).refine(

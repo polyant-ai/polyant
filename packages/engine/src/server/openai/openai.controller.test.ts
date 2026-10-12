@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { UnauthorizedException } from "@nestjs/common";
+import { NotFoundException, UnauthorizedException } from "@nestjs/common";
 
 /**
  * Unit tests for the validateAuth() method on OpenAIController.
@@ -16,9 +16,14 @@ import { UnauthorizedException } from "@nestjs/common";
 // Mock resolveInstanceConfig + findInstanceBySlug
 // ---------------------------------------------------------------------------
 
-const { mockResolveInstanceConfig, mockFindInstanceBySlug } = vi.hoisted(() => ({
+const { mockResolveInstanceConfig, mockFindInstanceBySlug, mockIsWebChannelEnabled } = vi.hoisted(() => ({
   mockResolveInstanceConfig: vi.fn(),
   mockFindInstanceBySlug: vi.fn(),
+  mockIsWebChannelEnabled: vi.fn(),
+}));
+
+vi.mock("../../instances/channels.store.js", () => ({
+  isWebChannelEnabled: mockIsWebChannelEnabled,
 }));
 
 vi.mock("../../instances/config-resolver.js", () => ({
@@ -41,6 +46,11 @@ vi.mock("./openai.service.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { OpenAIController } from "./openai.controller.js";
+import { validateInstanceApiKey } from "./instance-api-key-auth.js";
+
+beforeEach(() => {
+  mockIsWebChannelEnabled.mockResolvedValue(true);
+});
 
 function callValidateAuth(
   controller: OpenAIController,
@@ -59,6 +69,7 @@ describe("OpenAIController.validateAuth — auth bypass protection (#38)", () =>
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsWebChannelEnabled.mockResolvedValue(true);
     // Return a valid instance so validateAuth proceeds to config checks
     mockFindInstanceBySlug.mockResolvedValue({ id: "test-id", slug: "my-bot", status: "active" });
     controller = new (OpenAIController as any)({});
@@ -151,6 +162,40 @@ describe("OpenAIController.validateAuth — auth bypass protection (#38)", () =>
     await expect(
       callValidateAuth(controller, "my-bot", "Bearer a-much-longer-key-that-differs"),
     ).rejects.toThrow("Invalid API key");
+  });
+});
+
+describe("validateInstanceApiKey — the Web channel switch", () => {
+  beforeEach(() => {
+    mockFindInstanceBySlug.mockResolvedValue({ id: "test-id", slug: "my-bot", status: "active" });
+    mockResolveInstanceConfig.mockResolvedValue({ authEnabled: true, authApiKey: "k".repeat(32) });
+  });
+
+  it("answers 404 on a web turn when Web is off, even with the right key", async () => {
+    mockIsWebChannelEnabled.mockResolvedValue(false);
+    await expect(
+      validateInstanceApiKey("my-bot", `Bearer ${"k".repeat(32)}`, { carriesContext: false }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("answers the same 404 for an unknown agent on a web turn", async () => {
+    mockFindInstanceBySlug.mockResolvedValue(undefined);
+    await expect(
+      validateInstanceApiKey("nope", undefined, { carriesContext: false }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("lets a web turn through with Web on and the right key", async () => {
+    await expect(
+      validateInstanceApiKey("my-bot", `Bearer ${"k".repeat(32)}`, { carriesContext: false }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not look at the Web switch for a caller that is not a web turn (A2A)", async () => {
+    mockIsWebChannelEnabled.mockResolvedValue(false);
+    await expect(
+      validateInstanceApiKey("my-bot", `Bearer ${"k".repeat(32)}`),
+    ).resolves.toBeUndefined();
   });
 });
 

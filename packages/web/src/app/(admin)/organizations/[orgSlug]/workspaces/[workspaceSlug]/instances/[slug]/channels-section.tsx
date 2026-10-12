@@ -30,13 +30,9 @@ import { ChannelsTab } from "./channels-tab";
 
 /**
  * Web/API leads: every agent has it, and it is the one that used to hide in the
- * model settings as "Autenticazione API".
- *
- * It is not a channel TYPE — `CHANNEL_TYPES` has no `web`.
- * It is a panel over `instances.auth_enabled` plus the `auth_api_key` secret, and
- * it is listed here because to a reader it is what it looks like: a way in. An
- * `http` channel stays out — the panel would offer a page for an adapter this
- * build does not ship.
+ * model settings as "Autenticazione API". It is a channel like the others (type
+ * `web`), with its own panel because its configuration is the agent's
+ * authentication rather than a bot token.
  */
 const CHANNELS: readonly {
   type: string;
@@ -63,9 +59,8 @@ export function ChannelsSection({
 
   /*
     The dots come from the PANEL below, which reloads the channel list on every
-    save and removal anyway (`onChannelsLoaded`). This effect is only the cold
-    start: the Web/API panel is not a channel and never reports a list, so without
-    it the picker would open with no dots at all.
+    save and removal anyway (`onChannelsLoaded`; the Web panel reports its own
+    switch through `onWebEnabledChange`). This effect is only the cold start.
 
     It deliberately does NOT depend on `selected`: keyed on the selection, the
     fetch re-ran when you switched channel — which is exactly why a channel you
@@ -129,7 +124,16 @@ export function ChannelsSection({
         dirty state from surviving into a channel it does not belong to.
       */}
       {selected === "web" ? (
-        <ChannelWebTab instance={instance} onUpdate={onUpdate} />
+        <ChannelWebTab
+          instance={instance}
+          onUpdate={onUpdate}
+          onWebEnabledChange={(enabled) =>
+            setConfigured((prev) => [
+              ...prev.filter((c) => c.channelType !== "web"),
+              { channelType: "web", enabled, config: {} },
+            ])
+          }
+        />
       ) : (
         <ChannelsTab
           key={selected}

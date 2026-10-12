@@ -5,6 +5,29 @@ changes see the [changelog](../CHANGELOG.md).
 
 ## Upgrading from 1.2.x to the next release
 
+### Web is a channel, and new agents start with it off
+
+An agent's public HTTP endpoints (`/v1/chat/completions` and
+`/api/instances/:slug/chat/stream`) now belong to a `web` channel with an enabled
+state, managed in the Channels section like Telegram and Slack. Migration `0091`
+switches it on for every agent that exists when you upgrade, keeping each agent's
+`auth_enabled`, so nothing that works today stops. An agent created afterwards has
+Web off and answers 404 on those endpoints until someone enables it; enabling
+needs the agent's API key (the panel generates one) unless authentication is
+turned off after accepting the risk notice. Scripts that create agents and then
+call them (`PUT /api/instances/:slug/channels/web` with `{"config":{},"enabled":true}`
+after saving the key) must add that step. Exported bundles are now format 1.3 and
+carry the Web state; importing an older bundle restores the endpoint switched on.
+The panel's Playground no longer needs the key or Web: it uses your session.
+A2A is unchanged and keeps `a2a_enabled`.
+
+### The seeded demo-agent is removed when it was never used
+
+Migration `0091` deletes `demo-agent` only if it has no conversations, memories,
+knowledge documents, scheduled tasks or secrets and its row was never updated. If
+you used it, it stays, with Web on like any existing agent; check its
+authentication setting. A new database starts with no agent.
+
 ### Install the extra plugin for fileUpload
 
 `fileUpload` no longer ships in core; it is `extra:fileUpload` in the extra

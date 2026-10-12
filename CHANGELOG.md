@@ -71,8 +71,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING for new agents — Web is a channel and starts off.** The agent's public
+  HTTP endpoints (`POST /v1/chat/completions`, `POST /api/instances/:slug/chat/stream`)
+  answer only while the agent's `web` channel is enabled (Channels section,
+  `PUT /api/instances/:slug/channels/web`). With Web off they answer 404, the way a
+  switched-off Telegram or Slack webhook does, and `GET /v1/models` with the agent's
+  own key lists nothing. Switching Web on needs the agent's API key unless
+  authentication is turned off. The panel's Playground talks to the new
+  `POST /api/instances/:slug/playground/stream`, which uses the panel session and
+  `agent:write`, so it works with Web off and no longer asks for the key. Migration
+  `0091` switches Web on for every existing agent, with its `auth_enabled` as it was;
+  bundles carry the `web` channel (format 1.3) and an older bundle restores the
+  endpoint on. A2A keeps its own `a2a_enabled` switch.
 - A new agent now requires its API key (`auth_enabled` defaults to true, migration
-  `0090`). It cannot be reached until a key is saved; the Web/API panel can
+  `0090`). It cannot be reached until a key is saved; the Web channel panel can
   generate one. Turning authentication off asks the reader to accept the risk
   first. Existing agents and imported bundles keep their current setting.
 - The Anthropic `fast` tier runs Claude Haiku 5.5 instead of Haiku 4.5, with
@@ -94,6 +106,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- The seeded `demo-agent` (authentication off). Migration `0091` deletes it on a
+  database where it was never used (no conversation, memory, knowledge document,
+  scheduled task or secret, and its row never updated); a `demo-agent` that was
+  used or edited stays and is treated like any existing agent. A fresh install has
+  no agent until you create one.
 - **BREAKING — the `s3_use_task_role` credential mode.** An agent's bucket is
   reached only with its own `aws_access_key_id` and `aws_secret_access_key`. An
   agent that still sets `s3_use_task_role` without static keys stores no

@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -40,29 +40,24 @@ function generateApiKey(): string {
 interface Props {
   instance: Instance;
   onUpdate: (instance: Instance) => void;
+  /** Called with the Web channel's state once it is known or has been saved, so the channel picker's dot follows it. */
+  onWebEnabledChange?: (enabled: boolean) => void;
 }
 
 /**
- * The Web/API panel: the HTTP surface an external caller uses to talk to this
- * agent, and the one credential that gates it.
+ * The Web channel: the agent's public HTTP endpoints (the OpenAI-compatible
+ * completions endpoint, the native streaming endpoint and the CLI's alias) and
+ * the one credential that gates them.
  *
- * It sits in the channel picker beside Telegram and Slack because that is what it
- * is to a reader — a way in. It is NOT a channel type: `CHANNEL_TYPES` has no
- * `web`. It is a panel over two things the agent
- * already has, `instances.auth_enabled` and the `auth_api_key` secret.
+ * It is a channel like the others: an `instance_channels` row of type `web`
+ * whose `enabled` flag decides whether the endpoints answer at all, and a new
+ * agent starts with it off. Authentication stays on the agent
+ * (`instances.auth_enabled` and the `auth_api_key` secret) because A2A shares
+ * it. The Playground does not use these endpoints, so it works with Web off.
  *
- * Why it exists here at all: `auth_enabled` defaults to false, so a new agent's
- * api routes are open, and the agent's Status page correctly calls that `broken`
- * and sends the reader to this section. For a while the section had no control —
- * this panel was written, then dropped alongside an `http` channel this build
- * does not ship — so the product named a defect and offered no way to
- * fix it short of a hand-written PATCH.
- *
- * The switch governs EVERY api route that speaks to this agent — the
- * OpenAI-compatible completions endpoint, the native streaming endpoint, and the
- * CLI's alias of it — not just the one whose name someone happens to remember.
- * Turning it off opens all of them, so the copy says so rather than leaving an
- * admin to infer it from an endpoint list.
+ * Authentication is on by default and turning it off asks the reader to accept
+ * the risk on screen first. The switch governs EVERY route of the channel, so the
+ * copy says so rather than leaving an admin to infer it from an endpoint list.
  *
  * The key is agent-only: `auth_api_key` is deliberately absent from the
  * organization-shareable set, because one org-level key would authenticate every
@@ -73,8 +68,11 @@ interface Props {
  * when the switch is off (later turns read the state context wrote), so the key
  * field shows as soon as a field is mapped.
  */
-export function ChannelWebTab({ instance, onUpdate }: Props) {
+export function ChannelWebTab({ instance, onUpdate, onWebEnabledChange }: Props) {
   const { t } = useI18n();
+  const [webEnabled, setWebEnabled] = useState(false);
+  const [savedWebEnabled, setSavedWebEnabled] = useState(false);
+  const [webLoaded, setWebLoaded] = useState(false);
   const [authEnabled, setAuthEnabled] = useState(instance.authEnabled);
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -84,7 +82,31 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
   const mapping = mappingFromRows(mappingRows);
   const mapsContext = Object.keys(mapping).length > 0;
 
-  const isDirty = authEnabled !== instance.authEnabled || apiKey.dirty || !sameMapping(mapping, savedMapping);
+  useEffect(() => {
+    let active = true;
+    api.channels
+      .list(instance.slug)
+      .then((res) => {
+        if (!active) return;
+        // No row means off.
+        const on = res.channels.find((c) => c.channelType === "web")?.enabled ?? false;
+        setWebEnabled(on);
+        setSavedWebEnabled(on);
+        setWebLoaded(true);
+        onWebEnabledChange?.(on);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance.slug]);
+
+  const isDirty =
+    (webLoaded && webEnabled !== savedWebEnabled) ||
+    authEnabled !== instance.authEnabled ||
+    apiKey.dirty ||
+    !sameMapping(mapping, savedMapping);
 
   const handleSave = async (riskAccepted = false) => {
     // Opening the agent is allowed, but never silently: the reader accepts the
@@ -119,6 +141,13 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
       });
       setMappingRows(rowsFromMapping(updated.webContextFieldMapping ?? mapping));
       onUpdate(updated);
+      // The channel last: with authentication and the key in place first, the
+      // engine accepts the switch, and a failure here leaves Web as it was.
+      if (webLoaded && webEnabled !== savedWebEnabled) {
+        await api.channels.set(instance.slug, "web", {}, webEnabled);
+        setSavedWebEnabled(webEnabled);
+        onWebEnabledChange?.(webEnabled);
+      }
       toast.success(t("settings.tab.saved"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("settings.tab.saveFailed")));
@@ -135,6 +164,19 @@ export function ChannelWebTab({ instance, onUpdate }: Props) {
         <div>
           <Label className="text-base font-medium">{t("channels.tab.web")}</Label>
           <p className="text-sm text-muted-foreground">{t("channels.tab.webHelp")}</p>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="web-channel-enabled">{t("channels.tab.webEnabled")}</Label>
+            <p className="text-sm text-muted-foreground">{t("channels.tab.webEnabledHelp")}</p>
+          </div>
+          <Switch
+            id="web-channel-enabled"
+            checked={webEnabled}
+            disabled={!webLoaded}
+            onCheckedChange={setWebEnabled}
+          />
         </div>
 
         <div className="flex items-center justify-between">

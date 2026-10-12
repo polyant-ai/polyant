@@ -13,7 +13,9 @@ function SaveButton() {
   return <button onClick={() => saveAction.onSave()}>common.save</button>;
 }
 
-const { mockSecretsList, mockSecretsSet, mockInstanceUpdate, mockToastError } = vi.hoisted(() => ({
+const { mockSecretsList, mockSecretsSet, mockInstanceUpdate, mockToastError, mockChannelsList, mockChannelsSet } = vi.hoisted(() => ({
+  mockChannelsList: vi.fn(),
+  mockChannelsSet: vi.fn(),
   mockSecretsList: vi.fn(),
   mockSecretsSet: vi.fn(),
   mockInstanceUpdate: vi.fn(),
@@ -28,6 +30,10 @@ vi.mock("@/lib/api", () => ({
       delete: vi.fn(),
     },
     instances: { update: (...a: unknown[]) => mockInstanceUpdate(...a) },
+    channels: {
+      list: (...a: unknown[]) => mockChannelsList(...a),
+      set: (...a: unknown[]) => mockChannelsSet(...a),
+    },
   },
   getUserErrorMessage: (_e: unknown, d: string) => d,
 }));
@@ -57,6 +63,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockSecretsList.mockResolvedValue({ secrets: [] });
   mockSecretsSet.mockResolvedValue({ secrets: [] });
+  mockChannelsList.mockResolvedValue({ channels: [] });
+  mockChannelsSet.mockResolvedValue({ channel: null });
   mockInstanceUpdate.mockResolvedValue({ instance: agent({ authEnabled: true }) });
 });
 
@@ -209,5 +217,81 @@ describe("ChannelWebTab", () => {
     const field = screen.getByPlaceholderText("settings.tab.authKeyPlaceholder") as HTMLInputElement;
     expect(field.value).toMatch(/^[0-9a-f]{64}$/);
     expect(field.type).toBe("text");
+  });
+
+  describe("the Web channel switch", () => {
+    it("starts off when the agent has no web row, and is not dirty", async () => {
+      renderTab(agent({ authEnabled: true }));
+      const sw = await screen.findByLabelText("channels.tab.webEnabled");
+      await waitFor(() => expect(sw).not.toBeDisabled());
+      expect(sw).not.toBeChecked();
+      expect(screen.queryByText("common.save")).not.toBeInTheDocument();
+    });
+
+    it("reads the stored state", async () => {
+      mockChannelsList.mockResolvedValue({ channels: [{ channelType: "web", enabled: true, config: {} }] });
+      renderTab(agent({ authEnabled: true }));
+      await waitFor(() => expect(screen.getByLabelText("channels.tab.webEnabled")).toBeChecked());
+    });
+
+    it("saves the key, then the agent, then switches the channel on", async () => {
+      const order: string[] = [];
+      mockSecretsSet.mockImplementation(async () => { order.push("secret"); return { secrets: [] }; });
+      mockInstanceUpdate.mockImplementation(async () => { order.push("agent"); return { instance: agent({ authEnabled: true }) }; });
+      mockChannelsSet.mockImplementation(async () => { order.push("channel"); return { channel: null }; });
+      const onWebEnabledChange = vi.fn();
+
+      render(
+        <PageActionsProvider>
+          <ChannelWebTab instance={agent({ authEnabled: true })} onUpdate={vi.fn()} onWebEnabledChange={onWebEnabledChange} />
+          <SaveButton />
+        </PageActionsProvider>,
+      );
+      const sw = await screen.findByLabelText("channels.tab.webEnabled");
+      await waitFor(() => expect(sw).not.toBeDisabled());
+      await userEvent.click(sw);
+      await userEvent.click(await screen.findByText("channels.tab.webKeyGenerate"));
+      await userEvent.click(screen.getByText("common.save"));
+
+      await waitFor(() => expect(order).toEqual(["secret", "agent", "channel"]));
+      expect(mockChannelsSet).toHaveBeenCalledWith("bot-1", "web", {}, true);
+      expect(onWebEnabledChange).toHaveBeenLastCalledWith(true);
+    });
+
+    it("does not switch Web on while authentication is on and no key exists", async () => {
+      renderTab(agent({ authEnabled: true }));
+      const sw = await screen.findByLabelText("channels.tab.webEnabled");
+      await waitFor(() => expect(sw).not.toBeDisabled());
+      await userEvent.click(sw);
+      await userEvent.click(screen.getByText("common.save"));
+
+      await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("channels.tab.webAuthKeyRequired"));
+      expect(mockChannelsSet).not.toHaveBeenCalled();
+    });
+
+    it("asks for the risk notice before saving Web on with authentication turned off", async () => {
+      renderTab(agent({ authEnabled: true }));
+      const sw = await screen.findByLabelText("channels.tab.webEnabled");
+      await waitFor(() => expect(sw).not.toBeDisabled());
+      await userEvent.click(sw);
+      await userEvent.click(screen.getByLabelText("settings.tab.authEnabled"));
+      await userEvent.click(screen.getByText("common.save"));
+
+      expect(screen.getByText("channels.tab.webAuthOffDescription")).toBeInTheDocument();
+      expect(mockChannelsSet).not.toHaveBeenCalled();
+    });
+
+    it("does not call the channel API when only authentication changed", async () => {
+      mockSecretsList.mockResolvedValue({ secrets: [{ key: "auth_api_key", configured: true }] });
+      mockInstanceUpdate.mockResolvedValue({ instance: agent({ authEnabled: false }) });
+      renderTab(agent({ authEnabled: true }));
+      await waitFor(() => expect(mockChannelsList).toHaveBeenCalled());
+      await userEvent.click(screen.getByLabelText("settings.tab.authEnabled"));
+      await userEvent.click(await screen.findByText("common.save"));
+      await userEvent.click(screen.getByText("channels.tab.webAuthOffAccept"));
+
+      await waitFor(() => expect(mockInstanceUpdate).toHaveBeenCalled());
+      expect(mockChannelsSet).not.toHaveBeenCalled();
+    });
   });
 });
