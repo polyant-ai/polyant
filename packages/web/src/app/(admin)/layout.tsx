@@ -41,8 +41,8 @@ export default async function AdminLayout({
           <OnboardingHost />
         </SidebarProvider>
       </ActivityStreamProvider>
-      </OnboardingProvider>
       <ChangelogUpdateModal />
+      </OnboardingProvider>
     </TenantProvider>
   );
 }

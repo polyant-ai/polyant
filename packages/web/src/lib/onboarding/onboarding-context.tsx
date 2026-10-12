@@ -172,6 +172,16 @@ export function useOnboarding(): OnboardingContextValue {
   return ctx;
 }
 
+/**
+ * True while guidance is on screen, or about to be: another dialog (the changelog)
+ * waits instead of opening over it. False outside the provider.
+ */
+export function useOnboardingBusy(): boolean {
+  const ctx = useContext(OnboardingContext);
+  if (!ctx) return false;
+  return ctx.wizard.open || ctx.tour != null || ctx.onboarding?.wizard === "new";
+}
+
 /** For components that also render outside the provider (the sidebar in tests). */
 export function useTourActive(): boolean {
   return useContext(OnboardingContext)?.tour != null;
