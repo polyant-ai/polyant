@@ -251,8 +251,8 @@ describe("instances/store", () => {
       expect(result).toEqual(new Map([["a", "ws-1"]]));
       // The scope predicate (agents of another org are excluded) is the one
       // every agent-list read uses, bound to the caller's organization.
-      expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-test", "slug");
-      expect(chain.where).toHaveBeenCalledWith({ type: "orgFilter", orgId: "org-test", column: "slug" });
+      expect(mockBuildOrgScopedAgentFilter).toHaveBeenCalledWith("org-test", "instances.slug");
+      expect(chain.where).toHaveBeenCalledWith({ type: "orgFilter", orgId: "org-test", column: "instances.slug" });
     });
   });
 

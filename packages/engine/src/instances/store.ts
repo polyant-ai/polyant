@@ -334,7 +334,7 @@ export async function listAgentWorkspaceSlugs(scope: TenantScope): Promise<Map<s
     .select({ slug: instances.slug, workspaceSlug: workspaces.slug })
     .from(instances)
     .innerJoin(workspaces, eq(instances.workspaceId, workspaces.id))
-    .where(tenantScopedAgentCondition(scope, "slug"));
+    .where(tenantScopedAgentCondition(scope, "instances.slug"));
   return new Map(rows.map((r) => [r.slug, r.workspaceSlug]));
 }
 

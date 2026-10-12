@@ -149,6 +149,9 @@ export const ORG_SCOPED_AGENT_COLUMNS = [
   // The agents table itself (`instances.slug`), so the agent LIST endpoints scope
   // with the same membership definition instead of a second hand-rolled join.
   "slug",
+  // The same column, qualified, for a query that joins another table with its own
+  // `slug` (`workspaces`): the bare name is ambiguous there and Postgres rejects it.
+  "instances.slug",
 ] as const;
 
 export type OrgScopedAgentColumn = (typeof ORG_SCOPED_AGENT_COLUMNS)[number];
