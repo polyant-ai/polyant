@@ -12,6 +12,7 @@ describe("server/main getCorsOptions", () => {
         "http://127.0.0.1:3001",
       ],
       credentials: true,
+      exposedHeaders: ["x-should-retry"],
     });
   });
 
@@ -24,6 +25,7 @@ describe("server/main getCorsOptions", () => {
     ).toEqual({
       origin: ["http://localhost:4321"],
       credentials: true,
+      exposedHeaders: ["x-should-retry"],
     });
   });
 
@@ -31,6 +33,7 @@ describe("server/main getCorsOptions", () => {
     expect(getCorsOptions({ NODE_ENV: "production" })).toEqual({
       origin: false,
       credentials: false,
+      exposedHeaders: ["x-should-retry"],
     });
   });
 
@@ -43,6 +46,7 @@ describe("server/main getCorsOptions", () => {
     ).toEqual({
       origin: ["https://app.example.com", "https://admin.example.com"],
       credentials: true,
+      exposedHeaders: ["x-should-retry"],
     });
   });
 });

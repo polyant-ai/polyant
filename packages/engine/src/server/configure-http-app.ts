@@ -7,9 +7,13 @@ import { GlobalExceptionFilter } from "./filters/http-exception.filter.js";
 import { allowLargeJsonBodies } from "./body-limits.js";
 import { config } from "../config.js";
 
+/** Response headers browser clients may read: `x-should-retry` tells OpenAI SDKs not to retry a 503 that retrying cannot fix. */
+const EXPOSED_HEADERS = ["x-should-retry"];
+
 export function getCorsOptions(env: NodeJS.ProcessEnv = process.env): {
   origin: boolean | string[];
   credentials: boolean;
+  exposedHeaders: string[];
 } {
   const corsOrigins = env.CORS_ORIGINS
     ?.split(",")
@@ -28,6 +32,7 @@ export function getCorsOptions(env: NodeJS.ProcessEnv = process.env): {
     return {
       origin: corsOrigins,
       credentials: true,
+      exposedHeaders: EXPOSED_HEADERS,
     };
   }
 
@@ -35,6 +40,7 @@ export function getCorsOptions(env: NodeJS.ProcessEnv = process.env): {
     return {
       origin: false,
       credentials: false,
+      exposedHeaders: EXPOSED_HEADERS,
     };
   }
 
@@ -43,6 +49,7 @@ export function getCorsOptions(env: NodeJS.ProcessEnv = process.env): {
   return {
     origin: ["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],
     credentials: true,
+    exposedHeaders: EXPOSED_HEADERS,
   };
 }
 

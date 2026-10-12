@@ -296,6 +296,37 @@ describe("OpenAIService", () => {
     });
   });
 
+  describe("a turn that failed for want of a provider key", () => {
+    const user = [{ role: "user" as const, content: "hi" }];
+
+    it("should_refuse_with_503_in_openai_error_shape_instead_of_a_completion", async () => {
+      const service = new OpenAIService();
+      service.setMessageHandler(async () => ({ text: "no key", failure: "missing_provider_key" }));
+
+      const err = await service.chatCompletion(makeRequest(user)).catch((e) => e);
+
+      expect(err.getStatus()).toBe(503);
+      expect(err.getResponse()).toEqual({
+        error: { message: "no key", type: "server_error", param: null, code: "missing_provider_key" },
+      });
+    });
+
+    it("should_refuse_a_streaming_request_before_returning_a_stream", async () => {
+      const service = new OpenAIService();
+      service.setStreamMessageHandler(vi.fn().mockResolvedValue({
+        failure: "missing_provider_key",
+        textStream: [],
+        fullStream: [],
+        completed: Promise.resolve({ text: "no key" }),
+      }));
+
+      const err = await service.chatCompletionStream(makeRequest(user)).catch((e) => e);
+
+      expect(err.getStatus()).toBe(503);
+      expect(err.getResponse().error.code).toBe("missing_provider_key");
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Call context → conversation state, through the agent's web mapping, before
   // the turn.

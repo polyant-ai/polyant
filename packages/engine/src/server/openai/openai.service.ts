@@ -4,6 +4,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { randomUUID } from "crypto";
 import type { ModelMessage } from "ai";
 import type { MessageHandler, StreamMessageHandler, StreamOutgoingMessage } from "../../channels/types.js";
+import { MissingProviderKeyException } from "./missing-provider-key.exception.js";
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -78,6 +79,8 @@ export class OpenAIService {
       metadata: { conversationHistory },
     });
 
+    if (result.failure === "missing_provider_key") throw new MissingProviderKeyException(result.text);
+
     const completionId = `chatcmpl-${randomUUID().replace(/-/g, "").slice(0, 24)}`;
 
     // The pipeline reports what the turn actually spent; OpenAI-compatible
@@ -120,13 +123,18 @@ export class OpenAIService {
       this.prepareRequest(request);
     await this.preloadContext(instanceId, channelId, context);
 
-    return this.streamMessageHandler({
+    const stream = await this.streamMessageHandler({
       channelType: "web",
       channelId,
       instanceId,
       text,
       metadata: { conversationHistory },
     }, signal);
+    if (stream.failure === "missing_provider_key") {
+      const { text: warning } = await stream.completed;
+      throw new MissingProviderKeyException(warning);
+    }
+    return stream;
   }
 
   /**
