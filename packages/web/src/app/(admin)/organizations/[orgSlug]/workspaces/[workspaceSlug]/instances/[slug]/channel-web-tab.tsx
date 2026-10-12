@@ -179,7 +179,7 @@ export function ChannelWebTab({ instance, onUpdate, onWebEnabledChange }: Props)
           />
         </div>
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between" data-tour="web-auth">
           <div className="space-y-0.5">
             <Label htmlFor="agent-auth-enabled">{t("settings.tab.authEnabled")}</Label>
             <p className="text-sm text-muted-foreground">{t("channels.tab.webAuthHelp")}</p>

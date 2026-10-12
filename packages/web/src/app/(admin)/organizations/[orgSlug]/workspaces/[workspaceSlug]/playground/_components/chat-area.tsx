@@ -90,7 +90,7 @@ export function ChatArea({
   };
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex flex-1 flex-col" data-tour="chat-box">
       {/* Header with instance selector + actions */}
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <InstanceSelector

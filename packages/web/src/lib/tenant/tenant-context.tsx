@@ -4,7 +4,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { TenantContextPayload, TenantWorkspace } from "@/lib/api-types";
+import type { OnboardingState, TenantContextPayload, TenantWorkspace } from "@/lib/api-types";
 
 /**
  * `no-organization` is the no-tenancy state: the caller holds no organization
@@ -24,6 +24,8 @@ export type TenantState =
       status: "ready";
       organization: { slug: string; name: string };
       workspaces: TenantWorkspace[];
+      /** The caller's guidance state from the same `/api/me` read; undefined from an older engine. */
+      onboarding?: OnboardingState;
     }
   | { status: "no-organization" }
   | { status: "signed-out" }
@@ -59,6 +61,7 @@ function toState(payload: TenantContextPayload): TenantState {
     status: "ready",
     organization: payload.organization,
     workspaces: payload.workspaces,
+    onboarding: payload.onboarding,
   };
 }
 

@@ -289,29 +289,29 @@ function InstanceDetailContent() {
           </TabsList>
         )}
         {/* Panoramica */}
-        <TabsContent value="overview">
+        <TabsContent value="overview" data-tour="agent-overview">
           <StatusTab instance={instance} tools={tools} skills={skills} status={status} />
         </TabsContent>
-        <TabsContent value="analytics">
+        <TabsContent value="analytics" data-tour="agent-analytics">
           <AnalyticsTab slug={instance.slug} />
         </TabsContent>
 
         {/* Configurazione */}
-        <TabsContent value="general">
+        <TabsContent value="general" data-tour="agent-general">
           <GeneralTab instance={instance} onUpdate={setInstance} />
         </TabsContent>
-        <TabsContent value="settings">
+        <TabsContent value="settings" data-tour="agent-settings">
           <ModelTab instance={instance} onUpdate={setInstance} onConfigurationChanged={status.refresh} />
         </TabsContent>
-        <TabsContent value="channels">
+        <TabsContent value="channels" data-tour="agent-channels">
           <ChannelsSection instance={instance} onUpdate={setInstance} />
         </TabsContent>
 
         {/* Comportamento */}
-        <TabsContent value="prompts">
+        <TabsContent value="prompts" data-tour="agent-prompts">
           <PromptsTab slug={instance.slug} prompts={prompts} onUpdate={setPrompts} />
         </TabsContent>
-        <TabsContent value="tools">
+        <TabsContent value="tools" data-tour="agent-tools">
           <ToolsTab
             slug={instance.slug}
             tools={tools}
@@ -328,10 +328,10 @@ function InstanceDetailContent() {
             `mcp-servers.controller.ts` gates it on the CHANNEL permission — an MCP
             server is a connection this agent holds credentials for — so it fails on
             its own terms rather than borrowing another page's. */}
-        <TabsContent value="mcp">
+        <TabsContent value="mcp" data-tour="agent-mcp">
           <McpServersTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="skills">
+        <TabsContent value="skills" data-tour="agent-skills">
           <SkillsTab
             slug={instance.slug}
             skills={skills}
@@ -340,30 +340,30 @@ function InstanceDetailContent() {
             onToolsUpdate={setTools}
           />
         </TabsContent>
-        <TabsContent value="knowledge">
+        <TabsContent value="knowledge" data-tour="agent-knowledge">
           <KnowledgeTab slug={instance.slug} instance={instance} onUpdate={setInstance} />
         </TabsContent>
-        <TabsContent value="hooks">
+        <TabsContent value="hooks" data-tour="agent-hooks">
           <HooksTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="params">
+        <TabsContent value="params" data-tour="agent-params">
           <ParamsTab instance={instance} onUpdate={setInstance} />
         </TabsContent>
 
         {/* Automazioni */}
-        <TabsContent value="webhooks">
+        <TabsContent value="webhooks" data-tour="agent-webhooks">
           <TriggersWebhooksTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="scheduled">
+        <TabsContent value="scheduled" data-tour="agent-scheduled">
           <TriggersScheduledTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="room">
+        <TabsContent value="room" data-tour="agent-room">
           <RoomTab slug={instance.slug} />
         </TabsContent>
 
         {/* Governance — the gates, the compliance artifacts and the retention
             policy are not part of this build; what ships here is the opt-out. */}
-        <TabsContent value="privacy">
+        <TabsContent value="privacy" data-tour="agent-privacy">
           <PrivacyTab
             instance={instance}
             onSaved={() => {
@@ -376,13 +376,13 @@ function InstanceDetailContent() {
         </TabsContent>
 
         {/* Attività — what this agent has done, not how it is configured. */}
-        <TabsContent value="conversations">
+        <TabsContent value="conversations" data-tour="agent-conversations">
           <AgentConversationsTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="memories">
+        <TabsContent value="memories" data-tour="agent-memories">
           <AgentMemoriesTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="logs">
+        <TabsContent value="logs" data-tour="agent-logs">
           <LogsTab slug={instance.slug} />
         </TabsContent>
       </Tabs>

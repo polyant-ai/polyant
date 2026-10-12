@@ -83,7 +83,7 @@ export function ChannelsSection({
     <div className="space-y-6">
       <div>
         {/* No label: the section's title above already says "Canali". */}
-        <div className="flex flex-wrap gap-2" role="group" aria-label={t("instances.section.channelsPicker")}>
+        <div className="flex flex-wrap gap-2" data-tour="channels-picker" role="group" aria-label={t("instances.section.channelsPicker")}>
           {CHANNELS.map((channel) => {
             const Icon = channel.icon;
             const isSelected = channel.type === selected;

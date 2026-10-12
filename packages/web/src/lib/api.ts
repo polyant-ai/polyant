@@ -126,6 +126,8 @@ import type {
   McpServer,
   McpTestResult,
   TenantContextPayload,
+  OnboardingState,
+  OnboardingPatch,
 } from "./api-types";
 
 // ── HTTP Client ─────────────────────────────────────────────────────
@@ -295,6 +297,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+    /** Writes the caller's own guidance state; the engine returns the merged record. */
+    updateOnboarding: (patch: OnboardingPatch) =>
+      request<{ onboarding: OnboardingState }>("/api/me/onboarding", {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
   },
   members: {
     list: (orgSlug: string) =>
@@ -320,6 +328,31 @@ export const api = {
       request<{ instance: Instance }>("/api/instances", {
         method: "POST",
         body: JSON.stringify(data),
+      }),
+    /**
+     * The Web channel's streaming endpoint, the one a panel chat test goes
+     * through: it answers only while the agent's Web channel is on and takes the
+     * agent key as a Bearer token. Returns the raw response so the caller can read
+     * the event stream.
+     */
+    webChatStream: (
+      slug: string,
+      body: { messages: { role: string; content: string }[]; chatId: string },
+      options: { agentKey?: string; signal?: AbortSignal },
+    ) =>
+      fetch(`${API_BASE}/api/instances/${encodeURIComponent(slug)}/chat/stream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.agentKey ? { Authorization: `Bearer ${options.agentKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model: slug,
+          messages: body.messages,
+          stream: true,
+          chat_id: body.chatId,
+        }),
+        signal: options.signal,
       }),
     update: (
       slug: string,

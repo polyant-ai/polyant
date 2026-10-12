@@ -145,6 +145,7 @@ export function AppSidebar(
         url: navHref(d.scope, d.path, { orgSlug, workspaceSlug }),
         icon: d.icon,
         exact: d.exact,
+        tour: d.path.replace(/^\//, "") ? `nav-${d.path.replace(/^\//, "")}` : "nav-dashboard",
         // Deployment items need no tenancy; org/workspace items are disabled
         // until the slug their own scope requires has resolved, so a click
         // during the loading window cannot misnavigate to the dashboard.
@@ -178,7 +179,7 @@ export function AppSidebar(
         </div>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent data-tour="nav">
         {/* Keyed by destination so React remounts on a change and the CSS animation
             replays; `overflow-x-hidden` because the incoming pane starts offset and
             `SidebarContent` scrolls. */}

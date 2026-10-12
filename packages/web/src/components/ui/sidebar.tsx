@@ -3,6 +3,7 @@
 "use client"
 
 import * as React from "react"
+import { useTourActive } from "@/lib/onboarding/onboarding-context"
 import { cva, type VariantProps } from "class-variance-authority"
 import { PanelLeftIcon } from "lucide-react"
 import { Slot } from "radix-ui"
@@ -166,6 +167,7 @@ function Sidebar({
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const tourActive = useTourActive()
 
   if (collapsible === "none") {
     return (
@@ -184,8 +186,14 @@ function Sidebar({
 
   if (isMobile) {
     return (
-      <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
+      // While the guided tour points into the drawer it must stay open and let the
+      // tour's own bubble be used, so the drawer is not modal for that time (a modal
+      // one traps focus and closes on any press outside it).
+      <Sheet open={openMobile} onOpenChange={setOpenMobile} modal={!tourActive} {...props}>
         <SheetContent
+          onInteractOutside={(event) => {
+            if ((event.target as Element | null)?.closest?.("[data-tour-layer]")) event.preventDefault()
+          }}
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"

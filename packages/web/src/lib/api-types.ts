@@ -900,4 +900,34 @@ export interface TenantWorkspace {
 export interface TenantContextPayload {
   organization: { slug: string; name: string } | null;
   workspaces: TenantWorkspace[];
+  /**
+   * The caller's own first-access guidance state. Absent from an engine that
+   * predates it, in which case the panel offers no guidance at all.
+   */
+  onboarding?: OnboardingState;
 }
+
+export type WizardState = "new" | "done" | "skipped" | "dismissed";
+export type TourState = "new" | "seen" | "done" | "dismissed";
+export type WizardStepId =
+  | "welcome"
+  | "provider"
+  | "model"
+  | "agent"
+  | "channels"
+  | "chat"
+  | "knowledge";
+export type WizardStepState = "todo" | "done" | "skip";
+
+/**
+ * Per-user guidance record, stored on the engine so it follows the person across
+ * devices and organizations. Steps never touched are absent and read as "todo".
+ */
+export interface OnboardingState {
+  wizard: WizardState;
+  interfaceTour: TourState;
+  agentTour: TourState;
+  steps: Partial<Record<WizardStepId, WizardStepState>>;
+}
+
+export type OnboardingPatch = Partial<OnboardingState>;

@@ -314,7 +314,7 @@ export default function InstancesPage() {
             className="hidden"
             onChange={handleImportFile}
           />
-          <Button onClick={() => setDialogOpen(true)}>
+          <Button onClick={() => setDialogOpen(true)} data-tour="new-agent">
             <Plus className="h-4 w-4" />
             {t("instances.newInstance")}
           </Button>
