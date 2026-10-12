@@ -257,7 +257,18 @@ ORDER BY 1;
 The GitHub, Render, HubSpot and Markdown-to-PDF tool families no longer ship in
 the core image. If an agent uses one of them, add its plugin to the image before
 building (see [Loading a plugin — build-time](plugins.md#loading-a-plugin--build-time)),
-or use `PLUGIN_DIRS` in development.
+or use `PLUGIN_DIRS` in development. Two public repositories carry them, both
+installed from source at build time (clone the tag into
+`packages/engine/src/plugins/<name>` and rebuild the image; each README gives
+the exact commands):
+
+- [polyant-hubspot-plugin](https://github.com/polyant-ai/polyant-hubspot-plugin),
+  tag `v1.1.1`: the HubSpot tools (`hubspot:`).
+- [polyant-extra-plugin](https://github.com/polyant-ai/polyant-extra-plugin),
+  tag `v1.1.0`: `extra:markdownToPdf` and `extra:fileUpload`.
+
+The GitHub and Render tools were removed from the core and no plugin replaces
+them.
 
 Plugin tools have namespaced names: `ghIssue`, `ghPR` and `gitCloneRepo` are now
 `github:issue`, `github:pr` and `github:cloneRepo`; `renderService` is

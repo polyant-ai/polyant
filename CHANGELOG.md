@@ -137,7 +137,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `markdownToPdf` becomes `extra:markdownToPdf`). Migration `0087` renames the
   catalog rows in place, so agents keep the tools enabled and skills keep their
   links and required-tool lists; an import of an older bundle maps the old
-  names too. The tools work again once their plugin is installed.
+  names too. The tools work again once their plugin is installed
+  ([polyant-hubspot-plugin](https://github.com/polyant-ai/polyant-hubspot-plugin)
+  v1.1.1, [polyant-extra-plugin](https://github.com/polyant-ai/polyant-extra-plugin)
+  v1.1.0); GitHub and Render have no public plugin.
   `verifyDocument` was removed without a replacement: the first boot removes
   it, and any other tool no plugin provides, from the agents that had it and
   logs their names.
@@ -145,7 +148,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `extra:fileUpload`. Migration `0089` renames the catalog row in place, so
   agents keep the tool enabled and skills keep their links and required-tool
   lists; an import of an older bundle maps the old name too. The tool works
-  again once the extra plugin is installed.
+  again once the extra plugin is installed
+  ([polyant-extra-plugin](https://github.com/polyant-ai/polyant-extra-plugin)
+  v1.1.0).
 - **BREAKING — Telegram and Slack now arrive through webhooks.** Telegram used
   long polling and Slack Socket Mode, so both worked without a public address.
   Now the engine registers `<public address>/webhooks/telegram/<agent>` with
