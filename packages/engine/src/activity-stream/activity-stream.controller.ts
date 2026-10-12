@@ -32,9 +32,8 @@ import type { FeedEvent } from "./activity-stream.types.js";
 import { CurrentUser } from "../auth/index.js";
 import type { AuthenticatedUser } from "../auth/auth.types.js";
 import { RequirePermission, Permission } from "../authz/index.js";
-import { listAgentWorkspaceSlugs, resolvePrincipalOrgId } from "../instances/store.js";
+import { listAgentWorkspaceSlugs } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
-import { NO_TRANSACTION } from "../database/client.js";
 import { conversationStore } from "../conversations/store.js";
 import { subscribeConversationChanges } from "../conversations/live-updates.js";
 import { callerTenantScope } from "../server/utils/caller-tenant-scope.js";
@@ -91,12 +90,10 @@ export function closeActivityStreams(): number {
  * (conversations, analytics, audit) do not grant one either.
  */
 async function resolveVisibleSlugs(user: AuthenticatedUser | undefined): Promise<Map<string, string>> {
-  const orgId = await resolvePrincipalOrgId(user?.orgId, NO_TRANSACTION);
-  // No resolvable organization → nothing is provably visible. Fail closed.
-  if (!orgId) return new Map();
-
+  // No resolvable organization → callerTenantScope refuses (403) before any
+  // header is sent: nothing is provably visible. Fail closed.
   // agent slug -> its workspace slug, so forwarded events can carry the workspace.
-  return listAgentWorkspaceSlugs(orgId);
+  return listAgentWorkspaceSlugs(await callerTenantScope(user));
 }
 
 /** Answer 503 when the installation-wide subscriber cap is reached. */

@@ -325,16 +325,16 @@ export async function listAllInstances(
 }
 
 /**
- * Agent slug -> owning workspace slug for every agent of an organization. Lets a
+ * Agent slug -> owning workspace slug for every agent the scope reaches. Lets a
  * caller that only holds an agent slug (the live activity stream) address the
  * agent's own workspace.
  */
-export async function listAgentWorkspaceSlugs(orgId: string): Promise<Map<string, string>> {
+export async function listAgentWorkspaceSlugs(scope: TenantScope): Promise<Map<string, string>> {
   const rows = await db
     .select({ slug: instances.slug, workspaceSlug: workspaces.slug })
     .from(instances)
     .innerJoin(workspaces, eq(instances.workspaceId, workspaces.id))
-    .where(eq(workspaces.organizationId, orgId));
+    .where(tenantScopedAgentCondition(scope, "slug"));
   return new Map(rows.map((r) => [r.slug, r.workspaceSlug]));
 }
 

@@ -27,7 +27,10 @@ vi.mock("../conversations/store.js", () => ({
 }));
 
 vi.mock("../server/utils/caller-tenant-scope.js", () => ({
-  callerTenantScope: async (user?: { orgId?: string }) => ({ kind: "org", orgId: user?.orgId }),
+  callerTenantScope: async (user?: { orgId?: string }) => {
+    if (!user?.orgId) throw new Error("no org scope");
+    return { kind: "org", orgId: user.orgId };
+  },
 }));
 
 vi.mock("../instances/store.js", () => ({
@@ -183,14 +186,9 @@ describe("GET /api/activity-stream/live — organization scoping", () => {
     expect(dataEvents(written)[0]).toContain("agent-a");
   });
 
-  it("forwards nothing when the caller's organization cannot be resolved", async () => {
-    mockResolvePrincipalOrgId.mockResolvedValue(null);
-    const { written } = await connect({ ...callerOfOrgA, orgId: undefined });
-
-    activityBus.emitEvent(eventFor("agent-a"));
-
-    // Fail closed: ownership is unprovable, so nothing is provably visible.
-    expect(dataEvents(written)).toHaveLength(0);
+  it("refuses the connection when the caller's organization cannot be resolved", async () => {
+    // Fail closed: callerTenantScope refuses before any header or slot is taken.
+    await expect(connect({ ...callerOfOrgA, orgId: undefined })).rejects.toThrow();
     expect(mockListAgentWorkspaceSlugs).not.toHaveBeenCalled();
   });
 
@@ -205,7 +203,7 @@ describe("GET /api/activity-stream/live — organization scoping", () => {
   it("scopes the agent lookup to the resolved organization", async () => {
     await connect(callerOfOrgA);
 
-    expect(mockListAgentWorkspaceSlugs).toHaveBeenCalledWith(ORG_A);
+    expect(mockListAgentWorkspaceSlugs).toHaveBeenCalledWith({ kind: "org", orgId: ORG_A });
   });
 });
 
