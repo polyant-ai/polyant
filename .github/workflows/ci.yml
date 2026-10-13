@@ -56,35 +56,6 @@ jobs:
               | node scripts/ci/classify-changes.mjs >> "$GITHUB_OUTPUT"
           fi
 
-  static:
-    name: Lint and web typecheck
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/install
-      - run: npm run lint
-      # Only the web is type-checked here. The engine's `tsc --noEmit` would
-      # repeat the `tsc` that Build runs with the same tsconfig, tests included.
-      # `next build` is no substitute for the web: its type check drops every
-      # error reported in a *.test.* or __tests__ file.
-      - run: npm run typecheck -w @polyant/web
-
-  test:
-    name: Unit Tests
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 6
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/install
-      # --coverage activates the thresholds in vitest.config.ts: a ratchet that
-      # fails the build if a PR lowers coverage. Local runs stay fast without it.
-      - run: npm run test:unit -w @polyant/engine -- --coverage
-
   repository:
     name: Repository checks
     runs-on: ubuntu-latest
@@ -121,6 +92,35 @@ jobs:
       # that still parse (unknown keys, bad expressions, shell bugs).
       - name: Lint workflows
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color
+
+  static:
+    name: Lint and web typecheck
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install
+      - run: npm run lint
+      # Only the web is type-checked here. The engine's `tsc --noEmit` would
+      # repeat the `tsc` that Build runs with the same tsconfig, tests included.
+      # `next build` is no substitute for the web: its type check drops every
+      # error reported in a *.test.* or __tests__ file.
+      - run: npm run typecheck -w @polyant/web
+
+  test:
+    name: Unit Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install
+      # --coverage activates the thresholds in vitest.config.ts: a ratchet that
+      # fails the build if a PR lowers coverage. Local runs stay fast without it.
+      - run: npm run test:unit -w @polyant/engine -- --coverage
 
   test-web:
     name: Web Tests
@@ -236,10 +236,10 @@ jobs:
           cache-to: ${{ github.event_name == 'push' && format('type=gha,mode=max,scope=docker-{0}', matrix.image) || '' }}
 
   # The single required check. It needs every job above (Repository checks
-  # verifies that with scripts/ci/check-ci-gate.mjs) and runs even when one of them fails
-  # or is cancelled: a gate skipped for a failed dependency would count as
-  # passing. A job may only be `skipped` when its own path filter said so; a job
-  # skipped because `changes` failed shows up through the failure of `changes`.
+  # verifies that with scripts/ci/check-ci-gate.mjs) and runs even when one of
+  # them fails or is cancelled: a gate skipped for a failed dependency would
+  # count as passing. A job may only be `skipped` when its own path filter said
+  # so; a job skipped because `changes` failed shows up as that failure.
   ci:
     name: CI
     needs: [changes, repository, static, test, test-web, integration, build, docker]
