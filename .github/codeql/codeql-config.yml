@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Scans what ships: the security-and-quality suite over production code, with
+# tests, end-to-end specs, fixtures and test helpers left out. Their findings
+# (hard-coded test secrets, deliberately unsafe inputs) are noise, and leaving
+# them out shortens every analysis.
+name: Production code
+
+queries:
+  - uses: security-and-quality
+
+paths-ignore:
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.test.mjs"
+  - "**/*.spec.ts"
+  - "**/fixtures/**"
+  - "**/test-setup.ts"
+  - "**/test-utils.ts"
+  - "**/test-utils.tsx"
+  - packages/engine/src/database/test-db.ts
+  - packages/engine/tests/**
+  - packages/web/e2e/**

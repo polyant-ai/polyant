@@ -9,11 +9,17 @@ on:
     - cron: "0 6 * * 1"   # weekly safety-net scan on the default branch
   workflow_dispatch:
 
+# A new push to a pull request cancels the analysis it replaces.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The JavaScript analysis takes about two minutes.
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
@@ -33,7 +39,8 @@ jobs:
       - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          queries: security-and-quality
+          # Query suite and the test paths left out of the scan.
+          config-file: ./.github/codeql/codeql-config.yml
 
       - uses: github/codeql-action/analyze@v4
         with:
