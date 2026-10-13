@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { hashPassword, validatePassword, verifyPassword } from "./password.util.js";
 
 describe("password.util", () => {
@@ -53,6 +53,18 @@ describe("password.util", () => {
       expect(a).not.toBe(b);
       expect(await verifyPassword("same-password-99", a)).toBe(true);
       expect(await verifyPassword("same-password-99", b)).toBe(true);
+    });
+  });
+
+  // test-setup.ts lowers the cost on its copy of the module; a fresh copy
+  // shows the cost production gets. This is the one full-cost hash in the suite.
+  describe("production cost", () => {
+    it("hashes at cost 12 when nothing lowered it", async () => {
+      vi.resetModules();
+      const fresh = await import("./password.util.js");
+      const hash = await fresh.hashPassword("production-cost-1");
+      expect(hash).toMatch(/^\$2[aby]\$12\$/);
+      expect(await fresh.verifyPassword("production-cost-1", hash)).toBe(true);
     });
   });
 });

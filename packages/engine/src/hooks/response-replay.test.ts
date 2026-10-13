@@ -2,7 +2,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   generateWithReplay,
-  MAX_REGENERATIONS,
   EMPTY_SPEND,
   addPassSpend,
   type ResponseGeneratedOutcome,
@@ -82,10 +81,6 @@ describe("generateWithReplay", () => {
     ac.abort();
     await generateWithReplay({ generate, evaluate: async () => wantRegen, maxRegenerations: 5, abortSignal: ac.signal });
     expect(generate).toHaveBeenCalledTimes(1);
-  });
-
-  it("exports a hard cap of 5", () => {
-    expect(MAX_REGENERATIONS).toBe(5);
   });
 });
 

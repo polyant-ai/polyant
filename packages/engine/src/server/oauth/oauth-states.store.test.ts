@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Unit tests for packages/engine/src/server/oauth/oauth-states.store.ts
- *
- * Tests: createOAuthState (encrypts the PKCE verifier), consumeOAuthState
- * (single-use delete-and-return, decrypts the verifier, rejects expired rows,
- * opportunistically sweeps stale rows).
+ * The one branch of consumeOAuthState a real database cannot reach on demand:
+ * a row that expires between the sweep and the delete. Everything else —
+ * single use, the sweep, encryption at rest — is exercised against Postgres in
+ * oauth-states.store.integration.test.ts.
  */
 
 // ---------------------------------------------------------------------------
@@ -64,93 +63,14 @@ vi.mock("drizzle-orm", () => ({
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
-import { createOAuthState, consumeOAuthState } from "./oauth-states.store.js";
+import { consumeOAuthState } from "./oauth-states.store.js";
 
 describe("server/oauth/oauth-states.store", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe("createOAuthState", () => {
-    it("encrypts a present PKCE verifier before inserting", async () => {
-      const chain = createChainMock(undefined);
-      mockDb.insert.mockReturnValue(chain as any);
-
-      await createOAuthState({
-        state: "nonce-1",
-        conversationId: "conv-1",
-        instanceId: "default",
-        provider: "google",
-        codeVerifier: "verifier-plain",
-      });
-
-      expect(mockEncrypt).toHaveBeenCalledWith("verifier-plain");
-      expect(chain.values).toHaveBeenCalledWith(
-        expect.objectContaining({
-          state: "nonce-1",
-          conversationId: "conv-1",
-          instanceId: "default",
-          provider: "google",
-          codeVerifier: "encrypted:verifier-plain",
-        }),
-      );
-    });
-
-    it("leaves a null verifier untouched (no PKCE) and never calls encrypt", async () => {
-      const chain = createChainMock(undefined);
-      mockDb.insert.mockReturnValue(chain as any);
-
-      await createOAuthState({
-        state: "nonce-2",
-        conversationId: "conv-1",
-        instanceId: "default",
-        provider: "github",
-        codeVerifier: null,
-      });
-
-      expect(mockEncrypt).not.toHaveBeenCalled();
-      expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({ codeVerifier: null }));
-    });
-  });
-
   describe("consumeOAuthState", () => {
-    it("sweeps expired rows, then deletes and returns + decrypts the matched row", async () => {
-      const sweepChain = createChainMock(undefined);
-      const future = new Date(Date.now() + 60_000);
-      const deleteChain = createChainMock([
-        {
-          conversationId: "conv-1",
-          instanceId: "default",
-          provider: "google",
-          codeVerifier: "encrypted:verifier-plain",
-          expiresAt: future,
-        },
-      ]);
-      mockDb.delete.mockReturnValueOnce(sweepChain as any).mockReturnValueOnce(deleteChain as any);
-
-      const result = await consumeOAuthState("nonce-1");
-
-      expect(mockDb.delete).toHaveBeenCalledTimes(2);
-      expect(mockDecrypt).toHaveBeenCalledWith("encrypted:verifier-plain");
-      expect(result).toEqual({
-        conversationId: "conv-1",
-        instanceId: "default",
-        provider: "google",
-        codeVerifier: "verifier-plain",
-      });
-    });
-
-    it("returns null and skips decrypt when the nonce is unknown", async () => {
-      const sweepChain = createChainMock(undefined);
-      const deleteChain = createChainMock([]);
-      mockDb.delete.mockReturnValueOnce(sweepChain as any).mockReturnValueOnce(deleteChain as any);
-
-      const result = await consumeOAuthState("unknown-nonce");
-
-      expect(result).toBeNull();
-      expect(mockDecrypt).not.toHaveBeenCalled();
-    });
-
     it("returns null for a row that expired between sweep and delete", async () => {
       const sweepChain = createChainMock(undefined);
       const past = new Date(Date.now() - 1);
@@ -168,26 +88,6 @@ describe("server/oauth/oauth-states.store", () => {
       const result = await consumeOAuthState("nonce-1");
 
       expect(result).toBeNull();
-    });
-
-    it("returns a null codeVerifier untouched (no PKCE for this provider)", async () => {
-      const sweepChain = createChainMock(undefined);
-      const future = new Date(Date.now() + 60_000);
-      const deleteChain = createChainMock([
-        {
-          conversationId: "conv-1",
-          instanceId: "default",
-          provider: "github",
-          codeVerifier: null,
-          expiresAt: future,
-        },
-      ]);
-      mockDb.delete.mockReturnValueOnce(sweepChain as any).mockReturnValueOnce(deleteChain as any);
-
-      const result = await consumeOAuthState("nonce-3");
-
-      expect(result?.codeVerifier).toBeNull();
-      expect(mockDecrypt).not.toHaveBeenCalled();
     });
   });
 });

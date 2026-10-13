@@ -6,8 +6,12 @@
  * the HTTP server closed was lost without a reply.
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { drainBackgroundTurns, pendingBackgroundTurns, trackBackgroundTurn } from "./background-turns.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+type BackgroundTurns = typeof import("./background-turns.js");
+let trackBackgroundTurn: BackgroundTurns["trackBackgroundTurn"];
+let drainBackgroundTurns: BackgroundTurns["drainBackgroundTurns"];
+let pendingBackgroundTurns: BackgroundTurns["pendingBackgroundTurns"];
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -16,6 +20,14 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 }
 
 describe("background turns", () => {
+  // The registry is module state, and the grace-period test leaves a turn that
+  // never settles in it. A fresh module per test keeps that turn from deciding
+  // what the next test sees.
+  beforeEach(async () => {
+    vi.resetModules();
+    ({ trackBackgroundTurn, drainBackgroundTurns, pendingBackgroundTurns } = await import("./background-turns.js"));
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

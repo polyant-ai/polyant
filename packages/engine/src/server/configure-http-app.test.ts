@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { getCorsOptions, getLogLevels } from "./main.js";
+import { getCorsOptions, getLogLevels } from "./configure-http-app.js";
 
-describe("server/main getCorsOptions", () => {
+describe("getCorsOptions", () => {
   it("restricts to localhost allowlist in non-production when no allowlist is configured (#88)", () => {
     expect(getCorsOptions({ NODE_ENV: "development" })).toEqual({
       origin: [
@@ -51,7 +51,7 @@ describe("server/main getCorsOptions", () => {
   });
 });
 
-describe("server/main getLogLevels", () => {
+describe("getLogLevels", () => {
   it("keeps the quiet error/warn/log subset in production", () => {
     expect(getLogLevels({ NODE_ENV: "production" })).toEqual(["error", "warn", "log"]);
   });

@@ -56,7 +56,11 @@ function open(port: number, path: string) {
   let resolveEnded: (value: { status: number; body: string }) => void = () => {};
   const ended = new Promise<{ status: number; body: string }>((resolve) => { resolveEnded = resolve; });
   const headers = new Promise<void>((resolve) => {
-    const req = http.get({ host: "127.0.0.1", port, path }, (res) => {
+    // `agent: false` sends `Connection: close`. With the default keep-alive
+    // agent, the finished request left an idle socket that server.close()
+    // waited out for about the keep-alive timeout (5 s): 4 s of this file's
+    // run, and close enough to the 5 s grace below to race it under load.
+    const req = http.get({ host: "127.0.0.1", port, path, agent: false }, (res) => {
       res.setEncoding("utf8");
       res.on("data", (chunk) => { body += chunk; });
       res.on("close", () => resolveEnded({ status: res.statusCode ?? 0, body }));

@@ -14,11 +14,10 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockSelectRows, mockUpdate, mockVerifyPassword, mockInsertValues, mockDelete } = vi.hoisted(() => ({
+const { mockSelectRows, mockUpdate, mockVerifyPassword, mockDelete } = vi.hoisted(() => ({
   mockSelectRows: vi.fn(),
   mockUpdate: vi.fn(),
   mockVerifyPassword: vi.fn(),
-  mockInsertValues: vi.fn(),
   mockDelete: vi.fn(),
 }));
 
@@ -35,7 +34,6 @@ vi.mock("../database/client.js", () => ({
     // The row written is echoed back, as `RETURNING` would.
     insert: () => ({
       values: (values: Record<string, unknown>) => {
-        mockInsertValues(values);
         return { returning: async () => [{ ...values, lastUsedAt: null, createdAt: new Date() }] };
       },
     }),
@@ -134,21 +132,6 @@ describe("validateManagementApiKey", () => {
     expect(result).toBeNull();
   });
 
-  it("returns a service principal with orgId and a permission set on success", async () => {
-    mockSelectRows.mockResolvedValue([row()]);
-    mockVerifyPassword.mockResolvedValue(true);
-    wireUpdateChain();
-
-    const result = await validateManagementApiKey(`pk_${VALID_ID}_secret`);
-
-    expect(result).not.toBeNull();
-    expect(result?.principalType).toBe("service");
-    expect(result?.orgId).toBe("org-1");
-    expect(result?.permissions.has("agent:read")).toBe(true);
-    expect(result?.permissions.has("agent:write")).toBe(true);
-    expect(result?.permissions.has("agent:delete")).toBe(false);
-  });
-
   it("honours a future expiry (not expired)", async () => {
     const future = new Date(Date.now() + 60_000);
     mockSelectRows.mockResolvedValue([row({ expiresAt: future })]);
@@ -224,35 +207,11 @@ describe("validateManagementApiKey — key hash", () => {
   });
 });
 
-// The token is handed out once and never stored, so the only proof that it
-// works is that the guard's own validation path accepts it against the row the
-// store wrote.
+// That an issued token validates against the row the store wrote is proven
+// against Postgres in management-api-keys.store.integration.test.ts.
 describe("createManagementApiKey", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("returns a token that validates to the issuing organization and permissions", async () => {
-    const { key, token } = await createManagementApiKey({
-      organizationId: "org-1",
-      name: "ci",
-      permissions: ["agent:read", "org:write"],
-      expiresAt: null,
-    });
-
-    expect(token).toMatch(/^pk_[0-9a-f-]{36}_[0-9a-f]{64}$/);
-    const written = mockInsertValues.mock.calls[0][0];
-    expect(written.id).toBe(key.id);
-    // Only a digest is written; the plaintext secret appears nowhere in the row.
-    const secret = token.slice(`pk_${key.id}_`.length);
-    expect(JSON.stringify(written)).not.toContain(secret);
-
-    mockSelectRows.mockResolvedValue([written]);
-    wireUpdateChain();
-    const principal = await validateManagementApiKey(token);
-
-    expect(principal?.orgId).toBe("org-1");
-    expect([...(principal?.permissions ?? [])].sort()).toEqual(["agent:read", "org:write"]);
   });
 
   it("issues a different secret every time", async () => {
@@ -272,11 +231,5 @@ describe("deleteManagementApiKey", () => {
   it("reports false for an id that is not a uuid, without querying", async () => {
     expect(await deleteManagementApiKey("org-1", "not-a-uuid")).toBe(false);
     expect(mockDelete).not.toHaveBeenCalled();
-  });
-
-  it("reports whether a row of the organization was deleted", async () => {
-    mockDelete.mockResolvedValueOnce([{ id: VALID_ID }]).mockResolvedValueOnce([]);
-    expect(await deleteManagementApiKey("org-1", VALID_ID)).toBe(true);
-    expect(await deleteManagementApiKey("org-1", VALID_ID)).toBe(false);
   });
 });

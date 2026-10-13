@@ -13,7 +13,8 @@
  */
 
 import { resolveDatabaseAvailability } from "../database/test-db.js";
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { randomUUID } from "node:crypto";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { queryClient } from "../database/client.js";
 import {
   createManagementApiKey,
@@ -25,21 +26,28 @@ import {
 const DB_AVAILABLE = await resolveDatabaseAvailability();
 const MARKER = "itest-mgmt-keys";
 
-let orgA: string;
-let orgB: string;
-
 async function teardown(): Promise<void> {
   // Keys go with their organization (ON DELETE CASCADE).
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
 }
 
+/** A fresh organization per test, so no test sees the keys of another. */
+async function newOrganization(): Promise<string> {
+  const [{ id }] = await queryClient<{ id: string }[]>`
+    INSERT INTO organizations (slug, name, is_default)
+    VALUES (${`${MARKER}-${randomUUID()}`}, 'org', false) RETURNING id`;
+  return id;
+}
+
+let orgA: string;
+let orgB: string;
+
 describe.skipIf(!DB_AVAILABLE)("management API keys store (integration)", () => {
-  beforeAll(async () => {
-    await teardown();
-    [{ id: orgA }] = await queryClient<{ id: string }[]>`
-      INSERT INTO organizations (slug, name, is_default) VALUES (${MARKER + "-a"}, 'A', false) RETURNING id`;
-    [{ id: orgB }] = await queryClient<{ id: string }[]>`
-      INSERT INTO organizations (slug, name, is_default) VALUES (${MARKER + "-b"}, 'B', false) RETURNING id`;
+  beforeAll(teardown);
+
+  beforeEach(async () => {
+    orgA = await newOrganization();
+    orgB = await newOrganization();
   });
 
   afterAll(async () => {
@@ -104,5 +112,18 @@ describe.skipIf(!DB_AVAILABLE)("management API keys store (integration)", () => 
       UPDATE management_api_keys SET expires_at = now() - interval '1 minute' WHERE id = ${key.id}`;
 
     expect(await validateManagementApiKey(token)).toBeNull();
+  });
+
+  it("refuses a token whose secret is not the one issued with its id", async () => {
+    const { token } = await createManagementApiKey({
+      organizationId: orgA,
+      name: "tampered",
+      permissions: ["agent:read"],
+      expiresAt: null,
+    });
+    const tampered = token.slice(0, -4) + (token.endsWith("0000") ? "1111" : "0000");
+
+    expect(await validateManagementApiKey(tampered)).toBeNull();
+    expect(await validateManagementApiKey(token)).not.toBeNull();
   });
 });

@@ -6,39 +6,58 @@ import { db, queryClient } from "./client.js";
 /**
  * Is a database reachable for the integration tier?
  *
- * This probe was copy-pasted verbatim into five integration files, each with its
- * own three-second race, so there was no single place to change the policy — and
- * no single place to enforce it. That mattered: the files self-skip when the
- * probe loses, so a database that is merely SLOW to accept turns the whole tier
- * into "9 passed" with exit code 0, silently dropping all seven cross-org
- * isolation tests and all eleven migration-seed tests. Nothing asserted a floor.
+ * Two different answers hide behind "no". A database that is ABSENT refuses the
+ * connection at once (nothing listens, the host does not resolve, the role or
+ * database does not exist): the integration files skip, which keeps a bare
+ * `npm test` green on a machine without Postgres. A database that is PRESENT but
+ * slow — busy with the other workers of a parallel run — answers late. The old
+ * probe raced both against three seconds and called the late answer "absent",
+ * so a loaded machine turned files into silent skips with exit code 0.
  *
- * `CI_REQUIRE_DB` is that floor. Unset (a developer's machine), an absent
- * database still skips, which is the behaviour that keeps the unit tier fast and
- * the integration tier optional. Set (CI, where a `postgres` service is
- * declared), an unreachable database is a FAILURE — because there the skip is
- * never the honest answer.
+ * Now only a refusal means absent. A probe that gets no answer at all within
+ * PROBE_TIMEOUT_MS throws: a database that is there and does not answer is a
+ * broken run, never a skip. `CI_REQUIRE_DB=1` additionally turns "absent" into a
+ * failure, because in CI a skip is never the honest answer.
+ *
+ * The answer is memoized per worker: the availability check and every
+ * `lockTestResource` in a file share one probe.
  */
-const PROBE_TIMEOUT_MS = 3000;
+const PROBE_TIMEOUT_MS = 20_000;
 
-export async function probeDatabase(): Promise<boolean> {
-  // The timer is cleared in `finally`: left running, every integration file
-  // that imports `resolveDatabaseAvailability` held the event loop open for
-  // PROBE_TIMEOUT_MS after the probe had already answered.
+class ProbeTimeout extends Error {}
+
+let probe: Promise<boolean> | undefined;
+
+async function runProbe(): Promise<boolean> {
+  // The timer is cleared in `finally`: left running, it would hold the worker's
+  // event loop open after the probe had already answered.
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
       db.execute(sql`select 1`),
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error("db probe timeout")), PROBE_TIMEOUT_MS);
+        timer = setTimeout(() => reject(new ProbeTimeout()), PROBE_TIMEOUT_MS);
       }),
     ]);
     return true;
-  } catch {
+  } catch (err) {
+    if (err instanceof ProbeTimeout) {
+      throw new Error(
+        `The database did not answer \`select 1\` within ${PROBE_TIMEOUT_MS}ms. It is configured and ` +
+          "accepting connections slowly or not at all; skipping here would report a green run " +
+          "that exercised none of the integration tier.",
+        { cause: err },
+      );
+    }
     return false;
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+export function probeDatabase(): Promise<boolean> {
+  probe ??= runProbe();
+  return probe;
 }
 
 /** True when the caller must treat an unreachable database as a failure. */
@@ -55,9 +74,9 @@ export async function resolveDatabaseAvailability(): Promise<boolean> {
   const available = await probeDatabase();
   if (!available && databaseIsRequired()) {
     throw new Error(
-      "CI_REQUIRE_DB=1 but the database did not answer `select 1` within " +
-        `${PROBE_TIMEOUT_MS}ms. The integration tier self-skips when the probe fails, ` +
-        "so continuing here would report a green run that exercised none of it.",
+      "CI_REQUIRE_DB=1 but the database refused the connection. The integration tier " +
+        "self-skips when no database is there, so continuing here would report a green " +
+        "run that exercised none of it.",
     );
   }
   return available;

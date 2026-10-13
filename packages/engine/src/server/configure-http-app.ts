@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { INestApplication } from "@nestjs/common";
+import type { INestApplication, LogLevel } from "@nestjs/common";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { GlobalExceptionFilter } from "./filters/http-exception.filter.js";
@@ -9,6 +9,20 @@ import { config } from "../config.js";
 
 /** Response headers browser clients may read: `x-should-retry` tells OpenAI SDKs not to retry a 503 that retrying cannot fix. */
 const EXPOSED_HEADERS = ["x-should-retry"];
+
+/**
+ * NestJS log levels: production keeps the quiet error/warn/log subset this
+ * server has always used (NestJS's own default would include debug/verbose);
+ * every non-production NODE_ENV (development, test, unset) also gets
+ * debug/verbose so framework internals (router, DI, guards) are visible.
+ * Same testable env-param pattern as getCorsOptions, and kept beside it so a
+ * test of either does not import the whole server module graph.
+ */
+export function getLogLevels(env: NodeJS.ProcessEnv = process.env): LogLevel[] {
+  return env.NODE_ENV === "production"
+    ? ["error", "warn", "log"]
+    : ["error", "warn", "log", "debug", "verbose"];
+}
 
 export function getCorsOptions(env: NodeJS.ProcessEnv = process.env): {
   origin: boolean | string[];

@@ -7,7 +7,20 @@ import bcrypt from "bcryptjs";
  * to make brute-force expensive without hurting interactive login UX. Don't
  * tune below 10 or above 14 unless you've benchmarked the target environment.
  */
-const COST = 12;
+export const PASSWORD_HASH_COST = 12;
+
+let cost = PASSWORD_HASH_COST;
+
+/**
+ * Lower the cost for a test process. The suite hashes hundreds of passwords,
+ * and at the production cost that alone took several seconds of CPU per file.
+ * The cost is recorded inside every hash, so verifying is unaffected. Only
+ * `test-setup.ts` calls this; `password.util.test.ts` checks that a hash made
+ * at the default cost carries PASSWORD_HASH_COST.
+ */
+export function setPasswordHashCostForTests(rounds: number): void {
+  cost = rounds;
+}
 
 const MIN_LENGTH = 8;
 
@@ -24,7 +37,7 @@ export function validatePassword(plain: string): PasswordValidationError | null 
 }
 
 export async function hashPassword(plain: string): Promise<string> {
-  return bcrypt.hash(plain, COST);
+  return bcrypt.hash(plain, cost);
 }
 
 export async function verifyPassword(plain: string, hash: string): Promise<boolean> {

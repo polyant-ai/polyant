@@ -1,52 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Unit tests for the pure WhatsApp credential-mode schema/helpers in
- * packages/engine/src/instances/channels.store.ts: `channelConfigSchemas.whatsapp`,
- * `pruneWhatsAppCredentials`, `resolveWhatsAppAuthMode`. No DB is involved —
- * split out of `channels.store.whatsapp.test.ts` to keep both files under the
- * ≤400-line rule. Self-contained with its own (minimal) mocks, needed only so
- * importing `channels.store.js` does not touch a real DB/crypto module.
+ * The pure WhatsApp credential-mode schema and helpers in
+ * `whatsapp-channel-config.ts` — the schema `whatsappConfigSchema`
+ * is. Imported from their own module: going through `channels.store.js` loaded
+ * the database client and crypto just to reach a Zod schema.
  */
 
-vi.mock("../database/client.js", () => ({ db: {} }));
-vi.mock("../crypto/index.js", () => ({
-  encrypt: vi.fn(),
-  decrypt: vi.fn(),
-  generateToken: vi.fn(),
-}));
-vi.mock("./schema.js", () => ({ instances: { id: "id", slug: "slug" } }));
-vi.mock("./channels.schema.js", () => ({
-  instanceChannels: {
-    id: "id",
-    instanceId: "instance_id",
-    channelType: "channel_type",
-    enabled: "enabled",
-    config: "config",
-    createdAt: "created_at",
-    updatedAt: "updated_at",
-  },
-}));
-vi.mock("drizzle-orm", () => ({
-  eq: vi.fn((...args: unknown[]) => ({ type: "eq", args })),
-  and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
-}));
-
 import {
-  channelConfigSchemas,
+  whatsappConfigSchema,
   pruneWhatsAppCredentials,
   resolveWhatsAppAuthMode,
   WHATSAPP_MODE_ONLY_KEYS,
   WHATSAPP_MODE_SCHEMAS,
-} from "./channels.store.js";
+} from "./whatsapp-channel-config.js";
 
 const ACCOUNT_SID = "AC00000000000000000000000000000001";
 const API_KEY_SID = "SK00000000000000000000000000000002";
 const NUMBER = "+14155238886";
 
-describe("instances/channels.store — whatsapp credential modes (schema)", () => {
+describe("whatsapp credential modes (schema)", () => {
   it("should_accept_an_auth_token_config", () => {
-    const parsed = channelConfigSchemas.whatsapp.parse({
+    const parsed = whatsappConfigSchema.parse({
       authMode: "authToken",
       accountSid: ACCOUNT_SID,
       authToken: "tok",
@@ -56,7 +31,7 @@ describe("instances/channels.store — whatsapp credential modes (schema)", () =
   });
 
   it("should_default_a_legacy_config_without_authMode_to_authToken", () => {
-    const parsed = channelConfigSchemas.whatsapp.parse({
+    const parsed = whatsappConfigSchema.parse({
       accountSid: ACCOUNT_SID,
       authToken: "tok",
       whatsappNumber: NUMBER,
@@ -65,7 +40,7 @@ describe("instances/channels.store — whatsapp credential modes (schema)", () =
   });
 
   it("should_accept_an_api_key_config", () => {
-    const parsed = channelConfigSchemas.whatsapp.parse({
+    const parsed = whatsappConfigSchema.parse({
       authMode: "apiKey",
       accountSid: ACCOUNT_SID,
       apiKeySid: API_KEY_SID,
@@ -78,7 +53,7 @@ describe("instances/channels.store — whatsapp credential modes (schema)", () =
 
   it("should_reject_an_api_key_config_without_a_webhook_secret", () => {
     expect(() =>
-      channelConfigSchemas.whatsapp.parse({
+      whatsappConfigSchema.parse({
         authMode: "apiKey",
         accountSid: ACCOUNT_SID,
         apiKeySid: API_KEY_SID,
@@ -90,7 +65,7 @@ describe("instances/channels.store — whatsapp credential modes (schema)", () =
 
   it("should_reject_an_account_sid_that_is_actually_an_api_key_sid", () => {
     expect(() =>
-      channelConfigSchemas.whatsapp.parse({
+      whatsappConfigSchema.parse({
         authMode: "authToken",
         accountSid: API_KEY_SID,
         authToken: "tok",
@@ -100,7 +75,7 @@ describe("instances/channels.store — whatsapp credential modes (schema)", () =
   });
 
   it("should_trim_pasted_credentials", () => {
-    const parsed = channelConfigSchemas.whatsapp.parse({
+    const parsed = whatsappConfigSchema.parse({
       authMode: "authToken",
       accountSid: ` ${ACCOUNT_SID} `,
       authToken: " tok\n",
