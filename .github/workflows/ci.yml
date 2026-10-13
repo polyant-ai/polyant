@@ -1,5 +1,11 @@
 name: CI
 
+# The jobs in this file are generic and may be renamed, split or merged. The
+# `CI` job at the end is the only stable name: it needs every other job here and
+# passes only when each of them succeeded or was skipped on purpose, so it is
+# the one check branch protection requires. Checks defined in other workflow
+# files report on their own and do not need changes here.
+
 on:
   push:
     branches: [main, develop]
@@ -9,10 +15,17 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run it replaces. Pushes to develop
+# and main queue instead of cancelling, so every merged commit is checked.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -29,6 +42,7 @@ jobs:
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -45,6 +59,7 @@ jobs:
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -63,6 +78,7 @@ jobs:
   secrets:
     name: Secret Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v7
         with:
@@ -85,6 +101,7 @@ jobs:
   test-web:
     name: Web Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -107,6 +124,7 @@ jobs:
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     services:
       postgres:
         # pgvector image: migration 0000 runs `CREATE EXTENSION vector`.
@@ -158,6 +176,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -172,6 +191,7 @@ jobs:
       - run: npm run release:verify
       # Every build- and release-tooling test, so a new script cannot land untested.
       - run: node --test scripts/*.test.mjs scripts/ci/*.test.mjs scripts/release/*.test.mjs
+      - run: node scripts/ci/check-ci-gate.mjs .github/workflows/ci.yml
       - run: npm run build
       # The compiled migrator reads its SQL from dist; a build that does not ship
       # it boots into "Can't find meta/_journal.json".
@@ -180,6 +200,7 @@ jobs:
   docker:
     name: Docker build (${{ matrix.image }})
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
@@ -189,3 +210,25 @@ jobs:
       # Build only, no push: catches a Dockerfile that no longer builds from a
       # clean checkout (missing dirs, stray context files) before a release does.
       - run: docker build --file Dockerfile.${{ matrix.image }} .
+
+  # The single required check. It needs every job above (the Build job verifies
+  # that with scripts/ci/check-ci-gate.mjs) and runs even when one of them fails
+  # or is cancelled: a gate skipped for a failed dependency would count as
+  # passing. A job may only be `skipped` when its own path filter said so.
+  ci:
+    name: CI
+    needs: [lint, typecheck, test, secrets, test-web, integration, build, docker]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every job to succeed or be skipped
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          failed=$(echo "$NEEDS" | jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key] | join(", ")')
+          if [ -n "$failed" ]; then
+            echo "::error::Not successful: $failed"
+            exit 1
+          fi
