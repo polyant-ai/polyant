@@ -22,10 +22,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    name: Lint
+  static:
+    name: Lint and web typecheck
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -38,23 +38,11 @@ jobs:
       - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
       - run: npm ci
       - run: npm run lint
-
-  typecheck:
-    name: Typecheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
-      - run: npm run typecheck
+      # Only the web is type-checked here. The engine's `tsc --noEmit` would
+      # repeat the `tsc` that Build runs with the same tsconfig, tests included.
+      # `next build` is no substitute for the web: its type check drops every
+      # error reported in a *.test.* or __tests__ file.
+      - run: npm run typecheck -w @polyant/web
 
   test:
     name: Unit Tests
@@ -75,14 +63,14 @@ jobs:
       # fails the build if a PR lowers coverage. Local runs stay fast without it.
       - run: npm run test:unit -w @polyant/engine -- --coverage
 
-  secrets:
-    name: Secret Scan
+  repository:
+    name: Repository checks
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
-          # The scanner diffs against the base ref, so it needs its history.
+          # The secret scanner diffs against the base ref, so it needs its history.
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
@@ -97,6 +85,20 @@ jobs:
       # every clone. This job is neither, and it reads the same pattern list.
       - name: Scan added lines for secrets
         run: node scripts/ci/scan-secrets.cjs "origin/${{ github.base_ref || 'develop' }}"
+      # These read README.md, CHANGELOG.md and docs/releases, and need no
+      # installed dependencies, so they run on every change, docs included.
+      - name: Check release metadata
+        run: npm run release:verify
+      # Every build- and release-tooling test, so a new script cannot land untested.
+      - name: Test build and release tooling
+        run: node --test scripts/*.test.mjs scripts/ci/*.test.mjs scripts/release/*.test.mjs
+      - name: Check that the CI gate needs every job
+        run: node scripts/ci/check-ci-gate.mjs .github/workflows/ci.yml
+      # A workflow GitHub cannot parse never reports, so the required check
+      # stays pending; this names the error instead, and catches the mistakes
+      # that still parse (unknown keys, bad expressions, shell bugs).
+      - name: Lint workflows
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color
 
   test-web:
     name: Web Tests
@@ -188,10 +190,8 @@ jobs:
       # (works anonymously for the public repo) so `npm ci` can fetch it.
       - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
       - run: npm ci
-      - run: npm run release:verify
-      # Every build- and release-tooling test, so a new script cannot land untested.
-      - run: node --test scripts/*.test.mjs scripts/ci/*.test.mjs scripts/release/*.test.mjs
-      - run: node scripts/ci/check-ci-gate.mjs .github/workflows/ci.yml
+      # Also the engine's type check: its build is `tsc` on the same tsconfig
+      # as its typecheck script, test files included.
       - run: npm run build
       # The compiled migrator reads its SQL from dist; a build that does not ship
       # it boots into "Can't find meta/_journal.json".
@@ -211,13 +211,13 @@ jobs:
       # clean checkout (missing dirs, stray context files) before a release does.
       - run: docker build --file Dockerfile.${{ matrix.image }} .
 
-  # The single required check. It needs every job above (the Build job verifies
-  # that with scripts/ci/check-ci-gate.mjs) and runs even when one of them fails
+  # The single required check. It needs every job above (Repository checks
+  # verifies that with scripts/ci/check-ci-gate.mjs) and runs even when one of them fails
   # or is cancelled: a gate skipped for a failed dependency would count as
   # passing. A job may only be `skipped` when its own path filter said so.
   ci:
     name: CI
-    needs: [lint, typecheck, test, secrets, test-web, integration, build, docker]
+    needs: [repository, static, test, test-web, integration, build, docker]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
