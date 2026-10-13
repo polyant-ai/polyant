@@ -31,3 +31,6 @@ process.env.LOG_LEVEL ??= "debug";
 // the env defaults above are set.
 const { setPasswordHashCostForTests } = await import("./users/password.util.js");
 setPasswordHashCostForTests(4);
+
+// A module, so the top-level await above is allowed.
+export {};
