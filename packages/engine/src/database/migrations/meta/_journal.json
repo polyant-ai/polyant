@@ -610,6 +610,13 @@
       "when": 1792050000000,
       "tag": "0093_user_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792130000000,
+      "tag": "0094_hook_action_type_default",
+      "breakpoints": true
     }
   ]
 }
