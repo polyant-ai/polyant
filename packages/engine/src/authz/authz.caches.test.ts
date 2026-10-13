@@ -6,20 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import {
-  BINDING_CACHE_TTL_MS,
-  SUPERADMIN_CACHE_TTL_MS,
-  bindingCache,
-  invalidateSuperadminCache,
-  platformAdminCache,
-} from "./authz.caches.js";
-import type { AgentScope } from "./authz.store.js";
-
-const scope: AgentScope = {
-  agentId: "agent-1",
-  workspaceId: "ws-1",
-  organizationId: "org-1",
-};
+import { bindingCache, invalidateSuperadminCache, platformAdminCache } from "./authz.caches.js";
 
 describe("RBAC caches", () => {
   beforeEach(() => {
@@ -32,25 +19,26 @@ describe("RBAC caches", () => {
     vi.useRealTimers();
   });
 
-  it("declares the design TTLs (60 s bindings, 5 min platform admin)", () => {
-    expect(BINDING_CACHE_TTL_MS).toBe(60_000);
-    expect(SUPERADMIN_CACHE_TTL_MS).toBe(5 * 60_000);
-  });
-
   it("stores and returns a binding-cache entry within its TTL", () => {
     bindingCache.set("user-1:org-1", [{ scopeType: "organization", scopeId: "org-1" } as never]);
     expect(bindingCache.get("user-1:org-1")).toHaveLength(1);
   });
 
-  it("expires binding-cache entries after 60 s", () => {
+  // Literal times, not the exported constants: advancing by `TTL + 1` passes
+  // whatever the TTL is, so it pinned nothing about the 60 s / 5 min design.
+  it("keeps binding-cache entries for 60 s and expires them after", () => {
     bindingCache.set("user-1:org-1", []);
-    vi.advanceTimersByTime(BINDING_CACHE_TTL_MS + 1);
+    vi.advanceTimersByTime(59_999);
+    expect(bindingCache.get("user-1:org-1")).toEqual([]);
+    vi.advanceTimersByTime(2);
     expect(bindingCache.get("user-1:org-1")).toBeUndefined();
   });
 
-  it("expires platform admin-cache entries after 5 min", () => {
+  it("keeps platform admin-cache entries for 5 min and expires them after", () => {
     platformAdminCache.set("user-1", true);
-    vi.advanceTimersByTime(SUPERADMIN_CACHE_TTL_MS + 1);
+    vi.advanceTimersByTime(299_999);
+    expect(platformAdminCache.get("user-1")).toBe(true);
+    vi.advanceTimersByTime(2);
     expect(platformAdminCache.get("user-1")).toBeUndefined();
   });
 
@@ -85,10 +73,5 @@ describe("RBAC caches", () => {
   it("should_be_a_silent_noop_when_the_user_is_not_cached", () => {
     expect(() => invalidateSuperadminCache("never-seen")).not.toThrow();
     expect(platformAdminCache.has("never-seen")).toBe(false);
-  });
-
-  // AgentScope is structurally referenced so the import stays meaningful.
-  it("references the AgentScope shape", () => {
-    expect(scope.organizationId).toBe("org-1");
   });
 });

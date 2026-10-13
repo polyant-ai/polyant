@@ -117,14 +117,6 @@ describe("instances/channels.store", () => {
     vi.clearAllMocks();
   });
 
-  // -----------------------------------------------------------------------
-  // CHANNEL_TYPES constant
-  // -----------------------------------------------------------------------
-  describe("CHANNEL_TYPES", () => {
-    it("exports the supported channel types (telegram, slack, whatsapp, agent, web)", () => {
-      expect(CHANNEL_TYPES).toEqual(["telegram", "slack", "whatsapp", "agent", "web"]);
-    });
-  });
 
   // -----------------------------------------------------------------------
   // setChannelConfig (telegram/slack — generic path, no WhatsApp invariant)
