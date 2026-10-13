@@ -101,8 +101,12 @@ Persist anything longer-lived through a storage tool such as the
 
 ```json
 {
-  "name": "acme-tools", "version": "1.0.0", "engine": ">=0.1.0", "toolsDir": "tools", "namespace": "acme",
-  "displayName": "Acme", "description": "Order status and returns from the Acme back office."
+  "name": "acme-tools", "version": "1.0.0", "engine": ">=1.3.0", "toolsDir": "tools", "namespace": "acme",
+  "displayName": { "en-US": "Acme", "it-IT": "Acme" },
+  "description": {
+    "en-US": "Order status and returns from the Acme back office.",
+    "it-IT": "Stato degli ordini e resi dal gestionale Acme."
+  }
 }
 ```
 
@@ -110,7 +114,13 @@ Persist anything longer-lived through a storage tool such as the
 `name`. `displayName` and `description` are optional and only change how the
 admin panel presents the plugin: its name in the Origin column and in the tool
 picker, and its sentence when the picker is browsed by plugin. Without them the
-panel humanizes the namespace. Tools are still enabled one by one; the plugin
+panel humanizes the namespace. Each is either one text per locale, keyed by a
+canonical BCP 47 tag (`en-US`, `it-IT`, `pt-BR`), or a plain string that stands
+for every locale. The panel shows the reader's tag, else the same language,
+else English, else the first tag alphabetically, so write at least `en-US`.
+A locale map needs engine 1.3.0 or later: declare `"engine": ">=1.3.0"` when you
+use one, because an older engine rejects the manifest and skips the plugin.
+Tool descriptions are read by the model and stay one string. Tools are still enabled one by one; the plugin
 is never switched as a whole. A plugin whose `engine` range excludes the running engine version is
 skipped with a warning (the deployment continues). Duplicate final names fail the
 boot loudly.

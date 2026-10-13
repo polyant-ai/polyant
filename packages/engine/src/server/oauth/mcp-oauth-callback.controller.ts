@@ -12,6 +12,15 @@ import { asInstanceUuid } from "../../instances/identifiers.js";
 import { resolveInstanceSlug } from "../../instances/resolve-instance-id.js";
 import { errMsg } from "../../utils/error.js";
 import { mcpLog } from "../../agents/tools/mcp/mcp-logger.js";
+import {
+  McpSharedOAuthProvider,
+  MCP_SHARED_STATE_PREFIX,
+} from "../../agents/tools/mcp/mcp-shared-oauth-provider.js";
+import {
+  createManagementAuditLogger,
+  ManagementAuditAction,
+  ManagementAuditTarget,
+} from "../../management-audit/management-audit-logger.js";
 
 /** Escape the 5 HTML-significant characters (mirrors oauth-callback.controller.ts). */
 function escapeHtml(s: string): string {
@@ -33,6 +42,8 @@ function page(title: string, body: string): string {
 // provider's `saveTokens`.
 @Controller("mcp/oauth")
 export class McpOAuthCallbackController {
+  private readonly auditLogger = createManagementAuditLogger();
+
   @Public()
   @Get("callback")
   async callback(
@@ -47,12 +58,13 @@ export class McpOAuthCallbackController {
 
     // Consume the single-use state nonce (CSRF guard) before any further work.
     const pending = await consumeOAuthState(state);
-    if (!pending || !pending.provider.startsWith("mcp:")) {
+    const shared = pending?.provider.startsWith(MCP_SHARED_STATE_PREFIX) ?? false;
+    if (!pending || !(shared || pending.provider.startsWith("mcp:"))) {
       res.status(400).type("html").send(page("Error", "Invalid or expired state"));
       return;
     }
 
-    const serverSlug = pending.provider.slice("mcp:".length);
+    const serverSlug = pending.provider.slice(shared ? MCP_SHARED_STATE_PREFIX.length : "mcp:".length);
     const instanceUuid = asInstanceUuid(pending.instanceId);
     const server = await getMcpServer(instanceUuid, serverSlug);
     if (!server) {
@@ -65,6 +77,11 @@ export class McpOAuthCallbackController {
     const instanceSlug = await resolveInstanceSlug(instanceUuid);
     if (!instanceSlug) {
       res.status(404).type("html").send(page("Error", "Agent not found"));
+      return;
+    }
+
+    if (shared) {
+      await this.completeShared({ res, state, code, pending, server, instanceUuid, instanceSlug });
       return;
     }
 
@@ -84,5 +101,53 @@ export class McpOAuthCallbackController {
       mcpLog.warn("mcp", `oauth callback failed for server '${serverSlug}': ${errMsg(err)}`);
       res.status(502).type("html").send(page("Error", "Could not complete the connection. Please try again."));
     }
+  }
+
+  /**
+   * The end of a connection an admin started from the panel: the tokens go on
+   * the server row for every conversation of the agent. The admin is the user
+   * id the panel route stored in the state row, so the audit names who
+   * connected the account even though this request carries no session.
+   */
+  private async completeShared(args: {
+    res: Response;
+    state: string;
+    code: string;
+    pending: NonNullable<Awaited<ReturnType<typeof consumeOAuthState>>>;
+    server: NonNullable<Awaited<ReturnType<typeof getMcpServer>>>;
+    instanceUuid: ReturnType<typeof asInstanceUuid>;
+    instanceSlug: NonNullable<Awaited<ReturnType<typeof resolveInstanceSlug>>>;
+  }): Promise<void> {
+    const { res, state, code, pending, server, instanceUuid, instanceSlug } = args;
+    if (!pending.codeVerifier) {
+      res.status(400).type("html").send(page("Error", "Invalid or expired state"));
+      return;
+    }
+    const actorUserId = pending.conversationId || null;
+    try {
+      const { baseUrl } = await resolvePlatformSettings();
+      const provider = new McpSharedOAuthProvider({
+        baseUrl,
+        instanceUuid,
+        instanceSlug,
+        serverSlug: server.slug,
+        config: server.config,
+        mode: { kind: "callback", actorUserId, codeVerifier: pending.codeVerifier },
+      });
+      provider.setStoredState(state);
+      await auth(provider, { serverUrl: server.url, authorizationCode: code, callbackState: state });
+    } catch (err) {
+      mcpLog.warn("mcp", `shared-account oauth callback failed for server '${server.slug}': ${errMsg(err)}`);
+      res.status(502).type("html").send(page("Error", "Could not complete the connection. Please try again."));
+      return;
+    }
+    this.auditLogger.log({
+      action: ManagementAuditAction.McpServerSharedConnect,
+      actor: actorUserId ? { userId: actorUserId } : undefined,
+      targetType: ManagementAuditTarget.McpServer,
+      targetId: server.slug,
+      metadata: { instanceSlug },
+    });
+    res.type("html").send(page(`${server.name} connected ✅`, "You can close this window and return to the panel."));
   }
 }

@@ -7,6 +7,7 @@ import { Check, Copy, Send, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Chip } from "@/components/ui/chip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -171,22 +172,19 @@ function ProviderStep({ p }: { p: StepProps }) {
           {p.modelsFailed && <p className="text-sm text-destructive">{t("onboarding.wizard.catalogFailed")}</p>}
           <div className="flex flex-wrap gap-2">
             {providers.map((id) => (
-              <button
+              <Chip
                 key={id}
-                type="button"
+                active={p.draft.provider === id}
+                size="md"
                 aria-pressed={p.draft.provider === id}
                 onClick={() => {
                   const list = p.models?.providers[id]?.models ?? [];
                   const pick = list.find((m) => m.tier === "standard") ?? list[0];
                   p.patchDraft({ provider: id, keys: {}, model: pick?.id ?? "" });
                 }}
-                className={cn(
-                  "rounded-md border px-3 py-2 text-sm transition-colors",
-                  p.draft.provider === id ? "border-foreground bg-primary text-primary-foreground" : "hover:bg-secondary",
-                )}
               >
                 {providerName(id)}
-              </button>
+              </Chip>
             ))}
           </div>
         </fieldset>

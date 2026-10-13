@@ -103,9 +103,9 @@ export function ToolsTab({
   onSkillsUpdate,
   onConfigurationChanged,
 }: Props) {
-  const { t } = useI18n();
-  const nameOfPlugin = (namespace: string) => pluginName(namespace, plugins);
-  const aboutPlugin = (namespace: string) => pluginDescription(namespace, plugins);
+  const { t, locale } = useI18n();
+  const nameOfPlugin = (namespace: string) => pluginName(namespace, plugins, locale);
+  const aboutPlugin = (namespace: string) => pluginDescription(namespace, plugins, locale);
 
   const [toolToggles, setToolToggles] = useState<Record<string, boolean>>({});
   const [skillToggles, setSkillToggles] = useState<Record<string, boolean>>({});

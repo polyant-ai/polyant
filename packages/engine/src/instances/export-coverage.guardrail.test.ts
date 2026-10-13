@@ -107,7 +107,16 @@ const BUNDLE_SECTIONS: Record<string, { field: string; notCarried?: Record<strin
       conversation_id: "The Room's running conversation on the source. The target opens its own.",
     },
   },
-  instance_mcp_servers: { field: "mcpServers" },
+  instance_mcp_servers: {
+    field: "mcpServers",
+    notCarried: {
+      shared_tokens:
+        "OAuth tokens for the source's server, issued to the source deployment's redirect URI. " +
+        "The target's admin connects the account again.",
+      shared_connected_at: "When the source's account was connected; the target has none until it connects one.",
+      shared_connected_by: "A user of the source deployment.",
+    },
+  },
   event_sources: {
     field: "eventSources",
     notCarried: {

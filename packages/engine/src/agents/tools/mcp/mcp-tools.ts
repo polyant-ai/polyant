@@ -8,8 +8,9 @@ import { acquireMcpConnection, retireMcpConnection } from "./mcp-client-pool.js"
 import { resolvePlatformSettings } from "../../../platform/platform-settings.store.js";
 import { type InstanceSlug, type InstanceUuid } from "../../../instances/identifiers.js";
 import { toModelToolName } from "../registry.js";
-import { listEnabledMcpServers, type McpServerRecord } from "../../../instances/mcp-servers.store.js";
+import { listEnabledMcpServers, usesSharedAccount, type McpServerRecord } from "../../../instances/mcp-servers.store.js";
 import { makeMcpOAuthProvider, type McpVaultOAuthProvider } from "./mcp-oauth-provider.js";
+import { McpSharedOAuthProvider } from "./mcp-shared-oauth-provider.js";
 import { mcpLog } from "./mcp-logger.js";
 import { assertSafeMcpUrlResolved } from "./mcp-url-guard.js";
 import { errMsg } from "../../../utils/error.js";
@@ -121,22 +122,43 @@ export async function buildMcpTools(opts: {
     // oauth preconditions — rather than gating above and re-testing the mode in
     // a ternary below, which read as two decisions that could drift apart.
     let provider: McpVaultOAuthProvider | undefined;
+    // A shared account's tokens belong to the agent, not to this conversation,
+    // so its connection is pooled like a static one.
+    let pooled = true;
     if (server.authMode === "oauth") {
       if (!opts.allowOAuth) {
         mcpLog.warn("mcp", `server '${server.slug}' skipped: oauth not permitted on this call path (ephemeral/non-interactive conversation)`);
         continue;
       }
-      // No stable conversation to persist tokens against (defensive — allowOAuth
-      // callers always pass one).
-      if (!opts.conversationId) continue;
-      provider = makeMcpOAuthProvider({
-        baseUrl: (await resolvePlatformSettings()).baseUrl,
-        instanceUuid: opts.instanceUuid,
-        instanceSlug: opts.instanceSlug,
-        conversationId: opts.conversationId,
-        serverSlug: server.slug,
-        config: server.config,
-      });
+      if (usesSharedAccount(server.authMode, server.config)) {
+        // Nobody in the conversation can authorize the agent's account, so a
+        // server waiting for an admin offers nothing rather than a connect link.
+        if (!server.sharedAccount) {
+          mcpLog.warn("mcp", `server '${server.slug}' skipped: shared account not connected`);
+          continue;
+        }
+        provider = new McpSharedOAuthProvider({
+          baseUrl: (await resolvePlatformSettings()).baseUrl,
+          instanceUuid: opts.instanceUuid,
+          instanceSlug: opts.instanceSlug,
+          serverSlug: server.slug,
+          config: server.config,
+          mode: { kind: "turn" },
+        });
+      } else {
+        // No stable conversation to persist tokens against (defensive — allowOAuth
+        // callers always pass one).
+        if (!opts.conversationId) continue;
+        pooled = false;
+        provider = makeMcpOAuthProvider({
+          baseUrl: (await resolvePlatformSettings()).baseUrl,
+          instanceUuid: opts.instanceUuid,
+          instanceSlug: opts.instanceSlug,
+          conversationId: opts.conversationId,
+          serverSlug: server.slug,
+          config: server.config,
+        });
+      }
     }
     // Re-check the URL on every connect, resolved addresses included. The
     // write-time check in the controller approved this URL once; the name behind
@@ -157,11 +179,11 @@ export async function buildMcpTools(opts: {
 
     try {
       const { mcpConnectTimeoutMs } = await resolvePlatformSettings();
-      // OAuth tokens belong to this conversation: that client lives for the turn.
-      // Every other server shares a pooled connection across turns.
+      // Per-conversation OAuth tokens belong to this conversation: that client
+      // lives for the turn. Every other server shares a pooled connection across turns.
       let toolSet: McpConnection["toolSet"];
       let onCallError: (() => void) | undefined;
-      if (provider) {
+      if (!pooled) {
         const connection = await connectWithTimeout(transport, mcpConnectTimeoutMs, opts.abortSignal);
         toolSet = connection.toolSet;
         clients.push(connection.client);
