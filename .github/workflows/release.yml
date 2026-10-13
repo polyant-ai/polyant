@@ -13,6 +13,7 @@ jobs:
   release-comparison-draft:
     name: Release comparison draft
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       # Pinned to the commit v7 resolved to: a mutable tag on a third-party
       # action is a supply-chain hole — whoever can move the tag can run code
