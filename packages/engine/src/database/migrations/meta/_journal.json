@@ -610,6 +610,13 @@
       "when": 1792050000000,
       "tag": "0093_user_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792060000000,
+      "tag": "0094_mcp_shared_account",
+      "breakpoints": true
     }
   ]
 }
