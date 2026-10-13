@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Globe, Send, Hash, MessageCircle, Bot } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { api, type ChannelConfig, type Instance } from "@/lib/api";
+import { Chip } from "@/components/ui/chip";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
@@ -91,17 +92,12 @@ export function ChannelsSection({
               configured.find((c) => c.channelType === channel.type)?.enabled ?? false;
 
             return (
-              <button
+              <Chip
                 key={channel.type}
-                type="button"
+                active={isSelected}
+                size="md"
                 onClick={() => setSelected(channel.type)}
                 aria-pressed={isSelected}
-                className={cn(
-                  "flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
-                  isSelected
-                    ? "border-foreground bg-primary text-primary-foreground"
-                    : "hover:bg-secondary",
-                )}
               >
                 <Icon className="h-4 w-4" />
                 {t(channel.titleKey)}
@@ -112,7 +108,7 @@ export function ChannelsSection({
                     live ? "bg-success" : "bg-muted-foreground/40",
                   )}
                 />
-              </button>
+              </Chip>
             );
           })}
         </div>
