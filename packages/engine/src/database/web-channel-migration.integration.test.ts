@@ -23,10 +23,19 @@ const MIGRATION = readFileSync(
   "utf8",
 );
 
+/**
+ * Step 2 of the migration inserts a `web` row for EVERY agent in the database,
+ * so a suite in another worker deleting its own agent between the SELECT and
+ * the foreign-key check fails this replay. SHARE mode holds off writes to
+ * `instances` for the few milliseconds the replay takes, and nothing else.
+ */
 async function replayMigration(): Promise<void> {
-  for (const statement of MIGRATION.split("--> statement-breakpoint")) {
-    await queryClient.unsafe(statement);
-  }
+  await queryClient.begin(async (tx) => {
+    await tx`LOCK TABLE instances IN SHARE MODE`;
+    for (const statement of MIGRATION.split("--> statement-breakpoint")) {
+      await tx.unsafe(statement);
+    }
+  });
 }
 
 async function plantAgent(slug: string, authEnabled: boolean): Promise<string> {
