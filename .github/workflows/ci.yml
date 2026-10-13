@@ -209,16 +209,31 @@ jobs:
     needs: changes
     if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Room for a cold build that also exports every layer to the cache.
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         image: [engine, web]
     steps:
       - uses: actions/checkout@v7
+      # Pinned to the commit the tag resolved to, like the other third-party
+      # actions: bump the SHA and the comment together.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # Build only, no push: catches a Dockerfile that no longer builds from a
       # clean checkout (missing dirs, stray context files) before a release does.
-      - run: docker build --file Dockerfile.${{ matrix.image }} .
+      # Layers come from the Actions cache. Pushes to develop and main write it,
+      # every stage included (mode=max) so the dependency installs are reused;
+      # pull requests only read it, like the node_modules cache.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        with:
+          context: .
+          file: Dockerfile.${{ matrix.image }}
+          push: false
+          cache-from: type=gha,scope=docker-${{ matrix.image }}
+          cache-to: ${{ github.event_name == 'push' && format('type=gha,mode=max,scope=docker-{0}', matrix.image) || '' }}
 
   # The single required check. It needs every job above (Repository checks
   # verifies that with scripts/ci/check-ci-gate.mjs) and runs even when one of them fails
