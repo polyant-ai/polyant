@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+name: Install dependencies
+description: >-
+  Sets up Node and restores node_modules from the Actions cache, running
+  `npm ci` only when the cache has no entry for this lockfile.
+
+inputs:
+  node-version:
+    description: Node.js version to set up.
+    default: "24"
+  save-cache:
+    description: >-
+      Save node_modules after a fresh install. Honoured only on pushes to
+      develop and main, so pull requests read the cache and never write it.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    # Everything `npm ci` output depends on: the lockfile (which also pins the
+    # commit of the git dependency), the manifests, the OS and architecture,
+    # and the Node major version that native modules are built for. Bump the
+    # leading version to throw every entry away.
+    - id: key
+      shell: bash
+      run: |
+        node_major=$(node -p 'process.versions.node.split(".")[0]')
+        echo "key=node-modules-v1-${RUNNER_OS}-${RUNNER_ARCH}-node${node_major}-${{ hashFiles('package-lock.json', 'package.json', 'packages/*/package.json') }}" >> "$GITHUB_OUTPUT"
+
+    - id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          node_modules
+          packages/*/node_modules
+        key: ${{ steps.key.outputs.key }}
+
+    # The plugin-sdk is a public git dependency; npm/pacote resolves github
+    # git deps over ssh by default, which CI has no key for. Rewrite to https
+    # (works anonymously for the public repo) so `npm ci` can fetch it.
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+        npm ci
+
+    # Saved straight after the install, before any step can write into
+    # node_modules (tool caches, build output).
+    - if: >-
+        inputs.save-cache == 'true'
+        && steps.cache.outputs.cache-hit != 'true'
+        && github.event_name == 'push'
+        && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
+      uses: actions/cache/save@v6
+      with:
+        path: |
+          node_modules
+          packages/*/node_modules
+        key: ${{ steps.key.outputs.key }}
