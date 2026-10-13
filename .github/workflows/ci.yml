@@ -22,8 +22,44 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Pull requests that change only documentation skip the build and test jobs,
+  # and the Docker builds run only when one of their inputs changes. The skip
+  # happens per job, behind the gate, instead of with a workflow-level
+  # paths-ignore: an ignored workflow never reports, and a required check that
+  # never reports keeps the pull request waiting forever. Pushes run everything.
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+      docker: ${{ steps.classify.outputs.docker }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: scripts/ci
+      - id: classify
+        name: Classify the changed paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_FILES: repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            node scripts/ci/classify-changes.mjs --all >> "$GITHUB_OUTPUT"
+          else
+            # previous_filename too: moving a file out of packages/ changes code.
+            gh api --paginate "$PR_FILES" --jq '.[] | .filename, (.previous_filename // empty)' \
+              | node scripts/ci/classify-changes.mjs >> "$GITHUB_OUTPUT"
+          fi
+
   static:
     name: Lint and web typecheck
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -38,6 +74,8 @@ jobs:
 
   test:
     name: Unit Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -86,6 +124,8 @@ jobs:
 
   test-web:
     name: Web Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
@@ -101,6 +141,8 @@ jobs:
 
   integration:
     name: Integration Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     services:
@@ -145,6 +187,8 @@ jobs:
 
   build:
     name: Build
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -162,6 +206,8 @@ jobs:
 
   docker:
     name: Docker build (${{ matrix.image }})
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -177,10 +223,11 @@ jobs:
   # The single required check. It needs every job above (Repository checks
   # verifies that with scripts/ci/check-ci-gate.mjs) and runs even when one of them fails
   # or is cancelled: a gate skipped for a failed dependency would count as
-  # passing. A job may only be `skipped` when its own path filter said so.
+  # passing. A job may only be `skipped` when its own path filter said so; a job
+  # skipped because `changes` failed shows up through the failure of `changes`.
   ci:
     name: CI
-    needs: [repository, static, test, test-web, integration, build, docker]
+    needs: [changes, repository, static, test, test-web, integration, build, docker]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
