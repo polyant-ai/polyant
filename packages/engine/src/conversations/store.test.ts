@@ -108,7 +108,13 @@ function uid(prefix = "conv"): string {
 // ---------------------------------------------------------------------------
 describe("ConversationStore", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // Reset, not clear: a `mockReturnValue` or a queued `…Once` left by one test
+    // must not decide what the next one sees, whatever order they run in.
+    vi.resetAllMocks();
+    mockDb.transaction.mockImplementation(async (fn: (tx: typeof mockDb) => Promise<unknown>) => fn(mockDb));
+    for (const op of [mockDb.select, mockDb.update, mockDb.insert, mockDb.delete]) {
+      op.mockImplementation(() => createChainMock(undefined));
+    }
   });
 
   // =========================================================================

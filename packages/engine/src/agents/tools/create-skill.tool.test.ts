@@ -17,7 +17,8 @@ const run = (input: Record<string, unknown>) =>
   def.execute(input as never, { instanceId: "shop", secrets: {}, audit: createMockAudit() } as never);
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // Reset, not clear: a rejection one test installs must not leak into the next.
+  vi.resetAllMocks();
   vi.spyOn(console, "error").mockImplementation(() => {});
   mockResolveInstanceId.mockResolvedValue("instance-uuid");
 });
