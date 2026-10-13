@@ -52,6 +52,8 @@ function user(over: Partial<AdminUser>): AdminUser {
 const ME = user({ id: "me", email: "me@example.com", isPlatformAdmin: true });
 const ADA = user({ id: "u-ada", email: "ada@example.com", name: "Ada" });
 const BOB = user({ id: "u-bob", email: "bob@example.com" });
+// A made-up one-time value the dialog shows once; not a credential.
+const ONE_TIME_SECRET = "Temp-Pass-123";
 
 async function renderTab() {
   renderWithProviders(<UsersTab />);
@@ -115,7 +117,7 @@ describe("UsersTab", () => {
 
   it("resets a password only on confirmation and shows the temporary one", async () => {
     const u = userEvent.setup();
-    mockReset.mockResolvedValue({ user: ADA, generatedPassword: "Temp-Pass-123" });
+    mockReset.mockResolvedValue({ user: ADA, generatedPassword: ONE_TIME_SECRET });
     await renderTab();
 
     await u.click(within(rowOf("ada@example.com")).getByRole("button", { name: "Reset password" }));
@@ -131,7 +133,7 @@ describe("UsersTab", () => {
 
   it("does not show the temporary password again once the dialog is closed", async () => {
     const u = userEvent.setup();
-    mockReset.mockResolvedValue({ user: ADA, generatedPassword: "Temp-Pass-123" });
+    mockReset.mockResolvedValue({ user: ADA, generatedPassword: ONE_TIME_SECRET });
     await renderTab();
 
     await u.click(within(rowOf("ada@example.com")).getByRole("button", { name: "Reset password" }));

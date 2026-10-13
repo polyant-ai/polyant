@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { CreateUserDialog } from "./create-user-dialog";
 
 const { mockCreate } = vi.hoisted(() => ({ mockCreate: vi.fn() }));
+// A made-up one-time value the dialog shows once; not a credential.
+const ONE_TIME_SECRET = "Gen-Pass-42";
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -62,7 +64,7 @@ describe("CreateUserDialog", () => {
 
   it("shows a generated password once instead of closing", async () => {
     const u = userEvent.setup();
-    mockCreate.mockResolvedValue({ user: { id: "u-1" }, generatedPassword: "Gen-Pass-42" });
+    mockCreate.mockResolvedValue({ user: { id: "u-1" }, generatedPassword: ONE_TIME_SECRET });
     const { onOpenChange } = renderDialog();
 
     await u.type(screen.getByLabelText("Email"), "ada@example.com");
