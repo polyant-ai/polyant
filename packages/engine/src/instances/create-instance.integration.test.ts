@@ -50,7 +50,9 @@ async function teardown(): Promise<void> {
   await queryClient`DELETE FROM instances WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM workspaces WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
-  await queryClient`DELETE FROM tools WHERE description = ${MARKER}`;
+  // The default tool rows stay. They are the catalog a booted engine has, and
+  // other suites creating agents in parallel (export-import) seed from the
+  // same rows: deleting them here broke their inserts on the foreign key.
 }
 
 async function setup(): Promise<void> {

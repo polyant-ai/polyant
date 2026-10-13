@@ -8,7 +8,7 @@
  * Self-skips without a database; CI_REQUIRE_DB makes an absent database a failure there.
  */
 
-import { resolveDatabaseAvailability } from "../database/test-db.js";
+import { lockToolsTable, resolveDatabaseAvailability } from "../database/test-db.js";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
@@ -41,6 +41,16 @@ async function createAgent(suffix: string) {
 }
 
 describe.skipIf(!DB_AVAILABLE)("export → import round trip (integration)", () => {
+  // Agents are created with their default tools: keep a prune of the catalog
+  // (`database/test-db.ts`) from running while they are.
+  let releaseToolsLock: () => Promise<void> = async () => {};
+  beforeAll(async () => {
+    releaseToolsLock = await lockToolsTable("shared");
+  });
+  afterAll(async () => {
+    await releaseToolsLock();
+  });
+
   beforeAll(async () => {
     await teardown();
     const [org] = await queryClient<{ id: string }[]>`
