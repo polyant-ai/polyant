@@ -32,7 +32,7 @@ export default defineConfig({
 
       These floors sit about two points under what the suite actually covered
       across every file in `src` when they were set on 2026-10-13 (statements
-      54.7, branches 50.6, functions 48.9, lines 55.7). They are not an aspiration:
+      63.3, branches 55.9, functions 58.6, lines 64.9). They are not an aspiration:
       their only job is to stop a PR from LOWERING coverage. The buffer exists so
       a refactor that legitimately deletes covered code does not fail the build.
 
@@ -48,7 +48,7 @@ export default defineConfig({
       // from it.
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/**/*.test.{ts,tsx}", "src/**/*.d.ts", "src/test-setup.ts", "src/test-utils.tsx"],
-      thresholds: { statements: 52, branches: 48, functions: 46, lines: 53 },
+      thresholds: { statements: 61, branches: 53, functions: 56, lines: 62 },
     },
   },
 });
