@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Loader2, CheckCircle2, XCircle, ChevronDown } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, CheckCircle2, XCircle, ChevronDown, Link2, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -48,7 +48,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, getUserErrorMessage, type McpAuthMode, type McpServer, type McpTestResult } from "@/lib/api";
+import {
+  api,
+  getUserErrorMessage,
+  type McpAuthMode,
+  type McpOAuthAccount,
+  type McpServer,
+  type McpTestResult,
+} from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { SectionActions } from "./section-actions";
 
@@ -63,6 +70,7 @@ interface FormState {
   name: string;
   url: string;
   authMode: McpAuthMode;
+  oauthAccount: McpOAuthAccount;
   enabled: boolean;
   allowList: string;
   staticAuthType: StaticAuthType;
@@ -81,6 +89,7 @@ const EMPTY_FORM: FormState = {
   name: "",
   url: "",
   authMode: "static",
+  oauthAccount: "conversation",
   enabled: true,
   allowList: "",
   staticAuthType: "bearer",
@@ -122,7 +131,7 @@ function buildConfig(form: FormState): Record<string, unknown> {
     return { auth, ...(allowList.length ? { allowList } : {}) };
   }
   const scopes = splitList(form.scopes);
-  const config: Record<string, unknown> = {};
+  const config: Record<string, unknown> = { account: form.oauthAccount };
   if (scopes.length) config.scopes = scopes;
   if (allowList.length) config.allowList = allowList;
   if (form.staticClientId || form.staticClientSecret) {
@@ -157,6 +166,7 @@ function formFromServer(server: McpServer): FormState {
   const staticClient = config.staticClient as { clientId?: string; clientSecret?: string } | undefined;
   return {
     ...base,
+    oauthAccount: config.account === "shared" ? "shared" : "conversation",
     scopes: joinList(config.scopes),
     advancedOpen: !!staticClient,
     staticClientId: staticClient?.clientId ?? "",
@@ -175,6 +185,10 @@ export function McpServersTab({ slug }: Props) {
   const [deleting, setDeleting] = useState<McpServer | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<McpTestResult | null>(null);
+  // The server whose shared account is being connected in another tab. The
+  // provider redirects there, not here, so the list is read again when this
+  // tab regains focus.
+  const [connecting, setConnecting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -190,6 +204,16 @@ export function McpServersTab({ slug }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!connecting) return;
+    const onFocus = () => {
+      setConnecting(null);
+      void load();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [connecting, load]);
 
   const openCreate = () => {
     setEditing(null);
@@ -255,6 +279,35 @@ export function McpServersTab({ slug }: Props) {
     } catch (err) {
       setServers((prev) => prev.map((s) => (s.id === server.id ? { ...s, enabled: server.enabled } : s)));
       toast.error(getUserErrorMessage(err, t("mcp.toggleFailed")));
+    }
+  };
+
+  const handleConnectShared = async (server: McpServer) => {
+    // Opened before the request, while the click still counts as a user
+    // gesture: a window opened after an await is blocked by most browsers.
+    const tab = window.open("", "_blank");
+    try {
+      const { authorizeUrl } = await api.mcpServers.connectShared(slug, server.slug);
+      if (tab) {
+        tab.opener = null;
+        tab.location.assign(authorizeUrl);
+      } else {
+        window.location.assign(authorizeUrl);
+      }
+      setConnecting(server.slug);
+    } catch (err) {
+      tab?.close();
+      toast.error(getUserErrorMessage(err, t("mcp.shared.connectFailed")));
+    }
+  };
+
+  const handleDisconnectShared = async (server: McpServer) => {
+    try {
+      await api.mcpServers.disconnectShared(slug, server.slug);
+      toast.success(t("mcp.shared.disconnected"));
+      await load();
+    } catch (err) {
+      toast.error(getUserErrorMessage(err, t("mcp.shared.disconnectFailed")));
     }
   };
 
@@ -344,6 +397,14 @@ export function McpServersTab({ slug }: Props) {
                     <Badge variant="outline" className="text-xs">
                       {t(`mcp.authMode.${server.authMode}` as const)}
                     </Badge>
+                    {server.authMode === "oauth" && server.config.account === "shared" && (
+                      <SharedAccountState
+                        server={server}
+                        waiting={connecting === server.slug}
+                        onConnect={() => handleConnectShared(server)}
+                        onDisconnect={() => handleDisconnectShared(server)}
+                      />
+                    )}
                   </TableCell>
                   <TableCell>
                     <Switch
@@ -473,6 +534,24 @@ export function McpServersTab({ slug }: Props) {
             ) : (
               <>
                 <div className="space-y-2">
+                  <Label>{t("mcp.form.oauthAccount")}</Label>
+                  <Select
+                    value={form.oauthAccount}
+                    onValueChange={(v) => setForm((f) => ({ ...f, oauthAccount: v as McpOAuthAccount }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="conversation">{t("mcp.form.oauthAccount.conversation")}</SelectItem>
+                      <SelectItem value="shared">{t("mcp.form.oauthAccount.shared")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {form.oauthAccount === "shared" ? t("mcp.form.sharedNote") : t("mcp.form.oauthNote")}
+                  </p>
+                </div>
+                <div className="space-y-2">
                   <Label>{t("mcp.form.scopes")}</Label>
                   <Input
                     value={form.scopes}
@@ -481,7 +560,6 @@ export function McpServersTab({ slug }: Props) {
                   />
                   <p className="text-xs text-muted-foreground">{t("mcp.form.scopesHelp")}</p>
                 </div>
-                <p className="text-xs text-muted-foreground">{t("mcp.form.oauthNote")}</p>
                 <Collapsible
                   open={form.advancedOpen}
                   onOpenChange={(open) => setForm((f) => ({ ...f, advancedOpen: open }))}
@@ -539,7 +617,9 @@ export function McpServersTab({ slug }: Props) {
                     testResult.requiresOAuth ? (
                       <p className="flex items-center gap-1.5 text-success">
                         <CheckCircle2 className="size-3.5 shrink-0" />
-                        {t("mcp.test.requiresOAuth")}
+                        {form.authMode === "oauth" && form.oauthAccount === "shared"
+                          ? t("mcp.test.requiresSharedConnection")
+                          : t("mcp.test.requiresOAuth")}
                       </p>
                     ) : (
                       <div>
@@ -602,6 +682,46 @@ export function McpServersTab({ slug }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+/** Whether the agent's shared account is connected, and the control that changes it. */
+function SharedAccountState({
+  server,
+  waiting,
+  onConnect,
+  onDisconnect,
+}: {
+  server: McpServer;
+  waiting: boolean;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}) {
+  const { t, locale } = useI18n();
+  const connected = server.sharedAccount ?? null;
+  return (
+    <div className="mt-1.5 space-y-1">
+      <p className="text-xs text-muted-foreground">
+        {connected
+          ? t("mcp.shared.connectedOn", {
+              date: new Date(connected.connectedAt).toLocaleDateString(locale),
+            })
+          : waiting
+            ? t("mcp.shared.waiting")
+            : t("mcp.shared.notConnected")}
+      </p>
+      {connected ? (
+        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={onDisconnect}>
+          <Unlink className="mr-1 size-3.5" />
+          {t("mcp.shared.disconnect")}
+        </Button>
+      ) : (
+        <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={onConnect}>
+          <Link2 className="mr-1 size-3.5" />
+          {t("mcp.shared.connect")}
+        </Button>
+      )}
     </div>
   );
 }

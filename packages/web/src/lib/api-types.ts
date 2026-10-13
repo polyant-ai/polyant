@@ -886,6 +886,9 @@ export interface OptoutContact {
 
 export type McpAuthMode = "none" | "static" | "oauth";
 
+/** Whose account an oauth server acts as: each conversation's own, or one an admin connected for the agent. */
+export type McpOAuthAccount = "conversation" | "shared";
+
 export interface McpServer {
   id: string;
   slug: string;
@@ -895,6 +898,11 @@ export interface McpServer {
   enabled: boolean;
   /** Secret fields (token / clientSecret) are masked (`••••1234`) — see mcp-config-mask.ts on the engine. */
   config: Record<string, unknown>;
+  /**
+   * The account an admin connected for the whole agent, on an oauth server
+   * whose `config.account` is `"shared"`. Null while none is connected.
+   */
+  sharedAccount?: { connectedAt: string; connectedBy: string | null } | null;
 }
 
 export interface McpTestResult {

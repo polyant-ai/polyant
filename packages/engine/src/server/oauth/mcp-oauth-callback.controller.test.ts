@@ -13,15 +13,24 @@ vi.mock("./oauth-states.store.js", () => ({
   consumeOAuthState: (...args: unknown[]) => mockConsumeOAuthState(...args),
 }));
 
+const mockSaveMcpSharedTokens = vi.fn();
 vi.mock("../../instances/mcp-servers.store.js", () => ({
   getMcpServer: (...args: unknown[]) => mockGetMcpServer(...args),
+  saveMcpSharedTokens: (...args: unknown[]) => mockSaveMcpSharedTokens(...args),
+}));
+
+const mockAuditLog = vi.fn();
+vi.mock("../../management-audit/management-audit-logger.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../management-audit/management-audit-logger.js")>()),
+  createManagementAuditLogger: () => ({ log: mockAuditLog }),
 }));
 
 vi.mock("../../instances/resolve-instance-id.js", () => ({
   resolveInstanceSlug: (...args: unknown[]) => mockResolveInstanceSlug(...args),
 }));
 
-vi.mock("../../agents/tools/mcp/mcp-oauth-provider.js", () => ({
+vi.mock("../../agents/tools/mcp/mcp-oauth-provider.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../agents/tools/mcp/mcp-oauth-provider.js")>()),
   makeMcpOAuthProvider: (...args: unknown[]) => mockMakeMcpOAuthProvider(...args),
 }));
 
@@ -155,5 +164,65 @@ describe("McpOAuthCallbackController.callback", () => {
     await controller.callback("code-abc", "state-1", res);
 
     expect(res.status).toHaveBeenCalledWith(502);
+  });
+
+  describe("a shared account an admin started connecting from the panel", () => {
+    const ADMIN = "33333333-3333-3333-3333-333333333333";
+    const SHARED_PENDING = { conversationId: ADMIN, instanceId: "iid", provider: "mcp-shared:gh", codeVerifier: "pkce-verifier" };
+    const SHARED_SERVER = { ...SERVER, config: { account: "shared" } };
+
+    it("stores the tokens on the server for the admin who connected and audits it", async () => {
+      mockConsumeOAuthState.mockResolvedValue(SHARED_PENDING);
+      mockGetMcpServer.mockResolvedValue(SHARED_SERVER);
+      // The exchange as the SDK drives it: read the verifier, save the tokens.
+      mockAuth.mockImplementation(async (provider: any) => {
+        expect(await provider.codeVerifier()).toBe("pkce-verifier");
+        await provider.saveTokens({ access_token: "at-1", token_type: "Bearer" });
+        return "AUTHORIZED";
+      });
+      const res = mockResponse();
+
+      await controller.callback("code-abc", "state-1", res);
+
+      expect(res.status).not.toHaveBeenCalled();
+      expect(mockSaveMcpSharedTokens).toHaveBeenCalledWith(
+        "iid",
+        "gh",
+        JSON.stringify({ access_token: "at-1", token_type: "Bearer" }),
+        { by: ADMIN },
+      );
+      expect(mockMakeMcpOAuthProvider).not.toHaveBeenCalled();
+      expect(mockAuditLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "mcp_server.shared_connect",
+          actor: { userId: ADMIN },
+          targetId: "gh",
+          metadata: { instanceSlug: "my-instance" },
+        }),
+      );
+    });
+
+    it("400s a shared state row that carries no verifier", async () => {
+      mockConsumeOAuthState.mockResolvedValue({ ...SHARED_PENDING, codeVerifier: null });
+      mockGetMcpServer.mockResolvedValue(SHARED_SERVER);
+      const res = mockResponse();
+
+      await controller.callback("code-abc", "state-1", res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(mockAuth).not.toHaveBeenCalled();
+    });
+
+    it("502s and records nothing when the exchange fails", async () => {
+      mockConsumeOAuthState.mockResolvedValue(SHARED_PENDING);
+      mockGetMcpServer.mockResolvedValue(SHARED_SERVER);
+      mockAuth.mockRejectedValue(new Error("invalid_grant"));
+      const res = mockResponse();
+
+      await controller.callback("code-abc", "state-1", res);
+
+      expect(res.status).toHaveBeenCalledWith(502);
+      expect(mockAuditLog).not.toHaveBeenCalled();
+    });
   });
 });

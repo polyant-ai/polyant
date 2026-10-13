@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../database/client.js";
 import { instanceMcpServers } from "./mcp-servers.schema.js";
@@ -71,7 +71,17 @@ const authServerInfoSchema = z.object({
   tokenEndpoint: safeOAuthEndpoint,
 });
 
+/**
+ * Which account an oauth server acts as. `conversation` (the default, and what
+ * an absent value means) asks whoever is chatting to authorize, and keeps the
+ * token for that conversation only. `shared` uses the one account an admin
+ * connected from the panel, for every conversation of the agent.
+ */
+export const MCP_OAUTH_ACCOUNTS = ["conversation", "shared"] as const;
+export type McpOAuthAccount = (typeof MCP_OAUTH_ACCOUNTS)[number];
+
 const oauthConfigSchema = z.object({
+  account: z.enum(MCP_OAUTH_ACCOUNTS).optional(),
   scopes: z.array(z.string()).optional(),
   staticClient: z.object({ clientId: z.string().min(1), clientSecret: z.string().optional() }).optional(),
   dcrClient: dcrClientSchema.optional(),
@@ -99,6 +109,16 @@ export interface McpServerRecord {
   authMode: McpAuthMode;
   enabled: boolean;
   config: McpServerConfig;
+  /**
+   * When an admin connected the shared account, and who. Null while nothing is
+   * connected. The tokens themselves never leave the store through a record.
+   */
+  sharedAccount: { connectedAt: string; connectedBy: string | null } | null;
+}
+
+/** Whether `config` asks for the shared account. Only an oauth config can. */
+export function usesSharedAccount(authMode: McpAuthMode, config: McpServerConfig): boolean {
+  return authMode === "oauth" && (config as { account?: McpOAuthAccount }).account === "shared";
 }
 
 function decryptConfig(encrypted: string): Record<string, unknown> {
@@ -120,6 +140,10 @@ function toRecord(row: typeof instanceMcpServers.$inferSelect): McpServerRecord 
     authMode: row.authMode as McpAuthMode,
     enabled: row.enabled,
     config: decryptConfig(row.config) as McpServerConfig,
+    sharedAccount:
+      row.sharedTokens && row.sharedConnectedAt
+        ? { connectedAt: row.sharedConnectedAt.toISOString(), connectedBy: row.sharedConnectedBy }
+        : null,
   };
 }
 
@@ -135,12 +159,28 @@ export interface SetMcpServerInput {
 export async function setMcpServer(instanceId: InstanceUuid, input: SetMcpServerInput): Promise<void> {
   const validated = mcpServerConfigSchema(input.authMode, input.config); // strips unknown keys before persisting
   const encryptedConfig = encrypt(JSON.stringify(validated));
+  // A connected shared account survives an edit only while the server still
+  // asks for it at the same address: tokens issued for one server are never
+  // presented to another, and a server that stopped using them keeps none.
+  const keepShared = usesSharedAccount(input.authMode, validated)
+    ? sql`${instanceMcpServers.url} = ${input.url}`
+    : sql`false`;
   await db
     .insert(instanceMcpServers)
     .values({ instanceId, slug: input.slug, name: input.name, url: input.url, authMode: input.authMode, enabled: input.enabled, config: encryptedConfig })
     .onConflictDoUpdate({
       target: [instanceMcpServers.instanceId, instanceMcpServers.slug],
-      set: { name: input.name, url: input.url, authMode: input.authMode, enabled: input.enabled, config: encryptedConfig, updatedAt: new Date() },
+      set: {
+        name: input.name,
+        url: input.url,
+        authMode: input.authMode,
+        enabled: input.enabled,
+        config: encryptedConfig,
+        sharedTokens: sql`case when ${keepShared} then ${instanceMcpServers.sharedTokens} end`,
+        sharedConnectedAt: sql`case when ${keepShared} then ${instanceMcpServers.sharedConnectedAt} end`,
+        sharedConnectedBy: sql`case when ${keepShared} then ${instanceMcpServers.sharedConnectedBy} end`,
+        updatedAt: new Date(),
+      },
     });
 }
 
@@ -172,4 +212,50 @@ export async function mergeMcpServerConfig(instanceId: InstanceUuid, slug: strin
     .update(instanceMcpServers)
     .set({ config: encrypt(JSON.stringify(merged)), updatedAt: new Date() })
     .where(and(eq(instanceMcpServers.instanceId, instanceId), eq(instanceMcpServers.slug, slug)));
+}
+
+/** The shared account's OAuth tokens, decrypted, or null when none is connected. */
+export async function getMcpSharedTokens(instanceId: InstanceUuid, slug: string): Promise<string | null> {
+  const [row] = await db
+    .select({ tokens: instanceMcpServers.sharedTokens })
+    .from(instanceMcpServers)
+    .where(and(eq(instanceMcpServers.instanceId, instanceId), eq(instanceMcpServers.slug, slug)));
+  return row?.tokens ? decrypt(row.tokens) : null;
+}
+
+/**
+ * Store the shared account's tokens. `connectedBy` is set when an admin
+ * completes a connection, and omitted on a refresh, which keeps who connected
+ * and when. A pooled connection reads its tokens through the provider on every
+ * request, so a refresh reaches it without a reconnect.
+ */
+export async function saveMcpSharedTokens(
+  instanceId: InstanceUuid,
+  slug: string,
+  tokens: string,
+  connected?: { by: string | null },
+): Promise<void> {
+  await db
+    .update(instanceMcpServers)
+    .set({
+      sharedTokens: encrypt(tokens),
+      ...(connected ? { sharedConnectedAt: new Date(), sharedConnectedBy: connected.by } : {}),
+    })
+    .where(and(eq(instanceMcpServers.instanceId, instanceId), eq(instanceMcpServers.slug, slug)));
+}
+
+/** Forget the shared account. Returns whether one was connected. */
+export async function clearMcpSharedTokens(instanceId: InstanceUuid, slug: string): Promise<boolean> {
+  const cleared = await db
+    .update(instanceMcpServers)
+    .set({ sharedTokens: null, sharedConnectedAt: null, sharedConnectedBy: null })
+    .where(
+      and(
+        eq(instanceMcpServers.instanceId, instanceId),
+        eq(instanceMcpServers.slug, slug),
+        sql`${instanceMcpServers.sharedTokens} is not null`,
+      ),
+    )
+    .returning({ id: instanceMcpServers.id });
+  return cleared.length > 0;
 }

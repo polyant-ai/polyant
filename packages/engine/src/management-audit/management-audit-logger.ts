@@ -22,6 +22,11 @@ export const ManagementAuditAction = {
   MemberRemove: "member.remove",
   McpServerWrite: "mcp_server.write",
   McpServerDelete: "mcp_server.delete",
+  // The account an admin connects for a whole agent on an OAuth MCP server:
+  // every conversation then acts as that account, so who connected it, and who
+  // took it away, is the question the token columns cannot answer.
+  McpServerSharedConnect: "mcp_server.shared_connect",
+  McpServerSharedDisconnect: "mcp_server.shared_disconnect",
   UserCreate: "user.create",
   // The wire value stays `user.role_update` although `users.role` is gone:
   // renaming it would orphan every audit row already written under it.

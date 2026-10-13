@@ -73,6 +73,7 @@ export type {
   OptoutContact,
   EmbeddingWipeResult,
   McpAuthMode,
+  McpOAuthAccount,
   McpServer,
   McpTestResult,
 } from "./api-types";
@@ -536,6 +537,17 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    /** Start connecting the agent's shared account; the panel opens the returned URL. */
+    connectShared: (slug: string, serverSlug: string) =>
+      request<{ authorizeUrl: string }>(
+        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}/shared-account`,
+        { method: "POST" },
+      ),
+    disconnectShared: (slug: string, serverSlug: string) =>
+      request<{ disconnected: boolean }>(
+        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}/shared-account`,
+        { method: "DELETE" },
+      ),
   },
   knowledge: {
     list: (slug: string) =>

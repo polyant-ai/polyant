@@ -2,6 +2,7 @@
 
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CircleHelp, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import { agentFromPath } from "@/lib/nav/destination";
 import { HELP_LINKS } from "@/lib/onboarding/help-links";
 import { useOnboarding } from "@/lib/onboarding/onboarding-context";
 import { firstOpenStepIndex } from "@/lib/onboarding/steps";
+import { releaseInfo } from "@/lib/release-info";
 
 /**
  * The header's Help menu: reopen the guidance whenever it is wanted, and reach
@@ -72,6 +74,14 @@ export function HelpMenu() {
             </a>
           </DropdownMenuItem>
         ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/about">
+            <span>
+              v{releaseInfo.version} · {t("nav.about")}
+            </span>
+          </Link>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -59,6 +59,7 @@ vi.mock("@/lib/tenant/tenant-context", async () => {
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { I18nProvider } from "@/lib/i18n/context";
 import { OnboardingProvider } from "@/lib/onboarding/onboarding-context";
+import { releaseInfo } from "@/lib/release-info";
 import { HelpMenu } from "./help-menu";
 import { OnboardingHost } from "./onboarding-host";
 
@@ -376,6 +377,17 @@ describe("the Help menu", () => {
       expect(link).toHaveAttribute("target", "_blank");
       expect(link).toHaveAttribute("rel", "noopener noreferrer");
     }
+  });
+
+  it("links to the versioned About page in the same tab", async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByRole("button", { name: /Help/ }));
+    const menu = await screen.findByRole("menu");
+    const about = within(menu).getByRole("menuitem", { name: /About/ });
+    expect(about).toHaveAttribute("href", "/about");
+    expect(about).not.toHaveAttribute("target");
+    expect(about).toHaveTextContent(releaseInfo.version);
   });
 
   it("reopens the wizard and the interface tour on request", async () => {

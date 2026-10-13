@@ -11,8 +11,15 @@ class FakeUnauthorized extends Error {}
 const createMCPClient = vi.fn();
 vi.mock("@ai-sdk/mcp", () => ({ createMCPClient, UnauthorizedError: FakeUnauthorized }));
 const servers: any[] = [];
-vi.mock("../../../instances/mcp-servers.store.js", () => ({ listEnabledMcpServers: vi.fn(async () => servers) }));
-vi.mock("./mcp-oauth-provider.js", () => ({ makeMcpOAuthProvider: () => ({ pendingAuthorizeUrl: "https://gh.test/authorize" }) }));
+vi.mock("../../../instances/mcp-servers.store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../instances/mcp-servers.store.js")>()),
+  listEnabledMcpServers: vi.fn(async () => servers),
+  getMcpSharedTokens: vi.fn(async () => JSON.stringify({ access_token: "shared-at", token_type: "Bearer" })),
+}));
+vi.mock("./mcp-oauth-provider.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./mcp-oauth-provider.js")>()),
+  makeMcpOAuthProvider: () => ({ pendingAuthorizeUrl: "https://gh.test/authorize" }),
+}));
 // Keep the real config: registry.ts, imported transitively via this module,
 // depends on it for postgres/etc.
 vi.mock("../../../config.js", async (importOriginal) => {
@@ -31,6 +38,10 @@ const { buildMcpTools } = await import("./mcp-tools.js");
 const { closeMcpClientPool, mcpPoolSize } = await import("./mcp-client-pool.js");
 const IID = asInstanceUuid("iid");
 const SLUG = asInstanceSlug("my-instance");
+const okClient = (execute: () => Promise<unknown> = async () => "ok") => ({
+  tools: async () => ({ create_issue: { description: "d", inputSchema: {}, execute } }),
+  close: vi.fn().mockResolvedValue(undefined),
+});
 
 describe("buildMcpTools", () => {
   beforeEach(async () => {
@@ -58,10 +69,6 @@ describe("buildMcpTools", () => {
 
   describe("connection pool", () => {
     const staticServer = (id: string, token = "t") => ({ id, slug: "gh", url: "https://x", authMode: "static", config: { auth: { type: "bearer", token } } });
-    const okClient = (execute: () => Promise<unknown> = async () => "ok") => ({
-      tools: async () => ({ create_issue: { description: "d", inputSchema: {}, execute } }),
-      close: vi.fn().mockResolvedValue(undefined),
-    });
 
     it("should_reuse_one_connection_across_turns", async () => {
       servers.push(staticServer("s1"));
@@ -126,6 +133,55 @@ describe("buildMcpTools", () => {
 
       expect(client.close).toHaveBeenCalledOnce();
       expect(mcpPoolSize()).toBe(0);
+    });
+  });
+
+  describe("the agent's shared account", () => {
+    const sharedServer = (sharedAccount: unknown) => ({
+      id: "s-shared",
+      slug: "linear",
+      url: "https://mcp.linear.test/mcp",
+      authMode: "oauth",
+      config: { account: "shared" },
+      sharedAccount,
+    });
+
+    it("should_offer_nothing_not_even_a_connect_link_while_no_admin_has_connected_it", async () => {
+      servers.push(sharedServer(null));
+      createMCPClient.mockResolvedValue(okClient());
+
+      const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1", allowOAuth: true });
+
+      expect(tools).toEqual({});
+      expect(createMCPClient).not.toHaveBeenCalled();
+    });
+
+    it("should_equip_its_tools_through_a_pooled_connection_shared_by_every_conversation", async () => {
+      servers.push(sharedServer({ connectedAt: "2026-10-13T10:00:00.000Z", connectedBy: "u1" }));
+      const client = okClient();
+      createMCPClient.mockResolvedValue(client);
+
+      const first = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c1", allowOAuth: true });
+      await first.close();
+      const second = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "c2", allowOAuth: true });
+      await second.close();
+
+      expect(Object.keys(first.tools).length).toBeGreaterThan(0);
+      expect(Object.keys(second.tools)).toEqual(Object.keys(first.tools));
+      expect(createMCPClient).toHaveBeenCalledOnce();
+      expect(client.close).not.toHaveBeenCalled();
+      const transport = createMCPClient.mock.calls[0][0].transport;
+      expect(await transport.authProvider.tokens()).toMatchObject({ access_token: "shared-at" });
+    });
+
+    it("should_stay_out_of_rooms_and_agent_calls_like_any_oauth_server", async () => {
+      servers.push(sharedServer({ connectedAt: "2026-10-13T10:00:00.000Z", connectedBy: "u1" }));
+      createMCPClient.mockResolvedValue(okClient());
+
+      const { tools } = await buildMcpTools({ instanceUuid: IID, instanceSlug: SLUG, conversationId: "room-1" });
+
+      expect(tools).toEqual({});
+      expect(createMCPClient).not.toHaveBeenCalled();
     });
   });
 

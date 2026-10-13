@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- An OAuth MCP server can use one shared account for the whole agent. An admin
+  connects it from the agent's MCP section and every conversation uses it; until
+  it is connected the agent does not use the server. Authorizing in each
+  conversation stays available and remains the default (migration `0094`).
 - Plugin manifests can give `displayName` and `description` one text per
   locale, keyed by BCP 47 tag (`en-US`, `it-IT`). The panel shows the
   reader's language and falls back to the same language, then English. A plain
