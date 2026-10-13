@@ -19,7 +19,7 @@ import { isBlockedHost } from "../../../utils/url-safety.js";
  * hosts (SSRF guard for admin-configured MCP server URLs — spec §7).
  *
  * `env` defaults to `process.env` (CONVENTION-EXCEPTION: same testable
- * env-param pattern as `getCorsOptions`/`getLogLevels` in `server/main.ts` —
+ * env-param pattern as `getCorsOptions`/`getLogLevels` in `server/configure-http-app.ts` —
  * `config.server` has no `nodeEnv` field, so this reads `NODE_ENV` directly
  * rather than inventing one; the param lets tests inject a fake env instead
  * of mutating the real `process.env` for the whole suite).
