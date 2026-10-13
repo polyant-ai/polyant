@@ -150,6 +150,9 @@ jobs:
       - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
       - run: npm ci
       - run: npm run db:migrate -w @polyant/engine
+      # On the freshly migrated database, before any test writes to it: a column
+      # added to a schema file without its migration fails here, not in production.
+      - run: npm run ci:schema-drift
       - run: npm run test:integration -w @polyant/engine
 
   build:
