@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { RequiredSecretSpec, ToolPluginInfo, ToolState } from "@/lib/api";
+import { localizeText } from "@/lib/i18n/localized-text";
 import { PROVIDER_CREDENTIAL_KEYS } from "@/lib/provider-secrets";
 
 /**
@@ -30,17 +31,19 @@ export function toolDisplayName(name: string): string {
 }
 
 /**
- * How a plugin is named: its manifest's `displayName`, else its namespace as a
- * reader writes it. The fallback keeps plugins whose manifest predates the field
- * readable without asking their authors for anything.
+ * How a plugin is named in `locale`: its manifest's `displayName`, else its
+ * namespace as a reader writes it. The fallback keeps plugins whose manifest
+ * predates the field readable without asking their authors for anything.
  */
-export function pluginName(namespace: string, plugins: readonly ToolPluginInfo[]): string {
-  return plugins.find((p) => p.namespace === namespace)?.displayName ?? pluginLabel(namespace);
+export function pluginName(namespace: string, plugins: readonly ToolPluginInfo[], locale: string): string {
+  const displayName = plugins.find((p) => p.namespace === namespace)?.displayName;
+  return displayName === undefined ? pluginLabel(namespace) : localizeText(displayName, locale);
 }
 
-/** A plugin's own sentence about itself, when its manifest has one. */
-export function pluginDescription(namespace: string, plugins: readonly ToolPluginInfo[]): string | null {
-  return plugins.find((p) => p.namespace === namespace)?.description ?? null;
+/** A plugin's own sentence about itself in `locale`, when its manifest has one. */
+export function pluginDescription(namespace: string, plugins: readonly ToolPluginInfo[], locale: string): string | null {
+  const description = plugins.find((p) => p.namespace === namespace)?.description;
+  return description === undefined ? null : localizeText(description, locale);
 }
 
 /** A plugin namespace as a reader writes it. */

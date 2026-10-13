@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { LocalizedText } from "./i18n/localized-text";
+
 // ── Users ───────────────────────────────────────────────────────────
 
 export interface AdminUser {
@@ -328,8 +330,8 @@ export interface ToolPluginInfo {
   namespace: string;
   name: string;
   version: string;
-  displayName?: string;
-  description?: string;
+  displayName?: LocalizedText;
+  description?: LocalizedText;
 }
 
 export interface ToolState {

@@ -143,4 +143,17 @@ describe("displayName and description in manifest", () => {
     expect(pluginManifestSchema.safeParse({ ...base, displayName: "" }).success).toBe(false);
     expect(pluginManifestSchema.safeParse({ ...base, description: "" }).success).toBe(false);
   });
+
+  it("accept one text per BCP 47 locale and keep the map as written", () => {
+    const description = { "it-IT": "Contatti e trattative.", "en-US": "Contacts and deals." };
+    const r = pluginManifestSchema.safeParse({ ...base, displayName: { "en-US": "CRM" }, description });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data).toMatchObject({ displayName: { "en-US": "CRM" }, description });
+  });
+
+  it("reject a locale map that is empty, has a blank entry or a key that is not a canonical tag", () => {
+    for (const displayName of [{}, { "en-US": "" }, { "it-IT": "CRM", en_US: "CRM" }, { "EN-us": "CRM" }]) {
+      expect(pluginManifestSchema.safeParse({ ...base, displayName }).success).toBe(false);
+    }
+  });
 });

@@ -328,6 +328,13 @@ describe("ToolsTab", () => {
     expect(within(rowOf("contact")).getByText("CRM Suite")).toBeInTheDocument();
   });
 
+  it("names a plugin in the reader's language when its manifest has one per locale", () => {
+    renderTab({
+      plugins: [{ namespace: "crm", name: "crm", version: "1.0.0", displayName: { "it-IT": "Suite CRM", "en-US": "CRM Suite" } }],
+    });
+    expect(within(rowOf("contact")).getByText("CRM Suite")).toBeInTheDocument();
+  });
+
   it("filters the table by origin", async () => {
     const user = userEvent.setup();
     renderTab();

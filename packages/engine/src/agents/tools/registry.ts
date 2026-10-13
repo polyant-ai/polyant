@@ -21,6 +21,7 @@ import {
 } from "@polyant-ai/plugin-sdk";
 import { config } from "../../config.js";
 import { resolvePluginRoots } from "../../plugin-system/plugin-roots.js";
+import type { LocalizedText } from "../../plugin-system/localized-text.js";
 import { engineSatisfies } from "../../plugin-system/plugin-manifest.js";
 import { registerOAuthProvider } from "../../server/oauth/oauth-providers.js";
 import { findStrictModeViolations, findIllegalToolName } from "./strict-mode-lint.js";
@@ -131,8 +132,8 @@ export interface LoadedPluginInfo {
   namespace: string;
   name: string;
   version: string;
-  displayName?: string;
-  description?: string;
+  displayName?: LocalizedText;
+  description?: LocalizedText;
 }
 
 /** The plugins whose tools the loader registered, by namespace. Written by `loadAllTools` only. */

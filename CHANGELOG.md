@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Plugin manifests can give `displayName` and `description` one text per
+  locale, keyed by BCP 47 tag (`en-US`, `it-IT`). The panel shows the
+  reader's language and falls back to the same language, then English. A plain
+  string keeps working and stands for every locale; a manifest with a locale
+  map needs engine 1.3.0 or later.
+
 ## [1.2.0] - 2026-10-12
 
 > **Upgrading from 1.1.2 needs operator action.** The engine and the panel run
