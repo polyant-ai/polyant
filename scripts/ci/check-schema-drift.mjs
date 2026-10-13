@@ -44,11 +44,6 @@ export const KNOWN_DIFFERENCES = [
     key: "column-only-in-database:knowledge_chunks.content_tsv",
     reason: "generated tsvector column maintained in SQL for full-text search",
   },
-  {
-    key: "column-default:instance_hooks.action_type",
-    reason:
-      "the schema default is 'function' but no migration changed the database default from 'tool' (removed by 0061); needs a migration",
-  },
 ];
 
 /** Reduces an SQL fragment to a comparable form: no quotes, qualifiers, casts or parentheses. */
