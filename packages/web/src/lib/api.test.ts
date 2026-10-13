@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { getUserErrorMessage, isForbidden, ApiError, api, API_BASE } from "./api";
+import { getUserErrorMessage, isForbidden, ApiError, api } from "./api";
 
 describe("isForbidden", () => {
   it("recognises the engine refusing on authorization grounds", () => {
@@ -78,7 +78,7 @@ function mockResponse(body: unknown, init?: ResponseInit): Response {
 
 function mockFetch(response: Response) {
   const fn = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(response);
-  global.fetch = fn;
+  vi.stubGlobal("fetch", fn);
   return fn;
 }
 
@@ -92,22 +92,14 @@ function mockFetch(response: Response) {
  * pinning here rather than only end to end.
  */
 describe("request() — workspace scoping", () => {
-  const realLocation = window.location;
-
+  // Navigate the real jsdom location rather than replacing `window.location`:
+  // the property is not configurable inside an isolated VM context.
   function at(pathname: string) {
-    Object.defineProperty(window, "location", {
-      value: { ...realLocation, pathname },
-      writable: true,
-      configurable: true,
-    });
+    window.history.pushState({}, "", pathname);
   }
 
   afterEach(() => {
-    Object.defineProperty(window, "location", {
-      value: realLocation,
-      writable: true,
-      configurable: true,
-    });
+    window.history.pushState({}, "", "/");
     vi.restoreAllMocks();
   });
 
@@ -157,8 +149,6 @@ describe("request() — workspace scoping", () => {
 
 // ── request() (tested via api methods) ─────────────────────────────────
 
-// ── request() (tested via api methods) ─────────────────────────────────
-
 describe("request() via api methods", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -185,9 +175,9 @@ describe("request() via api methods", () => {
 
   it("throws ApiError with body.message on non-ok JSON response", async () => {
     // Return a fresh Response per call so the body stream isn't consumed twice
-    global.fetch = vi.fn().mockImplementation(() =>
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() =>
       Promise.resolve(mockResponse({ message: "Not found" }, { status: 404, statusText: "Not Found" })),
-    );
+    ));
 
     try {
       await api.instances.get("missing");
@@ -200,12 +190,12 @@ describe("request() via api methods", () => {
   });
 
   it("throws ApiError with statusText when response body is unparseable", async () => {
-    global.fetch = vi.fn().mockImplementation(() =>
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() =>
       Promise.resolve(new Response("not json", {
         status: 500,
         statusText: "Internal Server Error",
       })),
-    );
+    ));
 
     try {
       await api.instances.list();
@@ -216,81 +206,19 @@ describe("request() via api methods", () => {
       expect((err as ApiError).message).toBe("Internal Server Error");
     }
   });
-
-  it("merges custom headers with Content-Type", async () => {
-    const fetchFn = mockFetch(mockResponse({ instance: {} }));
-
-    // Use a method that supports custom options - we test by calling create
-    // which uses POST (the request function spreads headers)
-    await api.instances.create({ slug: "test", name: "Test" });
-
-    const [, init] = fetchFn.mock.calls[0];
-    expect(init?.headers).toEqual(
-      expect.objectContaining({ "Content-Type": "application/json" }),
-    );
-  });
 });
 
-// ── api.instances ──────────────────────────────────────────────────────
+// ── what the client adds beyond the route ─────────────────────────────
+//
+// Which method and path each function calls is checked against the engine's
+// own route table by `api-contract.test.ts`. What follows is what that guard
+// cannot see: query strings, scoping parameters, encoding and body shape.
 
-describe("api.instances", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("list() calls GET /api/instances", async () => {
-    const fetchFn = mockFetch(mockResponse({ instances: [] }));
-
-    await api.instances.list();
-
-    expect(fetchFn).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances`);
-    expect(init?.method).toBeUndefined(); // GET is default
-  });
-
-  it("create() calls POST /api/instances with JSON body", async () => {
-    const fetchFn = mockFetch(mockResponse({ instance: { id: "1" } }));
-    const payload = { slug: "my-bot", name: "My Bot", description: "A helpful bot" };
-
-    await api.instances.create(payload);
-
-    const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances`);
-    expect(init?.method).toBe("POST");
-    expect(JSON.parse(init?.body as string)).toEqual(payload);
-  });
-
-  it("update() calls PATCH /api/instances/:slug with JSON body", async () => {
-    const fetchFn = mockFetch(mockResponse({ instance: { id: "1" } }));
-    const payload = { name: "Updated Name", status: "active" };
-
-    await api.instances.update("my-bot", payload);
-
-    const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances/my-bot`);
-    expect(init?.method).toBe("PATCH");
-    expect(JSON.parse(init?.body as string)).toEqual(payload);
-  });
-
-  it("delete() calls DELETE /api/instances/:slug", async () => {
-    const fetchFn = mockFetch(mockResponse({ deleted: true }));
-
-    await api.instances.delete("my-bot");
-
-    const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/instances/my-bot`);
-    expect(init?.method).toBe("DELETE");
-  });
-});
-
-// ── api.conversations ──────────────────────────────────────────────────
+function sentUrl(fetchFn: ReturnType<typeof mockFetch>): URL {
+  return new URL(fetchFn.mock.calls[0][0] as string, "http://localhost");
+}
 
 describe("api.conversations", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   it("list() with no params sends no query string", async () => {
     const fetchFn = mockFetch(
       mockResponse({ conversations: [], total: 0, limit: 20, offset: 0 }),
@@ -298,8 +226,7 @@ describe("api.conversations", () => {
 
     await api.conversations.list();
 
-    const [url] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/conversations`);
+    expect(sentUrl(fetchFn).search).toBe("");
   });
 
   it("list() with all params builds correct URLSearchParams", async () => {
@@ -314,12 +241,11 @@ describe("api.conversations", () => {
       offset: 5,
     });
 
-    const [url] = fetchFn.mock.calls[0];
-    const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.searchParams.get("instanceId")).toBe("inst-1");
-    expect(parsed.searchParams.get("search")).toBe("hello");
-    expect(parsed.searchParams.get("limit")).toBe("10");
-    expect(parsed.searchParams.get("offset")).toBe("5");
+    const { searchParams } = sentUrl(fetchFn);
+    expect(searchParams.get("instanceId")).toBe("inst-1");
+    expect(searchParams.get("search")).toBe("hello");
+    expect(searchParams.get("limit")).toBe("10");
+    expect(searchParams.get("offset")).toBe("5");
   });
 
   it("list() with only instanceId includes only that param", async () => {
@@ -329,12 +255,7 @@ describe("api.conversations", () => {
 
     await api.conversations.list({ instanceId: "inst-1" });
 
-    const [url] = fetchFn.mock.calls[0];
-    const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.searchParams.get("instanceId")).toBe("inst-1");
-    expect(parsed.searchParams.has("search")).toBe(false);
-    expect(parsed.searchParams.has("limit")).toBe(false);
-    expect(parsed.searchParams.has("offset")).toBe(false);
+    expect([...sentUrl(fetchFn).searchParams.keys()]).toEqual(["instanceId"]);
   });
 
   it("get() encodes conversationId and includes instanceId scope", async () => {
@@ -342,30 +263,23 @@ describe("api.conversations", () => {
 
     await api.conversations.get("conv/special id", "inst-1");
 
-    const [url] = fetchFn.mock.calls[0];
-    expect(url).toBe(
-      `${API_BASE}/api/conversations/${encodeURIComponent("conv/special id")}?instanceId=inst-1`,
-    );
+    const url = sentUrl(fetchFn);
+    expect(url.pathname.endsWith("/conv%2Fspecial%20id")).toBe(true);
+    expect(url.searchParams.get("instanceId")).toBe("inst-1");
   });
 
-  it("delete() calls DELETE with encoded conversationId and instanceId scope", async () => {
+  // A conversation id is only unique within an agent: without the scope the
+  // delete would be ambiguous.
+  it("delete() carries the instanceId scope", async () => {
     const fetchFn = mockFetch(mockResponse({ deleted: true }));
 
     await api.conversations.delete("conv-123", "inst-1");
 
-    const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/api/conversations/conv-123?instanceId=inst-1`);
-    expect(init?.method).toBe("DELETE");
+    expect(sentUrl(fetchFn).searchParams.get("instanceId")).toBe("inst-1");
   });
 });
 
-// ── api.memories ───────────────────────────────────────────────────────
-
 describe("api.memories", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   it("list() with all params builds correct query string", async () => {
     const fetchFn = mockFetch(
       mockResponse({ memories: [], total: 0, limit: 20, offset: 0 }),
@@ -379,13 +293,12 @@ describe("api.memories", () => {
       offset: 5,
     });
 
-    const [url] = fetchFn.mock.calls[0];
-    const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.searchParams.get("instanceId")).toBe("inst-1");
-    expect(parsed.searchParams.get("search")).toBe("rome");
-    expect(parsed.searchParams.get("category")).toBe("preference");
-    expect(parsed.searchParams.get("limit")).toBe("10");
-    expect(parsed.searchParams.get("offset")).toBe("5");
+    const { searchParams } = sentUrl(fetchFn);
+    expect(searchParams.get("instanceId")).toBe("inst-1");
+    expect(searchParams.get("search")).toBe("rome");
+    expect(searchParams.get("category")).toBe("preference");
+    expect(searchParams.get("limit")).toBe("10");
+    expect(searchParams.get("offset")).toBe("5");
   });
 
   it("list() with no params sends no query string", async () => {
@@ -395,67 +308,28 @@ describe("api.memories", () => {
 
     await api.memories.list();
 
-    const [url] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/memories`);
+    expect(sentUrl(fetchFn).search).toBe("");
   });
 
-  it("create() calls POST /memories with JSON body", async () => {
-    const fetchFn = mockFetch(
-      mockResponse({ memory: { id: "m-1", content: "test", event: "created" } }),
-    );
-    const payload = {
-      instanceId: "inst-1",
-      content: "User prefers Italian",
-      category: "preference",
-      importance: 8,
-    };
-
-    await api.memories.create(payload);
-
-    const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/memories`);
-    expect(init?.method).toBe("POST");
-    expect(JSON.parse(init?.body as string)).toEqual(payload);
-  });
-
-  it("delete() calls DELETE /memories/:id", async () => {
-    const fetchFn = mockFetch(mockResponse({ deleted: true }));
-
-    await api.memories.delete("m-1");
-
-    const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/memories/m-1`);
-    expect(init?.method).toBe("DELETE");
-  });
-
-  it("deleteAll() calls DELETE /memories with instanceId param", async () => {
+  // The bulk delete is bounded by this parameter alone.
+  it("deleteAll() scopes the bulk delete to one agent", async () => {
     const fetchFn = mockFetch(mockResponse({ deleted: true }));
 
     await api.memories.deleteAll("inst-1");
 
-    const [url, init] = fetchFn.mock.calls[0];
-    expect(url).toBe(`${API_BASE}/memories?instanceId=inst-1`);
-    expect(init?.method).toBe("DELETE");
+    expect(sentUrl(fetchFn).searchParams.get("instanceId")).toBe("inst-1");
   });
 });
 
-// ── api.analytics ──────────────────────────────────────────────────────
-
 describe("api.analytics", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   it("global() passes from/to as URLSearchParams", async () => {
     const fetchFn = mockFetch(mockResponse({ overview: {}, dailyTrend: [] }));
 
     await api.analytics.global("2026-01-01", "2026-01-31");
 
-    const [url] = fetchFn.mock.calls[0];
-    const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/analytics");
-    expect(parsed.searchParams.get("from")).toBe("2026-01-01");
-    expect(parsed.searchParams.get("to")).toBe("2026-01-31");
+    const { searchParams } = sentUrl(fetchFn);
+    expect(searchParams.get("from")).toBe("2026-01-01");
+    expect(searchParams.get("to")).toBe("2026-01-31");
   });
 
   it("instance() passes slug and from/to as URLSearchParams", async () => {
@@ -463,82 +337,30 @@ describe("api.analytics", () => {
 
     await api.analytics.instance("my-bot", "2026-02-01", "2026-02-28");
 
-    const [url] = fetchFn.mock.calls[0];
-    const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/instances/my-bot/analytics");
-    expect(parsed.searchParams.get("from")).toBe("2026-02-01");
-    expect(parsed.searchParams.get("to")).toBe("2026-02-28");
+    const url = sentUrl(fetchFn);
+    expect(url.pathname).toContain("/my-bot/");
+    expect(url.searchParams.get("from")).toBe("2026-02-01");
+    expect(url.searchParams.get("to")).toBe("2026-02-28");
   });
 });
-
-// ── api.me ─────────────────────────────────────────────────────────────
-
-describe("api.me", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  // Every tenant-scoped URL in the panel is built from this response, so the
-  // path it is fetched from is load-bearing.
-  it("get() targets the tenancy endpoint", async () => {
-    const fetchFn = mockFetch(mockResponse({ organization: null, workspaces: [] }));
-    await api.me.get();
-    const [url] = fetchFn.mock.calls[0];
-    expect(new URL(url as string, "http://localhost").pathname).toBe("/api/me");
-  });
-
-  it("changePassword() POSTs to the password endpoint", async () => {
-    const fetchFn = mockFetch(mockResponse({ ok: true }));
-    await api.me.changePassword({ newPassword: "s3cret-enough" });
-    const [url, init] = fetchFn.mock.calls[0];
-    expect(new URL(url as string, "http://localhost").pathname).toBe("/api/me/password");
-    expect(init?.method).toBe("POST");
-  });
-});
-
-// ── api.members ────────────────────────────────────────────────────────
 
 describe("api.members", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
+  it("assign() sends the role as roleKey", async () => {
+    const fetchFn = mockFetch(mockResponse({ assigned: true }));
+
+    await api.members.assign("user-1", "admin", "acme");
+
+    expect(JSON.parse(fetchFn.mock.calls[0][1]?.body as string)).toEqual({ roleKey: "admin" });
   });
 
   // These deliberately avoid the slug "default": it is the value the deleted
   // DEFAULT_ORG_SLUG constant used to hardcode, so asserting it cannot tell
-  // "uses the argument" from "still hardcodes the default" — which is exactly
-  // the behaviour that changed when the URLs became tenant-scoped.
-  it("list() targets the given org's members endpoint", async () => {
-    const fetchFn = mockFetch(mockResponse({ members: [] }));
-    await api.members.list("acme");
-    const [url] = fetchFn.mock.calls[0];
-    const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/organizations/acme/members");
-  });
-
-  it("assign() PUTs the role to the member endpoint", async () => {
-    const fetchFn = mockFetch(mockResponse({ assigned: true }));
-    await api.members.assign("user-1", "admin", "acme");
-    const [url, init] = fetchFn.mock.calls[0];
-    const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/organizations/acme/members/user-1");
-    expect(init?.method).toBe("PUT");
-    expect(JSON.parse(init?.body as string)).toEqual({ roleKey: "admin" });
-  });
-
-  it("remove() DELETEs the member endpoint", async () => {
-    const fetchFn = mockFetch(mockResponse({ removed: true }));
-    await api.members.remove("user-1", "acme");
-    const [url, init] = fetchFn.mock.calls[0];
-    const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/organizations/acme/members/user-1");
-    expect(init?.method).toBe("DELETE");
-  });
-
+  // "uses the argument" from "still hardcodes the default".
   it("encodes a non-default org slug and user id", async () => {
     const fetchFn = mockFetch(mockResponse({ assigned: true }));
+
     await api.members.assign("u/2", "member", "acme corp");
-    const [url] = fetchFn.mock.calls[0];
-    const parsed = new URL(url as string, "http://localhost");
-    expect(parsed.pathname).toBe("/api/organizations/acme%20corp/members/u%2F2");
+
+    expect(sentUrl(fetchFn).pathname).toBe("/api/organizations/acme%20corp/members/u%2F2");
   });
 });

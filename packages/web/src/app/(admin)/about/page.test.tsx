@@ -23,9 +23,10 @@ function mockSession(isPlatformAdmin: boolean) {
 describe("AboutPage", () => {
   beforeEach(() => {
     mockSession(false);
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ changelog: [] }),
-    }) as unknown as typeof fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ json: () => Promise.resolve({ changelog: [] }) }),
+    );
   });
 
   it("shows the public Polyant release information in Italian by default", () => {
@@ -67,12 +68,15 @@ describe("AboutPage", () => {
 
   it("shows the changelog history for a platform admin", async () => {
     mockSession(true);
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () =>
-        Promise.resolve({
-          changelog: [{ version: "1.1.0", date: "2026-08-25", changes: [{ category: "Added", items: ["Thing"] }] }],
-        }),
-    }) as unknown as typeof fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        json: () =>
+          Promise.resolve({
+            changelog: [{ version: "1.1.0", date: "2026-08-25", changes: [{ category: "Added", items: ["Thing"] }] }],
+          }),
+      }),
+    );
 
     render(
       <I18nProvider initialLocale="it">

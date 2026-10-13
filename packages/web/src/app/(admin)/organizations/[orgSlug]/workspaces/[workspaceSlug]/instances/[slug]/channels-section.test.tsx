@@ -33,7 +33,7 @@ describe("ChannelsSection — Web is a channel", () => {
 
     expect(screen.getByText("web-panel")).toBeInTheDocument();
     await waitFor(() => expect(mockChannelsList).toHaveBeenCalled());
-    expect(dotOf("channels.tab.web").className).toContain("bg-muted-foreground");
+    expect(dotOf("channels.tab.web")).toHaveAttribute("data-state", "off");
   });
 
   it("shows Web live when its channel row is enabled", async () => {
@@ -44,6 +44,6 @@ describe("ChannelsSection — Web is a channel", () => {
       </PageActionsProvider>,
     );
 
-    await waitFor(() => expect(dotOf("channels.tab.web").className).toContain("bg-success"));
+    await waitFor(() => expect(dotOf("channels.tab.web")).toHaveAttribute("data-state", "live"));
   });
 });

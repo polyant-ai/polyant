@@ -360,9 +360,9 @@ describe("SkillsTab", () => {
     resolveUpdate!({ skills: makeSkills() });
     await savePromise;
 
-    await waitFor(() => {
-      expect(onSkillsUpdate).toHaveBeenCalled();
-    });
-    expect(lastSaveAction.current?.saving).toBe(false);
+    // The flag clears in a render after the update callback, so wait for it
+    // explicitly rather than reading it the moment the callback has run.
+    await waitFor(() => expect(lastSaveAction.current?.saving).toBe(false));
+    expect(onSkillsUpdate).toHaveBeenCalled();
   });
 });
