@@ -28,15 +28,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
+      - uses: ./.github/actions/install
       - run: npm run lint
       # Only the web is type-checked here. The engine's `tsc --noEmit` would
       # repeat the `tsc` that Build runs with the same tsconfig, tests included.
@@ -50,15 +42,7 @@ jobs:
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
+      - uses: ./.github/actions/install
       # --coverage activates the thresholds in vitest.config.ts: a ratchet that
       # fails the build if a PR lowers coverage. Local runs stay fast without it.
       - run: npm run test:unit -w @polyant/engine -- --coverage
@@ -106,15 +90,7 @@ jobs:
     timeout-minutes: 6
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
+      - uses: ./.github/actions/install
       # 64 files / 655 tests that had never run in CI: `git log -S "polyant/web"`
       # on this file returned nothing since it was created. lint and build DO
       # cover the package, which is what made the gap easy to miss — web was in
@@ -160,15 +136,7 @@ jobs:
       CI_REQUIRE_DB: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
+      - uses: ./.github/actions/install
       - run: npm run db:migrate -w @polyant/engine
       # On the freshly migrated database, before any test writes to it: a column
       # added to a schema file without its migration fails here, not in production.
@@ -181,15 +149,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      # The one job that saves the node_modules cache (on develop and main).
+      - uses: ./.github/actions/install
         with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
+          save-cache: "true"
       # Also the engine's type check: its build is `tsc` on the same tsconfig
       # as its typecheck script, test files included.
       - run: npm run build
