@@ -107,6 +107,7 @@ export function ChannelsSection({
                 {t(channel.titleKey)}
                 <span
                   aria-hidden
+                  data-state={live ? "live" : "off"}
                   className={cn(
                     "size-1.5 rounded-full",
                     live ? "bg-success" : "bg-muted-foreground/40",

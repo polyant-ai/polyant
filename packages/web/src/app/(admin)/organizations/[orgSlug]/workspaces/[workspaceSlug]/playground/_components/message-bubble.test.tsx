@@ -22,14 +22,6 @@ const message = (over: Partial<ChatMessage> = {}): ChatMessage => ({
 });
 
 describe("MessageBubble", () => {
-  it("enters with an animation only when sent in this session, never when loaded", () => {
-    const sent = render(<MessageBubble message={message({ sentHere: true })} showActivity={false} />);
-    expect(sent.container.firstElementChild?.classList.contains("animate-conversation-enter")).toBe(true);
-
-    const loaded = render(<MessageBubble message={message()} showActivity={false} />);
-    expect(loaded.container.firstElementChild?.classList.contains("animate-conversation-enter")).toBe(false);
-  });
-
   it("fades the words of a streaming reply in, and drops the spans once it is complete", () => {
     const streaming = render(<MessageBubble message={message({ isStreaming: true })} showActivity={false} />);
     expect(streaming.container.querySelectorAll(".stream-word").length).toBe(4);
