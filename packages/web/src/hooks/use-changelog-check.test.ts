@@ -38,9 +38,10 @@ function mockSession(isPlatformAdmin: boolean | undefined) {
 describe("useChangelogCheck", () => {
   beforeEach(() => {
     localStorage.clear();
-    global.fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve(CHANGELOG_DATA),
-    }) as unknown as typeof fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ json: () => Promise.resolve(CHANGELOG_DATA) }),
+    );
   });
 
   it("stays disabled for a non-platform-admin user and never downloads the changelog", async () => {
@@ -50,7 +51,7 @@ describe("useChangelogCheck", () => {
     // Give a would-be fetch the chance to resolve before asserting it never ran.
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
     expect(result.current.version).toBe("");
     expect(result.current.newVersionAvailable).toBe(false);
     expect(result.current.unseenChangelogs).toEqual([]);

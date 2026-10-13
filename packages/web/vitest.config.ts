@@ -14,6 +14,16 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
+    /*
+      Each test file still gets a fresh jsdom, but inside a VM context on a
+      reused worker thread instead of a new process. Building jsdom per file
+      was about half of the suite's wall time under the default `forks` pool.
+      The trade-off is that a test cannot redefine non-configurable globals
+      such as `window.location`: navigate with `history.pushState` and replace
+      globals with `vi.stubGlobal`, which `unstubGlobals` undoes after each test.
+    */
+    pool: "vmThreads",
+    unstubGlobals: true,
     include: ["**/*.test.ts", "**/*.test.tsx"],
     setupFiles: ["./src/test-setup.ts"],
     css: false,

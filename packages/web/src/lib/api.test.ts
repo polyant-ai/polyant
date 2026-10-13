@@ -78,7 +78,7 @@ function mockResponse(body: unknown, init?: ResponseInit): Response {
 
 function mockFetch(response: Response) {
   const fn = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>().mockResolvedValue(response);
-  global.fetch = fn;
+  vi.stubGlobal("fetch", fn);
   return fn;
 }
 
@@ -92,22 +92,14 @@ function mockFetch(response: Response) {
  * pinning here rather than only end to end.
  */
 describe("request() — workspace scoping", () => {
-  const realLocation = window.location;
-
+  // Navigate the real jsdom location rather than replacing `window.location`:
+  // the property is not configurable inside an isolated VM context.
   function at(pathname: string) {
-    Object.defineProperty(window, "location", {
-      value: { ...realLocation, pathname },
-      writable: true,
-      configurable: true,
-    });
+    window.history.pushState({}, "", pathname);
   }
 
   afterEach(() => {
-    Object.defineProperty(window, "location", {
-      value: realLocation,
-      writable: true,
-      configurable: true,
-    });
+    window.history.pushState({}, "", "/");
     vi.restoreAllMocks();
   });
 
@@ -185,9 +177,9 @@ describe("request() via api methods", () => {
 
   it("throws ApiError with body.message on non-ok JSON response", async () => {
     // Return a fresh Response per call so the body stream isn't consumed twice
-    global.fetch = vi.fn().mockImplementation(() =>
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() =>
       Promise.resolve(mockResponse({ message: "Not found" }, { status: 404, statusText: "Not Found" })),
-    );
+    ));
 
     try {
       await api.instances.get("missing");
@@ -200,12 +192,12 @@ describe("request() via api methods", () => {
   });
 
   it("throws ApiError with statusText when response body is unparseable", async () => {
-    global.fetch = vi.fn().mockImplementation(() =>
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() =>
       Promise.resolve(new Response("not json", {
         status: 500,
         statusText: "Internal Server Error",
       })),
-    );
+    ));
 
     try {
       await api.instances.list();
