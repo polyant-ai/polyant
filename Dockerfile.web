@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/web/package.json packages/web/
 # Create minimal engine package.json for workspace resolution
-RUN mkdir -p packages/engine && echo '{"name":"@polyant/engine","version":"1.2.0","private":true}' > packages/engine/package.json
+RUN mkdir -p packages/engine && echo '{"name":"@polyant/engine","version":"1.3.0","private":true}' > packages/engine/package.json
 RUN npm ci --workspace=@polyant/web --include-workspace-root
 # npm only creates this when the lockfile nests a dependency here; the build stage COPYs it
 RUN mkdir -p packages/web/node_modules

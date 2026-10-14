@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-14
+
 ### Added
 
 - An OAuth MCP server can use one shared account for the whole agent. An admin
@@ -27,6 +29,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   panel as the text the agent reads.
 - The panel names tool categories in English and Italian. Every built-in tool
   and hook has a summary, and its fields have labels, in both languages.
+
+### Changed
+
+- About moves from the sidebar footer to the last item of the Help menu, and
+  the agent page section "To review" is now "Alerts".
+- The panel's chip switchers share one component, and the selected chip stays
+  readable.
+- Continuous integration reports one required check, `CI`, which needs every
+  other job, the DCO sign-off included. Documentation-only pull requests skip
+  the build and test jobs.
+
+### Fixed
+
+- `instance_hooks.action_type` defaults to `function` in the database as it
+  already did in the schema, so a hook row written without it no longer gets a
+  hook type the engine stopped running (migration `0095`).
+- A refresh of a shared MCP account that the provider refuses no longer erases
+  the tokens a concurrent refresh has just saved, which left the agent
+  disconnected with providers that rotate refresh tokens.
+- Adding an MCP server under a slug the agent already uses is refused instead
+  of replacing the existing server.
 
 ## [1.2.0] - 2026-10-12
 
@@ -877,7 +900,8 @@ Patch release. It restores agent creation, which fails on every attempt in 1.1.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/polyant-ai/polyant/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/polyant-ai/polyant/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/polyant-ai/polyant/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/polyant-ai/polyant/compare/v1.1.0...v1.1.1
