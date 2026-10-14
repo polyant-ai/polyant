@@ -238,6 +238,11 @@ export function McpServersTab({ slug }: Props) {
       toast.error(t("mcp.validation.slugRequired"));
       return;
     }
+    // Saving is an upsert: a new server under a taken slug would replace that one.
+    if (!editing && servers.some((server) => server.slug === form.slug)) {
+      toast.error(t("mcp.validation.slugTaken"));
+      return;
+    }
     if (form.authMode === "static" && !editing && !form.token) {
       toast.error(t("mcp.validation.tokenRequired"));
       return;

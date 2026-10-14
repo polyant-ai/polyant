@@ -88,6 +88,23 @@ describe("McpServersTab — the agent's shared account", () => {
     expect(screen.queryByRole("button", { name: "mcp.shared.connect" })).not.toBeInTheDocument();
   });
 
+  it("refuses a new server under a slug the agent already uses, instead of replacing it", async () => {
+    mockList.mockResolvedValue([sharedServer(null)]);
+    const user = userEvent.setup();
+    render(<McpServersTab slug="agent" />);
+
+    await screen.findByText("Linear");
+    await user.click(screen.getByRole("button", { name: /mcp\.add/ }));
+    await user.type(screen.getByPlaceholderText("my-mcp-server"), "linear");
+    await user.type(screen.getByPlaceholderText("My MCP Server"), "Another Linear");
+    await user.type(screen.getByPlaceholderText("https://mcp.example.com/mcp"), "https://other.test/mcp");
+    await user.click(screen.getByRole("button", { name: "common.save" }));
+
+    const { toast } = await import("sonner");
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("mcp.validation.slugTaken"));
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+
   it("keeps the shared choice when an admin edits and saves the server", async () => {
     mockList.mockResolvedValue([sharedServer(null)]);
     mockSet.mockResolvedValue({ ok: true });

@@ -865,6 +865,7 @@
   "mcp.form.staticClientId": "Client ID",
   "mcp.form.staticClientSecret": "Client secret (opzionale)",
   "mcp.validation.required": "Nome e URL sono obbligatori",
+  "mcp.validation.slugTaken": "Questo agente ha già un server con questo slug",
   "mcp.validation.slugRequired": "Lo slug è obbligatorio",
   "mcp.validation.tokenRequired": "Il token è obbligatorio",
   "mcp.validation.headerNameRequired": "Il nome dell'header è obbligatorio",
