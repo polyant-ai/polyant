@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { z } from "zod";
-import { defineTool, type ToolDefinition } from "@polyant-ai/plugin-sdk";
+import { defineTool, type LocalizedText, type ToolDefinition } from "@polyant-ai/plugin-sdk";
 import { chat } from "../../../ai-gateway/index.js";
 import { getPromptSection, upsertPrompt } from "../../../instances/prompts.store.js";
 import { resolveInstanceId } from "../../../instances/resolve-instance-id.js";
@@ -11,6 +11,7 @@ import { auditPreview } from "../../../audit/audit-logger.js";
 interface PromptUpdaterConfig {
   toolName: string;
   description: string;
+  summary: LocalizedText;
   sectionId: string;
   displayName: string;
   defaultContent: string;
@@ -24,6 +25,7 @@ export function createPromptUpdaterTool(config: PromptUpdaterConfig): ToolDefini
   return defineTool({
     name: config.toolName,
     description: config.description,
+    summary: config.summary,
     category: "prompts",
     parameters: z.object({
       instruction: z.string().describe(config.paramDescription),

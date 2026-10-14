@@ -14,6 +14,10 @@ export default defineTool({
     "Optionally attach a public HTTPS media URL — supported on WhatsApp via Twilio; ignored by channels that don't support outbound media.\n" +
     "Returns confirmation that the message was sent.\n" +
     "Caveat: only available in webhook-triggered conversation context.",
+  summary: {
+    "en-US": "Starts a conversation with the user on the outbound channel.",
+    "it-IT": "Avvia una conversazione con l'utente sul canale in uscita.",
+  },
   category: "conversation-trigger",
   harness: true,
   parameters: z.object({

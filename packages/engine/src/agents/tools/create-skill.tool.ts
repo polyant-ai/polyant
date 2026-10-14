@@ -73,6 +73,10 @@ export default defineTool({
     "Do NOT use to read an existing skill — use readSkill.\n" +
     "Returns the name of the created skill.\n" +
     "Caveat: the name is turned into a slug (lowercase, hyphens). requiredEnv is optional; when set, the skill is not shown until those variables are configured.",
+  summary: {
+    "en-US": "Creates a skill from the conversation and enables it on this agent.",
+    "it-IT": "Crea una skill dalla conversazione e la abilita su questo agente.",
+  },
   category: "skills",
   inputExamples: [
     {

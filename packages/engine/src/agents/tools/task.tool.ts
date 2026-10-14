@@ -21,6 +21,10 @@ const SPAWN_TASK_DESCRIPTION =
 export default defineTool({
   name: "spawnTask",
   description: SPAWN_TASK_DESCRIPTION,
+  summary: {
+    "en-US": "Hands a self-contained subtask to a separate run of the agent.",
+    "it-IT": "Affida una sotto-attività autonoma a un'esecuzione separata dell'agente.",
+  },
   category: "agent",
   metaTool: true,
   parameters: z.object({

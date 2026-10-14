@@ -19,6 +19,12 @@ Read both before changing a definition or manifest.
 - Treat `replyHandled` and `replyText` as reserved tool-result fields.
 - Copy the closest current definition and its tests; do not use legacy registration shapes
   found in Git history or old external plugins.
+- Keep the two audiences apart. `description`, `parameters` and `inputExamples` are
+  prompt: one English string. `summary`, and the `label` and `description` of each
+  `requiredSecrets` field, are read by people: give each one text per locale, at least
+  `en-US` and `it-IT`. The registry guardrail fails on a visible core tool without them.
+- `category` is an id the panel translates. Reuse an id it already names in
+  `tools-tab-helpers.ts`, or add the id there with its English and Italian name.
 
 ## External plugins
 

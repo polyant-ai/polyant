@@ -18,6 +18,10 @@ export default defineTool({
     "Parent directories are created automatically if they do not exist.\n" +
     "By default overwrites an existing file: use `overwrite: false` to reject the write if the file already exists.\n" +
     "To read the file back, use `readFile` with the same relative path.",
+  summary: {
+    "en-US": "Writes a file to the conversation's workspace.",
+    "it-IT": "Scrive un file nell'area di lavoro della conversazione.",
+  },
   category: "workspace",
   inputExamples: [
     {

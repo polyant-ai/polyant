@@ -19,10 +19,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ToolState } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
-import { humanizeSecretKey } from "@/components/instance-secret/secret-spec-field";
+import { secretSpecLabel } from "@/components/instance-secret/secret-spec-field";
 import {
   categoryLabel,
-  descriptionSummary,
+  capabilitySummary,
   missingRequiredSpecs,
   pluginNamespaceOf,
   toolDisplayName,
@@ -68,7 +68,7 @@ export function EnableToolsDialog({
   isConfigured,
   onEnable,
 }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [groupBy, setGroupBy] = useState<GroupBy>("category");
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -92,11 +92,11 @@ export function EnableToolsDialog({
       byKey.set(key, [...(byKey.get(key) ?? []), tool]);
     }
     const title = (key: string) =>
-      groupBy === "plugin" ? (key === CORE_GROUP ? t("tools.originCoreGroup") : pluginName(key)) : categoryLabel(key);
+      groupBy === "plugin" ? (key === CORE_GROUP ? t("tools.originCoreGroup") : pluginName(key)) : categoryLabel(key, locale);
     return [...byKey.entries()]
       .map(([key, groupTools]) => ({ key, title: title(key), tools: groupTools }))
       .sort((a, b) => Number(a.key === CORE_GROUP) - Number(b.key === CORE_GROUP) || a.title.localeCompare(b.title));
-  }, [tools, groupBy, t, pluginName]);
+  }, [tools, groupBy, t, locale, pluginName]);
 
   const currentKey = activeGroup !== null && groups.some((g) => g.key === activeGroup) ? activeGroup : groups[0]?.key;
   const needle = query.trim().toLowerCase();
@@ -104,7 +104,7 @@ export function EnableToolsDialog({
     ? groups
         .map((g) => ({
           ...g,
-          tools: g.tools.filter((tool) => `${tool.name} ${tool.description} ${g.title}`.toLowerCase().includes(needle)),
+          tools: g.tools.filter((tool) => `${tool.name} ${capabilitySummary(tool, locale)} ${tool.description} ${g.title}`.toLowerCase().includes(needle)),
         }))
         .filter((g) => g.tools.length > 0)
     : groups.filter((g) => g.key === currentKey);
@@ -194,7 +194,7 @@ export function EnableToolsDialog({
                       const already = isEnabled(tool.name);
                       const id = `pick-${tool.name}`;
                       const willAsk = isConfigured && !already
-                        ? missingRequiredSpecs(tool, isConfigured).map((s) => s.label ?? humanizeSecretKey(s.key))
+                        ? missingRequiredSpecs(tool, isConfigured).map((s) => secretSpecLabel(s, locale))
                         : [];
                       const namespace = pluginNamespaceOf(tool.name);
                       return (
@@ -220,7 +220,7 @@ export function EnableToolsDialog({
                               {already && (
                                 <span className="text-xs text-muted-foreground"> · {t("tools.pickerAlreadyEnabled")}</span>
                               )}
-                              <span className="block text-sm text-muted-foreground">{descriptionSummary(tool.description)}</span>
+                              <span className="block text-sm text-muted-foreground">{capabilitySummary(tool, locale)}</span>
                               {groupBy === "category" && namespace && (
                                 <span className="block text-xs text-muted-foreground">{pluginName(namespace)}</span>
                               )}

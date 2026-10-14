@@ -30,6 +30,10 @@ export default defineTool({
     "Do NOT use for general information searches — use `webSearch` instead.\n" +
     "Returns the HTTP status, relevant headers, and body (truncated to `maxBodySize`).\n" +
     "Caveat: GET only, no POST/PUT. Internal/private URLs are blocked (SSRF protection). Default timeout 15s.",
+  summary: {
+    "en-US": "Reads a public web page or API with an HTTP GET.",
+    "it-IT": "Legge una pagina web o un'API pubblica con una GET HTTP.",
+  },
   category: "research",
   inputExamples: [
     {

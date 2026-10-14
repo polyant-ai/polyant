@@ -41,14 +41,14 @@ import {
 import { api, getUserErrorMessage, type ToolState, type SkillState, type ToolPluginInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
-import { humanizeSecretKey } from "@/components/instance-secret/secret-spec-field";
+import { secretSpecLabel } from "@/components/instance-secret/secret-spec-field";
 import { useSecretSpecs } from "@/components/instance-secret/use-secret-specs";
 import { usePageSaveAction } from "./page-actions-context";
 import { ToolSheet } from "./tool-sheet";
 import { EnableToolsDialog } from "./enable-tools-dialog";
 import {
   categoryLabel,
-  descriptionSummary,
+  capabilitySummary,
   missingRequiredSpecs,
   pluginDescription,
   pluginName,
@@ -162,7 +162,7 @@ export function ToolsTab({
 
   const needle = search.trim().toLowerCase();
   const matches = (tool: ToolState) =>
-    (!needle || `${tool.name} ${tool.description}`.toLowerCase().includes(needle)) &&
+    (!needle || `${tool.name} ${capabilitySummary(tool, locale)} ${tool.description}`.toLowerCase().includes(needle)) &&
     (originFilter === null || (pluginNamespaceOf(tool.name) ?? CORE_ORIGIN) === originFilter) &&
     (categoryFilter === null || tool.category === categoryFilter);
   const rows = listed.filter(matches).sort((a, b) => a.name.localeCompare(b.name));
@@ -182,7 +182,7 @@ export function ToolsTab({
     if (params.loading || !params.canRead) return null;
     const missing = missingRequiredSpecs(tool, params.isConfigured);
     return missing.length > 0
-      ? t("tools.missingParams", { names: missing.map((s) => s.label ?? humanizeSecretKey(s.key)).join(", ") })
+      ? t("tools.missingParams", { names: missing.map((s) => secretSpecLabel(s, locale)).join(", ") })
       : null;
   };
 
@@ -351,7 +351,7 @@ export function ToolsTab({
           </div>
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {filterPill(t("tools.filterOrigin"), originFilter, originOptions, originName, setOriginFilter)}
-            {filterPill(t("tools.filterCategory"), categoryFilter, categoryOptions, categoryLabel, setCategoryFilter)}
+            {filterPill(t("tools.filterCategory"), categoryFilter, categoryOptions, (cat) => categoryLabel(cat, locale), setCategoryFilter)}
           </div>
 
           {rows.length === 0 && systemRows.length === 0 ? (
@@ -379,7 +379,7 @@ export function ToolsTab({
                     ? t("tools.pendingEnable")
                     : removing
                       ? t("tools.pendingDisable")
-                      : [categoryLabel(tool.category), linkedSkill && t("capabilities.linkedToSkill", { skill: linkedSkill })]
+                      : [categoryLabel(tool.category, locale), linkedSkill && t("capabilities.linkedToSkill", { skill: linkedSkill })]
                           .filter(Boolean)
                           .join(" · ");
                   return (
@@ -423,7 +423,7 @@ export function ToolsTab({
                       <TableCell
                         className={cn("hidden md:table-cell", removing && "text-muted-foreground line-through")}
                       >
-                        <span className="block truncate text-sm" title={descriptionSummary(tool.description)}>{descriptionSummary(tool.description)}</span>
+                        <span className="block truncate text-sm" title={capabilitySummary(tool, locale)}>{capabilitySummary(tool, locale)}</span>
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">
                         <Badge variant="secondary" className={cn("max-w-full truncate", removing && "opacity-50")}>
@@ -494,10 +494,10 @@ export function ToolsTab({
                   <TableRow key={tool.name} className="border-0 hover:bg-transparent">
                     <TableCell className="py-2">
                       <span className="block truncate font-mono text-sm text-muted-foreground">{tool.name}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{categoryLabel(tool.category)}</span>
+                      <span className="block truncate text-xs text-muted-foreground">{categoryLabel(tool.category, locale)}</span>
                     </TableCell>
                     <TableCell className="hidden text-muted-foreground md:table-cell">
-                      <span className="block truncate text-sm" title={descriptionSummary(tool.description)}>{descriptionSummary(tool.description)}</span>
+                      <span className="block truncate text-sm" title={capabilitySummary(tool, locale)}>{capabilitySummary(tool, locale)}</span>
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">
                       <Badge variant="secondary">{t("tools.originCore")}</Badge>

@@ -14,6 +14,10 @@ export default defineTool({
     "Do NOT use for semantic search or fuzzy queries — use `searchKnowledge` instead.\n" +
     "Returns the full content, filename, mimeType, size, source, and timestamp.\n" +
     "Caveat: the name must match the archived filename exactly (case-sensitive).",
+  summary: {
+    "en-US": "Reads a whole document from the knowledge base.",
+    "it-IT": "Legge per intero un documento della base di conoscenza.",
+  },
   category: "knowledge",
   inputExamples: [
     {

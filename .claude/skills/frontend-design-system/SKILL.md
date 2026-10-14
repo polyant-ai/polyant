@@ -26,6 +26,10 @@ resolution in feature code.
 - Put reusable feature components near their route; move them to shared components only
   after real reuse.
 - Add all user-visible copy through the existing i18n system in every supported locale.
+- Text a plugin or a marketplace writes for people arrives as `LocalizedText` (one string
+  per BCP 47 tag, or a plain string). Render it with `useLocalize` or `localizeText`, and
+  secret fields with `secretSpecLabel`/`secretSpecDescription`; never render the raw value.
+  A tool's `description` is the model's text: show `capabilitySummary` to people.
 - Preserve semantic HTML, labels, keyboard operation, focus visibility, and readable states.
 - Use `request<T>()` for engine calls. A bare engine fetch can silently use another workspace.
 

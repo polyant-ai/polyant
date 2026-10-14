@@ -373,6 +373,7 @@ export function listAvailableTools(): ToolInfo[] {
       return {
         name: def.name,
         description: def.description,
+        ...(def.summary === undefined ? {} : { summary: def.summary }),
         category: def.category ?? "general",
         requiredSecrets: specs.length > 0 ? specs : undefined,
         ...(def.inputExamples?.length ? { inputExamples: def.inputExamples } : {}),

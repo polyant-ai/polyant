@@ -176,3 +176,27 @@ describe("requiredSecrets gate availability", () => {
     expect(hidden).toEqual([]);
   });
 });
+
+/**
+ * Guard-rail: every core tool a person can see in the panel is described for
+ * them in English and Italian. The panel falls back to the first line of the
+ * model-facing description, which is English text written as instructions;
+ * without this sweep a new tool would quietly show that to an Italian reader.
+ * Harness and meta-tools are hidden from the panel, so they are exempt.
+ */
+describe("core tools are described for people", () => {
+  it("gives every visible core tool a summary and every field a label, in en-US and it-IT", () => {
+    const gaps: string[] = [];
+    const bilingual = (text: unknown) =>
+      typeof text === "object" && text !== null && "en-US" in text && "it-IT" in text;
+    for (const def of getToolRegistry().values()) {
+      if (def.name.includes(":") || def.harness || def.metaTool) continue;
+      if (!bilingual(def.summary)) gaps.push(`${def.name}: summary`);
+      for (const spec of normalizeRequiredSecrets(def.requiredSecrets, def.name)) {
+        if (!bilingual(spec.label)) gaps.push(`${def.name}: ${spec.key} label`);
+        if (spec.description !== undefined && !bilingual(spec.description)) gaps.push(`${def.name}: ${spec.key} description`);
+      }
+    }
+    expect(gaps).toEqual([]);
+  });
+});

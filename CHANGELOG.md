@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reader's language and falls back to the same language, then English. A plain
   string keeps working and stands for every locale; a manifest with a locale
   map needs engine 1.3.0 or later.
+- Tools and hooks can carry a `summary` for people, one text per locale, and
+  the `label` and `description` of their configuration fields can be
+  localized the same way (plugin SDK 1.10.0). The Tools section, the tool
+  picker and the hook panels show them in the reader's language; a tool
+  without a summary shows the first line of its description as before. The
+  description the model reads stays one string and is shown in the tool's
+  panel as the text the agent reads.
+- The panel names tool categories in English and Italian. Every built-in tool
+  and hook has a summary, and its fields have labels, in both languages.
 
 ## [1.2.0] - 2026-10-12
 

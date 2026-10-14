@@ -54,6 +54,10 @@ export default defineTool({
     "Do NOT use for immediate actions — execute them directly with other tools.\n" +
     "Returns task ID, human-readable schedule, and next scheduled run.\n" +
     "Caveat: action 'run' requires `taskId`. Required fields depend on the action (`create` requires name+prompt+scheduleType; `update`/`delete`/`run` require `taskId`).",
+  summary: {
+    "en-US": "Creates, lists, changes and runs scheduled tasks.",
+    "it-IT": "Crea, elenca, modifica ed esegue le attività pianificate.",
+  },
   category: "agent",
   inputExamples: [
     {

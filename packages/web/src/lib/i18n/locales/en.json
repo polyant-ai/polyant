@@ -288,6 +288,7 @@
   "unsavedChanges.keepEditing": "Keep editing",
   "tools.descriptionMore": "Show all",
   "tools.descriptionLess": "Show less",
+  "tools.agentDescription": "Description for the agent",
   "tools.enable": "Enable tools",
   "tools.searchEnabled": "Search enabled tools...",
   "tools.filterOrigin": "Origin",

@@ -16,6 +16,10 @@ export default defineTool({
     "Do NOT use at the start of a cycle — only when you notice the context is filling up.\n" +
     "Returns a compressed summary replacing older messages. Recent exchanges are preserved.\n" +
     "Caveat: keepRecent controls how many recent message pairs to preserve (default: 3). Summarization is irreversible within the current cycle.",
+  summary: {
+    "en-US": "Summarizes older room history to free up context.",
+    "it-IT": "Riassume la cronologia più vecchia della stanza per liberare contesto.",
+  },
   category: "room",
   harness: true,
   parameters: z.object({

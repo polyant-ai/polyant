@@ -46,6 +46,10 @@ export default defineHook({
   name: "conversation-reset",
   description:
     'On a message that is exactly "RESET", archive the current conversation (rename it with a random 5-digit suffix) so the next message starts a fresh one. Intended for test instances.',
+  summary: {
+    "en-US": "Starts a fresh conversation when someone writes exactly \"RESET\".",
+    "it-IT": "Avvia una nuova conversazione quando qualcuno scrive esattamente «RESET».",
+  },
   handler: async (ctx) => {
     if (ctx.payload.message.text.trim().toUpperCase() !== KEYWORD) return;
 

@@ -311,8 +311,10 @@ export interface PromptSection {
 export interface RequiredSecretSpec {
   key: string;
   type: "text" | "select";
-  label?: string;
-  description?: string;
+  /** The field's title, per locale. Render it through `secretSpecLabel`. */
+  label?: LocalizedText;
+  /** What the value is, per locale. Render it through `secretSpecDescription`. */
+  description?: LocalizedText;
   choices?: string[];
   optional?: boolean;
   /** false → readable value (shown in cleartext, prefilled from `currentValue`); true/undefined → secret (masked input). */
@@ -336,7 +338,10 @@ export interface ToolPluginInfo {
 
 export interface ToolState {
   name: string;
+  /** What the model reads. One string; shown to people only on request. */
   description: string;
+  /** The author's sentence for people, per locale; absent ⇒ the panel shows the first line of `description`. */
+  summary?: LocalizedText;
   category: string;
   enabled: boolean;
   requiredSecrets?: RequiredSecretSpec[];
@@ -833,6 +838,8 @@ export interface InstanceHook {
 export interface HookFunctionInfo {
   name: string;
   description: string;
+  /** The author's sentence for people, per locale; absent ⇒ the panel shows `description`. */
+  summary?: LocalizedText;
   requiredSecrets: RequiredSecretSpec[];
   /** true ⇒ the hook may replace the response; affected turns run non-streamed. */
   mutatesResponse: boolean;

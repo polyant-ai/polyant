@@ -9,7 +9,7 @@ import { AlertTriangle, ChevronRight, MinusCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { getUserErrorMessage } from "@/lib/api";
 import {
   Sheet,
@@ -21,11 +21,11 @@ import {
 } from "@/components/ui/sheet";
 import type { ToolState } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
-import { SecretSpecField, humanizeSecretKey } from "@/components/instance-secret/secret-spec-field";
+import { SecretSpecField, secretSpecDescription, secretSpecLabel } from "@/components/instance-secret/secret-spec-field";
 import type { SecretSpecsForm } from "@/components/instance-secret/use-secret-specs";
 import {
   categoryLabel,
-  descriptionSummary,
+  capabilitySummary,
   pluginNamespaceOf,
   toolDisplayName,
   toolParamSpecs,
@@ -52,16 +52,17 @@ interface Props {
 }
 
 /**
- * The tool's description, held to three lines. The rest is written for the model —
- * usage rules, limits — and would bury the parameters below; it is one click away.
+ * What the tool does, for a person: the author's summary in the reader's locale,
+ * else the first line of the description. The full description is written for
+ * the model — usage rules, limits — in one language; it is one click away,
+ * labelled as the text the agent reads, so it does not bury the parameters.
  */
-function ToolDescription({ description }: { description: string }) {
+function ToolDescription({ summary, description }: { summary: string; description: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const ref = useRef<HTMLParagraphElement>(null);
   const full = description.trim();
-  const summary = descriptionSummary(description);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -71,8 +72,8 @@ function ToolDescription({ description }: { description: string }) {
   const expandable = overflows || full !== summary;
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <SheetDescription ref={ref} className={open ? "max-h-[40vh] overflow-y-auto whitespace-pre-line pr-2" : "line-clamp-3"}>
-        {open ? full : summary}
+      <SheetDescription ref={ref} className="line-clamp-3">
+        {summary}
       </SheetDescription>
       {expandable && (
         <CollapsibleTrigger className="group mt-1.5 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
@@ -80,6 +81,10 @@ function ToolDescription({ description }: { description: string }) {
           {open ? t("tools.descriptionLess") : t("tools.descriptionMore")}
         </CollapsibleTrigger>
       )}
+      <CollapsibleContent className="mt-2 space-y-1">
+        <p className="text-xs font-medium text-muted-foreground">{t("tools.agentDescription")}</p>
+        <p className="max-h-[40vh] overflow-y-auto whitespace-pre-line pr-2 text-sm text-muted-foreground">{full}</p>
+      </CollapsibleContent>
     </Collapsible>
   );
 }
@@ -107,7 +112,7 @@ export function ToolSheet({
   onDisable,
   onClose,
 }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [savingParams, setSavingParams] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
@@ -150,10 +155,10 @@ export function ToolSheet({
           <>
             <SheetHeader className="gap-2 border-b p-5 pr-12">
               <SheetTitle className="font-mono text-base font-medium">{toolDisplayName(tool.name)}</SheetTitle>
-              <ToolDescription key={tool.name} description={tool.description} />
+              <ToolDescription key={tool.name} summary={capabilitySummary(tool, locale)} description={tool.description} />
               <div className="flex flex-wrap gap-2 pt-1">
                 <Badge variant="secondary">{namespace ? pluginName(namespace) : t("tools.originCore")}</Badge>
-                <Badge variant="secondary">{categoryLabel(tool.category)}</Badge>
+                <Badge variant="secondary">{categoryLabel(tool.category, locale)}</Badge>
               </div>
             </SheetHeader>
 
@@ -183,8 +188,8 @@ export function ToolSheet({
                     </div>
                   ) : (
                     <div key={spec.key} className="space-y-1">
-                      <p className="text-sm font-medium">{spec.label ?? humanizeSecretKey(spec.key)}</p>
-                      <p className="text-xs text-muted-foreground">{spec.description ?? t("tools.paramNoDescription")}</p>
+                      <p className="text-sm font-medium">{secretSpecLabel(spec, locale)}</p>
+                      <p className="text-xs text-muted-foreground">{secretSpecDescription(spec, locale) ?? t("tools.paramNoDescription")}</p>
                     </div>
                   ),
                 )}
@@ -193,7 +198,7 @@ export function ToolSheet({
                 )}
                 {providerSpecs.map((spec) => (
                   <div key={spec.key} className="space-y-1">
-                    <p className="text-sm font-medium">{spec.label ?? humanizeSecretKey(spec.key)}</p>
+                    <p className="text-sm font-medium">{secretSpecLabel(spec, locale)}</p>
                     <Link href="?tab=settings" className="text-xs underline underline-offset-4">
                       {t("tools.paramProviderCredential")}
                     </Link>
@@ -219,9 +224,9 @@ export function ToolSheet({
                             onCheckedChange={(checked) => (checked ? onEnable(sibling.name) : onDisable(sibling.name))}
                           />
                           <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
-                            <span className="block truncate text-sm" title={descriptionSummary(sibling.description)}>
+                            <span className="block truncate text-sm" title={capabilitySummary(sibling, locale)}>
                               <span className="font-mono">{toolDisplayName(sibling.name)}</span>
-                              <span className="text-xs text-muted-foreground"> · {descriptionSummary(sibling.description)}</span>
+                              <span className="text-xs text-muted-foreground"> · {capabilitySummary(sibling, locale)}</span>
                             </span>
                           </label>
                         </li>

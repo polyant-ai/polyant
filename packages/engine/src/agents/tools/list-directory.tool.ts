@@ -22,6 +22,10 @@ export default defineTool({
     "• ABSOLUTE — must still reside inside the conversation workspace.\n" +
     "Returns the list of files and subdirectories with type and size.\n" +
     "To read the content of a file, use `readFile`.",
+  summary: {
+    "en-US": "Lists the files in the conversation's workspace.",
+    "it-IT": "Elenca i file nell'area di lavoro della conversazione.",
+  },
   category: "dev",
   inputExamples: [
     {

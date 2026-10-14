@@ -27,6 +27,10 @@ export default defineTool({
     "use `offset`/`limit` to read a window around what you need, or `tail` for the last N lines of a log.\n" +
     "The result reports the file's total line count, so a window can be paged deliberately.\n" +
     "To explore the structure, use `listDirectory` first.",
+  summary: {
+    "en-US": "Reads a file from the conversation's workspace.",
+    "it-IT": "Legge un file dall'area di lavoro della conversazione.",
+  },
   category: "dev",
   inputExamples: [
     {

@@ -50,6 +50,7 @@ import {
   type HookSettings,
 } from "./hook-sheet";
 import { SectionActions } from "./section-actions";
+import { hookSummary } from "./tools-tab-helpers";
 
 interface Props {
   slug: string;
@@ -70,7 +71,7 @@ const EMPTY_FORM: FormState = {
 };
 
 export function HooksTab({ slug }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [hooks, setHooks] = useState<InstanceHook[]>([]);
   const [catalog, setCatalog] = useState<HookFunctionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -318,8 +319,8 @@ export function HooksTab({ slug }: Props) {
                   ))}
                 </SelectContent>
               </Select>
-              {selectedFn?.description && (
-                <p className="text-xs text-muted-foreground">{selectedFn.description}</p>
+              {selectedFn && hookSummary(selectedFn, locale) && (
+                <p className="text-xs text-muted-foreground">{hookSummary(selectedFn, locale)}</p>
               )}
               {selectedFn?.mutatesResponse && <StreamingWarning />}
             </div>
