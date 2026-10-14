@@ -43,6 +43,10 @@ jobs:
           sparse-checkout: scripts/ci
       - id: classify
         name: Classify the changed paths
+        # An explicit bash adds pipefail: without it a page of the file list
+        # that fails after a page of documentation reads as "docs only" and
+        # the test jobs are skipped behind a green gate.
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
@@ -55,6 +59,24 @@ jobs:
             gh api --paginate "$PR_FILES" --jq '.[] | .filename, (.previous_filename // empty)' \
               | node scripts/ci/classify-changes.mjs >> "$GITHUB_OUTPUT"
           fi
+
+  # Behind the gate, so a commit without a sign-off blocks the merge. A push
+  # has no pull request commits to check and skips it.
+  dco:
+    name: DCO sign-off
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify DCO sign-off on every commit
+        # Pinned to the commit v1.1 resolved to — see the note in release.yml.
+        uses: tisonkun/actions-dco@f1024cd563550b5632e754df11b7d30b73be54a5 # v1.1
 
   repository:
     name: Repository checks
@@ -231,7 +253,7 @@ jobs:
   # so; a job skipped because `changes` failed shows up as that failure.
   ci:
     name: CI
-    needs: [changes, repository, static, test, test-web, integration, build, docker]
+    needs: [changes, dco, repository, static, test, test-web, integration, build, docker]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
