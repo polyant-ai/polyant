@@ -52,7 +52,13 @@ describe("McpSharedOAuthProvider", () => {
 
     it("forgets the account when the provider says the grant is dead", async () => {
       await provider().invalidateCredentials("tokens");
-      expect(store.clearMcpSharedTokens).toHaveBeenCalledWith("iid", "linear");
+      expect(store.clearMcpSharedTokens).toHaveBeenCalledWith("iid", "linear", undefined);
+    });
+
+    it("forgets only the tokens the refused refresh used", async () => {
+      const tokens = { access_token: "at-1", refresh_token: "rt-1", token_type: "Bearer" };
+      await provider().invalidateCredentials("tokens", { tokens });
+      expect(store.clearMcpSharedTokens).toHaveBeenCalledWith("iid", "linear", tokens);
     });
   });
 

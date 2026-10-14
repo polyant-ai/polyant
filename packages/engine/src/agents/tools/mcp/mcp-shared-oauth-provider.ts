@@ -103,11 +103,17 @@ export class McpSharedOAuthProvider extends McpVaultOAuthProvider {
   /**
    * The SDK calls this when the provider answers `invalid_grant`: the refresh
    * token is dead and no retry can revive it, so the account reads as
-   * disconnected until an admin connects it again.
+   * disconnected until an admin connects it again. `context.tokens` are the
+   * tokens that refresh used; they are cleared only if still stored, because
+   * a provider that rotates refresh tokens refuses the loser of two concurrent
+   * refreshes while the winner's tokens are good.
    */
-  async invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier"): Promise<void> {
+  async invalidateCredentials(
+    scope: "all" | "client" | "tokens" | "verifier",
+    context?: { tokens: OAuthTokens },
+  ): Promise<void> {
     if (scope === "all" || scope === "tokens") {
-      await clearMcpSharedTokens(this.shared.instanceUuid, this.shared.serverSlug);
+      await clearMcpSharedTokens(this.shared.instanceUuid, this.shared.serverSlug, context?.tokens);
     }
   }
 }

@@ -244,8 +244,29 @@ export async function saveMcpSharedTokens(
     .where(and(eq(instanceMcpServers.instanceId, instanceId), eq(instanceMcpServers.slug, slug)));
 }
 
-/** Forget the shared account. Returns whether one was connected. */
-export async function clearMcpSharedTokens(instanceId: InstanceUuid, slug: string): Promise<boolean> {
+/**
+ * Forget the shared account. Returns whether one was connected.
+ *
+ * With `ifTokens`, only while the stored tokens are still those: a refresh the
+ * provider refused must not erase the tokens a concurrent refresh, on this
+ * node or another, saved in the meantime.
+ */
+export async function clearMcpSharedTokens(
+  instanceId: InstanceUuid,
+  slug: string,
+  ifTokens?: { access_token: string; refresh_token?: string },
+): Promise<boolean> {
+  let storedCipher: string | undefined;
+  if (ifTokens) {
+    const [row] = await db
+      .select({ tokens: instanceMcpServers.sharedTokens })
+      .from(instanceMcpServers)
+      .where(and(eq(instanceMcpServers.instanceId, instanceId), eq(instanceMcpServers.slug, slug)));
+    if (!row?.tokens) return false;
+    const stored = JSON.parse(decrypt(row.tokens)) as { access_token?: string; refresh_token?: string };
+    if (stored.access_token !== ifTokens.access_token || stored.refresh_token !== ifTokens.refresh_token) return false;
+    storedCipher = row.tokens;
+  }
   const cleared = await db
     .update(instanceMcpServers)
     .set({ sharedTokens: null, sharedConnectedAt: null, sharedConnectedBy: null })
@@ -253,7 +274,10 @@ export async function clearMcpSharedTokens(instanceId: InstanceUuid, slug: strin
       and(
         eq(instanceMcpServers.instanceId, instanceId),
         eq(instanceMcpServers.slug, slug),
-        sql`${instanceMcpServers.sharedTokens} is not null`,
+        // The ciphertext read above: a save that lands in between changes it.
+        storedCipher === undefined
+          ? sql`${instanceMcpServers.sharedTokens} is not null`
+          : eq(instanceMcpServers.sharedTokens, storedCipher),
       ),
     )
     .returning({ id: instanceMcpServers.id });

@@ -91,6 +91,14 @@ describe.skipIf(!DB_AVAILABLE)("the shared MCP account against a real migrated t
     expect(await getMcpSharedTokens(agent, "linear")).toBeNull();
   });
 
+  it("keeps tokens a concurrent refresh saved after the refused one read them", async () => {
+    await saveMcpSharedTokens(agent, "linear", '{"access_token":"at-2","refresh_token":"rt-2"}');
+    expect(await clearMcpSharedTokens(agent, "linear", { access_token: "at-1" })).toBe(false);
+    expect(await getMcpSharedTokens(agent, "linear")).toBe('{"access_token":"at-2","refresh_token":"rt-2"}');
+    expect(await clearMcpSharedTokens(agent, "linear", { access_token: "at-2", refresh_token: "rt-2" })).toBe(true);
+    expect(await getMcpSharedTokens(agent, "linear")).toBeNull();
+  });
+
   it("says whether a disconnect removed anything", async () => {
     expect(await clearMcpSharedTokens(agent, "linear")).toBe(true);
     expect(await clearMcpSharedTokens(agent, "linear")).toBe(false);
