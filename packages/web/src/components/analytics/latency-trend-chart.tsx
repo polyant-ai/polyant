@@ -57,7 +57,7 @@ export function LatencyTrendChart({ data }: LatencyTrendChartProps) {
               axisLine={false}
               tickMargin={8}
               tickFormatter={(v) => {
-                const d = new Date(v);
+                const d = new Date(String(v));
                 return `${d.getDate()}/${d.getMonth() + 1}`;
               }}
             />
@@ -71,7 +71,7 @@ export function LatencyTrendChart({ data }: LatencyTrendChartProps) {
               content={
                 <ChartTooltipContent
                   labelFormatter={(v) => {
-                    const d = new Date(v);
+                    const d = new Date(String(v));
                     return d.toLocaleDateString(locale);
                   }}
                 />
