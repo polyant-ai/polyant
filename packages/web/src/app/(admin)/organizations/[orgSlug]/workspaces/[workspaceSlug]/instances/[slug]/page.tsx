@@ -8,7 +8,8 @@ import { toast } from "sonner";
 import { Trash2, Download, MoreHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Chip } from "@/components/ui/chip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -282,11 +283,18 @@ function InstanceDetailContent() {
       <SectionActionsSlot value={actionsSlot}>
       <Tabs value={activeTab} onValueChange={(tab) => router.push(`${pathname}?tab=${tab}`)} className="mt-6">
         {section.macro === "automation" && (
-          <TabsList>
+          <nav aria-label={t("instances.macro.automation")} className="flex gap-2 overflow-x-auto">
             {agentSectionsByMacro("automation").map((tab) => (
-              <TabsTrigger key={tab.tab} value={tab.tab}>{t(tab.titleKey)}</TabsTrigger>
+              <Chip
+                key={tab.tab}
+                active={activeTab === tab.tab}
+                aria-current={activeTab === tab.tab ? "page" : undefined}
+                onClick={() => router.push(`${pathname}?tab=${tab.tab}`)}
+              >
+                {t(tab.titleKey)}
+              </Chip>
             ))}
-          </TabsList>
+          </nav>
         )}
         {/* Panoramica */}
         <TabsContent value="overview" data-tour="agent-overview">

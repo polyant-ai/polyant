@@ -55,10 +55,10 @@ export interface OverviewStats {
   avgCostPerConversation: number;
   avgResponseTime: number;
   trends: {
-    cost: number;
-    conversations: number;
-    messages: number;
-    responseTime: number;
+    cost: number | null;
+    conversations: number | null;
+    messages: number | null;
+    responseTime: number | null;
   };
 }
 

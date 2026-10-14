@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, ChevronRight, MinusCircle, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, MinusCircle, Plus, Search, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,13 +15,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ListControlCell, ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
 import {
   Tooltip,
   TooltipContent,
@@ -357,15 +356,15 @@ export function ToolsTab({
           {rows.length === 0 && systemRows.length === 0 ? (
             <p className="py-12 text-center text-sm text-muted-foreground">{t("tools.noMatch")}</p>
           ) : (
-            <Table flush className="mt-4 table-fixed">
+            <ListTable>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-[32%]">{t("tools.columnName")}</TableHead>
-                  <TableHead className="hidden md:table-cell">{t("tools.columnDescription")}</TableHead>
-                  <TableHead className="hidden w-40 sm:table-cell">{t("tools.columnOrigin")}</TableHead>
-                  <TableHead className="w-32">
+                  <ListHead className="w-[32%]">{t("tools.columnName")}</ListHead>
+                  <ListHead className="hidden md:table-cell">{t("tools.columnDescription")}</ListHead>
+                  <ListHead className="hidden w-40 sm:table-cell">{t("tools.columnOrigin")}</ListHead>
+                  <ListHead align="end" className="w-32">
                     <span className="sr-only">{t("tools.columnActions")}</span>
-                  </TableHead>
+                  </ListHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -382,44 +381,19 @@ export function ToolsTab({
                       : [categoryLabel(tool.category, locale), linkedSkill && t("capabilities.linkedToSkill", { skill: linkedSkill })]
                           .filter(Boolean)
                           .join(" · ");
+                  const open = removing ? undefined : () => setOpenTool(tool.name);
                   return (
-                    <TableRow
-                      key={tool.name}
-                      data-state={openTool === tool.name ? "selected" : undefined}
-                      className={cn(
-                        "border-0",
-                        removing ? "bg-muted/40 hover:bg-muted/40" : "group cursor-pointer",
-                        adding && "shadow-[inset_3px_0_0_var(--accent)]",
-                      )}
-                      onClick={removing ? undefined : () => setOpenTool(tool.name)}
-                    >
-                      <TableCell className="py-2">
-                        {removing ? (
-                          <span className="block truncate font-mono text-sm text-muted-foreground line-through">
-                            {toolDisplayName(tool.name)}
+                    <ListRow key={tool.name} onOpen={open} selected={openTool === tool.name} muted={Boolean(removing)} accent={Boolean(adding)}>
+                      <ListNameCell
+                        name={toolDisplayName(tool.name)}
+                        onOpen={open}
+                        openLabel={t("tools.open", { tool: tool.name })}
+                        summary={
+                          <span className={cn("block truncate", adding || removing ? "text-xs font-medium" : "text-xs text-muted-foreground")}>
+                            {subtitle}
                           </span>
-                        ) : (
-                          <button
-                            type="button"
-                            className="block max-w-full truncate text-left font-mono text-sm hover:underline"
-                            aria-label={t("tools.open", { tool: tool.name })}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenTool(tool.name);
-                            }}
-                          >
-                            {toolDisplayName(tool.name)}
-                          </button>
-                        )}
-                        <span
-                          className={cn(
-                            "block truncate",
-                            adding || removing ? "text-xs font-medium" : "text-xs text-muted-foreground",
-                          )}
-                        >
-                          {subtitle}
-                        </span>
-                      </TableCell>
+                        }
+                      />
                       <TableCell
                         className={cn("hidden md:table-cell", removing && "text-muted-foreground line-through")}
                       >
@@ -430,16 +404,13 @@ export function ToolsTab({
                           {namespace ? nameOfPlugin(namespace) : t("tools.originCore")}
                         </Badge>
                       </TableCell>
-                      <TableCell>
+                      <ListControlCell>
                         <div className="flex items-center justify-end gap-0.5">
                           {removing ? (
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                restore(tool.name);
-                              }}
+                              onClick={() => restore(tool.name)}
                             >
                               {t("tools.restore")}
                             </Button>
@@ -453,7 +424,6 @@ export function ToolsTab({
                                       role="img"
                                       aria-label={warning}
                                       className="grid size-8 place-items-center rounded-md text-warning"
-                                      onClick={(e) => e.stopPropagation()}
                                     >
                                       <AlertTriangle className="size-4" aria-hidden />
                                     </span>
@@ -469,40 +439,27 @@ export function ToolsTab({
                                 className="size-8 text-muted-foreground"
                                 aria-label={t("tools.disableTool", { tool: tool.name })}
                                 title={t("tools.disable")}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  requestDisable(tool.name);
-                                }}
+                                onClick={() => requestDisable(tool.name)}
                               >
                                 <MinusCircle className="size-4" aria-hidden />
                               </Button>
-                              {/* The row opens the tool's panel — its parameters and siblings.
-                                  The chevron says so; the name button is what a keyboard or
-                                  screen reader uses, so this one stays out of their way. */}
-                              <ChevronRight
-                                className="ml-1 size-4 text-muted-foreground/60 transition-colors group-hover:text-foreground"
-                                aria-hidden
-                              />
                             </>
                           )}
                         </div>
-                      </TableCell>
-                    </TableRow>
+                      </ListControlCell>
+                    </ListRow>
                   );
                 })}
                 {systemRows.map((tool) => (
-                  <TableRow key={tool.name} className="border-0 hover:bg-transparent">
-                    <TableCell className="py-2">
-                      <span className="block truncate font-mono text-sm text-muted-foreground">{tool.name}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{categoryLabel(tool.category, locale)}</span>
-                    </TableCell>
+                  <ListRow key={tool.name}>
+                    <ListNameCell name={tool.name} summary={categoryLabel(tool.category, locale)} />
                     <TableCell className="hidden text-muted-foreground md:table-cell">
                       <span className="block truncate text-sm" title={capabilitySummary(tool, locale)}>{capabilitySummary(tool, locale)}</span>
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">
                       <Badge variant="secondary">{t("tools.originCore")}</Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <ListControlCell>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span
@@ -518,11 +475,11 @@ export function ToolsTab({
                             : t("tools.cannotDisable")}
                         </TooltipContent>
                       </Tooltip>
-                    </TableCell>
-                  </TableRow>
+                    </ListControlCell>
+                  </ListRow>
                 ))}
               </TableBody>
-            </Table>
+            </ListTable>
           )}
         </>
       )}

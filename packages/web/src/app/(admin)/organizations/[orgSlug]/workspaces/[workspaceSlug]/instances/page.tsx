@@ -11,13 +11,12 @@ import { Plus, Bot, List, LayoutGrid, Upload, AlertTriangle } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -115,30 +114,30 @@ function InstanceList({ instances, t, paths }: {
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   paths: TenantPaths;
 }) {
+  const router = useRouter();
   return (
-    <Table>
+    <ListTable>
       <TableHeader>
-        <TableRow>
-          <TableHead>{t("instances.table.name")}</TableHead>
-          <TableHead>{t("instances.table.slug")}</TableHead>
-          <TableHead>{t("instances.table.status")}</TableHead>
-          <TableHead className="hidden md:table-cell">
+        <TableRow className="hover:bg-transparent">
+          <ListHead>{t("instances.table.name")}</ListHead>
+          <ListHead>{t("instances.table.slug")}</ListHead>
+          <ListHead>{t("instances.table.status")}</ListHead>
+          <ListHead className="hidden md:table-cell">
             {t("instances.table.description")}
-          </TableHead>
-          <TableHead className="text-right">
+          </ListHead>
+          <ListHead align="end">
             {t("instances.table.updated")}
-          </TableHead>
+          </ListHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {instances.map((inst) => (
-          <TableRow key={inst.id} className="cursor-pointer">
-            <TableCell className="font-medium">
-              <Link
-                href={paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`)}
-                className="flex items-center gap-2 hover:underline"
-              >
-                {inst.icon && isSafeImageSrc(inst.icon) ? (
+          <ListRow key={inst.id} onOpen={() => router.push(paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`))}>
+            <ListNameCell
+              name={inst.name}
+              onOpen={() => router.push(paths.workspace(`/instances/${encodeURIComponent(inst.slug)}`))}
+              icon={
+                inst.icon && isSafeImageSrc(inst.icon) ? (
                   <Image
                     src={inst.icon}
                     alt=""
@@ -149,10 +148,9 @@ function InstanceList({ instances, t, paths }: {
                   />
                 ) : (
                   <Bot className="h-6 w-6 shrink-0 text-muted-foreground" />
-                )}
-                {inst.name}
-              </Link>
-            </TableCell>
+                )
+              }
+            />
             <TableCell>
               <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
                 {inst.slug}
@@ -173,10 +171,10 @@ function InstanceList({ instances, t, paths }: {
             <TableCell className="text-right text-muted-foreground">
               {formatRelativeTime(inst.updatedAt, t)}
             </TableCell>
-          </TableRow>
+          </ListRow>
         ))}
       </TableBody>
-    </Table>
+    </ListTable>
   );
 }
 

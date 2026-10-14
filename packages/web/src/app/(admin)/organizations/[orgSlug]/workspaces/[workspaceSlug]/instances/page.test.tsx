@@ -68,13 +68,13 @@ describe("InstancesPage", () => {
     mockList.mockResolvedValue({ instances: AGENTS });
     render(<InstancesPage />);
 
-    const link = await screen.findByRole("link", { name: /Support Bot/ });
-    expect(link).toHaveAttribute("href", "/organizations/acme/workspaces/sales/instances/support-bot");
+    await user.click(await screen.findByRole("button", { name: /Support Bot/ }));
+    expect(mockPush).toHaveBeenCalledWith("/organizations/acme/workspaces/sales/instances/support-bot");
     expect(screen.queryByText("Old Bot")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /instances\.filter\.all/ }));
 
-    expect(screen.getByRole("link", { name: /Old Bot/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Old Bot/ })).toBeInTheDocument();
   });
 
   it("shows the empty state when the workspace has no agents", async () => {
@@ -101,7 +101,7 @@ describe("InstancesPage", () => {
       warnings: [{ type: "secret", message: "Secret OPENAI_KEY was not exported" }],
     });
     const { container } = render(<InstancesPage />);
-    await screen.findByRole("link", { name: /Support Bot/ });
+    await screen.findByRole("button", { name: /Support Bot/ });
 
     const bundle = { version: 1, instance: { slug: "imported-bot" } };
     const file = new File([JSON.stringify(bundle)], "bundle.json", { type: "application/json" });
@@ -120,7 +120,7 @@ describe("InstancesPage", () => {
     const user = userEvent.setup();
     mockList.mockResolvedValue({ instances: AGENTS });
     const { container } = render(<InstancesPage />);
-    await screen.findByRole("link", { name: /Support Bot/ });
+    await screen.findByRole("button", { name: /Support Bot/ });
 
     const file = new File(["not json"], "bundle.json", { type: "application/json" });
     await user.upload(container.querySelector('input[type="file"]') as HTMLInputElement, file);

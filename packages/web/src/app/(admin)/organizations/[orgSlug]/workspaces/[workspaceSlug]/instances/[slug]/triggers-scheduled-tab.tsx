@@ -50,13 +50,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ListControlCell, ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
 import {
   Tooltip,
   TooltipContent,
@@ -351,28 +350,22 @@ export function TriggersScheduledTab({ slug }: Props) {
         </div>
       ) : (
         <TooltipProvider>
-          <div className="overflow-x-auto">
-          <Table>
+          <ListTable>
             <TableHeader>
-              <TableRow>
-                <TableHead>{t("scheduledTasks.col.name")}</TableHead>
-                <TableHead>{t("scheduledTasks.col.schedule")}</TableHead>
-                <TableHead>{t("scheduledTasks.col.channel")}</TableHead>
-                <TableHead>{t("scheduledTasks.col.status")}</TableHead>
-                <TableHead>{t("scheduledTasks.col.nextRun")}</TableHead>
-                <TableHead>{t("scheduledTasks.col.lastRun")}</TableHead>
-                <TableHead className="text-right">{t("scheduledTasks.col.actions")}</TableHead>
+              <TableRow className="hover:bg-transparent">
+                <ListHead>{t("scheduledTasks.col.name")}</ListHead>
+                <ListHead>{t("scheduledTasks.col.schedule")}</ListHead>
+                <ListHead>{t("scheduledTasks.col.channel")}</ListHead>
+                <ListHead>{t("scheduledTasks.col.status")}</ListHead>
+                <ListHead>{t("scheduledTasks.col.nextRun")}</ListHead>
+                <ListHead>{t("scheduledTasks.col.lastRun")}</ListHead>
+                <ListHead align="end">{t("scheduledTasks.col.actions")}</ListHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {tasks.map((task) => (
-                <TableRow key={task.id} className={!task.enabled ? "opacity-60" : undefined}>
-                  <TableCell className="max-w-[260px]">
-                    <div className="truncate font-medium">{task.name}</div>
-                    {task.description && (
-                      <div className="truncate text-xs text-muted-foreground">{task.description}</div>
-                    )}
-                  </TableCell>
+                <ListRow key={task.id} muted={!task.enabled}>
+                  <ListNameCell name={task.name} summary={task.description ? <span className="text-xs">{task.description}</span> : undefined} />
                   <TableCell>
                     <code className="rounded bg-muted px-1.5 py-0.5 text-xs">
                       {task.scheduleHuman}
@@ -403,7 +396,7 @@ export function TriggersScheduledTab({ slug }: Props) {
                   </TableCell>
                   <TableCell className="text-sm">{formatDate(task.nextRunAt, locale)}</TableCell>
                   <TableCell className="text-sm">{formatDate(task.lastRunAt, locale)}</TableCell>
-                  <TableCell>
+                  <ListControlCell>
                     <div className="flex items-center justify-end gap-1">
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -459,12 +452,11 @@ export function TriggersScheduledTab({ slug }: Props) {
                         </AlertDialogContent>
                       </AlertDialog>
                     </div>
-                  </TableCell>
-                </TableRow>
+                  </ListControlCell>
+                </ListRow>
               ))}
             </TableBody>
-          </Table>
-          </div>
+          </ListTable>
         </TooltipProvider>
       )}
 

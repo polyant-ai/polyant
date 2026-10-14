@@ -41,13 +41,12 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
-  Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ListControlCell, ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
 import {
   api,
   getUserErrorMessage,
@@ -377,66 +376,61 @@ export function McpServersTab({ slug }: Props) {
           <p>{t("mcp.empty")}</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("mcp.col.name")}</TableHead>
-                <TableHead>{t("mcp.col.url")}</TableHead>
-                <TableHead>{t("mcp.col.auth")}</TableHead>
-                <TableHead>{t("mcp.col.enabled")}</TableHead>
-                <TableHead className="text-right">{t("mcp.col.actions")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {servers.map((server) => (
-                <TableRow key={server.id} className={!server.enabled ? "opacity-60" : undefined}>
-                  <TableCell className="max-w-[220px]">
-                    <div className="truncate font-medium">{server.name}</div>
-                    <code className="text-xs text-muted-foreground">{server.slug}</code>
-                  </TableCell>
-                  <TableCell className="max-w-[260px]">
-                    <span className="truncate block text-xs text-muted-foreground">{server.url}</span>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="text-xs">
-                      {t(`mcp.authMode.${server.authMode}` as const)}
-                    </Badge>
-                    {server.authMode === "oauth" && server.config.account === "shared" && (
-                      <SharedAccountState
-                        server={server}
-                        waiting={connecting === server.slug}
-                        onConnect={() => handleConnectShared(server)}
-                        onDisconnect={() => handleDisconnectShared(server)}
-                      />
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Switch
-                      checked={server.enabled}
-                      onCheckedChange={(v) => handleToggle(server, v)}
+        <ListTable>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <ListHead className="w-[26%]">{t("mcp.col.name")}</ListHead>
+              <ListHead>{t("mcp.col.url")}</ListHead>
+              <ListHead className="w-40">{t("mcp.col.auth")}</ListHead>
+              <ListHead className="w-24">{t("mcp.col.enabled")}</ListHead>
+              <ListHead align="end" className="w-28">{t("mcp.col.actions")}</ListHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {servers.map((server) => (
+              <ListRow key={server.id} muted={!server.enabled}>
+                <ListNameCell name={server.name} summary={<code className="text-xs">{server.slug}</code>} />
+                <TableCell>
+                  <span className="truncate block text-xs text-muted-foreground">{server.url}</span>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline" className="text-xs">
+                    {t(`mcp.authMode.${server.authMode}` as const)}
+                  </Badge>
+                  {server.authMode === "oauth" && server.config.account === "shared" && (
+                    <SharedAccountState
+                      server={server}
+                      waiting={connecting === server.slug}
+                      onConnect={() => handleConnectShared(server)}
+                      onDisconnect={() => handleDisconnectShared(server)}
                     />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(server)}>
-                        <Pencil className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-destructive"
-                        onClick={() => setDeleting(server)}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+                  )}
+                </TableCell>
+                <ListControlCell className="text-left">
+                  <Switch
+                    checked={server.enabled}
+                    onCheckedChange={(v) => handleToggle(server, v)}
+                  />
+                </ListControlCell>
+                <ListControlCell>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(server)}>
+                      <Pencil className="size-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 text-destructive"
+                      onClick={() => setDeleting(server)}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                </ListControlCell>
+              </ListRow>
+            ))}
+          </TableBody>
+        </ListTable>
       )}
 
       {/* Create / Edit Dialog */}

@@ -15,7 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChipTabs } from "@/components/layout/chip-tabs";
 import type { ToolState } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
@@ -133,12 +133,14 @@ export function EnableToolsDialog({
           <DialogTitle>{t("tools.pickerTitle")}</DialogTitle>
           <DialogDescription>{t("tools.pickerDescription")}</DialogDescription>
           <div className="flex flex-wrap items-center gap-3 pt-2">
-            <Tabs value={groupBy} onValueChange={(v) => { setGroupBy(v as GroupBy); setActiveGroup(null); }}>
-              <TabsList>
-                <TabsTrigger value="category">{t("tools.pickerByCategory")}</TabsTrigger>
-                <TabsTrigger value="plugin">{t("tools.pickerByPlugin")}</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <ChipTabs
+              value={groupBy}
+              onValueChange={(v) => { setGroupBy(v as GroupBy); setActiveGroup(null); }}
+              tabs={[
+                { value: "category", label: t("tools.pickerByCategory") },
+                { value: "plugin", label: t("tools.pickerByPlugin") },
+              ]}
+            />
             <div className="relative min-w-48 flex-1">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
               <Input

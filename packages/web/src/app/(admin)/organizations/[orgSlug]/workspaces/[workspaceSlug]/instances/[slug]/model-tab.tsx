@@ -4,8 +4,9 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Check, ChevronRight } from "lucide-react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AlertTriangle, Check } from "lucide-react";
+import { TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
 import { api, isForbidden, type Instance, type ModelsResponse, type SecretStatus } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { providerName } from "@/lib/provider-secrets";
@@ -124,16 +125,13 @@ export function ModelTab({ instance, onUpdate, onConfigurationChanged }: Props) 
 
   return (
     <>
-      <Table flush className="table-fixed">
+      <ListTable className="mt-0">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="w-[30%]">{t("modelTasks.columnTask")}</TableHead>
-            <TableHead className="hidden w-[20%] sm:table-cell">{t("settings.tab.provider")}</TableHead>
-            <TableHead className="hidden md:table-cell">{t("settings.tab.model")}</TableHead>
-            <TableHead className="w-36">{t("modelTasks.columnStatus")}</TableHead>
-            <TableHead className="w-10">
-              <span className="sr-only">{t("tools.columnActions")}</span>
-            </TableHead>
+            <ListHead className="w-[30%]">{t("modelTasks.columnTask")}</ListHead>
+            <ListHead className="hidden w-[20%] sm:table-cell">{t("settings.tab.provider")}</ListHead>
+            <ListHead className="hidden md:table-cell">{t("settings.tab.model")}</ListHead>
+            <ListHead className="w-36">{t("modelTasks.columnStatus")}</ListHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -141,42 +139,18 @@ export function ModelTab({ instance, onUpdate, onConfigurationChanged }: Props) 
             const { provider, model } = describe(task);
             const title = t(TASK_TITLE[task]);
             return (
-              <TableRow
-                key={task}
-                data-task={task}
-                data-state={openTask === task ? "selected" : undefined}
-                className="group cursor-pointer border-0"
-                onClick={() => setOpenTask(task)}
-              >
-                <TableCell className="py-2.5">
-                  <button
-                    type="button"
-                    className="block max-w-full truncate text-left text-sm font-medium hover:underline"
-                    aria-label={t("modelTasks.open", { task: title })}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenTask(task);
-                    }}
-                  >
-                    {title}
-                  </button>
-                </TableCell>
+              <ListRow key={task} selected={openTask === task} onOpen={() => setOpenTask(task)}>
+                <ListNameCell name={title} openLabel={t("modelTasks.open", { task: title })} onOpen={() => setOpenTask(task)} />
                 <TableCell className="hidden truncate text-sm sm:table-cell">{provider}</TableCell>
                 <TableCell className="hidden truncate font-mono text-xs md:table-cell" title={model}>
                   {model}
                 </TableCell>
                 <TableCell>{status(task)}</TableCell>
-                <TableCell>
-                  <ChevronRight
-                    className="ml-auto size-4 text-muted-foreground/60 transition-colors group-hover:text-foreground"
-                    aria-hidden
-                  />
-                </TableCell>
-              </TableRow>
+              </ListRow>
             );
           })}
         </TableBody>
-      </Table>
+      </ListTable>
 
       <ModelTaskSheet
         task={openTask}

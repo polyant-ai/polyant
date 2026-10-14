@@ -188,7 +188,7 @@ export function ScheduledTaskRunsSection({ slug, tasks }: Props) {
                       className="cursor-pointer hover:bg-muted/50"
                       onClick={() => toggleExpand(run.id)}
                     >
-                      <TableCell className="w-8 px-2">
+                      <TableCell className="w-8">
                         {isExpanded
                           ? <ChevronDown className="size-4 text-muted-foreground" />
                           : <ChevronRight className="size-4 text-muted-foreground" />}
