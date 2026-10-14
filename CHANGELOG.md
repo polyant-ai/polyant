@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-14
+
+### Changed
+
+- Lists in the admin panel share one shape: the same cell spacing and column
+  layout, the whole row opens the item's detail, and switches or menus in a row
+  never open it. This covers the agent's tools, MCP servers, scheduled tasks and
+  model tasks, the agent list and memory. The trailing arrow on rows is gone.
+- Tab bars are drawn as chips everywhere (settings, skill detail, tool picker,
+  the agent's automation sections).
+- Buttons that open a creation are labelled "Add".
+- Charts use Recharts 3; Recharts 2 is no longer maintained.
+
+### Fixed
+
+- The period-over-period badge on the analytics cards showed a growing response
+  time as a negative change (an increase of 436% read "-435.8%"). It now shows
+  the real direction, and its colour says whether the change is good.
+- A change measured against a previous period with no data showed "+100%".
+  The engine now returns no comparison (`null`) and the card shows no badge;
+  changes above 999% read ">+999%".
+- Opening a drawer focused its first control, which showed that control's
+  tooltip on every click. The drawer now takes the focus itself.
+
 ## [1.3.0] - 2026-10-14
 
 ### Added
@@ -900,7 +924,8 @@ Patch release. It restores agent creation, which fails on every attempt in 1.1.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/polyant-ai/polyant/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/polyant-ai/polyant/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/polyant-ai/polyant/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/polyant-ai/polyant/compare/v1.1.1...v1.1.2
