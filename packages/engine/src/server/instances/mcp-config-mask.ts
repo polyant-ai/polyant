@@ -159,3 +159,44 @@ export function mergeMaskedMcpSecrets(
   }
   return copy;
 }
+
+/** A write or test that would hand a stored secret to a server it was not entered for. */
+export class McpSecretOriginChangedError extends Error {
+  constructor() {
+    super("Enter the server's credentials again: a stored credential is not sent to a different server address.");
+    this.name = "McpSecretOriginChangedError";
+  }
+}
+
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * {@link mergeMaskedMcpSecrets}, for the server the secrets were stored for only.
+ *
+ * A stored secret belongs to the origin it was entered for. Editing a server's
+ * address while echoing the masked value would otherwise send that secret to
+ * the new host, which anyone allowed to edit MCP servers could point at their
+ * own, without being allowed to read the secret. When the address moves to
+ * another origin and the request still relies on a stored secret, it is refused.
+ */
+export function restoreMcpSecretsForUrl(
+  authMode: McpAuthMode,
+  incoming: Record<string, unknown>,
+  existing: { readonly url: string; readonly config: unknown } | null | undefined,
+  url: string,
+): Record<string, unknown> {
+  const stored = existing?.config as Record<string, unknown> | undefined;
+  const restored = mergeMaskedMcpSecrets(authMode, incoming, stored);
+  if (!existing) return restored;
+  const sameOrigin = originOf(existing.url) !== null && originOf(existing.url) === originOf(url);
+  if (sameOrigin) return restored;
+  const unrestored = mergeMaskedMcpSecrets(authMode, incoming, undefined);
+  if (JSON.stringify(restored) !== JSON.stringify(unrestored)) throw new McpSecretOriginChangedError();
+  return unrestored;
+}

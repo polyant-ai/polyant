@@ -24,3 +24,13 @@ process.env.AUTH_SECRET ??= "test-secret-at-least-32-chars-long-yes";
 // Run loggers at the most verbose level so tests can assert on every
 // pipelineLog method (incl. debug-gated ones: llmCall, toolCall, etc.).
 process.env.LOG_LEVEL ??= "debug";
+
+// bcrypt at the production cost (12) spent seconds of CPU in every file that
+// hashes passwords. The minimum cost keeps the hashes real and verifiable;
+// password.util.test.ts checks the production cost separately. Imported after
+// the env defaults above are set.
+const { setPasswordHashCostForTests } = await import("./users/password.util.js");
+setPasswordHashCostForTests(4);
+
+// A module, so the top-level await above is allowed.
+export {};

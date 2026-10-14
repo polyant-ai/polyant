@@ -19,7 +19,7 @@
 
 ## Release status
 
-Polyant v1.2.0 is the current stable release. Review the [changelog](CHANGELOG.md), the [release notes](docs/releases/v1.2.0.md), and the [GitHub release](https://github.com/polyant-ai/polyant/releases/tag/v1.2.0). Upgrading from 1.1.1 to 1.2.0 needs operator action — read the [upgrade guide](docs/UPGRADING.md) first. In a running admin installation, version and release details are available at `/about`.
+Polyant v1.3.1 is the current stable release. Review the [changelog](CHANGELOG.md), the [release notes](docs/releases/v1.3.1.md), and the [GitHub release](https://github.com/polyant-ai/polyant/releases/tag/v1.3.1). Upgrading from 1.1.x to 1.2.0 needs operator action — read the [upgrade guide](docs/UPGRADING.md) first. In a running admin installation, version and release details are available at `/about`.
 
 > The name comes from Hofstadter's *Gödel, Escher, Bach* — specifically the "Ant Fugue" dialogue and the character of Aunt Hillary, an ant colony understood as the archetype of emergent intelligence: individual agents, each one limited, that produce — by coordinating — a collective intelligent behaviour that exceeds the sum of its parts. It is, literally, the thesis we are pitching: fleets of specialised agents that, when orchestrated, generate performance impossible for any single agent. *Poly-* (classical Greek, "many") makes the key concept explicit: coordinated multiplicity.
 >
@@ -39,11 +39,11 @@ Read the long version in **[Why Polyant](docs/why-polyant.md)**.
 
 - **Supervisor Agent** — Central orchestrator with tool use, up to 15 reasoning steps per request (Vercel AI SDK)
 - **Long-term Memory** — Automatic fact extraction via LLM; hybrid search with pgvector cosine similarity + PostgreSQL FTS fused via Reciprocal Rank Fusion
-- **Multi-channel** — Telegram, Slack, WhatsApp, and an OpenAI-compatible HTTP API (with file attachment support)
+- **Multi-channel** — Telegram, Slack, WhatsApp, and a Web channel with an OpenAI-compatible HTTP API (with file attachment support). Web is a channel like the others and starts off for a new agent
 - **Provider-agnostic** — Switch between OpenAI, Anthropic, Amazon Bedrock, and Nebius Token Factory per agent from the admin panel; the embedding provider is chosen independently of the chat provider. A tier abstraction (`fast | standard | heavy`) decouples code from model names, and a model catalog carries per-model pricing, vision, reasoning, and prompt-caching capabilities
 - **Tools & Plugins** — Author a tool as `export default defineTool(...)` from `@polyant-ai/plugin-sdk`; the engine loader collects it at boot with no wiring. Tools live in-engine or in external **plugin** repos loaded via `PLUGIN_DIRS` — see [Plugins & the SDK](#plugins--the-sdk)
 - **MCP Client** — Equip an agent with tools from external **Model Context Protocol** servers, configured per agent. Three auth modes (`none` for public or network-isolated servers, `static` for a bearer token or custom header, `oauth` for OAuth 2.1 including Dynamic Client Registration); credentials are stored AES-256-GCM encrypted and never returned by the API. A slow or dead server is skipped for the turn rather than stalling it, on a connect budget set in Settings → General
-- **A2A Server** — Expose an agent to other agents over the **Agent2Agent** protocol: an Agent Card at `GET /a2a/:slug/.well-known/agent-card.json` and JSON-RPC at `POST /a2a/:slug/jsonrpc`. Opt-in per agent (`a2a_enabled`, default off) and authenticated with the agent's own API key
+- **A2A Server** — Expose an agent to other agents over the **Agent2Agent** protocol: an Agent Card at `GET /a2a/:slug/.well-known/agent-card.json` and JSON-RPC at `POST /a2a/:slug/jsonrpc`. Opt-in per agent (`a2a_enabled`, default off, independent of the Web channel) and authenticated with the agent's own API key
 - **Skill System** — Markdown-based skill definitions stored in the database; per-instance encrypted env vars for skills that need API keys
 - **Multi-instance** — Independent configuration of prompts, skills, tool availability, and identity per instance; instances exposed as selectable "models" via the OpenAI-compatible API
 - **Per-instance Secrets** — API keys, channel config, and LangSmith settings stored AES-256-GCM encrypted per instance
@@ -97,37 +97,35 @@ cd polyant
 npm install
 ```
 
-### 2. Start infrastructure
-
-```bash
-docker compose up -d
-```
-
-Starts PostgreSQL 16 with pgvector on port 5432.
-
-### 3. Configure environment
+### 2. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Generate the three required secrets and paste each into `.env`:
+Generate the required secrets and paste each into `.env`:
 
 ```bash
 openssl rand -hex 32   # → ENCRYPTION_KEY
 openssl rand -hex 32   # → AUTH_SECRET
-openssl rand -hex 32   # → AUTH_INTERNAL_SECRET
+openssl rand -hex 32   # → AUTH_INTERNAL_SECRET (without it nobody can sign in to the panel)
 ```
 
-Set an initial admin account (used for the first sign-in) in `.env`:
+The sample database password is `changeme`, set in both `POSTGRES_PASSWORD` and
+`DATABASE_URL`. It works for a local machine as it is. If you change it, change it in
+both places: the container takes `POSTGRES_PASSWORD`, the engine connects with
+`DATABASE_URL`.
+
+Set the initial admin account in `.env`. The admin is created when the engine first
+boots, and the panel asks for a new password at the first sign-in:
 
 ```bash
 INITIAL_ADMIN_EMAIL=admin@example.com
 INITIAL_ADMIN_PASSWORD=choose-a-strong-password
 ```
 
-The admin panel (Next.js) does not read the root `.env`. Mirror the values
-into `packages/web/.env.local`:
+The admin panel (Next.js) does not read the root `.env`. Create
+`packages/web/.env.local` with the same secrets and the database:
 
 ```bash
 # packages/web/.env.local
@@ -135,10 +133,19 @@ into `packages/web/.env.local`:
 AUTH_SECRET=<same value as .env>
 AUTH_INTERNAL_SECRET=<same value as .env>
 AUTH_TRUST_HOST=true
-DATABASE_URL=postgresql://polyant:changeme@localhost:5432/polyant
+DATABASE_URL=postgresql://polyant:changeme@localhost:5432/polyant   # same password as .env
 NEXT_PUBLIC_API_URL=http://localhost:4000
 INTERNAL_ENGINE_URL=http://localhost:4000
 ```
+
+### 3. Start PostgreSQL
+
+```bash
+docker compose up -d --wait
+```
+
+Starts PostgreSQL 16 with pgvector on port 5432 and returns once the database accepts
+connections. Compose reads `POSTGRES_PASSWORD` from `.env`, so step 2 comes first.
 
 ### 4. Run migrations and start
 
@@ -148,7 +155,10 @@ npm run dev          # engine on :4000
 npm run dev:web      # admin panel on :3000 (separate terminal)
 ```
 
-Open `http://localhost:3000`, sign in with the admin credentials from step 3, create an instance, and configure your AI provider keys in the Settings tab.
+Open `http://localhost:3000` and sign in with `INITIAL_ADMIN_EMAIL` and
+`INITIAL_ADMIN_PASSWORD`. The panel asks you to choose a new password, then create an
+agent and open its **Model** section to set the provider key for each task
+(Conversation, Embeddings).
 
 ## Architecture
 
@@ -159,7 +169,7 @@ Open `http://localhost:3000`, sign in with the admin credentials from step 3, cr
 └─────────────────┬────────────────────────────┘
                   │ REST API + cookie auth
 ┌─────────────────┴────────────────────────────┐
-│        packages/engine  (NestJS 11)          │
+│        packages/engine  (NestJS 12)          │
 ├──────────────────────────────────────────────┤
 │  HTTP Server     OpenAI-compatible API       │
 │  Channel Layer   Telegram · Slack · WhatsApp │
@@ -190,12 +200,26 @@ See [Architecture](https://docs.polyant.ai/concepts/architecture) for the full t
 
 | Channel | Protocol | Notes |
 |---------|----------|-------|
-| **HTTP API** | OpenAI-compatible (`/v1/chat/completions`) | Instances appear as selectable models |
+| **Web** | OpenAI-compatible HTTP API (`/v1/chat/completions`) and native stream (`/api/instances/:slug/chat/stream`) | Off until switched on in Channels; requires the agent's API key unless authentication is turned off. Instances appear as selectable models. The panel's Playground does not depend on it |
 | **Telegram** | HTTPS webhook (grammY) | Text, photos, document attachments |
 | **Slack** | Events API webhook (@slack/bolt) | Per-instance configuration |
 | **WhatsApp** | Webhook via Twilio (Auth Token or API Key) | Text and media attachments |
 
 All channel configs are stored encrypted per-instance. Adapters start/stop dynamically without a restart.
+
+## Management API and polyant-cli
+
+Scripts and [polyant-cli](https://github.com/polyant-ai/polyant-cli) call the
+engine's management API with a **management API key** in the `X-Polyant-Key`
+header. An organization Owner issues one from **API keys** in the panel's
+organization navigation: give it a name and, optionally, an expiry, then copy
+the token, which is shown only once. A key acts with the Owner permission set
+within its organization until it expires or is revoked from the same page, and
+it cannot issue or revoke keys itself.
+
+```bash
+curl -H "X-Polyant-Key: $POLYANT_KEY" http://localhost:4000/api/instances
+```
 
 ## Plugins & the SDK
 
@@ -262,7 +286,7 @@ For vulnerability reports, see [SECURITY.md](SECURITY.md) — please do not file
 | Monorepo | npm workspaces |
 | Language | TypeScript / Node.js (ESM) |
 | Agent Framework | Vercel AI SDK v6 |
-| Engine Server | NestJS 11 |
+| Engine Server | NestJS 12 |
 | Admin Panel | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui |
 | Database | PostgreSQL 16 + pgvector (Drizzle ORM) |
 | Memory | pgvector cosine similarity + PostgreSQL FTS (RRF fusion) |

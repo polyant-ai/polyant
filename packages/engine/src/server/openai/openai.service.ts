@@ -4,6 +4,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { randomUUID } from "crypto";
 import type { ModelMessage } from "ai";
 import type { MessageHandler, StreamMessageHandler, StreamOutgoingMessage } from "../../channels/types.js";
+import { MissingProviderKeyException } from "./missing-provider-key.exception.js";
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
@@ -21,6 +22,7 @@ import { NO_TRANSACTION } from "../../database/client.js";
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { extractMappedFields } from "../../conversations/field-mapping.js";
 import { flushConversationState } from "../../conversations/state.store.js";
+import { isWebChannelEnabled } from "../../instances/channels.store.js";
 
 /**
  * The two principal shapes that can reach GET /v1/models (see AuthGuard): a
@@ -56,7 +58,8 @@ export class OpenAIService {
   async listInstances(principal?: ModelsPrincipal): Promise<Instance[]> {
     if (principal?.kind === "instance") {
       const own = await findInstanceBySlug(asInstanceSlug(principal.instanceSlug));
-      return own && own.status === "active" ? [own] : [];
+      // The key is the Web channel's credential: with Web off it lists nothing.
+      return own && own.status === "active" && (await isWebChannelEnabled(own.id)) ? [own] : [];
     }
     const organizationId = await resolvePrincipalOrgId(principal?.orgId, NO_TRANSACTION);
     return organizationId ? listActiveInstances(orgScope(organizationId)) : [];
@@ -77,6 +80,8 @@ export class OpenAIService {
       text,
       metadata: { conversationHistory },
     });
+
+    if (result.failure === "missing_provider_key") throw new MissingProviderKeyException(result.text);
 
     const completionId = `chatcmpl-${randomUUID().replace(/-/g, "").slice(0, 24)}`;
 
@@ -120,13 +125,18 @@ export class OpenAIService {
       this.prepareRequest(request);
     await this.preloadContext(instanceId, channelId, context);
 
-    return this.streamMessageHandler({
+    const stream = await this.streamMessageHandler({
       channelType: "web",
       channelId,
       instanceId,
       text,
       metadata: { conversationHistory },
     }, signal);
+    if (stream.failure === "missing_provider_key") {
+      const { text: warning } = await stream.completed;
+      throw new MissingProviderKeyException(warning);
+    }
+    return stream;
   }
 
   /**

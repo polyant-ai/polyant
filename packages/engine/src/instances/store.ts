@@ -3,7 +3,8 @@
 import { and, asc, desc, eq, sql, inArray } from "drizzle-orm";
 import { NO_TRANSACTION, db, type DbExecutor } from "../database/client.js";
 import { seedInstancePrompts } from "./prompts.store.js";
-import { seedInstanceTools } from "./instance-tools.store.js";
+import { enableToolsByName, seedInstanceTools } from "./instance-tools.store.js";
+import { KNOWLEDGE_DEFAULT_TOOL_NAMES } from "./defaults.js";
 import { seedInstanceSkills } from "./instance-skills.store.js";
 import { DEFAULT_EMBEDDING_DIM, embeddingProviderFor } from "../embeddings-gateway/config.js";
 import type { EmbeddingProvider } from "../embeddings-gateway/types.js";
@@ -323,6 +324,20 @@ export async function listAllInstances(
     .then((rows) => rows.map(toInstance));
 }
 
+/**
+ * Agent slug -> owning workspace slug for every agent the scope reaches. Lets a
+ * caller that only holds an agent slug (the live activity stream) address the
+ * agent's own workspace.
+ */
+export async function listAgentWorkspaceSlugs(scope: TenantScope): Promise<Map<string, string>> {
+  const rows = await db
+    .select({ slug: instances.slug, workspaceSlug: workspaces.slug })
+    .from(instances)
+    .innerJoin(workspaces, eq(instances.workspaceId, workspaces.id))
+    .where(tenantScopedAgentCondition(scope, "instances.slug"));
+  return new Map(rows.map((r) => [r.slug, r.workspaceSlug]));
+}
+
 /** Create a new instance and return it. */
 export async function createInstance(data: {
   slug: InstanceSlug;
@@ -349,6 +364,10 @@ export async function createInstance(data: {
       model: data.model ?? null,
       // New instances default to 1024d; the DB default (1536) stays for legacy rows.
       embeddingDim: DEFAULT_EMBEDDING_DIM,
+      // A new agent needs its API key to be reached; turning that off is a
+      // deliberate, confirmed act in the panel. Channels need no seeding: none
+      // exists until someone configures it, so a new agent starts with all off, Web included (no `web` row means off).
+      authEnabled: true,
       // Default the embedder to match the chat provider (bedrock chat → bedrock
       // embeddings, else openai). It is independently changeable afterwards.
       embeddingProvider: embeddingProviderFor(data.provider),
@@ -510,12 +529,36 @@ export async function updateInstance(
       (patch as Record<string, unknown>)[key] = data[key];
     }
   }
-  const rows = await db
-    .update(instances)
-    .set({ ...patch, updatedAt: sql`now()` })
-    .where(eq(instances.slug, slug))
-    .returning();
-  return rows[0] ? toInstance(rows[0]) : undefined;
+  if (patch.knowledgeEnabled !== true) {
+    const rows = await db
+      .update(instances)
+      .set({ ...patch, updatedAt: sql`now()` })
+      .where(eq(instances.slug, slug))
+      .returning();
+    return rows[0] ? toInstance(rows[0]) : undefined;
+  }
+
+  // Knowledge is being turned on. Only the off -> on transition assigns the
+  // knowledge tools: re-saving an agent that already has Knowledge on must not
+  // bring back a tool its author removed. Turning Knowledge off deletes
+  // nothing; the supervisor hides the tools while it is off.
+  return db.transaction(async (tx) => {
+    const [before] = await tx
+      .select({ knowledgeEnabled: instances.knowledgeEnabled })
+      .from(instances)
+      .where(eq(instances.slug, slug))
+      .for("update");
+    const rows = await tx
+      .update(instances)
+      .set({ ...patch, updatedAt: sql`now()` })
+      .where(eq(instances.slug, slug))
+      .returning();
+    if (!rows[0]) return undefined;
+    if (before && !before.knowledgeEnabled) {
+      await enableToolsByName(asInstanceUuid(rows[0].id), KNOWLEDGE_DEFAULT_TOOL_NAMES, tx);
+    }
+    return toInstance(rows[0]);
+  });
 }
 
 /**

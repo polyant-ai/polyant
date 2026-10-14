@@ -53,10 +53,10 @@ export const ALL_TENANTS = Symbol("tenant-scope:all-tenants");
  * `undefined` left behind at every call site.
  *
  * `workspaceId` / `workspaceIds` are declared here, in the shared file, even
- * though this build has a single workspace and produces neither: an
- * organization-only union would have to be widened in the enterprise build,
- * i.e. the same declaration reconciled at every merge, on the one file where a
- * silent revert changes who can read whose rows.
+ * though this build has a single workspace and produces neither: an overlay
+ * build that scopes by workspace would otherwise have to widen an
+ * organization-only union, reconciling the same declaration at every merge on
+ * the one file where a silent revert changes who can read whose rows.
  */
 declare const tenantScopeBrand: unique symbol;
 
@@ -149,6 +149,9 @@ export const ORG_SCOPED_AGENT_COLUMNS = [
   // The agents table itself (`instances.slug`), so the agent LIST endpoints scope
   // with the same membership definition instead of a second hand-rolled join.
   "slug",
+  // The same column, qualified, for a query that joins another table with its own
+  // `slug` (`workspaces`): the bare name is ambiguous there and Postgres rejects it.
+  "instances.slug",
 ] as const;
 
 export type OrgScopedAgentColumn = (typeof ORG_SCOPED_AGENT_COLUMNS)[number];

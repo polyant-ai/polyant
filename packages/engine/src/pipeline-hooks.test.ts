@@ -6,6 +6,9 @@ import {
   hasResponseMutatingHook,
   runResponseGeneratedHooks,
   runPipelinePost,
+  missingKeyOutgoing,
+  missingKeyStream,
+  MISSING_KEY_RESPONSE,
   type PipelineContext,
 } from "./pipeline.js";
 import { asInstanceSlug } from "./instances/identifiers.js";
@@ -262,5 +265,57 @@ describe("runPipelinePost persistence gate", () => {
     expect(traceStore.record).toHaveBeenCalledOnce();
     expect(flush).toHaveBeenCalled();
     await vi.waitFor(() => expect(conversationStore.appendMessages).toHaveBeenCalled());
+  });
+
+  it("persists nothing when the run is aborted while response_generated hooks run", async () => {
+    const ac = new AbortController();
+    vi.mocked(runHooks).mockImplementationOnce(async () => {
+      ac.abort();
+      return [];
+    });
+    const ctx = ctxWith({ stateBuffer: { flush, api: () => ({}) } as never, contextPrompt: "one-shot" });
+
+    await runPipelinePost({ ...postOptions(ctx), abortSignal: ac.signal });
+
+    expect(traceStore.record).not.toHaveBeenCalled();
+    expect(flush).not.toHaveBeenCalled();
+    expect(conversationStore.clearContextPrompt).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(conversationStore.appendMessages).not.toHaveBeenCalled();
+    expect(runHooks).not.toHaveBeenCalledWith("response_sent", expect.anything(), expect.anything());
+  });
+
+  it("writes no messages when the run is aborted while the state flush is awaited", async () => {
+    const ac = new AbortController();
+    const abortingFlush = vi.fn(async () => {
+      ac.abort();
+    });
+    const ctx = ctxWith({ stateBuffer: { flush: abortingFlush, api: () => ({}) } as never });
+
+    await runPipelinePost({ ...postOptions(ctx), abortSignal: ac.signal });
+
+    expect(abortingFlush).toHaveBeenCalledOnce();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(conversationStore.appendMessages).not.toHaveBeenCalled();
+  });
+});
+
+describe("missing provider key turn", () => {
+  it("marks the outgoing message as a missing_provider_key failure carrying the warning", () => {
+    expect(missingKeyOutgoing()).toEqual({ text: MISSING_KEY_RESPONSE, failure: "missing_provider_key" });
+  });
+
+  it("marks the stream up front and still delivers the warning as text", async () => {
+    const stream = missingKeyStream();
+    expect(stream.failure).toBe("missing_provider_key");
+    const chunks: string[] = [];
+    for await (const c of stream.textStream) chunks.push(c);
+    expect(chunks).toEqual([MISSING_KEY_RESPONSE]);
+    expect(await stream.completed).toEqual({ text: MISSING_KEY_RESPONSE });
+  });
+
+  it("points at the agent's Model section, a place that exists", () => {
+    expect(MISSING_KEY_RESPONSE).toContain("Model section");
+    expect(MISSING_KEY_RESPONSE).not.toContain("Settings tab");
   });
 });

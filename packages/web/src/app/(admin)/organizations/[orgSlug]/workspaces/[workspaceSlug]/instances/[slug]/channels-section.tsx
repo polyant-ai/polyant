@@ -5,8 +5,8 @@
 import { useEffect, useState } from "react";
 import { Globe, Send, Hash, MessageCircle, Bot } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Label } from "@/components/ui/label";
 import { api, type ChannelConfig, type Instance } from "@/lib/api";
+import { Chip } from "@/components/ui/chip";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
@@ -31,13 +31,9 @@ import { ChannelsTab } from "./channels-tab";
 
 /**
  * Web/API leads: every agent has it, and it is the one that used to hide in the
- * model settings as "Autenticazione API".
- *
- * It is not a channel TYPE — `CHANNEL_TYPES` has no `web`, here or in enterprise.
- * It is a panel over `instances.auth_enabled` plus the `auth_api_key` secret, and
- * it is listed here because to a reader it is what it looks like: a way in. The
- * genuinely enterprise channel is `http`, and that one stays out — the panel would
- * offer a page for an adapter this build does not ship.
+ * model settings as "Autenticazione API". It is a channel like the others (type
+ * `web`), with its own panel because its configuration is the agent's
+ * authentication rather than a bot token.
  */
 const CHANNELS: readonly {
   type: string;
@@ -64,9 +60,8 @@ export function ChannelsSection({
 
   /*
     The dots come from the PANEL below, which reloads the channel list on every
-    save and removal anyway (`onChannelsLoaded`). This effect is only the cold
-    start: the Web/API panel is not a channel and never reports a list, so without
-    it the picker would open with no dots at all.
+    save and removal anyway (`onChannelsLoaded`; the Web panel reports its own
+    switch through `onWebEnabledChange`). This effect is only the cold start.
 
     It deliberately does NOT depend on `selected`: keyed on the selection, the
     fetch re-ran when you switched channel — which is exactly why a channel you
@@ -87,9 +82,9 @@ export function ChannelsSection({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
-        <Label>{t("instances.section.channelsPicker")}</Label>
-        <div className="flex flex-wrap gap-2">
+      <div>
+        {/* No label: the section's title above already says "Canali". */}
+        <div className="flex flex-wrap gap-2" data-tour="channels-picker" role="group" aria-label={t("instances.section.channelsPicker")}>
           {CHANNELS.map((channel) => {
             const Icon = channel.icon;
             const isSelected = channel.type === selected;
@@ -97,28 +92,24 @@ export function ChannelsSection({
               configured.find((c) => c.channelType === channel.type)?.enabled ?? false;
 
             return (
-              <button
+              <Chip
                 key={channel.type}
-                type="button"
+                active={isSelected}
+                size="md"
                 onClick={() => setSelected(channel.type)}
                 aria-pressed={isSelected}
-                className={cn(
-                  "flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
-                  isSelected
-                    ? "border-foreground bg-primary text-primary-foreground"
-                    : "hover:bg-secondary",
-                )}
               >
                 <Icon className="h-4 w-4" />
                 {t(channel.titleKey)}
                 <span
                   aria-hidden
+                  data-state={live ? "live" : "off"}
                   className={cn(
                     "size-1.5 rounded-full",
                     live ? "bg-success" : "bg-muted-foreground/40",
                   )}
                 />
-              </button>
+              </Chip>
             );
           })}
         </div>
@@ -130,7 +121,16 @@ export function ChannelsSection({
         dirty state from surviving into a channel it does not belong to.
       */}
       {selected === "web" ? (
-        <ChannelWebTab instance={instance} onUpdate={onUpdate} />
+        <ChannelWebTab
+          instance={instance}
+          onUpdate={onUpdate}
+          onWebEnabledChange={(enabled) =>
+            setConfigured((prev) => [
+              ...prev.filter((c) => c.channelType !== "web"),
+              { channelType: "web", enabled, config: {} },
+            ])
+          }
+        />
       ) : (
         <ChannelsTab
           key={selected}

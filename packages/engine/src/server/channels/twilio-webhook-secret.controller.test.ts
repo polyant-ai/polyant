@@ -37,6 +37,7 @@ vi.mock("../../channels/channel-manager.js", () => ({
   channelManager: mockChannelManager,
 }));
 
+import { resetInboundDedupe } from "../../channels/inbound-dedupe.js";
 import { TwilioWebhookController, WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE } from "./twilio-webhook.controller.js";
 
 // This file covers the API-Key/path-secret route
@@ -66,6 +67,7 @@ describe("TwilioWebhookController (path secret route)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetInboundDedupe();
     controller = new TwilioWebhookController();
 
     // Set up adapter in channel manager
@@ -109,6 +111,14 @@ describe("TwilioWebhookController (path secret route)", () => {
       expect(mockAdapter.handleInbound).toHaveBeenCalledWith(
         expect.objectContaining({ from: "+393331234567", body: "Hello agent", messageSid: "SM123" }),
       );
+    });
+
+    it("runs the agent once for a MessageSid Twilio delivers twice", async () => {
+      await controller.handleWhatsAppWebhookWithSecret("test-instance", SECRET, validBody);
+      const again = await controller.handleWhatsAppWebhookWithSecret("test-instance", SECRET, validBody);
+
+      expect(again).toBe("<Response/>");
+      expect(mockAdapter.handleInbound).toHaveBeenCalledTimes(1);
     });
 
     it("rejects a wrong secret without processing the message", async () => {

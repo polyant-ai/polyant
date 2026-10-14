@@ -25,6 +25,7 @@ import type { ModelMessage } from "ai";
 import type { MessageRow } from "./store.js";
 import type { StepDetail } from "./schema.js";
 import { sanitizeToolCallId, toModelToolName } from "../utils/model-tool-wire.js";
+import { currentToolName } from "../agents/tools/renamed-tools.js";
 
 export { sanitizeToolCallId } from "../utils/model-tool-wire.js";
 
@@ -89,7 +90,9 @@ export function buildHistoryWithToolResults(rows: MessageRow[]): ModelMessage[] 
         // The model side requires [a-zA-Z0-9_-]+, so present it the same way
         // buildTools does (':' → '__'); otherwise a replayed namespaced tool call
         // makes the provider reject the whole request (Bedrock hard-fails).
-        toolName: toModelToolName(tc.toolName),
+        // A turn stored before a tool moved into a plugin holds its old flat
+        // name; the model is shown the name the tool has now.
+        toolName: toModelToolName(currentToolName(tc.toolName)),
         input: tc.args,
       });
     }
@@ -97,7 +100,7 @@ export function buildHistoryWithToolResults(rows: MessageRow[]): ModelMessage[] 
     const toolParts = toolCalls.map((tc) => ({
       type: "tool-result",
       toolCallId: sanitizeToolCallId(tc.toolCallId),
-      toolName: toModelToolName(tc.toolName),
+      toolName: toModelToolName(currentToolName(tc.toolName)),
       output: { type: "text", value: truncateResult(resultByCallId.get(tc.toolCallId)) },
     }));
 

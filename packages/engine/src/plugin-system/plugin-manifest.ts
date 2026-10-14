@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { parse, satisfies, validRange } from "semver";
 import { z } from "zod";
+import { localizedTextSchema } from "./localized-text.js";
 
 /**
  * Shape of one entry in a plugin manifest's `oauthProviders` array. A plugin
@@ -58,10 +59,10 @@ export const pluginManifestSchema = z.object({
   name: z.string().min(1),
   /** Plugin version (independent of the engine version). */
   version: z.string().min(1),
-  /** How the panel names the plugin. Optional: without it the panel humanizes the namespace. */
-  displayName: z.string().min(1).optional(),
-  /** One sentence on what the plugin's tools are for, shown where they are browsed. Optional. */
-  description: z.string().min(1).optional(),
+  /** How the panel names the plugin, per locale. Optional: without it the panel humanizes the namespace. */
+  displayName: localizedTextSchema().optional(),
+  /** One sentence per locale on what the plugin's tools are for, shown where they are browsed. Optional. */
+  description: localizedTextSchema().optional(),
   /** Engine compatibility range (semver range, e.g. ">=0.1.0"). */
   engine: z.string().min(1),
   /** Directory (relative to the plugin root) scanned for *.tool.ts. Defaults to "tools". */

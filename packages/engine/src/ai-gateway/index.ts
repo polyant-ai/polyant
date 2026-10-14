@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { resolveModel, estimateCostBreakdown, isReasoningAlwaysOn, isThinkingCapable, reasoningControlFor, reasoningOffFor, resolveReasoningLevel, wireDialectFor } from "./config.js";
+import { resolveModel, estimateTurnCostBreakdown, isReasoningAlwaysOn, isThinkingCapable, reasoningControlFor, reasoningOffFor, resolveReasoningLevel, wireDialectFor, type CallUsage } from "./config.js";
 import { sanitizeMessagesForModel } from "./vision.js";
 import { buildOpenAIReasoningOffOptions, buildOpenAIReasoningOptions } from "./providers/openai.js";
 import { buildAnthropicThinkingOffOptions, buildAnthropicThinkingOptions } from "./providers/anthropic.js";
@@ -201,16 +201,11 @@ function logAndRecordUsage(
     response.steps?.reduce((acc, s) => acc + s.toolCalls.length, 0) ?? 0,
   );
 
-  const cost = estimateCostBreakdown(
+  const cost = estimateTurnCostBreakdown(
     config.providerName,
     config.modelId,
-    response.usage.promptTokens,
-    response.usage.completionTokens,
-    {
-      cachedInputTokens: response.usage.cachedInputTokens,
-      cacheCreationInputTokens: response.usage.cacheCreationInputTokens,
-      cacheCreation5mInputTokens: response.usage.cacheCreation5mInputTokens,
-    },
+    response.usage,
+    stepCalls(response.steps),
   );
   // Propagate the split up to the pipeline (persisted per-message on pipeline_traces).
   response.cost = cost;
@@ -246,11 +241,23 @@ function costOfUsage(
   config: { providerName: string; modelId: string },
   usage: NonNullable<ReturnType<typeof usageCompletedBeforeFailure>>,
 ): number {
-  return estimateCostBreakdown(config.providerName, config.modelId, usage.promptTokens, usage.completionTokens, {
-    cachedInputTokens: usage.cachedInputTokens,
-    cacheCreationInputTokens: usage.cacheCreationInputTokens,
-    cacheCreation5mInputTokens: usage.cacheCreation5mInputTokens,
-  }).total;
+  return estimateTurnCostBreakdown(config.providerName, config.modelId, usage, usage.calls).total;
+}
+
+/**
+ * Each step's usage as one model call, for a model priced per call. Undefined
+ * unless every step reported its prompt: pricing the reported steps alone would
+ * drop the rest of the turn's cost, so the turn's total is used instead.
+ */
+function stepCalls(steps: ChatResponse["steps"]): CallUsage[] | undefined {
+  if (steps.length === 0 || steps.some((s) => s.promptTokens === undefined)) return undefined;
+  return steps.map((s) => ({
+    promptTokens: s.promptTokens ?? 0,
+    completionTokens: s.completionTokens ?? 0,
+    cachedInputTokens: s.cachedInputTokens,
+    cacheCreationInputTokens: s.cacheCreationInputTokens,
+    cacheCreation5mInputTokens: s.cacheCreation5mInputTokens,
+  }));
 }
 
 /**
@@ -261,15 +268,20 @@ function costOfUsage(
  * completed none, and with the error's CLASS only, never its message — the
  * message can quote the request, and the request is the prompt.
  *
- * Skips logging entirely when `request.abortSignal` is already aborted: that
+ * A turn whose `request.abortSignal` is already aborted is not a failure: that
  * abort is the message coordinator preempting an in-flight turn because a
- * follow-up message arrived (`message-coordinator.ts`'s cancel-and-restart),
- * not the provider failing. It is the routine path, not a fault — it happens
- * every time a user sends a second message before the first reply lands.
- * Counting every preempted turn as an error would make a later failure RATE
- * mostly measure how often people type quickly. An aborted turn writes nothing
- * at all here — it is not a success either, so no third `outcome` value is
- * invented for it.
+ * follow-up message arrived (`message-coordinator.ts`'s cancel-and-restart).
+ * It is the routine path — it happens every time a user sends a second message
+ * before the first reply lands — so it is never an `error`, which would make
+ * the failure rate measure how often people type quickly. But the model calls
+ * it had already made were billed, so when there are any, the turn is logged
+ * as `aborted` with their usage and cost: sums of cost and tokens count it,
+ * counts of answered and failed calls do not. A turn aborted before any model
+ * call answered cost nothing and writes nothing.
+ *
+ * A signal aborted by the caller's own deadline (`AbortSignal.timeout`, alone
+ * or inside `AbortSignal.any`) carries a `TimeoutError` reason. Nobody
+ * preempted that call: the provider was too slow, which is a failure.
  */
 function logFailedCall(
   config: { providerName: string; modelId: string },
@@ -278,9 +290,11 @@ function logFailedCall(
   options: ChatCallOptions | undefined,
   durationMs: number,
 ): void {
-  if (request.abortSignal?.aborted) return;
-
   const usage = usageCompletedBeforeFailure(err);
+  const signal = request.abortSignal;
+  const timedOut = signal?.aborted === true && (signal.reason as { name?: unknown } | undefined)?.name === "TimeoutError";
+  const aborted = signal?.aborted === true && !timedOut;
+  if (aborted && !usage) return;
   const cost = usage ? costOfUsage(config, usage) : 0;
   aiLogger.log(
     aiLogger.createEntry(
@@ -300,8 +314,8 @@ function logFailedCall(
       options?.callType,
       usage?.cachedInputTokens ?? 0,
       usage?.cacheCreationInputTokens ?? 0,
-      "error",
-      classifyProviderError(err),
+      aborted ? "aborted" : "error",
+      aborted ? null : timedOut ? "timeout" : classifyProviderError(err),
     ),
   );
 }

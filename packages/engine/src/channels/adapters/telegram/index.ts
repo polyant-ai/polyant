@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { Bot } from "grammy";
-import { createHash } from "node:crypto";
 import type { ChannelAdapter, Attachment, MessageHandler, OutgoingMessage } from "../../types.js";
 import { CHANNEL_MAX_LENGTH } from "../../types.js";
 import { toTelegramMarkdownV2 } from "./markdown-v2.js";
@@ -9,7 +8,7 @@ import { splitMessage } from "../../split-message.js";
 import { transcribeAudio } from "../../audio-transcription.js";
 import { firstDelivery } from "../../inbound-dedupe.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
-import { createLogger } from "../../../utils/create-logger.js";
+import { createLogger, shouldLog } from "../../../utils/create-logger.js";
 
 // Webhook registration logs go through the structured logger, which sanitizes
 // the agent id and the Telegram error text (both reach the log line).
@@ -18,10 +17,46 @@ const log = createLogger();
 export interface TelegramConfig {
   botToken: string;
   allowedUserIds?: string;
+  /** The per-channel `secret_token` the store minted; see `ensureTelegramWebhookSecret`. */
+  webhookSecret: string;
 }
 
 /** The only update type this adapter handles; also what the registration asks for. */
 const ALLOWED_UPDATES = ["message"] as const;
+
+/**
+ * Inbound file downloads: Telegram's Bot API serves files up to 20 MB, and a
+ * download that neither finishes nor fails would hold the turn forever.
+ */
+export const FILE_DOWNLOAD_MAX_BYTES = 20 * 1024 * 1024;
+export const FILE_DOWNLOAD_TIMEOUT_MS = 30_000;
+
+/**
+ * Read a response body, giving up past `maxBytes`. Returns undefined when the
+ * declared or actual size is over the cap. Exported for testing.
+ */
+export async function readBodyCapped(res: Response, maxBytes: number): Promise<Buffer | undefined> {
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await res.body?.cancel();
+    return undefined;
+  }
+  if (!res.body) return Buffer.alloc(0);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  const reader = res.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks);
+}
 
 /**
  * Waits between webhook registration attempts. A 429 waits for the
@@ -51,7 +86,8 @@ export class TelegramAdapter implements ChannelAdapter {
     private readonly cfg: TelegramConfig,
     private readonly webhookUrl: string,
   ) {
-    this.webhookSecret = createHash("sha256").update(cfg.botToken).digest("hex");
+    if (!cfg.webhookSecret) throw new Error("Telegram channel has no webhook secret");
+    this.webhookSecret = cfg.webhookSecret;
   }
 
   async initialize(onMessage: MessageHandler): Promise<void> {
@@ -62,17 +98,27 @@ export class TelegramAdapter implements ChannelAdapter {
       .map((id) => id.trim())
       .filter(Boolean);
 
-    this.bot = new Bot(botToken);
+    // The handlers below use THIS bot, not `this.bot`: a channel save restarts
+    // the adapter, `shutdown()` clears `this.bot`, and a turn already in flight
+    // would otherwise lose its reply.
+    const bot = new Bot(botToken);
+    this.bot = bot;
 
     /** Download a Telegram file by file_id and return its Buffer. */
     const downloadFile = async (fileId: string): Promise<Buffer | undefined> => {
       try {
-        const file = await this.bot!.api.getFile(fileId);
+        const file = await bot.api.getFile(fileId);
         if (!file.file_path) return undefined;
+        if (file.file_size !== undefined && file.file_size > FILE_DOWNLOAD_MAX_BYTES) {
+          console.warn("Telegram file %s is over the %d-byte download cap, skipping", fileId, FILE_DOWNLOAD_MAX_BYTES);
+          return undefined;
+        }
         const url = `https://api.telegram.org/file/bot${botToken}/${file.file_path}`;
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(FILE_DOWNLOAD_TIMEOUT_MS) });
         if (!res.ok) return undefined;
-        return Buffer.from(await res.arrayBuffer());
+        const data = await readBodyCapped(res, FILE_DOWNLOAD_MAX_BYTES);
+        if (!data) console.warn("Telegram file %s is over the %d-byte download cap, skipping", fileId, FILE_DOWNLOAD_MAX_BYTES);
+        return data;
       } catch (err) {
         console.error("Telegram file download failed (%s):", fileId, err);
         return undefined;
@@ -81,7 +127,10 @@ export class TelegramAdapter implements ChannelAdapter {
 
     /** Shared handler for messages that may have text and/or attachments. */
     const handleMessage = async (ctx: any) => {
-      if (allowedIds?.length && !allowedIds.includes(String(ctx.from.id))) {
+      // A message can come without a sender (a channel post, an anonymous admin):
+      // with an allowlist it cannot be matched, so it is dropped rather than crashing.
+      const fromId = ctx.from?.id;
+      if (allowedIds?.length && (fromId === undefined || !allowedIds.includes(String(fromId)))) {
         return;
       }
 
@@ -150,7 +199,9 @@ export class TelegramAdapter implements ChannelAdapter {
         channelType: "telegram",
         channelId: String(ctx.chat.id),
         instanceId: this.instanceId,
-        userName: ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : ""),
+        userName: ctx.from
+          ? ctx.from.first_name + (ctx.from.last_name ? ` ${ctx.from.last_name}` : "")
+          : (ctx.chat.title ?? String(ctx.chat.id)),
         text,
         attachments: attachments.length > 0 ? attachments : undefined,
         metadata: {
@@ -162,23 +213,23 @@ export class TelegramAdapter implements ChannelAdapter {
         },
       });
 
-      if (response.text) await this.sendFormatted(String(ctx.chat.id), response.text);
+      if (response.text) await this.sendFormatted(bot, String(ctx.chat.id), response.text);
     };
 
-    this.bot.on("message:text", handleMessage);
-    this.bot.on("message:photo", handleMessage);
-    this.bot.on("message:document", handleMessage);
-    this.bot.on("message:voice", handleMessage);
-    this.bot.on("message:audio", handleMessage);
+    bot.on("message:text", handleMessage);
+    bot.on("message:photo", handleMessage);
+    bot.on("message:document", handleMessage);
+    bot.on("message:voice", handleMessage);
+    bot.on("message:audio", handleMessage);
 
     // A token Telegram refuses fails the start: that is a credential problem
     // only an administrator can fix, and the channel manager disables the
     // channel for it.
-    await this.bot.init();
+    await bot.init();
     // The webhook registration does not. A plain-HTTP base URL or a 429 during a
     // fleet restart used to fail the start the same way, and the channel stayed
     // disabled in the database until someone switched it back on by hand.
-    void this.registerWebhook(this.bot, 0);
+    void this.registerWebhook(bot, 0);
     console.log("Telegram bot started (webhook)");
   }
 
@@ -198,10 +249,10 @@ export class TelegramAdapter implements ChannelAdapter {
       return;
     }
     try {
-      // Always set it, even when Telegram already holds this URL: the secret is
-      // derived from the bot token and Telegram never reports the one it holds,
-      // so after a token rotation only a fresh setWebhook makes it send the new
-      // secret. The call is idempotent, and a fleet restart's 429 is retried below.
+      // Always set it, even when Telegram already holds this URL: Telegram never
+      // reports the secret it holds, so only a fresh setWebhook guarantees it
+      // sends the stored one (a channel whose secret was just minted, or a new
+      // bot token). The call is idempotent, and a fleet restart's 429 is retried below.
       await bot.api.setWebhook(this.webhookUrl, {
         secret_token: this.webhookSecret,
         allowed_updates: [...ALLOWED_UPDATES],
@@ -226,9 +277,8 @@ export class TelegramAdapter implements ChannelAdapter {
   }
 
   /**
-   * Process one update. A redelivered `update_id` is dropped: update ids are
-   * per bot, and the secret is derived from the bot token, so the key names
-   * the bot rather than the agent that currently holds it.
+   * Process one update. A redelivered `update_id` is dropped; the key carries
+   * a prefix of the channel's own secret, so two channels never share a key.
    */
   async handleInbound(update: Parameters<Bot["handleUpdate"]>[0]): Promise<void> {
     if (!this.bot) throw new Error("Telegram bot not initialized");
@@ -238,7 +288,7 @@ export class TelegramAdapter implements ChannelAdapter {
 
   async sendMessage(channelId: string, msg: OutgoingMessage): Promise<void> {
     if (!this.bot) throw new Error("Telegram bot not initialized");
-    await this.sendFormatted(channelId, msg.text);
+    await this.sendFormatted(this.bot, channelId, msg.text);
   }
 
   /**
@@ -259,17 +309,18 @@ export class TelegramAdapter implements ChannelAdapter {
    * Send with MarkdownV2, fallback to plain text if Telegram rejects the formatting.
    * Automatically splits long messages into multiple sends.
    */
-  private async sendFormatted(chatId: string, text: string): Promise<void> {
-    if (!this.bot) throw new Error("Telegram bot not initialized");
-
+  private async sendFormatted(bot: Bot, chatId: string, text: string): Promise<void> {
     const chunks = splitMessage(text, CHANNEL_MAX_LENGTH.telegram);
     for (const chunk of chunks) {
       try {
         const v2 = toTelegramMarkdownV2(chunk);
-        await this.bot.api.sendMessage(chatId, v2, { parse_mode: "MarkdownV2" });
+        await bot.api.sendMessage(chatId, v2, { parse_mode: "MarkdownV2" });
       } catch (err) {
-        console.warn("[telegram] MarkdownV2 send failed, falling back to plain text:", err);
-        await this.bot.api.sendMessage(chatId, chunk);
+        // grammY's error carries the request payload, which holds the message text:
+        // the full object is debug only.
+        console.warn("[telegram] MarkdownV2 send failed, falling back to plain text:", err instanceof Error ? err.message : String(err));
+        if (shouldLog("debug")) console.debug("[telegram] MarkdownV2 send error detail:", err);
+        await bot.api.sendMessage(chatId, chunk);
       }
     }
   }

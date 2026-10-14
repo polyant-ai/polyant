@@ -132,6 +132,65 @@ describe("bedrockStepMarker (multi-step prepareStep)", () => {
   });
 });
 
+describe("Bedrock cache points across a multi-step turn", () => {
+  const modelId = "eu.anthropic.claude-sonnet-4-6";
+  const isMarked = (m: unknown) => providerOptionsOf(m) !== undefined;
+
+  function toolStep(n: number): ModelMessage[] {
+    const id = `t${n}`;
+    return [
+      { role: "assistant", content: [{ type: "tool-call", toolCallId: id, toolName: "lookup", input: {} }] },
+      {
+        role: "tool",
+        content: [{ type: "tool-result", toolCallId: id, toolName: "lookup", output: { type: "text", value: "ok" } }],
+      },
+    ];
+  }
+
+  // The SDK feeds the messages `prepareStep` returned into the next step, so a
+  // marker that never moves accumulates: instructions + history + three step
+  // markers is five, and Bedrock answers 400 above four.
+  it("keeps a turn with history, instructions and three tool steps at four cache points or fewer", () => {
+    const first = applyBedrockPromptCaching({
+      modelId,
+      system: "SYSTEM",
+      messages: [
+        { role: "user", content: "turn 1" },
+        { role: "assistant", content: "reply 1" },
+        { role: "user", content: "turn 2 (current)" },
+      ],
+    });
+    let messages = first.messages;
+    for (let step = 1; step <= 3; step++) {
+      messages = [...messages, ...toolStep(step)];
+      messages = bedrockStepMarker({ stepNumber: step, messages, modelId }).messages!;
+      const total = (isMarked(first.instructions) ? 1 : 0) + messages.filter(isMarked).length;
+      expect(total).toBeLessThanOrEqual(4);
+    }
+
+    expect(providerOptionsOf(first.instructions)).toEqual(CACHE_POINT);
+    // History marker stays; only the newest step carries the moving one.
+    expect(providerOptionsOf(messages[1])).toEqual(CACHE_POINT);
+    expect(providerOptionsOf(messages[messages.length - 1])).toEqual(CACHE_POINT);
+    expect(messages.slice(2, -1).filter(isMarked)).toHaveLength(0);
+  });
+
+  it("removes only the cache point when moving it, keeping other provider options", () => {
+    const withOther: ModelMessage = {
+      role: "assistant",
+      content: "earlier step",
+      providerOptions: { bedrock: { cachePoint: { type: "default" }, other: 1 }, openai: { x: 2 } },
+    };
+    const out = bedrockStepMarker({
+      stepNumber: 2,
+      messages: [{ role: "user", content: "turn" }, withOther, { role: "assistant", content: "latest" }],
+      modelId,
+    }).messages!;
+    expect(providerOptionsOf(out[1])).toEqual({ bedrock: { other: 1 }, openai: { x: 2 } });
+    expect(providerOptionsOf(out[2])).toEqual(CACHE_POINT);
+  });
+});
+
 describe("applyBedrockPromptCaching on Nova", () => {
   it("marks the system prompt but skips a tool-call message in history", () => {
     const { instructions, messages } = applyBedrockPromptCaching({

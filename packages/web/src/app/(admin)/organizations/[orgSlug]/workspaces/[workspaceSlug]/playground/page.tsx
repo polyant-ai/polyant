@@ -2,17 +2,14 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { ChatArea } from "./_components/chat-area";
 import { useChat } from "./_hooks/use-chat";
 import { useConversations } from "./_hooks/use-conversations";
 
-const AUTH_STORAGE_PREFIX = "playground_auth_";
-
 export default function PlaygroundPage() {
   const { conversations, loading, refresh } = useConversations();
   const chat = useChat("");
-  const [authToken, setAuthToken] = useState("");
   const instanceSlug = chat.state.instanceSlug;
 
   // Refresh conversation list when streaming completes
@@ -24,35 +21,11 @@ export default function PlaygroundPage() {
     wasStreamingRef.current = chat.state.isStreaming;
   }, [chat.state.isStreaming, refresh]);
 
-  // Load auth token from localStorage when instance changes
-  useEffect(() => {
-    if (instanceSlug) {
-      const stored = localStorage.getItem(`${AUTH_STORAGE_PREFIX}${instanceSlug}`);
-      setAuthToken(stored ?? "");
-    } else {
-      setAuthToken("");
-    }
-  }, [instanceSlug]);
-
-  const handleAuthTokenChange = useCallback(
-    (token: string) => {
-      setAuthToken(token);
-      if (instanceSlug) {
-        if (token) {
-          localStorage.setItem(`${AUTH_STORAGE_PREFIX}${instanceSlug}`, token);
-        } else {
-          localStorage.removeItem(`${AUTH_STORAGE_PREFIX}${instanceSlug}`);
-        }
-      }
-    },
-    [instanceSlug],
-  );
-
   const handleSend = useCallback(
     (text: string) => {
-      chat.sendMessage(text, authToken || undefined);
+      chat.sendMessage(text);
     },
-    [chat, authToken],
+    [chat],
   );
 
   const handleNewChat = useCallback(() => {
@@ -89,8 +62,6 @@ export default function PlaygroundPage() {
         conversations={conversations}
         conversationsLoading={loading}
         activeConversationId={chat.state.conversationId}
-        authToken={authToken}
-        onAuthTokenChange={handleAuthTokenChange}
         onSend={handleSend}
         onStop={chat.stopStreaming}
         onInstanceChange={handleInstanceChange}

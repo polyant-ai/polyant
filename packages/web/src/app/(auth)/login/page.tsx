@@ -10,7 +10,8 @@ import { LoginFormClient } from "./login-form-client";
  * (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, injected at container start and
  * absent during the Docker build) was not baked into a prerendered page. This
  * edition offers no federated provider, so there is no such flag and no reason
- * to opt out of prerendering.
+ * to opt out of prerendering on its own account (the root layout reads the
+ * locale cookie, so every page renders per request anyway).
  */
 export default function LoginPage() {
   return (

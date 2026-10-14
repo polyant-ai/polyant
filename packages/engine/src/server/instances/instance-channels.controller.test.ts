@@ -46,6 +46,9 @@ vi.mock("../../management-audit/management-audit-logger.js", async () => {
 
 import { InstanceChannelsController } from "./instance-channels.controller.js";
 
+const { mockResolveInstanceConfig } = vi.hoisted(() => ({ mockResolveInstanceConfig: vi.fn() }));
+vi.mock("../../instances/config-resolver.js", () => ({ resolveInstanceConfig: mockResolveInstanceConfig }));
+
 // The platform policies are a row; this suite has no database. The values are
 // the shipped defaults, so the assertions read the same as before they moved.
 vi.mock("../../platform/platform-settings.store.js", () => ({
@@ -510,5 +513,42 @@ describe("InstanceChannelsController — whatsapp credential modes", () => {
         BadRequestException,
       );
     });
+  });
+});
+
+describe("InstanceChannelsController — the web channel", () => {
+  let controller: InstanceChannelsController;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    controller = new InstanceChannelsController();
+    mockGetChannelConfig.mockResolvedValue(null);
+    mockSetChannelConfig.mockResolvedValue({ mintedWebhookSecret: false, config: {} });
+  });
+
+  it("refuses to switch Web on while authentication is on and no key exists", async () => {
+    mockResolveInstanceConfig.mockResolvedValue({ authEnabled: true, authApiKey: undefined });
+    await expect(controller.setChannel("acme", "web", { config: {}, enabled: true }, USER))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(mockSetChannelConfig).not.toHaveBeenCalled();
+  });
+
+  it("switches Web on when authentication is on and a key exists", async () => {
+    mockResolveInstanceConfig.mockResolvedValue({ authEnabled: true, authApiKey: "k" });
+    const res = await controller.setChannel("acme", "web", { config: {}, enabled: true }, USER);
+    expect(mockSetChannelConfig).toHaveBeenCalledWith("uuid-1", "web", {}, true, undefined);
+    expect(res.channel).toMatchObject({ channelType: "web", enabled: true });
+  });
+
+  it("switches Web on without a key once authentication was turned off", async () => {
+    mockResolveInstanceConfig.mockResolvedValue({ authEnabled: false, authApiKey: undefined });
+    await controller.setChannel("acme", "web", { config: {}, enabled: true }, USER);
+    expect(mockSetChannelConfig).toHaveBeenCalled();
+  });
+
+  it("switches Web off with no precondition", async () => {
+    await controller.setChannel("acme", "web", { config: {}, enabled: false }, USER);
+    expect(mockResolveInstanceConfig).not.toHaveBeenCalled();
+    expect(mockSetChannelConfig).toHaveBeenCalledWith("uuid-1", "web", {}, false, undefined);
   });
 });

@@ -8,7 +8,8 @@ import { toast } from "sonner";
 import { Trash2, Download, MoreHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Chip } from "@/components/ui/chip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +33,7 @@ import { PromptsTab } from "./prompts-tab";
 import { ToolsTab } from "./tools-tab";
 import { McpServersTab } from "./mcp-servers-tab";
 import { SkillsTab } from "./skills-tab";
-import { SettingsTab } from "./settings-tab";
+import { ModelTab } from "./model-tab";
 import { KnowledgeTab } from "./knowledge-tab";
 import { ChannelsSection } from "./channels-section";
 import { AnalyticsTab } from "./analytics-tab";
@@ -49,6 +50,7 @@ import { PrivacyTab } from "./privacy-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
 import { useI18n } from "@/lib/i18n/context";
 import { agentSection, agentSectionsByMacro, resolveAgentTab } from "@/lib/nav/agent-sections";
+import { SectionActionsSlot } from "./section-actions";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useStatusChecks } from "./use-status-checks";
 
@@ -73,6 +75,12 @@ function HeaderSaveButton() {
   );
 }
 
+/** The line under a section's title, from the registry: every section is introduced the same way. */
+function SectionDescription({ tab }: { tab: string }) {
+  const { t } = useI18n();
+  return <p className="mt-1 text-sm text-muted-foreground">{t(agentSection(tab).descriptionKey)}</p>;
+}
+
 function InstanceDetailContent() {
   const params = useParams<{ slug: string }>();
   const pathname = usePathname();
@@ -89,6 +97,9 @@ function InstanceDetailContent() {
   const section = agentSection(activeTab);
   const [instance, setInstance] = useState<Instance | null>(null);
   const [tools, setTools] = useState<ToolState[]>([]);
+  // False when the role cannot read the tool list: the status page must not
+  // report a missing tool it was never allowed to see.
+  const [toolsReadable, setToolsReadable] = useState(true);
   // How the Tools section names each plugin; fixed for the engine's lifetime.
   const [toolPlugins, setToolPlugins] = useState<ToolPluginInfo[]>([]);
   const [skills, setSkills] = useState<SkillState[]>([]);
@@ -96,22 +107,30 @@ function InstanceDetailContent() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const status = useStatusChecks({ instance, tools, skills });
+  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
+  const status = useStatusChecks({ instance, tools, toolsReadable, skills });
 
   useEffect(() => {
     const slug = params.slug;
+    // Only the agent decides whether the page exists. Its tools, skills and
+    // prompts are each read with their own permission, so one the caller's role
+    // lacks leaves that part empty instead of turning the agent into "not found".
+    const unlessRefused = <T,>(read: Promise<T>) => read.catch(() => null);
     Promise.all([
       api.instances.get(slug),
-      api.tools.list(slug),
-      api.skills.list(slug),
-      api.prompts.list(slug),
+      unlessRefused(api.tools.list(slug)),
+      unlessRefused(api.skills.list(slug)),
+      unlessRefused(api.prompts.list(slug)),
     ])
       .then(([instanceRes, toolsRes, skillsRes, promptsRes]) => {
         setInstance(instanceRes.instance);
-        setTools(toolsRes.tools);
-        setToolPlugins(toolsRes.plugins ?? []);
-        setSkills(skillsRes.skills);
-        setPrompts(promptsRes.prompts);
+        setToolsReadable(toolsRes !== null);
+        if (toolsRes) {
+          setTools(toolsRes.tools);
+          setToolPlugins(toolsRes.plugins ?? []);
+        }
+        if (skillsRes) setSkills(skillsRes.skills);
+        if (promptsRes) setPrompts(promptsRes.prompts);
       })
       .catch(() => {
         toast.error(t("instances.detail.notFound"));
@@ -250,47 +269,57 @@ function InstanceDetailContent() {
         began mid-sentence. One heading, from the same registry the sidebar reads,
         so the two cannot drift.
       */}
-      <h2 className="mt-8 text-2xl font-semibold tracking-tight">
-        {t(section.macro === "automation" ? "instances.macro.automation" : section.titleKey)}
-      </h2>
+      <div className="mt-8 flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-semibold tracking-tight">
+            {t(section.macro === "automation" ? "instances.macro.automation" : section.titleKey)}
+          </h2>
+          <SectionDescription tab={section.tab} />
+        </div>
+        {/* The section's own buttons land here (`SectionActions`), beside its title. */}
+        <div ref={setActionsSlot} className="flex shrink-0 flex-wrap items-center gap-2" />
+      </div>
 
+      <SectionActionsSlot value={actionsSlot}>
       <Tabs value={activeTab} onValueChange={(tab) => router.push(`${pathname}?tab=${tab}`)} className="mt-6">
         {section.macro === "automation" && (
-          <TabsList>
+          <nav aria-label={t("instances.macro.automation")} className="flex gap-2 overflow-x-auto">
             {agentSectionsByMacro("automation").map((tab) => (
-              <TabsTrigger key={tab.tab} value={tab.tab}>{t(tab.titleKey)}</TabsTrigger>
+              <Chip
+                key={tab.tab}
+                active={activeTab === tab.tab}
+                aria-current={activeTab === tab.tab ? "page" : undefined}
+                onClick={() => router.push(`${pathname}?tab=${tab.tab}`)}
+              >
+                {t(tab.titleKey)}
+              </Chip>
             ))}
-          </TabsList>
+          </nav>
         )}
         {/* Panoramica */}
-        <TabsContent value="overview">
+        <TabsContent value="overview" data-tour="agent-overview">
           <StatusTab instance={instance} tools={tools} skills={skills} status={status} />
         </TabsContent>
-        <TabsContent value="analytics">
+        <TabsContent value="analytics" data-tour="agent-analytics">
           <AnalyticsTab slug={instance.slug} />
         </TabsContent>
 
         {/* Configurazione */}
-        <TabsContent value="general">
+        <TabsContent value="general" data-tour="agent-general">
           <GeneralTab instance={instance} onUpdate={setInstance} />
         </TabsContent>
-        <TabsContent value="settings">
-          <SettingsTab
-            instance={instance}
-            onUpdate={setInstance}
-            section="model"
-            onConfigurationChanged={status.refresh}
-          />
+        <TabsContent value="settings" data-tour="agent-settings">
+          <ModelTab instance={instance} onUpdate={setInstance} onConfigurationChanged={status.refresh} />
         </TabsContent>
-        <TabsContent value="channels">
+        <TabsContent value="channels" data-tour="agent-channels">
           <ChannelsSection instance={instance} onUpdate={setInstance} />
         </TabsContent>
 
         {/* Comportamento */}
-        <TabsContent value="prompts">
+        <TabsContent value="prompts" data-tour="agent-prompts">
           <PromptsTab slug={instance.slug} prompts={prompts} onUpdate={setPrompts} />
         </TabsContent>
-        <TabsContent value="tools">
+        <TabsContent value="tools" data-tour="agent-tools">
           <ToolsTab
             slug={instance.slug}
             tools={tools}
@@ -307,10 +336,10 @@ function InstanceDetailContent() {
             `mcp-servers.controller.ts` gates it on the CHANNEL permission — an MCP
             server is a connection this agent holds credentials for — so it fails on
             its own terms rather than borrowing another page's. */}
-        <TabsContent value="mcp">
+        <TabsContent value="mcp" data-tour="agent-mcp">
           <McpServersTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="skills">
+        <TabsContent value="skills" data-tour="agent-skills">
           <SkillsTab
             slug={instance.slug}
             skills={skills}
@@ -319,30 +348,30 @@ function InstanceDetailContent() {
             onToolsUpdate={setTools}
           />
         </TabsContent>
-        <TabsContent value="knowledge">
+        <TabsContent value="knowledge" data-tour="agent-knowledge">
           <KnowledgeTab slug={instance.slug} instance={instance} onUpdate={setInstance} />
         </TabsContent>
-        <TabsContent value="hooks">
+        <TabsContent value="hooks" data-tour="agent-hooks">
           <HooksTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="params">
+        <TabsContent value="params" data-tour="agent-params">
           <ParamsTab instance={instance} onUpdate={setInstance} />
         </TabsContent>
 
         {/* Automazioni */}
-        <TabsContent value="webhooks">
+        <TabsContent value="webhooks" data-tour="agent-webhooks">
           <TriggersWebhooksTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="scheduled">
+        <TabsContent value="scheduled" data-tour="agent-scheduled">
           <TriggersScheduledTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="room">
+        <TabsContent value="room" data-tour="agent-room">
           <RoomTab slug={instance.slug} />
         </TabsContent>
 
         {/* Governance — the gates, the compliance artifacts and the retention
-            policy are Enterprise; what ships here is the opt-out. */}
-        <TabsContent value="privacy">
+            policy are not part of this build; what ships here is the opt-out. */}
+        <TabsContent value="privacy" data-tour="agent-privacy">
           <PrivacyTab
             instance={instance}
             onSaved={() => {
@@ -355,16 +384,17 @@ function InstanceDetailContent() {
         </TabsContent>
 
         {/* Attività — what this agent has done, not how it is configured. */}
-        <TabsContent value="conversations">
+        <TabsContent value="conversations" data-tour="agent-conversations">
           <AgentConversationsTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="memories">
+        <TabsContent value="memories" data-tour="agent-memories">
           <AgentMemoriesTab slug={instance.slug} />
         </TabsContent>
-        <TabsContent value="logs">
+        <TabsContent value="logs" data-tour="agent-logs">
           <LogsTab slug={instance.slug} />
         </TabsContent>
       </Tabs>
+      </SectionActionsSlot>
     </div>
     </PageActionsProvider>
   );

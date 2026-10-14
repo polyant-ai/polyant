@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * The credential decision, which is the security-sensitive half: the task role
- * is a SHARED identity, so reaching it must be a per-agent choice and never the
- * consequence of a half-filled form.
+ * The credential decision, which is the security-sensitive half: an agent's
+ * bucket is reached with the agent's own static keys and nothing else — never
+ * the deployment's runtime identity, which every agent shares.
  */
 
 import { createServer } from "node:http";
@@ -24,12 +24,12 @@ describe("resolveAgentS3", () => {
     const r = resolveAgentS3({ ...BUCKET, ...STATIC });
 
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.config.credentialSource).toBe("static");
+    if (r.ok) expect(r.config.bucket).toBe("acme-files");
   });
 
-  it("should_refuse_rather_than_fall_through_to_the_task_role_on_half_the_keys", () => {
-    // The sharp one: falling through would mask the missing half AND perform the
-    // write under an identity nobody chose for this agent.
+  it("should_refuse_half_the_keys_even_with_the_retired_task_role_flag", () => {
+    // Falling through would mask the missing half AND perform the write under
+    // an identity nobody chose for this agent.
     const halves: Record<string, string>[] = [{ aws_access_key_id: "AKIA" }, { aws_secret_access_key: "shh" }];
     for (const half of halves) {
       const r = resolveAgentS3({ ...BUCKET, ...half, s3_use_task_role: "true" });
@@ -39,12 +39,31 @@ describe("resolveAgentS3", () => {
     }
   });
 
-  it("should_reach_the_task_role_only_on_an_explicit_opt_in", () => {
-    expect(resolveAgentS3(BUCKET).ok).toBe(false);
+  it("should_refuse_without_static_keys", () => {
+    const r = resolveAgentS3(BUCKET);
 
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("not_configured");
+  });
+
+  /*
+    The task-role mode is gone. An agent still carrying its opt-in must be told
+    so by name: reading it as plain "not configured" hides why storage stopped,
+    and honouring it would reach the deployment's shared runtime identity.
+  */
+  it("should_fail_by_name_for_an_agent_still_opted_in_to_the_task_role", () => {
     const r = resolveAgentS3({ ...BUCKET, s3_use_task_role: "true" });
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.reason).toBe("task_role_retired");
+    expect(describeAgentS3Failure(r)).toMatch(/s3_use_task_role is no longer supported/);
+  });
+
+  it("should_use_static_keys_when_a_leftover_task_role_flag_sits_beside_them", () => {
+    const r = resolveAgentS3({ ...BUCKET, ...STATIC, s3_use_task_role: "true" });
+
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.config.credentialSource).toBe("task-role");
   });
 
   it("should_refuse_without_a_bucket_even_with_perfect_credentials", () => {
@@ -94,8 +113,8 @@ describe("resolveAgentS3", () => {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     const { port } = server.address() as AddressInfo;
     try {
-      for (const secrets of [{ ...BUCKET, ...STATIC }, { ...BUCKET, s3_use_task_role: "true" }]) {
-        const r = resolveAgentS3(secrets);
+      {
+        const r = resolveAgentS3({ ...BUCKET, ...STATIC });
         expect(r.ok).toBe(true);
         if (!r.ok) return;
         const handler = r.config.client.config.requestHandler as unknown as {
@@ -116,8 +135,8 @@ describe("resolveAgentS3", () => {
   });
 
   it("should_name_the_missing_thing_in_every_failure", () => {
-    for (const reason of ["no_bucket", "incomplete_credentials", "not_configured"] as const) {
-      expect(describeAgentS3Failure({ reason })).toMatch(/s3_bucket_name|aws_|s3_use_task_role/);
+    for (const reason of ["no_bucket", "incomplete_credentials", "task_role_retired", "not_configured"] as const) {
+      expect(describeAgentS3Failure({ reason })).toMatch(/s3_bucket_name|aws_/);
     }
   });
 });

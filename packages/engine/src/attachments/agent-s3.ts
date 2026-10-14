@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { S3Client } from "@aws-sdk/client-s3";
-import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 
 /**
  * An agent's own object storage, resolved from its secrets — and the ONE place
@@ -12,22 +11,20 @@ import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
  * them, so nothing was ever stored; and the tier was wrong anyway — a bucket is
  * something a tenant owns, alongside the credentials that reach it.
  *
- * The keys are the ones the `fileUpload` tool already declares, deliberately:
- * an agent has ONE bucket, used by the tool and by attachment persistence, so
- * there is no second namespace to document and no way for the two to disagree
- * about where an agent's files live.
+ * The keys are `s3_bucket_name`, `aws_region`, `aws_access_key_id` and
+ * `aws_secret_access_key`. The access is always the agent's own static keys:
+ * the runtime identity of the deployment is never used for an agent's bucket.
  */
 export interface AgentS3Config {
   readonly client: S3Client;
   readonly bucket: string;
-  /** How the credentials were obtained, for the log line that says so. */
-  readonly credentialSource: "static" | "task-role";
 }
 
 /** Why an agent has no usable storage. Never thrown — the callers differ on what to do. */
 export type AgentS3Failure =
   | { readonly reason: "not_configured" }
   | { readonly reason: "incomplete_credentials" }
+  | { readonly reason: "task_role_retired" }
   | { readonly reason: "no_bucket" };
 
 export type AgentS3Resolution = { readonly ok: true; readonly config: AgentS3Config } | ({ readonly ok: false } & AgentS3Failure);
@@ -35,24 +32,24 @@ export type AgentS3Resolution = { readonly ok: true; readonly config: AgentS3Con
 const TRUTHY = ["true", "1", "yes"];
 
 /**
- * Resolve the credential mode EXPLICITLY, because the failure modes are not
- * symmetric:
+ * Resolve the agent's credentials, refusing anything short of both static keys:
  *
  *  - both static keys → use them
- *  - exactly one → a configuration ERROR, never a silent fall-through to the
- *    task role, which would mask the missing half
- *  - neither, with `s3_use_task_role` → the default provider chain (the ECS task
- *    role), for a bucket whose policy trusts that role
- *  - neither, without the opt-in → refuse. The task role is a SHARED identity:
- *    using it has to be a per-agent decision, or one agent's write lands under
- *    an identity nobody chose for it.
+ *  - exactly one → a configuration error naming the missing half
+ *  - neither, with a leftover `s3_use_task_role` → its own error. That secret
+ *    used to reach the deployment's runtime identity (the ECS task role) through
+ *    the default provider chain. The mode is gone, and an agent that relied on
+ *    it must learn so from the failure: quietly treating it as "not configured"
+ *    would hide why its storage stopped working, and honouring it would let one
+ *    agent act under an identity every agent on the deployment shares.
+ *  - neither → refuse.
  */
 export function resolveAgentS3(secrets: Record<string, string> | undefined): AgentS3Resolution {
   const bucket = secrets?.s3_bucket_name?.trim();
   const region = secrets?.aws_region?.trim();
   const accessKeyId = secrets?.aws_access_key_id?.trim();
   const secretAccessKey = secrets?.aws_secret_access_key?.trim();
-  const taskRole = TRUTHY.includes((secrets?.s3_use_task_role ?? "").trim().toLowerCase());
+  const retiredTaskRole = TRUTHY.includes((secrets?.s3_use_task_role ?? "").trim().toLowerCase());
 
   if (!bucket) return { ok: false, reason: "no_bucket" };
   if (!region) return { ok: false, reason: "not_configured" };
@@ -89,21 +86,11 @@ export function resolveAgentS3(secrets: Record<string, string> | undefined): Age
       config: {
         client: new S3Client({ ...shared, credentials: { accessKeyId, secretAccessKey } }),
         bucket,
-        credentialSource: "static",
       },
     };
   }
   if (accessKeyId || secretAccessKey) return { ok: false, reason: "incomplete_credentials" };
-  if (taskRole) {
-    return {
-      ok: true,
-      config: {
-        client: new S3Client({ ...shared, credentials: fromNodeProviderChain() }),
-        bucket,
-        credentialSource: "task-role",
-      },
-    };
-  }
+  if (retiredTaskRole) return { ok: false, reason: "task_role_retired" };
   return { ok: false, reason: "not_configured" };
 }
 
@@ -114,7 +101,9 @@ export function describeAgentS3Failure(failure: AgentS3Failure): string {
       return "no s3_bucket_name secret is set for this agent";
     case "incomplete_credentials":
       return "incomplete static S3 credentials: aws_access_key_id and aws_secret_access_key must both be set";
+    case "task_role_retired":
+      return "s3_use_task_role is no longer supported: set aws_access_key_id and aws_secret_access_key for the agent's bucket, then remove s3_use_task_role";
     case "not_configured":
-      return "no S3 credentials: set aws_access_key_id + aws_secret_access_key and aws_region, or opt in to the task role with s3_use_task_role";
+      return "no S3 credentials: set aws_region, aws_access_key_id and aws_secret_access_key";
   }
 }

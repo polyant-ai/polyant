@@ -10,6 +10,10 @@ export default createPromptUpdaterTool({
     "Do NOT use to update information about the user — use updateUserProfile.\n" +
     "Returns an update confirmation. The change is permanent (overwrites the personality section).\n" +
     "Caveat: uses an LLM to integrate changes into the existing prompt. Pass clear and specific instructions.",
+  summary: {
+    "en-US": "Changes the agent's personality: name, tone and style.",
+    "it-IT": "Modifica la personalità dell'agente: nome, tono e stile.",
+  },
   sectionId: "02-soul",
   displayName: "Soul",
   defaultContent: "# Personality\n",

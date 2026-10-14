@@ -6,6 +6,7 @@ import { transcribe } from "../stt-gateway/index.js";
 import {
   STTMissingCredentialsError,
   STTProviderError,
+  STTTimeoutError,
   STTUnsupportedFormatError,
 } from "../stt-gateway/errors.js";
 import type { STTProviderName } from "../stt-gateway/types.js";
@@ -85,19 +86,13 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
       timeoutMs: TIMEOUT_MS,
     });
 
+    // The provider processed (and billed) the audio whether or not it heard words:
+    // every completed call is logged with its cost before branching on the text.
+    const durationSec = response.durationSec ?? input.durationSec;
     const cleaned = response.text.trim();
-    if (cleaned.length === 0) {
-      console.warn(
-        `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" empty transcript`,
-      );
-      return fail("empty_transcript");
-    }
-
     console.log(
-      `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" mime="${sanitizeForLog(input.mimeType)}" durationSec=${response.durationSec ?? input.durationSec ?? "?"} latencyMs=${response.latencyMs} ok=true`,
+      `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" mime="${sanitizeForLog(input.mimeType)}" durationSec=${durationSec ?? "?"} latencyMs=${response.latencyMs} ok=${cleaned.length > 0}`,
     );
-
-    const billedDurationSec = response.durationSec ?? input.durationSec ?? 0;
     aiLogger.log(
       aiLogger.createEntry(
         provider,
@@ -107,7 +102,7 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
         0,
         0,
         0,
-        estimateSttCost(provider, response.model, billedDurationSec),
+        estimateSttCost(provider, response.model, durationSec ?? 0),
         response.latencyMs,
         0,
         0,
@@ -117,12 +112,19 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
       ),
     );
 
+    if (cleaned.length === 0) {
+      console.warn(
+        `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" empty transcript`,
+      );
+      return fail("empty_transcript");
+    }
+
     return {
       ok: true,
       text: cleaned,
       metadata: {
         originalKind: "audio",
-        durationSec: response.durationSec ?? input.durationSec,
+        durationSec,
         sttProvider: provider,
         language: response.language,
       },
@@ -131,11 +133,11 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
   } catch (err) {
     if (err instanceof STTUnsupportedFormatError) return fail("unsupported_format");
     if (err instanceof STTMissingCredentialsError) return fail("provider_error");
-    if (err instanceof STTProviderError) {
+    if (err instanceof STTTimeoutError || err instanceof STTProviderError) {
       console.error(
         `[stt] instance="${sanitizeForLog(input.instanceSlug)}" provider="${provider}" failed: ${err.message}`,
       );
-      return fail(err.message.includes("aborted") ? "timeout" : "provider_error");
+      return fail(err instanceof STTTimeoutError ? "timeout" : "provider_error");
     }
     console.error(
       '[stt] instance="%s" provider="%s" unknown error:',

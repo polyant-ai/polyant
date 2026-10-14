@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { RequiredSecretSpec, ToolPluginInfo, ToolState } from "@/lib/api";
+import { localizeText, type LocalizedText } from "@/lib/i18n/localized-text";
 import { PROVIDER_CREDENTIAL_KEYS } from "@/lib/provider-secrets";
 
 /**
@@ -30,17 +31,19 @@ export function toolDisplayName(name: string): string {
 }
 
 /**
- * How a plugin is named: its manifest's `displayName`, else its namespace as a
- * reader writes it. The fallback keeps plugins whose manifest predates the field
- * readable without asking their authors for anything.
+ * How a plugin is named in `locale`: its manifest's `displayName`, else its
+ * namespace as a reader writes it. The fallback keeps plugins whose manifest
+ * predates the field readable without asking their authors for anything.
  */
-export function pluginName(namespace: string, plugins: readonly ToolPluginInfo[]): string {
-  return plugins.find((p) => p.namespace === namespace)?.displayName ?? pluginLabel(namespace);
+export function pluginName(namespace: string, plugins: readonly ToolPluginInfo[], locale: string): string {
+  const displayName = plugins.find((p) => p.namespace === namespace)?.displayName;
+  return displayName === undefined ? pluginLabel(namespace) : localizeText(displayName, locale);
 }
 
-/** A plugin's own sentence about itself, when its manifest has one. */
-export function pluginDescription(namespace: string, plugins: readonly ToolPluginInfo[]): string | null {
-  return plugins.find((p) => p.namespace === namespace)?.description ?? null;
+/** A plugin's own sentence about itself in `locale`, when its manifest has one. */
+export function pluginDescription(namespace: string, plugins: readonly ToolPluginInfo[], locale: string): string | null {
+  const description = plugins.find((p) => p.namespace === namespace)?.description;
+  return description === undefined ? null : localizeText(description, locale);
 }
 
 /** A plugin namespace as a reader writes it. */
@@ -51,17 +54,73 @@ export function pluginLabel(namespace: string): string {
     .join(" ");
 }
 
-export function categoryLabel(cat: string): string {
-  return cat.charAt(0).toUpperCase() + cat.slice(1);
+/**
+ * The category ids the panel names in every locale. A tool's `category` is an id
+ * its author picks, not text: built-in tools and plugins that share an id are
+ * grouped together, and an id outside this list is shown as written, capitalized.
+ */
+const TOOL_CATEGORIES: Readonly<Record<string, LocalizedText>> = {
+  accounting: { "en-US": "Accounting", "it-IT": "Contabilità" },
+  agent: { "en-US": "Agents", "it-IT": "Agenti" },
+  calendar: { "en-US": "Calendar", "it-IT": "Calendario" },
+  communication: { "en-US": "Communication", "it-IT": "Comunicazione" },
+  "conversation-trigger": { "en-US": "Conversation triggers", "it-IT": "Avvio conversazioni" },
+  crm: { "en-US": "CRM", "it-IT": "CRM" },
+  data: { "en-US": "Data", "it-IT": "Dati" },
+  dev: { "en-US": "Development", "it-IT": "Sviluppo" },
+  devops: { "en-US": "DevOps", "it-IT": "DevOps" },
+  document: { "en-US": "Documents", "it-IT": "Documenti" },
+  documents: { "en-US": "Documents", "it-IT": "Documenti" },
+  ecommerce: { "en-US": "E-commerce", "it-IT": "E-commerce" },
+  email: { "en-US": "Email", "it-IT": "Email" },
+  erp: { "en-US": "ERP", "it-IT": "ERP" },
+  files: { "en-US": "Files", "it-IT": "File" },
+  general: { "en-US": "General", "it-IT": "Generale" },
+  hr: { "en-US": "HR", "it-IT": "Risorse umane" },
+  integration: { "en-US": "Integrations", "it-IT": "Integrazioni" },
+  itsm: { "en-US": "IT service management", "it-IT": "Gestione servizi IT" },
+  knowledge: { "en-US": "Knowledge", "it-IT": "Conoscenza" },
+  marketing: { "en-US": "Marketing", "it-IT": "Marketing" },
+  memory: { "en-US": "Memory", "it-IT": "Memoria" },
+  messaging: { "en-US": "Messaging", "it-IT": "Messaggistica" },
+  payments: { "en-US": "Payments", "it-IT": "Pagamenti" },
+  plugin: { "en-US": "Plugin", "it-IT": "Plugin" },
+  productivity: { "en-US": "Productivity", "it-IT": "Produttività" },
+  prompts: { "en-US": "Prompts", "it-IT": "Prompt" },
+  research: { "en-US": "Research", "it-IT": "Ricerca" },
+  room: { "en-US": "Rooms", "it-IT": "Stanze" },
+  skills: { "en-US": "Skills", "it-IT": "Skill" },
+  storage: { "en-US": "Storage", "it-IT": "Archiviazione" },
+  support: { "en-US": "Customer support", "it-IT": "Assistenza clienti" },
+  whatsapp: { "en-US": "WhatsApp", "it-IT": "WhatsApp" },
+  workspace: { "en-US": "Workspace", "it-IT": "Workspace" },
+};
+
+/** How `cat` is named in `locale`: the panel's own name for a known id, else the id capitalized. */
+export function categoryLabel(cat: string, locale: string): string {
+  const known = Object.hasOwn(TOOL_CATEGORIES, cat) ? TOOL_CATEGORIES[cat] : undefined;
+  return known === undefined ? cat.charAt(0).toUpperCase() + cat.slice(1) : localizeText(known, locale);
 }
 
 /**
  * The first line of a tool description. Descriptions are written for the model
- * and often continue with usage rules; the table shows the sentence that says
- * what the tool does, the panel shows all of it.
+ * and often continue with usage rules; the panel shows all of it on request.
  */
 export function descriptionSummary(description: string): string {
   return description.split("\n").find((line) => line.trim() !== "")?.trim() ?? "";
+}
+
+/**
+ * The sentence a person reads about a tool or a hook in `locale`: its author's
+ * `summary`, else the first line of the description the model reads.
+ */
+export function capabilitySummary(
+  capability: { description: string; summary?: LocalizedText },
+  locale: string,
+): string {
+  return capability.summary === undefined
+    ? descriptionSummary(capability.description)
+    : localizeText(capability.summary, locale);
 }
 
 /** The keys a tool declares that its own panel renders: provider credentials live in the Modello section. */
@@ -94,4 +153,9 @@ export function uniqueSpecs(tools: readonly ToolState[]): RequiredSecretSpec[] {
     }
   }
   return [...byKey.values()];
+}
+
+/** The sentence a person reads about a hook function in `locale`: its `summary`, else its description. */
+export function hookSummary(fn: { description: string; summary?: LocalizedText }, locale: string): string {
+  return fn.summary === undefined ? fn.description : localizeText(fn.summary, locale);
 }

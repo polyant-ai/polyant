@@ -20,11 +20,13 @@ import type { PermissionKey } from "../authz/permissions.js";
  *
  * The presented token is `pk_<id>_<secret>`: the public `id` selects the row
  * (indexed lookup, no full-table scan) and `secret` is verified against
- * `keyHash` with bcrypt. Only the hash is ever stored — the plaintext secret is
- * shown once at creation and is unrecoverable afterwards.
+ * `keyHash`, a SHA-256 digest (rows written before 1.2.0 hold a bcrypt hash and
+ * are rewritten on first use). Only the hash is ever stored — the plaintext
+ * secret is shown once at creation and is unrecoverable afterwards.
  *
- * OSS ships a single Owner-permission key per org; the multi-key / scoped-key
- * surface is the same schema, gated by the entitlement layer.
+ * An organization Owner issues and revokes keys from the panel
+ * (`/api/organizations/:orgSlug/api-keys`). Every key this build issues carries
+ * the full Owner permission set; choosing a narrower set is not offered here.
  */
 export const managementApiKeys = pgTable(
   "management_api_keys",
@@ -35,7 +37,8 @@ export const managementApiKeys = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     // Human-readable label shown in the admin UI (e.g. "CI pipeline").
     name: varchar("name", { length: 255 }).notNull(),
-    // bcrypt hash of the token secret. Never the plaintext.
+    // `sha256:<hex>` digest of the token secret (bcrypt on pre-1.2.0 rows).
+    // Never the plaintext.
     keyHash: text("key_hash").notNull(),
     // The permission set this key may exercise. A subset of the org's role
     // matrix; the PermissionGuard allows a request only when its required

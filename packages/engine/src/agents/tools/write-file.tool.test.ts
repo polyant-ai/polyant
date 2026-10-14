@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
 const mockWriteFile = vi.hoisted(() => vi.fn());
 const mockMkdir = vi.hoisted(() => vi.fn());
 const mockStat = vi.hoisted(() => vi.fn());
 const mockRealpath = vi.hoisted(() => vi.fn(async (p: string) => p));
-
-import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("fs/promises", () => ({
   writeFile: mockWriteFile,
@@ -69,7 +69,7 @@ describe("writeFile tool", () => {
     expect(mockWriteFile).toHaveBeenCalledWith(
       `${WORKSPACE}/notes.md`,
       "hello world",
-      "utf-8",
+      { encoding: "utf-8", flag: "w" },
     );
   });
 
@@ -89,7 +89,7 @@ describe("writeFile tool", () => {
     expect(mockWriteFile).toHaveBeenCalledWith(
       `${WORKSPACE}/output/reports/final.md`,
       "report",
-      "utf-8",
+      { encoding: "utf-8", flag: "w" },
     );
   });
 
@@ -146,8 +146,9 @@ describe("writeFile tool", () => {
   });
 
   it("refuses to overwrite existing file when overwrite=false", async () => {
-    // File exists
-    mockStat.mockResolvedValue({ isFile: () => true, size: 10 });
+    // The file appears between any earlier look and the write: only the
+    // exclusive create can tell, so the existence answer comes from the write.
+    mockWriteFile.mockRejectedValue(Object.assign(new Error("EEXIST"), { code: "EEXIST" }));
     const { execute } = buildTool();
 
     const result = await execute({
@@ -157,7 +158,25 @@ describe("writeFile tool", () => {
     }) as { error: string };
 
     expect(result.error).toMatch(/already exists/);
-    expect(mockWriteFile).not.toHaveBeenCalled();
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      `${WORKSPACE}/notes.md`,
+      "new content",
+      { encoding: "utf-8", flag: "wx" },
+    );
+  });
+
+  it("reports other write failures under overwrite=false as errors, not as an existing file", async () => {
+    mockWriteFile.mockRejectedValue(Object.assign(new Error("EACCES: denied"), { code: "EACCES" }));
+    const { execute } = buildTool();
+
+    const result = await execute({
+      path: "notes.md",
+      content: "x",
+      overwrite: false,
+    }) as { error: string };
+
+    expect(result.error).toMatch(/EACCES/);
+    expect(result.error).not.toMatch(/already exists/);
   });
 
   it("overwrites existing file when overwrite=true", async () => {
@@ -243,7 +262,7 @@ describe("writeFile tool", () => {
     expect(mockWriteFile).toHaveBeenCalledWith(
       `${OA_WORKSPACES_ROOT}/test-instance/conversations/inst_web_chat-1/notes.md`,
       "x",
-      "utf-8",
+      { encoding: "utf-8", flag: "w" },
     );
   });
 });

@@ -285,9 +285,6 @@ export function SkillsTab({ slug, skills, tools, onSkillsUpdate, onToolsUpdate }
 
   return (
     <div className="max-w-3xl">
-      <p className="mb-6 text-sm text-muted-foreground">
-        {t("skills.tab.description")}
-      </p>
 
       <div className="space-y-2">
         {sortedSkills.map(renderSkillCard)}

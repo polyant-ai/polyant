@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { writeFile, mkdir, stat } from "fs/promises";
+import { writeFile, mkdir } from "fs/promises";
 import { dirname } from "path";
 import { errMsg } from "../../utils/error.js";
 import {
@@ -18,6 +18,10 @@ export default defineTool({
     "Parent directories are created automatically if they do not exist.\n" +
     "By default overwrites an existing file: use `overwrite: false` to reject the write if the file already exists.\n" +
     "To read the file back, use `readFile` with the same relative path.",
+  summary: {
+    "en-US": "Writes a file to the conversation's workspace.",
+    "it-IT": "Scrive un file nell'area di lavoro della conversazione.",
+  },
   category: "workspace",
   inputExamples: [
     {
@@ -75,25 +79,28 @@ export default defineTool({
           ctx.conversationId,
         );
 
-        // Check overwrite protection before doing any filesystem work
         const canOverwrite = overwrite !== false; // default: true
-        if (!canOverwrite) {
-          try {
-            await stat(resolvedPath);
-            // File exists and overwrite is disabled
-            return {
-              error: `File "${path}" already exists. Use \`overwrite: true\` to overwrite it.`,
-            };
-          } catch {
-            // stat failed → file does not exist, we can proceed
-          }
-        }
 
         // Ensure workspace root exists and create any parent directories for nested paths
         await ensureWorkspaceDir(ctx.instanceId, ctx.conversationId);
         await mkdir(dirname(resolvedPath), { recursive: true });
 
-        await writeFile(resolvedPath, content, "utf-8");
+        // Exclusive create ("wx") when overwriting is off: the existence check and
+        // the write are one atomic operation, so a file created in between (or a
+        // symlink planted at the path) is refused instead of overwritten.
+        try {
+          await writeFile(resolvedPath, content, {
+            encoding: "utf-8",
+            flag: canOverwrite ? "w" : "wx",
+          });
+        } catch (writeErr) {
+          if ((writeErr as NodeJS.ErrnoException).code === "EEXIST") {
+            return {
+              error: `File "${path}" already exists. Use \`overwrite: true\` to overwrite it.`,
+            };
+          }
+          throw writeErr;
+        }
 
         const sizeBytes = Buffer.byteLength(content, "utf-8");
 

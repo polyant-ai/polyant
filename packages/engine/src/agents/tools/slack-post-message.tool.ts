@@ -13,14 +13,22 @@ export default defineTool({
     "The `channel` parameter accepts: channel name with '#' (e.g. '#introductions'), channel ID (e.g. 'C01ABCDEF'), or user ID (e.g. 'U01XYZ123') for a DM.\n" +
     "Returns a send confirmation, or an error if the Slack channel is not configured for this instance or the Slack API rejects the call.\n" +
     "Caveat: requires the `slack` channel to be enabled on the instance (`instance_channels`). Text supports Slack mrkdwn syntax (e.g. *bold*, _italic_, <url|label>).",
+  summary: {
+    "en-US": "Posts a message to Slack through the agent's Slack channel.",
+    "it-IT": "Pubblica un messaggio su Slack tramite il canale Slack dell'agente.",
+  },
   category: "messaging",
   requiredSecrets: [
     {
       key: "slack_allowed_channels",
       type: "text",
-      label: "Slack allowed channels (allowlist)",
-      description:
-        "Optional comma-separated list of allowed destinations (e.g. '#introductions,C01ABCDEF,U01XYZ123'). If set, the tool will refuse to post to any channel/user not in the list (case-insensitive exact match). Leave empty to allow any destination.",
+      label: { "en-US": "Slack allowed channels (allowlist)", "it-IT": "Canali Slack consentiti (allowlist)" },
+      description: {
+        "en-US":
+          "Optional comma-separated list of allowed destinations (e.g. '#introductions,C01ABCDEF,U01XYZ123'). If set, the tool will refuse to post to any channel/user not in the list (case-insensitive exact match). Leave empty to allow any destination.",
+        "it-IT":
+          "Elenco facoltativo di destinazioni ammesse, separate da virgola (es. '#introductions,C01ABCDEF,U01XYZ123'). Se impostato, lo strumento rifiuta di pubblicare su canali o utenti fuori elenco (confronto esatto, senza distinguere maiuscole). Lascialo vuoto per ammettere qualsiasi destinazione.",
+      },
       optional: true,
     },
   ],

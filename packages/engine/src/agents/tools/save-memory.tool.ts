@@ -16,6 +16,10 @@ export default defineTool({
     "DO NOT use to search memories — use searchMemory.\n" +
     "Returns a save confirmation with the memory ID.\n" +
     "Caveat: similar memories (>90% similarity) are deduplicated automatically and updated rather than duplicated.",
+  summary: {
+    "en-US": "Saves a fact to the agent's long-term memory.",
+    "it-IT": "Salva un'informazione nella memoria a lungo termine dell'agente.",
+  },
   category: "memory",
   parameters: z.object({
     content: z.string().describe("The information to remember"),

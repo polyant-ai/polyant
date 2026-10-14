@@ -41,6 +41,52 @@ function languageCodeFor(hint?: string): LanguageCode | undefined {
   return map[h] ?? undefined;
 }
 
+const OPUS_GRANULE_RATE_HZ = 48_000;
+
+/**
+ * Duration of an Ogg/Opus stream from its container: the granule position of the
+ * last page counts 48 kHz samples, minus the pre-skip declared in OpusHead.
+ */
+function oggOpusDurationSec(buf: Buffer): number | undefined {
+  const last = buf.lastIndexOf("OggS");
+  if (last < 0 || last + 14 > buf.length || buf[last + 4] !== 0) return undefined;
+  const granule = Number(buf.readBigInt64LE(last + 6));
+  if (granule <= 0) return undefined;
+  const head = buf.indexOf("OpusHead");
+  const preSkip = head >= 0 && head + 12 <= buf.length ? buf.readUInt16LE(head + 10) : 0;
+  return Math.max(0, granule - preSkip) / OPUS_GRANULE_RATE_HZ;
+}
+
+/** Duration of a FLAC stream from STREAMINFO (sample rate and total samples). */
+function flacDurationSec(buf: Buffer): number | undefined {
+  // "fLaC" + 4-byte block header, then STREAMINFO; rate/channels/bps/total at offset 18.
+  if (buf.length < 26 || buf.toString("latin1", 0, 4) !== "fLaC") return undefined;
+  const sampleRate = (buf[18] << 12) | (buf[19] << 4) | (buf[20] >> 4);
+  const totalSamples = (buf[21] & 0x0f) * 2 ** 32 + buf.readUInt32BE(22);
+  if (sampleRate === 0 || totalSamples === 0) return undefined;
+  return totalSamples / sampleRate;
+}
+
+/** Duration of the 16-bit mono PCM this adapter declares to Transcribe (WAV header excluded). */
+function pcmDurationSec(buf: Buffer): number {
+  const isWav = buf.length >= 12 && buf.toString("latin1", 0, 4) === "RIFF" && buf.toString("latin1", 8, 12) === "WAVE";
+  const dataBytes = Math.max(0, buf.length - (isWav ? 44 : 0));
+  return dataBytes / (2 * SAMPLE_RATE_HZ);
+}
+
+/**
+ * The audio duration sent to Transcribe, which is what it bills. Read from the
+ * container we stream; undefined when the container does not declare it.
+ */
+export function measureAudioDurationSec(
+  buf: Buffer,
+  encoding: "ogg-opus" | "pcm" | "flac",
+): number | undefined {
+  if (encoding === "ogg-opus") return oggOpusDurationSec(buf);
+  if (encoding === "flac") return flacDurationSec(buf);
+  return pcmDurationSec(buf);
+}
+
 async function* chunkAudio(buffer: Buffer): AsyncIterable<AudioStream> {
   for (let i = 0; i < buffer.length; i += CHUNK_SIZE) {
     yield { AudioEvent: { AudioChunk: buffer.subarray(i, i + CHUNK_SIZE) } };
@@ -84,11 +130,13 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
 
   let finalText = "";
   let detectedLanguage: string | undefined;
+  let lastEndTimeSec = 0;
 
   try {
     for await (const event of response.TranscriptResultStream ?? []) {
       const results = event.TranscriptEvent?.Transcript?.Results ?? [];
       for (const r of results) {
+        if (typeof r.EndTime === "number") lastEndTimeSec = Math.max(lastEndTimeSec, r.EndTime);
         if (r.IsPartial) continue;
         const alt = r.Alternatives?.[0]?.Transcript;
         if (alt) finalText += (finalText ? " " : "") + alt;
@@ -102,6 +150,9 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
   return {
     text: finalText.trim(),
     language: detectedLanguage,
+    // Transcribe returns no billed duration. The container is authoritative for the
+    // audio we streamed; result end times only cover speech, so they are a floor.
+    durationSec: measureAudioDurationSec(req.audio, encoding) ?? (lastEndTimeSec || undefined),
     provider: "aws",
     model: "transcribe-streaming",
     latencyMs: Date.now() - start,

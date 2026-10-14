@@ -15,7 +15,7 @@ import {
   Settings,
   Activity,
   Users,
-  Info,
+  KeyRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -24,9 +24,6 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { NavMain, type NavItem } from "@/components/layout/nav-main";
@@ -40,9 +37,7 @@ import {
 import { cn } from "@/lib/utils";
 import { NavUser, type NavUserProps } from "@/components/layout/nav-user";
 import { useI18n } from "@/lib/i18n/context";
-import { releaseInfo } from "@/lib/release-info";
 import type { TranslationKey } from "@/lib/i18n/types";
-import Link from "next/link";
 import { navHref, resolveNavScope, type NavScope } from "@/lib/tenant/nav-href";
 import { useTenant } from "@/lib/tenant/tenant-context";
 
@@ -78,6 +73,9 @@ const overviewDefs: NavItemDef[] = [
 // refusal — visible-then-explained beats correct-for-one-role-by-accident.
 const orgManagementDefs: NavItemDef[] = [
   { titleKey: "nav.members", path: "/members", scope: "org", icon: Users },
+  // `org:write`, Owner only. Offered to every role for the same reason as
+  // Members; the page explains the refusal.
+  { titleKey: "nav.apiKeys", path: "/api-keys", scope: "org", icon: KeyRound },
 ];
 
 // Settings is platform-admin-only: it hosts both general system settings and the
@@ -145,6 +143,7 @@ export function AppSidebar(
         url: navHref(d.scope, d.path, { orgSlug, workspaceSlug }),
         icon: d.icon,
         exact: d.exact,
+        tour: d.path.replace(/^\//, "") ? `nav-${d.path.replace(/^\//, "")}` : "nav-dashboard",
         // Deployment items need no tenancy; org/workspace items are disabled
         // until the slug their own scope requires has resolved, so a click
         // during the loading window cannot misnavigate to the dashboard.
@@ -178,7 +177,7 @@ export function AppSidebar(
         </div>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent data-tour="nav">
         {/* Keyed by destination so React remounts on a change and the CSS animation
             replays; `overflow-x-hidden` because the incoming pane starts offset and
             `SidebarContent` scrolls. */}
@@ -203,16 +202,6 @@ export function AppSidebar(
       </SidebarContent>
 
       <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip={`${releaseInfo.version} · ${t("nav.about")}`}>
-              <Link href="/about">
-                <Info />
-                <span>v{releaseInfo.version} · {t("nav.about")}</span>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
         {user && <NavUser user={user} />}
       </SidebarFooter>
 

@@ -30,6 +30,9 @@ export const MAX_CHUNKER_INPUT_LENGTH = 10 * 1024 * 1024;
  * Common abbreviations that should NOT trigger sentence splits.
  * Covers Italian titles, professional titles, and common abbreviations.
  */
+/** A letter of the word an abbreviation dot may follow. */
+const WORD_CHAR = /[a-zA-ZÀ-ÿ]/;
+
 const ABBREVIATIONS = new Set([
   "dr",
   "dott",
@@ -130,10 +133,15 @@ export function splitSentences(text: string): string[] {
 
       // Check if this dot is part of an abbreviation
       // Look back to find the word before the dot
-      const beforeDot = current.slice(0, -1); // everything before the dot
-      const wordMatch = beforeDot.match(/([a-zA-ZÀ-ÿ]+)$/);
-      if (wordMatch) {
-        const word = wordMatch[1].toLowerCase();
+      // Scan back from the dot by index in `text`, never past the start of the current
+      // sentence (`current` ends at `text[i]`). Matching a `$`-anchored regex against
+      // the growing sentence re-read it from the start at every dot, which made a long
+      // run of short dotted words quadratic.
+      const sentenceStart = i - current.length + 1;
+      let wordStart = i;
+      while (wordStart > sentenceStart && WORD_CHAR.test(text[wordStart - 1])) wordStart--;
+      if (wordStart < i) {
+        const word = text.slice(wordStart, i).toLowerCase();
         // Check if the word (or word with dots, like "sig.ra") is an abbreviation
         // Also check compound forms: the full token including any dots
         const dotSuffix = text.slice(i + 1).match(/^([a-zA-Z]+)\./);

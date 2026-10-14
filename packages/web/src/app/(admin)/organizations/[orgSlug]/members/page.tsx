@@ -163,7 +163,7 @@ export default function MembersPage() {
           </p>
         </div>
       ) : (
-        <Table className="mt-6">
+        <Table className="mt-6" data-tour="members-table">
           <TableHeader>
             <TableRow>
               <TableHead>{t("members.table.member")}</TableHead>

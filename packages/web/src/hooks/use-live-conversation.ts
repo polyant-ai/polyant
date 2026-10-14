@@ -28,6 +28,11 @@ const INBOUND_EMIT_WINDOW_MS = 5_000;
  * timestamps: the engine can emit a turn's reply after the reply is stored.
  * Without an incoming-message event (a channel that emits none, or a turn older
  * than the socket's replay), events newer than the newest stored row are kept.
+ *
+ * A user row near the arrival is not proof on its own: when a person answers
+ * within seconds, the previous turn's row sits in the same window. The turn is
+ * over when, besides that row, something was stored after it arrived (its
+ * reply), or when that row is the newest stored (a turn that stored no reply).
  */
 export function currentTurn(events: FeedEvent[], storedUserTimes: number[], newestStored: number): FeedEvent[] {
   let start = -1;
@@ -39,7 +44,8 @@ export function currentTurn(events: FeedEvent[], storedUserTimes: number[], newe
   }
   if (start === -1) return events.filter((evt) => new Date(evt.ts).getTime() > newestStored);
   const arrived = new Date(events[start].ts).getTime();
-  const stored = storedUserTimes.some((t) => t <= arrived && arrived - t <= INBOUND_EMIT_WINDOW_MS);
+  const nearby = storedUserTimes.filter((t) => t <= arrived && arrived - t <= INBOUND_EMIT_WINDOW_MS);
+  const stored = nearby.length > 0 && (newestStored >= arrived || nearby.includes(newestStored));
   return stored ? [] : events.slice(start);
 }
 

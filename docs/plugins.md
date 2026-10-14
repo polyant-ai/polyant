@@ -41,7 +41,11 @@ import { z } from "zod";
 
 export default defineTool({
   name: "webSearch",
-  description: "…",
+  description: "…",                          // read by the model: one English string
+  summary: {                                 // read by people: one text per locale
+    "en-US": "Searches the web for up-to-date information.",
+    "it-IT": "Cerca sul web informazioni aggiornate.",
+  },
   category: "research",
   requiredSecrets: ["tavily_api_key"],
   parameters: z.object({                     // STATIC — must not read ctx
@@ -55,6 +59,32 @@ export default defineTool({
 });
 ```
 
+### Text people read and text the model reads
+
+A tool has two audiences. The model reads `description`, the `parameters`
+schema and `inputExamples`: they are prompt, so they stay one English string
+and never change with the reader's language. People read `summary`, the
+sentence the agent's Tools section, the tool picker and the marketplace show
+for the tool, and the `label` and `description` of each `requiredSecrets`
+field. Each of these takes one text per canonical BCP 47 tag (`en-US`,
+`it-IT`), or a plain string that stands for every locale; the panel shows the
+reader's tag, else the same language, else English, else the first tag
+alphabetically. A tool without `summary` is shown with the first line of its
+`description`, and its full description stays one click away in the tool's
+panel, marked as the text the agent reads. A hook takes the same `summary`.
+
+`category` is an id, not text. The panel names the ids it knows in every
+locale (`crm`, `email`, `calendar`, `files`, `support`, `productivity` and the
+built-in ones, listed in `tools-tab-helpers.ts`) and shows any other id
+capitalized, so reuse a known id when one fits. `select` `choices` are stored
+values and are shown as written.
+
+The SDK validates these fields when the module loads, with the same tag
+pattern the engine uses. A `summary` or a localized label needs engine 1.3.0
+or later; declare `"engine": ">=1.3.0"` when you use one. Every core tool has
+a summary and labels in English and Italian, and
+`registered-tools.guardrail.test.ts` fails when one does not.
+
 ### Declaring parameters people can understand
 
 Every key in `requiredSecrets` is a field someone fills in the agent's Tools
@@ -63,8 +93,12 @@ section, in the panel of the tool that asks for it. Declare it as a spec with a
 
 ```ts
 requiredSecrets: [
-  { key: "tavily_api_key", type: "text", label: "Tavily API key",
-    description: "Key of the Tavily account the searches are billed to." },
+  { key: "tavily_api_key", type: "text",
+    label: { "en-US": "Tavily API key", "it-IT": "Chiave API Tavily" },
+    description: {
+      "en-US": "Key of the Tavily account the searches are billed to.",
+      "it-IT": "Chiave dell'account Tavily a cui sono addebitate le ricerche.",
+    } },
 ],
 ```
 
@@ -85,13 +119,15 @@ conversation of the same agent. Each artifact is limited to 10 MB and at most
 10 minutes; one conversation holds at most 20 handles or 25 MB that nothing has
 taken yet, and the process store at most 100 MB or 1,000 live handles. `put`
 throws when a limit is reached. Always `await` both `put` and `take`: they
-answer synchronously in process, but the SDK types them as possibly
-asynchronous because in dev mode each call is a round trip to the engine.
-Persist anything longer-lived through `fileUpload` instead.
+answer synchronously in this engine, but the SDK types them as possibly
+asynchronous, so code that awaits them keeps working wherever the store lives.
+Persist anything longer-lived through a storage tool such as the
+[extra plugin](https://github.com/polyant-ai/polyant-extra-plugin)'s
+`extra:fileUpload` instead.
 
 ### Schema rules (OpenAI strict-mode compatible — enforced by `strict-mode.test.ts`)
 - `.nullable()`, **not** `.optional()` / `.default()` (apply defaults in `execute`).
-- No `.transform()` / `.refine()` / `.preprocess()` in `parameters` — move that logic to `execute` and return `{ error }` instead of throwing (see `hubspot-contact.tool.ts`, `http-request.tool.ts`).
+- No `.transform()` / `.refine()` / `.preprocess()` in `parameters` — move that logic to `execute` and return `{ error }` instead of throwing (see `http-request.tool.ts`).
 - No `.url()`/`.email()`/`.uuid()`/`.datetime()` formats — validate strings in `execute`.
 - `z.record(z.string(), z.string())` OK; `z.record(z.unknown())` not.
 
@@ -99,8 +135,12 @@ Persist anything longer-lived through `fileUpload` instead.
 
 ```json
 {
-  "name": "acme-tools", "version": "1.0.0", "engine": ">=0.1.0", "toolsDir": "tools", "namespace": "acme",
-  "displayName": "Acme", "description": "Order status and returns from the Acme back office."
+  "name": "acme-tools", "version": "1.0.0", "engine": ">=1.3.0", "toolsDir": "tools", "namespace": "acme",
+  "displayName": { "en-US": "Acme", "it-IT": "Acme" },
+  "description": {
+    "en-US": "Order status and returns from the Acme back office.",
+    "it-IT": "Stato degli ordini e resi dal gestionale Acme."
+  }
 }
 ```
 
@@ -108,7 +148,13 @@ Persist anything longer-lived through `fileUpload` instead.
 `name`. `displayName` and `description` are optional and only change how the
 admin panel presents the plugin: its name in the Origin column and in the tool
 picker, and its sentence when the picker is browsed by plugin. Without them the
-panel humanizes the namespace. Tools are still enabled one by one; the plugin
+panel humanizes the namespace. Each is either one text per locale, keyed by a
+canonical BCP 47 tag (`en-US`, `it-IT`, `pt-BR`), or a plain string that stands
+for every locale. The panel shows the reader's tag, else the same language,
+else English, else the first tag alphabetically, so write at least `en-US`.
+A locale map needs engine 1.3.0 or later: declare `"engine": ">=1.3.0"` when you
+use one, because an older engine rejects the manifest and skips the plugin.
+Tool descriptions are read by the model and stay one string. Tools are still enabled one by one; the plugin
 is never switched as a whole. A plugin whose `engine` range excludes the running engine version is
 skipped with a warning (the deployment continues). Duplicate final names fail the
 boot loudly.
@@ -213,7 +259,7 @@ engine's tree. The same stage collects the `system` blocks described above.
 
 Both the engine and every plugin reference the SDK by pinned tag:
 ```
-"@polyant-ai/plugin-sdk": "git+https://github.com/polyant-ai/polyant-sdk.git#v1.0.0"
+"@polyant-ai/plugin-sdk": "github:polyant-ai/polyant-sdk#v1.9.0"
 ```
 `npm install` clones it and runs its `prepare` (build) → `dist`. The SDK's version
 is the compatibility contract; bump it deliberately and update the ref.

@@ -24,7 +24,7 @@ import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { releaseFacts, isValidReleaseVersion } from "./release-facts.mjs";
+import { isValidReleaseVersion } from "./release-facts.mjs";
 
 const run = promisify(execFile);
 
@@ -58,16 +58,15 @@ export function describeVersionDrift(hereVersion, releaseBranchVersion) {
 /**
  * The most recent tag that names a release OF THIS BUILD.
  *
- * Not simply the first of `git tag --sort=-version:refname`: one object store
- * can hold both products' tags (a worktree of one repository checked out from
- * the other's remote is the ordinary case here), and `v1.0.2-ee` sorts above
- * `v1.0.2`. Ranging the changelog against a release this build never cut is a
- * silent wrong answer, so the suffix rule decides membership.
+ * Not simply the first of `git tag --sort=-version:refname`: a tag carrying a
+ * suffix (a prerelease, or a tag fetched from another remote) can sort above
+ * the release it follows. Ranging the changelog against a release this
+ * repository never cut is a silent wrong answer, so only plain SemVer tags count.
  */
-export function selectPreviousReleaseTag(tags, facts = releaseFacts) {
+export function selectPreviousReleaseTag(tags) {
   const mine = tags
     .filter((tag) => tag.startsWith("v"))
-    .filter((tag) => isValidReleaseVersion(tag.slice(1), facts));
+    .filter((tag) => isValidReleaseVersion(tag.slice(1)));
   return mine[0] ?? null;
 }
 
@@ -75,8 +74,8 @@ export function selectPreviousReleaseTag(tags, facts = releaseFacts) {
  * Drop the candidates whose subject already appears on this branch.
  *
  * Patch-id equality is what `git cherry` compares, and a commit that was
- * cherry-picked — or adapted on arrival, which is how ports between these two
- * builds actually happen — arrives with a different patch id and is reported as
+ * cherry-picked — or adapted on arrival, which is how a port between branches
+ * often happens — arrives with a different patch id and is reported as
  * missing. The subject survives both. It is a weaker signal, so this narrows the
  * list to read rather than deciding anything: what is left still has to be
  * verified by file.

@@ -160,7 +160,12 @@ describe("InstancesController", () => {
   let controller: InstancesController;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    // Reset, not clear: a test that stubs a wipe-worthy embedding switch or
+    // queues a `…Once` must not decide what the next test sees.
+    vi.resetAllMocks();
+    mockEmbeddingProviderChanged.mockReturnValue(false);
+    mockCountMemories.mockResolvedValue(0);
+    mockCountDocuments.mockResolvedValue(0);
     controller = new InstancesController();
   });
 

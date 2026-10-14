@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
 const mockMkdir = vi.hoisted(() => vi.fn());
 // realpath is mocked as identity for the non-symlink test suites below — the
 // realpath-based symlink defense is tested against real fs in
 // workspace-utils.symlink.test.ts using fs.symlinkSync in a tmpdir.
 const mockRealpath = vi.hoisted(() => vi.fn(async (p: string) => p));
-
-import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("node:fs/promises", () => ({
   mkdir: mockMkdir,

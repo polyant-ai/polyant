@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
 # Create a minimal package.json for web to satisfy workspace resolution
-RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.2.0","private":true}' > packages/web/package.json
+RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.3.1","private":true}' > packages/web/package.json
 RUN npm ci --workspace=@polyant/engine --include-workspace-root
 # Ensure workspace node_modules dir exists (even if empty) for COPY
 RUN mkdir -p packages/engine/node_modules
@@ -22,7 +22,7 @@ FROM node:24-alpine AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/engine/package.json packages/engine/
-RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.2.0","private":true}' > packages/web/package.json
+RUN mkdir -p packages/web && echo '{"name":"@polyant/web","version":"1.3.1","private":true}' > packages/web/package.json
 RUN npm ci --omit=dev --workspace=@polyant/engine --include-workspace-root
 RUN mkdir -p packages/engine/node_modules
 
@@ -70,7 +70,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/packages/engine/node_modules ./packages/engine/node_modules
 COPY package.json package-lock.json ./
 COPY packages/engine/ packages/engine/
-# Use tsconfig.build.json to exclude test files from compilation
+# Use tsconfig.build.json to exclude test files from compilation; the script also
+# copies the migration SQL next to the compiled migrate.js (dist/database/migrations).
 RUN npm run build:docker -w @polyant/engine
 
 # ── Stage 3: Runtime ───────────────────────────────────────────
@@ -108,16 +109,23 @@ COPY --from=plugins /build/plugins/ ./packages/engine/dist/plugins/
 COPY packages/engine/package.json packages/engine/
 COPY package.json ./
 
-# Copy migration SQL next to the COMPILED migrate.js. The entrypoint runs
-# dist/database/migrate.js (not the src .ts via tsx), so config.js and all its
-# transitive imports resolve from dist/ — src is not shipped in the runtime image.
-# migrate.js reads migrationsFolder = resolve(__dirname, "migrations"), i.e.
-# packages/engine/dist/database/migrations.
-COPY packages/engine/src/database/migrations packages/engine/dist/database/migrations
-
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# Run as the image's unprivileged `node` user. The engine writes to two places
+# under /app, both created here and owned by it: the file logger's logs/ and the
+# per-conversation workspaces of writeFile and friends. Everything else it
+# writes goes to /tmp or $HOME (/home/node), already writable. The code and the
+# plugins stay root-owned, so the process cannot rewrite what it runs.
+RUN mkdir -p /app/logs /app/packages/engine/workspaces && \
+    chown node:node /app/logs /app/packages/engine/workspaces
+USER node
+
 EXPOSE 4000
+
+# /health answers once migrations have run and the HTTP server listens; the
+# start period covers the migrations the entrypoint runs first.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD wget -q --spider "http://127.0.0.1:${API_PORT:-4000}/health" || exit 1
 
 ENTRYPOINT ["docker-entrypoint.sh"]

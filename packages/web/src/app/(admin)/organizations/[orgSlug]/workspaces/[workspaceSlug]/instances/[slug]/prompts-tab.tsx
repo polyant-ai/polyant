@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { Chip } from "@/components/ui/chip";
 import { api, getUserErrorMessage, type PromptSection } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
@@ -138,17 +138,12 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
           const active = activeKey === prompt.key;
           const dirty = dirtyKeys.has(prompt.key);
           return (
-            <button
+            <Chip
               key={prompt.key}
-              type="button"
+              active={active}
+              size="sm"
               onClick={() => scrollTo(prompt.key)}
               aria-current={active ? "true" : undefined}
-              className={cn(
-                "flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm transition-colors",
-                active
-                  ? "border-foreground bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-              )}
             >
               <Icon className="h-4 w-4 shrink-0" />
               <span className="truncate">{prompt.title}</span>
@@ -158,7 +153,7 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
                   className="size-1.5 shrink-0 rounded-full bg-accent"
                 />
               )}
-            </button>
+            </Chip>
           );
         })}
       </nav>
@@ -167,7 +162,6 @@ export function PromptsTab({ slug, prompts, onUpdate }: Props) {
       {/* No max-width and no flex column: the section rail became a row of
           anchors above, so the editors take the full page width. */}
       <div className="min-w-0">
-        <p className="mb-6 text-sm text-muted-foreground">{t("prompts.description")}</p>
         <div className="space-y-10">
           {prompts.map((prompt) => {
             const Icon = PROMPT_ICONS[prompt.key] ?? Sparkles;

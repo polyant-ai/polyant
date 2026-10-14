@@ -8,10 +8,11 @@ vi.mock("../database/client.js", () => ({ db: {}, analyticsDb: {} }));
 const { overviewFromRows } = await import("./analytics.store.js");
 
 describe("overviewFromRows", () => {
-  it("reads an empty tenant as zeros", () => {
+  it("reads an empty tenant as zeros, with no trend to show", () => {
     const o = overviewFromRows(undefined, undefined, undefined, undefined);
     expect(o).toMatchObject({ totalCost: 0, totalConversations: 0, totalMessages: 0, avgCostPerConversation: 0 });
-    expect(o.trends).toEqual({ cost: 0, conversations: 0, messages: 0, responseTime: 0 });
+    // Nothing in the previous period either: no comparison, not "0%".
+    expect(o.trends).toEqual({ cost: null, conversations: null, messages: null, responseTime: null });
   });
 
   it("derives averages and trends from the current and previous period", () => {

@@ -14,7 +14,7 @@
  * Self-skips without one; CI_REQUIRE_DB makes an absent database a failure there.
  */
 
-import { resolveDatabaseAvailability } from "../database/test-db.js";
+import { resolveDatabaseAvailability, lockToolsTable } from "../database/test-db.js";
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { queryClient } from "../database/client.js";
 
@@ -50,7 +50,9 @@ async function teardown(): Promise<void> {
   await queryClient`DELETE FROM instances WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM workspaces WHERE slug LIKE ${MARKER + "%"}`;
   await queryClient`DELETE FROM organizations WHERE slug LIKE ${MARKER + "%"}`;
-  await queryClient`DELETE FROM tools WHERE description = ${MARKER}`;
+  // The default tool rows stay. They are the catalog a booted engine has, and
+  // other suites creating agents in parallel (export-import) seed from the
+  // same rows: deleting them here broke their inserts on the foreign key.
 }
 
 async function setup(): Promise<void> {
@@ -73,6 +75,15 @@ async function setup(): Promise<void> {
 }
 
 describe.skipIf(!DB_AVAILABLE)("createInstanceWithDefaults (integration)", () => {
+  // Serialized with any suite that prunes namespaced tool rows (`database/test-db.ts`).
+  let releaseToolsLock: () => Promise<void> = async () => {};
+  beforeAll(async () => {
+    releaseToolsLock = await lockToolsTable("shared");
+  });
+  afterAll(async () => {
+    await releaseToolsLock();
+  });
+
   beforeAll(async () => {
     await teardown();
     await setup();

@@ -575,6 +575,55 @@
       "when": 1790929000001,
       "tag": "0088_attachment_storage_opt_in",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1791381125212,
+      "tag": "0089_rename_extracted_tools_file_upload",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1791794360000,
+      "tag": "0090_new_agents_require_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1791880000000,
+      "tag": "0091_web_channel",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1791970000000,
+      "tag": "0092_playground_use",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792050000000,
+      "tag": "0093_user_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792060000000,
+      "tag": "0094_mcp_shared_account",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1792130000000,
+      "tag": "0095_hook_action_type_default",
+      "breakpoints": true
     }
   ]
 }

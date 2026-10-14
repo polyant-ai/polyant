@@ -13,6 +13,10 @@ export default defineTool({
     "Use to answer questions about services, procedures, costs, FAQs, and any information that may be in the documents.\n" +
     "Do NOT use to look up personal facts, past conversations, or live web information.\n" +
     "Search is semantic. Rephrase the query if initial results are not relevant.",
+  summary: {
+    "en-US": "Searches the agent's knowledge base.",
+    "it-IT": "Cerca nella base di conoscenza dell'agente.",
+  },
   category: "knowledge",
   parameters: z.object({
     query: z.string().describe("What to search for in the knowledge base"),

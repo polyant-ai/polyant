@@ -15,6 +15,10 @@ export default defineTool({
     "Do NOT use to search documents — use `searchKnowledge` instead.\n" +
     "Returns content, type (fact/conversation), relevance score, and date for each result.\n" +
     "Caveat: uses hybrid search (semantic + keyword). More specific queries yield better results.",
+  summary: {
+    "en-US": "Searches long-term memory and past conversations.",
+    "it-IT": "Cerca nella memoria a lungo termine e nelle conversazioni passate.",
+  },
   category: "memory",
   parameters: z.object({
     query: z.string().describe("What to search for in memory"),

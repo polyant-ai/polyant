@@ -8,10 +8,9 @@
  * adjacent vertical lists at the same visual weight read as one two-level tree cut
  * in half — neither can say "you are here", so both try to.
  *
- * There is one destination here: an agent. (The Enterprise panel has three — it
- * also has a Settings surface and an Admin Console to put behind them. The
- * mechanism is deliberately the same shape in both, so a section moving between
- * editions moves as data, not as a rewrite.)
+ * There is one destination here: an agent. (A panel with more surfaces, such as
+ * settings or an admin console, adds them as further destinations: the mechanism
+ * is data, so a new destination is a row, not a rewrite.)
  */
 
 import type { LucideIcon } from "lucide-react";

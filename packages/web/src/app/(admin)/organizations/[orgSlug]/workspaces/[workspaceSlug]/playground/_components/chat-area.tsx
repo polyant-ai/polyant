@@ -3,11 +3,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, MessageSquareCode, KeyRound, Eye, EyeOff, Database } from "lucide-react";
+import { Plus, MessageSquareCode, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 
 import {
   Tooltip,
@@ -24,6 +23,8 @@ import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-s
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
 import { useI18n } from "@/lib/i18n/context";
 import { useDetailedView } from "@/hooks/use-detailed-view";
+import { useFollowBottom } from "@/hooks/use-follow-bottom";
+import { JumpToLatest } from "@/components/messages/jump-to-latest";
 import type { ChatMessage } from "../_hooks/use-chat";
 import type { ConversationListItem, HookExecution } from "@/lib/api";
 
@@ -36,8 +37,6 @@ interface ChatAreaProps {
   conversations: ConversationListItem[];
   conversationsLoading: boolean;
   activeConversationId: string | null;
-  authToken: string;
-  onAuthTokenChange: (token: string) => void;
   onSend: (text: string) => void;
   onStop: () => void;
   onInstanceChange: (slug: string) => void;
@@ -54,8 +53,6 @@ export function ChatArea({
   conversations,
   conversationsLoading,
   activeConversationId,
-  authToken,
-  onAuthTokenChange,
   onSend,
   onStop,
   onInstanceChange,
@@ -63,9 +60,7 @@ export function ChatArea({
   onSelectConversation,
 }: ChatAreaProps) {
   const { t, locale } = useI18n();
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const [showKeyInput, setShowKeyInput] = useState(false);
-  const [showKeyValue, setShowKeyValue] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [debugTarget, setDebugTarget] = useState<DebugSheetTarget | null>(null);
   const [stateOpen, setStateOpen] = useState(false);
   const [showActivity, setShowActivity] = useDetailedView();
@@ -81,15 +76,21 @@ export function ChatArea({
     return items.sort((a, b) => a.ts - b.ts);
   }, [messages, historicalHookExecutions]);
 
-  // Auto-scroll to bottom on new messages or streaming updates
+  // Follow the conversation as it grows, gliding while a reply streams in,
+  // unless the reader has scrolled up to read something older.
+  const { following, jumpToBottom } = useFollowBottom(scrollRef, true, timeline, { smooth: isStreaming });
+  // Another conversation, or a new message of one's own, starts at the bottom
+  // whatever was being read before.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({
-      behavior: isStreaming ? "smooth" : "instant",
-    });
-  }, [messages, isStreaming]);
+    jumpToBottom();
+  }, [activeConversationId, jumpToBottom]);
+  const send = (text: string) => {
+    jumpToBottom();
+    onSend(text);
+  };
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex flex-1 flex-col" data-tour="chat-box">
       {/* Header with instance selector + actions */}
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         <InstanceSelector
@@ -98,46 +99,11 @@ export function ChatArea({
           disabled={isStreaming}
         />
 
-        {/* Auth token inline input */}
-        {showKeyInput && (
-          <div className="relative flex-1 max-w-xs">
-            <Input
-              type={showKeyValue ? "text" : "password"}
-              value={authToken}
-              onChange={(e) => onAuthTokenChange(e.target.value)}
-              placeholder={t("playground.authKeyPlaceholder")}
-              className="h-8 pr-8 text-xs"
-            />
-            <button
-              type="button"
-              onClick={() => setShowKeyValue(!showKeyValue)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            >
-              {showKeyValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            </button>
-          </div>
-        )}
-
         <div className="ml-auto flex items-center gap-2">
           <Label htmlFor="playground-activity" className="mr-2 flex items-center gap-2 text-sm font-normal text-muted-foreground">
             <Switch id="playground-activity" checked={showActivity} onCheckedChange={setShowActivity} />
             {t("conversations.detail.detailedToggle")}
           </Label>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={authToken ? "default" : "ghost"}
-                size="icon"
-                className="size-8"
-                onClick={() => setShowKeyInput(!showKeyInput)}
-              >
-                <KeyRound className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {t("playground.authKeyToggle")}
-            </TooltipContent>
-          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -166,7 +132,7 @@ export function ChatArea({
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="flex h-full min-h-[400px] flex-col items-center justify-center text-center">
             <MessageSquareCode className="size-12 text-muted-foreground/30" />
@@ -210,9 +176,9 @@ export function ChatArea({
                 />
               );
             })}
-            <div ref={bottomRef} />
           </div>
         )}
+        {!following && <JumpToLatest onClick={jumpToBottom} />}
       </div>
 
       {/* Error */}
@@ -224,7 +190,7 @@ export function ChatArea({
 
       {/* Input */}
       <ChatInput
-        onSend={onSend}
+        onSend={send}
         onStop={onStop}
         isStreaming={isStreaming}
         disabled={!instanceSlug}

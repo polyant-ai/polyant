@@ -1,18 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { Controller, Get, Put, Delete, Post, Param, Body, BadRequestException } from "@nestjs/common";
+import { Controller, Get, Put, Delete, Post, Param, Body, BadRequestException, NotFoundException } from "@nestjs/common";
+import { auth } from "@ai-sdk/mcp";
 import { z } from "zod";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator.js";
 import type { AuthenticatedUser } from "../../auth/auth.types.js";
 import { asInstanceUuid } from "../../instances/identifiers.js";
 import { findInstanceOrFail } from "./instance-helpers.js";
-import { maskMcpConfig, mergeMaskedMcpSecrets } from "./mcp-config-mask.js";
+import { maskMcpConfig, McpSecretOriginChangedError, restoreMcpSecretsForUrl } from "./mcp-config-mask.js";
 import {
   setMcpServer,
   getMcpServer,
   listMcpServers,
   deleteMcpServer,
+  clearMcpSharedTokens,
+  usesSharedAccount,
   MCP_AUTH_MODES,
   mcpServerConfigSchema,
 } from "../../instances/mcp-servers.store.js";
@@ -24,6 +27,10 @@ import {
 } from "../../management-audit/management-audit-logger.js";
 import { testMcpConnection } from "../../agents/tools/mcp/mcp-test.js";
 import { assertSafeMcpUrl } from "../../agents/tools/mcp/mcp-url-guard.js";
+import { McpSharedOAuthProvider } from "../../agents/tools/mcp/mcp-shared-oauth-provider.js";
+import { resolvePlatformSettings } from "../../platform/platform-settings.store.js";
+import { mcpLog } from "../../agents/tools/mcp/mcp-logger.js";
+import { errMsg } from "../../utils/error.js";
 
 const setBodySchema = z.object({
   name: z.string().min(1).max(100),
@@ -40,6 +47,18 @@ const setBodySchema = z.object({
 const testBodySchema = setBodySchema.extend({
   slug: z.string().optional(),
 });
+
+/** Restore masked secrets for the same server, or answer 400 when its address moved elsewhere. */
+function restoreSecretsOrRefuse(
+  ...args: Parameters<typeof restoreMcpSecretsForUrl>
+): Record<string, unknown> {
+  try {
+    return restoreMcpSecretsForUrl(...args);
+  } catch (err) {
+    if (err instanceof McpSecretOriginChangedError) throw new BadRequestException(err.message);
+    throw err;
+  }
+}
 
 @Controller("api/instances")
 export class McpServersController {
@@ -75,11 +94,7 @@ export class McpServersController {
     // client re-submitting the masked GET response doesn't overwrite the
     // real secret (nested paths — see mcp-config-mask.ts).
     const existing = await getMcpServer(asInstanceUuid(inst.id), serverSlug);
-    const effective = mergeMaskedMcpSecrets(
-      parsed.data.authMode,
-      parsed.data.config,
-      existing?.config as Record<string, unknown> | undefined,
-    );
+    const effective = restoreSecretsOrRefuse(parsed.data.authMode, parsed.data.config, existing, parsed.data.url);
     try {
       mcpServerConfigSchema(parsed.data.authMode, effective); // validate the effective config
     } catch (err) {
@@ -145,16 +160,74 @@ export class McpServersController {
     // the candidate identifies an existing server (`slug` present) — a
     // brand-new/unsaved server has nothing to restore from.
     const existing = parsed.data.slug ? await getMcpServer(asInstanceUuid(inst.id), parsed.data.slug) : undefined;
-    const effective = mergeMaskedMcpSecrets(
-      parsed.data.authMode,
-      parsed.data.config,
-      existing?.config as Record<string, unknown> | undefined,
-    );
+    const effective = restoreSecretsOrRefuse(parsed.data.authMode, parsed.data.config, existing, parsed.data.url);
 
     return testMcpConnection({
       url: parsed.data.url,
       authMode: parsed.data.authMode,
       config: effective,
     });
+  }
+
+  /**
+   * Start connecting the agent's shared account: the answer is the provider's
+   * authorize URL, which the panel opens for the admin. Nothing is connected
+   * until the provider redirects to `/mcp/oauth/callback`, which stores the
+   * tokens and writes the audit row; this route only leaves a short-lived
+   * state row behind.
+   */
+  @RequirePermission(Permission.CHANNEL_WRITE)
+  @Post(":slug/mcp-servers/:serverSlug/shared-account")
+  async connectShared(
+    @Param("slug") slug: string,
+    @Param("serverSlug") serverSlug: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ): Promise<{ authorizeUrl: string }> {
+    const inst = await findInstanceOrFail(slug);
+    const server = await getMcpServer(asInstanceUuid(inst.id), serverSlug);
+    if (!server) throw new NotFoundException(`MCP server "${serverSlug}" not found`);
+    if (!usesSharedAccount(server.authMode, server.config)) {
+      throw new BadRequestException("This MCP server does not use a shared account");
+    }
+    const provider = new McpSharedOAuthProvider({
+      baseUrl: (await resolvePlatformSettings()).baseUrl,
+      instanceUuid: asInstanceUuid(inst.id),
+      instanceSlug: inst.slug,
+      serverSlug,
+      config: server.config,
+      mode: { kind: "authorize", actorUserId: user?.userId ?? null },
+    });
+    try {
+      await auth(provider, { serverUrl: server.url });
+    } catch (err) {
+      mcpLog.warn("mcp", `shared-account authorization for server '${serverSlug}' could not start: ${errMsg(err)}`);
+      throw new BadRequestException("The MCP server did not offer an OAuth authorization");
+    }
+    if (!provider.pendingAuthorizeUrl) {
+      throw new BadRequestException("The MCP server did not offer an OAuth authorization");
+    }
+    return { authorizeUrl: provider.pendingAuthorizeUrl };
+  }
+
+  /** Forget the agent's shared account. */
+  @RequirePermission(Permission.CHANNEL_WRITE)
+  @Delete(":slug/mcp-servers/:serverSlug/shared-account")
+  async disconnectShared(
+    @Param("slug") slug: string,
+    @Param("serverSlug") serverSlug: string,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    const inst = await findInstanceOrFail(slug);
+    const cleared = await clearMcpSharedTokens(asInstanceUuid(inst.id), serverSlug);
+    if (cleared) {
+      this.auditLogger.log({
+        action: ManagementAuditAction.McpServerSharedDisconnect,
+        actor: toManagementAuditActor(user),
+        targetType: ManagementAuditTarget.McpServer,
+        targetId: serverSlug,
+        metadata: { instanceSlug: slug },
+      });
+    }
+    return { disconnected: cleared };
   }
 }

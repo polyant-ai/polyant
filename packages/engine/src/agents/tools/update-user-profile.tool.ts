@@ -11,6 +11,10 @@ export default createPromptUpdaterTool({
     "Do NOT use to save facts unrelated to the user profile — use saveMemory.\n" +
     "Returns an update confirmation. The change is permanent (updates the user profile section).\n" +
     "Caveat: pass a clear, concise instruction. Previous information is not deleted — only integrated or updated if contradicted.",
+  summary: {
+    "en-US": "Updates what the agent knows about the user.",
+    "it-IT": "Aggiorna ciò che l'agente sa dell'utente.",
+  },
   sectionId: "07-user-identity",
   displayName: "User Identity",
   defaultContent: "# User\n\nNo information available about the user.\n",

@@ -31,7 +31,7 @@ import { resetInboundDedupe } from "../../inbound-dedupe.js";
 const URL = "https://engine.test/webhooks/telegram/shop";
 
 async function startedAdapter(url = URL): Promise<TelegramAdapter> {
-  const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture" }, url);
+  const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture", webhookSecret: "channel-secret" }, url);
   await adapter.initialize(vi.fn());
   return adapter;
 }
@@ -61,23 +61,26 @@ describe("Telegram webhook registration", () => {
     expect(setWebhook).toHaveBeenCalledWith(URL, expect.objectContaining({ allowed_updates: ["message"] }));
   });
 
-  it("re-registers a URL Telegram already holds, so a rotated token's secret takes effect", async () => {
-    // Telegram never returns the secret it holds. Skipping setWebhook because
-    // the URL matched left it sending the old token's secret after a rotation,
-    // and every update was refused from then on.
+  it("re-registers a URL Telegram already holds, with the channel's stored secret", async () => {
+    // Telegram never returns the secret it holds, so a channel whose secret was
+    // just minted only takes effect through a fresh setWebhook.
     getWebhookInfo.mockResolvedValue({ url: URL, allowed_updates: ["message"] });
-    const before = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "old-token" }, URL);
-    await before.initialize(vi.fn());
+    const adapter = new TelegramAdapter(
+      asInstanceSlug("shop"),
+      { botToken: "fixture", webhookSecret: "minted-for-this-channel" },
+      URL,
+    );
+    await adapter.initialize(vi.fn());
     await vi.waitFor(() => expect(setWebhook).toHaveBeenCalledTimes(1));
-    await before.shutdown();
 
-    const after = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "rotated-token" }, URL);
-    await after.initialize(vi.fn());
-    await vi.waitFor(() => expect(setWebhook).toHaveBeenCalledTimes(2));
+    expect(setWebhook.mock.calls[0]![1].secret_token).toBe("minted-for-this-channel");
+  });
 
-    const [oldSecret, newSecret] = setWebhook.mock.calls.map(([, opts]) => opts.secret_token);
-    expect(newSecret).toBe(after.webhookSecret);
-    expect(newSecret).not.toBe(oldSecret);
+  it("does not derive the secret from the bot token", async () => {
+    // A secret computable from the token is known to anyone who ever saw the token.
+    const adapter = new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture", webhookSecret: "random" }, URL);
+    expect(adapter.webhookSecret).toBe("random");
+    expect(() => new TelegramAdapter(asInstanceSlug("shop"), { botToken: "fixture" } as never, URL)).toThrow();
   });
 
   it("starts without registering when the base URL is plain HTTP, instead of failing the channel", async () => {

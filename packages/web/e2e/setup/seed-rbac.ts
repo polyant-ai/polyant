@@ -49,8 +49,10 @@ export async function seedRbacUsers(connectionUrl: string = TEST_DATABASE_URL): 
         await tx`DELETE FROM users WHERE email = ${user.email}`;
 
         const [row] = await tx<{ id: string }[]>`
-          INSERT INTO users (email, name, password_hash, must_change_password)
-          VALUES (${user.email}, ${user.name}, ${passwordHash}, false)
+          -- Established RBAC users have dismissed first-access guidance.
+          INSERT INTO users (email, name, password_hash, must_change_password, onboarding)
+          VALUES (${user.email}, ${user.name}, ${passwordHash}, false,
+            '{"wizard":"dismissed","interfaceTour":"dismissed","agentTour":"dismissed","steps":{}}'::jsonb)
           RETURNING id
         `;
 

@@ -43,6 +43,8 @@ export interface InstanceMeta {
   slug: string;
   name: string;
   icon: string | null;
+  /** Slug of the agent's workspace; stamped by the live endpoint so the UI can build tenant-correct links. */
+  workspaceSlug?: string;
 }
 
 export interface ToolMeta {

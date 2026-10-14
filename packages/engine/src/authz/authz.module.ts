@@ -27,7 +27,7 @@ import { PermissionGuard } from "./permission.guard.js";
  * MUST stay after AuthGuard — guaranteed by importing AuthzModule after
  * AuthModule in ServerModule.
  *
- * The strategy + entitlement bindings are factory/class providers so the EE
+ * The strategy + entitlement bindings are factory/class providers so another
  * build can swap them without a dynamic import in the hot path.
  */
 @Module({

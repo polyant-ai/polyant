@@ -6,7 +6,8 @@ import { connectWithTimeout, type McpConnection, type McpTransport } from "./mcp
 
 /**
  * Reuses MCP connections across turns, for servers whose credentials do not
- * depend on the conversation (auth mode "none" or "static").
+ * depend on the conversation (auth mode "none" or "static", or "oauth" with the
+ * agent's shared account).
  *
  * Without it every turn opened a client per server — initialize, tools/list —
  * and closed it at the end, even when the model called no MCP tool: under
@@ -21,7 +22,9 @@ import { connectWithTimeout, type McpConnection, type McpTransport } from "./mcp
  * reconnects. A dropped connection is closed only after RETIRE_GRACE_MS: a turn
  * that took it a moment earlier may still be using it.
  *
- * OAuth servers are not pooled: their tokens are bound to a conversation.
+ * Per-conversation OAuth servers are not pooled: their tokens are bound to a
+ * conversation. A shared account is, and its connection reads the tokens
+ * through its provider, so a refresh reaches it without a reconnect.
  */
 const MAX_AGE_MS = 60_000;
 const RETIRE_GRACE_MS = 5 * 60_000;

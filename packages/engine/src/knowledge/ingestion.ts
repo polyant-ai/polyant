@@ -5,6 +5,7 @@ import {
   deleteChunksByDocumentId,
   getDocument,
   insertChunksAndFinalize,
+  touchDocument,
   updateDocumentStatus,
 } from "./store.js";
 import { embedMany, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
@@ -63,6 +64,8 @@ export async function processDocument(
       const batch = chunkContents.slice(i, i + BATCH_SIZE);
       const embeddings = await embedMany(batch, ctx);
       allEmbeddings.push(...embeddings);
+      // Still alive: the stuck-document recovery fails rows nobody touches.
+      await touchDocument(docId);
     }
 
     // Build chunk records with absolute cumulative chunkIndex (array index, not per-batch)

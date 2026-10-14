@@ -8,7 +8,7 @@ import { isThinkingCapable } from "../config.js";
 export const OpenAIProvider = createProvider("openai", (modelId, apiKeys) => {
   const apiKey = apiKeys?.openai;
   if (!apiKey) {
-    throw new Error("OpenAI API key not configured for this instance. Set it in the admin panel under Settings → AI Provider API Keys.");
+    throw new Error("OpenAI API key not configured for this instance. Set it in the agent's Model section, under Conversation.");
   }
   const factory = createOpenAI({ apiKey });
 

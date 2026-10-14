@@ -13,6 +13,10 @@ export default defineTool({
     "Do NOT use for events that still need follow-up — leave them in the backlog.\n" +
     "Returns confirmation with the number of events marked as completed.\n" +
     "Caveat: requires event IDs from the backlog. Optional notes field for resolution details. Events are scoped to the current instance.",
+  summary: {
+    "en-US": "Marks backlog events in the room as completed.",
+    "it-IT": "Segna come completati gli eventi in coda nella stanza.",
+  },
   category: "room",
   harness: true,
   parameters: z.object({

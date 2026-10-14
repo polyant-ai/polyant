@@ -27,6 +27,9 @@ Run `npm run release:ecosystem -- <manifest.json>` with pinned product, SDK, CLI
 dev-kit and docs candidates; record independent versions, compatibility evidence,
 security review and performance evidence. Unchanged components need a reason.
 The report is an inventory, not proof the listed checks ran.
+Apply that section's final-range prose review, expected-check presence, consumer
+installation and publication receipts, including components whose version stays
+unchanged. First publication or a visibility change also requires its public-readiness review.
 
 For changed data, migrations or runtime requirements, verify applicable upgrade,
 recovery, deployment and distribution evidence from `docs/engineering-checkpoints.md`

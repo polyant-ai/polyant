@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi } from "vitest";
-import { parseSseEvent, dispatch } from "./stream-parser";
+import { parseSseEvent, dispatch, streamChatCompletion } from "./stream-parser";
 import type { StreamCallbacks } from "./stream-parser";
 
 function makeCallbacks(): StreamCallbacks & { calls: Array<[string, unknown[]]> } {
@@ -172,5 +172,80 @@ describe("smoke: makeCallbacks does not require real fetch", () => {
     expect(typeof cb.onError).toBe("function");
     // Suppress vi unused-import lint
     vi.fn();
+  });
+});
+
+// The panel's language reaches the parser through these: it is not a component
+// and cannot read the translations itself.
+const MESSAGES = {
+  network: "msg:network",
+  noBody: "msg:noBody",
+  streamRead: "msg:streamRead",
+  httpFailed: (status: number) => `msg:http ${status}`,
+};
+
+describe("streamChatCompletion on a failed request", () => {
+  it("tells the user the agent could not be reached, in the panel's language", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("fetch failed"); }));
+    const onError = vi.fn();
+    await streamChatCompletion(
+      { instanceSlug: "shop", messages: [], chatId: "c1", errorMessages: MESSAGES },
+      { ...makeCallbacks(), onError },
+    );
+    vi.unstubAllGlobals();
+    expect((onError.mock.calls[0]![0] as Error).message).toBe("fetch failed");
+  });
+
+  it("uses the translated text when the failure carries none", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw "offline"; }));
+    const onError = vi.fn();
+    await streamChatCompletion(
+      { instanceSlug: "shop", messages: [], chatId: "c1", errorMessages: MESSAGES },
+      { ...makeCallbacks(), onError },
+    );
+    vi.unstubAllGlobals();
+    expect((onError.mock.calls[0]![0] as Error).message).toBe("msg:network");
+  });
+});
+
+describe("streamChatCompletion on a non-2xx answer", () => {
+  const run = async (response: Response) => {
+    vi.stubGlobal("fetch", vi.fn(async () => response));
+    const onError = vi.fn();
+    await streamChatCompletion(
+      { instanceSlug: "shop", messages: [], chatId: "c1", errorMessages: MESSAGES },
+      { ...makeCallbacks(), onError },
+    );
+    vi.unstubAllGlobals();
+    return (onError.mock.calls[0]![0] as Error).message;
+  };
+
+  it("does not show the engine's raw body to the user", async () => {
+    const body = JSON.stringify({ message: "Error: boom\n    at /app/packages/engine/dist/pipeline.js:12:3" });
+    const message = await run(new Response(body, { status: 500 }));
+
+    expect(message).not.toContain("/app/packages");
+    expect(message).toContain("500");
+  });
+
+  it("shows a short, readable engine message", async () => {
+    const message = await run(new Response(JSON.stringify({ message: "Agent not found" }), { status: 404 }));
+
+    expect(message).toBe("Agent not found");
+  });
+});
+
+describe("streamChatCompletion route", () => {
+  it("calls the panel-session playground route, with no agent key or Authorization header", async () => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await streamChatCompletion(
+      { instanceSlug: "shop", messages: [], chatId: "c1", errorMessages: MESSAGES },
+      makeCallbacks(),
+    );
+    vi.unstubAllGlobals();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("/api/instances/shop/playground/stream");
+    expect(init.headers).toEqual({ "Content-Type": "application/json" });
   });
 });

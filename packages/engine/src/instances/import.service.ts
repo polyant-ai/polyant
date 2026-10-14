@@ -25,7 +25,7 @@ import { scheduledTasks } from "../scheduled-tasks/schema.js";
 import { instanceMcpServers } from "./mcp-servers.schema.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
 import { invalidatePromptsCache } from "./prompts.store.js";
-import { asInstanceSlug, asInstanceUuid } from "./identifiers.js";
+import { asInstanceSlug, asInstanceUuid, type InstanceUuid } from "./identifiers.js";
 import { invalidateInstanceConfigCache } from "./config-resolver.js";
 import { isKnownEmbeddingProvider, knownEmbeddingProviders } from "../embeddings-gateway/config.js";
 import { instanceBundleSchema, type ExportInstanceData } from "./export.schema.js";
@@ -34,6 +34,7 @@ import { importPrompts } from "./prompts.import.js";
 import { importSkillAssignments } from "./skill-assignments.import.js";
 import { importManualTools } from "./manual-tools.import.js";
 import { importChannels } from "./channels.import.js";
+import { WEB_CHANNEL_TYPE } from "./channels.store.js";
 import { importSkillEnv, importSkillEnvOverwrite } from "./skill-env.import.js";
 import { importHooks } from "./hooks.import.js";
 import { importRoom } from "./room.import.js";
@@ -53,9 +54,18 @@ export { importChannels, importMcpServers };
  * An invalid mapping fails the whole import, before anything is written.
  */
 function parseBundle(rawBundle: unknown): ExportInstanceData {
-  const data = instanceBundleSchema.parse(rawBundle).instance;
+  const bundle = instanceBundleSchema.parse(rawBundle);
+  const data = bundle.instance;
+  // Before 1.3 Web was not a channel: every agent's HTTP endpoint was online,
+  // so a bundle without the `web` row restores it switched on, as it was.
+  // From 1.3 on the row is always present and says what it means.
+  const channels =
+    bundle.version !== "1.3" && !data.channels.some((c) => c.channelType === WEB_CHANNEL_TYPE)
+      ? [...data.channels, { channelType: WEB_CHANNEL_TYPE, enabled: true, config: {} }]
+      : data.channels;
   return {
     ...data,
+    channels,
     webContextFieldMapping: normalizeFieldMapping(data.webContextFieldMapping, "webContextFieldMapping"),
   };
 }
@@ -202,10 +212,7 @@ export async function importNewInstance(
     return id;
   });
 
-  // Recompute tools outside transaction (uses its own transaction internally)
-  await recomputeInstanceTools(instanceId);
-  invalidatePromptsCache(instanceId);
-  invalidateHooksCache(asInstanceSlug(slug));
+  await finishCommittedImport(instanceId, slug, warnings);
 
   return { slug, instanceId, warnings };
 }
@@ -348,12 +355,34 @@ export async function importOverwriteInstance(
     warnings.push(...(await importSecrets(tx, instanceId, data.secrets)));
   });
 
-  await recomputeInstanceTools(instanceId);
-  invalidatePromptsCache(instanceId);
-  invalidateInstanceConfigCache(asInstanceSlug(targetSlug));
-  invalidateHooksCache(asInstanceSlug(targetSlug));
+  await finishCommittedImport(instanceId, targetSlug, warnings);
 
   return { slug: targetSlug, instanceId, warnings };
+}
+
+/**
+ * The work after an import has committed: recompute tool access, then drop the caches
+ * that hold the agent's previous configuration.
+ *
+ * The import is already durable here, so a failing recompute must neither skip the
+ * cache invalidation (the agent would keep running on its old prompts and hooks) nor
+ * fail the request for data that was written. It is reported as a warning instead.
+ */
+async function finishCommittedImport(instanceId: InstanceUuid, slug: string, warnings: ImportWarning[]): Promise<void> {
+  try {
+    // Outside the import transaction: it opens its own.
+    await recomputeInstanceTools(instanceId);
+  } catch (err) {
+    console.error("[import] tool recompute failed for agent %s after a committed import:", instanceId, err);
+    warnings.push({
+      type: "tool_recompute_failed",
+      message: "The agent was imported, but its tool access could not be recomputed; save its tools again to apply it.",
+    });
+  } finally {
+    invalidatePromptsCache(instanceId);
+    invalidateInstanceConfigCache(asInstanceSlug(slug));
+    invalidateHooksCache(asInstanceSlug(slug));
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -328,6 +328,40 @@ describe("ToolsTab", () => {
     expect(within(rowOf("contact")).getByText("CRM Suite")).toBeInTheDocument();
   });
 
+  it("names a plugin in the reader's language when its manifest has one per locale", () => {
+    renderTab({
+      plugins: [{ namespace: "crm", name: "crm", version: "1.0.0", displayName: { "it-IT": "Suite CRM", "en-US": "CRM Suite" } }],
+    });
+    expect(within(rowOf("contact")).getByText("CRM Suite")).toBeInTheDocument();
+  });
+
+  it("shows a tool's summary in the reader's language instead of its description, and its category by name", () => {
+    const tools = makeTools().map((tool) =>
+      tool.name === "crm:contact"
+        ? { ...tool, summary: { "en-US": "Finds a contact in the CRM.", "it-IT": "Trova un contatto nel CRM." } }
+        : tool,
+    );
+    renderTab({ tools });
+    const row = rowOf("contact");
+    expect(within(row).getByText("Finds a contact in the CRM.")).toBeInTheDocument();
+    expect(within(row).queryByText("Find contacts")).not.toBeInTheDocument();
+    expect(within(rowOf("readFile")).getByText("Files")).toBeInTheDocument();
+  });
+
+  it("keeps the description the agent reads one click away in the tool's panel", async () => {
+    const user = userEvent.setup();
+    const tools = makeTools().map((tool) =>
+      tool.name === "readFile" ? { ...tool, summary: { "en-US": "Reads a file." } } : tool,
+    );
+    renderTab({ tools });
+    await user.click(screen.getByText("readFile"));
+    const sheet = await screen.findByRole("dialog");
+    expect(within(sheet).getByText("Reads a file.")).toBeInTheDocument();
+    await user.click(within(sheet).getByText("tools.descriptionMore"));
+    expect(within(sheet).getByText("tools.agentDescription")).toBeInTheDocument();
+    expect(within(sheet).getByText(/Usage rules for the model\./)).toBeInTheDocument();
+  });
+
   it("filters the table by origin", async () => {
     const user = userEvent.setup();
     renderTab();

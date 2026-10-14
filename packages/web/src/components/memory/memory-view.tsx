@@ -17,13 +17,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
   TableBody,
   TableCell,
-  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ListControlCell, ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -212,23 +211,20 @@ export function MemoryView({ lockedInstanceId }: { lockedInstanceId?: string }) 
           </div>
         ) : (
           <>
-            <div className="w-full overflow-hidden">
-            <Table className="table-fixed w-full">
+            <ListTable>
               <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[50%]">{t("memory.table.content")}</TableHead>
-                  <TableHead>{t("memory.table.category")}</TableHead>
-                  <TableHead>{t("memory.table.importance")}</TableHead>
-                  <TableHead>{t("memory.table.updated")}</TableHead>
-                  <TableHead className="w-10" />
+                <TableRow className="hover:bg-transparent">
+                  <ListHead className="w-[50%]">{t("memory.table.content")}</ListHead>
+                  <ListHead>{t("memory.table.category")}</ListHead>
+                  <ListHead>{t("memory.table.importance")}</ListHead>
+                  <ListHead>{t("memory.table.updated")}</ListHead>
+                  <ListHead align="end" className="w-14" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {memories.map((mem) => (
-                  <TableRow key={mem.id}>
-                    <TableCell className="font-medium break-words whitespace-normal">
-                      {mem.content}
-                    </TableCell>
+                  <ListRow key={mem.id}>
+                    <ListNameCell name={mem.content} />
                     <TableCell>
                       <Badge variant="outline">{mem.category}</Badge>
                     </TableCell>
@@ -240,7 +236,7 @@ export function MemoryView({ lockedInstanceId }: { lockedInstanceId?: string }) 
                     <TableCell className="text-muted-foreground">
                       {fmt.relative(mem.updatedAt)}
                     </TableCell>
-                    <TableCell>
+                    <ListControlCell>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -265,12 +261,11 @@ export function MemoryView({ lockedInstanceId }: { lockedInstanceId?: string }) 
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
-                    </TableCell>
-                  </TableRow>
+                    </ListControlCell>
+                  </ListRow>
                 ))}
               </TableBody>
-            </Table>
-            </div>
+            </ListTable>
 
             {totalPages > 1 && (
               <div className="mt-4 flex items-center justify-center gap-4">

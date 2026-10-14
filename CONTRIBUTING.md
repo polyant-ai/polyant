@@ -17,15 +17,7 @@ git clone https://github.com/polyant-ai/polyant.git
 cd polyant
 ```
 
-### 2. Start infrastructure
-
-```bash
-docker compose up -d
-```
-
-This starts PostgreSQL 16 with the pgvector extension on port 5432.
-
-### 3. Install dependencies
+### 2. Install dependencies
 
 Always install from the monorepo root — never inside a package directory.
 
@@ -33,7 +25,7 @@ Always install from the monorepo root — never inside a package directory.
 npm install
 ```
 
-### 4. Configure environment
+### 3. Configure environment
 
 ```bash
 cp .env.example .env
@@ -45,21 +37,33 @@ Edit `.env` and set at minimum:
 |----------|-------------|
 | `ENCRYPTION_KEY` | 32-byte hex key for instance secrets — generate with `openssl rand -hex 32` |
 | `AUTH_SECRET` | Auth.js JWE encryption secret — generate with `openssl rand -hex 32` |
-| `AUTH_INTERNAL_SECRET` | Shared secret for web→engine internal calls — generate with `openssl rand -hex 32` |
-| `INITIAL_ADMIN_PASSWORD` | Seeds the first admin account at boot — without it no admin is created |
+| `AUTH_INTERNAL_SECRET` | Shared secret for web→engine internal calls — generate with `openssl rand -hex 32`. Without it nobody can sign in to the panel |
+| `INITIAL_ADMIN_PASSWORD` | Seeds the first admin account at boot — without it no admin is created. The panel asks for a new password at the first sign-in |
 | `INITIAL_ADMIN_EMAIL` | Email of that account (optional, defaults to `administrator@local`) |
+| `POSTGRES_PASSWORD` | Password of the Docker database. The sample value is `changeme`; if you change it, put the same password in `DATABASE_URL` |
 
-Next.js does not read the monorepo root `.env`, so mirror the web-facing values into
-`packages/web/.env.local`:
+Next.js does not read the monorepo root `.env`, so create `packages/web/.env.local`
+with the web-facing values:
 
 ```bash
 AUTH_SECRET=<same value as .env>
 AUTH_INTERNAL_SECRET=<same value as .env>
 AUTH_TRUST_HOST=true
-DATABASE_URL=postgresql://polyant:changeme@localhost:5432/polyant
+DATABASE_URL=postgresql://polyant:changeme@localhost:5432/polyant   # same password as .env
 NEXT_PUBLIC_API_URL=http://localhost:4000
 INTERNAL_ENGINE_URL=http://localhost:4000
 ```
+
+### 4. Start infrastructure
+
+Docker Compose takes `POSTGRES_PASSWORD` from `.env`, so run this after step 3:
+
+```bash
+docker compose up -d --wait
+```
+
+This starts PostgreSQL 16 with the pgvector extension on port 5432 and returns once the
+database accepts connections.
 
 ### 5. Run database migrations
 
@@ -70,7 +74,7 @@ npm run db:migrate
 ### 6. Start development servers
 
 ```bash
-# Terminal 1 — engine (NestJS, port 4000)
+# Terminal 1 — engine (NestJS 12, port 4000)
 
 npm run dev
 
@@ -80,7 +84,8 @@ npm run dev:web
 ```
 
 Open the admin panel at `http://localhost:3000`, sign in with `INITIAL_ADMIN_EMAIL` /
-`INITIAL_ADMIN_PASSWORD`, and create your first instance.
+`INITIAL_ADMIN_PASSWORD`, choose a new password when the panel asks, and create your
+first instance. Set its provider keys in the **Model** section.
 
 ## Project Structure
 

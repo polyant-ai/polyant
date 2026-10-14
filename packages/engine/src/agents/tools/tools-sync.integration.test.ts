@@ -28,6 +28,7 @@ import { skills, skillTools } from "../../skills/schema.js";
 import { syncToolsToDb } from "./tools-sync.js";
 import { _resetRegistryForTests, _registerToolForTests } from "./registry.js";
 import { asInstanceUuid, type InstanceUuid } from "../../instances/identifiers.js";
+import { lockToolsTable, resolveDatabaseAvailability } from "../../database/test-db.js";
 
 const SLUG = "itest-tools-sync";
 const CORE = "itestSyncCore"; // in registry → kept
@@ -41,66 +42,67 @@ const SKILL_SLUG = "itest-tools-sync-skill";
 
 /** Seed instance + catalog rows at module load (top-level await) so `it.skipIf`
  *  sees the resolved value — a beforeAll assignment would be too late.
- *  Returns the instance uuid, or undefined when no migrated DB is reachable. */
-async function setup(): Promise<InstanceUuid | undefined> {
-  try {
-    const [ws] = await Promise.race([
-      db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.isDefault, true)).limit(1),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("db timeout")), 3000)),
-    ]);
-    if (!ws) return undefined;
+ *  Runs only once the database answered; a seeding error then fails the file
+ *  instead of turning it into a skip. */
+async function setup(): Promise<InstanceUuid> {
+  const [ws] = await db.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.isDefault, true)).limit(1);
+  if (!ws) throw new Error("no default workspace: is the test database migrated?");
 
-    const rows = await db
-      .insert(instances)
-      .values({ slug: SLUG, name: "itest tools-sync", workspaceId: ws.id })
-      .onConflictDoNothing()
-      .returning({ id: instances.id });
-    const uuid = rows[0]
-      ? rows[0].id
-      : (
-          await db.select({ id: instances.id }).from(instances).where(eq(instances.slug, SLUG)).limit(1)
-        )[0]?.id;
-    if (!uuid) return undefined;
-    const instanceUuid = asInstanceUuid(uuid);
+  const rows = await db
+    .insert(instances)
+    .values({ slug: SLUG, name: "itest tools-sync", workspaceId: ws.id })
+    .onConflictDoNothing()
+    .returning({ id: instances.id });
+  const uuid = rows[0]
+    ? rows[0].id
+    : (
+        await db.select({ id: instances.id }).from(instances).where(eq(instances.slug, SLUG)).limit(1)
+      )[0]?.id;
+  if (!uuid) throw new Error(`could not create or find the ${SLUG} agent`);
+  const instanceUuid = asInstanceUuid(uuid);
 
-    // Deterministic registry: only CORE is loaded, so ORPHAN/KEPT/FLAT_GONE count
-    // as "absent from the registry" and the main (non-empty) delete branch runs.
-    _resetRegistryForTests();
-    _registerToolForTests(
-      defineTool({ name: CORE, description: "core", parameters: z.object({}), execute: async () => ({}) }),
-    );
+  // Deterministic registry: only CORE is loaded, so ORPHAN/KEPT/FLAT_GONE count
+  // as "absent from the registry" and the main (non-empty) delete branch runs.
+  _resetRegistryForTests();
+  _registerToolForTests(
+    defineTool({ name: CORE, description: "core", parameters: z.object({}), execute: async () => ({}) }),
+  );
 
-    // Clean leftovers from a prior failed run, then seed catalog rows + enable KEPT.
-    await db.delete(tools).where(inArray(tools.name, ALL_NAMES));
-    await db.delete(skills).where(eq(skills.slug, SKILL_SLUG));
-    const seeded = await db
-      .insert(tools)
-      .values([
-        { name: ORPHAN, description: "orphan plugin tool" },
-        { name: KEPT, description: "enabled plugin tool" },
-        { name: SKILL_LINKED, description: "plugin tool a skill links" },
-        { name: AGENT, description: "virtual agent row", category: "agent" },
-        { name: FLAT_GONE, description: "removed core tool" },
-      ])
-      .returning({ id: tools.id, name: tools.name });
+  // Clean leftovers from a prior failed run, then seed catalog rows + enable KEPT.
+  await db.delete(tools).where(inArray(tools.name, ALL_NAMES));
+  await db.delete(skills).where(eq(skills.slug, SKILL_SLUG));
+  const seeded = await db
+    .insert(tools)
+    .values([
+      { name: ORPHAN, description: "orphan plugin tool" },
+      { name: KEPT, description: "enabled plugin tool" },
+      { name: SKILL_LINKED, description: "plugin tool a skill links" },
+      { name: AGENT, description: "virtual agent row", category: "agent" },
+      { name: FLAT_GONE, description: "removed core tool" },
+    ])
+    .returning({ id: tools.id, name: tools.name });
 
-    const keptId = seeded.find((r) => r.name === KEPT)!.id;
-    await db.insert(instanceTools).values({ instanceId: instanceUuid, toolId: keptId, source: "manual" });
-    // A renamed tool whose plugin is not installed yet, linked by a skill but
-    // enabled on no agent: the prune used to delete it, and the link with it.
-    const [skill] = await db
-      .insert(skills)
-      .values({ slug: SKILL_SLUG, name: "itest tools-sync skill" })
-      .returning({ id: skills.id });
-    const linkedId = seeded.find((r) => r.name === SKILL_LINKED)!.id;
-    await db.insert(skillTools).values({ skillId: skill!.id, toolId: linkedId });
-    return instanceUuid;
-  } catch {
-    return undefined;
-  }
+  const keptId = seeded.find((r) => r.name === KEPT)!.id;
+  await db.insert(instanceTools).values({ instanceId: instanceUuid, toolId: keptId, source: "manual" });
+  // A renamed tool whose plugin is not installed yet, linked by a skill but
+  // enabled on no agent: the prune used to delete it, and the link with it.
+  const [skill] = await db
+    .insert(skills)
+    .values({ slug: SKILL_SLUG, name: "itest tools-sync skill" })
+    .returning({ id: skills.id });
+  const linkedId = seeded.find((r) => r.name === SKILL_LINKED)!.id;
+  await db.insert(skillTools).values({ skillId: skill!.id, toolId: linkedId });
+  return instanceUuid;
 }
 
-const instanceUuid = await setup();
+// It prunes namespaced tool rows: exclusive, so no suite seeding its own is running.
+const releaseToolsLock = await lockToolsTable("exclusive");
+afterAll(async () => {
+  await releaseToolsLock();
+});
+
+const DB_AVAILABLE = await resolveDatabaseAvailability();
+const instanceUuid = DB_AVAILABLE ? await setup() : undefined;
 
 afterAll(async () => {
   if (!instanceUuid) return;

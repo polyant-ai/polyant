@@ -183,7 +183,7 @@ describe("CreateInstanceDialog", () => {
     await waitFor(() => {
       expect(onCreated).toHaveBeenCalled();
       expect(pushMock).toHaveBeenCalledWith(
-        "/organizations/default/workspaces/general/instances/my-bot",
+        "/organizations/default/workspaces/general/instances/my-bot?tab=channels",
       );
     });
   });

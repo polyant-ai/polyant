@@ -12,6 +12,9 @@ const { mockListActiveInstances, mockFindInstanceBySlug, mockResolvePrincipalOrg
     mockResolvePrincipalOrgId: vi.fn(),
   }));
 
+const { mockIsWebChannelEnabled } = vi.hoisted(() => ({ mockIsWebChannelEnabled: vi.fn() }));
+vi.mock("../../instances/channels.store.js", () => ({ isWebChannelEnabled: mockIsWebChannelEnabled }));
+
 vi.mock("../../instances/store.js", () => ({
   listActiveInstances: mockListActiveInstances,
   findInstanceBySlug: mockFindInstanceBySlug,
@@ -66,8 +69,18 @@ describe("OpenAIService", () => {
       mockResolvePrincipalOrgId.mockImplementation(async (orgId?: string) => orgId ?? null);
     });
 
+    it("should_return_nothing_when_the_instance_key_agent_has_web_off", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(agentA);
+      mockIsWebChannelEnabled.mockResolvedValue(false);
+
+      const result = await new OpenAIService().listInstances({ kind: "instance", instanceSlug: "agent-a" });
+
+      expect(result).toEqual([]);
+    });
+
     it("should_return_only_its_own_agent_when_the_caller_is_an_instance_api_key", async () => {
       mockFindInstanceBySlug.mockResolvedValue(agentA);
+      mockIsWebChannelEnabled.mockResolvedValue(true);
 
       const result = await new OpenAIService().listInstances({
         kind: "instance",
@@ -293,6 +306,37 @@ describe("OpenAIService", () => {
         completion_tokens: 0,
         total_tokens: 0,
       });
+    });
+  });
+
+  describe("a turn that failed for want of a provider key", () => {
+    const user = [{ role: "user" as const, content: "hi" }];
+
+    it("should_refuse_with_503_in_openai_error_shape_instead_of_a_completion", async () => {
+      const service = new OpenAIService();
+      service.setMessageHandler(async () => ({ text: "no key", failure: "missing_provider_key" }));
+
+      const err = await service.chatCompletion(makeRequest(user)).catch((e) => e);
+
+      expect(err.getStatus()).toBe(503);
+      expect(err.getResponse()).toEqual({
+        error: { message: "no key", type: "server_error", param: null, code: "missing_provider_key" },
+      });
+    });
+
+    it("should_refuse_a_streaming_request_before_returning_a_stream", async () => {
+      const service = new OpenAIService();
+      service.setStreamMessageHandler(vi.fn().mockResolvedValue({
+        failure: "missing_provider_key",
+        textStream: [],
+        fullStream: [],
+        completed: Promise.resolve({ text: "no key" }),
+      }));
+
+      const err = await service.chatCompletionStream(makeRequest(user)).catch((e) => e);
+
+      expect(err.getStatus()).toBe(503);
+      expect(err.getResponse().error.code).toBe("missing_provider_key");
     });
   });
 

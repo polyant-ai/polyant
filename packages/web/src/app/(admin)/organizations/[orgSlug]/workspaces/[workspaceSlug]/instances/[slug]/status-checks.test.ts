@@ -36,7 +36,7 @@ function input(overrides: Partial<StatusCheckInput> = {}): StatusCheckInput {
     instance: agent(),
     tools: [{ name: "t1", description: "", category: "general", enabled: true } as ToolState],
     skills: [],
-    secrets: [{ key: "openai_api_key", configured: true }],
+    secrets: [{ key: "openai_api_key", configured: true }, { key: "auth_api_key", configured: true }],
     channels: [{ channelType: "telegram", enabled: true, config: { botToken: "x" } }],
     documents: [],
     hooks: [],
@@ -175,6 +175,43 @@ describe("runStatusChecks — silently broken", () => {
     );
   });
 
+  describe("knowledge-no-search-tool", () => {
+    const tool = (name: string, enabled: boolean) =>
+      ({ name, description: "", category: "knowledge", enabled }) as ToolState;
+    const withKnowledge = (overrides: Partial<StatusCheckInput>) =>
+      input({ instance: agent({ knowledgeEnabled: true }), ...overrides });
+
+    it("warns, pointing at the Tools section, when Knowledge is on and the tool is not assigned", () => {
+      const found = runStatusChecks(withKnowledge({ tools: [] })).find(
+        (c) => c.id === "knowledge-no-search-tool",
+      );
+      expect(found?.severity).toBe("warning");
+      expect(found?.section).toBe("tools");
+    });
+
+    it("warns when the tool is assigned but disabled", () => {
+      expect(ids(withKnowledge({ tools: [tool("searchKnowledge", false)] }))).toContain(
+        "knowledge-no-search-tool",
+      );
+    });
+
+    it("stays silent when searchKnowledge is enabled", () => {
+      expect(ids(withKnowledge({ tools: [tool("searchKnowledge", true)] }))).not.toContain(
+        "knowledge-no-search-tool",
+      );
+    });
+
+    it("stays silent when the tool list could not be read", () => {
+      expect(ids(withKnowledge({ tools: [], toolsReadable: false }))).not.toContain(
+        "knowledge-no-search-tool",
+      );
+    });
+
+    it("stays silent when Knowledge is off", () => {
+      expect(ids(input({ tools: [] }))).not.toContain("knowledge-no-search-tool");
+    });
+  });
+
   it("catches documents nobody searches", () => {
     expect(
       ids(
@@ -244,22 +281,47 @@ describe("runStatusChecks — exposed", () => {
     expect(ids(input({ instance: agent({ debugEnabled: true }) }))).toEqual(["debug-enabled"]);
   });
 
+  const webOn = { channelType: "web", enabled: true, config: {} };
+  const webOff = { channelType: "web", enabled: false, config: {} };
+  const telegram = { channelType: "telegram", enabled: true, config: { botToken: "x" } };
+
   /**
    * Both are breaks — an endpoint that answers as the agent and spends the budget
-   * is not a "look at it later". A2A only changes WHICH row is shown: same cause,
-   * worse consequence, and saying it twice would be the noise the list avoids.
+   * is not a "look at it later". What counts is an endpoint that ANSWERS: Web on,
+   * or A2A on. With Web off the endpoints are 404 whatever authentication says.
    */
-  it("names the A2A row instead of the API one when A2A is on", () => {
+  it("calls the API open only when the Web channel is on and authentication is off", () => {
+    const open = (channels: StatusCheckInput["channels"]) =>
+      ids(input({ instance: agent({ authEnabled: false }), channels }));
+
+    expect(open([telegram, webOn])).toContain("api-open");
+    expect(open([telegram, webOff])).not.toContain("api-open");
+    expect(open([telegram])).not.toContain("api-open");
+    expect(open(null)).not.toContain("api-open");
+    expect(runStatusChecks(input({ instance: agent({ authEnabled: false }), channels: [telegram, webOn] }))
+      .find((c) => c.id === "api-open")?.severity).toBe("broken");
+  });
+
+  it("names the A2A row when A2A is on with authentication off, whatever Web says", () => {
     const withA2a = runStatusChecks(
-      input({ instance: agent({ authEnabled: false, a2aEnabled: true }) }),
+      input({ instance: agent({ authEnabled: false, a2aEnabled: true }), channels: [telegram, webOff] }),
     );
     expect(withA2a.map((c) => c.id)).toContain("a2a-open");
     expect(withA2a.map((c) => c.id)).not.toContain("api-open");
     expect(withA2a.find((c) => c.id === "a2a-open")?.severity).toBe("broken");
+  });
 
-    const withoutA2a = runStatusChecks(input({ instance: agent({ authEnabled: false }) }));
-    expect(withoutA2a.map((c) => c.id)).toContain("api-open");
-    expect(withoutA2a.find((c) => c.id === "api-open")?.severity).toBe("broken");
+  it("warns about a missing API key only once something answers", () => {
+    const noKey = [{ key: "openai_api_key", configured: true }];
+
+    expect(runStatusChecks(input({ secrets: noKey, channels: [telegram, webOn] }))
+      .find((c) => c.id === "api-key-missing")?.severity).toBe("warning");
+    expect(ids(input({ secrets: noKey, channels: [telegram, webOff] }))).not.toContain("api-key-missing");
+    expect(ids(input({ secrets: noKey, channels: [telegram] }))).not.toContain("api-key-missing");
+
+    const withKey = [{ key: "openai_api_key", configured: true }, { key: "auth_api_key", configured: true }];
+    expect(ids(input({ secrets: withKey, channels: [telegram, webOn] }))).not.toContain("api-key-missing");
+    expect(ids(input({ secrets: null, channels: [telegram, webOn] }))).not.toContain("api-key-missing");
   });
 
   it("counts only the opt-outs of the last week, above the threshold", () => {
@@ -289,6 +351,35 @@ describe("runStatusChecks — the provider key", () => {
     expect(
       ids(input({ instance: agent({ provider: "bedrock" }), secrets: [] })),
     ).not.toContain("provider-no-credentials");
+  });
+
+  /**
+   * The region is the one AWS setting with no fallback: the provider refuses the
+   * turn without it, whatever authenticates the call.
+   */
+  it("catches a bedrock agent with no region", () => {
+    const found = runStatusChecks(
+      input({ instance: agent({ provider: "bedrock" }), secrets: [] }),
+    ).find((c) => c.id === "provider-no-region");
+    expect(found?.severity).toBe("broken");
+    expect(found?.section).toBe("settings");
+  });
+
+  it("stays quiet when the bedrock region is set", () => {
+    expect(
+      ids(
+        input({
+          instance: agent({ provider: "bedrock" }),
+          secrets: [{ key: "aws_provider_region", configured: true }] as StatusCheckInput["secrets"],
+        }),
+      ),
+    ).not.toContain("provider-no-region");
+  });
+
+  it("skips the region check when the caller cannot read secrets", () => {
+    expect(
+      ids(input({ instance: agent({ provider: "bedrock" }), secrets: null })),
+    ).not.toContain("provider-no-region");
   });
 
   it("checks the runtime fallback when provider and model overrides are empty", () => {

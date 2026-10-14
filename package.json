@@ -1,6 +1,6 @@
 {
   "name": "polyant",
-  "version": "1.2.0",
+  "version": "1.3.1",
   "private": true,
   "description": "Polyant \u2014 open-source platform for building AI assistants with long-term memory and multi-channel support",
   "license": "AGPL-3.0-or-later",
@@ -35,6 +35,7 @@
     "release:prepare": "node scripts/release/prepare.mjs",
     "release:audit": "node scripts/release/audit.mjs",
     "release:verify": "node scripts/ci/verify-release-metadata.mjs",
+    "ci:schema-drift": "node --import tsx scripts/ci/check-schema-drift.mjs",
     "licenses": "npx --yes license-checker --excludePackages \"@polyant/engine;@polyant/web;polyant\" --excludePrivatePackages --markdown | grep -v '^\\[@polyant/'",
     "engineering:check": "node scripts/ci/engineering-checkpoint.mjs",
     "engineering:inventory": "node scripts/ci/engineering-checkpoint.mjs --inventory",
@@ -43,17 +44,17 @@
   },
   "overrides": {
     "path-to-regexp": "^8.4.1",
-    "next": "^16.3.6",
-    "axios": "^1.15.0",
-    "langsmith": "^0.7.3",
+    "next": "^16.3.8",
+    "axios": "^1.20.0",
+    "langsmith": "^0.10.7",
     "multer": "^2.3.0",
     "@ai-sdk/provider-utils": {
       "undici": "^7.29.1"
     }
   },
   "dependencies": {
-    "axios": "^1.15.0",
-    "drizzle-orm": "^0.45.2",
+    "axios": "^1.20.0",
+    "drizzle-orm": "^0.45.4",
     "path-to-regexp": "^8.4.1"
   }
 }

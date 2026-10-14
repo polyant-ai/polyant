@@ -12,6 +12,14 @@ Docker images carry it, so a deployment that uses them needs nothing. If you
 run from source or build your own images, move to Node 24 (`.nvmrc` names it);
 Node 22 is no longer tested.
 
+### The images run as a non-root user
+
+The engine and web images now run as the `node` user (uid 1000) and declare a
+Docker health check. A deployment that mounts a volume on the engine's
+`/app/logs` or `/app/packages/engine/workspaces` must make it writable by that
+user, for example with `chown -R 1000:1000` on the volume, or the engine cannot
+write its log file or the conversation workspaces.
+
 ### Migration 0086 rewrites the conversations table
 
 Conversations now carry their own message counters, which the conversation list
@@ -20,15 +28,22 @@ from history in one pass and adds two indexes, one of them on
 `conversation_messages`. Writes to conversations and messages wait while it runs:
 on a test database with 2 million messages it took 8 seconds, and it grows with
 the size of `conversation_messages`. On a large installation, either schedule the
-deploy for a quiet moment or build the two indexes beforehand without blocking —
-the migration then skips them:
+deploy for a quiet moment or build the index on `conversation_messages`
+beforehand without blocking, while 1.1.x is still running — the migration then
+skips it:
 
 ```sql
-CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversations_instance_last_message"
-  ON "conversations" ("instance_id", "last_message_at");
 CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_conversation_messages_conversation_created"
   ON "conversation_messages" ("conversation_id", "created_at");
 ```
+
+The other index, on `conversations`, covers the `last_message_at` column that
+the migration itself adds, so it cannot be built ahead on a 1.1.x database. The
+migration builds it after the backfill, on the conversations table, which is
+far smaller than its messages. If `CREATE INDEX CONCURRENTLY` is interrupted it
+leaves an invalid index behind that `IF NOT EXISTS` would still skip: drop it
+with `DROP INDEX CONCURRENTLY "idx_conversation_messages_conversation_created"`
+and run the statement again.
 
 The counter backfill itself always runs in the migration.
 
@@ -70,6 +85,37 @@ container sets `entryPoint` to `["node"]` and `command` to
 `["packages/engine/dist/database/migrate.js"]`, and run that once. From source,
 `npm run db:migrate` does the same.
 
+### New agents start with Web off and require their API key
+
+An agent's public HTTP endpoints (`/v1/chat/completions` and
+`/api/instances/:slug/chat/stream`) now belong to a `web` channel with an enabled
+state, managed in the Channels section like Telegram and Slack. Migration `0091`
+switches it on for every agent that exists when you upgrade, keeping each agent's
+`auth_enabled`, so nothing that works today stops. An agent created afterwards has
+Web off and answers 404 on those endpoints until someone enables it.
+
+A new agent also requires its API key: migration `0090` makes `auth_enabled`
+default to true, so the agent cannot be reached until a key is saved (the panel
+generates one). Enabling Web needs that key unless authentication is turned off
+after accepting the risk notice. Existing agents and imported bundles keep their
+setting. Scripts that create agents and then call them must save the key and
+enable Web (`PUT /api/instances/:slug/channels/web` with
+`{"config":{},"enabled":true}`). Exported bundles are now format 1.3 and carry
+the Web state; importing an older bundle restores the endpoint switched on. A2A
+is unchanged and keeps `a2a_enabled`.
+
+The panel's Playground no longer needs the key or Web: it uses your session and
+the new permission `agent.playground:use`, which migration `0092` grants to
+every built-in role, viewer included.
+
+### The seeded demo-agent is removed when it was never used
+
+Migration `0091` deletes `demo-agent` only if it has no conversations, memories,
+knowledge documents, scheduled tasks or secrets and its row was never updated. If
+you used it, it stays, with Web on like any existing agent; check its
+authentication setting, which the seed left off. A new database starts with no
+agent.
+
 ### Telegram and Slack need a public address
 
 Telegram and Slack no longer open a connection out of the engine: their messages
@@ -92,6 +138,35 @@ either channel:
    registration no longer disables the channel. The engine registers only an
    HTTPS address. Telegram keeps undelivered updates for 24 hours, so messages
    sent while the address was unreachable arrive once it is.
+
+### Telegram channels get their own webhook secret
+
+Telegram's webhook secret is random and stored with each channel. Nothing is
+done by hand: on the first start after the upgrade, or when a channel is next
+enabled, the engine mints the secret, stores it and registers the webhook with
+Telegram. Telegram keeps undelivered updates for up to 24 hours, so start the
+engine on the new version promptly after the deployment, and check each bot's
+`getWebhookInfo` if messages do not arrive.
+
+### LangSmith metadata key renamed
+
+Traces sent to LangSmith carry the conversation id under `conversation_id`
+instead of `oa_conversation_id`. Update any dashboard, filter or automation that
+reads the old key; earlier traces keep it.
+
+### The createSkill tool is opt-in
+
+The new `createSkill` tool lets an agent add a skill to the shared library and
+enable it on itself. No agent, new or existing, has it until an operator enables
+it in the agent's tools; enable it only on agents whose users may write skills.
+
+### Management keys are rewritten on first use
+
+Management keys are now verified against a SHA-256 digest instead of bcrypt. A
+key created before the upgrade keeps working, and its stored hash is rewritten
+to the new form the first time it authenticates. 1.1.x cannot verify a
+rewritten hash, so after a rollback the keys used on 1.2.0 have to be issued
+again.
 
 ### Running more than one engine replica
 
@@ -126,9 +201,10 @@ following happen. Run one replica, or accept these effects:
 
 ### Review agents without a pinned model
 
-The default tiers changed for two providers. The OpenAI `fast`, `standard` and
-`heavy` tiers now resolve to `gpt-6-luna`, `gpt-6-sol` and `gpt-6-astra`, and the
-Bedrock `standard` and `heavy` tiers to Amazon Nova Pro and OpenAI gpt-oss 120B.
+The default tiers changed for three providers. The OpenAI `fast`, `standard` and
+`heavy` tiers now resolve to `gpt-6-luna`, `gpt-6-sol` and `gpt-6-astra`, the
+Bedrock `standard` and `heavy` tiers to Amazon Nova Pro and OpenAI gpt-oss 120B,
+and the Anthropic `fast` tier to Claude Haiku 5.5.
 Agents with an explicit model stay pinned, but unpinned conversations and
 background work change model and price. Review their model settings before
 deploying.
@@ -141,8 +217,9 @@ catalog's, in USD per million input / output tokens:
 | OpenAI | `fast` | `gpt-4o-mini` ($0.15 / $0.60) | `gpt-6-luna` ($0.10 / $0.50) |
 | OpenAI | `standard` | `gpt-4o` ($2.50 / $10) | `gpt-6-sol` ($2 / $10) |
 | OpenAI | `heavy` | `o3` ($2 / $8) | `gpt-6-astra` ($10 / $50) |
-| Bedrock | `standard` | `eu.anthropic.claude-sonnet-4-6` ($3.30 / $16.50) | `eu.amazon.nova-pro-v1:0` ($0.80 / $3.20) |
+| Bedrock | `standard` | `eu.anthropic.claude-sonnet-4-6` ($3.30 / $16.50) | `eu.amazon.nova-pro-v1:0` ($1.28 / $5.21) |
 | Bedrock | `heavy` | `eu.anthropic.claude-opus-4-8` ($5.50 / $27.50) | `openai.gpt-oss-120b-1:0` ($0.20 / $0.79) |
+| Anthropic | `fast` | `claude-haiku-4-5-20251001` ($1 / $5) | `claude-haiku-5-5` ($0.10 / $0.50; 5× on a prompt over 100K tokens) |
 
 What each tier reaches decides who is affected. `standard` answers the turn of
 every agent with no model of its own, and the `spawnTask` sub-agents of those
@@ -151,6 +228,9 @@ agents; a pinned agent's sub-agents run on its pinned model.
 section updates, room compaction) of every agent on the provider, pinned or not.
 Nothing in the core engine calls `heavy`; it matters only to code of your own
 that asks for it.
+
+On Anthropic only `fast` changed, so every Anthropic agent, pinned or not, runs
+its background jobs on Haiku 5.5; thinking is off for those calls.
 
 On Bedrock, Nova Pro does not reason: an unpinned agent with thinking enabled
 stops reasoning on its turns and in its sub-agents, with no error. gpt-oss 120B
@@ -177,17 +257,29 @@ ORDER BY 1;
 The GitHub, Render, HubSpot and Markdown-to-PDF tool families no longer ship in
 the core image. If an agent uses one of them, add its plugin to the image before
 building (see [Loading a plugin — build-time](plugins.md#loading-a-plugin--build-time)),
-or use `PLUGIN_DIRS` in development.
+or use `PLUGIN_DIRS` in development. Two public repositories carry them, both
+installed from source at build time (clone the tag into
+`packages/engine/src/plugins/<name>` and rebuild the image; each README gives
+the exact commands):
+
+- [polyant-hubspot-plugin](https://github.com/polyant-ai/polyant-hubspot-plugin),
+  tag `v1.1.1`: the HubSpot tools (`hubspot:`).
+- [polyant-extra-plugin](https://github.com/polyant-ai/polyant-extra-plugin),
+  tag `v1.1.0`: `extra:markdownToPdf` and `extra:fileUpload`.
+
+The GitHub and Render tools were removed from the core and no plugin replaces
+them.
 
 Plugin tools have namespaced names: `ghIssue`, `ghPR` and `gitCloneRepo` are now
 `github:issue`, `github:pr` and `github:cloneRepo`; `renderService` is
 `render:renderService`; each `hubspotX` tool is `hubspot:x` (`hubspotContact` is
 `hubspot:contact`, `hubspotSendEmail` is `hubspot:sendEmail`); and
-`markdownToPdf` is `extra:markdownToPdf`. Migration `0087_rename_extracted_tools`
-renames the catalog rows in place, so every agent keeps its enablement and every
-skill its tool links and its list of required tools. Until the plugin is
-installed the agent simply does not get the tool; once it is, the tool works
-again with nothing to re-enable. An export bundle from an older version that
+`markdownToPdf` is `extra:markdownToPdf`; `fileUpload` is `extra:fileUpload`, in
+the same extra plugin. Migrations `0087_rename_extracted_tools` and
+`0089_rename_extracted_tools_file_upload` rename the catalog rows in place, so
+every agent keeps its enablement and every skill its tool links and its list of
+required tools. Until the plugin is installed the agent simply does not get the
+tool; once it is, the tool works again with nothing to re-enable. An export bundle from an older version that
 names a tool by its old name enables the new one on import.
 
 The integration-specific `verifyDocument` tool was removed without a
@@ -199,17 +291,6 @@ An installation that already booted a version without the extracted tools and
 without this migration has lost those enablements: the migration finds no old
 rows to rename. Re-enable the tools from each affected agent's Tools tab after
 installing the plugins, and update any skill that still names an old tool.
-
-### Custom S3 endpoints are removed
-
-`s3_endpoint` is no longer read, and migration `0081_drop_s3_endpoint_secret`
-deletes every stored value. An agent configured for MinIO, Cloudflare R2 or
-another S3-compatible endpoint falls back to AWS addressing, so uploads and
-attachment reads will fail rather than continue against that service.
-
-Before upgrading, move affected buckets to AWS S3 and configure each agent with
-`s3_bucket_name`, `aws_region`, and either static AWS credentials or
-`s3_use_task_role`. Version 1.2.0 has no supported custom-endpoint replacement.
 
 ### Attachments stored in the platform bucket
 
@@ -226,32 +307,25 @@ aws s3 sync "s3://<platform bucket>/attachments/<agent slug>/" "s3://<agent buck
 
 ### Storing attachments is a per-agent choice
 
-Keeping the files users send is a switch on each agent, **Store attachments**
-under its behaviour parameters. Migration `0088_attachment_storage_opt_in` adds
-it turned off on every agent. Turned on, an agent whose `fileUpload` secrets name
-a bucket stores every inbound attachment under `attachments/<agent slug>/…` in
-that bucket, so the conversation view can reopen it. With it off the model still
-sees each file in the turn; it just is not kept.
+Keeping the files users send is a switch on each agent, **Store attachments**,
+in a card on the agent's Advanced page that also holds the bucket, region and
+access keys. Migration `0088_attachment_storage_opt_in` adds the switch turned
+off on every agent. Turned on, an agent stores every inbound attachment under
+`attachments/<agent slug>/…` in its bucket, so the conversation view can reopen
+it. With it off the model still sees each file in the turn; it just is not kept.
+`extra:fileUpload` uses the same bucket and keys.
+
+The bucket is reached only with the agent's own `aws_access_key_id` and
+`aws_secret_access_key`, never the deployment's runtime identity such as an ECS
+task role. Before upgrading, create an access key that may write, read and
+delete under `attachments/` in each bucket an agent should use, and set it on
+the agent. Pre-release builds of 1.2.0 that used `s3_use_task_role` store no
+attachments until the agent has access keys; set them, then delete that secret.
 
 Deleting a conversation or an agent also deletes the files stored for it, by the
 keys recorded on its messages. That needs `s3:DeleteObject` on the
-`attachments/` prefix for the agent's credentials or task role; a refused delete
-is logged and leaves the files in place, and never blocks the database delete.
-
-### Google sign-in is removed
-
-The Google provider, its two variables, the login button and the domain-allowlist
-callback are all gone. Single sign-on is a capability of the tier that manages
-organizations: which domains may sign in is a question about a tenant, and one
-list for a whole installation cannot answer it for a second one.
-
-**Before upgrading, make sure every account that needs access has a password.**
-An account that only ever signed in with Google has none, and there is no
-federated provider left to authenticate it. A platform admin can set one from
-Users, and `INITIAL_ADMIN_EMAIL` + `INITIAL_ADMIN_PASSWORD` still recover an
-installation whose only administrator is locked out — on a non-empty database the
-seeder sets a password on a **password-less** account and promotes it, and never
-overwrites one that already exists.
+`attachments/` prefix for the agent's credentials; a refused delete is logged
+and leaves the files in place, and never blocks the database delete.
 
 ### Environment variables that are gone
 
@@ -262,9 +336,7 @@ had. Remove them from your environment; none of them needs a replacement value.
 | Removed | What to do instead |
 | --- | --- |
 | `AUTH_MODE` | Nothing. `session` was the only value that booted, and gateway mode is deleted — see [ADR-0001](adr/0001-gateway-authenticated-mode.md). A stack whose CDK config sets `auth:` no longer receives this variable; it was already refused at startup |
-| `AUTH_ALLOWED_DOMAIN`, `AUTH_ALLOWED_DOMAINS` | Federated sign-in is no longer restricted by a deployment-wide domain list. The two variables were one list twice (the parser concatenated them), and the restriction belongs to the organization |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Nothing, and read the next paragraph first: **federated sign-in is gone from this edition entirely**, not merely unconfigured. Email and password is the only way in |
-| `AWS_REGION` | Set the AWS provider region on each agent (Settings → AI Provider). There is no deployment-wide fallback and no `us-east-1` default: a Bedrock agent with no region configured is now refused with a message naming the setting, on chat as well as on embeddings |
+| `AWS_REGION` | Set the AWS provider region on each agent (Model section, under Conversation or Embeddings; Settings → AI Provider before 1.2). There is no deployment-wide fallback and no `us-east-1` default: a Bedrock agent with no region configured is now refused with a message naming the setting, on chat as well as on embeddings |
 | `DEFAULT_INSTANCE_ID` | Nothing. Every caller already names its agent — the OpenAI-compatible route validates `model` and answers 400 without it — so the fallback could not fire |
 | `WORKSPACES_ROOT` | Nothing. The per-conversation sandbox stays under `packages/engine/workspaces`; the variable survives only as a test seam and is no longer documented as deployment configuration |
 | `PLATFORM_ADMIN_EMAIL` | Nothing, on an installation that already booted with it: the standing it granted lives in `users.is_platform_admin` and stays. The platform admin is now the account `INITIAL_ADMIN_EMAIL` names, seeded already privileged and made Owner of the default organization on the same boot. The internal `POST /api/auth/credentials/bootstrap-owner` endpoint it needed is gone with it |
@@ -278,7 +350,7 @@ then `us-east-1`. Both fallbacks are gone, so after the upgrade such an agent
 fails every chat turn, and every embedding if its knowledge or memory runs on
 Bedrock, with an error naming the setting. Before upgrading, list the agents
 that use Bedrock for chat or embeddings and hold no region, and set the region
-in each one's Settings → AI Provider:
+in each one's Model section (Settings → AI Provider before 1.2):
 
 ```sql
 SELECT i.slug, i.provider, i.embedding_provider
@@ -291,7 +363,7 @@ WHERE (i.provider = 'bedrock' OR i.embedding_provider = 'bedrock')
 ORDER BY i.slug;
 ```
 
-The region is stored encrypted, so the query can only check that one is set. Settings → AI Provider exists in 1.1.x too, so this can be done on the
+The region is stored encrypted, so the query can only check that one is set. The same field exists in 1.1.x under Settings → AI Provider, so this can be done on the
 running installation.
 
 ### Environment variables the panel now answers
@@ -304,9 +376,9 @@ your environment — a value left there is read by nothing.
 
 | Removed | Where the value lives now |
 | --- | --- |
-| `DATETIME_TIMEZONE`, `DATETIME_LOCALE` | The agent's Settings → Behaviour overrides. An agent that declares neither formats dates in the runtime's zone and locale, so a deployment-wide zone is now `TZ` |
-| `DEDUP_SIMILARITY_THRESHOLD` | The agent's Settings → Behaviour overrides; the default is 0.90 |
-| `MESSAGE_SOFT_DEBOUNCE_MS`, `MESSAGE_TYPING_DELAY_MS`, `MESSAGE_MAX_RESTARTS` | The agent's Settings → Behaviour overrides; the defaults are 2000 ms, 1500 ms and 3 |
+| `DATETIME_TIMEZONE`, `DATETIME_LOCALE` | The agent's Advanced → Behaviour overrides. An agent that declares neither formats dates in the runtime's zone and locale, so a deployment-wide zone is now `TZ` |
+| `DEDUP_SIMILARITY_THRESHOLD` | The agent's Advanced → Behaviour overrides; the default is 0.90 |
+| `MESSAGE_SOFT_DEBOUNCE_MS`, `MESSAGE_TYPING_DELAY_MS`, `MESSAGE_MAX_RESTARTS` | The agent's Advanced → Behaviour overrides; the defaults are 2000 ms, 1500 ms and 3 |
 | `KNOWLEDGE_MAX_DOCS_PER_INSTANCE` | The organization's knowledge-document entitlement; the default is 500 per agent |
 | `ANALYTICS_RETENTION_DAYS`, `SSE_MAX_CONNECTIONS_PER_USER` | Settings → General, for a platform admin; the defaults are 90 days and 5 connections |
 | `PDF_CONCURRENCY` | The Markdown-to-PDF plugin, which reads it itself and documents it in its own README |
@@ -354,8 +426,8 @@ engine. Settings → General shows the stored value afterwards.
 ### Dates and cron schedules follow the process time zone
 
 `DATETIME_TIMEZONE` and `DATETIME_LOCALE` are no longer read. The date an agent
-sees in its prompt now comes from the agent's own setting in Settings →
-Behaviour, or else from the process: the `TZ` zone and the ICU default locale
+sees in its prompt now comes from the agent's own setting in Advanced →
+Behaviour overrides, or else from the process: the `TZ` zone and the ICU default locale
 (`LANG`/`LC_ALL`, else the system's). An installation that set the two variables
 and no per-agent value sees its agents' dates in the process zone and locale
 until you either set `TZ` (and the locale) on the engine or set them per agent.

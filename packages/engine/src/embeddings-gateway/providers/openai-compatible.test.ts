@@ -40,9 +40,11 @@ describe("the requested vector length is enforced on what comes back", () => {
   // live-verified — an endpoint that ignores it returns its native 4096 and the
   // AI SDK hands it over without complaint.
   it("passes a correctly-sized single embedding through", async () => {
-    mockEmbed.mockResolvedValue({ embedding: vector(1024) });
+    mockEmbed.mockResolvedValue({ embedding: vector(1024), usage: { tokens: 3 } });
 
-    await expect(embedCompatible("ciao", opts)).resolves.toHaveLength(1024);
+    const result = await embedCompatible("ciao", opts);
+    expect(result.embeddings[0]).toHaveLength(1024);
+    expect(result.tokens).toBe(3);
   });
 
   it("refuses a single embedding of the wrong length, naming the provider and both sizes", async () => {
@@ -65,7 +67,7 @@ describe("the requested vector length is enforced on what comes back", () => {
   it("passes a correctly-sized batch through", async () => {
     mockEmbedMany.mockResolvedValue({ embeddings: [vector(1024), vector(1024)] });
 
-    await expect(embedManyCompatible(["a", "b"], opts)).resolves.toHaveLength(2);
+    await expect(embedManyCompatible(["a", "b"], opts)).resolves.toMatchObject({ embeddings: [vector(1024), vector(1024)] });
   });
 
   it("checks the single-text shortcut too", async () => {
@@ -78,7 +80,7 @@ describe("the requested vector length is enforced on what comes back", () => {
   });
 
   it("returns nothing for an empty batch without calling the provider", async () => {
-    await expect(embedManyCompatible([], opts)).resolves.toEqual([]);
+    await expect(embedManyCompatible([], opts)).resolves.toEqual({ embeddings: [], tokens: 0 });
     expect(mockEmbed).not.toHaveBeenCalled();
     expect(mockEmbedMany).not.toHaveBeenCalled();
   });

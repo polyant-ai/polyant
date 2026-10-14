@@ -69,7 +69,7 @@ export default function ActivityPage() {
               {t("activityStream.title")}
             </h1>
           </div>
-          <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
+          <p className="text-muted-foreground mt-1 text-sm">
             {t("activityStream.subtitle")}
           </p>
         </div>

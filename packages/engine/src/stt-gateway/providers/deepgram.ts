@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { STTProviderAdapter, STTRequest, STTResponse } from "../types.js";
-import { STTMissingCredentialsError, STTProviderError } from "../errors.js";
+import { STTMissingCredentialsError, STTProviderError, STTTimeoutError } from "../errors.js";
 
 const DEFAULT_MODEL = "nova-3";
 
@@ -22,7 +22,13 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
 
   const controller = new AbortController();
   const timeoutMs = req.timeoutMs ?? 30_000;
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  // Told apart from a caller's abort by this flag, not by the error text: both arrive
+  // as the same AbortError.
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
   if (req.abortSignal) {
     req.abortSignal.addEventListener("abort", () => controller.abort(), { once: true });
   }
@@ -41,7 +47,8 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
     });
   } catch (err) {
     if ((err as Error).name === "AbortError") {
-      throw new STTProviderError("deepgram", `aborted after ${timeoutMs}ms`, { cause: err });
+      if (timedOut) throw new STTTimeoutError("deepgram", timeoutMs);
+      throw new STTProviderError("deepgram", "aborted by the caller", { cause: err });
     }
     throw new STTProviderError("deepgram", `fetch failed: ${(err as Error).message}`, { cause: err });
   } finally {

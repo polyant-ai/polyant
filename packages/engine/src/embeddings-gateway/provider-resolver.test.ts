@@ -7,7 +7,7 @@ const getSecrets = vi.fn();
 vi.mock("../instances/resolve-instance-id.js", () => ({ findInstanceByIdOrSlug: (...a: unknown[]) => findInstance(...a) }));
 vi.mock("../instances/secrets.store.js", () => ({
   getAllSecretsById: (...a: unknown[]) => getSecrets(...a),
-  SECRET_KEYS: { OPENAI_API_KEY: "openai_api_key", AWS_PROVIDER_REGION: "aws_provider_region", AWS_PROVIDER_ACCESS_KEY_ID: "aws_provider_access_key_id", AWS_PROVIDER_SECRET_ACCESS_KEY: "aws_provider_secret_access_key" },
+  SECRET_KEYS: { OPENAI_API_KEY: "openai_api_key", AWS_PROVIDER_REGION: "aws_provider_region", AWS_PROVIDER_ACCESS_KEY_ID: "aws_provider_access_key_id", AWS_PROVIDER_SECRET_ACCESS_KEY: "aws_provider_secret_access_key", BEDROCK_API_KEY: "bedrock_api_key" },
 }));
 
 import { resolveEmbeddingContext, invalidateAllEmbeddingContexts } from "./provider-resolver.js";
@@ -37,6 +37,17 @@ describe("resolveEmbeddingContext", () => {
     const ctx = await resolveEmbeddingContext("s");
     expect(ctx.credentials.provider).toBe("bedrock");
     expect(ctx.dimensions).toBe(1024);
+  });
+  it("carries the agent's Bedrock API key into the bedrock credentials", async () => {
+    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "bedrock", embeddingProvider: "bedrock", embeddingDim: 1024 });
+    getSecrets.mockResolvedValue({ aws_provider_region: "eu-west-1", bedrock_api_key: "bearer-token" });
+    const ctx = await resolveEmbeddingContext("s");
+    expect(ctx.credentials).toEqual({ provider: "bedrock", apiKey: "bearer-token", region: "eu-west-1" });
+  });
+  it("still requires the region when only a Bedrock API key is set", async () => {
+    findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "bedrock", embeddingProvider: "bedrock", embeddingDim: 1024 });
+    getSecrets.mockResolvedValue({ bedrock_api_key: "bearer-token" });
+    await expect(resolveEmbeddingContext("s")).rejects.toThrow(/AWS region is required/);
   });
   it("resolves an openai embedder even when the chat provider is anthropic (decoupled)", async () => {
     findInstance.mockResolvedValue({ id: "i1", slug: "s", provider: "anthropic", embeddingProvider: "openai", embeddingDim: 1024 });

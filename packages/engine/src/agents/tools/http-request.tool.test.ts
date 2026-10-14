@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const mockFetch = vi.hoisted(() => vi.fn());
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const mockFetch = vi.hoisted(() => vi.fn());
 
 // The tool's HTTP seam is `safeFetch`, which owns the SSRF check, the pinned
 // dispatcher and the undici-paired fetch. Asserting on it therefore also

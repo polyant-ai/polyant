@@ -4,7 +4,7 @@ import type { ModelMessage } from "ai";
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import { createProvider, type PrepareMessages } from "./base.js";
-import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
+import { injectCacheBreakpoints, makeStepMarker, withoutProviderCacheMarker, withProviderCacheMarker } from "./prompt-caching.js";
 import { cacheSupported, cacheOnToolMessagesSupported } from "../config.js";
 import type { ReasoningToggle } from "../model-catalog.js";
 
@@ -68,15 +68,17 @@ export const applyBedrockPromptCaching: PrepareMessages = (input) => {
 /**
  * Moving cache breakpoint for the multi-step loop — marks the last message on
  * each step (from step 1), gated to cache-capable model families so a
- * `cachePoint` never reaches a model that rejects it. Bedrock's `cachePoint` has
- * no TTL variants, so the step marker reuses the same block as the cross-turn one
- * (unlike Anthropic, where the within-turn marker drops to a 5m TTL). Wired via
+ * `cachePoint` never reaches a model that rejects it. Polyant's `cachePoint`
+ * names no TTL, so every marker is Bedrock's default 5m and the step marker
+ * reuses the same block as the cross-turn one (unlike Anthropic, where the
+ * within-turn marker drops to a 5m TTL under a 1h cross-turn one). Wired via
  * `createProvider`'s `stepMarker` hook.
  */
-export const bedrockStepMarker = makeStepMarker(
-  (message, modelId) => markBedrockFor(modelId)(message),
-  (modelId) => cacheSupported("bedrock", modelId),
-);
+export const bedrockStepMarker = makeStepMarker({
+  applyMarker: (message, modelId) => markBedrockFor(modelId)(message),
+  clearMarker: (message) => withoutProviderCacheMarker(message, "bedrock", "cachePoint"),
+  isCacheCapable: (modelId) => cacheSupported("bedrock", modelId),
+});
 
 export const BedrockProvider = createProvider(
   "bedrock",
@@ -95,7 +97,7 @@ export const BedrockProvider = createProvider(
     const region = apiKeys?.bedrock_region?.trim();
     if (!region) {
       throw new Error(
-        "AWS region is required for Bedrock. Configure the AWS provider region in Settings → AI Provider.",
+        "AWS region is required for Bedrock. Set it in the agent's Model section, under Conversation.",
       );
     }
 
@@ -109,8 +111,11 @@ export const BedrockProvider = createProvider(
     // default provider chain so ECS task roles, EC2 instance metadata, SSO, shared
     // credentials, and the AWS_BEARER_TOKEN_BEDROCK env var all work —
     // @ai-sdk/amazon-bedrock only reads env vars by default.
+    // `apiKey: ""` keeps the SDK from filling the key from
+    // AWS_BEARER_TOKEN_BEDROCK: a bearer token outranks SigV4, so the
+    // deployment's token would otherwise sign the calls of the agent's own pair.
     if (accessKeyId && secretAccessKey) {
-      return createAmazonBedrock({ accessKeyId, secretAccessKey, region })(modelId);
+      return createAmazonBedrock({ apiKey: "", accessKeyId, secretAccessKey, region })(modelId);
     }
 
     return createAmazonBedrock({
@@ -153,7 +158,9 @@ export function buildBedrockReasoningOptions(
   // accept up to `max`; gpt-oss only low/medium/high). budget maps to a token
   // preset (budget models expose only the three preset levels).
   if (control === "adaptive") {
-    return { reasoningConfig: { type: "adaptive", maxReasoningEffort: level } };
+    // Adaptive Claude returns its thinking with empty text unless asked for a
+    // summary (see `buildAnthropicThinkingOptions`); the SDK forwards `display`.
+    return { reasoningConfig: { type: "adaptive", maxReasoningEffort: level, display: "summarized" } };
   }
   if (control === "effort") {
     return { reasoningConfig: { type: "enabled", maxReasoningEffort: level } };

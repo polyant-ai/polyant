@@ -21,15 +21,52 @@ the presence of a workflow alone does not prevent a merge. Drafts may remain red
 until the completion checkpoint. Write PR titles/descriptions/reviews in English
 and sign commits with DCO. Release promotion also needs a completed checkpoint.
 
+## Coordinated task execution
+
+The main chat remains on the user's chosen higher-capability model and owns user
+communication, scoping, cross-task decisions and independent final review. The agent
+does not select or change the user's main model.
+
+1. Delegate execution in bounded assignments. Each brief names the checkout/base,
+   owned paths, relevant instructions/contracts, non-goals, acceptance criteria and
+   required test evidence. Supply only the context needed for that assignment;
+   isolate conflicting edits in separate checkouts. Parallelize independent scopes
+   and sequence dependent changes against the preceding verified result.
+2. Explicitly select an available medium workhorse model using the tool's exposed
+   identifiers. Claude Sonnet or Codex Sol/Terra are preferences, not callable IDs;
+   inspect runtime availability rather than inventing an ID or silently inheriting
+   the coordinator model. If delegation or model selection is unavailable, report
+   the limitation and finish the smallest authorized fallback in the main chat.
+3. Workers return changed paths, findings, acceptance results, exact check commands
+   and outcomes, and remaining gaps. Return blockers to the coordinator instead of
+   spawning recursive fleets or retrying indefinitely. The coordinator resolves or
+   reassigns bounded failures based on new evidence.
+4. Independently review the integrated final diff and connected callers against the
+   acceptance criteria; resolve conflicting findings and verify focused checks.
+   Worker summaries alone do not establish completion. Report the result and missing
+   evidence through the main chat and use the existing final checkpoint once.
+
+Existing user authorization carries across assignments; delegation adds no approval
+step and grants no authority beyond the task. Record dispatch and review evidence in
+the existing task/PR notes, without another recurring checklist.
+
 ## CI cost boundaries
 
-PR code changes run the existing product checks plus the completion checks. A newer
-commit cancels superseded PR CI, while checks on integrated branches are retained.
-Editing only the PR description validates evidence without rerunning tooling tests
-or producing another inventory artifact. Code updates, merged changes and scheduled
-runs still test tooling and retain inventories. Browser smoke uses the same tests
-with Chromium's headless shell; no full browser download is needed for this suite.
-These checks do not invoke models. Keep full release audits at the release checkpoint.
+The current CI workflow owns product tests, coverage, DCO and repository/tooling
+checks behind its stable `CI` gate. Documentation changes skip expensive jobs
+through the existing path classifier. A newer commit cancels superseded PR CI,
+while checks on integrated branches are retained.
+
+The Engineering evidence workflow checks exact-head PR evidence, reports merged
+impacts and retains inventories. Editing only the PR description validates evidence
+without rerunning product/tooling tests or producing another inventory artifact.
+Tooling tests run once in CI's Repository checks job. Weekly maintenance uses the
+inventory and existing failed-check/exception evidence within the 30-minute bound.
+
+The existing E2E workflow runs the real-browser suite nightly and on demand; there
+is no additional automatic PR browser suite. Changed UI flows still require focused
+browser evidence at the completion checkpoint. Reuse existing checks and report
+blockers. These checks do not invoke models. Keep full release audits at release.
 
 ## Lessons from work
 
@@ -157,17 +194,31 @@ Read the release skill. Pin each affected component's candidate SHA, independent
 version, last released tag, consumer refs and publishing destination. Reuse existing
 preparation scripts and the docs repository's sync procedures. Required outcomes:
 
-- Changelog, README, upgrade notes, configuration examples and API references agree.
-- SDK/protocol and CLI/dev-kit consumers are tested against the intended engine.
+- Reconcile changelog, release prose and upgrade notes against the last published
+  tag through the final candidate, including changes merged after drafting. A dated
+  heading or passing metadata check does not prove publication or complete coverage.
+  README, configuration examples and generated API references agree with that range.
+- Expected CI checks exist and complete successfully on the candidate and final
+  production commit; an absent workflow run is missing evidence.
+- SDK/protocol and CLI/dev-kit consumers are tested against the intended engine,
+  including behavior when an optional capability is absent.
 - Full release-range security review includes dependencies and changed boundaries.
 - Performance evidence uses a repeatable baseline; missing evidence is a blocker
   for a release affecting the measured behavior, not an invitation to invent numbers.
 - Each component is published at its own version or explicitly unchanged/compatible.
+  Unchanged components still need verified publication artifacts, consumer pins and
+  a current compatibility matrix; an existing tag alone is insufficient.
 - Publication records exact tag/commit, GitHub Release or package/site artifact;
   verify consumer installation and documentation after publication.
 
 Publishing is not atomic across repositories. Record completed steps so a retry
 verifies existing tags/artifacts and resumes without replacing tags or republishing.
+Publish dependency tags before updating and installing their consumers. Build from
+the pinned commits and their lockfiles, and verify the documented install path with
+the access available to an external user. Reuse completed review evidence; refresh
+only proof invalidated by changed commits, artifacts, dependencies or access.
+For first publication or a visibility change, review the tree, history, hosted
+refs and issue/PR metadata for private material, plus licenses and dependency access.
 Keep private/internal material out of public components. Final publication authority
 comes from the release request and the owning repository's instructions.
 

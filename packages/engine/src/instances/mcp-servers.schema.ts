@@ -12,6 +12,14 @@ export const instanceMcpServers = pgTable(
     authMode: varchar("auth_mode", { length: 20 }).notNull().default("static"),
     enabled: boolean("enabled").notNull().default(true),
     config: text("config").notNull(), // encrypted JSON
+    // The account an admin connected for the whole agent (`account: "shared"`
+    // in an oauth config): encrypted OAuth tokens, when and by whom. Kept out
+    // of `config` because the panel reads that back and the export copies it.
+    // `sharedConnectedBy` carries no foreign key: the connection outlives the
+    // admin's user row.
+    sharedTokens: text("shared_tokens"),
+    sharedConnectedAt: timestamp("shared_connected_at", { withTimezone: true }),
+    sharedConnectedBy: uuid("shared_connected_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

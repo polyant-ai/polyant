@@ -26,9 +26,9 @@ describe("buildAnthropicThinkingOptions", () => {
   });
 
   it("adaptive forwards the level as-is (incl. xhigh/max — gateway clamps, not the builder)", () => {
-    expect(buildAnthropicThinkingOptions("high", true)).toEqual({ thinking: { type: "adaptive" }, effort: "high" });
-    expect(buildAnthropicThinkingOptions("xhigh", true)).toEqual({ thinking: { type: "adaptive" }, effort: "xhigh" });
-    expect(buildAnthropicThinkingOptions("max", true)).toEqual({ thinking: { type: "adaptive" }, effort: "max" });
+    expect(buildAnthropicThinkingOptions("high", true)).toEqual({ thinking: { type: "adaptive", display: "summarized" }, effort: "high" });
+    expect(buildAnthropicThinkingOptions("xhigh", true)).toEqual({ thinking: { type: "adaptive", display: "summarized" }, effort: "xhigh" });
+    expect(buildAnthropicThinkingOptions("max", true)).toEqual({ thinking: { type: "adaptive", display: "summarized" }, effort: "max" });
   });
 
   it("is shaped so it can be spread into providerOptions.anthropic", () => {
@@ -69,8 +69,8 @@ describe("buildBedrockReasoningOptions", () => {
   });
 
   it("adaptive control → adaptive block, forwards the level (incl. xhigh/max)", () => {
-    expect(buildBedrockReasoningOptions("low", "adaptive").reasoningConfig).toEqual({ type: "adaptive", maxReasoningEffort: "low" });
-    expect(buildBedrockReasoningOptions("max", "adaptive").reasoningConfig).toEqual({ type: "adaptive", maxReasoningEffort: "max" });
+    expect(buildBedrockReasoningOptions("low", "adaptive").reasoningConfig).toEqual({ type: "adaptive", maxReasoningEffort: "low", display: "summarized" });
+    expect(buildBedrockReasoningOptions("max", "adaptive").reasoningConfig).toEqual({ type: "adaptive", maxReasoningEffort: "max", display: "summarized" });
   });
 
   it("effort control → enabled + effort, forwards the level (gpt-oss)", () => {

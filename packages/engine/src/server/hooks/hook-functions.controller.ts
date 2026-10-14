@@ -17,6 +17,7 @@ export class HookFunctionsController {
       hookFunctions: [...getHookRegistry().entries()].map(([name, def]) => ({
         name,
         description: def.description,
+        ...(def.summary === undefined ? {} : { summary: def.summary }),
         requiredSecrets: def.requiredSecrets,
         mutatesResponse: def.mutatesResponse === true,
       })),

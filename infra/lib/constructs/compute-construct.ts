@@ -127,8 +127,9 @@ export class ComputeConstruct extends Construct {
         // address for every request, so every per-address rate limit is shared
         // by all callers, every bot's webhook included.
         TRUST_PROXY: "1",
-        // When ALB OIDC auth is configured, engine trusts x-amzn-oidc-data
-        // headers instead of requiring its own Auth.js session.
+        // ALB OIDC auth, when configured, is an outer gate only: the engine does
+        // not read the x-amzn-oidc-data header and authenticates every request
+        // itself.
       },
       secrets: {
         POSTGRES_HOST: ecs.Secret.fromSecretsManager(props.dbSecret, "host"),

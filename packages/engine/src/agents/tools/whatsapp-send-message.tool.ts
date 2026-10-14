@@ -14,6 +14,10 @@ export default defineTool({
     "To reply to the same user as this conversation, use the sender's number.\n" +
     "Optional 'mediaUrl' parameter: a public HTTPS URL that Twilio downloads and delivers as an attachment (PDF, image, etc.).\n" +
     "Caveat: requires the instance to have the 'whatsapp' channel active. The body may be empty when only mediaUrl is passed.",
+  summary: {
+    "en-US": "Sends a WhatsApp message, with an optional attachment.",
+    "it-IT": "Invia un messaggio WhatsApp, con un allegato facoltativo.",
+  },
   category: "messaging",
   inputExamples: [
     {

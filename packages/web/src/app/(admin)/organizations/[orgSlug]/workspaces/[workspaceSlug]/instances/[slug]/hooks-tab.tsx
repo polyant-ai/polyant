@@ -49,6 +49,8 @@ import {
   StreamingWarning,
   type HookSettings,
 } from "./hook-sheet";
+import { SectionActions } from "./section-actions";
+import { hookSummary } from "./tools-tab-helpers";
 
 interface Props {
   slug: string;
@@ -69,7 +71,7 @@ const EMPTY_FORM: FormState = {
 };
 
 export function HooksTab({ slug }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [hooks, setHooks] = useState<InstanceHook[]>([]);
   const [catalog, setCatalog] = useState<HookFunctionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -202,16 +204,12 @@ export function HooksTab({ slug }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-lg font-medium">{t("hooks.title")}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{t("hooks.description")}</p>
-        </div>
+      <SectionActions>
         <Button size="sm" onClick={openCreate} className="gap-1.5">
           <Plus className="h-4 w-4" />
           {t("hooks.add")}
         </Button>
-      </div>
+      </SectionActions>
 
       {hooks.length === 0 ? (
         <p className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
@@ -321,8 +319,8 @@ export function HooksTab({ slug }: Props) {
                   ))}
                 </SelectContent>
               </Select>
-              {selectedFn?.description && (
-                <p className="text-xs text-muted-foreground">{selectedFn.description}</p>
+              {selectedFn && hookSummary(selectedFn, locale) && (
+                <p className="text-xs text-muted-foreground">{hookSummary(selectedFn, locale)}</p>
               )}
               {selectedFn?.mutatesResponse && <StreamingWarning />}
             </div>

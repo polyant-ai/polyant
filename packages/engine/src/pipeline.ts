@@ -22,7 +22,7 @@ import { resolveInstanceConfig, type InstanceConfig } from "./instances/config-r
 import { traceStore } from "./analytics/trace.store.js";
 import { uploadAttachment } from "./attachments/agent-storage.js";
 import type { AttachmentMeta, StepDetail, ReasoningDetail, LlmDebugPayload } from "./conversations/schema.js";
-import type { AgentCallMetadata, Attachment, IncomingMessage } from "./channels/types.js";
+import type { AgentCallMetadata, Attachment, IncomingMessage, OutgoingMessage, StreamOutgoingMessage } from "./channels/types.js";
 import type { ToolCallTrace } from "./analytics/traces.schema.js";
 import { emitInbound } from "./activity-stream/emitters/emit-inbound.js";
 import { emitConversation } from "./activity-stream/emitters/emit-conversation.js";
@@ -81,8 +81,23 @@ export function isMissingApiKeyError(err: unknown): boolean {
 /** Friendly message returned when the AI provider key is not set for the instance. */
 export const MISSING_KEY_RESPONSE =
   "⚠️ This AI assistant instance does not have an API key configured for its AI provider. " +
-  "Please go to the admin panel → Instance → Settings tab and set the appropriate API key " +
-  "(OpenAI or Anthropic) to enable this assistant.";
+  "Please open this agent in the admin panel, go to its Model section and set the API key " +
+  "of its AI provider to enable this assistant.";
+
+/** The turn's outcome when the agent has no provider key: the warning, marked as a failure. */
+export function missingKeyOutgoing(): OutgoingMessage {
+  return { text: MISSING_KEY_RESPONSE, failure: "missing_provider_key" };
+}
+
+/** Streaming form of {@link missingKeyOutgoing}: one text chunk, marked as a failure up front. */
+export function missingKeyStream(): StreamOutgoingMessage {
+  return {
+    failure: "missing_provider_key",
+    textStream: (async function* () { yield MISSING_KEY_RESPONSE; })(),
+    fullStream: (async function* () { yield { type: "text-delta", text: MISSING_KEY_RESPONSE }; })(),
+    completed: Promise.resolve({ text: MISSING_KEY_RESPONSE }),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // PipelineContext — everything preparePipeline returns
@@ -725,6 +740,12 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   }
   const provenance = hookProvenance(hookExecutions) ?? opts.provenance;
 
+  // The coordinator can abort while the hooks above were awaited (a new fragment
+  // arrived). Re-check before any write: an aborted run persists nothing.
+  if (opts.abortSignal?.aborted) {
+    return { finalText, hookExecutions };
+  }
+
   const totalMs = Date.now() - ctx.pipelineStart;
   pipelineLog.response(ctx.instanceId, totalMs);
 
@@ -761,7 +782,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   }
 
   // Persist conversation state (commit-on-success): reached only when not aborted
-  // (the abort gate above already returned). Awaited — a single fast upsert — so a
+  // (the abort gates above already returned). Awaited — a single fast upsert — so a
   // tool's derived value is durable before the next turn reads it.
   if (persist && ctx.stateBuffer) {
     try {
@@ -769,6 +790,12 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     } catch (err) {
       console.error(`Failed to flush conversation state for ${ctx.conversationId}:`, err);
     }
+  }
+
+  // The flush is awaited, so the coordinator may have aborted meanwhile. The state
+  // upsert is idempotent for the restarted run; the messages must not be written.
+  if (opts.abortSignal?.aborted) {
+    return { finalText, hookExecutions };
   }
 
   if (persist) {

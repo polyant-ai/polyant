@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { NotFoundException } from "@nestjs/common";
 
 const handleInbound = vi.fn().mockResolvedValue(undefined);
 vi.mock("../../channels/channel-manager.js", () => ({
   channelManager: {
-    getAdapter: () => ({ webhookSecret: createHash("sha256").update("bot-token").digest("hex"), handleInbound }),
+    getAdapter: () => ({ webhookSecret: "per-channel-random-secret", handleInbound }),
   },
 }));
 vi.mock("../../instances/channels.store.js", () => ({
@@ -27,7 +26,7 @@ describe("Telegram webhook", () => {
     await expect(controller.receive("agent", "wrong", { update_id: 7 })).rejects.toBeInstanceOf(NotFoundException);
     expect(handleInbound).not.toHaveBeenCalled();
 
-    const secret = createHash("sha256").update("bot-token").digest("hex");
+    const secret = "per-channel-random-secret";
     await expect(controller.receive("agent", secret, { update_id: 7 })).resolves.toEqual({ status: "accepted" });
     expect(handleInbound).toHaveBeenCalledWith({ update_id: 7 });
   });
@@ -37,7 +36,7 @@ describe("Telegram webhook", () => {
     // to await the whole turn (download, transcription, the agent) first.
     const controller = new TelegramWebhookController();
     handleInbound.mockReset().mockReturnValue(new Promise(() => {}));
-    const secret = createHash("sha256").update("bot-token").digest("hex");
+    const secret = "per-channel-random-secret";
 
     await expect(controller.receive("agent", secret, { update_id: 8 })).resolves.toEqual({ status: "accepted" });
     expect(handleInbound).toHaveBeenCalledWith({ update_id: 8 });
@@ -49,7 +48,7 @@ describe("Telegram webhook", () => {
     const controller = new TelegramWebhookController();
     let finish!: () => void;
     handleInbound.mockReset().mockReturnValue(new Promise<void>((r) => (finish = r)));
-    const secret = createHash("sha256").update("bot-token").digest("hex");
+    const secret = "per-channel-random-secret";
     const before = pendingBackgroundTurns();
 
     await controller.receive("agent", secret, { update_id: 10 });
@@ -63,7 +62,7 @@ describe("Telegram webhook", () => {
     const controller = new TelegramWebhookController();
     const error = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     handleInbound.mockReset().mockRejectedValue(new Error("boom"));
-    const secret = createHash("sha256").update("bot-token").digest("hex");
+    const secret = "per-channel-random-secret";
 
     await expect(controller.receive("agent", secret, { update_id: 9 })).resolves.toEqual({ status: "accepted" });
     await vi.waitFor(() =>

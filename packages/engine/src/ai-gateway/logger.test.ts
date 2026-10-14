@@ -209,29 +209,30 @@ describe("AILogger", () => {
     });
 
     it("caps buffer at MAX_BUFFER_SIZE (1000) on repeated failures", async () => {
-      const valuesFn = vi.fn().mockRejectedValue(new Error("DB down"));
+      // Every insert stays pending until the database "fails" all at once, so
+      // the failed entries come back together and overflow the cap. (The old
+      // version flushed while auto-flushes were still in flight, recovered four
+      // entries, and passed only because its assertion sat inside an `if`.)
+      let failAll!: (err: Error) => void;
+      const down = new Promise<never>((_, reject) => { failAll = reject; });
+      down.catch(() => {});
+      const valuesFn = vi.fn(() => down);
       const mockDb = { insert: vi.fn().mockReturnValue({ values: valuesFn }) };
       logger.initialize(mockDb);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "warn").mockImplementation(() => {});
 
-      // Add 1005 entries (beyond 1000 cap)
-      for (let i = 0; i < 1005; i++) {
-        logger.log(makeEntry({ promptTokens: i }));
-        // Prevent auto-flush at 10 by flushing manually with error
-        if ((i + 1) % 10 === 0) {
-          await logger.flush();
-        }
-      }
+      for (let i = 0; i < 1010; i++) logger.log(makeEntry({ promptTokens: i }));
+      failAll(new Error("DB down"));
+      // Fake timers are on; let the rejected flushes run their catch blocks.
+      for (let i = 0; i < 10; i++) await Promise.resolve();
 
-      // After many failed flushes, buffer should be capped
-      // Verify by doing a successful flush and checking entries count
       const valuesFn2 = vi.fn().mockResolvedValue(undefined);
       mockDb.insert.mockReturnValue({ values: valuesFn2 });
       await logger.flush();
 
-      if (valuesFn2.mock.calls.length > 0) {
-        const flushedEntries = valuesFn2.mock.calls[0][0] as AILogEntry[];
-        expect(flushedEntries.length).toBeLessThanOrEqual(1000);
-      }
+      expect(valuesFn2).toHaveBeenCalledOnce();
+      expect((valuesFn2.mock.calls[0][0] as AILogEntry[]).length).toBe(1000);
     });
   });
 

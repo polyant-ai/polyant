@@ -116,7 +116,7 @@ export function buildLangSmithProviderOptions(
 
   const metadata: Record<string, string> = {};
   if (context?.conversationId) {
-    metadata.oa_conversation_id = context.conversationId;
+    metadata.conversation_id = context.conversationId;
     metadata.thread_id = context.callType === "service"
       ? `${context.conversationId}-service`
       : context.conversationId;

@@ -3,7 +3,8 @@
 import { TwilioWhatsAppClient } from "./twilio-client.js";
 import { toWhatsAppText } from "./whatsapp-format.js";
 import { renderTemplateBody } from "./render-template.js";
-import type { ChannelAdapter, Attachment, MessageHandler, OutgoingMessage } from "../../types.js";
+import type { ChannelAdapter, Attachment, MessageHandler, OutboundDelivery, OutgoingMessage } from "../../types.js";
+import { contactChannelId } from "../../outbound-conversation.js";
 import { transcribeAudio } from "../../audio-transcription.js";
 import { fetchMediaFollowingRedirects } from "./media-fetch.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
@@ -133,7 +134,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
     }
   }
 
-  async sendMessage(channelId: string, msg: OutgoingMessage): Promise<void> {
+  async sendMessage(channelId: string, msg: OutgoingMessage): Promise<OutboundDelivery> {
     if (!this.client) throw new Error("WhatsApp adapter not initialized");
     let body = msg.text;
     try {
@@ -148,6 +149,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
         ? [msg.mediaUrl]
         : undefined;
     await this.client.sendMessage(channelId, body, mediaUrl ? { mediaUrl } : undefined);
+    return { channelId: contactChannelId("whatsapp", channelId) };
   }
 
   async sendTemplate(

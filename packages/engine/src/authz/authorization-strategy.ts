@@ -42,7 +42,7 @@ export function resolvePermission(
 
 /**
  * Pluggable authorization back-end. The OSS strategy resolves against the
- * built-in system roles; an Enterprise strategy can layer custom roles,
+ * built-in system roles; another strategy can layer custom roles,
  * attribute conditions, etc. Selected once at boot by the
  * `AUTHORIZATION_STRATEGY` factory — never via runtime dynamic import.
  */
@@ -73,7 +73,7 @@ export class OssStrategy implements AuthorizationStrategy {
 
 /**
  * Factory selecting the authorization strategy at module-construction time.
- * Today only the OSS strategy exists; the EE build replaces this provider (no
+ * Today only the built-in strategy exists; another build replaces this provider (no
  * dynamic import, no runtime branching in the hot path).
  */
 export function createAuthorizationStrategy(): AuthorizationStrategy {

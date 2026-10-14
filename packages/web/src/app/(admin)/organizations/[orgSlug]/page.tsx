@@ -5,6 +5,7 @@
 import { useI18n } from "@/lib/i18n/context";
 import { api } from "@/lib/api";
 import { AnalyticsDashboard } from "@/components/analytics/analytics-dashboard";
+import { FirstStepsCard } from "@/components/onboarding/first-steps-card";
 
 export default function DashboardPage() {
   const { t } = useI18n();
@@ -15,6 +16,8 @@ export default function DashboardPage() {
         {t("dashboard.title")}
       </h1>
       <p className="mt-2 text-muted-foreground">{t("dashboard.subtitle")}</p>
+
+      <FirstStepsCard />
 
       <div className="mt-6">
         <AnalyticsDashboard

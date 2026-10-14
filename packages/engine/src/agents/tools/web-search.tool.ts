@@ -41,29 +41,37 @@ export default defineTool({
     "Returns title, URL, snippet, and (when available) a relevance score for each result.\n" +
     "The search backend is configured per-instance (Tavily, SerpAPI, or DuckDuckGo) — you do not choose it.\n" +
     "Caveat: searchDepth 'advanced' is slower but more accurate; 'basic' is sufficient for simple queries. Some providers ignore searchDepth.",
+  summary: {
+    "en-US": "Searches the web for up-to-date information.",
+    "it-IT": "Cerca sul web informazioni aggiornate.",
+  },
   category: "research",
   requiredSecrets: [
     {
       key: "search_provider",
       type: "select",
       choices: [...SUPPORTED_PROVIDERS],
-      label: "Search provider",
-      description:
-        "Search backend used by webSearch for this instance. Tavily/SerpAPI need the matching API key; DuckDuckGo is free but limited (Instant Answers only).",
+      label: { "en-US": "Search provider", "it-IT": "Motore di ricerca" },
+      description: {
+        "en-US":
+          "Search backend used by webSearch for this agent. Tavily/SerpAPI need the matching API key; DuckDuckGo is free but limited (Instant Answers only).",
+        "it-IT":
+          "Il servizio di ricerca usato da webSearch per questo agente. Tavily e SerpAPI richiedono la loro chiave API; DuckDuckGo è gratuito ma limitato (solo Instant Answers).",
+      },
       optional: true,
     },
     {
       key: "tavily_api_key",
       type: "text",
-      label: "Tavily API key",
-      description: "Required only when the provider is 'tavily'.",
+      label: { "en-US": "Tavily API key", "it-IT": "Chiave API Tavily" },
+      description: { "en-US": "Required only when the provider is 'tavily'.", "it-IT": "Serve solo se il motore è 'tavily'." },
       optional: true,
     },
     {
       key: "serpapi_api_key",
       type: "text",
-      label: "SerpAPI API key",
-      description: "Required only when the provider is 'serpapi'.",
+      label: { "en-US": "SerpAPI API key", "it-IT": "Chiave API SerpAPI" },
+      description: { "en-US": "Required only when the provider is 'serpapi'.", "it-IT": "Serve solo se il motore è 'serpapi'." },
       optional: true,
     },
   ],

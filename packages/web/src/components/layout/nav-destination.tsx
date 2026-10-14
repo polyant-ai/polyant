@@ -87,7 +87,7 @@ export function NavDestination({ destination }: { destination: Destination }) {
                       className={cn(isActive && ACTIVE_ROW_CLASS)}
                       tooltip={label}
                     >
-                      <Link href={item.href}>
+                      <Link href={item.href} data-tour={`anav-${item.key}`}>
                         <Icon />
                         <span>{label}</span>
                       </Link>

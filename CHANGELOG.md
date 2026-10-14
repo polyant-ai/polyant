@@ -7,20 +7,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.2.0] - 2026-10-02
+## [1.3.1] - 2026-10-14
+
+### Changed
+
+- Lists in the admin panel share one shape: the same cell spacing and column
+  layout, the whole row opens the item's detail, and switches or menus in a row
+  never open it. This covers the agent's tools, MCP servers, scheduled tasks and
+  model tasks, the agent list and memory. The trailing arrow on rows is gone.
+- Tab bars are drawn as chips everywhere (settings, skill detail, tool picker,
+  the agent's automation sections).
+- Buttons that open a creation are labelled "Add".
+- Charts use Recharts 3; Recharts 2 is no longer maintained.
+
+### Fixed
+
+- The period-over-period badge on the analytics cards showed a growing response
+  time as a negative change (an increase of 436% read "-435.8%"). It now shows
+  the real direction, and its colour says whether the change is good.
+- A change measured against a previous period with no data showed "+100%".
+  The engine now returns no comparison (`null`) and the card shows no badge;
+  changes above 999% read ">+999%".
+- Opening a drawer focused its first control, which showed that control's
+  tooltip on every click. The drawer now takes the focus itself.
+
+## [1.3.0] - 2026-10-14
+
+### Added
+
+- An OAuth MCP server can use one shared account for the whole agent. An admin
+  connects it from the agent's MCP section and every conversation uses it; until
+  it is connected the agent does not use the server. Authorizing in each
+  conversation stays available and remains the default (migration `0094`).
+- Plugin manifests can give `displayName` and `description` one text per
+  locale, keyed by BCP 47 tag (`en-US`, `it-IT`). The panel shows the
+  reader's language and falls back to the same language, then English. A plain
+  string keeps working and stands for every locale; a manifest with a locale
+  map needs engine 1.3.0 or later.
+- Tools and hooks can carry a `summary` for people, one text per locale, and
+  the `label` and `description` of their configuration fields can be
+  localized the same way (plugin SDK 1.10.0). The Tools section, the tool
+  picker and the hook panels show them in the reader's language; a tool
+  without a summary shows the first line of its description as before. The
+  description the model reads stays one string and is shown in the tool's
+  panel as the text the agent reads.
+- The panel names tool categories in English and Italian. Every built-in tool
+  and hook has a summary, and its fields have labels, in both languages.
+
+### Changed
+
+- About moves from the sidebar footer to the last item of the Help menu, and
+  the agent page section "To review" is now "Alerts".
+- The panel's chip switchers share one component, and the selected chip stays
+  readable.
+- Continuous integration reports one required check, `CI`, which needs every
+  other job, the DCO sign-off included. Documentation-only pull requests skip
+  the build and test jobs.
+
+### Fixed
+
+- `instance_hooks.action_type` defaults to `function` in the database as it
+  already did in the schema, so a hook row written without it no longer gets a
+  hook type the engine stopped running (migration `0095`).
+- A refresh of a shared MCP account that the provider refuses no longer erases
+  the tokens a concurrent refresh has just saved, which left the agent
+  disconnected with providers that rotate refresh tokens.
+- Adding an MCP server under a slug the agent already uses is refused instead
+  of replacing the existing server.
+
+## [1.2.0] - 2026-10-12
 
 > **Upgrading from 1.1.2 needs operator action.** The engine and the panel run
-> on Node 24. Google sign-in is removed. Several built-in tool families now
-> require plugins (agents keep them enabled under their new names), and custom
-> S3 endpoints are no longer supported. Storing inbound attachments becomes a
-> per-agent choice, off for every agent. Telegram and Slack arrive through
-> webhooks and need a public address. Environment variables that set product
+> on Node 24. Several built-in tool families and
+> `fileUpload` now require plugins (agents keep them enabled under their new
+> names). Attachment storage uses each agent's own bucket and access keys, and
+> storing inbound attachments becomes a per-agent choice, off for every agent. Telegram and Slack arrive
+> through webhooks and need a public address. A new agent starts with its Web
+> channel off and requires its API key. Environment variables that set product
 > behaviour are gone, and a non-default value has to be entered in the panel
 > before the upgrade. Migration `0086` rewrites the conversations table. See
 > [docs/UPGRADING.md](docs/UPGRADING.md).
 
 ### Added
 
+- First-access guidance in the panel. A new user gets a full-screen guided setup
+  (provider and key, model, agent, a chat test through the Playground, channels and
+  agent key, optional knowledge), then an interface tour; the first time a
+  real agent's page opens, a small offer starts a tour of its sections. Every
+  step can be skipped, "Don't show again" is available at each stage, and the new
+  Help menu in the header reopens all three and links to the documentation, the
+  marketplace and the product site. The state is stored per user on the engine
+  (`users.onboarding`, returned by `GET /api/me` and written with
+  `PATCH /api/me/onboarding`), so it follows the person across devices.
+  Accounts that exist when migration 0093 runs start as dismissed.
+- A `createSkill` tool lets an agent write a skill from the conversation and
+  enable it on itself. It is opt-in: no agent has it until an operator enables
+  it in the agent's tools.
+- Organization Owners issue and revoke management API keys from the panel,
+  under **API keys** in the organization's navigation, so `polyant-cli` and
+  scripts can authenticate with `X-Polyant-Key` on an OSS deployment. A key
+  carries the Owner permission set and an optional expiry, and its token is
+  shown once. The routes are `GET`/`POST /api/organizations/:orgSlug/api-keys`
+  and `DELETE /api/organizations/:orgSlug/api-keys/:keyId`; they need
+  `org:write`, and issuing and revoking refuse a request authenticated with a
+  key, so a key cannot mint or revoke keys; it can list its own organization's.
+  Issuing and revoking are recorded in the management audit log.
 - Settings → General holds the installation's operational policies, for a
   platform admin: analytics retention, the engine's public address, the
   per-user and global live-stream caps, the rate-limit window and request
@@ -64,6 +155,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and Nemotron 3.5 Lightning. On Bedrock, Claude Opus 5 and Opus 5.5 (EU and
   global profiles) and Sonnet 5.5 (global only, the one profile AWS publishes
   for it).
+- Model: Claude Haiku 5.5 on Anthropic and on Bedrock (EU and global profiles).
+  It is priced by prompt length: a model call whose prompt passes 100K tokens
+  pays 5× on every rate, input, output and cache. Each call of a tool loop is
+  priced on its own prompt, and `GET /api/instances/models` returns the higher
+  rates as `costLongPrompt`.
+- OpenAI GPT-5.4, GPT-5.6 and GPT-6 are priced by prompt length too: a call
+  with more than 272K input tokens pays the long-context rates for the whole
+  request.
 - AI providers and OpenAI-compatible embedders can be registered at boot
   (`registerAiProvider`, `registerEmbeddingProvider`) instead of edited into the
   maps every request reads. The embedder selector in an agent's settings lists
@@ -92,6 +191,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — the LangSmith trace metadata key `oa_conversation_id` is now
+  `conversation_id`.** Dashboards and filters built on the old key need
+  updating.
 - **BREAKING — the engine and the panel run on Node 24**, the active LTS. The
   published images carry it; a deployment that runs from source or builds its
   own images must move to Node 24, and Node 22 is no longer tested. Under load
@@ -103,10 +205,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `markdownToPdf` becomes `extra:markdownToPdf`). Migration `0087` renames the
   catalog rows in place, so agents keep the tools enabled and skills keep their
   links and required-tool lists; an import of an older bundle maps the old
-  names too. The tools work again once their plugin is installed.
+  names too. The tools work again once their plugin is installed
+  ([polyant-hubspot-plugin](https://github.com/polyant-ai/polyant-hubspot-plugin)
+  v1.1.1, [polyant-extra-plugin](https://github.com/polyant-ai/polyant-extra-plugin)
+  v1.1.0); GitHub and Render have no public plugin.
   `verifyDocument` was removed without a replacement: the first boot removes
   it, and any other tool no plugin provides, from the agents that had it and
   logs their names.
+- **BREAKING — `fileUpload` moved out of core into the extra plugin** as
+  `extra:fileUpload`. Migration `0089` renames the catalog row in place, so
+  agents keep the tool enabled and skills keep their links and required-tool
+  lists; an import of an older bundle maps the old name too. The tool works
+  again once the extra plugin is installed
+  ([polyant-extra-plugin](https://github.com/polyant-ai/polyant-extra-plugin)
+  v1.1.0).
 - **BREAKING — Telegram and Slack now arrive through webhooks.** Telegram used
   long polling and Slack Socket Mode, so both worked without a public address.
   Now the engine registers `<public address>/webhooks/telegram/<agent>` with
@@ -115,18 +227,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   engine needs a public HTTPS address and `/webhooks/*` must reach it.
 - **BREAKING — attachment storage is configured per agent, and storing inbound
   files is opt-in.** The four `PLATFORM_S3_*` variables are gone; attachment
-  persistence and `fileUpload` share the agent's bucket and support either
-  static credentials or the explicit `s3_use_task_role` opt-in. An agent keeps
-  the files its users send only when **Store attachments** is on in its
-  behaviour parameters; migration `0088` adds the switch off for every agent,
-  and the model sees each file in the turn either way. Stored files are deleted
-  with their conversation and with the agent. Files earlier versions stored in
-  the platform bucket stay there; the upgrade guide shows how to copy them.
+  persistence and `extra:fileUpload` share the agent's bucket, reached only with
+  the agent's own `aws_access_key_id` and `aws_secret_access_key`. The bucket,
+  region and keys are set on the
+  agent's Advanced page, in a card that holds the **Store attachments** switch;
+  an agent keeps the files its users send only while the switch is on.
+  Migration `0088` adds the switch off for every agent, and the model sees each
+  file in the turn either way. Stored files are deleted with their conversation
+  and with the agent. Files earlier versions stored in the platform bucket stay
+  there; the upgrade guide shows how to copy them.
+- **BREAKING for new agents — Web is a channel and starts off.** The agent's public
+  HTTP endpoints (`POST /v1/chat/completions`, `POST /api/instances/:slug/chat/stream`)
+  answer only while the agent's `web` channel is enabled (Channels section,
+  `PUT /api/instances/:slug/channels/web`). With Web off they answer 404, the way a
+  switched-off Telegram or Slack webhook does, and `GET /v1/models` with the agent's
+  own key lists nothing. Switching Web on needs the agent's API key unless
+  authentication is turned off. The panel's Playground talks to the new
+  `POST /api/instances/:slug/playground/stream`, which uses the panel session and the
+  new permission `agent.playground:use` on the agent, so it works with Web off and
+  asks for no key. Every built-in role holds the permission, viewer included (migration
+  `0092` grants it to existing roles). Migration
+  `0091` switches Web on for every existing agent, with its `auth_enabled` as it was;
+  bundles carry the `web` channel (format 1.3) and an older bundle restores the
+  endpoint on. A2A keeps its own `a2a_enabled` switch.
+- A new agent now requires its API key (`auth_enabled` defaults to true, migration
+  `0090`). It cannot be reached until a key is saved; the Web channel panel can
+  generate one. Turning authentication off asks the reader to accept the risk
+  first. Existing agents and imported bundles keep their current setting.
 - **The OpenAI tiers moved to the gpt-6 family** (`fast` → `gpt-6-luna`,
   `standard` → `gpt-6-sol`, `heavy` → `gpt-6-astra`). They pointed at
   `gpt-4o-mini`/`gpt-4o`, which OpenAI lists as deprecated. Every OpenAI agent
   without a pinned model, and its background jobs, lands on the new models; the
   deprecated ones stay in the catalog so a pinned agent keeps its costs priced.
+- The Anthropic `fast` tier runs Claude Haiku 5.5 instead of Haiku 4.5, with
+  thinking switched off for the calls that do not ask for it (titles, memory,
+  summaries). The `fast` tier runs the background jobs of every Anthropic
+  agent, pinned or not.
 - Bedrock's default `standard` and `heavy` tiers no longer require Anthropic
   model access: they use Amazon Nova Pro and OpenAI gpt-oss 120B respectively.
   Nova keeps system-prompt caching without placing an invalid cache marker on
@@ -142,10 +278,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A hook that returns `regenerate` or `injectContext` on a Room or webhook turn,
   where those controls are not honored, now logs a warning naming the hook and
   the dropped control.
-- The plugin SDK is pinned at v1.9.0, including plugin knowledge access. SDK
-  1.9.0 declares `ctx.artifacts` on `ToolContext`, so plugin tools read it
-  from the SDK's own types; `put` and `take` may return a promise and must be
-  awaited.
+- The plugin SDK is pinned at v1.9.0. SDK 1.9.0 declares `ctx.artifacts` on
+  `ToolContext`, so plugin tools read it from the SDK's own types; `put` and
+  `take` may return a promise and must be awaited. The SDK's knowledge-access
+  declarations (`requiredKnowledge`, `ctx.knowledge`) are not implemented by
+  this engine: a plugin that declares them is loaded, but gets no knowledge
+  base handle.
 - Runtime dependencies moved to NestJS 12, AI SDK 7, React 19.3, Vitest 5,
   dotenv 18, jsdom 30 and markdown-it 15.
 - Telegram webhook registration happens after the channel starts and is
@@ -166,17 +304,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   identity is cached for a minute and dropped when the agent changes.
 - The panel loads the changelog only for a Platform Admin, and loads the
   changelog card's markdown renderer only when the dialog opens.
+- Management keys are verified against a SHA-256 digest instead of bcrypt,
+  which held the event loop for about 250 ms on every request a key
+  authenticated. A key stored as bcrypt keeps working and is rewritten the
+  first time it is used.
+- `/v1/chat/completions` answers 503 in OpenAI's error shape, with
+  `code: missing_provider_key` and `x-should-retry: false`, when the agent has
+  no API key for its AI provider, before any stream byte. Channels and the
+  panel keep showing the warning.
+- With no language chosen, the panel starts in the browser's language when it
+  is one the panel supports, and in English otherwise. A stored choice still
+  wins.
+- Turning Knowledge on gives the agent the read-only knowledge tools
+  (`searchKnowledge`, `getKnowledge`). Only the switch from off to on assigns
+  them, so re-saving the agent does not bring back a tool its author removed.
 
 ### Removed
 
-- **BREAKING — Google sign-in is removed.** Email and password is the only
-  sign-in method in this edition. Accounts that only used Google need a password
-  before upgrading; `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and the
-  deployment-wide domain allowlist are gone.
-- **BREAKING — `s3_endpoint` is removed.** Migration
-  `0081_drop_s3_endpoint_secret` deletes stored values. MinIO, Cloudflare R2 and
-  other custom endpoints are unsupported in 1.2.0 and fall back to AWS
-  addressing.
 - **BREAKING — deployment configuration was narrowed.** `AUTH_MODE`,
   `DEFAULT_INSTANCE_ID`, `AWS_REGION`, `PLATFORM_ADMIN_EMAIL`,
   `WORKSPACES_ROOT`, `DEBUG_LLM_PAYLOAD` and the unused `LANGSMITH_*` variables
@@ -202,6 +346,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The CDK stack no longer passes `DEFAULT_INSTANCE_ID` or `DATETIME_LOCALE` to
   the engine container, and sets the deployment's time zone as `TZ`. The `app`
   block of `config.yaml` keeps only `timezone`.
+- The seeded `demo-agent` (authentication off). Migration `0091` deletes it on a
+  database where it was never used (no conversation, memory, knowledge document,
+  scheduled task or secret, and its row never updated); a `demo-agent` that was
+  used or edited stays and is treated like any existing agent. A fresh install has
+  no agent until you create one.
 
 ### Fixed
 
@@ -287,9 +436,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent behaviour overrides are persisted and type-validated, and two
   concurrent fragments can no longer overwrite each other while a message burst
   is starting.
-- `fileUpload` is available with either supported credential shape. Attachment
-  routes now accept Express 5 wildcard segments, and filenames containing
-  spaces, `#`, `?`, or harmless dot runs remain reachable.
+- Attachment routes accept Express 5 wildcard segments, and filenames
+  containing spaces, `#`, `?`, or harmless dot runs remain reachable.
 - An agent PATCH validates the provider and model the agent will run on
   together, whenever it changes either, so changing only the provider can no
   longer leave the agent pinned to a model of the previous one.
@@ -306,6 +454,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   limited on their own bucket instead of sharing one per client address. The
   CDK stack sets `TRUST_PROXY=1`, so the engine sees the caller's address
   behind the load balancer.
+  The check is kept in memory in each process: with several replicas, a retry
+  that reaches another replica is answered again. Run one replica, or accept
+  the occasional duplicate.
 - The scheduler reaper fails only the run it judged overdue, never a newer
   claim of the same task.
 - A cron task that `scheduleTask` creates without a zone is stored with `UTC`,
@@ -317,6 +468,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Analytics cost and token totals include what the provider billed for calls
   that failed after completing steps; call counts and response times still
   describe answered calls.
+- Amazon Nova on Bedrock is priced at the eu-south-1 rates. An `eu.*`
+  inference profile is billed at the price of the Region that calls it, and
+  the catalog carried the us-east-1 price, a cache read at a tenth of the input
+  rate instead of a quarter, and a cache write AWS does not charge for. A
+  warm-cache Nova Lite turn was recorded at a third of its cost. Nova Lite is
+  now $0.096 / $0.384, Nova Pro $1.28 / $5.21, Nova Micro $0.056 / $0.224 and
+  Nova 2 Lite $0.528 / $4.411 per million input / output tokens; Qwen3-Next
+  80B moves to its Milan price too.
+- A turn preempted by a follow-up message (cancel-and-restart) is logged with
+  what its model calls were billed, as `outcome = 'aborted'`. It used to leave
+  no row, so that spend was missing from every cost total. Cost and token sums
+  count it; call counts, response times and error rates do not.
+- Embedding calls are logged with their tokens and cost, as `call_type =
+  'embedding'`. Knowledge ingestion, memory extraction and retrieval were
+  billed by the provider and left no row. `text-embedding-3-small` is priced at
+  $0.02 and Titan Text v2 at $0.023 per million tokens; a registered
+  OpenAI-compatible embedder is logged with no cost.
+- Cost totals are summed in double precision. The `real` column was summed as
+  a `real`, so a total over many rows lost precision: a million rows of
+  $0.000123 summed to $122.19 instead of $123.00.
+- The model call behind the prompt-section tools counts in its conversation's
+  cost, like the other service calls of the turn.
 - An import normalises the web context field mapping as the panel does, and
   refuses an invalid one before writing anything.
 - `readFile` caps `tail` at 500 lines like other windows, and its refusal of a
@@ -327,11 +500,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a supported path and the config says so.
 - A failed load of Settings → General shows the reason with a retry instead of
   a skeleton.
+- A Claude turn on Anthropic or Bedrock that ran three or more tool steps no
+  longer fails. Each step added a cache breakpoint and kept the previous ones,
+  so the request passed the provider's limit of four: Bedrock refused it with
+  a 400 (the caller saw a 500) and Anthropic dropped the newest. The
+  within-turn breakpoint now moves to the latest step.
+- A scheduled run that finishes after the reaper failed it no longer clears
+  the claim of the run that replaced it, nor deletes a one-shot task under it.
+  A replica that claims a task another replica has just run no longer runs it
+  a second time.
+- On shutdown the schedulers stop first, so no task starts during the
+  ten-second HTTP grace period to be cut off by the exit, and a step that fails
+  (a trace-store flush against a database already gone, say) is logged and no
+  longer keeps the process alive until the platform kills it.
+- A WhatsApp or Telegram message sent while the previous answer was being
+  cancelled is answered together with the earlier fragments in one reply. When
+  the cancelled run took longer than the debounce window to stop, the contact
+  got one reply to the new fragment and another to the old ones.
+- A Telegram reply in flight when the channel is saved is still delivered, and
+  Telegram file downloads stop after 30 seconds and refuse files over 20 MB.
+- The engine warns at boot when a `PLATFORM_S3_*` variable is still set:
+  1.2.0 no longer reads them.
+- The upgrade guide's pre-step for migration `0086` built an index on
+  `conversations.last_message_at`, a column 1.1.x does not have, so it failed.
+  It now builds only the `conversation_messages` index ahead.
+- Claude Sonnet 5.5 cache reads cost $0.10 per million tokens on Anthropic and
+  on the Bedrock global profile, not $0.20.
+- Claude models with adaptive thinking (Opus 4.7 and later, Sonnet 5 and 5.5,
+  Haiku 5.5, Fable) show their reasoning again. They return it with empty text
+  unless a summary is requested, so the panel, the logs and the stored turn had
+  none although the reasoning was billed; the gateway now asks for the summary
+  on Anthropic and on Bedrock.
+- GPT-5.6 Sol is priced at its full $5 / $30 rather than the promotional
+  $4 / $20, so a spend cap does not loosen when the promotion ends.
+- A skill whose required tool comes from a plugin is offered to the model
+  again. Its namespaced name was compared with the name the tool is given to
+  the provider, so every such skill was left out of the prompt.
+- An agent configured with its own Bedrock access-key pair signs its chat and
+  embedding calls with that pair even when `AWS_BEARER_TOKEN_BEDROCK` is set on
+  the host; the deployment's token used to win.
+- Text document uploads, knowledge imports and agent imports accept JSON bodies
+  up to 50 MB. They were refused above 100 KB, so an export larger than that
+  could not be imported back. Every other route keeps the 100 KB limit.
+- A request body over its size limit is answered 413, and one of an
+  unsupported content type 415, instead of 500.
+- A stored attachment is read and deleted in the bucket it was written to. After
+  an agent's bucket changed, older files could not be opened and a deleted
+  conversation left them in the old bucket while counting them as removed.
+  Files stored without a recorded bucket still use the agent's current bucket.
+- Knowledge documents left uploading or processing by a process that died are
+  failed within minutes, at boot and periodically after. A restart within five
+  minutes used to leave them looking busy for good.
+- The live conversation view shows a turn that starts seconds after the
+  previous one was stored, instead of hiding it until it finished.
+- A model call aborted by its caller's deadline is logged as an error of kind
+  `timeout` rather than as a user preemption.
+- Voice notes transcribed by Deepgram Nova-3 ($0.0043 per minute) and Amazon
+  Transcribe ($0.0001667 per second) are priced; they were logged at $0.
+- Conversation history replays a tool that moved into a plugin under the name
+  it has now, not its old flat name.
+- The playground's error messages, its copy button and the badge of a
+  transcribed voice message follow the panel's language.
+- Messages that sent people to "an administrator" name the Organization Owner
+  and Admin, and a Platform Admin where one is the right person.
+- A management key whose id is not a UUID is refused before the lookup instead
+  of reaching Postgres as an error.
+- Changing an MCP server's address to another host no longer reuses its stored
+  credential: saving or testing it there answers 400 until the credential is
+  entered again. Anyone allowed to edit MCP servers could otherwise send the
+  stored token to a host of their choosing.
 
 ### Security
 
-- Removed the agent-controlled S3 endpoint that could direct file PUTs and GETs
-  to arbitrary hosts, including private network addresses.
+- Each Telegram channel has its own random webhook secret, stored with the
+  channel and independent of the bot token. The engine mints it and registers
+  the webhook when the channel starts.
+- Message text, reply previews, contact names, the memory extractor's
+  unparseable replies and the full error of a failed Telegram or outbound send
+  are logged at debug level only; the normal levels keep the error message and
+  stable ids.
 - Closed cross-tenant keyword search and mutation paths by making tenant scope
   explicit, branded and fail-closed throughout the affected stores.
 - Disabled skills can no longer resolve their retained credential placeholders;
@@ -342,6 +589,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are no longer written to logs.
 - Updated undici to 8.11.2 and 7.30.0 for its open security advisories. The
   Next.js, Sharp, js-yaml, Multer and qs updates already shipped in 1.1.2.
+- Updated axios to 1.20.0 for twelve high-severity advisories in 1.19.0.
+- The engine and web images run as the unprivileged `node` user instead of
+  root, and declare a health check (`/health` on the engine, the sign-in page
+  on the web). A volume mounted on the engine's `/app/logs` or
+  `/app/packages/engine/workspaces` must be writable by uid 1000.
 
 ## [1.1.2] - 2026-09-24
 
@@ -672,7 +924,9 @@ Patch release. It restores agent creation, which fails on every attempt in 1.1.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/polyant-ai/polyant/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/polyant-ai/polyant/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/polyant-ai/polyant/compare/v1.1.2...v1.2.0
 [1.1.2]: https://github.com/polyant-ai/polyant/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/polyant-ai/polyant/compare/v1.1.0...v1.1.1

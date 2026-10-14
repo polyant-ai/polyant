@@ -32,12 +32,9 @@ describe("instanceFilter", () => {
 });
 
 describe("pctChange", () => {
-  it("returns 100 when previous is 0 and current > 0", () => {
-    expect(pctChange(5, 0)).toBe(100);
-  });
-
-  it("returns 0 when both are 0", () => {
-    expect(pctChange(0, 0)).toBe(0);
+  it("returns null when previous is 0: there is nothing to compare against", () => {
+    expect(pctChange(5, 0)).toBeNull();
+    expect(pctChange(0, 0)).toBeNull();
   });
 
   it("calculates percentage correctly", () => {

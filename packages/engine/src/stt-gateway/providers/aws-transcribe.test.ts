@@ -17,7 +17,7 @@ vi.mock("@aws-sdk/client-transcribe-streaming", () => ({
   StartStreamTranscriptionCommand: StartStreamTranscriptionCommandMock,
 }));
 
-import { awsTranscribeAdapter } from "./aws-transcribe.js";
+import { awsTranscribeAdapter, measureAudioDurationSec } from "./aws-transcribe.js";
 
 describe("awsTranscribeAdapter", () => {
   beforeEach(() => {
@@ -108,5 +108,61 @@ describe("awsTranscribeAdapter", () => {
         LanguageCode: "it-IT",
       }),
     );
+  });
+
+  it("reports the result end time when the container declares no duration", async () => {
+    sendMock.mockResolvedValueOnce({
+      TranscriptResultStream: (async function* () {
+        yield { TranscriptEvent: { Transcript: { Results: [{ IsPartial: false, EndTime: 7.5, Alternatives: [] }] } } };
+      })(),
+    });
+
+    const result = await awsTranscribeAdapter.transcribe({
+      audio: Buffer.from([0x00, 0x01]),
+      mimeType: "audio/ogg",
+      credentials: { aws: { accessKeyId: "AKIA", secretAccessKey: "x", region: "eu-west-1" } },
+    });
+
+    expect(result.text).toBe("");
+    expect(result.durationSec).toBe(7.5);
+  });
+});
+
+describe("measureAudioDurationSec", () => {
+  function oggPage(granule: bigint, payload: Buffer): Buffer {
+    const header = Buffer.alloc(27);
+    header.write("OggS", 0, "latin1");
+    header.writeBigInt64LE(granule, 6);
+    return Buffer.concat([header, payload]);
+  }
+
+  it("reads an Ogg/Opus duration from the last granule position minus pre-skip", () => {
+    const opusHead = Buffer.alloc(19);
+    opusHead.write("OpusHead", 0, "latin1");
+    opusHead.writeUInt16LE(312, 10);
+    const audio = Buffer.concat([oggPage(0n, opusHead), oggPage(48_000n * 3n + 312n, Buffer.alloc(10))]);
+
+    expect(measureAudioDurationSec(audio, "ogg-opus")).toBe(3);
+  });
+
+  it("reads a FLAC duration from STREAMINFO", () => {
+    const buf = Buffer.alloc(42);
+    buf.write("fLaC", 0, "latin1");
+    // 16 kHz in 20 bits at byte 18, total samples (36 bits) ending at byte 25.
+    const rate = 16_000;
+    buf[18] = (rate >> 12) & 0xff;
+    buf[19] = (rate >> 4) & 0xff;
+    buf[20] = (rate & 0x0f) << 4;
+    buf.writeUInt32BE(rate * 5, 22);
+
+    expect(measureAudioDurationSec(buf, "flac")).toBe(5);
+  });
+
+  it("derives a PCM duration from byte length at 16 kHz 16-bit mono", () => {
+    expect(measureAudioDurationSec(Buffer.alloc(64_000), "pcm")).toBe(2);
+  });
+
+  it("returns undefined for an Ogg buffer without pages", () => {
+    expect(measureAudioDurationSec(Buffer.from([1, 2, 3]), "ogg-opus")).toBeUndefined();
   });
 });

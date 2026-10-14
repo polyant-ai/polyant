@@ -2,7 +2,10 @@
 
 import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "crypto";
-import type { AttachmentMeta } from "../conversations/schema.js";
+import { and, eq, sql } from "drizzle-orm";
+import { db } from "../database/client.js";
+import { conversationMessages, type AttachmentMeta } from "../conversations/schema.js";
+import { parseAttachmentKey } from "./attachment-key.js";
 import { extensionFromMime } from "../utils/mime.js";
 import { getAllSecrets } from "../instances/secrets.store.js";
 import type { InstanceSlug } from "../instances/identifiers.js";
@@ -21,10 +24,11 @@ import { attachmentsLog } from "./attachments-logger.js";
  * variable nobody ever set — so no attachment was ever stored, on any
  * installation, and the panel's attachment view could not render.
  *
- * The bucket and its credentials are now the agent's secrets, the same ones the
- * `fileUpload` tool declares. What that buys, beyond the right tier: an agent
- * whose deployment runs on ECS needs no stored credentials at all, because
- * `s3_use_task_role` reaches the task role through the default provider chain.
+ * The bucket and its credentials are now the agent's secrets — `s3_bucket_name`,
+ * `aws_region`, `aws_access_key_id` and `aws_secret_access_key` — set in the
+ * panel beside the switch that turns storage on. Only static keys reach the
+ * bucket: the deployment's own runtime identity is never used for it (see
+ * `agent-s3.ts`).
  *
  * The bytes never gated the agent's own sight of the attachment: they reach the
  * model inline. This decides only whether the file can be reopened afterwards.
@@ -82,8 +86,8 @@ export async function isAgentStorageConfigured(instanceId: InstanceSlug): Promis
  *
  * Everything else is left alone. A `#`, a `?` or a space are legal in a name
  * and legal in a key; what they need is percent-encoding in the URL, which is
- * the caller's job on the way out (the `fileUpload` tool and the panel both do
- * it per segment) and not a reason to mangle the name here.
+ * the caller's job on the way out (the panel does it per segment) and not a
+ * reason to mangle the name here.
  */
 export function safeKeySegment(rawName: string): string | null {
   const stripped = rawName.replace(/[/\\]/g, "_").trim();
@@ -127,6 +131,7 @@ export async function uploadAttachment(
     mimeType: opts.mimeType,
     fileName: opts.fileName,
     s3Key,
+    bucket: resolved.bucket,
     sizeBytes: data.length,
   };
 }
@@ -139,6 +144,28 @@ export interface AttachmentStreamResult {
   body: ReadableStream | NodeJS.ReadableStream;
   contentType: string;
   contentLength?: number;
+}
+
+/**
+ * The bucket a stored file was written to, as its message recorded it. The
+ * agent's bucket may have changed since; a file stored before the bucket was
+ * recorded, or under a conversation id that has since changed, has none.
+ */
+async function recordedBucket(s3Key: string): Promise<string | undefined> {
+  const parsed = parseAttachmentKey(s3Key);
+  if (!parsed) return undefined;
+  const [row] = await db
+    .select({ attachments: conversationMessages.attachments })
+    .from(conversationMessages)
+    .where(
+      and(
+        eq(conversationMessages.conversationId, parsed.conversationId),
+        sql`${conversationMessages.attachments} @> ${JSON.stringify([{ s3Key: parsed.key }])}::text::jsonb`,
+      ),
+    )
+    .limit(1);
+  const bucket = row?.attachments?.find((a) => a.s3Key === parsed.key)?.bucket;
+  return typeof bucket === "string" && bucket ? bucket : undefined;
 }
 
 /**
@@ -160,7 +187,7 @@ export async function getAttachmentStream(
   }
 
   const response = await resolved.client.send(new GetObjectCommand({
-    Bucket: resolved.bucket,
+    Bucket: (await recordedBucket(s3Key)) ?? resolved.bucket,
     Key: s3Key,
   }));
 

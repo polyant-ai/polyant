@@ -77,9 +77,15 @@ export interface IncomingMessage {
   metadata: Record<string, unknown>;
 }
 
+/** Why a turn produced a warning instead of an answer. Channels ignore it; API bridges map it to an error status. */
+export type TurnFailure = "missing_provider_key";
+
 export interface OutgoingMessage {
   /** Response text */
   text: string;
+
+  /** Set when `text` is a warning about a failed turn rather than the agent's answer. */
+  failure?: TurnFailure;
 
   /** Optional structured attachments */
   attachments?: Attachment[];
@@ -107,6 +113,8 @@ export interface Attachment {
 export type MessageHandler = (msg: IncomingMessage, signal?: AbortSignal) => Promise<OutgoingMessage>;
 
 export interface StreamOutgoingMessage {
+  /** Set when the stream carries only a warning about a failed turn (see OutgoingMessage.failure). */
+  failure?: TurnFailure;
   textStream: AsyncIterable<string>;
   fullStream: AsyncIterable<unknown>;
   completed: Promise<{
@@ -127,6 +135,12 @@ export interface StreamOutgoingMessage {
 
 export type StreamMessageHandler = (msg: IncomingMessage, signal?: AbortSignal) => Promise<StreamOutgoingMessage>;
 
+/** Where a proactive message went, as the contact's own messages name it. */
+export interface OutboundDelivery {
+  /** The channel id inbound messages from this contact carry. */
+  channelId: string;
+}
+
 export interface ChannelAdapter {
   /** Unique channel name */
   name: MessageChannelType;
@@ -134,8 +148,12 @@ export interface ChannelAdapter {
   /** Initialize the adapter (connect, start polling/webhooks) */
   initialize(onMessage: MessageHandler): Promise<void>;
 
-  /** Send a message to a specific channel/chat */
-  sendMessage(channelId: string, msg: OutgoingMessage): Promise<void>;
+  /**
+   * Send a message to a specific channel/chat. An adapter whose target can differ from
+   * the id the contact's replies carry (a Slack user id answered on a DM, a prefixed
+   * WhatsApp number) returns that id, which keys the contact's conversation.
+   */
+  sendMessage(channelId: string, msg: OutgoingMessage): Promise<OutboundDelivery | void>;
 
   /**
    * Send a structured template (implemented only by adapters that support it,

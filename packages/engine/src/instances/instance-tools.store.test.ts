@@ -115,6 +115,7 @@ import {
   getEnabledToolNames,
   recomputeInstanceTools,
   seedInstanceTools,
+  enableToolsByName,
 } from "./instance-tools.store.js";
 import { asInstanceUuid } from "./identifiers.js";
 import { NO_TRANSACTION } from "../database/client.js";
@@ -324,6 +325,30 @@ describe("instance-tools.store", () => {
   // -----------------------------------------------------------------------
   // seedInstanceTools
   // -----------------------------------------------------------------------
+  describe("enableToolsByName", () => {
+    it("inserts the catalog tools as manual rows and ignores conflicts", async () => {
+      mockDb.select.mockReturnValue(createChainMock([{ id: "t-search" }, { id: "t-get" }]) as never);
+      const insertChain = createChainMock(undefined);
+      mockDb.insert.mockReturnValue(insertChain as never);
+
+      await enableToolsByName(INSTANCE_UUID, ["searchKnowledge", "getKnowledge"], NO_TRANSACTION);
+
+      expect(insertChain.values).toHaveBeenCalledWith([
+        { instanceId: INSTANCE_UUID, toolId: "t-search", source: "manual" },
+        { instanceId: INSTANCE_UUID, toolId: "t-get", source: "manual" },
+      ]);
+      expect(insertChain.onConflictDoNothing).toHaveBeenCalled();
+    });
+
+    it("writes nothing when none of the names is in the catalog", async () => {
+      mockDb.select.mockReturnValue(createChainMock([]) as never);
+
+      await enableToolsByName(INSTANCE_UUID, ["searchKnowledge"], NO_TRANSACTION);
+
+      expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+  });
+
   describe("seedInstanceTools", () => {
     it("inserts DEFAULT_TOOL_NAMES with source='manual' and uses onConflictDoNothing", async () => {
       mockDb.select.mockReturnValue(

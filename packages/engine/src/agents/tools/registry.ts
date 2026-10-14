@@ -21,6 +21,7 @@ import {
 } from "@polyant-ai/plugin-sdk";
 import { config } from "../../config.js";
 import { resolvePluginRoots } from "../../plugin-system/plugin-roots.js";
+import type { LocalizedText } from "../../plugin-system/localized-text.js";
 import { engineSatisfies } from "../../plugin-system/plugin-manifest.js";
 import { registerOAuthProvider } from "../../server/oauth/oauth-providers.js";
 import { findStrictModeViolations, findIllegalToolName } from "./strict-mode-lint.js";
@@ -131,8 +132,8 @@ export interface LoadedPluginInfo {
   namespace: string;
   name: string;
   version: string;
-  displayName?: string;
-  description?: string;
+  displayName?: LocalizedText;
+  description?: LocalizedText;
 }
 
 /** The plugins whose tools the loader registered, by namespace. Written by `loadAllTools` only. */
@@ -344,8 +345,11 @@ export function buildTool(def: ToolDefinition, ctx: ToolContext): Tool {
   // Fill missing nullable keys (recursively) THEN validate against the JSON
   // Schema — the serialized analogue of the legacy Zod validation path. Fill so
   // non-strict models that omit nullable keys still pass; validate so off-schema
-  // args (wrong type, hallucinated keys) get a correctable error instead of
-  // silently reaching execute. The tool's own execute still does semantic checks.
+  // args (a wrong type, a missing required key) get a correctable error instead
+  // of silently reaching execute. A key the schema does not declare is removed
+  // without an error, as a non-strict z.object does (see the ajv setup above):
+  // a misspelled nullable key is therefore dropped and then filled with null.
+  // The tool's own execute still does semantic checks.
   return tool({
     description,
     inputSchema: jsonSchema(def.inputSchema as Parameters<typeof jsonSchema>[0], {
@@ -369,6 +373,7 @@ export function listAvailableTools(): ToolInfo[] {
       return {
         name: def.name,
         description: def.description,
+        ...(def.summary === undefined ? {} : { summary: def.summary }),
         category: def.category ?? "general",
         requiredSecrets: specs.length > 0 ? specs : undefined,
         ...(def.inputExamples?.length ? { inputExamples: def.inputExamples } : {}),

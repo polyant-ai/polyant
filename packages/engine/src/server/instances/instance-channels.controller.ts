@@ -16,11 +16,12 @@ import { ZodError } from "zod";
 import {
   setChannelConfig, listChannelConfigs, getChannelConfig, deleteChannelConfig,
   CHANNEL_TYPES, CHANNEL_CONFIG_KEYS, resolveWhatsAppAuthMode,
-  WHATSAPP_CHANNEL_TYPE, WHATSAPP_AUTH_MODE_API_KEY, AGENT_CHANNEL_TYPE,
+  WHATSAPP_CHANNEL_TYPE, WHATSAPP_AUTH_MODE_API_KEY, AGENT_CHANNEL_TYPE, WEB_CHANNEL_TYPE,
   type ChannelType, type SetChannelConfigResult, type SetChannelConfigOptions,
 } from "../../instances/channels.store.js";
 import { channelManager } from "../../channels/channel-manager.js";
 import { syncAgentTool } from "../../instances/agent-tool-sync.js";
+import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { findInstanceOrFail, maskSensitiveConfig } from "./instance-helpers.js";
 import { asInstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
@@ -276,6 +277,15 @@ export class InstanceChannelsController {
     }
     const type = channelType as ChannelType;
     const instance = await findInstanceOrFail(slug);
+
+    // Web switched on while authentication is on and no key exists would publish
+    // an endpoint that refuses everyone: the panel generates the key first.
+    if (type === WEB_CHANNEL_TYPE && body.enabled) {
+      const cfg = await resolveInstanceConfig(asInstanceSlug(slug));
+      if (cfg.authEnabled && !cfg.authApiKey) {
+        throw new BadRequestException("Web needs the agent's API key while authentication is on: save a key first");
+      }
+    }
 
     const existing = await getChannelConfig(asInstanceSlug(slug), type);
     const mergedConfig = this.mergeAllowedConfig(existing?.config ?? {}, body.config, type);

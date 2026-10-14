@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SkillEnvDialog } from "./skill-env-dialog";
 
@@ -173,14 +173,10 @@ describe("SkillEnvDialog", () => {
     const apiKeyInput = screen.getByLabelText("API_KEY");
     expect(apiKeyInput).toHaveAttribute("type", "password");
 
-    // Click the eye toggle button (the ghost button next to the input)
-    const toggleBtns = screen.getAllByRole("button").filter(
-      (btn) => btn.getAttribute("type") === "button" && btn.classList.contains("absolute"),
-    );
-    if (toggleBtns.length > 0) {
-      await user.click(toggleBtns[0]);
-      expect(apiKeyInput).toHaveAttribute("type", "text");
-    }
+    // The eye toggle is the icon button beside the input it controls.
+    const toggle = within(apiKeyInput.parentElement as HTMLElement).getByRole("button");
+    await user.click(toggle);
+    expect(apiKeyInput).toHaveAttribute("type", "text");
   });
 
   it("calls api.skills.setEnv on save with correct data", async () => {

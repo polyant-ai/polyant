@@ -72,23 +72,33 @@ export default defineTool({
     "Do NOT pass credentials in the body or URL — auth is managed by instance secrets.\n" +
     "Internal/private URLs are blocked (SSRF protection). Timeout 15s.\n" +
     "For GET requests use the `curl` tool. Returns HTTP status, body, and relevant headers.",
+  summary: {
+    "en-US": "Sends POST, PUT, PATCH or DELETE requests to external services.",
+    "it-IT": "Invia richieste POST, PUT, PATCH o DELETE a servizi esterni.",
+  },
   category: "integration",
   requiredSecrets: [
     {
       key: "http_api_key",
       type: "text",
-      label: "HTTP API key",
-      description:
-        "Optional API key injected when 'authStyle' is set to 'bearer' or 'api-key'. Leave empty for unauthenticated calls.",
+      label: { "en-US": "HTTP API key", "it-IT": "Chiave API HTTP" },
+      description: {
+        "en-US": "Optional API key injected when 'authStyle' is set to 'bearer' or 'api-key'. Leave empty for unauthenticated calls.",
+        "it-IT": "Chiave API facoltativa, inviata quando 'authStyle' vale 'bearer' o 'api-key'. Lasciala vuota per le chiamate senza autenticazione.",
+      },
       optional: true,
     },
     {
       key: "http_allowed_domains",
       type: "text",
       sensitive: false,
-      label: "HTTP allowed domains (allowlist)",
-      description:
-        "Optional comma-separated FQDN allowlist (e.g. 'api.example.com,hooks.partner.io'). When set, requests to any other hostname are blocked. Subdomains are allowed: an entry 'example.com' matches 'api.example.com' but NOT 'badexample.com'. Leave empty to allow any public host (SSRF gates still apply).",
+      label: { "en-US": "HTTP allowed domains (allowlist)", "it-IT": "Domini HTTP consentiti (allowlist)" },
+      description: {
+        "en-US":
+          "Optional comma-separated FQDN allowlist (e.g. 'api.example.com,hooks.partner.io'). When set, requests to any other hostname are blocked. Subdomains are allowed: an entry 'example.com' matches 'api.example.com' but NOT 'badexample.com'. Leave empty to allow any public host (SSRF gates still apply).",
+        "it-IT":
+          "Elenco facoltativo di domini separati da virgola (es. 'api.example.com,hooks.partner.io'). Se impostato, le richieste verso qualsiasi altro host sono bloccate. I sottodomini sono ammessi: 'example.com' copre 'api.example.com' ma NON 'badexample.com'. Lascialo vuoto per consentire qualsiasi host pubblico (le protezioni SSRF restano attive).",
+      },
       optional: true,
     },
   ],

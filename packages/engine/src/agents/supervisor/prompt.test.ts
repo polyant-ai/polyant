@@ -380,6 +380,37 @@ describe("buildSupervisorSystemPrompt", () => {
     const { system } = await buildPrompt({ memoryEnabled: false });
     expect(system).not.toContain("# Memoria");
   });
+
+  // A skill names its tools canonically ("crm:contact"); the tools the model is
+  // given are keyed by the identifier the providers accept ("crm__contact").
+  // Comparing the two spellings dropped every skill that needs a plugin tool.
+  it("keeps a skill whose required plugin tool is enabled under its model-facing name", async () => {
+    const skillRow = {
+      skillSlug: "lead-handling",
+      skillName: "Lead handling",
+      skillDescription: "Record a lead",
+      versionContent: "body",
+      versionMetadata: { requiredTools: ["crm:contact"] },
+      autoLoad: false,
+    };
+    mockDbSelect.mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        innerJoin: vi.fn().mockReturnValue({
+          innerJoin: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+              orderBy: vi.fn().mockResolvedValue([skillRow]),
+            }),
+          }),
+        }),
+      }),
+    });
+
+    const enabled = await buildPrompt({ tools: { crm__contact: {} as Tool } });
+    expect(enabled.system).toContain("<name>lead-handling</name>");
+
+    const missing = await buildPrompt({ tools: { other__tool: {} as Tool } });
+    expect(missing.system).not.toContain("<name>lead-handling</name>");
+  });
 });
 
 describe("normalizeRequiredEnv", () => {

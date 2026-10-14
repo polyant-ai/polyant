@@ -9,6 +9,8 @@ export type {
   ResetPasswordResponse,
   MemberRole,
   OrganizationMember,
+  ManagementApiKey,
+  CreatedManagementApiKey,
   Instance,
   SecretStatus,
   ChannelConfig,
@@ -71,6 +73,7 @@ export type {
   OptoutContact,
   EmbeddingWipeResult,
   McpAuthMode,
+  McpOAuthAccount,
   McpServer,
   McpTestResult,
 } from "./api-types";
@@ -122,10 +125,14 @@ import type {
   OptoutContact,
   EmbeddingWipeResult,
   OrganizationMember,
+  ManagementApiKey,
+  CreatedManagementApiKey,
   McpAuthMode,
   McpServer,
   McpTestResult,
   TenantContextPayload,
+  OnboardingState,
+  OnboardingPatch,
 } from "./api-types";
 
 // ── HTTP Client ─────────────────────────────────────────────────────
@@ -295,6 +302,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+    /** Writes the caller's own guidance state; the engine returns the merged record. */
+    updateOnboarding: (patch: OnboardingPatch) =>
+      request<{ onboarding: OnboardingState }>("/api/me/onboarding", {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      }),
   },
   members: {
     list: (orgSlug: string) =>
@@ -309,6 +322,22 @@ export const api = {
     remove: (userId: string, orgSlug: string) =>
       request<{ removed: boolean }>(
         `/api/organizations/${encodeURIComponent(orgSlug)}/members/${encodeURIComponent(userId)}`,
+        { method: "DELETE" },
+      ),
+  },
+  apiKeys: {
+    list: (orgSlug: string) =>
+      request<{ keys: ManagementApiKey[] }>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/api-keys`,
+      ),
+    create: (orgSlug: string, data: { name: string; expiresAt?: string }) =>
+      request<CreatedManagementApiKey>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/api-keys`,
+        { method: "POST", body: JSON.stringify(data) },
+      ),
+    remove: (orgSlug: string, keyId: string) =>
+      request<{ deleted: boolean }>(
+        `/api/organizations/${encodeURIComponent(orgSlug)}/api-keys/${encodeURIComponent(keyId)}`,
         { method: "DELETE" },
       ),
   },
@@ -508,6 +537,17 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    /** Start connecting the agent's shared account; the panel opens the returned URL. */
+    connectShared: (slug: string, serverSlug: string) =>
+      request<{ authorizeUrl: string }>(
+        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}/shared-account`,
+        { method: "POST" },
+      ),
+    disconnectShared: (slug: string, serverSlug: string) =>
+      request<{ disconnected: boolean }>(
+        `/api/instances/${encodeURIComponent(slug)}/mcp-servers/${encodeURIComponent(serverSlug)}/shared-account`,
+        { method: "DELETE" },
+      ),
   },
   knowledge: {
     list: (slug: string) =>

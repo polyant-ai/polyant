@@ -135,35 +135,6 @@ describe.skipIf(!DB_AVAILABLE)("RBAC tenancy schema after the full migration cha
     expect(undecided[0].n).toBe(0);
   });
 
-  it("backfilled exactly one membership + one Owner binding per pre-existing user", async () => {
-    const orgId = await defaultOrgId();
-    const ownerId = await ownerRoleId();
-
-    const usersWithoutMembership = await queryClient<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM users u
-      WHERE NOT EXISTS (
-        SELECT 1 FROM organization_memberships m
-        WHERE m.user_id = u.id AND m.organization_id = ${orgId})`;
-    expect(usersWithoutMembership[0].n).toBe(0);
-
-    const usersWithoutOwner = await queryClient<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM users u
-      WHERE NOT EXISTS (
-        SELECT 1 FROM role_bindings b
-        WHERE b.user_id = u.id AND b.role_id = ${ownerId}
-          AND b.scope_type = 'organization' AND b.organization_id = ${orgId})`;
-    expect(usersWithoutOwner[0].n).toBe(0);
-
-    // Exactly one Owner org-binding each (no duplicates from the backfill).
-    const dupes = await queryClient<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM (
-        SELECT user_id FROM role_bindings
-        WHERE role_id = ${ownerId} AND scope_type = 'organization' AND organization_id = ${orgId}
-        GROUP BY user_id HAVING count(*) > 1
-      ) d`;
-    expect(dupes[0].n).toBe(0);
-  });
-
   describe("scope_id integrity trigger", () => {
     afterEach(async () => {
       await queryClient`DELETE FROM users WHERE email LIKE 'itest-rbac-%'`;

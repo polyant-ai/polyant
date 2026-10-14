@@ -22,6 +22,11 @@ export const ManagementAuditAction = {
   MemberRemove: "member.remove",
   McpServerWrite: "mcp_server.write",
   McpServerDelete: "mcp_server.delete",
+  // The account an admin connects for a whole agent on an OAuth MCP server:
+  // every conversation then acts as that account, so who connected it, and who
+  // took it away, is the question the token columns cannot answer.
+  McpServerSharedConnect: "mcp_server.shared_connect",
+  McpServerSharedDisconnect: "mcp_server.shared_disconnect",
   UserCreate: "user.create",
   // The wire value stays `user.role_update` although `users.role` is gone:
   // renaming it would orphan every audit row already written under it.
@@ -35,6 +40,13 @@ export const ManagementAuditAction = {
    * current value and `updated_by`, both overwritten by the next change.
    */
   PlatformSettingsUpdate: "platform_settings.update",
+  /**
+   * A management API key issued or revoked. A key is a bearer credential with
+   * the Owner permission set and records nothing about who issued it, so this
+   * row is the only trace of who handed one out, or took one away.
+   */
+  ApiKeyCreate: "api_key.create",
+  ApiKeyDelete: "api_key.delete",
 } as const;
 
 export type ManagementAuditActionValue =
@@ -50,6 +62,8 @@ export const ManagementAuditTarget = {
   User: "user",
   /** The installation itself — the single `platform_settings` row. */
   PlatformSettings: "platform_settings",
+  /** A management API key (`management_api_keys`), by id. */
+  ApiKey: "api_key",
 } as const;
 
 export type ManagementAuditTargetValue =

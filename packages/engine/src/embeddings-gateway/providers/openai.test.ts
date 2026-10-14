@@ -39,11 +39,12 @@ describe("embedOpenAI", () => {
 
 describe("embedManyOpenAI", () => {
   it("returns [] for empty input without calling the SDK", async () => {
-    expect(await embedManyOpenAI([], { apiKey: "k", dimensions: 1024 })).toEqual([]);
+    expect(await embedManyOpenAI([], { apiKey: "k", dimensions: 1024 })).toEqual({ embeddings: [], tokens: 0 });
     expect(embedManyMock).not.toHaveBeenCalled();
   });
-  it("uses embedMany for >1 text", async () => {
+  it("uses embedMany for >1 text, and returns the tokens the provider billed", async () => {
+    embedManyMock.mockResolvedValueOnce({ embeddings: [[0.1], [0.2]], usage: { tokens: 12 } });
     const out = await embedManyOpenAI(["a", "b"], { apiKey: "k", dimensions: 1024 });
-    expect(out).toEqual([[0.1], [0.2]]);
+    expect(out).toEqual({ embeddings: [[0.1], [0.2]], tokens: 12 });
   });
 });

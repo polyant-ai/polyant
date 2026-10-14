@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { API_BASE, type HookEvent } from "@/lib/api";
+import { API_BASE, ApiError, getUserErrorMessage, type HookEvent } from "@/lib/api";
 
 const HOOK_EVENTS: readonly HookEvent[] = [
   "conversation_start",
@@ -64,12 +64,20 @@ export interface StreamRequestOptions {
   messages: ChatMessage[];
   chatId: string;
   signal?: AbortSignal;
-  authToken?: string;
+  /** What the user reads when the request fails, in the panel's language. */
+  errorMessages: StreamErrorMessages;
+}
+
+export interface StreamErrorMessages {
+  network: string;
+  noBody: string;
+  streamRead: string;
+  httpFailed: (status: number) => string;
 }
 
 /**
  * Connects to the engine's native typed SSE streaming endpoint
- * (`POST /api/instances/:slug/chat/stream`) and dispatches typed callbacks.
+ * (`POST /api/instances/:slug/playground/stream`) and dispatches typed callbacks.
  *
  * The endpoint emits structured SSE events:
  *   step-start, reasoning-delta, reasoning-signature, reasoning-redacted,
@@ -81,15 +89,14 @@ export async function streamChatCompletion(
   options: StreamRequestOptions,
   callbacks: StreamCallbacks,
 ): Promise<void> {
-  const { instanceSlug, messages, chatId, signal, authToken } = options;
+  const { instanceSlug, messages, chatId, signal, errorMessages } = options;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
 
   let response: Response;
   try {
     response = await fetch(
-      `${API_BASE}/api/instances/${encodeURIComponent(instanceSlug)}/chat/stream`,
+      `${API_BASE}/api/instances/${encodeURIComponent(instanceSlug)}/playground/stream`,
       {
         method: "POST",
         headers,
@@ -104,19 +111,29 @@ export async function streamChatCompletion(
     );
   } catch (err) {
     if (signal?.aborted) return;
-    callbacks.onError(err instanceof Error ? err : new Error("Network error"));
+    callbacks.onError(err instanceof Error ? err : new Error(errorMessages.network));
     return;
   }
 
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    callbacks.onError(new Error(`HTTP ${response.status}: ${body}`));
+    // The engine's raw body (a stack, an internal path) is not shown to the user:
+    // only its message, through the same filter every other panel request uses.
+    const body = (await response.json().catch(() => null)) as { message?: unknown } | null;
+    const message = typeof body?.message === "string" ? body.message : response.statusText;
+    callbacks.onError(
+      new Error(
+        getUserErrorMessage(
+          new ApiError(response.status, message),
+          errorMessages.httpFailed(response.status),
+        ),
+      ),
+    );
     return;
   }
 
   const reader = response.body?.getReader();
   if (!reader) {
-    callbacks.onError(new Error("No response body"));
+    callbacks.onError(new Error(errorMessages.noBody));
     return;
   }
 
@@ -150,7 +167,7 @@ export async function streamChatCompletion(
     callbacks.onDone();
   } catch (err) {
     if (signal?.aborted) return;
-    callbacks.onError(err instanceof Error ? err : new Error("Stream read error"));
+    callbacks.onError(err instanceof Error ? err : new Error(errorMessages.streamRead));
   }
 }
 

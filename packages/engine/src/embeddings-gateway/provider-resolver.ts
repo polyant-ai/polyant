@@ -29,8 +29,8 @@ const cache = new TtlCache<string, EmbeddingContext>({ maxSize: 200, ttlMs: 30_0
  * the surface whose only job is to be trusted about that.
  *
  * Bedrock is the asymmetric one on purpose: only the REGION is required, because
- * the access-key pair is optional (the host's AWS profile or IAM role stands in),
- * which mirrors `resolveEmbeddingContext`.
+ * its credentials are all optional — a Bedrock API key, else the access-key pair,
+ * else the host's AWS profile or IAM role — which mirrors `resolveEmbeddingContext`.
  */
 export function requiredSecretKeysFor(provider: EmbeddingProvider): readonly string[] {
   const registration = getEmbeddingProvider(provider);
@@ -84,11 +84,12 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
     const apiKey = secrets[registration.apiKeySecret];
     if (!apiKey) {
       throw new Error(
-        `${registration.label} API key required for embeddings on instance "${instance.slug}". Configure it in Settings → AI Provider.`,
+        `${registration.label} API key required for embeddings on instance "${instance.slug}". Set the "${registration.apiKeySecret}" secret through the management API (PUT /api/instances/${instance.slug}/secrets).`,
       );
     }
     ctx = {
       instanceId: instance.id,
+      instanceSlug: instance.slug,
       dimensions,
       providerName: registration.name,
       credentials: { provider: "openai-compatible", name: registration.name, apiKey },
@@ -98,15 +99,17 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
     const region = secrets[SECRET_KEYS.AWS_PROVIDER_REGION];
     if (!region) {
       throw new Error(
-        `AWS region is required for Bedrock embeddings on instance "${instance.slug}". Configure the AWS provider region in Settings → AI Provider.`,
+        `AWS region is required for Bedrock embeddings on instance "${instance.slug}". Set it in the agent's Model section, under Embeddings.`,
       );
     }
     ctx = {
       instanceId: instance.id,
+      instanceSlug: instance.slug,
       dimensions,
       providerName: "bedrock",
       credentials: {
         provider: "bedrock",
+        apiKey: secrets[SECRET_KEYS.BEDROCK_API_KEY],
         accessKeyId: secrets[SECRET_KEYS.AWS_PROVIDER_ACCESS_KEY_ID],
         secretAccessKey: secrets[SECRET_KEYS.AWS_PROVIDER_SECRET_ACCESS_KEY],
         region,
@@ -116,11 +119,12 @@ export async function resolveEmbeddingContext(instanceIdOrSlug: string): Promise
     const apiKey = secrets[SECRET_KEYS.OPENAI_API_KEY];
     if (!apiKey) {
       throw new Error(
-        `OpenAI API key required for embeddings on instance "${instance.slug}". Configure it in Settings → AI Provider.`,
+        `OpenAI API key required for embeddings on instance "${instance.slug}". Set it in the agent's Model section, under Embeddings.`,
       );
     }
     ctx = {
       instanceId: instance.id,
+      instanceSlug: instance.slug,
       dimensions,
       providerName: "openai",
       credentials: { provider: "openai", apiKey },

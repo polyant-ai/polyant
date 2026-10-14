@@ -8,6 +8,8 @@ code or files.
 ## Working agreement
 
 - The user's current request overrides repository guidance when they conflict.
+- Keep the main chat as coordinator; delegate execution to medium workhorse models.
+  Before task work, read [Coordinated task execution](docs/engineering-checkpoints.md#coordinated-task-execution).
 - Inspect the relevant code, tests, package manifest, and recent history before editing.
 - Prefer the smallest change at the shared root cause. Do not add speculative abstractions.
 - Preserve unrelated changes in dirty worktrees. Never discard or overwrite work you did

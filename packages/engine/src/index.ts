@@ -10,13 +10,13 @@ import { retiredEnvironmentWarnings } from "./config-retired.js";
 import { db } from "./database/client.js";
 import { initAIGateway, shutdown as shutdownGateway } from "./ai-gateway/index.js";
 import { initMemory } from "./memory/index.js";
-import { resetStuckProcessingAll } from "./knowledge/store.js";
+import { startStuckDocumentSweep } from "./knowledge/stuck-document-sweep.js";
 import { resetStuckProcessingEvents } from "./webhooks/webhook-backlog.store.js";
 import { supervise, superviseStream } from "./agents/supervisor/index.js";
 import { channelManager } from "./channels/channel-manager.js";
 import { listAllInstances } from "./instances/store.js";
 import { startServer } from "./server/main.js";
-import { closeHttpServer, HTTP_SHUTDOWN_GRACE_MS } from "./server/graceful-close.js";
+import { closeHttpServer, runShutdownSteps, HTTP_SHUTDOWN_GRACE_MS } from "./server/graceful-close.js";
 import { drainBackgroundTurns } from "./channels/background-turns.js";
 import { closeActivityStreams } from "./activity-stream/activity-stream.controller.js";
 import { type AgentCallMetadata, type IncomingMessage, type OutgoingMessage, type StreamOutgoingMessage } from "./channels/types.js";
@@ -31,13 +31,13 @@ import { seedInitialAdmin } from "./users/seed.js";
 import { schedulerService } from "./scheduled-tasks/scheduler.service.js";
 import { roomScheduler } from "./room/room-scheduler.js";
 import { getRoomBySlug, type RoomConfig } from "./room/room.store.js";
-import { asInstanceSlug, type InstanceSlug } from "./instances/identifiers.js";
+import { asInstanceSlug } from "./instances/identifiers.js";
 import { getActiveTrigger } from "./webhooks/active-triggers.js";
-import { findActiveTaskByOutbound } from "./scheduled-tasks/store.js";
 import { TtlCache } from "./utils/ttl-cache.js";
 import {
   isMissingApiKeyError,
-  MISSING_KEY_RESPONSE,
+  missingKeyOutgoing,
+  missingKeyStream,
   runPipelinePre,
   runPipelinePost,
   hasResponseMutatingHook,
@@ -61,22 +61,6 @@ async function getCachedRoom(slug: string): Promise<RoomConfig | null> {
   const room = await getRoomBySlug(asInstanceSlug(slug));
   roomCache.set(slug, room);
   return room;
-}
-
-// Cached outbound-task lookup to avoid DB query on every incoming message
-type TaskOutboundResult = { lastConversationId: string | null } | null | undefined;
-const taskOutboundCache = new TtlCache<string, TaskOutboundResult>({ maxSize: 500, ttlMs: 30_000 });
-
-async function getCachedTaskOutbound(
-  instanceId: InstanceSlug,
-  channelType: string,
-  channelId: string,
-): Promise<TaskOutboundResult> {
-  const key = `${instanceId}:${channelType}:${channelId}`;
-  if (taskOutboundCache.has(key)) return taskOutboundCache.get(key);
-  const result = await findActiveTaskByOutbound(instanceId, channelType, channelId);
-  taskOutboundCache.set(key, result);
-  return result;
 }
 
 /**
@@ -138,18 +122,9 @@ async function main() {
   // 3. Initialize memory layer (pgvector)
   const pgvectorStatus = await initMemory();
 
-  // 3a. Recover knowledge documents stuck in "processing" from a previous crash
-  try {
-    const reset = await resetStuckProcessingAll();
-    if (reset > 0) {
-      console.log(`[Knowledge] Reset ${reset} stale processing doc(s) to error`);
-    }
-  } catch (err) {
-    console.error(
-      "[Knowledge] Boot cleanup failed (non-fatal):",
-      err instanceof Error ? err.message : String(err),
-    );
-  }
+  // 3a. Fail knowledge documents whose ingestion died with its process, now and
+  // periodically after.
+  const stopStuckDocumentSweep = await startStuckDocumentSweep();
 
   // 3b. Recover webhook events stuck in "processing" — see follow-up to #81.
   // A fresh boot has no in-flight room cycle, so anything in PROCESSING is a
@@ -196,17 +171,8 @@ async function main() {
       }
     }
 
-    // Check if this message is a reply to a scheduled task's outbound channel.
-    // Resolved internally — never read the override from msg.metadata (untrusted channel data).
-    const taskMatch = await getCachedTaskOutbound(
-      msg.instanceId,
-      msg.channelType,
-      msg.channelId,
-    );
-    const taskConversationOverride = taskMatch?.lastConversationId ?? null;
-
     // Phase 1: Context preparation
-    const pre = await runPipelinePre(msg, taskConversationOverride, abortSignal);
+    const pre = await runPipelinePre(msg, undefined, abortSignal);
     // Pre-generate the assistant message id so the pipeline trace can be linked
     // to the persisted message by id (not fragile ordinal matching).
     return runBufferedTurn(msg, pre, abortSignal, randomUUID());
@@ -307,7 +273,7 @@ async function main() {
     } catch (err) {
       if (isMissingApiKeyError(err)) {
         pipelineLog.response(ctx.instanceId, Date.now() - ctx.pipelineStart);
-        return { text: MISSING_KEY_RESPONSE };
+        return missingKeyOutgoing();
       }
       throw err;
     }
@@ -478,12 +444,7 @@ async function main() {
     } catch (err) {
       if (isMissingApiKeyError(err)) {
         pipelineLog.response(ctx.instanceId, Date.now() - ctx.pipelineStart);
-        async function* singleChunk() { yield MISSING_KEY_RESPONSE; }
-        return {
-          textStream: singleChunk(),
-          fullStream: (async function* () { yield { type: "text-delta", text: MISSING_KEY_RESPONSE }; })(),
-          completed: Promise.resolve({ text: MISSING_KEY_RESPONSE }),
-        };
+        return missingKeyStream();
       }
       throw err;
     }
@@ -570,35 +531,55 @@ async function main() {
   console.log(`HTTP API:       http://localhost:${config.server.port}/v1`);
   console.log(`Admin panel:    open the web package separately (default :3000)`);
 
-  // Graceful shutdown
+  // Graceful shutdown. The steps run in order and each on its own (see
+  // `runShutdownSteps`), so one that fails cannot keep the process alive.
   const shutdown = async () => {
     console.log("\nShutting down...");
-    // Activity streams never end on their own, so the HTTP server would wait on
-    // them for good: end them first. Anything else still open (a turn
-    // streaming its reply) gets a bounded grace period, so the flushes and
-    // shutdowns below always run before the platform kills the process.
-    // Turns a webhook already acknowledged (Telegram, Slack, Twilio, event
-    // webhooks) are no longer open requests, and their sender will not retry
-    // them: wait for those within the same grace period.
-    const streams = closeActivityStreams();
-    const [{ forced }, background] = await Promise.all([
-      closeHttpServer(nestApp),
-      drainBackgroundTurns(HTTP_SHUTDOWN_GRACE_MS),
-    ]);
-    console.log(`HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
-    if (background.pending > 0) {
-      console.warn(`${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
+    let failed: string[] = [];
+    try {
+      failed = await runShutdownSteps([
+        {
+          // First: a tick during the HTTP grace period below would start a turn
+          // nothing waits for, cut mid-run by the exit.
+          name: "schedulers",
+          run: () => {
+            schedulerService.shutdown();
+            roomScheduler.shutdown();
+            stopStuckDocumentSweep();
+          },
+        },
+        {
+          // Activity streams never end on their own, so the HTTP server would wait
+          // on them for good: end them first. Anything else still open (a turn
+          // streaming its reply) gets a bounded grace period, so the flushes and
+          // shutdowns below always run before the platform kills the process.
+          // Turns a webhook already acknowledged (Telegram, Slack, Twilio, event
+          // webhooks) are no longer open requests, and their sender will not retry
+          // them: wait for those within the same grace period.
+          name: "HTTP server and acknowledged turns",
+          run: async () => {
+            const streams = closeActivityStreams();
+            const [{ forced }, background] = await Promise.all([
+              closeHttpServer(nestApp),
+              drainBackgroundTurns(HTTP_SHUTDOWN_GRACE_MS),
+            ]);
+            console.log(`HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
+            if (background.pending > 0) {
+              console.warn(`${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
+            }
+          },
+        },
+        { name: "channels", run: () => channelManager.shutdownAll() },
+        { name: "MCP client pool", run: () => closeMcpClientPool() },
+        { name: "trace store", run: () => traceStore.shutdown() },
+        { name: "audit store", run: () => auditStore.shutdown() },
+        { name: "management audit store", run: () => managementAuditStore.shutdown() },
+        { name: "AI gateway", run: () => shutdownGateway() },
+        { name: "file logger", run: () => shutdownFileLogger() },
+      ]);
+    } finally {
+      process.exit(failed.length > 0 ? 1 : 0);
     }
-    schedulerService.shutdown();
-    roomScheduler.shutdown();
-    await channelManager.shutdownAll();
-    await closeMcpClientPool();
-    await traceStore.shutdown();
-    await auditStore.shutdown();
-    await managementAuditStore.shutdown();
-    await shutdownGateway();
-    shutdownFileLogger();
-    process.exit(0);
   };
 
   process.on("SIGINT", shutdown);

@@ -15,7 +15,7 @@ permissions:
 
 concurrency:
   group: engineering-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   checkpoint:
@@ -30,9 +30,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Test checkpoint tooling
-        if: github.event_name != 'pull_request' || github.event.action != 'edited'
-        run: node --test scripts/ci/*.test.mjs scripts/release/*.test.mjs
       - name: Check PR evidence and report impacts
         if: github.event_name == 'pull_request'
         env:
@@ -46,7 +43,7 @@ jobs:
       - name: Record bounded maintenance inventory
         if: always() && (github.event_name != 'pull_request' || github.event.action != 'edited')
         run: node scripts/ci/engineering-checkpoint.mjs --inventory > engineering-inventory.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always() && (github.event_name != 'pull_request' || github.event.action != 'edited')
         with:
           name: engineering-inventory

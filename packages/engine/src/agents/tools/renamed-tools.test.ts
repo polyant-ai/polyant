@@ -10,14 +10,16 @@ import { RENAMED_TOOLS } from "./renamed-tools.js";
  * or a database keeps a row the importer would never find.
  */
 describe("RENAMED_TOOLS", () => {
-  it("lists exactly the pairs migration rename_extracted_tools applies", () => {
+  it("lists exactly the pairs the rename_extracted_tools migrations apply, in order", () => {
     // Found by name, not number: editions number their migrations differently.
     const dir = new URL("../../database/migrations/", import.meta.url);
-    const file = readdirSync(dir).find((f) => f.endsWith("_rename_extracted_tools.sql"));
-    expect(file).toBeDefined();
-    const migration = readFileSync(new URL(file!, dir), "utf8");
+    const files = readdirSync(dir)
+      .filter((f) => /_rename_extracted_tools(_[a-z0-9_]+)?\.sql$/.test(f))
+      .sort();
+    expect(files.length).toBeGreaterThan(0);
+    const migrations = files.map((f) => readFileSync(new URL(f, dir), "utf8")).join("\n");
 
-    const pairs = [...migration.matchAll(/\['([^']+)',\s*'([^']+)'\]/g)].map((m) => [m[1], m[2]]);
+    const pairs = [...migrations.matchAll(/\['([^']+)',\s*'([^']+)'\]/g)].map((m) => [m[1], m[2]]);
 
     expect(pairs.length).toBeGreaterThan(0);
     expect(pairs).toEqual([...RENAMED_TOOLS.entries()]);

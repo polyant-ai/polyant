@@ -15,6 +15,10 @@ export default defineTool({
     "Read the full content of a skill.\n" +
     "Use to load a skill's instructions before applying them. Pass the value of the <name> tag from the <available_skills> section of the prompt.\n" +
     "Returns markdown content, version, and any environment variables for the skill.",
+  summary: {
+    "en-US": "Reads the full instructions of a skill.",
+    "it-IT": "Legge le istruzioni complete di una skill.",
+  },
   category: "skills",
   parameters: z.object({
     name: z

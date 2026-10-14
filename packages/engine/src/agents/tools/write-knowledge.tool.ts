@@ -20,6 +20,10 @@ export default defineTool({
     "Action 'append' adds new content at the end, separated by a double newline.\n" +
     "If the document does not exist, it is created with the specified `mimeType` (default: text/markdown).\n" +
     "Returns `docId` and operation confirmation.",
+  summary: {
+    "en-US": "Writes or appends to a document in the knowledge base.",
+    "it-IT": "Scrive o aggiunge testo a un documento della base di conoscenza.",
+  },
   category: "knowledge",
   inputExamples: [
     {

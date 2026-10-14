@@ -4,7 +4,7 @@ import type { ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import type { ReasoningToggle } from "../model-catalog.js";
 import { createProvider, type PrepareMessages } from "./base.js";
-import { injectCacheBreakpoints, makeStepMarker, withProviderCacheMarker } from "./prompt-caching.js";
+import { injectCacheBreakpoints, makeStepMarker, withoutProviderCacheMarker, withProviderCacheMarker } from "./prompt-caching.js";
 
 /**
  * Beta header that enables interleaved thinking + tool use across multiple
@@ -59,14 +59,17 @@ export const applyAnthropicPromptCaching: PrepareMessages = (input) =>
  * when the instance runs the cross-turn breakpoints at 1h. Wired via
  * `createProvider`'s `stepMarker` hook.
  */
-export const anthropicStepMarker = makeStepMarker(markAnthropic(CACHE_CONTROL_5M));
+export const anthropicStepMarker = makeStepMarker({
+  applyMarker: markAnthropic(CACHE_CONTROL_5M),
+  clearMarker: (message) => withoutProviderCacheMarker(message, "anthropic", "cacheControl"),
+});
 
 export const AnthropicProvider = createProvider(
   "anthropic",
   (modelId, apiKeys) => {
     const apiKey = apiKeys?.anthropic;
     if (!apiKey) {
-      throw new Error("Anthropic API key not configured for this instance. Set it in the admin panel under Settings → AI Provider API Keys.");
+      throw new Error("Anthropic API key not configured for this instance. Set it in the agent's Model section, under Conversation.");
     }
     return createAnthropic({
       apiKey,
@@ -84,7 +87,7 @@ export const AnthropicProvider = createProvider(
 
 type AnthropicThinkingOptions =
   | { thinking: { type: "enabled"; budgetTokens: number } }
-  | { thinking: { type: "adaptive" }; effort: string };
+  | { thinking: { type: "adaptive"; display: "summarized" }; effort: string };
 
 /**
  * Build the `providerOptions.anthropic` object for a thinking-enabled call, at
@@ -93,7 +96,10 @@ type AnthropicThinkingOptions =
  *     "adaptive"` + top-level `effort` (SDK maps to `output_config.effort`).
  *     `effort` is forwarded as-is — the gateway already clamped it to the model's
  *     catalog `reasoningLevels` (adaptive Claude accept low/medium/high/xhigh/max).
- *     These REJECT the legacy shape with a 400.
+ *     These REJECT the legacy shape with a 400. They also return their thinking
+ *     with EMPTY text unless asked otherwise (display "omitted" is their default,
+ *     from Opus 4.7 on), which left the reasoning out of the panel, the logs and
+ *     the stored turn while it was still billed — hence `display: "summarized"`.
  *   - legacy models (Opus 4.6 and earlier, Haiku/Sonnet 4.x) → `thinking.type:
  *     "enabled"` + a per-level token budget (budget models expose only the three
  *     preset levels, so the budget key is always one of low/medium/high).
@@ -118,7 +124,7 @@ export function buildAnthropicThinkingOffOptions(
 }
 
 export function buildAnthropicThinkingOptions(level: string, adaptive: boolean): AnthropicThinkingOptions {
-  if (adaptive) return { thinking: { type: "adaptive" }, effort: level };
+  if (adaptive) return { thinking: { type: "adaptive", display: "summarized" }, effort: level };
   const budgetKey: "low" | "medium" | "high" = level === "low" || level === "high" ? level : "medium";
   return { thinking: { type: "enabled", budgetTokens: ANTHROPIC_THINKING_BUDGETS[budgetKey] } };
 }

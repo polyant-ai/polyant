@@ -117,4 +117,16 @@ describe("currentTurn", () => {
     const events = [reply("old", 3), reply("new", 12)];
     expect(currentTurn(events, [], ms(10)).map((e) => e.id)).toEqual(["new"]);
   });
+
+  // A person who answers within seconds puts the previous turn's user row inside
+  // the window of the new message. That row is not the new turn's.
+  it("keeps a turn that started seconds after the previous one was stored", () => {
+    const events = [inbound("in1", 1), reply("r1", 2), inbound("in2", 4), reply("tool2", 5)];
+    expect(currentTurn(events, [ms(0.9)], ms(2)).map((e) => e.id)).toEqual(["in2", "tool2"]);
+  });
+
+  it("ends a turn that stored only its incoming message", () => {
+    const events = [inbound("in1", 1)];
+    expect(currentTurn(events, [ms(0.9)], ms(0.9))).toEqual([]);
+  });
 });

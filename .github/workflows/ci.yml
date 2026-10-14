@@ -1,5 +1,11 @@
 name: CI
 
+# The jobs in this file are generic and may be renamed, split or merged. The
+# `CI` job at the end is the only stable name: it needs every other job here and
+# passes only when each of them succeeded or was skipped on purpose, so it is
+# the one check branch protection requires. Checks defined in other workflow
+# files report on their own and do not need changes here.
+
 on:
   push:
     branches: [main, develop]
@@ -9,68 +15,77 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels the run it replaces. Pushes to develop
+# and main queue instead of cancelling, so every merged commit is checked.
 concurrency:
-  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    name: Lint
+  # Pull requests that change only documentation skip the build and test jobs,
+  # and the Docker builds run only when one of their inputs changes. The skip
+  # happens per job, behind the gate, instead of with a workflow-level
+  # paths-ignore: an ignored workflow never reports, and a required check that
+  # never reports keeps the pull request waiting forever. Pushes run everything.
+  changes:
+    name: Changed paths
     runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+      docker: ${{ steps.classify.outputs.docker }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
         with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
-      - run: npm run lint
+          sparse-checkout: scripts/ci
+      - id: classify
+        name: Classify the changed paths
+        # An explicit bash adds pipefail: without it a page of the file list
+        # that fails after a page of documentation reads as "docs only" and
+        # the test jobs are skipped behind a green gate.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_FILES: repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            node scripts/ci/classify-changes.mjs --all >> "$GITHUB_OUTPUT"
+          else
+            # previous_filename too: moving a file out of packages/ changes code.
+            gh api --paginate "$PR_FILES" --jq '.[] | .filename, (.previous_filename // empty)' \
+              | node scripts/ci/classify-changes.mjs >> "$GITHUB_OUTPUT"
+          fi
 
-  typecheck:
-    name: Typecheck
+  # Behind the gate, so a commit without a sign-off blocks the merge. A push
+  # has no pull request commits to check and skips it.
+  dco:
+    name: DCO sign-off
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
         with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
-      - run: npm run typecheck
+          fetch-depth: 0
+      - name: Verify DCO sign-off on every commit
+        # Pinned to the commit v1.1 resolved to — see the note in release.yml.
+        uses: tisonkun/actions-dco@f1024cd563550b5632e754df11b7d30b73be54a5 # v1.1
 
-  test:
-    name: Unit Tests
+  repository:
+    name: Repository checks
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
-      # --coverage activates the thresholds in vitest.config.ts: a ratchet that
-      # fails the build if a PR lowers coverage. Local runs stay fast without it.
-      - run: npm run test:unit -w @polyant/engine -- --coverage
-
-  secrets:
-    name: Secret Scan
-    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
         with:
-          # The scanner diffs against the base ref, so it needs its history.
+          # The secret scanner diffs against the base ref, so it needs its history.
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
@@ -85,21 +100,59 @@ jobs:
       # every clone. This job is neither, and it reads the same pattern list.
       - name: Scan added lines for secrets
         run: node scripts/ci/scan-secrets.cjs "origin/${{ github.base_ref || 'develop' }}"
+      # These read README.md, CHANGELOG.md and docs/releases, and need no
+      # installed dependencies, so they run on every change, docs included.
+      - name: Check release metadata
+        run: npm run release:verify
+      # Every build- and release-tooling test, so a new script cannot land untested.
+      - name: Test build and release tooling
+        run: node --test scripts/*.test.mjs scripts/ci/*.test.mjs scripts/release/*.test.mjs
+      - name: Check that the CI gate needs every job
+        run: node scripts/ci/check-ci-gate.mjs .github/workflows/ci.yml
+      # A workflow GitHub cannot parse never reports, so the required check
+      # stays pending; this names the error instead, and catches the mistakes
+      # that still parse (unknown keys, bad expressions, shell bugs).
+      - name: Lint workflows
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color
+
+  static:
+    name: Lint and web typecheck
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install
+      - run: npm run lint
+      # Only the web is type-checked here. The engine's `tsc --noEmit` would
+      # repeat the `tsc` that Build runs with the same tsconfig, tests included.
+      # `next build` is no substitute for the web: its type check drops every
+      # error reported in a *.test.* or __tests__ file.
+      - run: npm run typecheck -w @polyant/web
+
+  test:
+    name: Unit Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install
+      # --coverage activates the thresholds in vitest.config.ts: a ratchet that
+      # fails the build if a PR lowers coverage. Local runs stay fast without it.
+      - run: npm run test:unit -w @polyant/engine -- --coverage
 
   test-web:
     name: Web Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
+      - uses: ./.github/actions/install
       # 64 files / 655 tests that had never run in CI: `git log -S "polyant/web"`
       # on this file returned nothing since it was created. lint and build DO
       # cover the package, which is what made the gap easy to miss — web was in
@@ -110,7 +163,10 @@ jobs:
 
   integration:
     name: Integration Tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     services:
       postgres:
         # pgvector image: migration 0000 runs `CREATE EXTENSION vector`.
@@ -144,33 +200,71 @@ jobs:
       CI_REQUIRE_DB: "1"
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
+      - uses: ./.github/actions/install
       - run: npm run db:migrate -w @polyant/engine
+      # On the freshly migrated database, before any test writes to it: a column
+      # added to a schema file without its migration fails here, not in production.
+      - run: npm run ci:schema-drift
       - run: npm run test:integration -w @polyant/engine
 
   build:
     name: Build
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      # The one job that saves the node_modules cache (on develop and main).
+      - uses: ./.github/actions/install
         with:
-          node-version: 24
-          cache: npm
-      # The plugin-sdk is a public git dependency; npm/pacote resolves github
-      # git deps over ssh by default, which CI has no key for. Rewrite to https
-      # (works anonymously for the public repo) so `npm ci` can fetch it.
-      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-      - run: npm ci
-      - run: npm run release:verify
-      # Every build- and release-tooling test, so a new script cannot land untested.
-      - run: node --test scripts/*.test.mjs scripts/ci/*.test.mjs scripts/release/*.test.mjs
+          save-cache: "true"
+      # Also the engine's type check: its build is `tsc` on the same tsconfig
+      # as its typecheck script, test files included.
       - run: npm run build
+      # The compiled migrator reads its SQL from dist; a build that does not ship
+      # it boots into "Can't find meta/_journal.json".
+      - run: diff -r packages/engine/src/database/migrations packages/engine/dist/database/migrations
+
+  docker:
+    name: Docker build (${{ matrix.image }})
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [engine, web]
+    steps:
+      - uses: actions/checkout@v7
+      # Build only, no push: catches a Dockerfile that no longer builds from a
+      # clean checkout (missing dirs, stray context files) before a release does.
+      # Plain `docker build`: this repository allows only GitHub-owned actions
+      # and a short list of others, so the Docker build actions (and their
+      # layer cache) are not available here. The path filter above is what
+      # keeps this job off most pull requests.
+      - run: docker build -f Dockerfile.${{ matrix.image }} .
+
+  # The single required check. It needs every job above (Repository checks
+  # verifies that with scripts/ci/check-ci-gate.mjs) and runs even when one of
+  # them fails or is cancelled: a gate skipped for a failed dependency would
+  # count as passing. A job may only be `skipped` when its own path filter said
+  # so; a job skipped because `changes` failed shows up as that failure.
+  ci:
+    name: CI
+    needs: [changes, dco, repository, static, test, test-web, integration, build, docker]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every job to succeed or be skipped
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          failed=$(echo "$NEEDS" | jq -r '[to_entries[] | select(.value.result != "success" and .value.result != "skipped") | .key] | join(", ")')
+          if [ -n "$failed" ]; then
+            echo "::error::Not successful: $failed"
+            exit 1
+          fi

@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChipTabs } from "@/components/layout/chip-tabs";
 import { useI18n } from "@/lib/i18n/context";
 import { UsersTab } from "./users-tab";
 import { PlatformTab } from "./platform-tab";
@@ -40,18 +40,12 @@ export default function SettingsPage() {
         <p className="mt-2 text-muted-foreground">{t("settings.subtitle")}</p>
       </div>
 
-      <Tabs defaultValue="users">
-        <TabsList>
-          <TabsTrigger value="users">{t("users.title")}</TabsTrigger>
-          <TabsTrigger value="general">{t("settings.tab.general")}</TabsTrigger>
-        </TabsList>
-        <TabsContent value="users" className="pt-4">
-          <UsersTab />
-        </TabsContent>
-        <TabsContent value="general" className="pt-4">
-          <PlatformTab />
-        </TabsContent>
-      </Tabs>
+      <ChipTabs
+        tabs={[
+          { value: "users", label: t("users.title"), children: <div className="pt-4"><UsersTab /></div> },
+          { value: "general", label: t("settings.tab.general"), children: <div className="pt-4"><PlatformTab /></div> },
+        ]}
+      />
     </div>
   );
 }

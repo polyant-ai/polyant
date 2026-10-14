@@ -17,8 +17,8 @@ export const SECRET_KEYS = {
   BEDROCK_API_KEY: "bedrock_api_key",
   // AWS credentials for the AI provider (Bedrock chat + embedder, AWS/Transcribe STT).
   // Dedicated namespace, intentionally distinct from the generic aws_* keys that
-  // tools (e.g. file-upload/S3) declare — so the provider and a tool can use different
-  // AWS accounts without sharing a single secret slot.
+  // attachment storage and tools declare — so the provider and the bucket can use
+  // different AWS accounts without sharing a single secret slot.
   AWS_PROVIDER_ACCESS_KEY_ID: "aws_provider_access_key_id",
   AWS_PROVIDER_SECRET_ACCESS_KEY: "aws_provider_secret_access_key",
   AWS_PROVIDER_REGION: "aws_provider_region",

@@ -14,12 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { ChipTabs } from "@/components/layout/chip-tabs";
 import {
   Table,
   TableBody,
@@ -267,29 +262,19 @@ export default function SkillDetailPage() {
         </div>
       </div>
 
-      <Tabs
-        defaultValue="content"
+      <ChipTabs
         className="mt-6"
         onValueChange={(val) => {
           if (val === "versions" && versions.length === 0) {
             fetchVersions();
           }
         }}
-      >
-        <TabsList>
-          <TabsTrigger value="content">
-            {t("skills.detail.tabs.content")}
-          </TabsTrigger>
-          <TabsTrigger value="versions">
-            {t("skills.detail.tabs.versions")}
-          </TabsTrigger>
-          <TabsTrigger value="settings">
-            {t("skills.detail.tabs.settings")}
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ── Content Tab ── */}
-        <TabsContent value="content">
+        tabs={[
+          {
+            value: "content",
+            label: t("skills.detail.tabs.content"),
+            children: (
+              <>
           <div className="mt-4 space-y-6 max-w-2xl">
             <div className="space-y-2">
               <Label htmlFor="name">{t("skills.form.name")}</Label>
@@ -446,10 +431,14 @@ export default function SkillDetailPage() {
               />
             </div>
           </div>
-        </TabsContent>
-
-        {/* ── Versions Tab ── */}
-        <TabsContent value="versions">
+              </>
+            ),
+          },
+          {
+            value: "versions",
+            label: t("skills.detail.tabs.versions"),
+            children: (
+              <>
           <div className="mt-4 max-w-2xl">
             {versionsLoading ? (
               <p className="text-muted-foreground">{t("common.loading")}</p>
@@ -527,10 +516,14 @@ export default function SkillDetailPage() {
               </>
             )}
           </div>
-        </TabsContent>
-
-        {/* ── Settings Tab ── */}
-        <TabsContent value="settings">
+              </>
+            ),
+          },
+          {
+            value: "settings",
+            label: t("skills.detail.tabs.settings"),
+            children: (
+              <>
           <div className="mt-4 space-y-6 max-w-2xl">
             <div className="space-y-2">
               <Label>{t("skills.detail.settings.category")}</Label>
@@ -574,8 +567,11 @@ export default function SkillDetailPage() {
               </AlertDialog>
             </div>
           </div>
-        </TabsContent>
-      </Tabs>
+              </>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

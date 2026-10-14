@@ -2,7 +2,7 @@
 
 import { createHash } from "crypto";
 import { extname } from "path";
-import { eq, and, desc, sql, isNotNull, count as drizzleCount } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, isNotNull, count as drizzleCount } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm/sql/functions";
 import { db, type DbExecutor, type DbTransaction } from "../database/client.js";
 import { knowledgeDocuments, knowledgeChunks } from "./schema.js";
@@ -418,8 +418,26 @@ export async function deleteChunksByDocumentId(docId: string): Promise<number> {
 }
 
 /**
- * Reset documents stuck in "processing" for longer than `minutes`.
- * Used at boot to recover from crashed reindex jobs.
+ * Report that a document's ingestion is still making progress.
+ *
+ * Ingestion runs in the process that accepted the upload, so a document is
+ * only "in flight" while that process keeps touching it. The recovery below
+ * reads a row nobody touched for minutes as abandoned, which is what lets it
+ * run while other replicas are ingesting.
+ */
+export async function touchDocument(docId: string): Promise<void> {
+  await db
+    .update(knowledgeDocuments)
+    .set({ updatedAt: sql`now()` })
+    .where(and(eq(knowledgeDocuments.id, docId), inArray(knowledgeDocuments.status, ["uploading", "processing"])));
+}
+
+/**
+ * Fail documents left "uploading" or "processing" with no progress for
+ * `minutes`: the process that was ingesting them is gone. Left alone they read
+ * as "still working" for ever, and nobody re-uploads a document that looks busy.
+ * Runs at boot and then periodically, so a restart within the window does not
+ * hide a document from every later check.
  */
 export async function resetStuckProcessingAll(minutes = 5): Promise<number> {
   const cutoff = sql`now() - make_interval(mins => ${minutes})`;
@@ -427,12 +445,12 @@ export async function resetStuckProcessingAll(minutes = 5): Promise<number> {
     .update(knowledgeDocuments)
     .set({
       status: "error",
-      errorMessage: `Reindex interrupted (boot cleanup after ${minutes} minutes)`,
+      errorMessage: `Ingestion interrupted (no progress for ${minutes} minutes)`,
       updatedAt: sql`now()`,
     })
     .where(
       and(
-        eq(knowledgeDocuments.status, "processing"),
+        inArray(knowledgeDocuments.status, ["uploading", "processing"]),
         sql`${knowledgeDocuments.updatedAt} < ${cutoff}`,
       ),
     )

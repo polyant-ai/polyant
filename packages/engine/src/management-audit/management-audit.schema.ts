@@ -10,7 +10,7 @@ import { pgTable, uuid, varchar, jsonb, timestamp, index } from "drizzle-orm/pg-
  * which target, and when. One row per mutation.
  *
  * Deliberately distinct from the two other audit surfaces:
- *  - EE `authz_audit_logs` — authorization *read/access* events (EE-only write path).
+ *  - `authz_audit_logs` — authorization *read/access* events (no write path in this build).
  *  - AI-runtime `tool_audit_logs` — per-tool-call audit inside the agent pipeline.
  *
  * `actorUserId` / `actorEmail` are nullable: gateway-authenticated modes forward

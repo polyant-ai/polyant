@@ -2,10 +2,13 @@
 
 "use client";
 
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { Clock } from "lucide-react";
 import { narrate } from "@/lib/activity-stream/narrative";
 import { NarrativeTokenView } from "@/lib/activity-stream/narrative-tokens";
 import { useI18n } from "@/lib/i18n/context";
+import { workspacePath } from "@/lib/tenant/paths";
 import type { FeedEvent } from "@/lib/activity-stream/types";
 
 interface Props {
@@ -101,8 +104,23 @@ export function TickerRow({ ev }: Props) {
   const narrative = narrate(ev, labels);
   const instanceName = ev.instance?.name ?? t("activityStream.fallbackInstance");
 
-  return (
-    <div className="flex h-full items-center gap-2 text-sm">
+  // The link addresses the agent's own workspace (carried by the event), never
+  // the workspace in the current URL, so the tenant in the URL is the tenant of
+  // the conversation. Org pages and events without a workspace stay plain text.
+  const { orgSlug } = useParams<{ orgSlug?: string }>() ?? {};
+  const eventWorkspace = ev.instance?.workspaceSlug;
+  const href =
+    ev.conversationId && orgSlug && eventWorkspace
+      ? workspacePath(
+          orgSlug,
+          eventWorkspace,
+          `/conversations/${encodeURIComponent(ev.conversationId)}`,
+        )
+      : null;
+
+  const rowClass = "flex h-full items-center gap-2 text-sm";
+  const content = (
+    <>
       <TickerAvatar icon={ev.instance?.icon ?? null} name={instanceName} />
       <span className="text-muted-foreground min-w-0 flex-1 truncate">
         {narrative.tokens.map((tok, i) => (
@@ -113,6 +131,17 @@ export function TickerRow({ ev }: Props) {
         <Clock className="size-3" aria-hidden />
         {formatTime(ev.ts)}
       </span>
-    </div>
+    </>
+  );
+
+  if (!href) return <div className={rowClass}>{content}</div>;
+  return (
+    <Link
+      href={href}
+      className={`${rowClass} focus-visible:ring-ring rounded-full outline-none focus-visible:ring-2`}
+    >
+      {content}
+      <span className="sr-only">{t("activityStream.openConversation")}</span>
+    </Link>
   );
 }

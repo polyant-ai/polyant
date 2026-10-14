@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { RequiredSecretSpec } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { localizeText } from "@/lib/i18n/localized-text";
 import { BRAND_NAMES } from "@/lib/provider-secrets";
 import { SecretField, SecretStatusBadge } from "./secret-field";
 import type { SecretSpecsForm } from "./use-secret-specs";
@@ -50,6 +51,16 @@ export function humanizeSecretKey(key: string): string {
       return BRAND_NAMES[lower] ?? w.charAt(0).toUpperCase() + w.slice(1);
     })
     .join(" ");
+}
+
+/** A field's title in `locale`: its declared `label`, else its key as a reader writes it. */
+export function secretSpecLabel(spec: Pick<RequiredSecretSpec, "key" | "label">, locale: string): string {
+  return spec.label === undefined ? humanizeSecretKey(spec.key) : localizeText(spec.label, locale);
+}
+
+/** A field's declared description in `locale`; absent when the author gave none. */
+export function secretSpecDescription(spec: Pick<RequiredSecretSpec, "description">, locale: string): string | undefined {
+  return spec.description === undefined ? undefined : localizeText(spec.description, locale);
 }
 
 export function RemoveKeyButton({ onRemove }: { onRemove: () => void }) {
@@ -166,9 +177,9 @@ export function SecretSelectField({ label, description, configured, value, choic
  * explain" apart from "the plugin did not say".
  */
 export function SecretSpecField({ spec, form }: { spec: RequiredSecretSpec; form: SecretSpecsForm }) {
-  const { t } = useI18n();
-  const label = spec.label ?? humanizeSecretKey(spec.key);
-  const description = spec.description ?? t("tools.paramNoDescription");
+  const { t, locale } = useI18n();
+  const label = secretSpecLabel(spec, locale);
+  const description = secretSpecDescription(spec, locale) ?? t("tools.paramNoDescription");
   const configured = form.isConfigured(spec.key);
   const id = `secret-${spec.key}`;
   const placeholder = configured ? t("settings.tab.keyPlaceholderSet") : t("settings.tab.keyPlaceholder");

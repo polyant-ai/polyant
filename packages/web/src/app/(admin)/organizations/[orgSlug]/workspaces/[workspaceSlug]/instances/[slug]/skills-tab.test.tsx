@@ -126,14 +126,6 @@ describe("SkillsTab", () => {
     expect(screen.getByText("Send emails via SMTP")).toBeInTheDocument();
   });
 
-  it("renders description text", () => {
-    render(
-      <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
-    );
-
-    expect(screen.getByText("skills.tab.description")).toBeInTheDocument();
-  });
-
   it("shows switches reflecting skill enabled state", () => {
     render(
       <SkillsTab slug="test-instance" skills={makeSkills()} tools={[]} onSkillsUpdate={onSkillsUpdate} onToolsUpdate={onToolsUpdate} />,
@@ -368,9 +360,9 @@ describe("SkillsTab", () => {
     resolveUpdate!({ skills: makeSkills() });
     await savePromise;
 
-    await waitFor(() => {
-      expect(onSkillsUpdate).toHaveBeenCalled();
-    });
-    expect(lastSaveAction.current?.saving).toBe(false);
+    // The flag clears in a render after the update callback, so wait for it
+    // explicitly rather than reading it the moment the callback has run.
+    await waitFor(() => expect(lastSaveAction.current?.saving).toBe(false));
+    expect(onSkillsUpdate).toHaveBeenCalled();
   });
 });

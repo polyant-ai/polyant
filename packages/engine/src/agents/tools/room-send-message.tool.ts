@@ -14,6 +14,10 @@ export default defineTool({
     "Do NOT use inside regular conversations — this is for the Room (event-driven) context only.\n" +
     "Returns confirmation that the message was sent.\n" +
     "Caveat: requires a configured outbound channel (Telegram, Slack, or WhatsApp) on the instance's Room. Message is plain text.",
+  summary: {
+    "en-US": "Sends a proactive message to the person through the outbound channel.",
+    "it-IT": "Invia un messaggio proattivo alla persona sul canale in uscita.",
+  },
   category: "room",
   harness: true,
   parameters: z.object({

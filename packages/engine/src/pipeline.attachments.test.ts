@@ -102,8 +102,8 @@ describe("afterResponse — attachment storage", () => {
 
 /**
  * Keeping the files a user sends is the agent's explicit choice. Before the
- * switch existed, configuring a bucket for the `fileUpload` tool was enough for
- * every inbound photo and document to be copied there, with nothing to say so.
+ * switch existed, configuring a bucket for the agent was enough for every
+ * inbound photo and document to be copied there, with nothing to say so.
  */
 describe("runPipelinePost — attachment storage is opt-in", () => {
   beforeEach(() => {

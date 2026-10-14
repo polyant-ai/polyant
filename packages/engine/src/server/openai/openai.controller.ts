@@ -26,6 +26,7 @@ import type {
   ChatCompletionChunk,
   ModelsListResponse,
 } from "./openai.types.js";
+import { MissingProviderKeyException, SHOULD_NOT_RETRY_HEADER } from "./missing-provider-key.exception.js";
 import { TurnStreamRelay } from "./turn-stream-relay.js";
 
 // Restrict model to the instance-slug shape — same pattern as instances.controller.ts.
@@ -103,8 +104,11 @@ export class OpenAIController {
       return this.handleStreaming(body, res, relay);
     }
 
-    const result = await this.openaiService.chatCompletion(body);
-    res.json(result);
+    try {
+      res.json(await this.openaiService.chatCompletion(body));
+    } catch (err) {
+      return this.refuse(err, res);
+    }
   }
 
   private async handleStreaming(body: ChatCompletionRequest, res: Response, relay: TurnStreamRelay) {
@@ -112,7 +116,12 @@ export class OpenAIController {
     // (a bad body, a missing key, a hook's error) is then an ordinary HTTP error
     // with its status. Started after the role chunk, it arrived inside a 200 the
     // client was already reading, and the response ended with no `[DONE]`.
-    const stream = await this.openaiService.chatCompletionStream(body, relay.signal);
+    let stream;
+    try {
+      stream = await this.openaiService.chatCompletionStream(body, relay.signal);
+    } catch (err) {
+      return this.refuse(err, res);
+    }
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -203,6 +212,12 @@ export class OpenAIController {
     res.write(`data: ${JSON.stringify(finishChunk)}\n\n`);
     res.write("data: [DONE]\n\n");
     res.end();
+  }
+
+  /** Rethrow for the exception filter; a missing provider key also tells the client not to retry. */
+  private refuse(err: unknown, res: Response): never {
+    if (err instanceof MissingProviderKeyException) res.setHeader(SHOULD_NOT_RETRY_HEADER, "false");
+    throw err;
   }
 
   private makeChunk(id: string, created: number, model: string, content: string): ChatCompletionChunk {

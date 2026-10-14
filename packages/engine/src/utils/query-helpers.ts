@@ -20,9 +20,13 @@ export function asRows<T>(result: unknown): T[] {
   return result as T[];
 }
 
-/** Percentage change between two values; returns 100 when previous is 0 and current > 0 */
-export function pctChange(current: number, previous: number): number {
-  return previous === 0 ? (current > 0 ? 100 : 0) : ((current - previous) / previous) * 100;
+/**
+ * Percentage change between two values, or `null` when the previous value is 0:
+ * there is nothing to compare against, and the old "+100%" for any growth from
+ * nothing read as a measured doubling.
+ */
+export function pctChange(current: number, previous: number): number | null {
+  return previous === 0 ? null : ((current - previous) / previous) * 100;
 }
 
 /**

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { LocalizedText } from "./i18n/localized-text";
+
 // ── Users ───────────────────────────────────────────────────────────
 
 export interface AdminUser {
@@ -48,6 +50,24 @@ export interface OrganizationMember {
   name: string | null;
   /** Org-scope system role key, or null when the user holds no org-scope role. */
   roleKey: MemberRole | null;
+}
+
+// ── Management API keys ─────────────────────────────────────────────
+
+/** A management API key as listed. The secret is never returned after creation. */
+export interface ManagementApiKey {
+  id: string;
+  name: string;
+  permissions: string[];
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+
+/** The creation response: the only time the plaintext token is available. */
+export interface CreatedManagementApiKey {
+  key: ManagementApiKey;
+  token: string;
 }
 
 // ── Instances ───────────────────────────────────────────────────────
@@ -217,6 +237,19 @@ export interface ModelInfo {
   costCacheWrite: number;
   /** Rate of the writes a message reports as 5m TTL, on models with two write tiers (Anthropic 1P). */
   costCacheWrite5m?: number;
+  /**
+   * Only on models priced by prompt length (Claude Haiku 5.5): the rates of a
+   * single model call whose prompt exceeds `above` tokens. They replace every
+   * rate above for that call.
+   */
+  costLongPrompt?: {
+    above: number;
+    costInput: number;
+    costOutput: number;
+    costCacheRead: number;
+    costCacheWrite: number;
+    costCacheWrite5m?: number;
+  };
   /** True when the provider+model has real prompt caching (a discount) — a UI hint. */
   supportsCache: boolean;
   /**
@@ -278,8 +311,10 @@ export interface PromptSection {
 export interface RequiredSecretSpec {
   key: string;
   type: "text" | "select";
-  label?: string;
-  description?: string;
+  /** The field's title, per locale. Render it through `secretSpecLabel`. */
+  label?: LocalizedText;
+  /** What the value is, per locale. Render it through `secretSpecDescription`. */
+  description?: LocalizedText;
   choices?: string[];
   optional?: boolean;
   /** false → readable value (shown in cleartext, prefilled from `currentValue`); true/undefined → secret (masked input). */
@@ -297,13 +332,16 @@ export interface ToolPluginInfo {
   namespace: string;
   name: string;
   version: string;
-  displayName?: string;
-  description?: string;
+  displayName?: LocalizedText;
+  description?: LocalizedText;
 }
 
 export interface ToolState {
   name: string;
+  /** What the model reads. One string; shown to people only on request. */
   description: string;
+  /** The author's sentence for people, per locale; absent ⇒ the panel shows the first line of `description`. */
+  summary?: LocalizedText;
   category: string;
   enabled: boolean;
   requiredSecrets?: RequiredSecretSpec[];
@@ -586,10 +624,10 @@ export interface AnalyticsOverview {
   avgCostPerConversation: number;
   avgResponseTime: number;
   trends: {
-    cost: number;
-    conversations: number;
-    messages: number;
-    responseTime: number;
+    cost: number | null;
+    conversations: number | null;
+    messages: number | null;
+    responseTime: number | null;
   };
 }
 
@@ -800,6 +838,8 @@ export interface InstanceHook {
 export interface HookFunctionInfo {
   name: string;
   description: string;
+  /** The author's sentence for people, per locale; absent ⇒ the panel shows `description`. */
+  summary?: LocalizedText;
   requiredSecrets: RequiredSecretSpec[];
   /** true ⇒ the hook may replace the response; affected turns run non-streamed. */
   mutatesResponse: boolean;
@@ -853,6 +893,9 @@ export interface OptoutContact {
 
 export type McpAuthMode = "none" | "static" | "oauth";
 
+/** Whose account an oauth server acts as: each conversation's own, or one an admin connected for the agent. */
+export type McpOAuthAccount = "conversation" | "shared";
+
 export interface McpServer {
   id: string;
   slug: string;
@@ -862,6 +905,11 @@ export interface McpServer {
   enabled: boolean;
   /** Secret fields (token / clientSecret) are masked (`••••1234`) — see mcp-config-mask.ts on the engine. */
   config: Record<string, unknown>;
+  /**
+   * The account an admin connected for the whole agent, on an oauth server
+   * whose `config.account` is `"shared"`. Null while none is connected.
+   */
+  sharedAccount?: { connectedAt: string; connectedBy: string | null } | null;
 }
 
 export interface McpTestResult {
@@ -887,4 +935,34 @@ export interface TenantWorkspace {
 export interface TenantContextPayload {
   organization: { slug: string; name: string } | null;
   workspaces: TenantWorkspace[];
+  /**
+   * The caller's own first-access guidance state. Absent from an engine that
+   * predates it, in which case the panel offers no guidance at all.
+   */
+  onboarding?: OnboardingState;
 }
+
+export type WizardState = "new" | "done" | "skipped" | "dismissed";
+export type TourState = "new" | "seen" | "done" | "dismissed";
+export type WizardStepId =
+  | "welcome"
+  | "provider"
+  | "model"
+  | "agent"
+  | "chat"
+  | "channels"
+  | "knowledge";
+export type WizardStepState = "todo" | "done" | "skip";
+
+/**
+ * Per-user guidance record, stored on the engine so it follows the person across
+ * devices and organizations. Steps never touched are absent and read as "todo".
+ */
+export interface OnboardingState {
+  wizard: WizardState;
+  interfaceTour: TourState;
+  agentTour: TourState;
+  steps: Partial<Record<WizardStepId, WizardStepState>>;
+}
+
+export type OnboardingPatch = Partial<OnboardingState>;

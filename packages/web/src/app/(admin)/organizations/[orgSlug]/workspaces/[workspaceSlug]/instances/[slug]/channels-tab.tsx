@@ -216,10 +216,10 @@ export function ChannelsTab({
 
     setSavingChannel(channelType);
     try {
-      // Flat channels only here: the HTTP channel's structured config is an
-      // Enterprise feature, so there is one shape to send.
+      // Flat channels only here: this build ships no channel with a structured
+      // config, so there is one shape to send.
       // Only the fields the user actually changed (non-empty). Every channel here
-      // is flat: the HTTP channel's structured config is an Enterprise feature.
+      // is flat.
       const payload: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(state.config)) {
         if (v !== "") payload[k] = v;

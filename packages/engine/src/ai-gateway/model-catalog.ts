@@ -87,6 +87,23 @@ export interface ModelCapabilities {
    * `cache_creation`). Writes without a reported TTL stay at `cacheWrite`.
    */
   cacheWrite5m?: number;
+  /**
+   * The rates of a REQUEST whose prompt is longer than `above` tokens, for a
+   * model priced by prompt length (Claude Haiku 5.5: 5× every rate past 100K).
+   * They replace the rates above for the WHOLE request — input, output and
+   * cache alike, not only the tokens past the threshold. The prompt is the
+   * provider's total input (uncached + cache read + cache write), and it is
+   * measured per model call: one step of a tool loop, never the turn. Absent →
+   * one price at every length, which is every other model.
+   */
+  longPrompt?: {
+    above: number;
+    input: number;
+    output: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    cacheWrite5m?: number;
+  };
 
   // — capabilities —
   /** Extended thinking / reasoning capable (drives `isThinkingCapable`). */
@@ -217,6 +234,10 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // input-token rate" (https://developers.openai.com/api/docs/pricing and the
       // prompt-caching guide, read 2026-09-29). OpenAI reports them in
       // `usage.input_tokens_details.cache_write_tokens`.
+      // GPT-5.4, 5.6 and 6 are priced by prompt length (`longPrompt`): a call with
+      // more than 272K input tokens pays the long-context rates for the whole
+      // request, about 2× input and cache, 1.5× output (pricing page, 2026-10-08).
+      // gpt-5.4-mini and -nano cap input at 272K, so they never reach it.
       // GPT-4o family (cached 0.5× input)
       "gpt-4o-mini": { input: 0.15, output: 0.60, cacheRead: 0.075, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
       "gpt-4o": { input: 2.50, output: 10.00, cacheRead: 1.25, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true },
@@ -231,7 +252,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // Anthropic model regardless of reasoningAlwaysOn — so gpt-5.4 keeps
       // temperature only with reasoning OFF).
       // Cached 0.1× input (official).
-      "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
+      "gpt-5.4": { input: 2.50, output: 15.00, cacheRead: 0.25, cacheWrite: 0, longPrompt: { above: 272_000, input: 5.00, output: 22.50, cacheRead: 0.50, cacheWrite: 0 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       "gpt-5.4-mini": { input: 0.75, output: 4.50, cacheRead: 0.075, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       "gpt-5.4-nano": { input: 0.20, output: 1.25, cacheRead: 0.02, cacheWrite: 0, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: true, cache: true },
       // GPT-5.6 family (Sol/Terra/Luna). Cache write is the published 1.25× input
@@ -239,9 +260,14 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // reasoningAlwaysOn: LIVE-VERIFIED — with reasoning OFF they still spend
       // reasoning tokens (sol 105 / terra 51 / luna 88), so there is no true off
       // (unlike gpt-5.4, which goes to 0). The UI locks the thinking toggle ON.
-      "gpt-5.6-sol": { input: 4.00, output: 20.00, cacheRead: 0.40, cacheWrite: 5.00, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.6-terra": { input: 2.00, output: 12.00, cacheRead: 0.20, cacheWrite: 2.50, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
-      "gpt-5.6-luna": { input: 0.20, output: 1.20, cacheRead: 0.02, cacheWrite: 0.25, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      // Sol is catalogued at its FULL price, $5/$30, not the promotional $4/$20
+      // OpenAI publishes "at least through November 21, 2026" (pricing page, read
+      // 2026-10-08): the catalog carries no promotional or transitional rates, so
+      // a spend cap never trips late because a promotion ended. Cache and the
+      // long-context rates follow from it by the family's multipliers.
+      "gpt-5.6-sol": { input: 5.00, output: 30.00, cacheRead: 0.50, cacheWrite: 6.25, longPrompt: { above: 272_000, input: 10.00, output: 45.00, cacheRead: 1.00, cacheWrite: 12.50 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      "gpt-5.6-terra": { input: 2.00, output: 12.00, cacheRead: 0.20, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 18.00, cacheRead: 0.40, cacheWrite: 5.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
+      "gpt-5.6-luna": { input: 0.20, output: 1.20, cacheRead: 0.02, cacheWrite: 0.25, longPrompt: { above: 272_000, input: 0.40, output: 1.80, cacheRead: 0.04, cacheWrite: 0.50 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh"], vision: true, temperature: false, cache: true },
       // GPT-6 family (Astra/Sol/Luna), the generation OpenAI now points at. Prices
       // and capabilities read from the published pricing and model pages
       // (2026-09-23); cache write is the published 1.25× input column, like
@@ -257,9 +283,9 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       //
       // Astra is the exception inside its own family: its published effort set has
       // no `none`, so it cannot be switched off and is `reasoningAlwaysOn`.
-      "gpt-6-astra": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 12.50, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
-      "gpt-6-sol": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
-      "gpt-6-luna": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0.125, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
+      "gpt-6-astra": { input: 10.00, output: 50.00, cacheRead: 1.00, cacheWrite: 12.50, longPrompt: { above: 272_000, input: 20.00, output: 75.00, cacheRead: 2.00, cacheWrite: 25.00 }, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
+      "gpt-6-sol": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, longPrompt: { above: 272_000, input: 4.00, output: 15.00, cacheRead: 0.40, cacheWrite: 5.00 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
+      "gpt-6-luna": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0.125, longPrompt: { above: 272_000, input: 0.20, output: 0.75, cacheRead: 0.02, cacheWrite: 0.25 }, reasoning: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "effort-none" }, vision: true, temperature: false, cache: true },
       // Reasoning — o-series is a pure reasoning model: LIVE-VERIFIED it reasons
       // even with reasoning OFF (576 tokens), so reasoningAlwaysOn.
       "o3": { input: 2.00, output: 8.00, cacheRead: 0.50, cacheWrite: 0, reasoning: true, reasoningAlwaysOn: true, reasoningControl: "effort", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: false, cache: true },
@@ -268,7 +294,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
   anthropic: {
     wireDialect: "anthropic",
     tiers: {
-      fast: "claude-haiku-4-5-20251001",
+      fast: "claude-haiku-5-5",
       standard: "claude-sonnet-4-6",
       heavy: "claude-opus-4-8",
     },
@@ -281,16 +307,26 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // at `cacheWrite`. Both columns from the published table, read 2026-09-29
       // (https://platform.claude.com/docs/en/about-claude/pricing).
       // Opus 4.7/4.8 + Sonnet 5 removed the sampling params → temperature:false.
-      // Haiku 4.5 (fast)
+      // Haiku 5.5 (fast; released 2026-10-07) is the one Claude priced by prompt
+      // length: $0.10/$0.50 up to a 100K-token prompt, 5× every rate past it
+      // (`longPrompt`), and its cache read is the standard 0.1×. It runs adaptive
+      // when `thinking` is omitted and, unlike Sonnet 5.5, accepts `disabled` (at
+      // effort high or below, which an off turn satisfies by sending none) — so
+      // the service jobs on the fast tier, which never ask for thinking, get it
+      // switched off rather than paying for reasoning nobody requested.
+      "claude-haiku-5-5": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0.20, cacheWrite5m: 0.125, longPrompt: { above: 100_000, input: 0.50, output: 2.50, cacheRead: 0.05, cacheWrite: 1.00, cacheWrite5m: 0.625 }, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
+      // Haiku 4.5
       "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 2.00, cacheWrite5m: 1.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       // Sonnet family (sonnet-5 and sonnet-5-5 use the adaptive thinking API).
       // Both run adaptive when `thinking` is omitted, so a turn with thinking off
       // keeps reasoning unless the row declares its off-switch. They differ in
       // which one: Sonnet 5 takes `disabled`; Sonnet 5.5 (released 2026-09-28,
-      // same prices) answers `disabled` with a 400 and takes `between_tools`,
+      // same input/output prices, but cache read at 0.05× input like Opus 5.5 —
+      // $0.10, no end date on the model page, read 2026-10-08) answers `disabled`
+      // with a 400 and takes `between_tools`,
       // accepted only at effort high or below — which an off turn satisfies,
       // because it sends no effort at all.
-      "claude-sonnet-5-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, cacheWrite5m: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-between-tools" }, vision: true, temperature: false, cache: true },
+      "claude-sonnet-5-5": { input: 2.00, output: 10.00, cacheRead: 0.10, cacheWrite: 4.00, cacheWrite5m: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-between-tools" }, vision: true, temperature: false, cache: true },
       "claude-sonnet-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 4.00, cacheWrite5m: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
       "claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, cacheWrite5m: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 6.00, cacheWrite5m: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
@@ -332,8 +368,8 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     // Tier defaults deliberately avoid Anthropic: on Bedrock the Claude families
     // sit behind a per-account use-case form, so an account that has not been
     // granted them fails EVERY tier at once — including the service jobs (title,
-    // memory, the semantic governance gates) an operator cannot redirect, since
-    // `instances.model` overrides only the supervisor turn.
+    // memory, summaries) an operator cannot redirect, since `instances.model`
+    // overrides only the supervisor turn.
     //
     // `standard` is Nova Pro: the only non-Anthropic family here with BOTH prompt
     // caching and vision (`cacheCapableFallback` limits Bedrock caching to
@@ -344,17 +380,15 @@ export const providerConfigs: Record<string, ProviderConfig> = {
     // gates thinking on the capability). No non-Anthropic Bedrock family offers
     // caching, vision AND reasoning together, so this is a choice between them.
     //
-    // `heavy` is gpt-oss-120b for its reasoning: its consumers are the semantic
-    // governance gates (prompt-injection, PII, topic guardrail in the builds that
-    // ship them), which send a short one-shot prompt — so the missing cache costs
-    // nothing — and parse a JSON verdict, FAILING OPEN when it does not arrive.
+    // `heavy` is gpt-oss-120b for its reasoning. Nothing in the core engine asks
+    // for `heavy`; it serves code that requests the tier itself, typically a short
+    // one-shot prompt where the missing cache costs nothing.
     // CAVEAT, and it is the sharp one: this is a raw on-demand id, not an eu.*/
     // global. inference profile, so its availability is PER-REGION and verified
     // only in eu-south-1. In a region that does not serve it, fast and standard
     // keep working through the Nova profiles while heavy raises a
-    // ValidationException its only callers swallow: the gates then block nothing,
-    // and the deployment sees one warn line per call. Deploying elsewhere means
-    // re-pointing `heavy` at a model that region actually serves.
+    // ValidationException. Deploying elsewhere means re-pointing `heavy` at a
+    // model that region actually serves.
     tiers: {
       fast: "eu.amazon.nova-lite-v1:0",
       standard: "eu.amazon.nova-pro-v1:0",
@@ -365,12 +399,20 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // eu.amazon.nova-lite-v1:0). Raw model IDs are omitted: they are not
       // invocable on-demand from EU regions, only via these eu.* profiles.
       // Nova is not reasoning-capable; nova-micro is text-only (no vision).
-      "eu.amazon.nova-micro-v1:0": { input: 0.035, output: 0.14, cacheRead: 0.0035, cacheWrite: 0.04375, reasoning: false, vision: false, temperature: true, cache: true, cacheOnToolMessages: false },
-      "eu.amazon.nova-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
-      "eu.amazon.nova-2-lite-v1:0": { input: 0.06, output: 0.24, cacheRead: 0.006, cacheWrite: 0.075, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
-      "eu.amazon.nova-pro-v1:0": { input: 0.80, output: 3.20, cacheRead: 0.08, cacheWrite: 1.00, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
-      // Anthropic via Bedrock — EU inference profiles. Bedrock caches at 5m only →
-      // cache read 0.1× input, cache WRITE 1.25× input (absolute rates below).
+      // An inference profile is billed at the price of the Region that CALLS it,
+      // not the US list price: these are eu-south-1 (Milan), the Region every
+      // deployment calls from, read from the AWS Price List API (offer
+      // AmazonBedrock, 2026-10-06). Frankfurt is ~20% cheaper. Nova reads its
+      // cache at 0.25× input and writes it for nothing — the price list carries
+      // a $0 cache-write SKU — so `cacheWrite` is 0, not a 1.25× premium.
+      "eu.amazon.nova-micro-v1:0": { input: 0.056, output: 0.224, cacheRead: 0.014, cacheWrite: 0, reasoning: false, vision: false, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-lite-v1:0": { input: 0.096, output: 0.384, cacheRead: 0.024, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-2-lite-v1:0": { input: 0.528, output: 4.411, cacheRead: 0.132, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
+      "eu.amazon.nova-pro-v1:0": { input: 1.28, output: 5.21, cacheRead: 0.32, cacheWrite: 0, reasoning: false, vision: true, temperature: true, cache: true, cacheOnToolMessages: false },
+      // Anthropic via Bedrock — EU inference profiles. Polyant caches at Bedrock's
+      // default 5m TTL (its `cachePoint` names no ttl) → cache read 0.1× input,
+      // cache WRITE 1.25× input (absolute rates below). Bedrock also sells a 1h
+      // TTL, at 2× input; it is not used, so it is not priced here.
       // Token rates track Anthropic first-party, and for Claude 4.5 and later a
       // REGIONAL or multi-region endpoint — which an `eu.` inference profile is —
       // carries a 10% premium over the global one (Anthropic's pricing page,
@@ -388,6 +430,13 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // Opus 5.5 is 0.05× input, as on 1P.
       // Haiku 4.5 on Bedrock DOES reason (live-verified: 1306 reasoning chars via
       // budgetTokens) — the old regex wrongly excluded it.
+      // Haiku 5.5 keeps its 1P prompt-length pricing here (`longPrompt`, past
+      // 100K) and its `disabled` off-switch; both profiles are listed in
+      // eu-south-1, and LIVE-VERIFIED there (2026-10-08): with `thinking` omitted
+      // it returns a signed thinking block, with `disabled` none; cache writes
+      // and reads are reported. Prices match the AWS price list (Long Context SKUs
+      // included). Sonnet 5.5 reads its cache at $0.10 here too, as on 1P.
+      "eu.anthropic.claude-haiku-5-5": { input: 0.11, output: 0.55, cacheRead: 0.011, cacheWrite: 0.1375, longPrompt: { above: 100_000, input: 0.55, output: 2.75, cacheRead: 0.055, cacheWrite: 0.6875 }, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
       "eu.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.10, output: 5.50, cacheRead: 0.11, cacheWrite: 1.375, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "eu.anthropic.claude-sonnet-4-20250514-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.30, output: 16.50, cacheRead: 0.33, cacheWrite: 4.125, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
@@ -403,11 +452,12 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       // Nor an eu. profile for Sonnet 5.5 or Fable 5.1 as of 2026-09-29: both are
       // global-only in eu-south-1's list-inference-profiles.)
       // Anthropic via Bedrock — Global inference profiles (use-case form may be required)
+      "global.anthropic.claude-haiku-5-5": { input: 0.10, output: 0.50, cacheRead: 0.01, cacheWrite: 0.125, longPrompt: { above: 100_000, input: 0.50, output: 2.50, cacheRead: 0.05, cacheWrite: 0.625 }, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
       "global.anthropic.claude-haiku-4-5-20251001-v1:0": { input: 1.00, output: 5.00, cacheRead: 0.10, cacheWrite: 1.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-sonnet-4-5-20250929-v1:0": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-sonnet-4-6": { input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-sonnet-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-disabled" }, vision: true, temperature: false, cache: true },
-      "global.anthropic.claude-sonnet-5-5": { input: 2.00, output: 10.00, cacheRead: 0.20, cacheWrite: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-between-tools" }, vision: true, temperature: false, cache: true },
+      "global.anthropic.claude-sonnet-5-5": { input: 2.00, output: 10.00, cacheRead: 0.10, cacheWrite: 2.50, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], reasoningOff: { via: "thinking-between-tools" }, vision: true, temperature: false, cache: true },
       "global.anthropic.claude-opus-4-5-20251101-v1:0": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-opus-4-6-v1": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "budget", reasoningLevels: ["low", "medium", "high"], vision: true, temperature: true, cache: true },
       "global.anthropic.claude-opus-4-7": { input: 5.00, output: 25.00, cacheRead: 0.50, cacheWrite: 6.25, reasoning: true, reasoningControl: "adaptive", reasoningLevels: ["low", "medium", "high", "xhigh", "max"], vision: true, temperature: false, cache: true },
@@ -424,7 +474,7 @@ export const providerConfigs: Record<string, ProviderConfig> = {
       "qwen.qwen3-coder-30b-a3b-v1:0": { input: 0.20, output: 0.79, reasoning: false, vision: false, temperature: true, cache: false },
       "qwen.qwen3-235b-a22b-2507-v1:0": { input: 0.29, output: 1.16, reasoning: false, vision: false, temperature: true, cache: false },
       // Qwen3-Next 80B (MoE A3B) — newer arch than 235b-2507, eval candidate.
-      "qwen.qwen3-next-80b-a3b": { input: 0.18, output: 1.41, reasoning: false, vision: false, temperature: true, cache: false },
+      "qwen.qwen3-next-80b-a3b": { input: 0.168, output: 1.44, reasoning: false, vision: false, temperature: true, cache: false },
       // NVIDIA Nemotron — reasoning-capable in general, but its Bedrock Converse
       // reasoning parameter is unverified, so reasoning:false until validated.
       "nvidia.nemotron-super-3-120b": { input: 0.18, output: 0.78, reasoning: false, vision: false, temperature: true, cache: false },

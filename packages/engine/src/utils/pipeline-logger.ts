@@ -35,9 +35,12 @@ export const pipelineLog = {
     console.log(
       `${COLORS.cyan}[${timestamp()}] 📩 REQUEST [${requestId}]${COLORS.reset} channel=${channel} instance=${instanceId}`
     );
-    console.log(
-      `${COLORS.dim}   message: "${truncate(message)}"${COLORS.reset}`
-    );
+    // Message text is user content: debug only, and formatted only when emitted.
+    if (shouldLog("debug")) {
+      console.log(
+        `${COLORS.dim}   message: "${truncate(message)}"${COLORS.reset}`
+      );
+    }
     return requestId;
   },
 
@@ -109,9 +112,11 @@ export const pipelineLog = {
     console.log(
       `${COLORS.magenta}[${timestamp()}] 🏁 SUPERVISOR DONE${COLORS.reset} ${fmtInstance(instanceId)}duration=${durationMs}ms`
     );
-    console.log(
-      `${COLORS.dim}   response: "${truncate(responsePreview, 500)}"${COLORS.reset}`
-    );
+    if (shouldLog("debug")) {
+      console.log(
+        `${COLORS.dim}   response: "${truncate(responsePreview, 500)}"${COLORS.reset}`
+      );
+    }
   },
 
   /** Pre-enrichment context loaded */

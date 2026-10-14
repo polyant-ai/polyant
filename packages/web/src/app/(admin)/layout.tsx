@@ -5,6 +5,8 @@ import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { ChangelogUpdateModal } from "@/components/layout/changelog-update-modal";
 import { Header } from "@/components/layout/header";
+import { OnboardingHost } from "@/components/onboarding/onboarding-host";
+import { OnboardingProvider } from "@/lib/onboarding/onboarding-context";
 import { ActivityStreamProvider } from "@/lib/activity-stream/provider";
 import { auth } from "@/lib/auth";
 import { TenantProvider } from "@/lib/tenant/tenant-context";
@@ -28,6 +30,7 @@ export default async function AdminLayout({
 
   return (
     <TenantProvider>
+      <OnboardingProvider isPlatformAdmin={user?.isPlatformAdmin === true}>
       <ActivityStreamProvider>
         <SidebarProvider defaultOpen={defaultOpen}>
           <AppSidebar user={user} />
@@ -35,9 +38,11 @@ export default async function AdminLayout({
             <Header />
             <div className="min-w-0 w-full max-w-[1600px] flex-1 self-center p-6 has-[[data-full-bleed]]:max-w-none">{children}</div>
           </SidebarInset>
+          <OnboardingHost />
         </SidebarProvider>
       </ActivityStreamProvider>
       <ChangelogUpdateModal />
+      </OnboardingProvider>
     </TenantProvider>
   );
 }

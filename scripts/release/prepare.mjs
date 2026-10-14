@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 //
 // A release version is restated in a surprising number of places: four
-// manifests, two lockfiles, three Docker stubs, the generated engine metadata,
+// manifests, two lockfiles, the Docker stubs,
 // the CHANGELOG heading, the release-note filename and its H1, and the README
 // paragraph. `release:verify` already refuses a release where those disagree —
 // this is the half that WRITES them, so agreeing is the default rather than the
@@ -53,8 +53,8 @@ function quote(value) {
  * bump would be the entire manifest and a review could not see what changed.
  */
 export async function applyVersion(rootDir, version, facts = releaseFacts) {
-  if (!isValidReleaseVersion(version, facts)) {
-    throw new Error(`"${version}" is not a release version for this build (expected SemVer${facts.versionSuffix ? ` ending in ${facts.versionSuffix}` : ""}).`);
+  if (!isValidReleaseVersion(version)) {
+    throw new Error(`"${version}" is not a release version (expected plain SemVer, such as 1.2.0).`);
   }
 
   const changed = [];
@@ -101,9 +101,8 @@ export function previousChangelogVersion(changelog) {
 
 /**
  * Rewrite the link-reference block at the tail, PRESERVING the shape the file
- * already uses. The two builds settled on different conventions — one compares
- * release to release, the other points at the tag — and a release should not
- * silently migrate its repository from one to the other.
+ * already uses. A changelog may compare release to release or point at the
+ * tag, and a release should not silently migrate the file from one to the other.
  */
 function updateLinkReferences(changelog, version, previous, repositoryUrl) {
   const comparesReleases = new RegExp(`^\\[${quote(previous ?? "")}\\]: \\S+/compare/`, "m").test(changelog);
@@ -235,7 +234,6 @@ export function ownedPaths(version, facts = releaseFacts) {
     "CHANGELOG.md",
     "README.md",
     path.posix.join("docs", "releases", `v${version}.md`),
-    ...(facts.generatedArtefacts?.files ?? []),
   ]);
 }
 
@@ -278,27 +276,6 @@ async function assertTreeCleanOutsideOwned(rootDir, version, facts) {
   }
 }
 
-/**
- * Regenerate the engine's API contract artefacts, which restate the engine
- * version. They need the three variables `config.ts` refuses to boot without;
- * throwaway values are enough because nothing here touches a database, and the
- * repository's own `.env` cannot be used — it holds secret-manager references,
- * not values.
- */
-async function regenerateApiArtefacts(rootDir, facts) {
-  if (!facts.generatedArtefacts) return false;
-  await shell("npm", ["run", facts.generatedArtefacts.script, "-w", facts.engineWorkspace], {
-    cwd: rootDir,
-    env: {
-      ...process.env,
-      ENCRYPTION_KEY: "0".repeat(64),
-      AUTH_SECRET: "release-prepare-placeholder-secret-32chars",
-      POSTGRES_PASSWORD: "release-prepare",
-    },
-  });
-  return true;
-}
-
 async function main() {
   const version = process.argv[2];
   if (!version) {
@@ -330,13 +307,6 @@ async function main() {
 
   await retargetReadmeRelease(rootDir, previous, version);
   console.log(`readme     release paragraph points at v${version}`);
-
-  const regenerated = await regenerateApiArtefacts(rootDir, facts);
-  console.log(
-    regenerated
-      ? `artefacts  ${facts.generatedArtefacts.files.join(" + ")} regenerated`
-      : "artefacts  none for this build",
-  );
 
   const { validateReleaseMetadata } = await import("../ci/verify-release-metadata.mjs");
   await validateReleaseMetadata(rootDir);

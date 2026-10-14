@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { UnauthorizedException } from "@nestjs/common";
+import { NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { timingSafeEqual } from "crypto";
 import { findInstanceBySlug } from "../../instances/store.js";
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { isWebChannelEnabled } from "../../instances/channels.store.js";
 
 /**
  * A turn on a web route (`/v1/chat/completions`, chat/stream).
@@ -32,8 +33,13 @@ export interface WebTurn {
  * skipped — they identify the caller via the instance slug + a Bearer token
  * matched against the secret stored in `instance_secrets.auth_api_key`.
  *
+ * A web turn also needs the agent's Web channel to be on. When it is off, or
+ * the slug is unknown, the answer is a 404 that says nothing about which of the
+ * two it is — the same answer a switched-off Telegram or Slack webhook gives.
+ * The panel's playground does not come through here (see the playground route).
+ *
  * Throws `UnauthorizedException`:
- *  - "Unknown model"                          slug not found
+ *  - "Unknown model"                          slug not found (not a web turn)
  *  - "Auth enabled but no API key configured" `authEnabled` true, secret missing
  *  - "Missing Bearer token"                   header absent / wrong scheme
  *  - "Invalid API key"                        timing-safe comparison failed
@@ -49,7 +55,9 @@ export async function validateInstanceApiKey(
 ): Promise<void> {
   const slug = asInstanceSlug(instanceSlug);
   const instance = await findInstanceBySlug(slug);
-  if (!instance) {
+  if (webTurn) {
+    if (!instance || !(await isWebChannelEnabled(instance.id))) throw new NotFoundException("Unknown model");
+  } else if (!instance) {
     throw new UnauthorizedException("Unknown model");
   }
 

@@ -108,26 +108,34 @@ describe("TraceStore", () => {
       ]);
     });
 
-    it("caps buffer at MAX_BUFFER_SIZE (500) on repeated failures", async () => {
-      const valuesFn = vi.fn().mockRejectedValue(new Error("DB down"));
+    it("caps buffer at MAX_BUFFER_SIZE (500) on repeated failures, keeping the newest", async () => {
+      // The first auto-flush stays pending while the rest are recorded (later
+      // flushes are skipped while one is in flight), then fails: its entries
+      // come back in front of the newer ones and the buffer overflows. (The old
+      // version never reached a successful flush and passed only because its
+      // assertion sat inside an `if`.)
+      let fail!: (err: Error) => void;
+      const down = new Promise<never>((_, reject) => { fail = reject; });
+      down.catch(() => {});
+      const valuesFn = vi.fn(() => down);
       const mockDb = { insert: vi.fn().mockReturnValue({ values: valuesFn }) };
       store.initialize(mockDb);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(console, "debug").mockImplementation(() => {});
 
-      for (let i = 0; i < 505; i++) {
-        store.record(makeEntry({ totalMs: i }));
-        if ((i + 1) % 10 === 0) {
-          await store.flush();
-        }
-      }
+      for (let i = 0; i < 1010; i++) store.record(makeEntry({ totalMs: i }));
+      fail(new Error("DB down"));
+      // Fake timers are on; let the rejected flushes run their catch blocks.
+      for (let i = 0; i < 10; i++) await Promise.resolve();
 
       const valuesFn2 = vi.fn().mockResolvedValue(undefined);
       mockDb.insert.mockReturnValue({ values: valuesFn2 });
       await store.flush();
 
-      if (valuesFn2.mock.calls.length > 0) {
-        const flushed = valuesFn2.mock.calls[0][0] as PipelineTraceEntry[];
-        expect(flushed.length).toBeLessThanOrEqual(500);
-      }
+      expect(valuesFn2).toHaveBeenCalledOnce();
+      const flushed = valuesFn2.mock.calls[0][0] as PipelineTraceEntry[];
+      expect(flushed.map((e) => e.totalMs)).toEqual(Array.from({ length: 500 }, (_, i) => 510 + i));
     });
   });
 

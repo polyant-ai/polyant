@@ -15,7 +15,7 @@ export default function ConversationsPage() {
         <h1 className="text-3xl font-semibold tracking-tight">{t("conversations.title")}</h1>
         <p className="mt-1 text-muted-foreground">{t("conversations.subtitle")}</p>
       </div>
-      <div className="mt-6">
+      <div className="mt-6" data-tour="conv-table">
         <ConversationsView />
       </div>
     </div>

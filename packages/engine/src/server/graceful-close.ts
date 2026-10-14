@@ -39,3 +39,34 @@ export async function closeHttpServer(
   }
   return { forced };
 }
+
+/** One named step of the shutdown sequence. */
+export interface ShutdownStep {
+  name: string;
+  run: () => unknown;
+}
+
+/**
+ * Run the shutdown steps in order, each on its own: a step that throws or
+ * rejects is logged and the next one still runs. Returns the names of the steps
+ * that failed.
+ *
+ * Without this a rejection in one step (a trace-store flush against a database
+ * already gone, say) skipped every step after it, `process.exit` included, and
+ * the process hung until the platform's SIGKILL.
+ */
+export async function runShutdownSteps(
+  steps: readonly ShutdownStep[],
+  log: Pick<Console, "error"> = console,
+): Promise<string[]> {
+  const failed: string[] = [];
+  for (const step of steps) {
+    try {
+      await step.run();
+    } catch (err) {
+      failed.push(step.name);
+      log.error(`Shutdown step "${step.name}" failed:`, err instanceof Error ? err.message : String(err));
+    }
+  }
+  return failed;
+}

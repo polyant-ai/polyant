@@ -46,7 +46,7 @@ describe("buildHistoryWithToolResults", () => {
         content: "Let me look that up.",
         steps: [
           step({
-            toolCalls: [{ toolCallId: "c1", toolName: "hubspotContact", args: { action: "search" } }],
+            toolCalls: [{ toolCallId: "c1", toolName: "lookupContact", args: { action: "search" } }],
             toolResults: [{ toolCallId: "c1", result: { contactId: "123" } }],
           }),
         ],
@@ -58,7 +58,7 @@ describe("buildHistoryWithToolResults", () => {
       role: "assistant",
       content: [
         { type: "text", text: "Let me look that up." },
-        { type: "tool-call", toolCallId: "c1", toolName: "hubspotContact", input: { action: "search" } },
+        { type: "tool-call", toolCallId: "c1", toolName: "lookupContact", input: { action: "search" } },
       ],
     });
     expect(out[1]).toEqual({
@@ -67,7 +67,7 @@ describe("buildHistoryWithToolResults", () => {
         {
           type: "tool-result",
           toolCallId: "c1",
-          toolName: "hubspotContact",
+          toolName: "lookupContact",
           output: { type: "text", value: JSON.stringify({ contactId: "123" }) },
         },
       ],
@@ -92,6 +92,28 @@ describe("buildHistoryWithToolResults", () => {
     const result = (out[1].content as Array<{ toolName?: string }>)[0];
     expect(call?.toolName).toBe("acme__updateContactCrm");
     expect(result.toolName).toBe("acme__updateContactCrm");
+  });
+
+  // A tool that moved into a plugin keeps its old flat name in turns stored
+  // before the move. Replayed as is, the model reads a name it is no longer
+  // given and may call it; it gets the name the tool has now.
+  it("replays a tool that moved into a plugin under its current name", () => {
+    const out = buildHistoryWithToolResults([
+      row({
+        role: "assistant",
+        content: "",
+        steps: [
+          step({
+            toolCalls: [{ toolCallId: "c1", toolName: "hubspotContact", args: {} }],
+            toolResults: [{ toolCallId: "c1", result: "ok" }],
+          }),
+        ],
+      }),
+    ]);
+    const call = (out[0].content as Array<{ type: string; toolName?: string }>).find((p) => p.type === "tool-call");
+    const result = (out[1].content as Array<{ toolName?: string }>)[0];
+    expect(call?.toolName).toBe("hubspot__contact");
+    expect(result.toolName).toBe("hubspot__contact");
   });
 
   it("synthesizes a result when a call has none, so call/result pairing holds", () => {

@@ -26,9 +26,10 @@ import {
 } from "@/components/ui/sheet";
 import { getUserErrorMessage, type HookEvent, type HookFunctionInfo, type InstanceHook, type RequiredSecretSpec } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
-import { SecretSpecField, humanizeSecretKey } from "@/components/instance-secret/secret-spec-field";
+import { SecretSpecField, secretSpecDescription, secretSpecLabel } from "@/components/instance-secret/secret-spec-field";
+import { hookSummary } from "./tools-tab-helpers";
 import type { SecretSpecsForm } from "@/components/instance-secret/use-secret-specs";
-import { UnsavedChangesDialog } from "./unsaved-changes-dialog";
+import { UnsavedChangesDialog } from "@/components/unsaved-changes-dialog";
 
 export const HOOK_EVENTS: HookEvent[] = [
   "conversation_start",
@@ -116,7 +117,7 @@ export function HookParamFields({
   specs: readonly RequiredSecretSpec[];
   params: SecretSpecsForm;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   if (specs.length === 0) return <p className="text-sm text-muted-foreground">{t("hooks.paramsNone")}</p>;
   if (!params.canRead) {
     return (
@@ -124,8 +125,8 @@ export function HookParamFields({
         <p className="text-sm text-muted-foreground">{t("tools.paramsNoAccess")}</p>
         {specs.map((spec) => (
           <div key={spec.key} className="space-y-1">
-            <p className="text-sm font-medium">{spec.label ?? humanizeSecretKey(spec.key)}</p>
-            <p className="text-xs text-muted-foreground">{spec.description ?? t("tools.paramNoDescription")}</p>
+            <p className="text-sm font-medium">{secretSpecLabel(spec, locale)}</p>
+            <p className="text-xs text-muted-foreground">{secretSpecDescription(spec, locale) ?? t("tools.paramNoDescription")}</p>
           </div>
         ))}
       </>
@@ -172,7 +173,7 @@ function settingsOf(hook: InstanceHook): HookSettings {
  * anything unsaved asks first.
  */
 export function HookSheet({ hook, fn, specs, params, onSaveSettings, onDelete, onClose }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [settings, setSettings] = useState<HookSettings | null>(hook ? settingsOf(hook) : null);
   const [saving, setSaving] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -230,7 +231,7 @@ export function HookSheet({ hook, fn, specs, params, onSaveSettings, onDelete, o
                 <SheetTitle className={named ? "font-mono text-base font-medium" : "text-base font-medium"}>
                   {named ? fnName : t("hooks.unknownAction")}
                 </SheetTitle>
-                <SheetDescription>{fn?.description || t("hooks.dialogDescription")}</SheetDescription>
+                <SheetDescription>{(fn && hookSummary(fn, locale)) || t("hooks.dialogDescription")}</SheetDescription>
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Badge variant="secondary">{t(`hooks.events.${hook.event}`)}</Badge>
                   {named && !fn && <Badge variant="destructive">{t("hooks.unknownFunction")}</Badge>}

@@ -28,22 +28,35 @@ function formatPercent(value: number) {
   return `${(value * 100).toFixed(0)}%`;
 }
 
-function TrendBadge({ value }: { value: number }) {
-  if (value === 0) return null;
-  const isPositive = value > 0;
+/** Above this the previous period was close to empty, and the exact figure says nothing. */
+const TREND_CAP = 999;
+
+/**
+ * The period-over-period change, or nothing at all when it is exactly zero (a
+ * "+0.0%" badge is noise where an absent one reads as "unchanged") or `null`
+ * (the previous period was zero, so there is nothing to compare against).
+ *
+ * The sign and the arrow always show which way the number moved; the colour
+ * alone says whether that is good. A metric where less is better passes
+ * `lowerIsBetter` instead of a negated value, which used to print a response
+ * time that had grown 436% as "-435.8%".
+ */
+function TrendBadge({ value, lowerIsBetter = false }: { value: number | null; lowerIsBetter?: boolean }) {
+  const { t } = useI18n();
+  if (value === null || value === 0 || !Number.isFinite(value)) return null;
+  const isUp = value > 0;
+  const isGood = isUp !== lowerIsBetter;
+  const capped = Math.abs(value) > TREND_CAP;
+  const label = capped ? `${isUp ? ">+" : "<-"}${TREND_CAP}%` : `${isUp ? "+" : ""}${value.toFixed(1)}%`;
   return (
     <span
+      title={t(capped ? "analytics.kpi.trendCappedHint" : "analytics.kpi.trendHint")}
       className={`inline-flex items-center gap-0.5 text-xs font-medium ${
-        isPositive ? "text-success" : "text-destructive"
+        isGood ? "text-success" : "text-destructive"
       }`}
     >
-      {isPositive ? (
-        <TrendingUp className="h-3 w-3" />
-      ) : (
-        <TrendingDown className="h-3 w-3" />
-      )}
-      {isPositive ? "+" : ""}
-      {value.toFixed(1)}%
+      {isUp ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+      {label}
     </span>
   );
 }
@@ -73,7 +86,8 @@ export function KpiCards({ data }: KpiCardsProps) {
     {
       label: t("analytics.kpi.responseTime"),
       value: formatDuration(data.avgResponseTime),
-      trend: -data.trends.responseTime, // lower is better
+      trend: data.trends.responseTime,
+      lowerIsBetter: true,
       icon: Zap,
     },
     {
@@ -87,7 +101,7 @@ export function KpiCards({ data }: KpiCardsProps) {
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5" data-tour="dash-tiles">
       {cards.map((card) => (
         <Card key={card.label}>
           <CardContent >
@@ -101,7 +115,7 @@ export function KpiCards({ data }: KpiCardsProps) {
               <p className="text-2xl font-semibold tracking-tight">
                 {card.value}
               </p>
-              <TrendBadge value={card.trend} />
+              <TrendBadge value={card.trend} lowerIsBetter={card.lowerIsBetter} />
             </div>
           </CardContent>
         </Card>

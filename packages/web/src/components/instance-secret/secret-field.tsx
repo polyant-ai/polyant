@@ -28,8 +28,8 @@ import { useI18n } from "@/lib/i18n/context";
  * 1500-line form, so every other tab that needed a credential would have had to
  * copy it. Pair it with `useInstanceSecret`, which owns the state it renders.
  *
- * A credential here is the AGENT's, full stop. Enterprise adds a second source —
- * an organization's shared keys — and shows it as a fact of its own beside
+ * A credential here is the AGENT's, full stop. A build with a second source —
+ * an organization's shared keys — shows it as a fact of its own beside
  * `configured`, because reporting "not configured" about a working credential is
  * how someone pastes a second copy of a key they already have.
  */

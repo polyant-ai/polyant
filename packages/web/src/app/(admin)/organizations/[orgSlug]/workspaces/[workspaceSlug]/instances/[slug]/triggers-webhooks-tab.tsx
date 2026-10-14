@@ -18,6 +18,7 @@ import {
 import { api, getUserErrorMessage } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { EventSourceCard, type EventSource, type EventDefinition } from "./room-event-source-card";
+import { SectionActions } from "./section-actions";
 
 const EVENT_SOURCE_TYPES = [
   { value: "webhook", label: "Webhook" },
@@ -188,13 +189,12 @@ export function TriggersWebhooksTab({ slug }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium">{t("room.sources.title")}</h3>
-        <Button size="sm" variant="outline" onClick={() => setNewSourceForm((p) => ({ ...p, showForm: !p.showForm }))}>
+      <SectionActions>
+        <Button size="sm" onClick={() => setNewSourceForm((p) => ({ ...p, showForm: !p.showForm }))}>
           <Plus className="h-4 w-4 mr-1" />
           {t("room.sources.add")}
         </Button>
-      </div>
+      </SectionActions>
 
       {newSourceForm.showForm && (
         <div className="rounded-lg border p-4 space-y-3">

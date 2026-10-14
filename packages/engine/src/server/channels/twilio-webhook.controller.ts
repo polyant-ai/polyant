@@ -15,6 +15,7 @@ import type { WhatsAppAdapter } from "../../channels/adapters/whatsapp/index.js"
 import { channelWebhookTracker, requireLiveAdapter } from "./live-adapter.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { sanitizeForLog } from "../../utils/create-logger.js";
+import { firstDelivery } from "../../channels/inbound-dedupe.js";
 import { redactWebhookPath } from "../filters/redact-webhook-path.js";
 import { trackBackgroundTurn } from "../../channels/background-turns.js";
 
@@ -177,6 +178,11 @@ export class TwilioWebhookController {
 
   /** Hand the authenticated message to the pipeline and answer Twilio at once. */
   private dispatchInbound(instanceSlug: string, adapter: WhatsAppAdapter, body: TwilioWebhookBody): string {
+    // Twilio retries a webhook whose response it did not get; a redelivered MessageSid
+    // is acknowledged without running the agent again, so the contact gets one reply.
+    if (body.MessageSid && !firstDelivery(`whatsapp:${instanceSlug}:${body.MessageSid}`)) {
+      return "<Response/>";
+    }
     const from = body.From?.replace(/^whatsapp:/, "") || "";
 
     // Collect media URLs (Twilio sends MediaUrl0, MediaUrl1, ...)

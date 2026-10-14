@@ -11,6 +11,7 @@ import {
   cacheCapableFallback,
   cacheOnToolMessagesFallback,
   resolveReasoningLevel,
+  estimateCostBreakdown,
 } from "./config.js";
 import { visionCapableFallback } from "./vision.js";
 
@@ -180,6 +181,29 @@ describe("the two Bedrock cache fallbacks agree on what Nova is", () => {
       if (!cacheCapableFallback(provider, modelId)) continue;
       if (/anthropic/.test(modelId)) continue;
       expect(cacheOnToolMessagesFallback(provider, modelId), modelId).toBe(false);
+    }
+  });
+});
+
+describe("Nova is priced as the Milan Region bills it", () => {
+  // An `eu.*` inference profile is billed at the price of the calling Region,
+  // and every deployment calls from eu-south-1. The usage below is a live
+  // warm-cache turn on eu.amazon.nova-lite-v1:0 (2026-10-08): the US list
+  // price with a 1.25× cache-write premium put it at a third of the bill.
+  it("bills a warm-cache Nova Lite turn at the eu-south-1 rates", () => {
+    const cost = estimateCostBreakdown("bedrock", "eu.amazon.nova-lite-v1:0", 8759, 15, {
+      cachedInputTokens: 8576,
+      cacheCreationInputTokens: 183,
+    });
+    expect(cost.input).toBe(0);
+    expect(cost.cacheRead).toBeCloseTo((8576 * 0.024) / 1e6, 12);
+    expect(cost.output).toBeCloseTo((15 * 0.384) / 1e6, 12);
+  });
+
+  it("charges nothing for a Nova cache write", () => {
+    for (const [provider, modelId, caps] of ALL) {
+      if (provider !== "bedrock" || !modelId.includes("amazon.nova")) continue;
+      expect(caps.cacheWrite, modelId).toBe(0);
     }
   });
 });

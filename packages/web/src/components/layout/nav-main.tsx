@@ -23,6 +23,8 @@ export interface NavItem {
   exact?: boolean;
   /** True while the tenancy needed to resolve `url` is not yet known. */
   disabled?: boolean;
+  /** The `data-tour` name the guided tour points at. */
+  tour?: string;
 }
 
 // Segment-aware active match: `/audit` must NOT match `/audit-logs`, but
@@ -71,7 +73,7 @@ export function NavMain({
             if (item.disabled) {
               return (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton tooltip={item.title} aria-disabled="true">
+                  <SidebarMenuButton tooltip={item.title} aria-disabled="true" data-tour={item.tour}>
                     <item.icon />
                     <span>{item.title}</span>
                   </SidebarMenuButton>
@@ -87,7 +89,7 @@ export function NavMain({
                   tooltip={item.title}
                   className={cn(isActive && ACTIVE_ROW_CLASS)}
                 >
-                  <Link href={item.url}>
+                  <Link href={item.url} data-tour={item.tour}>
                     <item.icon />
                     <span>{item.title}</span>
                   </Link>

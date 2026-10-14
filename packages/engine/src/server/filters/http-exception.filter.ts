@@ -23,11 +23,36 @@ interface HandledError {
 function handleHttpException(exception: HttpException, method: string, path: string): HandledError {
   const status = exception.getStatus();
   const body = exception.getResponse();
-  console.error(`[${method}] ${path} -> ${status}: ${typeof body === "string" ? body : JSON.stringify(body)}`);
+  // A 4xx is the client's mistake or a refusal working as meant: a warning. Errors are the server's own failures.
+  const line = `[${method}] ${path} -> ${status}: ${typeof body === "string" ? body : JSON.stringify(body)}`;
+  if (status >= 500) console.error(line);
+  else console.warn(line);
   return {
     status,
     body: typeof body === "string" ? { statusCode: status, message: body } : (body as Record<string, unknown>),
   };
+}
+
+/**
+ * Errors raised by Express middleware (body-parser: 413 too large, 415
+ * unsupported charset, 400 malformed JSON) follow the http-errors convention:
+ * a 4xx `status` plus `expose: true`, which is the library's own statement that
+ * the message is safe for the client. Anything not marked that way stays
+ * generic.
+ */
+function exposedClientError(exception: unknown): { status: number; message: string } | null {
+  if (typeof exception !== "object" || exception === null) return null;
+  const e = exception as { expose?: unknown; status?: unknown; statusCode?: unknown; message?: unknown };
+  const status = typeof e.status === "number" ? e.status : e.statusCode;
+  if (e.expose !== true || typeof status !== "number" || !Number.isInteger(status) || status < 400 || status > 499) {
+    return null;
+  }
+  return { status, message: typeof e.message === "string" ? e.message : "Request error" };
+}
+
+function handleExposedClientError(error: { status: number; message: string }, method: string, path: string): HandledError {
+  console.warn(`[${method}] ${path} -> ${error.status}: ${error.message}`);
+  return { status: error.status, body: { statusCode: error.status, message: error.message } };
 }
 
 /**
@@ -79,6 +104,10 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private resolve(exception: unknown, method: string, path: string): HandledError {
     if (exception instanceof HttpException) {
       return handleHttpException(exception, method, path);
+    }
+    const exposed = exposedClientError(exception);
+    if (exposed) {
+      return handleExposedClientError(exposed, method, path);
     }
     if (exception instanceof TypeError || exception instanceof RangeError) {
       return handleValidationError(exception, method, path);

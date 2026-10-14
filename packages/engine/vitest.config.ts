@@ -25,8 +25,10 @@ export default defineConfig({
     /*
       A RATCHET, not a target.
 
-      These floors sit about two points under what the suite actually covered
-      when they were set on 2026-08-28 (statements 67.2, branches 60.3, functions 64.3, lines 68.8). They are not an aspiration:
+      These floors sit about two points under what the unit tier actually
+      covered when they were last set, on 2026-10-14 (statements 73.09,
+      branches 66.68, functions 69.99, lines 74.85, measured with
+      `npm run test:unit -- --coverage` over every source file). They are not an aspiration:
       their only job is to stop a PR from LOWERING coverage. The buffer exists so
       a refactor that legitimately deletes covered code does not fail the build.
 
@@ -37,7 +39,12 @@ export default defineConfig({
       `npm run test:unit` stays fast.
     */
     coverage: {
-      thresholds: { statements: 65, branches: 58, functions: 62, lines: 66 },
+      // Measure every source file, not only the ones a test happens to import:
+      // an untested module must count against the total instead of vanishing
+      // from it.
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/*.test.ts", "src/**/*.d.ts", "src/test-setup.ts", "src/test-utils.ts", "src/database/test-db.ts"],
+      thresholds: { statements: 71, branches: 64, functions: 68, lines: 72 },
     },
   },
 });

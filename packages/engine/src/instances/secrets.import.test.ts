@@ -62,4 +62,30 @@ describe("importSecrets", () => {
     expect(written).toEqual([]);
     expect(warnings.map((w) => w.type)).toEqual(["secret_required"]);
   });
+
+  // A bundle exported before the S3 endpoint and task-role modes were removed
+  // still names them. Asking for them sent the operator to set a key that now
+  // does nothing, or, for the task role, one that makes storage refuse to run.
+  it("drops the retired S3 keys, asking for the bucket's keys in place of the task role", async () => {
+    const { tx, written } = makeFakeTx();
+
+    const warnings = await importSecrets(
+      tx,
+      "inst-1",
+      [
+        { key: "s3_endpoint", configured: true, value: "https://minio.local" },
+        { key: "s3_use_task_role", configured: true, value: "true" },
+      ],
+      new Set(["s3_endpoint", "s3_use_task_role"]),
+    );
+
+    expect(written).toEqual([]);
+    expect(warnings).toEqual([
+      {
+        type: "secret_required",
+        message:
+          "s3_use_task_role is no longer supported and was not imported: set aws_access_key_id and aws_secret_access_key for the agent's bucket",
+      },
+    ]);
+  });
 });

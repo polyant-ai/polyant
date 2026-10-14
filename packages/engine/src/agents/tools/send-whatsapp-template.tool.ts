@@ -23,6 +23,10 @@ export default defineTool({
     "whose Twilio contentSid and positional variables are provided in your conversation context.\n" +
     "On success the engine will NOT also send your free-form text response — the template IS the reply.\n" +
     "Only available inside a webhook-triggered conversation on a WhatsApp outbound channel.",
+  summary: {
+    "en-US": "Sends an approved WhatsApp template instead of a free-text reply.",
+    "it-IT": "Invia un modello WhatsApp approvato al posto di una risposta libera.",
+  },
   category: "whatsapp",
   harness: true,
   parameters: z.object({

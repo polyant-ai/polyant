@@ -266,8 +266,8 @@ describe("instances/channels.store — WhatsApp credential modes", () => {
       expect(mockDb.select).not.toHaveBeenCalled();
     });
 
-    it("should_not_mint_a_secret_for_non_whatsapp_channels", async () => {
-      const result = await setChannelConfig(INSTANCE_UUID, "telegram", { botToken: "123:ABC" }, true);
+    it("should_not_mint_a_secret_for_channels_without_an_inbound_secret", async () => {
+      const result = await setChannelConfig(INSTANCE_UUID, "slack", { botToken: "xoxb", signingSecret: "s" }, true);
 
       expect(result.mintedWebhookSecret).toBe(false);
       expect(mockDb.select).not.toHaveBeenCalled();
