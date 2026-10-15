@@ -27,11 +27,7 @@ export class AuthGuard implements CanActivate {
   constructor(@Inject(Reflector) private readonly reflector: Reflector) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-    if (isPublic) return true;
+    if (this.flag(context, IS_PUBLIC_KEY)) return true;
 
     const request = context.switchToHttp().getRequest();
 
@@ -63,11 +59,7 @@ export class AuthGuard implements CanActivate {
 
     // Session validation failed — if the route allows per-instance API keys,
     // try matching the bearer token against the AUTH_API_KEY secrets.
-    const allowsInstanceKey = this.reflector.getAllAndOverride<boolean>(
-      ALLOW_INSTANCE_API_KEY,
-      [context.getHandler(), context.getClass()],
-    );
-    if (allowsInstanceKey) {
+    if (this.flag(context, ALLOW_INSTANCE_API_KEY)) {
       const principal = await findInstanceByAuthApiKey(token);
       if (principal) {
         request.user = {
@@ -80,6 +72,16 @@ export class AuthGuard implements CanActivate {
     }
 
     throw new UnauthorizedException("Invalid or expired session");
+  }
+
+  /** Whether the handler or its controller carries the boolean decorator `key`. */
+  private flag(context: ExecutionContext, key: string): boolean {
+    return (
+      this.reflector.getAllAndOverride<boolean>(key, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === true
+    );
   }
 
   private extractToken(request: {
