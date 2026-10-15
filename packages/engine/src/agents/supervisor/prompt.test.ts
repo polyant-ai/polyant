@@ -65,10 +65,8 @@ vi.mock("../../instances/skill-env.store.js", () => ({
   hasAllRequiredEnvBatch: (...args: unknown[]) => mockHasAllRequiredEnvBatch(args[0] as string, args[1] as unknown[]),
 }));
 
-import {
-  buildSupervisorSystemPrompt,
-  normalizeRequiredEnv,
-} from "./prompt.js";
+import { buildSupervisorSystemPrompt } from "./prompt.js";
+import { normalizeRequiredEnv } from "../../utils/frontmatter.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

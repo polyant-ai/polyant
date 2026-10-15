@@ -4,7 +4,7 @@ import type { Tool } from "ai";
 import { singleLineValue, scrubClosing } from "../../utils/untrusted-text.js";
 import { eq, and, asc } from "drizzle-orm";
 import { db } from "../../database/client.js";
-import { getPrompts, invalidatePromptsCache } from "../../instances/prompts.store.js";
+import { getPrompts } from "../../instances/prompts.store.js";
 import { instanceSkills } from "../../instances/instance-skills.schema.js";
 import { skills, skillVersions } from "../../skills/schema.js";
 import type { SkillVersionMetadata } from "../../skills/skill-metadata.js";
@@ -19,11 +19,6 @@ import {
 } from "../tools/mcp/mcp-tool-naming.js";
 import { PRIVATE_STATE_KEY } from "../../conversations/state.buffer.js";
 import { toModelToolName } from "../../utils/model-tool-wire.js";
-
-export { normalizeRequiredEnv, type RequiredEnvEntry } from "../../utils/frontmatter.js";
-
-// Re-export DB-backed cache invalidation for external callers
-export { invalidatePromptsCache };
 
 // ---------------------------------------------------------------------------
 // Types
