@@ -40,6 +40,7 @@ import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
 import { navHref, resolveNavScope, type NavScope } from "@/lib/tenant/nav-href";
 import { useTenant } from "@/lib/tenant/tenant-context";
+import { useTourActive } from "@/lib/onboarding/onboarding-context";
 
 interface NavItemDef {
   titleKey: TranslationKey;
@@ -124,6 +125,7 @@ export function AppSidebar(
 ) {
   const { user, ...sidebarProps } = props;
   const { t } = useI18n();
+  const tourActive = useTourActive();
 
   const tenant = useTenant();
   const params = useParams<{ orgSlug?: string; workspaceSlug?: string }>();
@@ -165,7 +167,17 @@ export function AppSidebar(
     : orgManagementDefs;
 
   return (
-    <Sidebar collapsible="icon" {...sidebarProps}>
+    // While the guided tour points into the drawer it must stay open and let the
+    // tour's own bubble be used, so the drawer is not modal for that time (a modal
+    // one traps focus and closes on any press outside it).
+    <Sidebar
+      collapsible="icon"
+      mobileModal={!tourActive}
+      onMobileInteractOutside={(event) => {
+        if ((event.target as Element | null)?.closest?.("[data-tour-layer]")) event.preventDefault()
+      }}
+      {...sidebarProps}
+    >
       <SidebarHeader>
         <div className="flex h-10 items-center gap-2 px-2">
           <div className="flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground">

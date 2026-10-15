@@ -17,13 +17,6 @@ export const WIZARD_STEP_IDS: readonly WizardStepId[] = [
   "knowledge",
 ];
 
-/** Steps that only make sense once an agent exists. */
-export const STEPS_NEEDING_AGENT: ReadonlySet<WizardStepId> = new Set([
-  "chat",
-  "channels",
-  "knowledge",
-]);
-
 export function stepState(onboarding: OnboardingState, id: WizardStepId): WizardStepState {
   return onboarding.steps[id] ?? "todo";
 }

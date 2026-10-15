@@ -2,7 +2,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState } from "react";
 
 interface UsePaginationOptions {
   pageSize?: number;
@@ -15,10 +15,10 @@ interface UsePaginationReturn {
   search: string;
   setSearch: (value: string) => void;
   debouncedSearch: string;
+  total: number;
   totalPages: number;
   setTotal: React.Dispatch<React.SetStateAction<number>>;
   offset: number;
-  reset: () => void;
 }
 
 export function usePagination(opts: UsePaginationOptions = {}): UsePaginationReturn {
@@ -40,22 +40,15 @@ export function usePagination(opts: UsePaginationOptions = {}): UsePaginationRet
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const offset = (page - 1) * pageSize;
 
-  const reset = useCallback(() => {
-    setPage(1);
-    setSearch("");
-    setDebouncedSearch("");
-    setTotal(0);
-  }, []);
-
   return {
     page,
     setPage,
     search,
     setSearch,
     debouncedSearch,
+    total,
     totalPages,
     setTotal,
     offset,
-    reset,
   };
 }

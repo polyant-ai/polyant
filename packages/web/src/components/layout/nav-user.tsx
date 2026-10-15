@@ -29,6 +29,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useI18n } from "@/lib/i18n/context";
+import { initials } from "@/lib/utils";
 import { ChangePasswordForm } from "@/components/auth/change-password-form";
 
 export interface NavUserProps {
@@ -37,17 +38,6 @@ export interface NavUserProps {
     email?: string | null;
     image?: string | null;
   };
-}
-
-function getInitials(name?: string | null): string {
-  if (!name) return "?";
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
 }
 
 export function NavUser({ user }: NavUserProps) {
@@ -75,7 +65,7 @@ export function NavUser({ user }: NavUserProps) {
             >
               <Avatar size="sm">
                 {user.image && <AvatarImage src={user.image} alt={user.name ?? ""} />}
-                <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+                <AvatarFallback>{initials(user.name)}</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user.name ?? "User"}</span>
@@ -96,7 +86,7 @@ export function NavUser({ user }: NavUserProps) {
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar size="sm">
                   {user.image && <AvatarImage src={user.image} alt={user.name ?? ""} />}
-                  <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+                  <AvatarFallback>{initials(user.name)}</AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{user.name ?? "User"}</span>
