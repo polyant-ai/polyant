@@ -7,6 +7,7 @@ import { db } from "../../database/client.js";
 import { getPrompts, invalidatePromptsCache } from "../../instances/prompts.store.js";
 import { instanceSkills } from "../../instances/instance-skills.schema.js";
 import { skills, skillVersions } from "../../skills/schema.js";
+import type { SkillVersionMetadata } from "../../skills/skill-metadata.js";
 import { hasAllRequiredEnvBatch } from "../../instances/skill-env.store.js";
 import { normalizeRequiredEnv } from "../../utils/frontmatter.js";
 import { type InstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
@@ -209,13 +210,6 @@ interface SkillEntry {
   description: string;
   slug: string;
   autoLoadContent?: string;
-}
-
-interface SkillVersionMetadata {
-  name?: string;
-  description?: string;
-  requiredEnv?: unknown[];
-  requiredTools?: string[];
 }
 
 /**

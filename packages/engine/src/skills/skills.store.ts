@@ -7,6 +7,7 @@
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { skills, skillVersions, skillTools } from "./schema.js";
+import { parseSkillMetadata } from "./skill-metadata.js";
 import { tools } from "../agents/tools/tools.schema.js";
 import { currentToolName } from "../agents/tools/renamed-tools.js";
 
@@ -191,7 +192,7 @@ export async function createSkill(data: CreateSkillInput): Promise<SkillWithVers
       .where(eq(skills.id, skill.id));
 
     // Sync skill_tools
-    const requiredToolNames = (metadata as { requiredTools?: string[] }).requiredTools ?? [];
+    const requiredToolNames = parseSkillMetadata(metadata).requiredTools ?? [];
     if (requiredToolNames.length > 0) {
       await syncSkillToolsInTx(tx, skill.id, requiredToolNames);
     }
@@ -261,7 +262,7 @@ export async function updateSkill(
       .returning();
 
     // Re-sync skill_tools
-    const requiredToolNames = (metadata as { requiredTools?: string[] }).requiredTools ?? [];
+    const requiredToolNames = parseSkillMetadata(metadata).requiredTools ?? [];
     await syncSkillToolsInTx(tx, skill.id, requiredToolNames);
 
     return {
