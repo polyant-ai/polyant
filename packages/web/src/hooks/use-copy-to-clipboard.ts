@@ -14,9 +14,10 @@ import { useI18n } from "@/lib/i18n/context";
  * permission is denied, and claiming success there sends a person off to paste
  * something that is not on their clipboard. A failure raises an error toast.
  * `copied` is true for `resetMs` after a success, for a button that flips to a
- * check mark, and its timer is cleared on unmount. Resolves to whether it worked.
+ * check mark, and its timer is cleared on unmount. `errorMessage` replaces the
+ * default failure text where a surface has its own. Resolves to whether it worked.
  */
-export function useCopyToClipboard(resetMs = 2000) {
+export function useCopyToClipboard(resetMs = 2000, errorMessage?: string) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -30,7 +31,7 @@ export function useCopyToClipboard(resetMs = 2000) {
       try {
         await navigator.clipboard.writeText(text);
       } catch {
-        toast.error(t("common.copyFailed"));
+        toast.error(errorMessage ?? t("common.copyFailed"));
         return false;
       }
       setCopied(true);
@@ -38,7 +39,7 @@ export function useCopyToClipboard(resetMs = 2000) {
       timer.current = setTimeout(() => setCopied(false), resetMs);
       return true;
     },
-    [resetMs, t],
+    [resetMs, errorMessage, t],
   );
 
   return { copy, copied };

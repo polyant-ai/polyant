@@ -11,18 +11,20 @@ import { useI18n } from "@/lib/i18n/context";
 export function CopyButton({
   value,
   label,
+  variant = "ghost",
   className,
 }: {
   value: string;
   /** Accessible name; defaults to "Copy". */
   label?: string;
+  variant?: "ghost" | "outline";
   className?: string;
 }) {
   const { t } = useI18n();
   const { copy, copied } = useCopyToClipboard();
   const name = label ?? t("common.copy");
   return (
-    <Button type="button" variant="ghost" size="icon" className={className} aria-label={name} title={name} onClick={() => void copy(value)}>
+    <Button type="button" variant={variant} size="icon" className={className} aria-label={name} title={name} onClick={() => void copy(value)}>
       {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
     </Button>
   );

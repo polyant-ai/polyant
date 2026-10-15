@@ -15,11 +15,14 @@ export function LoadFailed({
   message,
   hint,
   onRetry,
+  retryLabel,
   className,
 }: {
   message?: string;
   hint?: string;
   onRetry?: () => void;
+  /** The retry button's text; defaults to "Try again". */
+  retryLabel?: string;
   className?: string;
 }) {
   const { t } = useI18n();
@@ -30,7 +33,7 @@ export function LoadFailed({
       {hint && <p className="max-w-md text-sm text-muted-foreground">{hint}</p>}
       {onRetry && (
         <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-          {t("common.retry")}
+          {retryLabel ?? t("common.retry")}
         </Button>
       )}
     </div>
