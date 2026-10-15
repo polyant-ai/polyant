@@ -14,7 +14,7 @@ import type { CostBreakdown } from "./ai-gateway/types.js";
 import { conversationStore } from "./conversations/index.js";
 import { ConversationStateBuffer } from "./conversations/state.buffer.js";
 import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
-import type { MessageRow } from "./conversations/store.js";
+import { rowsToModelMessages, type MessageRow } from "./conversations/store.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
 import { generateConversationTitle } from "./utils/title-generator.js";
@@ -206,18 +206,37 @@ export async function preparePipeline(
     }
   }
 
-  // Fetch history, instance config, and context prompt in parallel — all independent.
-  const [conversationHistory, instanceConfig, contextPrompt, stateBuffer] = await Promise.all([
-    conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as ModelMessage[]),
-    resolveInstanceConfig(instanceId),
-    conversationStore.getContextPrompt(conversationId).catch(() => null).then((p) => p ?? undefined),
-    isAutoTaskTurn
-      ? Promise.resolve(undefined)
-      : ConversationStateBuffer.load(conversationId, instanceId).catch((err) => {
-          console.error(`Failed to load conversation state for ${conversationId}:`, err);
-          return new ConversationStateBuffer(conversationId, instanceId);
-        }),
-  ]);
+  // Fetch history, instance config, and context prompt in parallel — all independent
+  // except that the history query depends on the config's tool-result replay flag.
+  // Replay agents read the raw rows ONCE and derive the text history from them,
+  // instead of running the same ordered query twice. The config is the 30s-cached one.
+  const instanceConfigPromise = resolveInstanceConfig(instanceId);
+  const textHistory = () =>
+    conversationStore.getRecentMessages(conversationId, 16).catch(() => [] as ModelMessage[]);
+  const historyPromise: Promise<{ messages: ModelMessage[]; rows?: MessageRow[] }> =
+    instanceConfigPromise.then(async (config) => {
+      if (config.toolResultsInHistoryEnabled && !isAutoTaskTurn) {
+        try {
+          const rows = await conversationStore.getRecentMessageRows(conversationId, 16);
+          return { messages: rowsToModelMessages(rows), rows };
+        } catch {
+          // Same degradation as before: the text read stands in for the rows.
+        }
+      }
+      return { messages: await textHistory() };
+    });
+  const [{ messages: conversationHistory, rows: replayRows }, instanceConfig, contextPrompt, stateBuffer] =
+    await Promise.all([
+      historyPromise,
+      instanceConfigPromise,
+      conversationStore.getContextPrompt(conversationId).catch(() => null).then((p) => p ?? undefined),
+      isAutoTaskTurn
+        ? Promise.resolve(undefined)
+        : ConversationStateBuffer.load(conversationId, instanceId).catch((err) => {
+            console.error(`Failed to load conversation state for ${conversationId}:`, err);
+            return new ConversationStateBuffer(conversationId, instanceId);
+          }),
+    ]);
 
   // First persisted turn — computed from PERSISTED rows, NOT the metadata
   // fallback below: the OpenAI-compat path passes client-side history that must
@@ -249,17 +268,11 @@ export async function preparePipeline(
   }
 
   // Tool-result replay (opt-in per instance): rebuild the in-window history from
-  // raw rows, reconstructing tool_use/tool_result blocks from the persisted
-  // `steps` so the model retains tool outputs across turns. Extra fetch only when
-  // the flag is on — the default text path above is untouched, and the dropped
+  // the raw rows read above, reconstructing tool_use/tool_result blocks from the
+  // persisted `steps` so the model retains tool outputs across turns. The dropped
   // messages / summary stay text-only.
-  if (instanceConfig.toolResultsInHistoryEnabled && !isAutoTaskTurn) {
-    const rows = await conversationStore
-      .getRecentMessageRows(conversationId, 16)
-      .catch(() => [] as MessageRow[]);
-    if (rows.length > 0) {
-      history = buildHistoryWithToolResults(hasOverflow ? rows.slice(-10) : rows);
-    }
+  if (replayRows && replayRows.length > 0) {
+    history = buildHistoryWithToolResults(hasOverflow ? replayRows.slice(-10) : replayRows);
   }
 
   const langsmith = buildLangsmithConfig(instanceConfig);

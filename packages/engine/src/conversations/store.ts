@@ -19,6 +19,11 @@ import {
   type TenantScope,
 } from "../authz/scope-filter.js";
 
+/** The text-only ModelMessage view of stored rows, in the shape `getRecentMessages` returns. */
+export function rowsToModelMessages(rows: readonly MessageRow[]): ModelMessage[] {
+  return rows.map((r) => ({ role: r.role as "user" | "assistant" | "system", content: r.content }));
+}
+
 export interface MessageRow {
   role: string;
   content: string;
