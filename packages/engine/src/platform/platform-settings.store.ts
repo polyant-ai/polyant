@@ -3,6 +3,7 @@
 import { eq } from "drizzle-orm";
 import { config } from "../config.js";
 import { db } from "../database/client.js";
+import { cachedValue } from "../utils/ttl-cache.js";
 import { platformSettings } from "./platform-settings.schema.js";
 
 /** The numeric policies, named once so the three shapes below cannot drift apart. */
@@ -68,30 +69,15 @@ const DEFAULTS: { readonly [K in PlatformSettingNumber]: number } = {
  */
 const CACHE_TTL_MS = 10_000;
 
-/**
- * The PROMISE is cached, not just the value. Caching the value alone leaves a
- * window where several concurrent callers all miss and all query — which is
- * exactly the shape of the traffic here, a burst of activity-stream connects
- * arriving together.
- */
-let cached: { at: number; value: Promise<StoredPlatformSettings> } | null = null;
+const storedCache = cachedValue(() => fetchStored(), CACHE_TTL_MS);
 
 /** Drop the cache. Called by the write path so a change is visible immediately. */
 export function invalidatePlatformSettingsCache(): void {
-  cached = null;
+  storedCache.invalidate();
 }
 
 function readStored(): Promise<StoredPlatformSettings> {
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
-  // Stamped and stored BEFORE awaiting, so a second caller arriving mid-flight
-  // joins this read instead of starting its own. A rejection clears the entry,
-  // so a failed read is retried rather than cached for ten seconds.
-  const value = fetchStored().catch((err: unknown) => {
-    cached = null;
-    throw err;
-  });
-  cached = { at: Date.now(), value };
-  return value;
+  return storedCache.get();
 }
 
 /** Every policy unset: what an unmigrated database and a missing row both mean. */
@@ -102,18 +88,14 @@ const NOTHING_STORED: StoredPlatformSettings = {
   baseUrl: null,
 };
 
+const NUMBER_COLUMNS = Object.fromEntries(
+  PLATFORM_SETTING_NUMBERS.map((key) => [key, platformSettings[key]]),
+) as { [K in PlatformSettingNumber]: (typeof platformSettings)[K] };
+
 async function fetchStored(): Promise<StoredPlatformSettings> {
   const rows = await db
     .select({
-      analyticsRetentionDays: platformSettings.analyticsRetentionDays,
-      sseMaxConnections: platformSettings.sseMaxConnections,
-      sseMaxConnectionsPerUser: platformSettings.sseMaxConnectionsPerUser,
-      throttleTtlMs: platformSettings.throttleTtlMs,
-      throttleLimit: platformSettings.throttleLimit,
-      agentCallTimeoutMs: platformSettings.agentCallTimeoutMs,
-      mcpConnectTimeoutMs: platformSettings.mcpConnectTimeoutMs,
-      schedulerOrphanGraceMs: platformSettings.schedulerOrphanGraceMs,
-      schedulerDefaultMaxRunMs: platformSettings.schedulerDefaultMaxRunMs,
+      ...NUMBER_COLUMNS,
       baseUrl: platformSettings.baseUrl,
     })
     .from(platformSettings)

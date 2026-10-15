@@ -105,3 +105,33 @@ export class TtlCache<K, V> {
     }
   }
 }
+
+/**
+ * A single-value cache that holds the PROMISE, so concurrent callers that miss
+ * share one fetch instead of each starting their own. A rejection clears the
+ * entry, so a failed read is retried instead of being served for `ttlMs`.
+ */
+export function cachedValue<T>(
+  fetch: () => Promise<T>,
+  ttlMs: number,
+): { get(): Promise<T>; invalidate(): void } {
+  let entry: { at: number; value: Promise<T> } | null = null;
+  return {
+    get() {
+      if (entry && Date.now() - entry.at < ttlMs) return entry.value;
+      // Stored BEFORE awaiting, so a caller arriving mid-flight joins this read.
+      const mine: { at: number; value: Promise<T> } = {
+        at: Date.now(),
+        value: fetch().catch((err: unknown) => {
+          if (entry === mine) entry = null;
+          throw err;
+        }),
+      };
+      entry = mine;
+      return mine.value;
+    },
+    invalidate() {
+      entry = null;
+    },
+  };
+}
