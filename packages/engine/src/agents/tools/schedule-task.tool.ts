@@ -5,7 +5,6 @@ import { defineTool } from "@polyant-ai/plugin-sdk";
 import { auditPreview } from "../../audit/audit-logger.js";
 import * as scheduledTaskStore from "../../scheduled-tasks/store.js";
 import { parseRelativeDuration, formatScheduleHuman } from "../../scheduled-tasks/schedule-utils.js";
-import { schedulerService } from "../../scheduled-tasks/scheduler.service.js";
 import type { ScheduleConfig } from "../../scheduled-tasks/schema.js";
 
 /**
@@ -175,8 +174,6 @@ export default defineTool({
               keepHistory: params.keepHistory ?? false,
             });
 
-            schedulerService.notify(task.id, "added");
-
             ctx.audit.log({
               action: "task.schedule",
               details: { subAction: "create", taskId: task.id, label: auditPreview(task.name) },
@@ -248,8 +245,6 @@ export default defineTool({
             const updated = await scheduledTaskStore.update(params.taskId, updateData);
             if (!updated) return { error: `Task with ID '${params.taskId}' not found.` };
 
-            schedulerService.notify(params.taskId, "updated");
-
             ctx.audit.log({
               action: "task.schedule",
               details: { subAction: "update", taskId: params.taskId, label: auditPreview(updated.name) },
@@ -274,7 +269,6 @@ export default defineTool({
             if (!existing) return { error: `Task with ID '${params.taskId}' not found.` };
 
             await scheduledTaskStore.remove(params.taskId);
-            schedulerService.notify(params.taskId, "removed");
 
             ctx.audit.log({
               action: "task.schedule",

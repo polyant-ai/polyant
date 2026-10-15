@@ -91,13 +91,12 @@ export async function failRun(runId: string, error: string): Promise<void> {
  * Read this while the task row is still marked `running`: no new run can be claimed
  * until the marker is cleared, so every run returned belongs to the claim being recovered.
  */
-export async function findDanglingRuns(taskIds: string[]): Promise<string[]> {
+export async function findDanglingRuns(taskIds: string[]): Promise<Array<{ id: string; taskId: string }>> {
   if (taskIds.length === 0) return [];
-  const rows = await db
-    .select({ id: scheduledTaskRuns.id })
+  return db
+    .select({ id: scheduledTaskRuns.id, taskId: scheduledTaskRuns.taskId })
     .from(scheduledTaskRuns)
     .where(and(inArray(scheduledTaskRuns.taskId, taskIds), eq(scheduledTaskRuns.status, "running")));
-  return rows.map((row) => row.id);
 }
 
 /**

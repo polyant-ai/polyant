@@ -224,8 +224,6 @@ export class InstanceScheduledTasksController {
       maxRunMs: assertMaxRunMs(body.maxRunMs),
     });
 
-    schedulerService.notify(task.id, "added");
-
     return {
       task: {
         id: task.id,
@@ -281,8 +279,6 @@ export class InstanceScheduledTasksController {
     });
     if (!updated) throw new NotFoundException(`Scheduled task "${id}" not found`);
 
-    schedulerService.notify(id, "updated");
-
     return {
       task: {
         id: updated.id,
@@ -312,7 +308,6 @@ export class InstanceScheduledTasksController {
     }
 
     await scheduledTaskStore.remove(id);
-    schedulerService.notify(id, "removed");
 
     return { deleted: true };
   }
