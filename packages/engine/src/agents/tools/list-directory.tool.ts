@@ -4,7 +4,7 @@ import { z } from "zod";
 import { readdir, stat } from "fs/promises";
 import { resolve, join } from "path";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { errMsg } from "../../utils/error.js";
+import { auditFailure } from "./shared/audit-failure.js";
 import {
   isRelativePath,
   resolveWorkspacePath,
@@ -115,13 +115,7 @@ export default defineTool({
 
         return { path: resolvedPath, entries: items, totalEntries: entries.length, truncated };
       } catch (err) {
-        const message = errMsg(err);
-        ctx.audit.log({
-          action: "workspace.listDirectory",
-          details: { path },
-          success: false,
-          error: message,
-        });
+        const message = auditFailure(ctx, "workspace.listDirectory", { path }, err);
         return { error: message };
       }
   },

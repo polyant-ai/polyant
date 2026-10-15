@@ -5,7 +5,7 @@ import { open } from "fs/promises";
 import { constants } from "fs";
 import { resolve } from "path";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { errMsg } from "../../utils/error.js";
+import { auditFailure } from "./shared/audit-failure.js";
 import {
   isRelativePath,
   resolveWorkspacePath,
@@ -173,13 +173,7 @@ export default defineTool({
 
       return { content: result, sizeBytes: fileStat.size, lines: totalLines };
     } catch (err) {
-      const message = errMsg(err);
-      ctx.audit.log({
-        action: "workspace.readFile",
-        details: { path },
-        success: false,
-        error: message,
-      });
+      const message = auditFailure(ctx, "workspace.readFile", { path }, err);
       return { error: message };
     }
   },

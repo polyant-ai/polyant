@@ -4,7 +4,7 @@ import { z } from "zod";
 import { embed, resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
 import { upsertMemory } from "../../memory/memory-store.js";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { errMsg } from "../../utils/error.js";
+import { auditFailure } from "./shared/audit-failure.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 
 export default defineTool({
@@ -53,13 +53,7 @@ export default defineTool({
         events: [{ id: result.id, event: result.event }],
       };
     } catch (err) {
-      const message = errMsg(err);
-      ctx.audit.log({
-        action: "memory.save",
-        success: false,
-        error: message,
-      });
-      console.error(`saveMemory error: ${message}`);
+      const message = auditFailure(ctx, "memory.save", undefined, err, "saveMemory");
       return { saved: false, error: message };
     }
   },

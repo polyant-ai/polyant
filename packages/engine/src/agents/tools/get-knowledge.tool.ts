@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import { getDocumentByFilename } from "../../knowledge/store.js";
-import { errMsg } from "../../utils/error.js";
+import { auditFailure } from "./shared/audit-failure.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 
 export default defineTool({
@@ -65,14 +65,7 @@ export default defineTool({
           updatedAt: doc.updatedAt ? doc.updatedAt.toISOString() : null,
         };
       } catch (err) {
-        const message = errMsg(err);
-        ctx.audit.log({
-          action: "knowledge.get",
-          details: { filename: auditPreview(filename) },
-          success: false,
-          error: message,
-        });
-        console.error(`getKnowledge tool error: ${message}`);
+        const message = auditFailure(ctx, "knowledge.get", { filename: auditPreview(filename) }, err, "getKnowledge");
         return { found: false, error: message };
       }
   },

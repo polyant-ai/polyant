@@ -4,7 +4,7 @@ import { z } from "zod";
 import { tavily } from "@tavily/core";
 import { defineTool } from "@polyant-ai/plugin-sdk";
 import type { ToolContext } from "./registry.js";
-import { errMsg } from "../../utils/error.js";
+import { auditFailure } from "./shared/audit-failure.js";
 import { auditPreview } from "../../audit/audit-logger.js";
 
 const SUPPORTED_PROVIDERS = ["tavily", "serpapi", "duckduckgo"] as const;
@@ -112,14 +112,7 @@ export default defineTool({
           ? { query: input.query, provider, results, error }
           : { query: input.query, provider, results };
       } catch (err) {
-        const message = errMsg(err);
-        console.error(`webSearch tool error (${provider}): ${message}`);
-        ctx.audit.log({
-          action: "web.search",
-          details: { provider, query: auditPreview(input.query) },
-          success: false,
-          error: message,
-        });
+        const message = auditFailure(ctx, "web.search", { provider, query: auditPreview(input.query) }, err, `webSearch tool (${provider})`);
         return { query: input.query, provider, results: [], error: message };
       }
     },
