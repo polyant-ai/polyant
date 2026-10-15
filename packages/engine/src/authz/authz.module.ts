@@ -4,17 +4,13 @@ import { Module } from "@nestjs/common";
 import { APP_GUARD, Reflector } from "@nestjs/core";
 import { AuthorizationService } from "./authorization.service.js";
 import {
-  AUTHORIZATION_STRATEGY,
-  createAuthorizationStrategy,
-} from "./authorization-strategy.js";
-import {
   ENTITLEMENT_SERVICE,
   OssEntitlementService,
 } from "./entitlement.service.js";
 import { PermissionGuard } from "./permission.guard.js";
 
 /**
- * RBAC authorization module (Stream 3). Wires the OSS strategy + entitlement
+ * RBAC authorization module (Stream 3). Wires the entitlement
  * service, the AuthorizationService façade, and registers the PermissionGuard
  * as the THIRD global guard.
  *
@@ -27,16 +23,12 @@ import { PermissionGuard } from "./permission.guard.js";
  * MUST stay after AuthGuard — guaranteed by importing AuthzModule after
  * AuthModule in ServerModule.
  *
- * The strategy + entitlement bindings are factory/class providers so another
- * build can swap them without a dynamic import in the hot path.
+ * The entitlement binding is a class provider so another build can swap it
+ * without a dynamic import in the hot path.
  */
 @Module({
   providers: [
     Reflector,
-    {
-      provide: AUTHORIZATION_STRATEGY,
-      useFactory: createAuthorizationStrategy,
-    },
     {
       provide: ENTITLEMENT_SERVICE,
       useClass: OssEntitlementService,

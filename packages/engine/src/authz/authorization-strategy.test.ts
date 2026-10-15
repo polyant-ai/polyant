@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 /**
- * Unit tests for the pure most-specific-wins resolver and the OSS strategy
- * factory. These are deliberately DB-free: the resolver operates on already
- * loaded bindings, which is the unit under §4.3 of the design.
+ * Unit tests for the pure most-specific-wins resolver. These are deliberately
+ * DB-free: the resolver operates on already loaded bindings, which is the
+ * unit under §4.3 of the design.
  */
 
 import { describe, it, expect } from "vitest";

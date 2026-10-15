@@ -70,7 +70,6 @@ import { APP_GUARD, NestFactory, Reflector } from "@nestjs/core";
 import { AuthGuard } from "../../auth/auth.guard.js";
 import { PermissionGuard } from "../../authz/permission.guard.js";
 import { AuthorizationService } from "../../authz/authorization.service.js";
-import { AUTHORIZATION_STRATEGY, OssStrategy } from "../../authz/authorization-strategy.js";
 import { ENTITLEMENT_SERVICE } from "../../authz/entitlement.service.js";
 import { bindingCache, platformAdminCache } from "../../authz/authz.caches.js";
 import { SYSTEM_ROLE_PERMISSIONS } from "../../authz/permissions.js";
@@ -83,7 +82,6 @@ import { ApiKeysService } from "./api-keys.service.js";
     Reflector,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: PermissionGuard },
-    { provide: AUTHORIZATION_STRATEGY, useValue: new OssStrategy() },
     AuthorizationService,
     { provide: ENTITLEMENT_SERVICE, useValue: { isAvailable: () => false } },
     ApiKeysService,
