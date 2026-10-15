@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { formatRelativeTime, truncate } from "./format";
+import { formatRelativeTime, lastDays, toIsoDay, truncate } from "./format";
 
 // Simple translation mock
 const t = (key: string, params?: Record<string, string | number>) => {
@@ -75,5 +75,15 @@ describe("truncate", () => {
 
   it("handles empty string", () => {
     expect(truncate("", 10)).toBe("");
+  });
+});
+
+describe("toIsoDay and lastDays", () => {
+  it("formats a calendar day as YYYY-MM-DD", () => {
+    expect(toIsoDay(new Date(2026, 6, 4))).toBe("2026-07-04");
+  });
+
+  it("spans from N days back to today, both inclusive", () => {
+    expect(lastDays(30, new Date(2026, 6, 31))).toEqual({ from: "2026-07-01", to: "2026-07-31" });
   });
 });

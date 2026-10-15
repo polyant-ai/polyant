@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { format, subDays } from "date-fns";
 import type { TranslationKey } from "@/lib/i18n/types";
 
 type TranslateFn = (
@@ -136,4 +137,14 @@ export function formatTokens(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
   return String(value);
+}
+
+/** A calendar day as `"YYYY-MM-DD"`, the shape every date filter and range picker exchanges. */
+export function toIsoDay(date: Date): string {
+  return format(date, "yyyy-MM-dd");
+}
+
+/** The inclusive window ending today and starting `days` days back; 30 is the dashboards' default. */
+export function lastDays(days: number, now: Date = new Date()): { from: string; to: string } {
+  return { from: toIsoDay(subDays(now, days)), to: toIsoDay(now) };
 }
