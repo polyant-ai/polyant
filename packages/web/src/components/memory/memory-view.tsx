@@ -10,30 +10,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   TableBody,
   TableCell,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { ListControlCell, ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Pager } from "@/components/ui/pager";
+import { OptionalSelect } from "@/components/optional-select";
 import { api, getUserErrorMessage, type Instance, type Memory } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { useFormat } from "@/lib/use-format";
@@ -71,6 +57,7 @@ export function MemoryView({ lockedInstanceId }: { lockedInstanceId?: string }) 
   const [instanceFilter, setInstanceFilter] = useState(lockedInstanceId ?? "");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   // Fetch instances for filter dropdown — re-fetch when workspace changes.
   // Also reset the stale instance filter so the user doesn't see an empty list.
@@ -120,6 +107,8 @@ export function MemoryView({ lockedInstanceId }: { lockedInstanceId?: string }) 
       toast.success(t("memory.deleted"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("memory.deleteFailed")));
+    } finally {
+      setPendingDelete(null);
     }
   };
 
@@ -136,38 +125,21 @@ export function MemoryView({ lockedInstanceId }: { lockedInstanceId?: string }) 
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         {!lockedInstanceId && (
-        <Select
-          value={instanceFilter || "_all"}
-          onValueChange={(v) => { setInstanceFilter(v === "_all" ? "" : v); setPage(1); }}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder={t("memory.selectInstance")} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">{t("memory.selectInstance")}</SelectItem>
-            {instances.map((inst) => (
-              <SelectItem key={inst.id} value={inst.slug}>
-                {inst.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <OptionalSelect
+            value={instanceFilter}
+            onChange={(instance) => { setInstanceFilter(instance); setPage(1); }}
+            allLabel={t("memory.selectInstance")}
+            options={instances.map((inst) => ({ value: inst.slug, label: inst.name }))}
+          />
         )}
 
-        <Select
-          value={categoryFilter || "_all"}
-          onValueChange={(v) => { setCategoryFilter(v === "_all" ? "" : v); setPage(1); }}
-        >
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder={t("memory.allCategories")} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">{t("memory.allCategories")}</SelectItem>
-            {CATEGORIES.filter(Boolean).map((c) => (
-              <SelectItem key={c} value={c}>{c}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <OptionalSelect
+          value={categoryFilter}
+          onChange={(category) => { setCategoryFilter(category); setPage(1); }}
+          allLabel={t("memory.allCategories")}
+          options={CATEGORIES.filter(Boolean).map((c) => ({ value: c, label: c }))}
+          className="w-[180px]"
+        />
 
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -183,32 +155,15 @@ export function MemoryView({ lockedInstanceId }: { lockedInstanceId?: string }) 
 
       <div className="mt-6">
         {!instanceFilter ? (
-          <div className="mt-16 flex flex-col items-center text-center">
-            <div className="rounded-full bg-muted p-4">
-              <Brain className="h-8 w-8 text-muted-foreground" />
-            </div>
-            <h3 className="mt-4 text-lg font-medium">
-              {t("memory.selectInstancePrompt")}
-            </h3>
-          </div>
+          <EmptyState icon={Brain} title={t("memory.selectInstancePrompt")} />
         ) : loading ? (
           <p className="text-muted-foreground">{t("common.loading")}</p>
         ) : memories.length === 0 ? (
-          <div className="mt-16 flex flex-col items-center text-center">
-            <div className="rounded-full bg-muted p-4">
-              <Brain className="h-8 w-8 text-muted-foreground" />
-            </div>
-            <h3 className="mt-4 text-lg font-medium">
-              {debouncedSearch
-                ? t("memory.empty.searchTitle")
-                : t("memory.empty.title")}
-            </h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {debouncedSearch
-                ? t("memory.empty.searchDescription")
-                : t("memory.empty.description")}
-            </p>
-          </div>
+          <EmptyState
+            icon={Brain}
+            title={debouncedSearch ? t("memory.empty.searchTitle") : t("memory.empty.title")}
+            description={debouncedSearch ? t("memory.empty.searchDescription") : t("memory.empty.description")}
+          />
         ) : (
           <>
             <ListTable>
@@ -237,62 +192,30 @@ export function MemoryView({ lockedInstanceId }: { lockedInstanceId?: string }) 
                       {fmt.relative(mem.updatedAt)}
                     </TableCell>
                     <ListControlCell>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>{t("memory.deleteTitle")}</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {t("memory.deleteDescription")}
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handleDelete(mem.id)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              {t("common.delete")}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setPendingDelete(mem.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </ListControlCell>
                   </ListRow>
                 ))}
               </TableBody>
             </ListTable>
 
-            {totalPages > 1 && (
-              <div className="mt-4 flex items-center justify-center gap-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  {t("memory.previous")}
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  {page} / {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  {t("memory.next")}
-                </Button>
-              </div>
-            )}
+            <Pager page={page} totalPages={totalPages} onPage={setPage} />
           </>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+        title={t("memory.deleteTitle")}
+        description={t("memory.deleteDescription")}
+        confirmLabel={t("common.delete")}
+        onConfirm={async () => {
+          if (pendingDelete !== null) await handleDelete(pendingDelete);
+        }}
+      />
 
       <CreateMemoryDialog
         open={createOpen}
