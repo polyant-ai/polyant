@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { randomBytes } from "crypto";
-
 /**
  * Putting somebody else's text into a prompt.
  *
@@ -17,8 +15,8 @@ import { randomBytes } from "crypto";
  *
  * Two shapes, because the threat differs:
  *
- * - `fenceUntrusted` for FREE TEXT of unknown shape (a webhook body, a fetched
- *   document): nonce-tagged, closing tag scrubbed.
+ * - `makeDelimiter` + `scrubClosing` for FREE TEXT of unknown shape (a webhook
+ *   body, a fetched document): a nonce-tagged block, closing tag scrubbed.
  * - `singleLineValue` for a VALUE in a line-oriented block (`user_name: …`),
  *   where the whole attack is adding a line. No nonce needed — a value that
  *   cannot contain a newline or an angle bracket cannot open or close anything.
@@ -30,12 +28,6 @@ export function makeDelimiter(tag: string, nonce: string): { open: string; close
 
 export function scrubClosing(input: string, close: string): string {
   return input.split(close).join("[CLOSING-TAG-REMOVED]");
-}
-
-/** Wrap untrusted free text in a nonce-tagged block it cannot break out of. */
-export function fenceUntrusted(tag: string, content: string, nonce?: string): string {
-  const { open, close } = makeDelimiter(tag, nonce ?? randomBytes(8).toString("hex"));
-  return `${open}\n${scrubClosing(content, close)}\n${close}`;
 }
 
 /**
