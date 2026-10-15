@@ -11,7 +11,7 @@ import {
   BadRequestException,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
-import { extname, basename } from "path";
+import { basename } from "path";
 import { z } from "zod";
 import { findInstanceOrFail } from "./instance-helpers.js";
 import {
@@ -26,24 +26,14 @@ import {
   resolveUniqueFilename,
 } from "../../knowledge/index.js";
 import { processDocument } from "../../knowledge/ingestion.js";
-import { resolveEmbeddingContext } from "../../embeddings-gateway/index.js";
+import { mimeForFilename } from "../../knowledge/mime-for-filename.js";
+import { requireEmbeddingContext } from "../utils/require-embedding-context.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { sanitizeForLog } from "../../utils/create-logger.js";
 import { resolveKnowledgeDocCap } from "../../knowledge/doc-cap.js";
 
 /** Maximum allowed document size in bytes (5 MB). */
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
-
-/** Map a filename extension to a stored MIME type (defaults to text/plain). */
-function mimeForFilename(filename: string): string {
-  const ext = extname(filename).replace(/^\./, "").toLowerCase();
-  const mimeMap: Record<string, string> = {
-    md: "text/markdown",
-    txt: "text/plain",
-    html: "text/html",
-  };
-  return mimeMap[ext] ?? "text/plain";
-}
 
 /** Import bundle shape — produced by the export endpoint. */
 const importBundleSchema = z.object({
@@ -174,13 +164,7 @@ export class InstanceKnowledgeController {
 
     // Verify the embedding provider is configured before accepting the upload.
     // The gateway resolves provider-specific credentials (OpenAI key or Bedrock region).
-    await resolveEmbeddingContext(instance.slug).catch((err: unknown) => {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Embedding provider is not configured for this instance.";
-      throw new BadRequestException(message);
-    });
+    await requireEmbeddingContext(instance.slug);
 
     const doc = await createDocument({
       instanceId: instance.slug,
@@ -231,11 +215,7 @@ export class InstanceKnowledgeController {
     }
 
     // Verify the embedding provider is configured before importing anything.
-    await resolveEmbeddingContext(instance.slug).catch((err: unknown) => {
-      const message =
-        err instanceof Error ? err.message : "Embedding provider is not configured for this instance.";
-      throw new BadRequestException(message);
-    });
+    await requireEmbeddingContext(instance.slug);
 
     // Validate + normalize every document up front (fail fast, no partial import).
     const prepared = parsed.data.documents.map((d, i) => {
