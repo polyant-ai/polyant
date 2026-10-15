@@ -332,17 +332,21 @@ export interface SupervisorPrompt {
 export async function buildSupervisorSystemPrompt(options: PromptOptions): Promise<SupervisorPrompt> {
   const { instanceId, instanceSlug } = options;
 
-  // Fetch all prompt sections from DB in one call (cached at 60s)
-  const promptRows = await getPrompts(instanceId);
-  const sectionMap = new Map(promptRows.map((r) => [r.sectionKey, r.content]));
-
-  // Helper: get section content by key (empty string if missing)
-  const section = (key: string) => sectionMap.get(key)?.trim() ?? "";
-
   // Collect enabled tool names for skill requiredTools check
   const enabledToolNames = options.tools
     ? new Set(Object.keys(options.tools))
     : undefined;
+
+  // The prompt sections (one cached call, 60s) and the skills list (its own DB
+  // reads) do not depend on each other, so they are read together.
+  const [promptRows, skillsList] = await Promise.all([
+    getPrompts(instanceId),
+    loadSkillsList(instanceId, instanceSlug, enabledToolNames),
+  ]);
+  const sectionMap = new Map(promptRows.map((r) => [r.sectionKey, r.content]));
+
+  // Helper: get section content by key (empty string if missing)
+  const section = (key: string) => sectionMap.get(key)?.trim() ?? "";
 
   // 1. Identity (static)
   const s01 = section("01-identity");
@@ -361,7 +365,7 @@ export async function buildSupervisorSystemPrompt(options: PromptOptions): Promi
 
   // 5. Skills (template)
   const s05 = applyTemplate(section("05-skills"), {
-    skillsList: await loadSkillsList(instanceId, instanceSlug, enabledToolNames),
+    skillsList,
   });
 
   // 6. Memory (skipped when memory is disabled)
