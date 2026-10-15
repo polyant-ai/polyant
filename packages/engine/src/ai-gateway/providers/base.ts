@@ -525,6 +525,22 @@ export type PrepareMessages = (input: {
   ttl?: CacheTtl;
 }) => { instructions: Instructions | undefined; messages: ModelMessage[] };
 
+/**
+ * Claude reasoning budgets (tokens) per preset level, for the legacy
+ * `enabled` + budget shape on both Claude-serving providers (Bedrock accepts a
+ * budget in [1024, 64000]). Budget models expose only the three presets.
+ */
+const CLAUDE_THINKING_BUDGETS: Record<"low" | "medium" | "high", number> = {
+  low: 4096,
+  medium: 12000,
+  high: 24000,
+};
+
+/** The token budget for a requested level; anything but low/high reads as medium. */
+export function claudeThinkingBudget(level: string): number {
+  return CLAUDE_THINKING_BUDGETS[level === "low" || level === "high" ? level : "medium"];
+}
+
 export interface ProviderHooks {
   prepareMessages?: PrepareMessages;
   /**
