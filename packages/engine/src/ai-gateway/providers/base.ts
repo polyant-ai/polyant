@@ -726,28 +726,40 @@ export function createProvider(
     return hooks.prepareMessages({ ...prepared, modelId, ttl: request.cacheConfig?.ttl });
   };
 
+  /**
+   * The setup both entry points share: prepared prompt, the per-turn usage
+   * collector, and the one SDK argument object, so a new SDK parameter is
+   * added once.
+   */
+  const callSetup = (request: ChatRequest, modelId: string) => {
+    const { instructions, messages } = prepare(request, modelId);
+    const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
+    const completed = completedCallsUsage();
+    // A function: the model is built inside the error-logging wrapper, as before.
+    const args = () => ({
+      model: createModel(modelId, request.apiKeys),
+      instructions,
+      messages,
+      tools: request.tools,
+      stopWhen: isStepCount(request.maxSteps ?? 1),
+      abortSignal: request.abortSignal,
+      onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
+      ...(prepareStep ? { prepareStep } : {}),
+      ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
+      ...temperatureCallParam(providerName, modelId, request),
+    });
+    return { instructions, messages, completed, args };
+  };
+
   return {
     name: providerName,
 
     async chat(request: ChatRequest, modelId: string): Promise<ChatResponse> {
       const start = Date.now();
 
-      const { instructions, messages } = prepare(request, modelId);
-      const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const completed = completedCallsUsage();
+      const { instructions, messages, completed, args } = callSetup(request, modelId);
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
-        tracedGenerateText({
-          model: createModel(modelId, request.apiKeys),
-          instructions,
-          messages,
-          tools: request.tools,
-          stopWhen: isStepCount(request.maxSteps ?? 1),
-          abortSignal: request.abortSignal,
-          onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
-          ...(prepareStep ? { prepareStep } : {}),
-          ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
-          ...temperatureCallParam(providerName, modelId, request),
-        }),
+        tracedGenerateText(args()),
       ).catch((err: unknown) => {
         completed.pinTo(err);
         throw err;
@@ -776,22 +788,9 @@ export function createProvider(
       // wrapAISDK wraps streamText in traceable, making it return a Promise.
       // The await resolves immediately (before streaming completes) because
       // tracing happens at the model middleware level, not the streamText level.
-      const { instructions, messages } = prepare(request, modelId);
-      const prepareStep = request.cacheConfig?.enabled === false ? undefined : buildPrepareStep(hooks, modelId);
-      const completed = completedCallsUsage();
+      const { instructions, messages, completed, args } = callSetup(request, modelId);
       const result = await withProviderErrorLog(providerName, modelId, { system: instructions, messages }, () =>
-        tracedStreamText({
-          model: createModel(modelId, request.apiKeys),
-          instructions,
-          messages,
-          tools: request.tools,
-          stopWhen: isStepCount(request.maxSteps ?? 1),
-          abortSignal: request.abortSignal,
-          onLanguageModelCallEnd: completed.onLanguageModelCallEnd,
-          ...(prepareStep ? { prepareStep } : {}),
-          ...(request.providerOptions ? { providerOptions: request.providerOptions as Record<string, Record<string, never>> } : {}),
-          ...temperatureCallParam(providerName, modelId, request),
-        }),
+        tracedStreamText(args()),
       );
 
       return {
