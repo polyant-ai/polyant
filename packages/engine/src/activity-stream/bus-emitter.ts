@@ -22,7 +22,7 @@
  * activity panel's right-hand detail card has everything it needs.
  */
 
-import { activityBus } from "./activity-bus.js";
+import { safeEmit, nowIso } from "./emit-helpers.js";
 import {
   joinReasoning,
   truncate,
@@ -69,6 +69,18 @@ export function tapAndForwardFullStream(
     const baseId = makeBaseId(ctx.conversationId);
     let stepIndex = 0;
     const stepBuffer: StepBuffer = { reasoningBlocks: [], text: "" };
+    // Built once: a streamed turn runs this for every text delta.
+    const handler: HandleCtx = {
+      ctx,
+      baseId,
+      stepBuffer,
+      getStepIndex: () => stepIndex,
+      advanceStep: () => {
+        stepIndex += 1;
+        stepBuffer.reasoningBlocks = [];
+        stepBuffer.text = "";
+      },
+    };
     try {
       for await (const chunk of source as AsyncIterable<Record<string, unknown>>) {
         // Always forward first — never let bus emission errors block the
@@ -76,17 +88,6 @@ export function tapAndForwardFullStream(
         yield chunk;
 
         try {
-          const handler: HandleCtx = {
-            ctx,
-            baseId,
-            stepBuffer,
-            getStepIndex: () => stepIndex,
-            advanceStep: () => {
-              stepIndex += 1;
-              stepBuffer.reasoningBlocks = [];
-              stepBuffer.text = "";
-            },
-          };
           handleChunk(chunk, handler);
         } catch (err) {
           // The chat itself is unaffected by our bookkeeping; just log the
@@ -188,35 +189,7 @@ function handleChunk(chunk: Record<string, unknown>, h: HandleCtx): void {
       const stepIndex = h.getStepIndex();
       const finishReason = typeof chunk.finishReason === "string" ? chunk.finishReason : "";
 
-      if (h.stepBuffer.reasoningBlocks.length > 0) {
-        const fullText = joinReasoning(h.stepBuffer.reasoningBlocks);
-        if (fullText) {
-          safeEmit({
-            id: `${h.baseId}:s${stepIndex}:think:0`,
-            ts: nowIso(),
-            persona: "thinking",
-            text: truncate(fullText, MAX_REASONING_CHARS),
-            instance: h.ctx.instance,
-            conversationId: h.ctx.conversationId,
-            responsePreview: truncate(fullText, MAX_SPOTLIGHT_CHARS),
-          });
-        }
-      }
-
-      if (finishReason !== "tool-calls") {
-        const trimmedText = h.stepBuffer.text.trim();
-        if (trimmedText.length > 0) {
-          safeEmit({
-            id: `${h.baseId}:s${stepIndex}:text:0`,
-            ts: nowIso(),
-            persona: "agent",
-            text: truncate(trimmedText, MAX_REASONING_CHARS),
-            instance: h.ctx.instance,
-            conversationId: h.ctx.conversationId,
-            responsePreview: truncate(trimmedText, MAX_SPOTLIGHT_CHARS),
-          });
-        }
-      }
+      emitStepEvents(h.ctx, h.baseId, stepIndex, h.stepBuffer.reasoningBlocks, h.stepBuffer.text, finishReason);
       return;
     }
 
@@ -235,43 +208,58 @@ export function emitFromChatResponse(response: ChatResponse, ctx: BusContext): v
   if (response.steps.length === 0) return;
 
   for (const step of response.steps) {
-    if (step.reasoning && step.reasoning.length > 0) {
-      const fullText = joinReasoning(step.reasoning);
-      if (fullText) {
-        safeEmit({
-          id: `${baseId}:s${step.index}:think:0`,
-          ts: nowIso(),
-          persona: "thinking",
-          text: truncate(fullText, MAX_REASONING_CHARS),
-          instance: ctx.instance,
-          conversationId: ctx.conversationId,
-          responsePreview: truncate(fullText, MAX_SPOTLIGHT_CHARS),
-        });
-      }
-    }
-
     // Tool events are NOT emitted here. The supervisor's audit wrapper
     // is the canonical source: it has the real start/end timestamps for
     // each invocation, regardless of whether the call is streaming or
     // non-streaming. Replaying SDK steps at chat() return time would
     // assign every tool the same `nowIso()` (the moment chat() resolves) —
     // visually wrong on long multi-step turns.
+    emitStepEvents(ctx, baseId, step.index, step.reasoning ?? [], step.text, step.finishReason);
+  }
+}
 
-    // Skip text on intermediate steps (those that hand off to another step
-    // via tool-calls). Same reasoning as the streaming path.
-    if (step.finishReason !== "tool-calls") {
-      const trimmedText = step.text.trim();
-      if (trimmedText.length > 0) {
-        safeEmit({
-          id: `${baseId}:s${step.index}:text:0`,
-          ts: nowIso(),
-          persona: "agent",
-          text: truncate(trimmedText, MAX_REASONING_CHARS),
-          instance: ctx.instance,
-          conversationId: ctx.conversationId,
-          responsePreview: truncate(trimmedText, MAX_SPOTLIGHT_CHARS),
-        });
-      }
+/**
+ * Emit the events of one finished step: its aggregated reasoning (if any) and, for
+ * terminal steps only, the assistant text. A step that finishes with `tool-calls`
+ * hands off to another step, and its `text` is typically junk like an empty string
+ * or `"[]"` from partial tool-call serialization, so it is dropped. Shared by the
+ * live tap and the batch replay so both paths describe a step the same way.
+ */
+function emitStepEvents(
+  ctx: BusContext,
+  baseId: string,
+  stepIndex: number,
+  reasoning: ReasoningDetail[],
+  text: string,
+  finishReason: string,
+): void {
+  if (reasoning.length > 0) {
+    const fullText = joinReasoning(reasoning);
+    if (fullText) {
+      safeEmit({
+        id: `${baseId}:s${stepIndex}:think:0`,
+        ts: nowIso(),
+        persona: "thinking",
+        text: truncate(fullText, MAX_REASONING_CHARS),
+        instance: ctx.instance,
+        conversationId: ctx.conversationId,
+        responsePreview: truncate(fullText, MAX_SPOTLIGHT_CHARS),
+      });
+    }
+  }
+
+  if (finishReason !== "tool-calls") {
+    const trimmedText = text.trim();
+    if (trimmedText.length > 0) {
+      safeEmit({
+        id: `${baseId}:s${stepIndex}:text:0`,
+        ts: nowIso(),
+        persona: "agent",
+        text: truncate(trimmedText, MAX_REASONING_CHARS),
+        instance: ctx.instance,
+        conversationId: ctx.conversationId,
+        responsePreview: truncate(trimmedText, MAX_SPOTLIGHT_CHARS),
+      });
     }
   }
 }
@@ -295,19 +283,6 @@ export function classifyResultStatus(result: unknown): EventStatus {
   if (r.success === false) return "error";
   if (typeof r.error === "string" && r.error.length > 0) return "error";
   return "success";
-}
-
-/** Wrap emit so listener errors never bubble back to the producer. */
-function safeEmit(evt: FeedEvent): void {
-  try {
-    activityBus.emitEvent(evt);
-  } catch {
-    // Listener mis-behaved; drop. Activity bus is purely best-effort.
-  }
-}
-
-function nowIso(): string {
-  return new Date().toISOString();
 }
 
 function makeBaseId(conversationId: string | undefined): string {
