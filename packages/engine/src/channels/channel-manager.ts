@@ -266,11 +266,7 @@ export class ChannelManager {
     message: string,
     opts?: { mediaUrl?: string | string[]; skipOptoutCheck?: boolean; throwOnSuppressed?: boolean },
   ): Promise<OutboundDelivery | void> {
-    const instanceMap = this.adapters.get(instanceSlug);
-    if (!instanceMap) throw new Error(`No active channels for instance "${instanceSlug}"`);
-
-    const adapter = instanceMap.get(channelType);
-    if (!adapter) throw new Error(`Channel "${channelType}" not active for instance "${instanceSlug}"`);
+    const adapter = this.requireAdapter(instanceSlug, channelType);
 
     if (!opts?.skipOptoutCheck && (await this.isOptoutSuppressed(instanceSlug, channelType, channelId))) {
       console.log(`[channel-manager] outbound suppressed (opt-out): ${sanitizeForLog(instanceSlug)} ${sanitizeForLog(channelType)}:${sanitizeForLog(channelId)}`);
@@ -323,11 +319,7 @@ export class ChannelManager {
     contentSid: string,
     variables: Record<string, string>,
   ): Promise<string> {
-    const instanceMap = this.adapters.get(instanceSlug);
-    if (!instanceMap) throw new Error(`No active channels for instance "${instanceSlug}"`);
-
-    const adapter = instanceMap.get(channelType);
-    if (!adapter) throw new Error(`Channel "${channelType}" not active for instance "${instanceSlug}"`);
+    const adapter = this.requireAdapter(instanceSlug, channelType);
 
     if (await this.isOptoutSuppressed(instanceSlug, channelType, channelId)) {
       console.log(`[channel-manager] template suppressed (opt-out): ${sanitizeForLog(instanceSlug)} ${sanitizeForLog(channelType)}:${sanitizeForLog(channelId)}`);
@@ -353,11 +345,7 @@ export class ChannelManager {
     contentSid: string,
     variables: Record<string, string>,
   ): Promise<string> {
-    const instanceMap = this.adapters.get(instanceSlug);
-    if (!instanceMap) throw new Error(`No active channels for instance "${instanceSlug}"`);
-
-    const adapter = instanceMap.get(channelType);
-    if (!adapter) throw new Error(`Channel "${channelType}" not active for instance "${instanceSlug}"`);
+    const adapter = this.requireAdapter(instanceSlug, channelType);
 
     if (!adapter.getTemplateBody) {
       throw new Error(`Channel "${channelType}" does not support template body resolution`);
@@ -375,6 +363,16 @@ export class ChannelManager {
       }
     }
     return result;
+  }
+
+  /** The running adapter for an instance + channel, or a throw naming which of the two is missing. */
+  private requireAdapter(instanceSlug: string, channelType: string): ChannelAdapter {
+    const instanceMap = this.adapters.get(instanceSlug);
+    if (!instanceMap) throw new Error(`No active channels for instance "${instanceSlug}"`);
+
+    const adapter = instanceMap.get(channelType);
+    if (!adapter) throw new Error(`Channel "${channelType}" not active for instance "${instanceSlug}"`);
+    return adapter;
   }
 
   /** Auto-disable a channel in DB after adapter initialization failure. */

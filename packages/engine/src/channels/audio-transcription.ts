@@ -148,3 +148,45 @@ export async function transcribeAudio(input: TranscribeAudioInput): Promise<Tran
     return fail("provider_error");
   }
 }
+
+export interface InboundAudioClip {
+  audio: Buffer;
+  mimeType: string;
+  /** Best-effort duration reported by the channel. */
+  durationSec?: number;
+}
+
+export type TranscribeInboundResult =
+  /** `text` is the message text with every transcript appended; `metadata` (absent when there were no clips) is spread into the message metadata. */
+  | { ok: true; text: string; metadata?: { originalKind: "audio"; audio: TranscribeAudioMetadata & { latencyMs: number } } }
+  /** Send `reply` to the person and stop: a clip could not be transcribed. */
+  | { ok: false; reply: string };
+
+/**
+ * The inbound-audio contract shared by the messaging channels: transcribe each
+ * clip in order, stop at the first failure with the reply to send, and append
+ * the transcripts to the message text, one per line. The adapter only
+ * downloads the audio and sends the reply.
+ */
+export async function transcribeInbound(input: {
+  instanceSlug: string;
+  conversationId: string;
+  clips: InboundAudioClip[];
+  text: string;
+}): Promise<TranscribeInboundResult> {
+  let text = input.text;
+  let metadata: Extract<TranscribeInboundResult, { ok: true }>["metadata"] | undefined;
+  for (const clip of input.clips) {
+    const result = await transcribeAudio({
+      audio: clip.audio,
+      mimeType: clip.mimeType,
+      durationSec: clip.durationSec,
+      instanceSlug: input.instanceSlug,
+      conversationId: input.conversationId,
+    });
+    if (!result.ok) return { ok: false, reply: result.userReply };
+    text = text ? `${text}\n${result.text}` : result.text;
+    metadata = { originalKind: "audio", audio: { ...result.metadata, latencyMs: result.latencyMs } };
+  }
+  return { ok: true, text, metadata };
+}

@@ -20,6 +20,7 @@ import type { EventDefinition } from "./webhook-sources.store.js";
 import { emitConversation } from "../activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { ConversationStateBuffer } from "../conversations/state.buffer.js";
+import { contactConversationId } from "../channels/outbound-conversation.js";
 
 // Webhook turns are supervise-direct: no replay loop, so `regenerate` and
 // `injectContext` cannot be acted on here.
@@ -104,8 +105,8 @@ export async function triggerConversation(
 
   // 2. Build conversation ID (channel-keyed or fresh per event in internal mode)
   const conversationId = hasChannel
-    ? `${instanceSlug}:${definition.outboundChannel}:${renderedTarget}`
-    : `${instanceSlug}:webhook:${definition.id}:${cycleStart}`;
+    ? contactConversationId(instanceSlug, definition.outboundChannel!, renderedTarget!)
+    : contactConversationId(instanceSlug, "webhook", `${definition.id}:${cycleStart}`);
 
   const ensureResult = await conversationStore.ensureConversation(conversationId, instanceSlug, {
     channel: channelLabel,

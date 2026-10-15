@@ -11,7 +11,7 @@ vi.mock("./media-fetch.js", () => ({
 }));
 
 vi.mock("../../audio-transcription.js", () => ({
-  transcribeAudio: vi.fn(),
+  transcribeInbound: vi.fn(),
 }));
 
 const { mockCreate, mockValidateRequest } = vi.hoisted(() => ({

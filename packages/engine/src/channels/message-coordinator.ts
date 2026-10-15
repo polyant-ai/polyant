@@ -4,6 +4,7 @@ import { sanitizeForLog, shouldLog } from "../utils/create-logger.js";
 import type { IncomingMessage, OutgoingMessage } from "./types.js";
 import type { MessageTimingSettings } from "../instances/agent-settings.js";
 import { trackBackgroundTurn } from "./background-turns.js";
+import { contactConversationId } from "./outbound-conversation.js";
 
 /**
  * Per-conversation coordinator for inbound messaging channels that tend to
@@ -64,8 +65,6 @@ export interface MessageCoordinatorOptions {
     channelId: string,
     messageSid?: string,
   ) => Promise<void>;
-  /** Optional override of the keying strategy. Defaults to `${instanceId}:${channelType}:${channelId}`. */
-  conversationKey?: (msg: IncomingMessage) => string;
 }
 
 interface ConversationState {
@@ -100,7 +99,7 @@ interface ConversationState {
 }
 
 function defaultKey(msg: IncomingMessage): string {
-  return `${msg.instanceId}:${msg.channelType}:${msg.channelId}`;
+  return contactConversationId(msg.instanceId, msg.channelType, msg.channelId);
 }
 
 function extractMessageSid(msg: IncomingMessage): string | undefined {
@@ -137,7 +136,7 @@ export class MessageCoordinator {
    * reply. The real response is delivered later via `sendOutbound`.
    */
   async onMessage(msg: IncomingMessage): Promise<OutgoingMessage> {
-    const key = (this.opts.conversationKey ?? defaultKey)(msg);
+    const key = defaultKey(msg);
 
     // Wait out a start already in flight for this conversation. Two fragments
     // arriving as two concurrent webhook requests both used to see no state,

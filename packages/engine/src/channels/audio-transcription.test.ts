@@ -17,7 +17,7 @@ vi.mock("../stt-gateway/index.js", () => ({
   transcribe: transcribeMock,
 }));
 
-import { transcribeAudio } from "./audio-transcription.js";
+import { transcribeAudio, transcribeInbound } from "./audio-transcription.js";
 import { STTProviderError, STTTimeoutError } from "../stt-gateway/errors.js";
 import { aiLogger } from "../ai-gateway/logger.js";
 
@@ -183,5 +183,46 @@ describe("transcribeAudio", () => {
     const result = await transcribeAudio({ audio: Buffer.from([0]), mimeType: "audio/ogg", instanceSlug: "demo" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe("provider_error");
+  });
+});
+
+describe("transcribeInbound", () => {
+  beforeEach(() => {
+    resolveInstanceConfigMock.mockReset();
+    transcribeMock.mockReset();
+    resolveInstanceConfigMock.mockResolvedValue(FAKE_OPENAI_CONFIG);
+  });
+
+  const clip = { audio: Buffer.from([0]), mimeType: "audio/ogg" };
+
+  it("appends each transcript on its own line and reports the audio metadata", async () => {
+    transcribeMock
+      .mockResolvedValueOnce({ text: "uno", language: "it", durationSec: 1, provider: "openai", model: "whisper-1", latencyMs: 10 })
+      .mockResolvedValueOnce({ text: "due", language: "it", durationSec: 2, provider: "openai", model: "whisper-1", latencyMs: 20 });
+
+    const result = await transcribeInbound({ instanceSlug: "demo", conversationId: "demo:x:1", text: "ciao", clips: [clip, clip] });
+
+    expect(result).toEqual({
+      ok: true,
+      text: "ciao\nuno\ndue",
+      metadata: {
+        originalKind: "audio",
+        audio: { originalKind: "audio", durationSec: 2, sttProvider: "openai", language: "it", latencyMs: 20 },
+      },
+    });
+  });
+
+  it("uses the transcript alone when the message has no text", async () => {
+    transcribeMock.mockResolvedValue({ text: "solo audio", provider: "openai", model: "whisper-1", latencyMs: 5 });
+    const result = await transcribeInbound({ instanceSlug: "demo", conversationId: "demo:x:1", text: "", clips: [clip] });
+    expect(result.ok && result.text).toBe("solo audio");
+  });
+
+  it("stops at the first failure and returns the reply to send", async () => {
+    transcribeMock.mockRejectedValue(new STTProviderError("openai", "boom"));
+    const result = await transcribeInbound({ instanceSlug: "demo", conversationId: "demo:x:1", text: "", clips: [clip, clip] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reply.length).toBeGreaterThan(0);
+    expect(transcribeMock).toHaveBeenCalledTimes(1);
   });
 });
