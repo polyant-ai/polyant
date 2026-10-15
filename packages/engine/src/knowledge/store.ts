@@ -246,105 +246,43 @@ export interface AgentWriteResult {
   rawContent: string;
 }
 
-/**
- * Overwrite (or create) a document identified by (instanceId, filename).
- * Marks the document as "processing" so the caller can kick off a reindex.
- */
-export async function upsertAgentDocument(input: {
+type AgentWriteInput = {
   instanceId: InstanceSlug;
   filename: string;
   content: string;
   mimeType?: string;
-}): Promise<AgentWriteResult> {
-  const { instanceId, filename, content } = input;
-  const mimeType = input.mimeType ?? "text/markdown";
-  const sizeBytes = Buffer.byteLength(content, "utf-8");
-
-  if (sizeBytes > MAX_WRITE_BYTES) {
-    throw new DocumentSizeExceededError(
-      `Input content exceeds ${MAX_WRITE_BYTES} bytes (got ${sizeBytes}).`,
-    );
-  }
-  if (sizeBytes > MAX_DOCUMENT_BYTES) {
-    throw new DocumentSizeExceededError(
-      `Document exceeds ${MAX_DOCUMENT_BYTES} bytes (got ${sizeBytes}).`,
-    );
-  }
-
-  return await db.transaction(async (tx) => {
-    const [existing] = await tx
-      .select({ id: knowledgeDocuments.id })
-      .from(knowledgeDocuments)
-      .where(
-        and(
-          eq(knowledgeDocuments.instanceId, instanceId),
-          eq(knowledgeDocuments.filename, filename),
-        ),
-      )
-      .for("update")
-      .limit(1);
-
-    const hash = hashContent(content);
-
-    if (existing) {
-      await tx
-        .update(knowledgeDocuments)
-        .set({
-          mimeType,
-          rawContent: content,
-          contentHash: hash,
-          sizeBytes,
-          status: "processing",
-          errorMessage: null,
-          updatedAt: sql`now()`,
-        })
-        .where(eq(knowledgeDocuments.id, existing.id));
-      return { docId: existing.id, created: false, sizeBytes, rawContent: content };
-    }
-
-    const [inserted] = await tx
-      .insert(knowledgeDocuments)
-      .values({
-        instanceId,
-        filename,
-        mimeType,
-        sizeBytes,
-        rawContent: content,
-        contentHash: hash,
-        source: "agent",
-        status: "processing",
-      })
-      .returning({ id: knowledgeDocuments.id });
-    return { docId: inserted.id, created: true, sizeBytes, rawContent: content };
-  });
-}
+};
 
 /**
- * Append content to a document identified by (instanceId, filename).
- * Creates the document (without separator) if it doesn't exist yet.
- * Uses SELECT ... FOR UPDATE to serialize concurrent appends on the same row.
+ * One transaction for both agent writes: size-check the input, lock the row by
+ * (instanceId, filename), then update it or insert it as "processing" so the
+ * caller can kick off a reindex. `mode` only decides how the stored content is
+ * derived: "overwrite" replaces it (and its mime type); "append" joins the
+ * existing text and the input with a separator, and creates the document
+ * without one when absent. SELECT ... FOR UPDATE serializes concurrent writes
+ * on the same row.
  */
-export async function appendAgentDocument(input: {
-  instanceId: InstanceSlug;
-  filename: string;
-  content: string;
-  mimeType?: string;
-}): Promise<AgentWriteResult> {
+async function writeAgentDocument(
+  input: AgentWriteInput,
+  mode: "overwrite" | "append",
+): Promise<AgentWriteResult> {
   const { instanceId, filename, content } = input;
   const mimeType = input.mimeType ?? "text/markdown";
-  const newContentBytes = Buffer.byteLength(content, "utf-8");
+  const inputBytes = Buffer.byteLength(content, "utf-8");
 
-  if (newContentBytes > MAX_WRITE_BYTES) {
+  if (inputBytes > MAX_WRITE_BYTES) {
     throw new DocumentSizeExceededError(
-      `Input content exceeds ${MAX_WRITE_BYTES} bytes (got ${newContentBytes}).`,
+      `Input content exceeds ${MAX_WRITE_BYTES} bytes (got ${inputBytes}).`,
     );
   }
 
   return await db.transaction(async (tx) => {
+    // Only an append needs the stored text; an overwrite must not drag a
+    // document of up to 10MB over the wire just to replace it.
     const [existing] = await tx
       .select({
         id: knowledgeDocuments.id,
-        rawContent: knowledgeDocuments.rawContent,
+        rawContent: mode === "append" ? knowledgeDocuments.rawContent : sql<null>`null`,
       })
       .from(knowledgeDocuments)
       .where(
@@ -357,11 +295,12 @@ export async function appendAgentDocument(input: {
       .limit(1);
 
     if (existing) {
-      const merged = existing.rawContent
-        ? `${existing.rawContent}${APPEND_SEPARATOR}${content}`
-        : content;
-      const mergedBytes = Buffer.byteLength(merged, "utf-8");
-      if (mergedBytes > MAX_DOCUMENT_BYTES) {
+      const merged =
+        mode === "append" && existing.rawContent
+          ? `${existing.rawContent}${APPEND_SEPARATOR}${content}`
+          : content;
+      const mergedBytes = mode === "append" ? Buffer.byteLength(merged, "utf-8") : inputBytes;
+      if (mode === "append" && mergedBytes > MAX_DOCUMENT_BYTES) {
         throw new DocumentSizeExceededError(
           `Appending would grow document past ${MAX_DOCUMENT_BYTES} bytes (would be ${mergedBytes}).`,
         );
@@ -369,6 +308,7 @@ export async function appendAgentDocument(input: {
       await tx
         .update(knowledgeDocuments)
         .set({
+          ...(mode === "overwrite" ? { mimeType } : {}),
           rawContent: merged,
           contentHash: hashContent(merged),
           sizeBytes: mergedBytes,
@@ -377,35 +317,40 @@ export async function appendAgentDocument(input: {
           updatedAt: sql`now()`,
         })
         .where(eq(knowledgeDocuments.id, existing.id));
-      return {
-        docId: existing.id,
-        created: false,
-        sizeBytes: mergedBytes,
-        rawContent: merged,
-      };
+      return { docId: existing.id, created: false, sizeBytes: mergedBytes, rawContent: merged };
     }
 
-    // Doc doesn't exist → create fresh (no separator prefix)
     const [inserted] = await tx
       .insert(knowledgeDocuments)
       .values({
         instanceId,
         filename,
         mimeType,
-        sizeBytes: newContentBytes,
+        sizeBytes: inputBytes,
         rawContent: content,
         contentHash: hashContent(content),
         source: "agent",
         status: "processing",
       })
       .returning({ id: knowledgeDocuments.id });
-    return {
-      docId: inserted.id,
-      created: true,
-      sizeBytes: newContentBytes,
-      rawContent: content,
-    };
+    return { docId: inserted.id, created: true, sizeBytes: inputBytes, rawContent: content };
   });
+}
+
+/**
+ * Overwrite (or create) a document identified by (instanceId, filename).
+ * Marks the document as "processing" so the caller can kick off a reindex.
+ */
+export function upsertAgentDocument(input: AgentWriteInput): Promise<AgentWriteResult> {
+  return writeAgentDocument(input, "overwrite");
+}
+
+/**
+ * Append content to a document identified by (instanceId, filename).
+ * Creates the document (without separator) if it doesn't exist yet.
+ */
+export function appendAgentDocument(input: AgentWriteInput): Promise<AgentWriteResult> {
+  return writeAgentDocument(input, "append");
 }
 
 /** Delete all chunks belonging to a document (used before reindexing). */
