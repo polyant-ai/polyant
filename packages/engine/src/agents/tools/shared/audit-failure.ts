@@ -9,7 +9,7 @@ import { errMsg } from "../../../utils/error.js";
  * message for the tool to put in its result.
  */
 export function auditFailure(
-  ctx: { audit: Pick<AuditLogger, "log"> },
+  tool: { audit: Pick<AuditLogger, "log"> },
   action: string,
   details: Record<string, unknown> | undefined,
   err: unknown,
@@ -17,6 +17,6 @@ export function auditFailure(
 ): string {
   const message = errMsg(err);
   if (logLabel) console.error(`${logLabel} error: ${message}`);
-  ctx.audit.log({ action, ...(details ? { details } : {}), success: false, error: message });
+  tool.audit.log({ action, ...(details ? { details } : {}), success: false, error: message });
   return message;
 }
