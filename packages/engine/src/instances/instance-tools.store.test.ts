@@ -193,6 +193,50 @@ describe("instance-tools.store", () => {
   });
 
   // -----------------------------------------------------------------------
+  // recomputeInstanceTools with precomputed global tool ids
+  // -----------------------------------------------------------------------
+  describe("recomputeInstanceTools with precomputed global tool ids", () => {
+    /** An executor whose reads answer in the order recompute issues them. */
+    function fakeExecutor(reads: unknown[][]) {
+      const insertValues = vi.fn(() => Promise.resolve());
+      const select = vi.fn();
+      for (const rows of reads) select.mockReturnValueOnce(createChainMock(rows));
+      return {
+        exec: {
+          select,
+          insert: vi.fn(() => ({ values: insertValues })),
+          delete: vi.fn(),
+        },
+        select,
+        insertValues,
+      };
+    }
+
+    it("does not read the tools table for globals when the caller supplies them", async () => {
+      // Reads: enabled skills, manual rows, then the current rows of the diff.
+      const { exec, select, insertValues } = fakeExecutor([[], [], []]);
+
+      await recomputeInstanceTools(INSTANCE_UUID, exec as never, { globalToolIds: ["g1", "g2"] });
+
+      expect(select).toHaveBeenCalledTimes(3);
+      expect(insertValues).toHaveBeenCalledWith([
+        { instanceId: INSTANCE_UUID, toolId: "g1", source: "global" },
+        { instanceId: INSTANCE_UUID, toolId: "g2", source: "global" },
+      ]);
+    });
+
+    it("reads the globals itself when none are supplied", async () => {
+      // Reads: enabled skills, globals, manual rows, then the current rows of the diff.
+      const { exec, select, insertValues } = fakeExecutor([[], [{ id: "g1" }], [], []]);
+
+      await recomputeInstanceTools(INSTANCE_UUID, exec as never);
+
+      expect(select).toHaveBeenCalledTimes(4);
+      expect(insertValues).toHaveBeenCalledWith([{ instanceId: INSTANCE_UUID, toolId: "g1", source: "global" }]);
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // recomputeInstanceTools (idempotency)
   // -----------------------------------------------------------------------
   describe("recomputeInstanceTools", () => {
