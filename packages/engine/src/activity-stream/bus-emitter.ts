@@ -31,7 +31,6 @@ import {
 } from "./event-formatters.js";
 import type {
   EventStatus,
-  FeedEvent,
   InstanceMeta,
 } from "./activity-stream.types.js";
 import type {

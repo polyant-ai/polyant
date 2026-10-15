@@ -10,6 +10,12 @@ export interface DateRange {
   to: Date;
 }
 
+/** The window of the same length that ends where `range` starts, for trend comparisons. */
+export function previousRange(range: DateRange): DateRange {
+  const durationMs = range.to.getTime() - range.from.getTime();
+  return { from: new Date(range.from.getTime() - durationMs), to: new Date(range.from.getTime()) };
+}
+
 /** Convert Date to ISO string for postgres driver (which rejects Date objects in raw sql) */
 export function toISO(d: Date): string {
   return d.toISOString();

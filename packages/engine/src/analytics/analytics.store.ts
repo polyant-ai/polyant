@@ -2,7 +2,7 @@
 
 import { sql } from "drizzle-orm";
 import { analyticsDb } from "../database/client.js";
-import { type DateRange, toISO, asRows, pctChange, instanceFilter } from "../utils/query-helpers.js";
+import { type DateRange, toISO, asRows, pctChange, instanceFilter, previousRange } from "../utils/query-helpers.js";
 import { asInstanceSlug, type InstanceSlug } from "../instances/identifiers.js";
 import { buildOrgScopedAgentFilterFragment, type TenantScope } from "../authz/scope-filter.js";
 
@@ -141,9 +141,12 @@ async function getOverviewStats(
   const orgInst = buildOrgScopedAgentFilterFragment(scope);
   const orgConv = buildOrgScopedAgentFilterFragment(scope, "c.instance_id");
 
-  // Current period — ai_logs
-  const [aiStats] = asRows<OverviewAiRow>(
-    await analyticsDb.execute(sql`
+  // The four aggregates are independent: run them together.
+  const convFilter = instanceFilter(instanceId, "c.instance_id");
+  const { from: prevFrom, to: prevTo } = previousRange(range);
+  const [aiStats, convStats, prevAi, prevConv] = await Promise.all([
+    // Current period — ai_logs
+    analyticsDb.execute(sql`
       SELECT
         COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS total_cost,
         COALESCE(SUM(total_tokens), 0)::int AS total_tokens,
@@ -157,12 +160,8 @@ async function getOverviewStats(
       WHERE created_at >= ${toISO(range.from)} AND created_at <= ${toISO(range.to)}
         ${instFilter} ${orgInst}
     `),
-  );
-
-  // Current period — conversations
-  const convFilter = instanceFilter(instanceId, "c.instance_id");
-  const [convStats] = asRows<OverviewConvRow>(
-    await analyticsDb.execute(sql`
+    // Current period — conversations
+    analyticsDb.execute(sql`
       SELECT
         COUNT(*)::int AS total_conversations,
         COALESCE(SUM(c.message_count), 0)::int AS total_messages,
@@ -171,15 +170,8 @@ async function getOverviewStats(
       WHERE c.created_at >= ${toISO(range.from)} AND c.created_at <= ${toISO(range.to)}
         ${convFilter} ${orgConv}
     `),
-  );
-
-  // Previous period (same duration, shifted back) for trends
-  const durationMs = range.to.getTime() - range.from.getTime();
-  const prevFrom = new Date(range.from.getTime() - durationMs);
-  const prevTo = new Date(range.from.getTime());
-
-  const [prevAi] = asRows<OverviewPrevAiRow>(
-    await analyticsDb.execute(sql`
+    // Previous period for trends — ai_logs
+    analyticsDb.execute(sql`
       SELECT
         COALESCE(SUM(estimated_cost_usd::float8), 0)::float AS total_cost,
         COALESCE(AVG(duration_ms) ${ANSWERED_MODEL_CALLS}, 0)::float AS avg_duration_ms
@@ -187,10 +179,8 @@ async function getOverviewStats(
       WHERE created_at >= ${toISO(prevFrom)} AND created_at <= ${toISO(prevTo)}
         ${instFilter} ${orgInst}
     `),
-  );
-
-  const [prevConv] = asRows<OverviewPrevConvRow>(
-    await analyticsDb.execute(sql`
+    // Previous period for trends — conversations
+    analyticsDb.execute(sql`
       SELECT
         COUNT(*)::int AS total_conversations,
         COALESCE(SUM(c.message_count), 0)::int AS total_messages
@@ -198,9 +188,14 @@ async function getOverviewStats(
       WHERE c.created_at >= ${toISO(prevFrom)} AND c.created_at <= ${toISO(prevTo)}
         ${convFilter} ${orgConv}
     `),
-  );
+  ]);
 
-  return overviewFromRows(aiStats, convStats, prevAi, prevConv);
+  return overviewFromRows(
+    asRows<OverviewAiRow>(aiStats)[0],
+    asRows<OverviewConvRow>(convStats)[0],
+    asRows<OverviewPrevAiRow>(prevAi)[0],
+    asRows<OverviewPrevConvRow>(prevConv)[0],
+  );
 }
 
 

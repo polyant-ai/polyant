@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect } from "vitest";
-import { instanceFilter, pctChange } from "./query-helpers.js";
+import { instanceFilter, pctChange, previousRange } from "./query-helpers.js";
 
 describe("instanceFilter", () => {
   it("returns empty SQL when instanceId is undefined", () => {
@@ -39,5 +39,15 @@ describe("pctChange", () => {
 
   it("calculates percentage correctly", () => {
     expect(pctChange(150, 100)).toBe(50);
+  });
+});
+
+describe("previousRange", () => {
+  it("returns the window of the same length that ends where the range starts", () => {
+    const range = { from: new Date("2026-01-08T00:00:00Z"), to: new Date("2026-01-10T00:00:00Z") };
+    expect(previousRange(range)).toEqual({
+      from: new Date("2026-01-06T00:00:00Z"),
+      to: new Date("2026-01-08T00:00:00Z"),
+    });
   });
 });
