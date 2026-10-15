@@ -23,6 +23,7 @@ import { channelManager } from "../../channels/channel-manager.js";
 import { syncAgentTool } from "../../instances/agent-tool-sync.js";
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { findInstanceOrFail, maskSensitiveConfig } from "./instance-helpers.js";
+import { isMaskedPlaceholder } from "./secret-mask.js";
 import { asInstanceSlug, type InstanceUuid } from "../../instances/identifiers.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
 import { generateToken } from "../../crypto/index.js";
@@ -153,7 +154,7 @@ export class InstanceChannelsController {
     for (const key of CHANNEL_CONFIG_KEYS[channelType]) {
       if (!Object.prototype.hasOwnProperty.call(incoming, key)) continue;
       const value = incoming[key];
-      if (typeof value === "string" && value.startsWith("••••")) continue;
+      if (isMaskedPlaceholder(value)) continue;
       merged[key] = value;
     }
     return merged;

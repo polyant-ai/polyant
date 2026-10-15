@@ -3,6 +3,7 @@
 import { NotFoundException } from "@nestjs/common";
 import { findInstanceBySlug } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
+import { maskSecret } from "./secret-mask.js";
 
 export { errMsg } from "../../utils/error.js";
 
@@ -21,7 +22,7 @@ export function maskSensitiveConfig(cfg: Record<string, unknown>): Record<string
   const masked: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(cfg)) {
     if (sensitivePattern.test(k) && typeof v === "string" && v.length > 0) {
-      masked[k] = v.length > 8 ? "••••" + v.slice(-4) : "••••";
+      masked[k] = maskSecret(v);
     } else {
       masked[k] = v;
     }

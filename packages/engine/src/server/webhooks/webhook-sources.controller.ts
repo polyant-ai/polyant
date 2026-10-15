@@ -8,6 +8,7 @@ import {
 import { resolveInstanceId } from "../../instances/resolve-instance-id.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { maskSensitiveConfig } from "../instances/instance-helpers.js";
+import { isMaskedPlaceholder } from "../instances/secret-mask.js";
 import {
   createEventSourceSchema, updateEventSourceSchema,
   createDefinitionSchema, updateDefinitionSchema,
@@ -83,7 +84,7 @@ export class EventSourcesController {
     const data = { ...parsed.data };
     if (data.config) {
       const cleaned = Object.fromEntries(
-        Object.entries(data.config).filter(([, v]) => typeof v !== "string" || !v.startsWith("••••")),
+        Object.entries(data.config).filter(([, v]) => !isMaskedPlaceholder(v)),
       );
       data.config = Object.keys(cleaned).length > 0 ? cleaned : undefined;
     }

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { McpAuthMode } from "../../instances/mcp-servers.store.js";
+import { isMaskedPlaceholder, maskSecret } from "./secret-mask.js";
 
-const MASK = "••••";
 
 // Nested paths to the secret field, per authMode (shapes defined in
 // instances/mcp-servers.store.ts): static nests the token under `auth`
@@ -66,7 +66,7 @@ function setPath(obj: Record<string, unknown>, path: string[], value: unknown): 
 }
 
 function maskValue(value: unknown): unknown {
-  return MASK + String(value).slice(-4);
+  return maskSecret(String(value));
 }
 
 /** Recursively redact every primitive leaf inside a credential-bearing subtree. */
@@ -81,7 +81,7 @@ function maskDeep(value: unknown): unknown {
 
 /** True when any primitive leaf inside `value` is an already-masked string. */
 function containsMasked(value: unknown): boolean {
-  if (typeof value === "string") return value.startsWith(MASK);
+  if (typeof value === "string") return isMaskedPlaceholder(value);
   if (Array.isArray(value)) return value.some(containsMasked);
   if (typeof value === "object" && value !== null) return Object.values(value as Record<string, unknown>).some(containsMasked);
   return false;
@@ -144,7 +144,7 @@ export function mergeMaskedMcpSecrets(
   const copy = structuredClone(incoming);
   for (const path of MCP_SECRET_PATHS[authMode]) {
     const incomingValue = getPath(copy, path);
-    const isMasked = incomingValue === undefined || (typeof incomingValue === "string" && incomingValue.startsWith(MASK));
+    const isMasked = incomingValue === undefined || isMaskedPlaceholder(incomingValue);
     if (!isMasked) continue;
     const existingValue = existing ? getPath(existing, path) : undefined;
     if (existingValue !== undefined) setPathForce(copy, path, existingValue);
