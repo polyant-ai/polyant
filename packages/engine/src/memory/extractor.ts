@@ -12,8 +12,7 @@ import { shouldLog } from "../utils/create-logger.js";
 import { emitMemory } from "../activity-stream/emitters/emit-memory.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
-import { findInstanceBySlug } from "../instances/store.js";
-import { resolveDedupSimilarityThreshold, UNSET_AGENT_SETTINGS } from "../instances/agent-settings.js";
+import { resolveInstanceConfig } from "../instances/config-resolver.js";
 
 function buildExtractionPrompt(): string {
   const now = new Date();
@@ -122,8 +121,8 @@ export async function extractMemories(
   //    are still possible and handled by the retry loop in `upsertMemory`.
   // Resolved ONCE per extraction, not per fact: it is a property of the agent,
   // and the facts of one run all belong to the same one.
-  const agent = await findInstanceBySlug(instanceId);
-  const dedupSimilarityThreshold = resolveDedupSimilarityThreshold(agent ?? UNSET_AGENT_SETTINGS);
+  // From the 30s-cached config every turn already reads, not a fresh row read.
+  const { dedupSimilarityThreshold } = await resolveInstanceConfig(instanceId);
 
   const results: UpsertResult[] = [];
   for (let i = 0; i < facts.length; i++) {
