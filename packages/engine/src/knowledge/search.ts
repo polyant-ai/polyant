@@ -7,6 +7,7 @@ import {
 } from "./store.js";
 import { embed, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
+import { reciprocalRankFusion } from "../utils/rrf.js";
 
 export interface KnowledgeSearchResult {
   content: string;
@@ -54,34 +55,17 @@ export async function searchKnowledge(
     }),
   ]);
 
-  const K = 60;
-  const scoreMap = new Map<string, { item: KnowledgeSearchResult; score: number }>();
-
-  for (let i = 0; i < semanticResults.length; i++) {
-    const r = semanticResults[i];
-    const rrfScore = 1 / (K + i + 1);
-    scoreMap.set(r.id, {
-      item: { content: r.content, source: r.source, chunkIndex: r.chunkIndex, score: 0 },
-      score: rrfScore,
-    });
-  }
-
-  for (let i = 0; i < keywordResults.length; i++) {
-    const r = keywordResults[i];
-    const rrfScore = 1 / (K + i + 1);
-    const existing = scoreMap.get(r.id);
-    if (existing) {
-      existing.score += rrfScore;
-    } else {
-      scoreMap.set(r.id, {
-        item: { content: r.content, source: r.source, chunkIndex: r.chunkIndex, score: 0 },
-        score: rrfScore,
-      });
-    }
-  }
-
-  return Array.from(scoreMap.values())
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map(({ item, score }) => ({ ...item, score: Math.round(score * 10000) / 10000 }));
+  const toItem = (r: StoreResult): KnowledgeSearchResult => ({
+    content: r.content,
+    source: r.source,
+    chunkIndex: r.chunkIndex,
+    score: 0,
+  });
+  return reciprocalRankFusion(
+    [
+      { rows: semanticResults, keyOf: (r) => r.id, toItem },
+      { rows: keywordResults, keyOf: (r) => r.id, toItem },
+    ],
+    limit,
+  );
 }
