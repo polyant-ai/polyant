@@ -621,6 +621,66 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
 // Public API
 // ---------------------------------------------------------------------------
 
+/**
+ * The ChatRequest and call options both entry points hand to the gateway, so a
+ * new request field is added once.
+ */
+function buildChatArgs(
+  input: SupervisorInput,
+  ctx: SupervisorContext,
+): [ChatRequest, ChatCallOptions] {
+  return [
+    {
+      tier: "standard",
+      provider: input.provider,
+      model: input.model,
+      thinking: input.thinkingEnabled ?? false,
+      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+      ...(input.temperature != null ? { temperature: input.temperature } : {}),
+      apiKeys: input.apiKeys,
+      langsmith: input.langsmith,
+      system: ctx.systemPrompt,
+      messages: ctx.messages,
+      tools: ctx.tools,
+      maxSteps: 15,
+      abortSignal: input.abortSignal,
+      captureDebug: input.debugEnabled ?? false,
+      cacheConfig: input.cacheConfig,
+    },
+    {
+      conversationId: input.conversationId,
+      instanceId: ctx.instanceId,
+      agentCallMetadata: input.agentCallMetadata,
+    },
+  ];
+}
+
+/** Map a gateway response to the supervisor's output; `ttfbMs` only exists on the streamed path. */
+function toSupervisorOutput(
+  response: Awaited<ReturnType<typeof chat>>,
+  ctx: SupervisorContext,
+  ttfbMs?: number,
+): SupervisorOutput {
+  return {
+    text: response.text,
+    steps: response.steps,
+    ...(response.reasoning ? { reasoning: response.reasoning } : {}),
+    usage: response.usage,
+    model: response.model,
+    provider: response.provider,
+    ...(response.cost ? { cost: response.cost } : {}),
+    thinking: response.thinking,
+    temperature: response.temperature,
+    durationMs: response.durationMs,
+    toolBuildingMs: ctx.toolBuildingMs,
+    toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
+    ...(ttfbMs !== undefined ? { ttfbMs } : {}),
+    replyHandled: ctx.signals.replyHandled || undefined,
+    replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
+    ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
+  };
+}
+
 export async function superviseStream(input: SupervisorInput): Promise<SupervisorStreamOutput> {
   const ctx = await prepareSupervisor(input);
 
@@ -630,30 +690,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
   // chance to attach, so close here instead.
   let stream: Awaited<ReturnType<typeof chatStream>>;
   try {
-    stream = await chatStream(
-      {
-        tier: "standard",
-        provider: input.provider,
-        model: input.model,
-        thinking: input.thinkingEnabled ?? false,
-        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-        ...(input.temperature != null ? { temperature: input.temperature } : {}),
-        apiKeys: input.apiKeys,
-        langsmith: input.langsmith,
-        system: ctx.systemPrompt,
-        messages: ctx.messages,
-        tools: ctx.tools,
-        maxSteps: 15,
-        abortSignal: input.abortSignal,
-        captureDebug: input.debugEnabled ?? false,
-        cacheConfig: input.cacheConfig,
-      },
-      {
-        conversationId: input.conversationId,
-        instanceId: ctx.instanceId,
-        agentCallMetadata: input.agentCallMetadata,
-      }
-    );
+    stream = await chatStream(...buildChatArgs(input, ctx));
   } catch (err) {
     await ctx.mcpClose().catch(() => { /* best-effort */ });
     throw err;
@@ -675,24 +712,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
   const completed = stream.response
     .then((response) => {
       pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
-      return {
-        text: response.text,
-        steps: response.steps,
-        ...(response.reasoning ? { reasoning: response.reasoning } : {}),
-        usage: response.usage,
-        model: response.model,
-        provider: response.provider,
-        ...(response.cost ? { cost: response.cost } : {}),
-        thinking: response.thinking,
-        temperature: response.temperature,
-        durationMs: response.durationMs,
-        toolBuildingMs: ctx.toolBuildingMs,
-        toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
-        ttfbMs,
-        replyHandled: ctx.signals.replyHandled || undefined,
-        replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
-        ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
-      };
+      return toSupervisorOutput(response, ctx, ttfbMs);
     })
     .finally(() => ctx.mcpClose());
 
@@ -707,50 +727,11 @@ export async function supervise(input: SupervisorInput): Promise<SupervisorOutpu
   const ctx = await prepareSupervisor(input);
 
   try {
-    const response = await chat(
-      {
-        tier: "standard",
-        provider: input.provider,
-        model: input.model,
-        thinking: input.thinkingEnabled ?? false,
-        ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-        ...(input.temperature != null ? { temperature: input.temperature } : {}),
-        apiKeys: input.apiKeys,
-        langsmith: input.langsmith,
-        system: ctx.systemPrompt,
-        messages: ctx.messages,
-        tools: ctx.tools,
-        maxSteps: 15,
-        abortSignal: input.abortSignal,
-        captureDebug: input.debugEnabled ?? false,
-        cacheConfig: input.cacheConfig,
-      },
-      {
-        conversationId: input.conversationId,
-        instanceId: ctx.instanceId,
-        agentCallMetadata: input.agentCallMetadata,
-      }
-    );
+    const response = await chat(...buildChatArgs(input, ctx));
 
     pipelineLog.supervisorDone(ctx.instanceId, response.durationMs, response.text);
 
-    return {
-      text: response.text,
-      steps: response.steps,
-      ...(response.reasoning ? { reasoning: response.reasoning } : {}),
-      usage: response.usage,
-      model: response.model,
-      provider: response.provider,
-      ...(response.cost ? { cost: response.cost } : {}),
-      thinking: response.thinking,
-      temperature: response.temperature,
-      durationMs: response.durationMs,
-      toolBuildingMs: ctx.toolBuildingMs,
-      toolCallTraces: ctx.toolCallTraces.length > 0 ? ctx.toolCallTraces : undefined,
-      replyHandled: ctx.signals.replyHandled || undefined,
-      replyText: ctx.signals.replyTexts.length > 0 ? ctx.signals.replyTexts.join("\n\n") : undefined,
-      ...(response.debugPayload ? { debugPayload: response.debugPayload } : {}),
-    };
+    return toSupervisorOutput(response, ctx);
   } finally {
     // Non-streamed: the turn is fully done by the time we get here (success or
     // throw) — safe to tear down MCP clients synchronously.
