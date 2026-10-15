@@ -6,6 +6,7 @@
 
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { db, type DbExecutor } from "../database/client.js";
+import { alias } from "drizzle-orm/pg-core";
 import { instanceSkills } from "./instance-skills.schema.js";
 import { skills, skillVersions } from "../skills/schema.js";
 import { recomputeInstanceTools } from "./instance-tools.store.js";
@@ -69,8 +70,10 @@ export async function filterServedSkillSlugs(
 
 /** Get all skills for an instance with version info and upgrade availability. */
 export async function getInstanceSkills(instanceId: InstanceUuid): Promise<InstanceSkillRow[]> {
-  // Alias for pinned version
-  const pinnedVer = skillVersions;
+  // Two roles of `skill_versions` in one query: the version this agent pinned,
+  // and the skill's current one, to tell whether an update is available.
+  const pinnedVer = alias(skillVersions, "pinned_version");
+  const currentVer = alias(skillVersions, "current_version");
 
   const rows = await db
     .select({
@@ -82,6 +85,7 @@ export async function getInstanceSkills(instanceId: InstanceUuid): Promise<Insta
       skillVersionId: instanceSkills.skillVersionId,
       pinnedVersion: pinnedVer.version,
       currentVersionId: skills.currentVersionId,
+      currentVersion: currentVer.version,
       enabled: instanceSkills.enabled,
       autoLoad: instanceSkills.autoLoad,
       createdAt: instanceSkills.createdAt,
@@ -90,23 +94,8 @@ export async function getInstanceSkills(instanceId: InstanceUuid): Promise<Insta
     .from(instanceSkills)
     .innerJoin(skills, eq(instanceSkills.skillId, skills.id))
     .innerJoin(pinnedVer, eq(instanceSkills.skillVersionId, pinnedVer.id))
+    .leftJoin(currentVer, eq(skills.currentVersionId, currentVer.id))
     .where(eq(instanceSkills.instanceId, instanceId));
-
-  // Batch-fetch current version strings to avoid N+1
-  const currentVersionIds = [...new Set(
-    rows.map((r) => r.currentVersionId).filter((id): id is string => id !== null),
-  )];
-
-  const currentVersionMap = new Map<string, string>();
-  if (currentVersionIds.length > 0) {
-    const cvRows = await db
-      .select({ id: skillVersions.id, version: skillVersions.version })
-      .from(skillVersions)
-      .where(inArray(skillVersions.id, currentVersionIds));
-    for (const cv of cvRows) {
-      currentVersionMap.set(cv.id, cv.version);
-    }
-  }
 
   return rows.map((row) => ({
     id: row.id,
@@ -116,7 +105,7 @@ export async function getInstanceSkills(instanceId: InstanceUuid): Promise<Insta
     skillName: row.skillName,
     skillVersionId: row.skillVersionId,
     pinnedVersion: row.pinnedVersion,
-    currentVersion: row.currentVersionId ? (currentVersionMap.get(row.currentVersionId) ?? null) : null,
+    currentVersion: row.currentVersion ?? null,
     enabled: row.enabled,
     autoLoad: row.autoLoad,
     hasUpdate: row.currentVersionId !== null && row.currentVersionId !== row.skillVersionId,
