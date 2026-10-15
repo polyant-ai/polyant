@@ -207,31 +207,15 @@ export async function enableToolsByName(
 // ---------------------------------------------------------------------------
 
 /**
- * Seed instance tools using DEFAULT_TOOL_NAMES.
- * Resolves tool names to IDs, inserts as source='manual'.
+ * Seed instance tools using DEFAULT_TOOL_NAMES, as manual rows.
+ *
+ * MUST be given the caller's executor: on the create path the instance row is
+ * still uncommitted inside `createInstanceWithDefaults`'s transaction, so an
+ * insert on a different pooled connection cannot see it and dies on the FK.
  */
 export async function seedInstanceTools(
   instanceId: InstanceUuid,
   executor: DbExecutor,
 ): Promise<void> {
-  const toolRows = await executor
-    .select({ id: tools.id, name: tools.name })
-    .from(tools)
-    .where(inArray(tools.name, DEFAULT_TOOL_NAMES));
-
-  if (toolRows.length === 0) return;
-
-  const values = toolRows.map((t) => ({
-    instanceId,
-    toolId: t.id,
-    source: "manual" as const,
-  }));
-
-  // MUST be the caller's executor: on the create path the instance row is still
-  // uncommitted inside `createInstanceWithDefaults`'s transaction, so an insert
-  // on a different pooled connection cannot see it and dies on the FK.
-  await executor
-    .insert(instanceTools)
-    .values(values)
-    .onConflictDoNothing();
+  await enableToolsByName(instanceId, DEFAULT_TOOL_NAMES, executor);
 }
