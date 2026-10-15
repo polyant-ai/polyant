@@ -236,6 +236,28 @@ describe("AILogger", () => {
     });
   });
 
+  describe("overflow", () => {
+    it("drops the oldest entries, keeping the newest, when the buffer overflows", async () => {
+      const mockDb = { insert: vi.fn().mockReturnValue({ values: vi.fn().mockRejectedValue(new Error("DB down")) }) };
+      logger.initialize(mockDb);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      (logger as unknown as { buffer: AILogEntry[] }).buffer = Array.from({ length: 1005 }, (_, i) =>
+        makeEntry({ promptTokens: i }),
+      );
+
+      await logger.flush();
+
+      const valuesFn2 = vi.fn().mockResolvedValue(undefined);
+      mockDb.insert.mockReturnValue({ values: valuesFn2 });
+      await logger.flush();
+      const kept = valuesFn2.mock.calls[0][0] as AILogEntry[];
+      expect(kept).toHaveLength(1000);
+      expect(kept[0].promptTokens).toBe(5);
+      expect(kept[999].promptTokens).toBe(1004);
+    });
+  });
+
   describe("shutdown", () => {
     it("clears interval and performs final flush", async () => {
       const valuesFn = vi.fn().mockResolvedValue(undefined);

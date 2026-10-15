@@ -3,7 +3,9 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { Agent } from "undici";
 
 import { safeFetch } from "./safe-http.js";
 
@@ -47,6 +49,19 @@ describe("safeFetch", () => {
 
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toBe(`pinned-ok:pinned-target.invalid:${port}`);
+  });
+
+  it("closes the per-request agent once the request is done", async () => {
+    const close = vi.spyOn(Agent.prototype, "close");
+    const response = await safeFetch(
+      new URL(`http://pinned-target.invalid:${port}/`),
+      { signal: AbortSignal.timeout(8000) },
+      { resolve: async () => ({ address: "127.0.0.1", family: 4 }) },
+    );
+    await response.text();
+
+    expect(close).toHaveBeenCalled();
+    close.mockRestore();
   });
 
   it("refuses a private address before opening any socket", async () => {

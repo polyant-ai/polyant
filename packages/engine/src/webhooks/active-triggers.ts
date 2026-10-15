@@ -20,6 +20,8 @@ export function registerTrigger(
   conversationId: string,
   ttlMs: number = DEFAULT_TTL_MS,
 ): void {
+  // Entries for contacts who never reply are never read again, so expired ones are swept on write.
+  clearExpiredTriggers();
   const key = buildKey(instanceId, channelType, channelId);
   triggers.set(key, {
     conversationId,
@@ -54,4 +56,9 @@ export function clearExpiredTriggers(): void {
       triggers.delete(key);
     }
   }
+}
+
+/** Number of stored triggers, expired or not. Exposed for tests. */
+export function activeTriggerCount(): number {
+  return triggers.size;
 }

@@ -60,9 +60,13 @@ export function WebhookAuthSection({ currentMasked, onSave }: Props) {
               size="icon"
               variant="ghost"
               className="h-8 w-8 shrink-0"
-              onClick={() => {
-                navigator.clipboard.writeText(value);
-                toast.success(t("room.sources.authCopied"));
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(value);
+                  toast.success(t("room.sources.authCopied"));
+                } catch {
+                  toast.error(t("common.copyFailed"));
+                }
               }}
             >
               <Copy className="h-3 w-3" />

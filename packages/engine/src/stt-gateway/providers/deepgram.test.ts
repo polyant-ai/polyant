@@ -131,4 +131,20 @@ describe("deepgramAdapter", () => {
     caller.abort();
     await expect(pending).rejects.toBeInstanceOf(STTProviderError);
   });
+  it("removes its listener from the caller's abort signal once the request settles", async () => {
+    (global.fetch as any).mockResolvedValue(new Response('{"results":{"channels":[{"alternatives":[{"transcript":"x"}]}]}}', { status: 200 }));
+    const caller = new AbortController();
+    const added = vi.spyOn(caller.signal, "addEventListener");
+    const removed = vi.spyOn(caller.signal, "removeEventListener");
+
+    await deepgramAdapter.transcribe({
+      audio: Buffer.from([0]),
+      mimeType: "audio/ogg",
+      credentials: { deepgram: { apiKey: "k" } },
+      abortSignal: caller.signal,
+    });
+
+    const [, listener] = added.mock.calls.find(([type]) => type === "abort")!;
+    expect(removed).toHaveBeenCalledWith("abort", listener);
+  });
 });

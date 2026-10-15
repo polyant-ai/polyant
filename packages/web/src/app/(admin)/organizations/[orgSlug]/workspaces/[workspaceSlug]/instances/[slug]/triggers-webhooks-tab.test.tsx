@@ -115,4 +115,22 @@ describe("TriggersWebhooksTab — webhook URL reveal", () => {
     // The rotate response already carries the fresh URL — no redundant GET.
     expect(mockWebhookUrl).toHaveBeenCalledTimes(1);
   });
+
+  it("reports an error, not success, when copying the webhook URL is rejected", async () => {
+    const { toast } = await import("sonner");
+    const user = userEvent.setup();
+    const { container } = render(<TriggersWebhooksTab slug="acme" />);
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByText("Source 1"));
+    await waitFor(() => expect(mockWebhookUrl).toHaveBeenCalledTimes(1));
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+      configurable: true,
+    });
+
+    await user.click(container.querySelector("svg.lucide-copy")!.closest("button")!);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("common.copyFailed"));
+    expect(toast.success).not.toHaveBeenCalled();
+  });
 });

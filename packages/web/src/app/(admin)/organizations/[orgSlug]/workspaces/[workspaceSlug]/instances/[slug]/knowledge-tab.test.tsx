@@ -283,3 +283,17 @@ describe("KnowledgeTab — the retrieval switch", () => {
     expect(mockToastSuccess).not.toHaveBeenCalled();
   });
 });
+
+describe("KnowledgeTab — document sizes", () => {
+  it("prints a unit for a document of 1 GB or more", async () => {
+    mockList.mockResolvedValue({
+      documents: [
+        { id: "d1", filename: "big.pdf", sizeBytes: 3 * 1024 ** 3, status: "ready", chunkCount: 4, createdAt: "2026-01-01T00:00:00Z" },
+      ],
+    });
+    renderWithProvider(<KnowledgeTab slug="a1" instance={makeInstance()} onUpdate={vi.fn()} />);
+
+    await waitFor(() => expect(screen.getByText(/3 GB/)).toBeInTheDocument());
+    expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
+  });
+});

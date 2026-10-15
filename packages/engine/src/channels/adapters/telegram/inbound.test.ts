@@ -127,6 +127,22 @@ describe("readBodyCapped", () => {
     expect(await readBodyCapped(new Response(stream), 10)).toBeUndefined();
   });
 
+  it("releases the reader lock whichever way it returns", async () => {
+    const over = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.enqueue(new Uint8Array(4));
+        },
+      }),
+    );
+    await readBodyCapped(over, 10);
+    expect(over.body!.locked).toBe(false);
+
+    const ok = new Response("abc");
+    await readBodyCapped(ok, 5);
+    expect(ok.body!.locked).toBe(false);
+  });
+
   it("returns a body under the cap", async () => {
     expect(await readBodyCapped(new Response("abc"), 5)).toEqual(Buffer.from("abc"));
   });

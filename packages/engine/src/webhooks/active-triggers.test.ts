@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { registerTrigger, getActiveTrigger, clearExpiredTriggers } from './active-triggers.js';
+import { registerTrigger, getActiveTrigger, clearExpiredTriggers, activeTriggerCount } from './active-triggers.js';
 
 describe('active-triggers', () => {
   beforeEach(() => {
@@ -57,6 +57,15 @@ describe('active-triggers', () => {
     expect(getActiveTrigger('inst-1', 'telegram', 'chat-1')).toBe('conv-a');
     expect(getActiveTrigger('inst-1', 'slack', 'chan-2')).toBe('conv-b');
     expect(getActiveTrigger('inst-2', 'telegram', 'chat-1')).toBe('conv-c');
+  });
+
+  it('should sweep expired entries on its own when a new trigger is registered', () => {
+    registerTrigger('inst-1', 'telegram', 'never-replies', 'conv-a', 1000);
+    vi.advanceTimersByTime(2000);
+
+    registerTrigger('inst-1', 'telegram', 'chat-2', 'conv-b');
+
+    expect(activeTriggerCount()).toBe(1);
   });
 
   it('should remove only expired entries when clearExpiredTriggers is called', () => {

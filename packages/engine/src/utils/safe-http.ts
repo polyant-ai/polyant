@@ -56,7 +56,15 @@ export async function safeFetch(
     allowH2: false,
     connect: { lookup: pinnedLookup(resolved) as never },
   });
-  return pairedFetch(url, { ...init, dispatcher });
+  try {
+    const res = await pairedFetch(url, { ...init, dispatcher });
+    // Graceful: the body still streaming finishes first, then the sockets close.
+    void Promise.resolve(dispatcher.close?.()).catch(() => undefined);
+    return res;
+  } catch (err) {
+    void Promise.resolve(dispatcher.close?.()).catch(() => undefined);
+    throw err;
+  }
 }
 
 /**

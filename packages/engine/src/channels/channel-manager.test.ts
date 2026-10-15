@@ -152,6 +152,17 @@ describe("ChannelManager", () => {
       expect(manager.getActiveChannels()).toEqual([]);
     });
 
+    it("stops the message coordinator so its timers and in-flight pipelines end", async () => {
+      const { MessageCoordinator } = await import("./message-coordinator.js");
+      const shutdown = vi.spyOn(MessageCoordinator.prototype, "shutdown");
+      await manager.startChannel("inst1", "telegram", { botToken: "t" });
+
+      await manager.shutdownAll();
+
+      expect(shutdown).toHaveBeenCalledTimes(1);
+      shutdown.mockRestore();
+    });
+
     it("leaves provider registrations alone, since a newer replica may already own them", async () => {
       await manager.startChannel("inst1", "telegram", { botToken: "t" });
 

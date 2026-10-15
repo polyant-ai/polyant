@@ -173,9 +173,13 @@ export function TriggersWebhooksTab({ slug }: Props) {
     }
   }
 
-  function copyWebhookUrl(url: string) {
-    navigator.clipboard.writeText(url);
-    toast.success(t("room.sources.copied"));
+  async function copyWebhookUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(t("room.sources.copied"));
+    } catch {
+      toast.error(t("common.copyFailed"));
+    }
   }
 
   if (loading) {

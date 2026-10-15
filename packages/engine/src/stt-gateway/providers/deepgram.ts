@@ -29,9 +29,8 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
     timedOut = true;
     controller.abort();
   }, timeoutMs);
-  if (req.abortSignal) {
-    req.abortSignal.addEventListener("abort", () => controller.abort(), { once: true });
-  }
+  const onCallerAbort = () => controller.abort();
+  req.abortSignal?.addEventListener("abort", onCallerAbort, { once: true });
 
   const start = Date.now();
   let res: Response;
@@ -53,6 +52,7 @@ async function transcribe(req: STTRequest): Promise<STTResponse> {
     throw new STTProviderError("deepgram", `fetch failed: ${(err as Error).message}`, { cause: err });
   } finally {
     clearTimeout(timeoutId);
+    req.abortSignal?.removeEventListener("abort", onCallerAbort);
   }
 
   if (!res.ok) {

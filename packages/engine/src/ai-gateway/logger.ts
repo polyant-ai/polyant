@@ -106,7 +106,7 @@ export class AILogger {
       this.buffer.unshift(...entries);
       if (this.buffer.length > AILogger.MAX_BUFFER_SIZE) {
         const dropped = this.buffer.length - AILogger.MAX_BUFFER_SIZE;
-        this.buffer = this.buffer.slice(0, AILogger.MAX_BUFFER_SIZE);
+        this.buffer = this.buffer.slice(-AILogger.MAX_BUFFER_SIZE);
         console.warn(`AILogger: dropped ${dropped} oldest log entries (buffer full)`);
       }
     }

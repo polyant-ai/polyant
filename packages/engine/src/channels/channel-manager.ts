@@ -238,6 +238,7 @@ export class ChannelManager {
       promises.push(this.stopAllForInstance(slug));
     }
     await Promise.all(promises);
+    this.coordinator?.shutdown();
   }
 
   /**

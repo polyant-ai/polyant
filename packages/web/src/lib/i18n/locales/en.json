@@ -658,6 +658,7 @@
   "users.pagination.range": "{from}-{to} of {total}",
   "common.close": "Close",
   "common.save": "Save changes",
+  "common.copyFailed": "Could not copy to the clipboard",
   "common.saved": "Saved",
   "common.saving": "Saving...",
   "common.saveSingle": "Save",

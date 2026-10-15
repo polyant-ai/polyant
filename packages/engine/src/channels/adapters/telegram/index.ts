@@ -45,15 +45,19 @@ export async function readBodyCapped(res: Response, maxBytes: number): Promise<B
   const chunks: Uint8Array[] = [];
   let total = 0;
   const reader = res.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      return undefined;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return undefined;
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } finally {
+    reader.releaseLock();
   }
   return Buffer.concat(chunks);
 }
