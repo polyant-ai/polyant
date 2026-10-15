@@ -20,6 +20,18 @@ describe("reciprocalRankFusion", () => {
     expect(out[0].score).toBe(Math.round((1 / 62 + 1 / 61) * 10000) / 10000);
   });
 
+  it("breaks equal scores by list rank, then key, when lists carry a rank", () => {
+    const out = reciprocalRankFusion(
+      [
+        { rows: [{ id: "z" }], keyOf, toItem, rank: 2 },
+        { rows: [{ id: "b" }], keyOf, toItem, rank: 1 },
+        { rows: [{ id: "a" }], keyOf, toItem, rank: 1 },
+      ],
+      10,
+    );
+    expect(out.map((r) => r.id)).toEqual(["a", "b", "z"]);
+  });
+
   it("honours the limit", () => {
     const out = reciprocalRankFusion([{ rows: [{ id: "a" }, { id: "b" }], keyOf, toItem }], 1);
     expect(out).toHaveLength(1);
