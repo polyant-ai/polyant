@@ -1,6 +1,6 @@
 # ADR-0001: Gateway-Authenticated Mode
 
-- **Status**: Reverted (2026-09-09) — the mechanism below is no longer in the code
+- **Status**: Superseded (2026-09-09) — the mechanism below is no longer in the code
 - **Date**: 2026-04-27
 - **Deciders**: @freegenie, @paolovalletta-exelab
 - **Related**: PR #92 (initial implementation), issue #115 (JWT signature verification follow-up)
