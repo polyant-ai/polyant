@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
 /* ── hoisted mocks ─────────────────────────────────────────────── */
@@ -433,6 +433,77 @@ describe("triggerConversation", () => {
         "test-slug:telegram:9999",
         [expect.objectContaining({ role: "assistant", content: "not now" })],
       );
+    });
+  });
+
+  /*
+    The turn's safety order, pinned as one sequence: the pre-LLM hook can stop the
+    turn before the model is called, the post-LLM hook sees the model's text before
+    anything is committed, and state is flushed only after both have run.
+  */
+  describe("turn order", () => {
+    const channelDef: EventDefinition = {
+      ...baseDefinition,
+      outboundChannel: "telegram",
+      outboundTarget: "{{payload.chat_id}}",
+    };
+    const order: string[] = [];
+
+    beforeEach(() => {
+      order.length = 0;
+      mockFlush.mockImplementation(async () => {
+        order.push("flush");
+      });
+      mockSupervise.mockImplementation(async () => {
+        order.push("supervise");
+        return baseSuperviseResult;
+      });
+      mockAppendMessages.mockImplementation(async (_id: string, msgs: Array<{ role: string }>) => {
+        order.push(`append:${msgs[0]?.role}`);
+      });
+      mockSendOutbound.mockImplementation(async () => {
+        order.push("send");
+      });
+    });
+
+    afterEach(() => {
+      mockFlush.mockImplementation(async () => {});
+      mockSendOutbound.mockReset();
+    });
+
+    it("runs message_received, supervise, response_generated, flush, persists the reply, then sends it", async () => {
+      mockRunHooks.mockImplementation(async (event: string) => {
+        order.push(`hook:${event}`);
+        return [];
+      });
+
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "9999" });
+
+      expect(order).toEqual([
+        "append:system",
+        "hook:message_received",
+        "supervise",
+        "hook:response_generated",
+        "flush",
+        "append:assistant",
+        "send",
+      ]);
+    });
+
+    it("on a halt skips supervise and response_generated, flushes, persists the reply, then sends it", async () => {
+      mockRunHooks.mockImplementation(async (event: string) => {
+        order.push(`hook:${event}`);
+        return [
+          {
+            hookId: "h", event, actionType: "tool", toolName: "gate",
+            success: true, durationMs: 1, halt: { message: "not now" },
+          },
+        ];
+      });
+
+      await triggerConversation("inst-1", asInstanceSlug("test-slug"), channelDef, { chat_id: "9999" });
+
+      expect(order).toEqual(["append:system", "hook:message_received", "flush", "append:assistant", "send"]);
     });
   });
 

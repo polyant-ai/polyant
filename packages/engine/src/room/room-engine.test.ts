@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { asInstanceSlug } from "../instances/identifiers.js";
 
 /* ── hoisted mocks ─────────────────────────────────────────────── */
@@ -281,6 +281,70 @@ describe("executeRoomCycle", () => {
       expect(assistantCall![1][0].metadata).toEqual({ source: "hook", hookName: "rewrite" });
       // State buffer committed after the post-LLM hook ran.
       expect(mockFlush).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /*
+    The turn's safety order, pinned as one sequence: the pre-LLM hook can stop the
+    turn before the model is called, the post-LLM hook sees the model's text before
+    anything is committed, and state is flushed only after both have run.
+  */
+  describe("turn order", () => {
+    const order: string[] = [];
+    const record = (label: string) => () => {
+      order.push(label);
+    };
+
+    beforeEach(() => {
+      order.length = 0;
+      mockFlush.mockImplementation(async () => record("flush")());
+      mockSupervise.mockImplementation(async () => {
+        order.push("supervise");
+        return { text: "model text", steps: [], usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 }, durationMs: 1, toolBuildingMs: 1 };
+      });
+      mockConversationStore.appendMessages.mockImplementation(async (_id: string, msgs: Array<{ role: string }>) => {
+        order.push(`append:${msgs[0]?.role}`);
+      });
+      mockChannelManager.sendOutbound.mockImplementation(async () => record("send")());
+    });
+
+    afterEach(() => {
+      mockFlush.mockImplementation(async () => {});
+      mockChannelManager.sendOutbound.mockReset();
+    });
+
+    it("runs message_received, supervise, response_generated, flush, then persists the reply", async () => {
+      mockRunHooks.mockImplementation(async (event: string) => {
+        order.push(`hook:${event}`);
+        return [];
+      });
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "hello");
+
+      expect(order).toEqual([
+        "append:user",
+        "hook:message_received",
+        "supervise",
+        "hook:response_generated",
+        "flush",
+        "append:assistant",
+      ]);
+    });
+
+    it("on a halt skips supervise and response_generated, flushes, sends, then persists the reply", async () => {
+      mockRunHooks.mockImplementation(async (event: string) => {
+        order.push(`hook:${event}`);
+        return [
+          {
+            hookId: "h", event, actionType: "tool", toolName: "gate",
+            success: true, durationMs: 1, halt: { message: "closed" },
+          },
+        ];
+      });
+
+      await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"), "hello");
+
+      expect(order).toEqual(["append:user", "hook:message_received", "flush", "send", "append:assistant"]);
     });
   });
 
