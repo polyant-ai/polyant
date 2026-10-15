@@ -26,9 +26,12 @@ human contributors use the same commands; no provider, hook or agent CLI is requ
    Added/changed features, especially configuration/options, also require a Status
    coverage decision using the existing checks: see § Collateral impact in the guide.
    Apply only triggered rows of § Lifecycle and deployment; reuse relevant proof.
-6. Record SDK, CLI, dev-kit and docs as updated (link the work), follow-up required
+6. Record SDK, CLI, dev-kit, docs, marketplace and plugins as updated (link the work),
+   follow-up required
    (link the tracked work and compatibility limit), or no-impact (reason).
-   Public contract breaks block release until consumers and docs are compatible.
+   Scope plugin consumers from catalogue/manifests; run only affected owning checks,
+   not the whole plugin fleet for every PR. Public contract breaks block release until
+   consumers and docs are compatible.
    Added/changed user-visible features require the relevant usage guide; channel
    changes also require the setup guide and contextual UI link described in
    `docs/engineering-checkpoints.md` § Collateral impact.

@@ -22,6 +22,9 @@ Derive expectations from the requirement independently of production logic. Test
 behavior; use structural guardrails only for an explicit architectural/distribution contract,
 not incidental source wording. Discover guardrail subjects and assert non-vacuity.
 Mock slow/external boundaries; exercise real internal collaborators and realistic fixtures.
+For transport/protocol changes, make simulated peers honor the actual wire contract,
+including fields a provider removes. Verify critical assumptions against its current
+contract or sanitized captures; simulated context is not evidence it reaches production.
 For fallback/cache/hybrid paths, use inputs the alternative cannot satisfy and demonstrate
 the regression by disabling only the path under examination.
 

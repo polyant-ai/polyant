@@ -13,3 +13,5 @@ Reviewed-commit: <full PR head SHA>
 - cli: TODO
 - dev-kit: TODO
 - docs: TODO
+- marketplace: TODO
+- plugins: TODO

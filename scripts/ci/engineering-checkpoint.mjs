@@ -28,6 +28,8 @@ export function changeImpact(files) {
       sdk: contract ? 'inspect public tool/hook/context and dev protocol contracts' : 'no path signal; confirm against behavior',
       cli: contract ? 'inspect commands, API responses and configuration round trips' : 'no path signal; confirm against behavior',
       'dev-kit': contract ? 'inspect pinned consumers, templates, skills and examples' : 'no path signal; confirm against behavior',
+      marketplace: contract || has(/^(catalog|mcp|v1\/artifacts|assets)\//) || has(/^scripts\/(?:lib\/|publish-plugin|sign-catalog|sync-engine-contract)/) ? 'inspect catalogue/bundle schema, signing, digests, localized setup and distribution' : 'no path signal; confirm against behavior',
+      plugins: contract || has(/^(?:plugin\.json|tools\/|hooks\/)/) ? 'inspect affected plugin SDK pins, engine ranges, tools/hooks, permissions, secrets and OAuth; record inclusion/exclusion scope' : 'no path signal; confirm against behavior',
       docs: engine || web || has(/^(README|CHANGELOG|docker-compose|\.env\.example)/) ? 'inspect user-visible behavior, defaults, setup and generated references' : 'no path signal; confirm against behavior',
     },
   };
@@ -38,7 +40,7 @@ export function validateEvidence(body, head) {
   const text = body.replace(/<!--[\s\S]*?-->/g, ' ').replace(/^>.*$/gm, '').replace(/```[\s\S]*?```/g, ' ');
   const errors = [];
   if (!new RegExp(`^Reviewed-commit: ${head}$`, 'm').test(text)) errors.push('Reviewed-commit must name the current full PR head SHA.');
-  for (const key of ['verification', 'maintainability', 'security', 'sdk', 'cli', 'dev-kit', 'docs']) {
+  for (const key of ['verification', 'maintainability', 'security', 'sdk', 'cli', 'dev-kit', 'docs', 'marketplace', 'plugins']) {
     const line = text.match(new RegExp(`^- ${key}: (.+)$`, 'm'))?.[1]?.trim();
     if (!line || line.length < 12 || /^(TODO|TBD|<|\[|pending\b)/i.test(line)) errors.push(`${key}: record evidence, or no-impact with a concrete reason.`);
   }

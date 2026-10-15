@@ -158,7 +158,7 @@ a particular agent or shell alias.
 ## Completion checkpoints
 
 - At the final PR diff, read `.claude/skills/engineering-checkpoint/SKILL.md` once.
-  Record SDK, CLI, dev-kit and docs impact even when no update is needed.
+  Record SDK, CLI, dev-kit, docs, marketplace and plugin impact even when no update is needed.
 - Reuse evidence after merge; later commits refresh only invalidated checks. Full
   security/performance and ecosystem audits belong at release, not every small task.
 

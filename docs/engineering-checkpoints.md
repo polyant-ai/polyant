@@ -9,7 +9,7 @@ the full reviewed head SHA. A later commit requires refreshing only affected pro
 |---|---|---|
 | Start | Correct repo/base, shared or edition-specific scope, likely impacts | One classification |
 | Implementation | Existing focused checks and observable regression proof | Changed behavior only |
-| PR ready | Single simplicity review, collateral checks, four ecosystem decisions | Final diff once |
+| PR ready | Single simplicity review, collateral checks, ecosystem decisions | Final diff once |
 | After merge | Confirm linked updates and integration destination | Reuse PR evidence |
 | Release | Full candidate-range audit, compatibility, security and performance | Pinned candidate SHAs |
 | Weekly | Inventory trends and unresolved debt; at most three proposed actions | 30 minutes, no auto-fix loop |
@@ -138,7 +138,11 @@ retired copy and the changed UI in both languages. Dynamic keys cannot safely be
 deleted by an unused-key grep. Translation quality and removing a supported language
 are editorial decisions, not automatic repairs.
 
-Every PR records SDK, CLI, dev-kit and docs impact, even when no change is needed.
+Every PR records SDK, CLI, dev-kit, docs, marketplace and plugin impact, even when no
+change is needed. Marketplace and plugins each get one scoped decision, not a field
+per plugin. Inspect affected consumers when SDK/tool/hook/context, catalogue, bundle,
+localization, secret/OAuth or installation contracts change; use owning contract and
+artifact checks. Ordinary PRs do not build the entire plugin fleet.
 Adding or changing a user-visible feature requires updating the relevant product
 guide in the docs repository, including usage, options, defaults and limitations
 that changed. Update API references, README or upgrade notes where affected.
@@ -166,7 +170,7 @@ evidence. Reuse owning tests; these are not new per-PR fields or full-system aud
 |---|---|
 | Persisted data or migration | Distinguish clean install from upgrade with existing data. State old/new version coexistence, migration ordering and downtime; identify rollback or backup/restore requirements. Test the affected upgrade path and operator recovery procedure where applicable before release. |
 | Destructive setting or operation | Identify lost data, invalidated credentials, rebuild cost and reversibility. Explain consequences before the user acts and require explicit acknowledgment for destructive actions. Test atomicity or the documented partial-failure/recovery contract. |
-| Background work, scheduler or streaming | Define cancellation, process shutdown, restart and completion semantics. Register acknowledged work with the existing drain/lifecycle mechanism; verify the applicable interruption path and preserve the ordering needed to flush records. |
+| Background work, scheduler or streaming | Define cancellation, process shutdown, restart and completion semantics. Distinguish transient failures from terminal outcomes; bound retries and name the recovery path. Register acknowledged work with the existing drain/lifecycle mechanism; verify the applicable interruption path and preserve the ordering needed to flush records. |
 | Paid provider call or new processing path | Trace applicable cost accounting, usage metrics and budget admission/settlement in the current edition. Include success, failure, partial completion and cancellation semantics; preserve their existing distinction. Test with simulated providers, not paid calls. |
 | Data exposed to users | Follow changed fields through relevant panel lists/details, filters, CSV/PDF/reports and persisted older artifacts. Update owning projections or record an intentional omission; extend existing contract checks and exercise meaningful rendering/export behavior. |
 | In-process state or coordination | State supported replica count and behavior across restart, concurrent processes and deploys. Match actual deployment constraints; document limitations instead of assuming shared memory or introducing distributed infrastructure without a requirement. |
@@ -191,7 +195,7 @@ to manufacture a green baseline. Do not run this pass on every small feature.
 ## Release coordination
 
 Read the release skill. Pin each affected component's candidate SHA, independent
-version, last released tag, consumer refs and publishing destination. Reuse existing
+version, last released tag or reviewed baseline, consumer refs and publishing destination. Reuse existing
 preparation scripts and the docs repository's sync procedures. Required outcomes:
 
 - Reconcile changelog, release prose and upgrade notes against the last published
@@ -224,18 +228,81 @@ comes from the release request and the owning repository's instructions.
 
 The release manifest is a scratch artifact, not a second version registry. Run
 `npm run release:ecosystem -- /path/to/release.json`. Include one entry per
-`product`, `sdk`, `cli`, `dev-kit` and `docs`; additional editions are allowed:
+`product`, `sdk`, `cli`, `dev-kit`, `docs` and `marketplace`; additional editions are
+allowed. Include an explicit `plugins` array. Match each namespace found in the
+pinned marketplace's `catalog/*.json` to a plugin source entry, or an explicit
+`{ "name": "example", "decision": "excluded", "evidence": "concrete scope reason" }`.
+Revoked-only cards still need a decision. An empty array is valid only for an empty
+catalogue. Add relevant image-baked/non-catalogue plugins with their disposition.
 
-```json
-{"components":[{"name":"product","path":"/checkout","sha":"<40-character SHA>","previousTag":"v1.0.0","decision":"release","tag":"v1.1.0","destination":"GitHub tag and Release","evidence":"Tests and consumer compatibility verified on this SHA."}]}
-```
+Plugin source entries reuse `name`, `path`, full `sha`, `previousTag` or `baseline`,
+`decision`, `evidence` and optional `tag`/`destination`. Their names are namespaces,
+validated against committed `plugin.json`; plugin/package versions must agree.
+Discover from catalogue and manifests, not a repository-name pattern or a fixed list.
+At release, reconcile known local and hosted plugin repositories too; record explicit
+dispositions for uncatalogued, remote-only and archived sources rather than omitting them.
+Check SDK pins, engine ranges, derived tool/hook permissions, secrets/OAuth and setup
+guides for affected plugins; verify bundle/source installation with owning checks.
+Record source SHA alongside catalogue artifact/digest receipts; a GitHub tag is
+optional, but any provided plugin tag must match its version. Marketplace publication
+uses its own gated workflow; the inventory command never signs, uploads or publishes.
 
-Use `decision: "unchanged"` with a reason when no publication is needed. The
-docs entry may omit a tag: publish its site/PDF from the pinned SHA and record
-the destination and resulting artifact. Its npm package version is not the engine version.
-The
-script reads committed manifests at the pinned SHA and validates the baseline
-ancestry; it never switches a checkout, executes its scripts or publishes. Its
-consumer refs must be compared with the intended component tags. Components without version tags use `baseline` with an explicitly reviewed full
-commit SHA (for a first release, the repository root commit). Never guess a
+Use `decision: "unchanged"` with a reason when no publication is needed. Docs and
+marketplace entries may omit tags; a marketplace need not have a package version.
+Publish docs site/PDF from the pinned SHA and record the destination and resulting
+artifact. Its npm package version is not the engine version.
+The script reads committed manifests and baseline ancestry; it never switches a
+checkout, executes scripts or publishes. Compare its consumer refs with intended
+tags. Components without version tags use `baseline` with an explicitly reviewed
+full commit SHA (for a first release, the repository root commit). Never guess a
 published baseline from the version field.
+
+## Daily pilot before adoption
+
+When trialing a workflow before adoption, keep its changes on topic branches
+until the user approves integration into develop/main. Ordinary tasks retain
+their separately authorized destinations and must not carry pilot commits. A
+coordinator started in the candidate worktree reads its instructions and passes
+only relevant procedures to workers in each task's normal topic worktree. Read
+the target repository's own instructions too; this guide does not grant publishing
+or merge authority. A normal session started from develop does not automatically
+load instructions that exist only on an unmerged branch.
+
+Use real daily tasks; no synthetic task quota or duplicate A/B run is required.
+Keep a short pilot observation in existing PR maintainability evidence: a missed
+collateral change caught, an unnecessary check/false positive, user corrections
+still needed, and additional commands/time. Record actual token usage only when
+available; otherwise mark it unavailable. Reuse final-checkpoint evidence rather
+than add another review. Review observations within the existing weekly bound;
+approve, simplify or remove mechanisms based on observed benefit and cost.
+Topic commits/pushes may be authorized while develop/main integration remains
+withheld; state that distinction in each worker brief and PR destination.
+
+## Structural maintenance baseline
+
+The full product test baseline and the structural baseline answer different
+questions. Existing tests establish their behavioral contracts. A structural
+baseline records where understanding, changes and runtime work are expensive.
+Run it once on pinned sources, then revisit affected areas when evidence warrants
+it. Weekly review only triages its recorded findings within the existing bound.
+
+| Dimension | Evidence to record |
+|---|---|
+| Module responsibilities and locality | Real callers, public interfaces, import cycles, repeated business decisions and files that must change together. Large files and recent change frequency select reading targets; neither proves a defect. |
+| Code and dependency size | Hand-maintained source separately from tests/generated/vendor code, unused exports/dependencies with public and dynamic consumers checked, redundant adapters and compatibility paths still in use. |
+| Test maintenance | Meaningful behavior/negative-path proof, implementation coupling, flakes and executed duration. Reuse existing tests; add characterization only where the planned change lacks protection. |
+| Runtime and distribution | Representative scenario, dataset and resource limits; latency/errors, CPU/memory, startup/bundle size or query plans relevant to the proposed change. Use installed artifacts where distribution matters. |
+| Delivery effort | Relevant CI duration, checks repeated unnecessarily, collateral omissions and human interventions from existing task/PR evidence. Counts alone are not quality scores. |
+
+Rank at most three initial findings by demonstrated pain/risk, change frequency,
+likely benefit and verification cost. Prefer removing obsolete code or duplicated
+ownership before adding layers. Consolidate behavior behind a smaller interface
+when callers otherwise share its complexity. File splitting alone is not a result;
+retain required validation, permissions, compatibility and useful regressions.
+
+Implement one bounded improvement per ordinary PR, shared changes in OSS first.
+Capture the before-state, behavior contract and relevant measurements; make the
+smallest change, then compare the same inputs/resources and inspect connected
+callers. Report what became simpler or cheaper, remaining limits and any tradeoff.
+Refresh only invalidated tests and measurements. Do not impose arbitrary line-count,
+complexity, coverage or performance quotas, or run this audit on every feature.

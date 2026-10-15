@@ -24,9 +24,13 @@ while auditing.
 
 Before preparation, follow `docs/engineering-checkpoints.md` § Release coordination.
 Run `npm run release:ecosystem -- <manifest.json>` with pinned product, SDK, CLI,
-dev-kit and docs candidates; record independent versions, compatibility evidence,
+dev-kit, docs and marketplace candidates plus an explicit plugin inventory; record
+independent versions, compatibility evidence,
 security review and performance evidence. Unchanged components need a reason.
-The report is an inventory, not proof the listed checks ran.
+Derive plugin coverage from the pinned catalogue and manifests, including exclusions
+and revoked entries. Follow the marketplace/plugin repositories' owning contract,
+bundle, signing and installation checks for affected sources. The report is an
+inventory, not proof the listed checks ran.
 Apply that section's final-range prose review, expected-check presence, consumer
 installation and publication receipts, including components whose version stays
 unchanged. First publication or a visibility change also requires its public-readiness review.
