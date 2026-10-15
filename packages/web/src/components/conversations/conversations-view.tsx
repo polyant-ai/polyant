@@ -34,7 +34,7 @@ import {
 } from "@/lib/api";
 import { ChannelIcon } from "@/components/channel-icon";
 import { useI18n } from "@/lib/i18n/context";
-import { formatRelativeTime, truncate } from "@/lib/format";
+import { truncate } from "@/lib/format";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useWorkspaceSlug } from "@/lib/tenant/use-workspace-slug";
 import { useFormat } from "@/lib/use-format";
@@ -284,7 +284,7 @@ export function ConversationsView({ lockedInstanceId }: { lockedInstanceId?: str
                       )}
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">
-                      {formatRelativeTime(conv.updatedAt, t)}
+                      {fmt.relative(conv.updatedAt)}
                     </TableCell>
                   </TableRow>
                 ))}

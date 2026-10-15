@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/table";
 import { api, getUserErrorMessage, type Instance, type OptoutContact } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
-import { formatDate } from "@/lib/format";
+import { useFormat } from "@/lib/use-format";
 import { usePageSaveAction } from "./page-actions-context";
 
 interface Props {
@@ -61,6 +61,7 @@ function sameKeywords(input: string, base: string[]): boolean {
 
 export function PrivacyTab({ instance, onSaved }: Props) {
   const { t } = useI18n();
+  const fmt = useFormat();
 
   // ── Config form state ──────────────────────────────────────────────
   const [enabled, setEnabled] = useState(instance.optoutEnabled);
@@ -278,7 +279,7 @@ export function PrivacyTab({ instance, onSaved }: Props) {
                   <TableCell className="font-medium">{c.channelType}</TableCell>
                   <TableCell className="font-mono text-xs">{c.channelId}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {c.updatedAt ? formatDate(c.updatedAt) : "—"}
+                    {c.updatedAt ? fmt.date(c.updatedAt) : "—"}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{c.source}</TableCell>
                   <TableCell>

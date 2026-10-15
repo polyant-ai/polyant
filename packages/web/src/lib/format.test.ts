@@ -26,35 +26,35 @@ describe("formatRelativeTime", () => {
   });
 
   it("returns em dash for null date", () => {
-    expect(formatRelativeTime(null, t as never)).toBe("\u2014");
+    expect(formatRelativeTime(null, t as never, "en")).toBe("\u2014");
   });
 
   it("returns 'just now' for dates less than a minute ago", () => {
     const date = new Date("2024-06-15T11:59:30Z").toISOString();
-    expect(formatRelativeTime(date, t as never)).toBe("instances.time.justNow");
+    expect(formatRelativeTime(date, t as never, "en")).toBe("instances.time.justNow");
   });
 
   it("returns minutes ago for dates within the last hour", () => {
     const date = new Date("2024-06-15T11:45:00Z").toISOString();
-    expect(formatRelativeTime(date, t as never)).toContain("instances.time.minutesAgo");
-    expect(formatRelativeTime(date, t as never)).toContain("count=15");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("instances.time.minutesAgo");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("count=15");
   });
 
   it("returns hours ago for dates within the last day", () => {
     const date = new Date("2024-06-15T06:00:00Z").toISOString();
-    expect(formatRelativeTime(date, t as never)).toContain("instances.time.hoursAgo");
-    expect(formatRelativeTime(date, t as never)).toContain("count=6");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("instances.time.hoursAgo");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("count=6");
   });
 
   it("returns days ago for dates within the last month", () => {
     const date = new Date("2024-06-10T12:00:00Z").toISOString();
-    expect(formatRelativeTime(date, t as never)).toContain("instances.time.daysAgo");
-    expect(formatRelativeTime(date, t as never)).toContain("count=5");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("instances.time.daysAgo");
+    expect(formatRelativeTime(date, t as never, "en")).toContain("count=5");
   });
 
   it("returns locale date string for dates older than 30 days", () => {
     const date = new Date("2024-01-01T12:00:00Z").toISOString();
-    const result = formatRelativeTime(date, t as never);
+    const result = formatRelativeTime(date, t as never, "en");
     // Should be a date string, not a translation key
     expect(result).not.toContain("instances.time");
   });

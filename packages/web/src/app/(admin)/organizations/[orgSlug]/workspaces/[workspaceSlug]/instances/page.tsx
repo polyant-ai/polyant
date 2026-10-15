@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { api, getUserErrorMessage, type Instance } from "@/lib/api";
 import { CreateInstanceDialog } from "./create-instance-dialog";
-import { formatRelativeTime } from "@/lib/format";
+import { useFormat } from "@/lib/use-format";
 import { isSafeImageSrc } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
@@ -115,6 +115,7 @@ function InstanceList({ instances, t, paths }: {
   paths: TenantPaths;
 }) {
   const router = useRouter();
+  const fmt = useFormat();
   return (
     <ListTable>
       <TableHeader>
@@ -169,7 +170,7 @@ function InstanceList({ instances, t, paths }: {
               {inst.description ?? "\u2014"}
             </TableCell>
             <TableCell className="text-right text-muted-foreground">
-              {formatRelativeTime(inst.updatedAt, t)}
+              {fmt.relative(inst.updatedAt)}
             </TableCell>
           </ListRow>
         ))}

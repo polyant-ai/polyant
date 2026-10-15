@@ -35,10 +35,12 @@ import {
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { PermissionRequired } from "@/components/layout/permission-required";
-import { formatDateTime, truncate } from "@/lib/format";
+import { truncate } from "@/lib/format";
+import { useFormat } from "@/lib/use-format";
 
 export default function AuditLogsPage() {
   const { t } = useI18n();
+  const fmt = useFormat();
   const PAGE_SIZE = 30;
   const {
     page,
@@ -287,7 +289,7 @@ export default function AuditLogsPage() {
                       }
                     >
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatDateTime(log.createdAt)}
+                        {fmt.dateTime(log.createdAt)}
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
                         <Badge variant="secondary">{log.instanceId}</Badge>

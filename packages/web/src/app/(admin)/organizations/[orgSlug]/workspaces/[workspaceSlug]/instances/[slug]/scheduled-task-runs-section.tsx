@@ -37,7 +37,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { api, getUserErrorMessage, type ScheduledTaskRun, type ScheduledTask } from "@/lib/api";
-import { formatRelativeTime, formatDuration } from "@/lib/format";
+import { formatDuration } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { MarkdownRenderer } from "@/app/(admin)/organizations/[orgSlug]/workspaces/[workspaceSlug]/playground/_components/markdown-renderer";
@@ -206,7 +206,7 @@ export function ScheduledTaskRunsSection({ slug, tasks }: Props) {
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span className="text-sm">
-                              {formatRelativeTime(run.startedAt, t)}
+                              {fmt.relative(run.startedAt)}
                             </span>
                           </TooltipTrigger>
                           <TooltipContent>

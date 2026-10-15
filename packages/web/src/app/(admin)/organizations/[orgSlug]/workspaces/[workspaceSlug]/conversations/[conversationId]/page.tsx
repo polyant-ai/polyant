@@ -51,7 +51,7 @@ import { HookExecutionPill } from "@/components/messages/hook-execution-pill";
 import { SystemActivity } from "@/components/messages/system-activity";
 import { DebugSheet, type DebugSheetTarget } from "@/components/messages/debug-sheet";
 import { ContextStoreSheet } from "@/components/messages/context-store-sheet";
-import { formatActivityTimestamp, formatRelativeTime, parseUTC } from "@/lib/format";
+import { formatActivityTimestamp, parseUTC } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useFormat } from "@/lib/use-format";
@@ -482,7 +482,7 @@ export default function ConversationDetailPage() {
                 ),
                 conversation.instanceName && <span key="agent">{conversation.instanceName}</span>,
                 <span key="messages">{t("conversations.detail.messages", { count: conversation.messageCount })}</span>,
-                <span key="created">{t("conversations.detail.created", { time: formatRelativeTime(conversation.createdAt, t) })}</span>,
+                <span key="created">{t("conversations.detail.created", { time: fmt.relative(conversation.createdAt) })}</span>,
                 conversation.totalTokens > 0 && (
                   <Tooltip key="tokens">
                     <TooltipTrigger asChild>
