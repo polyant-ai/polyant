@@ -195,14 +195,15 @@ describe("GlobalExceptionFilter", () => {
       Object.values(spies).forEach((spy) => spy.mockRestore());
     }
 
-    it("redacts the path secret on the HttpException log branch (console.error)", () => {
+    it("redacts the path secret on the HttpException log branch (console.warn for a 4xx)", () => {
       const spies = spyAllConsoleChannels();
       const res = createMockResponse();
       const host = createMockHost(res, createMockRequest("POST", secretUrl));
 
       filter.catch(new HttpException("Too Many Requests", 429), host);
 
-      expect(spies.error).toHaveBeenCalledTimes(1);
+      expect(spies.warn).toHaveBeenCalledTimes(1);
+      expect(spies.error).not.toHaveBeenCalled();
       const logged = allLoggedText(spies);
       expect(logged).not.toContain(secret);
       expect(logged).toContain(REDACTED_PLACEHOLDER);

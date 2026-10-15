@@ -23,7 +23,10 @@ interface HandledError {
 function handleHttpException(exception: HttpException, method: string, path: string): HandledError {
   const status = exception.getStatus();
   const body = exception.getResponse();
-  console.error(`[${method}] ${path} -> ${status}: ${typeof body === "string" ? body : JSON.stringify(body)}`);
+  // A 4xx is the client's mistake or a refusal working as meant: a warning. Errors are the server's own failures.
+  const line = `[${method}] ${path} -> ${status}: ${typeof body === "string" ? body : JSON.stringify(body)}`;
+  if (status >= 500) console.error(line);
+  else console.warn(line);
   return {
     status,
     body: typeof body === "string" ? { statusCode: status, message: body } : (body as Record<string, unknown>),
