@@ -15,7 +15,7 @@ import {
   type AgentScope,
   type EffectiveBinding,
 } from "./authz.store.js";
-import { resolvePermission } from "./authorization-strategy.js";
+import { effectivePermissions, resolvePermission } from "./authorization-strategy.js";
 import type { PermissionKey } from "./permissions.js";
 
 /**
@@ -42,6 +42,11 @@ export class AuthorizationService {
   ): Promise<boolean> {
     const bindings = await this.loadBindings(userId, scope.organizationId);
     return resolvePermission(bindings, scope, permission);
+  }
+
+  /** Every permission `userId` holds against the given scope, from the cached bindings. */
+  async permissionsIn(userId: string, scope: AgentScope): Promise<ReadonlySet<PermissionKey>> {
+    return effectivePermissions(await this.loadBindings(userId, scope.organizationId), scope);
   }
 
   /** DB-backed, 5-minute-cached platform-admin check. */

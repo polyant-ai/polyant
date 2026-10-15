@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { resolvePermission } from "./authorization-strategy.js";
+import { effectivePermissions, resolvePermission } from "./authorization-strategy.js";
 import { Permission } from "./permissions.js";
 import type { EffectiveBinding } from "./authz.store.js";
 import type { AgentScope } from "./authz.store.js";
@@ -83,5 +83,25 @@ describe("resolvePermission (most-specific-wins)", () => {
       permissions: new Set([Permission.AGENT_WRITE] as never[]),
     };
     expect(resolvePermission([foreign], scope, Permission.AGENT_WRITE)).toBe(false);
+  });
+});
+
+describe("effectivePermissions", () => {
+  const binding = (scopeType: "organization" | "workspace", scopeId: string, perms: string[]) =>
+    ({ scopeType, scopeId, permissions: new Set(perms) }) as unknown as EffectiveBinding;
+
+  it("returns the workspace binding when one exists for the scope, replacing the org one", () => {
+    const set = effectivePermissions(
+      [binding("organization", "org-1", ["agent:read", "agent:write"]), binding("workspace", "ws-1", ["agent:read"])],
+      scope,
+    );
+    expect([...set]).toEqual(["agent:read"]);
+  });
+
+  it("falls back to the org binding, and to nothing without a binding", () => {
+    expect(
+      [...effectivePermissions([binding("organization", "org-1", ["agent:read"])], scope)],
+    ).toEqual(["agent:read"]);
+    expect(effectivePermissions([binding("organization", "org-2", ["agent:read"])], scope).size).toBe(0);
   });
 });
