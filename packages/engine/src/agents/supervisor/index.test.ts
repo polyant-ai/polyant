@@ -625,12 +625,14 @@ describe("supervise", () => {
 
       expect(mockCreateTaskTool).toHaveBeenCalledWith(
         expect.any(Object),
-        apiKeys,
-        "my-instance",
-        "conv-1",
-        "anthropic",
-        "claude-pinned-model",
-        abortSignal,
+        {
+          apiKeys,
+          instanceId: "my-instance",
+          conversationId: "conv-1",
+          provider: "anthropic",
+          model: "claude-pinned-model",
+          abortSignal,
+        },
       );
     });
   });

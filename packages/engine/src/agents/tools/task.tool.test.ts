@@ -72,7 +72,7 @@ describe("createTaskTool", () => {
 
   it("keeps the parent's provider for a delegated task", async () => {
     mockChat.mockResolvedValue({ text: "ok", steps: [], durationMs: 1 } as never);
-    const tool = createTaskTool({}, { anthropic: "sk-test" }, undefined, undefined, "anthropic");
+    const tool = createTaskTool({}, { apiKeys: { anthropic: "sk-test" }, provider: "anthropic" });
 
     await tool.execute!({ task: "Research", label: null }, { toolCallId: "tc-1", messages: [] } as never);
 
@@ -84,7 +84,7 @@ describe("createTaskTool", () => {
 
   it("runs the sub-agent on the parent's pinned model", async () => {
     mockChat.mockResolvedValue({ text: "ok", steps: [], durationMs: 1 } as never);
-    const tool = createTaskTool({}, undefined, undefined, undefined, "anthropic", "claude-pinned-model");
+    const tool = createTaskTool({}, { provider: "anthropic", model: "claude-pinned-model" });
 
     await tool.execute!({ task: "Research", label: null }, { toolCallId: "tc-1", messages: [] } as never);
 
@@ -103,7 +103,7 @@ describe("createTaskTool", () => {
       signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
     }));
     const parent = new AbortController();
-    const tool = createTaskTool({}, undefined, undefined, undefined, undefined, undefined, parent.signal);
+    const tool = createTaskTool({}, { abortSignal: parent.signal });
 
     const pending = tool.execute!({ task: "Long research", label: null }, { toolCallId: "tc-1", messages: [] } as never);
     parent.abort();
