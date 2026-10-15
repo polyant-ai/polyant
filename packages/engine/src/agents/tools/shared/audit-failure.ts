@@ -2,6 +2,9 @@
 
 import type { AuditLogger } from "../../../audit/audit-logger.js";
 import { errMsg } from "../../../utils/error.js";
+import { createLogger } from "../../../utils/create-logger.js";
+
+const toolLog = createLogger();
 
 /**
  * The failure epilogue of a built-in tool: record the failed call on the audit
@@ -16,7 +19,8 @@ export function auditFailure(
   logLabel?: string,
 ): string {
   const message = errMsg(err);
-  if (logLabel) console.error(`${logLabel} error: ${message}`);
+  // Through the logger, which sanitizes the line and is the repo's logging chokepoint.
+  if (logLabel) toolLog.error(logLabel, "error", err);
   tool.audit.log({ action, ...(details ? { details } : {}), success: false, error: message });
   return message;
 }
