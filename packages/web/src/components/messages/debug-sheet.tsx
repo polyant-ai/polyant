@@ -18,12 +18,12 @@
  * conversationId + the DB message id + the instance slug.
  */
 
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { useI18n } from "@/lib/i18n/context";
 import { api } from "@/lib/api";
 import type { MessageDebug, CostBreakdown, MessageLatency } from "@/lib/api";
 import { Check, Copy, Cpu } from "lucide-react";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
+import { useResource } from "@/hooks/use-resource";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -230,25 +230,11 @@ function turnExport(data: MessageDebug | null): Record<string, unknown> | null {
 /** Copies the whole turn as JSON, and says so for a moment afterwards. */
 function CopyTurnButton({ data }: { data: MessageDebug | null }) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
+  const { copy, copied } = useCopyToClipboard(2000, t("message.debug.copyFailed"));
   const exportable = turnExport(data);
 
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  const handleCopy = async () => {
-    if (!exportable) return;
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(exportable, null, 2));
-      setCopied(true);
-    } catch {
-      // A denied clipboard permission or an insecure origin: the failure is
-      // silent otherwise, and the user would be left believing they copied.
-      toast.error(t("message.debug.copyFailed"));
-    }
+  const handleCopy = () => {
+    if (exportable) void copy(JSON.stringify(exportable, null, 2));
   };
 
   return (
@@ -267,117 +253,109 @@ function CopyTurnButton({ data }: { data: MessageDebug | null }) {
   );
 }
 
-export function DebugSheet({ open, onOpenChange, target }: DebugSheetProps) {
+/**
+ * The sheet's content, mounted only while the sheet is open (the Radix content
+ * unmounts on close), so each opening loads the turn afresh and none shows the
+ * previous one's data while it does.
+ */
+function DebugSheetBody({ target }: { target: DebugSheetTarget }) {
   const { t } = useI18n();
-  const [data, setData] = useState<MessageDebug | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    if (!open || !target) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(false);
-    setData(null);
-    api.conversations
-      .messageDebug(target.conversationId, target.messageId, target.instanceId)
-      .then((res) => {
-        if (!cancelled) setData(res);
-      })
-      .catch(() => {
-        if (!cancelled) setError(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, target]);
+  const { data = null, error, loading } = useResource(
+    [target.conversationId, target.messageId, target.instanceId],
+    () => api.conversations.messageDebug(target.conversationId, target.messageId, target.instanceId),
+  );
 
   const payload = data?.debugPayload ?? null;
 
   return (
+    <>
+      <SheetHeader>
+        {/* The copy action sits in the header, beside the title: the thing it
+            copies is several screens tall, so an action at the bottom would be
+            reachable only after the scrolling it exists to spare. */}
+        <div className="flex items-center justify-between gap-2 pr-8">
+          <SheetTitle>{t("message.debug.title")}</SheetTitle>
+          <CopyTurnButton data={data} />
+        </div>
+        {/* Kept for screen-reader context (Radix requires a description); hidden visually. */}
+        <SheetDescription className="sr-only">{t("message.debug.description")}</SheetDescription>
+      </SheetHeader>
+
+      <div className="flex flex-col gap-5 px-4 pb-8">
+        <UsageSection target={target} />
+        {loading && <p className="text-sm text-muted-foreground">{t("message.debug.loading")}</p>}
+        {error !== undefined && <p className="text-sm text-destructive">{t("message.debug.error")}</p>}
+
+        {!loading && error === undefined && data && (
+          <>
+            {payload ? (
+              <>
+                <Section title={t("message.debug.systemPrompt")}>
+                  <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 p-3 text-[11px] leading-relaxed">
+                    {payload.system || "—"}
+                  </pre>
+                </Section>
+
+                <Section title={t("message.debug.messages")}>
+                  <JsonBlock value={payload.messages} />
+                </Section>
+
+                <Section title={t("message.debug.tools")}>
+                  {payload.tools.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">—</p>
+                  ) : (
+                    <Accordion type="multiple" className="flex flex-col gap-2">
+                      {payload.tools.map((tool) => (
+                        <AccordionItem
+                          key={tool.name}
+                          value={tool.name}
+                          className="rounded-md border bg-background/50 last:border-b"
+                        >
+                          <AccordionTrigger className="px-2 py-2 font-mono text-xs font-semibold">
+                            {tool.name}
+                          </AccordionTrigger>
+                          <AccordionContent className="px-2">
+                            {tool.description && (
+                              <p className="text-[11px] text-muted-foreground">{tool.description}</p>
+                            )}
+                            {tool.parameters != null && (
+                              <div className="mt-2">
+                                <div className="mb-1 text-[11px] text-muted-foreground">
+                                  {t("message.debug.toolParams")}
+                                </div>
+                                <JsonBlock value={tool.parameters} />
+                              </div>
+                            )}
+                          </AccordionContent>
+                        </AccordionItem>
+                      ))}
+                    </Accordion>
+                  )}
+                </Section>
+              </>
+            ) : (
+              <p className="rounded-md border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
+                {t("message.debug.noPayload")}
+              </p>
+            )}
+
+            {data.steps && data.steps.length > 0 && (
+              <Section title={t("message.debug.steps")}>
+                <MessageExtras steps={data.steps} />
+              </Section>
+            )}
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+export function DebugSheet({ open, onOpenChange, target }: DebugSheetProps) {
+  return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-xl">
-        <SheetHeader>
-          {/* The copy action sits in the header, beside the title: the thing it
-              copies is several screens tall, so an action at the bottom would be
-              reachable only after the scrolling it exists to spare. */}
-          <div className="flex items-center justify-between gap-2 pr-8">
-            <SheetTitle>{t("message.debug.title")}</SheetTitle>
-            <CopyTurnButton data={data} />
-          </div>
-          {/* Kept for screen-reader context (Radix requires a description); hidden visually. */}
-          <SheetDescription className="sr-only">{t("message.debug.description")}</SheetDescription>
-        </SheetHeader>
-
-        <div className="flex flex-col gap-5 px-4 pb-8">
-          {target && <UsageSection target={target} />}
-          {loading && <p className="text-sm text-muted-foreground">{t("message.debug.loading")}</p>}
-          {error && <p className="text-sm text-destructive">{t("message.debug.error")}</p>}
-
-          {!loading && !error && data && (
-            <>
-              {payload ? (
-                <>
-                  <Section title={t("message.debug.systemPrompt")}>
-                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border bg-muted/30 p-3 text-[11px] leading-relaxed">
-                      {payload.system || "—"}
-                    </pre>
-                  </Section>
-
-                  <Section title={t("message.debug.messages")}>
-                    <JsonBlock value={payload.messages} />
-                  </Section>
-
-                  <Section title={t("message.debug.tools")}>
-                    {payload.tools.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">—</p>
-                    ) : (
-                      <Accordion type="multiple" className="flex flex-col gap-2">
-                        {payload.tools.map((tool) => (
-                          <AccordionItem
-                            key={tool.name}
-                            value={tool.name}
-                            className="rounded-md border bg-background/50 last:border-b"
-                          >
-                            <AccordionTrigger className="px-2 py-2 font-mono text-xs font-semibold">
-                              {tool.name}
-                            </AccordionTrigger>
-                            <AccordionContent className="px-2">
-                              {tool.description && (
-                                <p className="text-[11px] text-muted-foreground">{tool.description}</p>
-                              )}
-                              {tool.parameters != null && (
-                                <div className="mt-2">
-                                  <div className="mb-1 text-[11px] text-muted-foreground">
-                                    {t("message.debug.toolParams")}
-                                  </div>
-                                  <JsonBlock value={tool.parameters} />
-                                </div>
-                              )}
-                            </AccordionContent>
-                          </AccordionItem>
-                        ))}
-                      </Accordion>
-                    )}
-                  </Section>
-                </>
-              ) : (
-                <p className="rounded-md border border-dashed bg-muted/30 p-3 text-xs text-muted-foreground">
-                  {t("message.debug.noPayload")}
-                </p>
-              )}
-
-              {data.steps && data.steps.length > 0 && (
-                <Section title={t("message.debug.steps")}>
-                  <MessageExtras steps={data.steps} />
-                </Section>
-              )}
-            </>
-          )}
-        </div>
+        {target && <DebugSheetBody target={target} />}
       </SheetContent>
     </Sheet>
   );
