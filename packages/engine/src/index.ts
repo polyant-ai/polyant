@@ -24,9 +24,7 @@ import { pipelineLog } from "./utils/pipeline-logger.js";
 import { loadAllTools, getToolRegistry } from "./agents/tools/registry.js";
 import { loadAllHooks } from "./hooks/hook-loader.js";
 import { syncToolsToDb } from "./agents/tools/tools-sync.js";
-import { traceStore } from "./analytics/trace.store.js";
-import { auditStore } from "./audit/audit.store.js";
-import { managementAuditStore } from "./management-audit/management-audit.store.js";
+import { initializeBufferedInsertQueues, shutdownBufferedInsertQueues } from "./utils/buffered-insert-queue.js";
 import { seedInitialAdmin } from "./users/seed.js";
 import { schedulerService } from "./scheduled-tasks/scheduler.service.js";
 import { roomScheduler } from "./room/room-scheduler.js";
@@ -100,9 +98,7 @@ async function main() {
 
   // 1. Initialize AI Gateway (logging + LangSmith) + Trace Store
   initAIGateway(db);
-  traceStore.initialize(db);
-  auditStore.initialize(db);
-  managementAuditStore.initialize(db);
+  initializeBufferedInsertQueues(db);
 
   // 1b. Load tool registry (auto-discover *.tool.ts files)
   await loadAllTools();
@@ -571,9 +567,7 @@ async function main() {
         },
         { name: "channels", run: () => channelManager.shutdownAll() },
         { name: "MCP client pool", run: () => closeMcpClientPool() },
-        { name: "trace store", run: () => traceStore.shutdown() },
-        { name: "audit store", run: () => auditStore.shutdown() },
-        { name: "management audit store", run: () => managementAuditStore.shutdown() },
+        { name: "buffered log writers", run: () => shutdownBufferedInsertQueues() },
         { name: "AI gateway", run: () => shutdownGateway() },
         { name: "file logger", run: () => shutdownFileLogger() },
       ]);

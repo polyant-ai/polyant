@@ -3,6 +3,7 @@
 import { pgTable, uuid, text, integer, real, timestamp, boolean, index } from "drizzle-orm/pg-core";
 import type { AILogEntry, ModelTier } from "./types.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
+import { BufferedInsertQueue, type InsertableDb } from "../utils/buffered-insert-queue.js";
 
 export const aiLogs = pgTable(
   "ai_logs",
@@ -69,47 +70,23 @@ export function classifyProviderError(err: unknown): string {
   return "unknown";
 }
 
-/** Minimal DB interface for insert operations. */
-interface InsertableDb {
-  insert(table: unknown): { values(v: unknown): Promise<unknown> };
-}
-
 export class AILogger {
-  private static readonly MAX_BUFFER_SIZE = 1000;
-  private buffer: AILogEntry[] = [];
-  private flushInterval: ReturnType<typeof setInterval> | null = null;
-  private db: InsertableDb | null = null;
+  private readonly queue = new BufferedInsertQueue<AILogEntry>({
+    table: aiLogs,
+    label: "AI logs",
+    maxBuffer: 1000,
+  });
 
   initialize(db: InsertableDb) {
-    this.db = db;
-    this.flushInterval = setInterval(() => this.flush(), 5000);
+    this.queue.initialize(db);
   }
 
   log(entry: AILogEntry) {
-    this.buffer.push(entry);
-    if (this.buffer.length >= 10) {
-      this.flush();
-    }
+    this.queue.push(entry);
   }
 
-  async flush() {
-    if (this.buffer.length === 0 || !this.db) return;
-
-    const entries = [...this.buffer];
-    this.buffer = [];
-
-    try {
-      await this.db.insert(aiLogs).values(entries);
-    } catch (err) {
-      console.error("Failed to flush AI logs:", err);
-      // Re-add failed entries, but cap buffer to prevent memory leak
-      this.buffer.unshift(...entries);
-      if (this.buffer.length > AILogger.MAX_BUFFER_SIZE) {
-        const dropped = this.buffer.length - AILogger.MAX_BUFFER_SIZE;
-        this.buffer = this.buffer.slice(-AILogger.MAX_BUFFER_SIZE);
-        console.warn(`AILogger: dropped ${dropped} oldest log entries (buffer full)`);
-      }
-    }
+  flush() {
+    return this.queue.flush();
   }
 
   createEntry(
@@ -157,11 +134,8 @@ export class AILogger {
     };
   }
 
-  async shutdown() {
-    if (this.flushInterval) {
-      clearInterval(this.flushInterval);
-    }
-    await this.flush();
+  shutdown() {
+    return this.queue.shutdown();
   }
 }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { managementAuditLogs } from "./management-audit.schema.js";
+import { BufferedInsertQueue, type InsertableDb } from "../utils/buffered-insert-queue.js";
 
 /** A single row to be persisted to `management_audit_logs`. */
 export interface ManagementAuditEntry {
@@ -12,92 +13,37 @@ export interface ManagementAuditEntry {
   metadata?: Record<string, unknown>;
 }
 
-/** Minimal DB interface for insert operations (the shared `db` satisfies it). */
-interface InsertableDb {
-  insert(table: unknown): { values(v: unknown): Promise<unknown> };
-}
-
 /**
- * Buffered writer for the OSS management write-audit log. Mirrors the AI-runtime
- * `AuditStore` flush/back-pressure semantics: batch on size or interval, never
- * lose the audit trail on a transient DB error (re-buffer, capped).
+ * Buffered writer for the OSS management write-audit log. Batches on size or interval and never
+ * loses the audit trail on a transient DB error (see BufferedInsertQueue).
  */
 export class ManagementAuditStore {
-  private static readonly FLUSH_THRESHOLD = 10;
-  private static readonly MAX_BUFFER_SIZE = 500;
-  private static readonly FLUSH_INTERVAL_MS = 5000;
-
-  private buffer: ManagementAuditEntry[] = [];
-  private flushInterval: ReturnType<typeof setInterval> | null = null;
-  private db: InsertableDb | null = null;
+  private readonly queue = new BufferedInsertQueue<ManagementAuditEntry>({
+    table: managementAuditLogs,
+    label: "management audit logs",
+    onRefused: (rows) => {
+      for (const entry of rows) {
+        console.error(
+          `ManagementAuditStore: dropped an audit entry the database refused (action ${entry.action}, target type ${entry.targetType})`,
+        );
+      }
+    },
+  });
 
   initialize(db: InsertableDb): void {
-    this.db = db;
-    this.flushInterval = setInterval(() => {
-      void this.flush();
-    }, ManagementAuditStore.FLUSH_INTERVAL_MS);
+    this.queue.initialize(db);
   }
 
   record(entry: ManagementAuditEntry): void {
-    this.buffer.push(fitColumns(entry));
-    if (this.buffer.length >= ManagementAuditStore.FLUSH_THRESHOLD) {
-      void this.flush();
-    }
+    this.queue.push(fitColumns(entry));
   }
 
-  async flush(): Promise<void> {
-    if (this.buffer.length === 0 || !this.db) return;
-
-    const entries = [...this.buffer];
-    this.buffer = [];
-
-    try {
-      await this.db.insert(managementAuditLogs).values(entries);
-    } catch (err) {
-      // One row the database refuses fails the whole multi-row INSERT. Retried
-      // as a batch, it would keep failing every later flush, so no tenant's
-      // audit reached the table until the buffer cap pushed it out. Row by
-      // row, the refused rows are dropped and the rest are written; only when
-      // every row fails is it the database, and the batch is kept for later.
-      if (entries.length > 1 && await this.insertEachDroppingRefused(entries)) return;
-      console.error("Failed to flush management audit logs:", err);
-      // Re-buffer failed entries, but cap to prevent an unbounded memory leak.
-      this.buffer.unshift(...entries);
-      if (this.buffer.length > ManagementAuditStore.MAX_BUFFER_SIZE) {
-        const dropped = this.buffer.length - ManagementAuditStore.MAX_BUFFER_SIZE;
-        this.buffer = this.buffer.slice(-ManagementAuditStore.MAX_BUFFER_SIZE);
-        console.warn(
-          `ManagementAuditStore: dropped ${dropped} oldest audit entries, keeping newest (buffer full)`,
-        );
-      }
-    }
+  flush(): Promise<void> {
+    return this.queue.flush();
   }
 
-  /** True when at least one row was written; refused rows are dropped. */
-  private async insertEachDroppingRefused(entries: ManagementAuditEntry[]): Promise<boolean> {
-    const refused: ManagementAuditEntry[] = [];
-    for (const entry of entries) {
-      try {
-        await this.db!.insert(managementAuditLogs).values([entry]);
-      } catch {
-        refused.push(entry);
-      }
-    }
-    if (refused.length === entries.length) return false;
-    for (const entry of refused) {
-      console.error(
-        `ManagementAuditStore: dropped an audit entry the database refused (action ${entry.action}, target type ${entry.targetType})`,
-      );
-    }
-    return true;
-  }
-
-  async shutdown(): Promise<void> {
-    if (this.flushInterval) {
-      clearInterval(this.flushInterval);
-      this.flushInterval = null;
-    }
-    await this.flush();
+  shutdown(): Promise<void> {
+    return this.queue.shutdown();
   }
 }
 

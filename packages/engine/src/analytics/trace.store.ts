@@ -3,6 +3,7 @@
 import { pipelineTraces, type ToolCallTrace } from "./traces.schema.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import type { CostBreakdown } from "../ai-gateway/types.js";
+import { BufferedInsertQueue, type InsertableDb } from "../utils/buffered-insert-queue.js";
 
 export interface PipelineTraceEntry {
   conversationId: string;
@@ -45,73 +46,26 @@ export interface PipelineTraceEntry {
   parentTraceId?: string;
 }
 
-/** Minimal DB interface for insert operations. */
-interface InsertableDb {
-  insert(table: unknown): { values(v: unknown): Promise<unknown> };
-}
-
 class TraceStore {
-  private static readonly MAX_BUFFER_SIZE = 500;
-  private buffer: PipelineTraceEntry[] = [];
-  private flushInterval: ReturnType<typeof setInterval> | null = null;
-  private db: InsertableDb | null = null;
-  private flushing = false;
-  private flushSkipped = 0;
+  private readonly queue = new BufferedInsertQueue<PipelineTraceEntry>({
+    table: pipelineTraces,
+    label: "pipeline traces",
+  });
 
   initialize(db: InsertableDb) {
-    this.db = db;
-    this.flushInterval = setInterval(() => this.flush(), 5000);
+    this.queue.initialize(db);
   }
 
   record(entry: PipelineTraceEntry) {
-    this.buffer.push(entry);
-    if (this.buffer.length >= 10) {
-      this.flush();
-    }
+    this.queue.push(entry);
   }
 
-  async flush() {
-    // Guard against concurrent flushes: two overlapping flush() calls could snapshot
-    // the same entries, leading to DB duplicates on success or ordering corruption on failure.
-    if (this.flushing || this.buffer.length === 0 || !this.db) {
-      if (this.flushing && this.buffer.length > 0) {
-        // Don't log every skip — one in twenty is enough to spot capacity pressure.
-        this.flushSkipped += 1;
-        if (this.flushSkipped % 20 === 0) {
-          console.debug(
-            `TraceStore: flush skipped ${this.flushSkipped}× (buffer=${this.buffer.length}, another flush in progress)`,
-          );
-        }
-      }
-      return;
-    }
-    this.flushing = true;
-
-    const entries = [...this.buffer];
-    this.buffer = [];
-
-    try {
-      await this.db.insert(pipelineTraces).values(entries);
-    } catch (err) {
-      console.error("Failed to flush pipeline traces:", err);
-      // Prepend failed entries so ordering is preserved: oldest first, then newer entries
-      // appended since the flush started.
-      this.buffer = [...entries, ...this.buffer];
-      if (this.buffer.length > TraceStore.MAX_BUFFER_SIZE) {
-        const dropped = this.buffer.length - TraceStore.MAX_BUFFER_SIZE;
-        this.buffer = this.buffer.slice(-TraceStore.MAX_BUFFER_SIZE);
-        console.warn(`TraceStore: dropped ${dropped} oldest trace entries, keeping newest (buffer full)`);
-      }
-    } finally {
-      this.flushing = false;
-    }
+  flush() {
+    return this.queue.flush();
   }
 
-  async shutdown() {
-    if (this.flushInterval) {
-      clearInterval(this.flushInterval);
-    }
-    await this.flush();
+  shutdown() {
+    return this.queue.shutdown();
   }
 }
 
