@@ -150,7 +150,7 @@ export function ToolSheet({
   return (
     <>
     <Sheet open={tool !== null} onOpenChange={(open) => !open && requestClose()}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-md">
+      <SheetContent side="right" className="w-full gap-0 sm:max-w-2xl">
         {tool && (
           <>
             <SheetHeader className="gap-2 border-b p-5 pr-12">

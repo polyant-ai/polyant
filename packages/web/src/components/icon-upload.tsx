@@ -22,31 +22,29 @@ interface IconUploadProps {
 
 /**
  * Resize and center-crop an image file to 128x128 PNG data URI.
+ *
+ * Decodes with createImageBitmap so no blob: URL is loaded: the page CSP
+ * allows only 'self', https: and data: images.
  */
-function resizeToIcon(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = ICON_SIZE;
-      canvas.height = ICON_SIZE;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        reject(new Error("Canvas not supported"));
-        return;
-      }
+async function resizeToIcon(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = ICON_SIZE;
+    canvas.height = ICON_SIZE;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas not supported");
 
-      // Center-crop: use the largest square from the center
-      const size = Math.min(img.width, img.height);
-      const sx = (img.width - size) / 2;
-      const sy = (img.height - size) / 2;
-      ctx.drawImage(img, sx, sy, size, size, 0, 0, ICON_SIZE, ICON_SIZE);
+    // Center-crop: use the largest square from the center
+    const size = Math.min(bitmap.width, bitmap.height);
+    const sx = (bitmap.width - size) / 2;
+    const sy = (bitmap.height - size) / 2;
+    ctx.drawImage(bitmap, sx, sy, size, size, 0, 0, ICON_SIZE, ICON_SIZE);
 
-      resolve(canvas.toDataURL("image/png"));
-    };
-    img.onerror = () => reject(new Error("Failed to load image"));
-    img.src = URL.createObjectURL(file);
-  });
+    return canvas.toDataURL("image/png");
+  } finally {
+    bitmap.close();
+  }
 }
 
 export function IconUpload({ icon, onUpload, onRemove }: IconUploadProps) {
@@ -74,6 +72,8 @@ export function IconUpload({ icon, onUpload, onRemove }: IconUploadProps) {
       try {
         const dataUri = await resizeToIcon(file);
         await onUpload(dataUri);
+      } catch {
+        toast.error(t("general.iconUploadFailed"));
       } finally {
         setUploading(false);
         // Reset input so same file can be re-selected
