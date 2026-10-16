@@ -391,7 +391,9 @@ export const api = {
         optoutResumeMessage?: string | null;
         optoutInjectPromptHint?: boolean;
         webContextFieldMapping?: Record<string, string>;
-        /** Acknowledge the destructive memory/knowledge wipe on an embedding-provider switch. */
+        /** One of the embedder's `supportedDims`; changing it wipes like a provider switch. */
+        embeddingDim?: number;
+        /** Acknowledge the destructive memory/knowledge wipe on an embedding provider or dimension change. */
         confirmWipe?: boolean;
       },
     ) =>

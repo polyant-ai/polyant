@@ -226,8 +226,44 @@ describe("ModelTab", () => {
     expect(mocks.update).not.toHaveBeenCalled();
     await userEvent.click(await screen.findByRole("button", { name: "memory.wipe.primary" }));
     await waitFor(() =>
-      expect(mocks.update).toHaveBeenCalledWith("test-instance", { embeddingProvider: "bedrock", confirmWipe: true }),
+      expect(mocks.update).toHaveBeenCalledWith("test-instance", {
+        embeddingProvider: "bedrock",
+        embeddingDim: 1024,
+        confirmWipe: true,
+      }),
     );
+  });
+
+  it("offers the embedder's dimensions and saves the chosen one through the wipe confirmation", async () => {
+    render(<ModelTab instance={makeInstance({ embeddingProvider: "openai", embeddingDim: 1024 })} onUpdate={onUpdate} />);
+
+    const panel = await openTask("settings.role.embed.title");
+    await pick(panel, "settings.tab.embeddingDim", "modelTasks.dimensions:1536");
+    await userEvent.click(within(panel).getByRole("button", { name: "common.save" }));
+
+    expect(mocks.update).not.toHaveBeenCalled();
+    // A dimension-only change explains itself as one.
+    expect(await screen.findByText("memory.wipe.bodyDimension:1536")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "memory.wipe.primary" }));
+    await waitFor(() =>
+      expect(mocks.update).toHaveBeenCalledWith("test-instance", {
+        embeddingProvider: "openai",
+        embeddingDim: 1536,
+        confirmWipe: true,
+      }),
+    );
+  });
+
+  it("locks the dimension for an embedder that emits only one, moving off a dimension it cannot emit", async () => {
+    render(<ModelTab instance={makeInstance({ embeddingProvider: "openai", embeddingDim: 1536 })} onUpdate={onUpdate} />);
+
+    const panel = await openTask("settings.role.embed.title");
+    expect(within(panel).getByRole("combobox", { name: "settings.tab.embeddingDim" })).toBeEnabled();
+    await pick(panel, "settings.tab.embedder", /Bedrock/);
+
+    const dim = within(panel).getByRole("combobox", { name: "settings.tab.embeddingDim" });
+    expect(dim).toBeDisabled();
+    expect(dim).toHaveTextContent("modelTasks.dimensions:1024");
   });
 
   it("switches voice-note transcription off, with no key to ask for", async () => {

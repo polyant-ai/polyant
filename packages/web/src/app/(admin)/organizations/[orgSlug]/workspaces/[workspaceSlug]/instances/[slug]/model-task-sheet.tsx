@@ -68,10 +68,15 @@ interface Draft {
   cacheEnabled: boolean;
   cacheTtl: string;
   embeddingProvider: string;
+  /** Embedding dimension; one of the embedder's `supportedDims`. */
+  embeddingDim: number;
   sttProvider: STTProvider;
   /** Keys typed in the panel, by secret key; empty = keep the stored one. */
   keys: Record<string, string>;
 }
+
+/** Mirrors the engine's default for new agents and provider switches. */
+const DEFAULT_EMBEDDING_DIM = 1024;
 
 const brand = (p: string) => BRAND_NAMES[p] ?? p.charAt(0).toUpperCase() + p.slice(1);
 
@@ -85,6 +90,7 @@ function draftOf(instance: Instance): Draft {
     cacheEnabled: instance.cacheEnabled,
     cacheTtl: instance.cacheTtl,
     embeddingProvider: instance.embeddingProvider ?? "openai",
+    embeddingDim: instance.embeddingDim ?? DEFAULT_EMBEDDING_DIM,
     sttProvider: (instance.sttProvider as STTProvider | null) ?? "openai",
     keys: {},
   };
@@ -153,6 +159,22 @@ export function ModelTaskSheet({
   const embedderOptions = Array.from(
     new Set([...(modelsData?.embedders ?? []).map((e) => e.id), instance.embeddingProvider ?? "openai"]),
   );
+  const dimsFor = (provider: string) => modelsData?.embedders.find((e) => e.id === provider)?.supportedDims ?? [];
+  // The dimensions the chosen embedder can emit; the current one stays listed so
+  // the select never shows an empty value.
+  const dimOptions = Array.from(new Set([...dimsFor(draft.embeddingProvider), draft.embeddingDim])).sort((a, b) => a - b);
+  // A provider switch keeps the chosen dimension when the new embedder emits it,
+  // otherwise falls back to its default, as the engine does.
+  const switchEmbedder = (provider: string) => {
+    const dims = dimsFor(provider);
+    const embeddingDim =
+      dims.length === 0 || dims.includes(draft.embeddingDim)
+        ? draft.embeddingDim
+        : dims.includes(DEFAULT_EMBEDDING_DIM)
+          ? DEFAULT_EMBEDDING_DIM
+          : dims[0];
+    set({ embeddingProvider: provider, embeddingDim });
+  };
 
   // ── What changed ─────────────────────────────────────────────────────────
   const changed = <K extends keyof Draft>(key: K) => JSON.stringify(draft[key]) !== JSON.stringify(initial[key]);
@@ -160,7 +182,7 @@ export function ModelTaskSheet({
     task === "chat"
       ? (["provider", "model", "thinkingEnabled", "thinkingLevel", "temperature", "cacheEnabled", "cacheTtl"] as const).some(changed)
       : task === "embed"
-        ? changed("embeddingProvider")
+        ? changed("embeddingProvider") || changed("embeddingDim")
         : changed("sttProvider");
 
   // ── The key the task's provider reads, under the draft ──────────────────
@@ -219,7 +241,7 @@ export function ModelTaskSheet({
                 cacheTtl: draft.cacheTtl,
               }
             : task === "embed"
-              ? { embeddingProvider: draft.embeddingProvider, confirmWipe }
+              ? { embeddingProvider: draft.embeddingProvider, embeddingDim: draft.embeddingDim, confirmWipe }
               : { sttProvider: draft.sttProvider };
         updated = (await api.instances.update(instance.slug, body)).instance;
       }
@@ -233,7 +255,7 @@ export function ModelTaskSheet({
   };
 
   const save = () => {
-    // Switching the embedder abandons the old vector space: memories and
+    // Switching the embedder or its dimension abandons the old vector space: memories and
     // knowledge are wiped, not converted, so the loss is confirmed first.
     if (task === "embed" && instanceDirty) setWipeOpen(true);
     else void perform(false);
@@ -263,11 +285,12 @@ export function ModelTaskSheet({
     value: string,
     entries: readonly (readonly [string, string])[],
     onChange: (value: string) => void,
+    disabled = false,
   ) =>
     field(
       id,
       label,
-      <Select value={value} onValueChange={onChange}>
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger id={id} className="w-full" aria-label={label}>
           <SelectValue />
         </SelectTrigger>
@@ -330,13 +353,24 @@ export function ModelTaskSheet({
         )}
       </>
     ) : task === "embed" ? (
-      choice(
-        "task-embedder",
-        t("settings.tab.embedder"),
-        draft.embeddingProvider,
-        embedderOptions.map((id) => [id, brand(id)] as const),
-        (value) => set({ embeddingProvider: value }),
-      )
+      <>
+        {choice(
+          "task-embedder",
+          t("settings.tab.embedder"),
+          draft.embeddingProvider,
+          embedderOptions.map((id) => [id, brand(id)] as const),
+          switchEmbedder,
+        )}
+        {choice(
+          "task-embedding-dim",
+          t("settings.tab.embeddingDim"),
+          String(draft.embeddingDim),
+          dimOptions.map((dim) => [String(dim), t("modelTasks.dimensions", { count: dim })] as const),
+          (value) => set({ embeddingDim: Number(value) }),
+          // One dimension, nothing to choose.
+          dimOptions.length <= 1,
+        )}
+      </>
     ) : (
       choice(
         "task-stt",
@@ -542,7 +576,11 @@ export function ModelTaskSheet({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("memory.wipe.title")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("memory.wipe.body", { provider: brand(draft.embeddingProvider) })}</AlertDialogDescription>
+            <AlertDialogDescription>
+              {changed("embeddingProvider")
+                ? t("memory.wipe.body", { provider: brand(draft.embeddingProvider) })
+                : t("memory.wipe.bodyDimension", { count: draft.embeddingDim })}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
