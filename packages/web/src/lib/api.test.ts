@@ -128,6 +128,18 @@ describe("request() — workspace scoping", () => {
     expect(headerFrom(fetchFn)).toBeUndefined();
   });
 
+  it.each([
+    "/organizations/ghost/workspaces/general/instances",
+    "/organizations/default/workspaces/ghost/instances",
+  ])("reads the caller's tenancy without trusting the current URL: %s", async (pathname) => {
+    at(pathname);
+    const fetchFn = mockFetch(mockResponse({ organizations: [], preferredWorkspace: null }));
+
+    await api.me.get();
+
+    expect(headerFrom(fetchFn)).toBeUndefined();
+  });
+
   it("sends no workspace header from a deployment-level page", async () => {
     at("/settings");
     const fetchFn = mockFetch(mockResponse({ organization: null, workspaces: [] }));
