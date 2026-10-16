@@ -27,14 +27,14 @@ const voce = (over: Partial<AuditEntry> = {}): AuditEntry => ({
 });
 
 /** A db that records what it was asked to insert, and can refuse chosen rows. */
-function db(rifiuta: (entries: AuditEntry[]) => boolean = () => false) {
+function db(rifiuta: (entries: AuditEntry[]) => boolean = () => false, code = "23502") {
   const scritte: AuditEntry[][] = [];
   return {
     scritte,
     insert: () => ({
       values: async (v: unknown) => {
         const entries = v as AuditEntry[];
-        if (rifiuta(entries)) throw new Error("null value in column \"action\"");
+        if (rifiuta(entries)) throw Object.assign(new Error("null value in column \"action\""), { code });
         scritte.push(entries);
       },
     }),
@@ -108,7 +108,8 @@ describe("AuditStore", () => {
   it("a database that is down loses nothing: every entry stays for the next tick", async () => {
     // The opposite case, which needs the opposite handling. Telling the two apart is the whole
     // point of inserting row by row: if NO row goes in, the rows are not the cause.
-    const d = db(() => true);
+    // 08006: connection failure, a fault of the database and not of any row.
+    const d = db(() => true, "08006");
     auditStore.initialize(d as never);
     auditStore.record(voce({ action: "buona.1" }));
     auditStore.record(voce({ action: "buona.2" }));

@@ -132,7 +132,7 @@ describe("ManagementAuditStore", () => {
         return {
           async values(rows: Array<Record<string, unknown>>) {
             if (!up) throw new Error("db down");
-            if (rows.some((r) => r.targetId === "poison")) throw new Error("value refused");
+            if (rows.some((r) => r.targetId === "poison")) throw Object.assign(new Error("value refused"), { code: "22001" });
             written.push(...rows);
           },
         };
