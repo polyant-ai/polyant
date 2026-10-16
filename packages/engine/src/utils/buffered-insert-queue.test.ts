@@ -10,13 +10,17 @@ import {
 const TABLE = { name: "t" };
 
 /** A db that refuses any batch containing a row equal to `poison`, or everything when `down`. */
-function fakeDb(state: { down?: boolean } = {}) {
+function fakeDb(state: { down?: boolean; reset?: boolean } = {}) {
   const written: number[][] = [];
   return {
     written,
     insert: () => ({
       values: async (rows: number[]) => {
-        if (state.down || rows.includes(-1)) throw new Error("refused");
+        if (state.down) throw new Error("refused");
+        if (rows.includes(-1)) throw Object.assign(new Error("null value"), { code: "23502" });
+        if (rows.includes(-2) && state.reset !== false) {
+          throw Object.assign(new Error("reset"), { code: "ECONNRESET" });
+        }
         written.push(rows);
       },
     }),
@@ -40,6 +44,43 @@ describe("BufferedInsertQueue", () => {
     expect(db.written.flat()).toEqual([1, 2]);
     await q.flush();
     expect(db.written.flat()).toEqual([1, 2]);
+  });
+
+  it("requeues a row that fails with a connection error and writes it on the next flush", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const state = { reset: true };
+    const db = fakeDb(state);
+    const q = new BufferedInsertQueue<number>({ table: TABLE, label: "rows", batchAt: 100 });
+    q.initialize(db);
+    for (const n of [1, -2, 3]) q.push(n);
+    await q.flush();
+    expect(db.written.flat()).toEqual([1]);
+    state.reset = false;
+    await q.flush();
+    expect(db.written.flat()).toEqual([1, -2, 3]);
+  });
+
+  it("recognises a data error wrapped in a cause, and drops and reports the row", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const onRefused = vi.fn();
+    const db = {
+      written: [] as number[][],
+      insert() {
+        return {
+          values: async (rows: number[]) => {
+            if (rows.includes(-1)) throw new Error("wrapped", { cause: { code: "22P02" } });
+            db.written.push(rows);
+          },
+        };
+      },
+    };
+    const q = new BufferedInsertQueue<number>({ table: TABLE, label: "rows", batchAt: 100, onRefused });
+    q.initialize(db);
+    for (const n of [1, -1]) q.push(n);
+    await q.flush();
+    expect(onRefused).toHaveBeenCalledWith([-1], 1);
+    await q.flush();
+    expect(db.written.flat()).toEqual([1]);
   });
 
   it("keeps everything while the database is down and writes it once it is back", async () => {

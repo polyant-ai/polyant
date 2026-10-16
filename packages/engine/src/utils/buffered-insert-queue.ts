@@ -26,6 +26,26 @@ export interface BufferedInsertQueueOptions<T> {
   onRefused?: (rows: T[], written: number) => void;
 }
 
+/** SQLSTATE of a Postgres error, read from the error or the cause drizzle/porsager wrap it in. */
+function sqlState(err: unknown): string | undefined {
+  for (let e: unknown = err, depth = 0; e && typeof e === "object" && depth < 4; depth++) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return code;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+/**
+ * True when the database refused this row itself: SQLSTATE class 22 (data exception) or 23
+ * (integrity constraint violation). Anything else (connection reset, timeout, shutdown,
+ * resource limits, unknown) says nothing about the row and must not cost the row its place.
+ */
+export function isDataError(err: unknown): boolean {
+  const state = sqlState(err);
+  return state !== undefined && (state.startsWith("22") || state.startsWith("23"));
+}
+
 const queues = new Set<BufferedInsertQueue<never>>();
 
 /** Start the background flush of every queue created so far. */
@@ -42,9 +62,9 @@ export async function shutdownBufferedInsertQueues(): Promise<void> {
  * Rows are written as one multi-row INSERT. If that fails, they are inserted one by one to tell
  * "one bad row" from "the database is down", because the two need opposite handling: a refused
  * row that is re-queued fails every later batch, so nothing behind it would ever be written,
- * while a database that is down must lose nothing. Rows are dropped only when their neighbours
- * went in; if every row fails the whole batch goes back to the buffer, capped to `maxBuffer`
- * with the newest rows kept.
+ * while a database that is down must lose nothing. A row is dropped only when the database
+ * refuses its data (SQLSTATE class 22 or 23). Any other error stops the fallback and puts that
+ * row and every row not yet tried back in the buffer, capped to `maxBuffer` with the newest kept.
  */
 export class BufferedInsertQueue<T> {
   private buffer: T[] = [];
@@ -127,25 +147,27 @@ export class BufferedInsertQueue<T> {
 
     const refused: T[] = [];
     let written = 0;
+    let index = 0;
     if (rows.length > 1) {
-      for (const row of rows) {
+      for (; index < rows.length; index++) {
         try {
-          await db.insert(table).values([row]);
+          await db.insert(table).values([rows[index]!]);
           written++;
-        } catch {
-          refused.push(row);
+        } catch (err) {
+          if (!isDataError(err)) break;
+          refused.push(rows[index]!);
         }
       }
     }
 
-    if (written > 0) {
-      if (refused.length > 0) this.reportRefused(refused, written);
-      return;
-    }
+    if (refused.length > 0 && written > 0) this.reportRefused(refused, written);
 
-    // Nothing went in: the cause is the database, so keep every row for the next tick.
-    // Prepend them so ordering is preserved: oldest first, then rows pushed since the flush began.
-    this.buffer = [...rows, ...this.buffer];
+    // The row that stopped the fallback, and every row not yet tried, go back to the buffer: the
+    // cause is the database, not the row. When the fallback did not run (a single row) or the
+    // first row failed, that is the whole batch. Oldest first, then rows pushed since the flush began.
+    const requeue = rows.length > 1 ? rows.slice(index) : rows;
+    if (requeue.length === 0) return;
+    this.buffer = [...requeue, ...this.buffer];
     if (this.buffer.length > this.maxBuffer) {
       const dropped = this.buffer.length - this.maxBuffer;
       this.buffer = this.buffer.slice(-this.maxBuffer);
