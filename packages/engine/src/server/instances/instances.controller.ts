@@ -32,8 +32,9 @@ import {
 import { normalizeFieldMapping } from "../../conversations/field-mapping.js";
 import { invalidateEmbeddingContext } from "../../embeddings-gateway/provider-resolver.js";
 import {
-  embeddingProviderChanged,
-  resetEmbeddingsForProviderSwitch,
+  embeddingSpaceChanged,
+  nextEmbeddingDim,
+  resetEmbeddingSpace,
   type EmbeddingResetResult,
 } from "../../embeddings-gateway/embedding-reset.service.js";
 import { countMemories } from "../../memory/index.js";
@@ -41,7 +42,13 @@ import { countDocuments } from "../../knowledge/index.js";
 import { computeMemoryStatusFromInstance, computeEmbedderStatus } from "../memories/memory-status.js";
 import { providerConfigs, DEFAULT_PROVIDER, isThinkingCapable, isReasoningAlwaysOn, clampTemperature, temperatureSupported, cacheSupported, reasoningLevelsFor } from "../../ai-gateway/config.js";
 import type { ReasoningLevel } from "../../ai-gateway/model-catalog.js";
-import { isKnownEmbeddingProvider, knownEmbeddingProviders, supportedDimsFor } from "../../embeddings-gateway/config.js";
+import {
+  assertDimSupported,
+  isKnownEmbeddingProvider,
+  knownEmbeddingProviders,
+  supportedDimsFor,
+} from "../../embeddings-gateway/config.js";
+import type { EmbeddingDim } from "../../embeddings-gateway/types.js";
 import { validateIconDataUri } from "../../instances/icon-validator.js";
 import { buildInstanceIconUrl } from "../../instances/icon-url.js";
 import { isUniqueViolation } from "../../utils/db-errors.js";
@@ -227,8 +234,8 @@ export class InstancesController {
     // list. It kept one, hardcoded to the two built-ins, so a registered
     // embedder was reachable only by a direct PATCH — and an agent chatting on a
     // provider that does not embed had no way to stop embedding with OpenAI.
-    // `supportedDims` rides along because a switch is only legal to a provider
-    // that can emit the agent's stored dimension.
+    // `supportedDims` rides along because it is the list the panel offers for
+    // `embeddingDim`, and a dimension the provider cannot emit is refused.
     const embedders = knownEmbeddingProviders().map((id) => ({
       id,
       supportedDims: supportedDimsFor(id),
@@ -350,6 +357,12 @@ export class InstancesController {
       // Validated against the embedder registry (validateEmbeddingProvider), not
       // a closed union: an embedder can be registered at boot.
       embeddingProvider?: string;
+      /**
+       * Embedding dimension, checked against what the (new or stored) embedder
+       * can emit. Changing it wipes data like a provider switch. Omitted on a
+       * provider switch, the new provider's default is used.
+       */
+      embeddingDim?: number;
       memoryEnabled?: boolean;
       knowledgeEnabled?: boolean;
       langsmithEnabled?: boolean;
@@ -387,7 +400,7 @@ export class InstancesController {
       optoutInjectPromptHint?: boolean;
       webContextFieldMapping?: Record<string, string>;
       /**
-       * Explicit acknowledgement that changing the embedding provider will
+       * Explicit acknowledgement that changing the embedding provider or dimension will
        * permanently delete this instance's memories and knowledge base. Required
        * when the switch would discard existing data — protects scripted callers
        * from accidental data loss. The UI sets it after the user confirms.
@@ -441,23 +454,33 @@ export class InstancesController {
       );
     }
 
-    // Changing the embedding provider abandons the old embedding space (vectors
-    // become uninterpretable) — existing memories + knowledge are wiped, never
-    // converted. Changing only the chat provider/model does NOT trigger this.
-    // Require explicit confirmation when there is data to lose, so a Management-API
-    // caller can't destroy it silently.
+    // Changing the embedding provider or dimension abandons the old embedding
+    // space (vectors become uninterpretable) — existing memories + knowledge are
+    // wiped, never converted. Changing only the chat provider/model does NOT
+    // trigger this. Require explicit confirmation when there is data to lose, so
+    // a Management-API caller can't destroy it silently.
     const afterEmbeddingProvider =
       body.embeddingProvider !== undefined ? body.embeddingProvider : before.embeddingProvider;
-    const willWipe = embeddingProviderChanged(
-      { embeddingProvider: before.embeddingProvider },
-      { embeddingProvider: afterEmbeddingProvider },
-    );
+    const afterEmbeddingDim = nextEmbeddingDim(before, afterEmbeddingProvider, body.embeddingDim as EmbeddingDim | undefined);
+    const willWipe = embeddingSpaceChanged(before, {
+      embeddingProvider: afterEmbeddingProvider,
+      embeddingDim: afterEmbeddingDim,
+    });
+    if (willWipe) {
+      // Only a change is checked: an older row whose stored dimension its
+      // provider no longer lists still accepts unrelated edits.
+      try {
+        assertDimSupported(afterEmbeddingProvider, afterEmbeddingDim as EmbeddingDim);
+      } catch (err) {
+        throw new BadRequestException((err as Error).message);
+      }
+    }
     if (willWipe && !body.confirmWipe) {
       const hasData =
         (await countMemories(before.slug)) > 0 || (await countDocuments(before.slug)) > 0;
       if (hasData) {
         throw new BadRequestException(
-          "Changing the embedding provider permanently deletes all memories and the entire knowledge base for this instance (existing embeddings cannot be converted). Re-send the request with confirmWipe: true to proceed.",
+          "Changing the embedding provider or dimension permanently deletes all memories and the entire knowledge base for this instance (existing embeddings cannot be converted). Re-send the request with confirmWipe: true to proceed.",
         );
       }
     }
@@ -469,7 +492,7 @@ export class InstancesController {
 
     let wiped: EmbeddingResetResult | null = null;
     if (willWipe) {
-      wiped = await resetEmbeddingsForProviderSwitch(before.slug, instance.id, instance.embeddingProvider);
+      wiped = await resetEmbeddingSpace(before.slug, instance.id, afterEmbeddingDim as EmbeddingDim);
       // embedding_dim changed — drop the now-stale cached context and refresh the DTO.
       invalidateEmbeddingContext(instance.id, slug);
       instance = (await findInstanceBySlug(asInstanceSlug(slug))) ?? instance;

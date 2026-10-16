@@ -21,7 +21,6 @@ const {
   mockInvalidateCache,
   mockResolveEffectiveModelSelection,
   mockProviderConfigs,
-  mockEmbeddingProviderChanged,
   mockResetEmbeddings,
   mockCountMemories,
   mockCountDocuments,
@@ -35,7 +34,6 @@ const {
   mockSeedPrompts: vi.fn(),
   mockSeedTools: vi.fn(),
   mockSeedSkills: vi.fn(),
-  mockEmbeddingProviderChanged: vi.fn().mockReturnValue(false),
   mockResetEmbeddings: vi.fn(),
   mockCountMemories: vi.fn().mockResolvedValue(0),
   mockCountDocuments: vi.fn().mockResolvedValue(0),
@@ -106,9 +104,11 @@ vi.mock("../../instances/icon-validator.js", () => ({ validateIconDataUri: vi.fn
 vi.mock("../../embeddings-gateway/provider-resolver.js", () => ({
   invalidateEmbeddingContext: vi.fn(),
 }));
-vi.mock("../../embeddings-gateway/embedding-reset.service.js", () => ({
-  embeddingProviderChanged: mockEmbeddingProviderChanged,
-  resetEmbeddingsForProviderSwitch: mockResetEmbeddings,
+// Only the destructive reset is stubbed: deciding whether the embedding space
+// changes, and to which dimension, is pure logic the controller relies on.
+vi.mock(import("../../embeddings-gateway/embedding-reset.service.js"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  resetEmbeddingSpace: mockResetEmbeddings,
 }));
 vi.mock("../../memory/index.js", () => ({ countMemories: mockCountMemories }));
 vi.mock("../../knowledge/index.js", () => ({ countDocuments: mockCountDocuments }));
@@ -141,6 +141,7 @@ const fullInstance = {
   provider: "openai",
   model: "gpt-4o-mini",
   embeddingProvider: "openai",
+  embeddingDim: 1024,
   memoryEnabled: true,
   knowledgeEnabled: false,
   langsmithEnabled: false,
@@ -163,7 +164,6 @@ describe("InstancesController", () => {
     // Reset, not clear: a test that stubs a wipe-worthy embedding switch or
     // queues a `…Once` must not decide what the next test sees.
     vi.resetAllMocks();
-    mockEmbeddingProviderChanged.mockReturnValue(false);
     mockCountMemories.mockResolvedValue(0);
     mockCountDocuments.mockResolvedValue(0);
     controller = new InstancesController();
@@ -411,7 +411,6 @@ describe("InstancesController", () => {
   describe("update — embedding wipe guard", () => {
     it("rejects an embedding-provider switch with data and no confirmWipe (400)", async () => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
-      mockEmbeddingProviderChanged.mockReturnValue(true);
       mockCountMemories.mockResolvedValue(3);
 
       await expect(controller.update("test-one", { embeddingProvider: "bedrock" })).rejects.toThrow(
@@ -426,7 +425,6 @@ describe("InstancesController", () => {
         .mockResolvedValueOnce(fullInstance)
         .mockResolvedValueOnce({ ...fullInstance, embeddingProvider: "bedrock", embeddingDim: 1024 });
       mockUpdateInstance.mockResolvedValue({ ...fullInstance, embeddingProvider: "bedrock" });
-      mockEmbeddingProviderChanged.mockReturnValue(true);
       mockResetEmbeddings.mockResolvedValue({
         instanceId: "uuid-1",
         memoriesDeleted: 3,
@@ -437,8 +435,8 @@ describe("InstancesController", () => {
 
       const res = await controller.update("test-one", { embeddingProvider: "bedrock", confirmWipe: true });
 
-      // Reset is called with (slug, uuid, newEmbeddingProvider).
-      expect(mockResetEmbeddings).toHaveBeenCalledWith("test-one", "uuid-1", "bedrock");
+      // Reset is called with (slug, uuid, the new provider's default dimension).
+      expect(mockResetEmbeddings).toHaveBeenCalledWith("test-one", "uuid-1", 1024);
       expect(res.wiped?.memoriesDeleted).toBe(3);
       // No data lookup needed when the caller already confirmed.
       expect(mockCountMemories).not.toHaveBeenCalled();
@@ -449,7 +447,6 @@ describe("InstancesController", () => {
         .mockResolvedValueOnce(fullInstance)
         .mockResolvedValueOnce({ ...fullInstance, embeddingProvider: "bedrock" });
       mockUpdateInstance.mockResolvedValue({ ...fullInstance, embeddingProvider: "bedrock" });
-      mockEmbeddingProviderChanged.mockReturnValue(true);
       mockCountMemories.mockResolvedValue(0);
       mockCountDocuments.mockResolvedValue(0);
       mockResetEmbeddings.mockResolvedValue({
@@ -469,9 +466,94 @@ describe("InstancesController", () => {
     it("does not wipe when the embedding provider is unchanged", async () => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
       mockUpdateInstance.mockResolvedValue(fullInstance);
-      mockEmbeddingProviderChanged.mockReturnValue(false);
 
       const res = await controller.update("test-one", { model: "gpt-4o" });
+
+      expect(mockResetEmbeddings).not.toHaveBeenCalled();
+      expect(res.wiped).toBeNull();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Embedding dimension — chosen with the embedder, checked against what it
+  // can emit, and applied through the same wipe as a provider switch.
+  // -------------------------------------------------------------------------
+  describe("update — embedding dimension", () => {
+    const wipeResult = (dim: number) => ({
+      instanceId: "uuid-1",
+      memoriesDeleted: 0,
+      knowledgeDocumentsDeleted: 0,
+      knowledgeChunksDeleted: 0,
+      newEmbeddingDim: dim,
+    });
+
+    it("rejects a dimension the stored embedder cannot emit (400) before writing anything", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, embeddingProvider: "bedrock" });
+
+      await expect(controller.update("test-one", { embeddingDim: 1536, confirmWipe: true })).rejects.toThrow(
+        /does not support 1536-dim/,
+      );
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+      expect(mockResetEmbeddings).not.toHaveBeenCalled();
+    });
+
+    it("rejects a dimension the NEW embedder cannot emit when both change together", async () => {
+      mockFindInstanceBySlug.mockResolvedValue({ ...fullInstance, embeddingDim: 1536 });
+
+      await expect(
+        controller.update("test-one", { embeddingProvider: "bedrock", embeddingDim: 1536, confirmWipe: true }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockResetEmbeddings).not.toHaveBeenCalled();
+    });
+
+    it("rejects a dimension that is not one of the supported values", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+
+      await expect(controller.update("test-one", { embeddingDim: 768, confirmWipe: true })).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it("requires confirmWipe for a dimension-only change when there is data to lose", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockCountDocuments.mockResolvedValue(2);
+
+      await expect(controller.update("test-one", { embeddingDim: 1536 })).rejects.toThrow(/confirmWipe/);
+      expect(mockUpdateInstance).not.toHaveBeenCalled();
+      expect(mockResetEmbeddings).not.toHaveBeenCalled();
+    });
+
+    it("wipes and sets the chosen dimension on a dimension-only change", async () => {
+      mockFindInstanceBySlug
+        .mockResolvedValueOnce(fullInstance)
+        .mockResolvedValueOnce({ ...fullInstance, embeddingDim: 1536 });
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+      mockResetEmbeddings.mockResolvedValue(wipeResult(1536));
+
+      const res = await controller.update("test-one", { embeddingDim: 1536, confirmWipe: true });
+
+      expect(mockResetEmbeddings).toHaveBeenCalledWith("test-one", "uuid-1", 1536);
+      expect(res.instance.embeddingDim).toBe(1536);
+      expect(res.wiped?.newEmbeddingDim).toBe(1536);
+    });
+
+    it("uses the dimension sent with a provider switch instead of the provider default", async () => {
+      mockFindInstanceBySlug
+        .mockResolvedValueOnce({ ...fullInstance, embeddingProvider: "bedrock" })
+        .mockResolvedValueOnce({ ...fullInstance, embeddingDim: 1536 });
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+      mockResetEmbeddings.mockResolvedValue(wipeResult(1536));
+
+      await controller.update("test-one", { embeddingProvider: "openai", embeddingDim: 1536, confirmWipe: true });
+
+      expect(mockResetEmbeddings).toHaveBeenCalledWith("test-one", "uuid-1", 1536);
+    });
+
+    it("does not wipe when the dimension sent is the stored one", async () => {
+      mockFindInstanceBySlug.mockResolvedValue(fullInstance);
+      mockUpdateInstance.mockResolvedValue(fullInstance);
+
+      const res = await controller.update("test-one", { embeddingProvider: "openai", embeddingDim: 1024 });
 
       expect(mockResetEmbeddings).not.toHaveBeenCalled();
       expect(res.wiped).toBeNull();
@@ -571,7 +653,6 @@ describe("InstancesController", () => {
     beforeEach(() => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
       mockUpdateInstance.mockResolvedValue(fullInstance);
-      mockEmbeddingProviderChanged.mockReturnValue(false);
     });
 
     it("clamps temperature before persisting", async () => {
@@ -607,7 +688,6 @@ describe("InstancesController", () => {
     beforeEach(() => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
       mockUpdateInstance.mockResolvedValue(fullInstance);
-      mockEmbeddingProviderChanged.mockReturnValue(false);
     });
 
     it("stores the mapping trimmed, without the editor's blank rows", async () => {
@@ -635,7 +715,6 @@ describe("InstancesController", () => {
     beforeEach(() => {
       mockFindInstanceBySlug.mockResolvedValue(fullInstance);
       mockUpdateInstance.mockResolvedValue(fullInstance);
-      mockEmbeddingProviderChanged.mockReturnValue(false);
     });
 
     it("passes accepted values through to the store", async () => {

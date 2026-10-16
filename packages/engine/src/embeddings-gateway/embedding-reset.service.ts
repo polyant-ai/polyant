@@ -10,18 +10,35 @@ import type { EmbeddingDim, EmbeddingProvider } from "./types.js";
 import type { InstanceSlug, InstanceUuid } from "../instances/identifiers.js";
 import { allTenantsScope } from "../authz/scope-filter.js";
 
+/** The two settings that together define an agent's embedding space. */
+export interface EmbeddingSpace {
+  readonly embeddingProvider: EmbeddingProvider;
+  readonly embeddingDim: number;
+}
+
 /**
- * Whether the instance's EMBEDDING provider changed. The
- * embedding provider is now an independent field, decoupled from the chat
- * `provider`: changing only the chat LLM never touches embeddings. The embedding
- * space is provider-specific, so a change makes existing vectors uninterpretable
- * by the new provider and forces a wipe.
+ * Whether the instance's embedding SPACE changed: its embedding provider or its
+ * dimension. The embedding provider is an independent field, decoupled from the
+ * chat `provider`: changing only the chat LLM never touches embeddings. A vector
+ * is only comparable with vectors of the same provider AND the same dimension,
+ * so either change makes the existing ones unusable and forces a wipe.
  */
-export function embeddingProviderChanged(
-  before: { embeddingProvider: EmbeddingProvider },
-  after: { embeddingProvider: EmbeddingProvider },
-): boolean {
-  return before.embeddingProvider !== after.embeddingProvider;
+export function embeddingSpaceChanged(before: EmbeddingSpace, after: EmbeddingSpace): boolean {
+  return before.embeddingProvider !== after.embeddingProvider || before.embeddingDim !== after.embeddingDim;
+}
+
+/**
+ * The dimension an agent will embed at after an update. An explicit dimension
+ * wins; otherwise a provider switch lands on the new provider's default, and an
+ * unchanged provider keeps the stored dimension.
+ */
+export function nextEmbeddingDim(
+  before: EmbeddingSpace,
+  nextProvider: EmbeddingProvider,
+  requestedDim: EmbeddingDim | undefined,
+): number {
+  if (requestedDim !== undefined) return requestedDim;
+  return nextProvider === before.embeddingProvider ? before.embeddingDim : defaultDimForProvider(nextProvider);
 }
 
 export interface EmbeddingResetResult {
@@ -33,24 +50,24 @@ export interface EmbeddingResetResult {
 }
 
 /**
- * Destructive reset run when an instance's embedding provider changes.
+ * Destructive reset run when an instance's embedding provider or dimension
+ * changes.
  *
  * We deliberately do NOT convert existing vectors: re-embedding is a slow,
  * costly, error-prone migration. Instead the old embedding space is abandoned —
  * every memory and the entire knowledge base (documents + chunks, including raw
- * content) are deleted, then `embedding_dim` is realigned to the new provider's
- * default so future writes target the correct vector column.
+ * content) are deleted, then `embedding_dim` is set to the new dimension so
+ * future writes target the correct vector column. The caller validates that
+ * the provider can emit that dimension (`assertDimSupported`).
  *
  * Conversations are untouched: only extracted memories are removed, so the
  * keyword (FTS) search over raw messages keeps working.
  */
-export async function resetEmbeddingsForProviderSwitch(
+export async function resetEmbeddingSpace(
   slug: InstanceSlug,
   uuid: InstanceUuid,
-  newEmbeddingProvider: EmbeddingProvider,
+  newEmbeddingDim: EmbeddingDim,
 ): Promise<EmbeddingResetResult> {
-  const newEmbeddingDim = defaultDimForProvider(newEmbeddingProvider);
-
   // Single transaction: deleting the data and realigning embedding_dim must be
   // all-or-nothing. A partial apply (data gone, dim still on the old value)
   // would strand the instance in an unembeddable state.
@@ -60,13 +77,13 @@ export async function resetEmbeddingsForProviderSwitch(
     // zero rows. The instances table is keyed by UUID. Passing the wrong one was
     // the bug that left the data orphaned while only realigning embedding_dim.
     // The wipe is scoped by SLUG, which already pins exactly one agent and
-    // therefore one tenant; this service runs on a provider switch, with no
+    // therefore one tenant; this service runs on an embedding-space change, with no
     // principal to resolve an organization from. It used to pass `undefined`
     // here, which the store read as "no tenant filter" — the same thing a
     // forgotten argument produced, on a DELETE.
     const memoriesDeleted = await deleteAllMemories(
       slug,
-      allTenantsScope("embedding provider switch: scoped by agent slug, runs with no principal"),
+      allTenantsScope("embedding space change: scoped by agent slug, runs with no principal"),
       tx,
     );
     const { documents, chunks } = await deleteAllKnowledgeForInstance(slug, tx);
