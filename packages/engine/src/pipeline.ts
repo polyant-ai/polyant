@@ -715,6 +715,13 @@ export interface PipelinePostResult {
   finalText: string;
   /** Post-LLM hook outcomes (response_generated + response_sent). */
   hookExecutions: HookExecutionSummary[];
+  /**
+   * True once the turn passed its last abort gate and went to `afterResponse`, which
+   * writes its messages. The turn is then final: an abort that lands later (during
+   * `response_sent`) no longer cancels it, so the caller delivers `finalText` instead
+   * of re-running the turn.
+   */
+  committed: boolean;
 }
 
 export async function runPipelinePost(opts: PipelinePostOptions): Promise<PipelinePostResult> {
@@ -727,7 +734,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // Aborted pipelines leave no trace: skip trace/afterResponse entirely.
   // The caller (MessageCoordinator) has already discarded the result.
   if (opts.abortSignal?.aborted) {
-    return { finalText: opts.resultText, hookExecutions: [] };
+    return { finalText: opts.resultText, hookExecutions: [], committed: false };
   }
 
   let finalText = opts.resultText;
@@ -756,7 +763,7 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
   // The coordinator can abort while the hooks above were awaited (a new fragment
   // arrived). Re-check before any write: an aborted run persists nothing.
   if (opts.abortSignal?.aborted) {
-    return { finalText, hookExecutions };
+    return { finalText, hookExecutions, committed: false };
   }
 
   const totalMs = Date.now() - ctx.pipelineStart;
@@ -807,8 +814,9 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
 
   // The flush is awaited, so the coordinator may have aborted meanwhile. The state
   // upsert is idempotent for the restarted run; the messages must not be written.
+  // Past this gate the turn is committed: a later abort does not undo it.
   if (opts.abortSignal?.aborted) {
-    return { finalText, hookExecutions };
+    return { finalText, hookExecutions, committed: false };
   }
 
   if (persist) {
@@ -863,5 +871,5 @@ export async function runPipelinePost(opts: PipelinePostOptions): Promise<Pipeli
     }
   }
 
-  return { finalText, hookExecutions };
+  return { finalText, hookExecutions, committed: persist };
 }

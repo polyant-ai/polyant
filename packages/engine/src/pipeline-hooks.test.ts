@@ -241,9 +241,10 @@ describe("runPipelinePost persistence gate", () => {
   it("skips trace, state flush and message persistence when persist is false", async () => {
     const ctx = ctxWith({ stateBuffer: { flush, api: () => ({}) } as never, contextPrompt: "one-shot" });
 
-    const { finalText } = await runPipelinePost({ ...postOptions(ctx), persist: false });
+    const { finalText, committed } = await runPipelinePost({ ...postOptions(ctx), persist: false });
 
     expect(finalText).toBe("RESET → #12345");
+    expect(committed).toBe(false);
     expect(traceStore.record).not.toHaveBeenCalled();
     expect(flush).not.toHaveBeenCalled();
     expect(conversationStore.appendMessages).not.toHaveBeenCalled();
@@ -260,8 +261,9 @@ describe("runPipelinePost persistence gate", () => {
   it("persists by default when persist is absent", async () => {
     const ctx = ctxWith({ stateBuffer: { flush, api: () => ({}) } as never });
 
-    await runPipelinePost(postOptions(ctx));
+    const { committed } = await runPipelinePost(postOptions(ctx));
 
+    expect(committed).toBe(true);
     expect(traceStore.record).toHaveBeenCalledOnce();
     expect(flush).toHaveBeenCalled();
     await vi.waitFor(() => expect(conversationStore.appendMessages).toHaveBeenCalled());
@@ -275,8 +277,9 @@ describe("runPipelinePost persistence gate", () => {
     });
     const ctx = ctxWith({ stateBuffer: { flush, api: () => ({}) } as never, contextPrompt: "one-shot" });
 
-    await runPipelinePost({ ...postOptions(ctx), abortSignal: ac.signal });
+    const { committed } = await runPipelinePost({ ...postOptions(ctx), abortSignal: ac.signal });
 
+    expect(committed).toBe(false);
     expect(traceStore.record).not.toHaveBeenCalled();
     expect(flush).not.toHaveBeenCalled();
     expect(conversationStore.clearContextPrompt).not.toHaveBeenCalled();
@@ -292,11 +295,36 @@ describe("runPipelinePost persistence gate", () => {
     });
     const ctx = ctxWith({ stateBuffer: { flush: abortingFlush, api: () => ({}) } as never });
 
-    await runPipelinePost({ ...postOptions(ctx), abortSignal: ac.signal });
+    const { committed } = await runPipelinePost({ ...postOptions(ctx), abortSignal: ac.signal });
 
+    expect(committed).toBe(false);
     expect(abortingFlush).toHaveBeenCalledOnce();
     await new Promise((r) => setTimeout(r, 10));
     expect(conversationStore.appendMessages).not.toHaveBeenCalled();
+  });
+
+  it("reports nothing committed for a run aborted before it starts", async () => {
+    const ac = new AbortController();
+    ac.abort();
+
+    const { committed } = await runPipelinePost({ ...postOptions(ctxWith({})), abortSignal: ac.signal });
+
+    expect(committed).toBe(false);
+    expect(runHooks).not.toHaveBeenCalled();
+  });
+
+  it("reports the turn committed when the abort lands during response_sent, after its messages were written", async () => {
+    const ac = new AbortController();
+    vi.mocked(runHooks).mockImplementation(async (event) => {
+      if (event === "response_sent") ac.abort();
+      return [];
+    });
+
+    const { committed } = await runPipelinePost({ ...postOptions(ctxWith({})), abortSignal: ac.signal });
+
+    expect(ac.signal.aborted).toBe(true);
+    expect(committed).toBe(true);
+    await vi.waitFor(() => expect(conversationStore.appendMessages).toHaveBeenCalled());
   });
 });
 
