@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,7 @@ import { SECRET_KEYS } from "@/lib/provider-secrets";
 import { api, getUserErrorMessage, type Instance } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
+import { useDraft } from "./use-draft";
 
 /**
  * LangSmith tracing, with its project and its key.
@@ -34,21 +35,16 @@ export function LangsmithCard({
 }) {
   const { t } = useI18n();
   const [saving, setSaving] = useState(false);
-  const [enabled, setEnabled] = useState(instance.langsmithEnabled);
-  const [project, setProject] = useState(instance.langsmithProject ?? "");
+  const { draft, set, isDirty: fieldsDirty } = useDraft({
+    enabled: instance.langsmithEnabled,
+    project: instance.langsmithProject ?? "",
+  });
+  const { enabled, project } = draft;
   const key = useInstanceSecret(instance.slug, SECRET_KEYS.LANGSMITH);
 
-  useEffect(() => {
-    setEnabled(instance.langsmithEnabled);
-    setProject(instance.langsmithProject ?? "");
-  }, [instance.langsmithEnabled, instance.langsmithProject]);
-
-  const isDirty =
-    enabled !== instance.langsmithEnabled ||
-    project !== (instance.langsmithProject ?? "") ||
-    // A pending key is a reason to enable Save too: without this the field would
-    // accept a paste and offer no way to commit it.
-    key.dirty;
+  // A pending key is a reason to enable Save too: without this the field would
+  // accept a paste and offer no way to commit it.
+  const isDirty = fieldsDirty || key.dirty;
 
   const handleSave = async () => {
     setSaving(true);
@@ -80,7 +76,7 @@ export function LangsmithCard({
           </Label>
           <p className="text-sm text-muted-foreground">{t("settings.tab.langsmithHelp")}</p>
         </div>
-        <Switch id="agent-langsmith" checked={enabled} onCheckedChange={setEnabled} />
+        <Switch id="agent-langsmith" checked={enabled} onCheckedChange={(v) => set("enabled", v)} />
       </div>
 
       {/* The project and the key appear only once tracing is on: they are its
@@ -92,7 +88,7 @@ export function LangsmithCard({
             <Input
               id="agent-langsmith-project"
               value={project}
-              onChange={(e) => setProject(e.target.value)}
+              onChange={(e) => set("project", e.target.value)}
               placeholder={t("settings.tab.langsmithProjectPlaceholder")}
             />
           </div>

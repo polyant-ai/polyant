@@ -31,6 +31,7 @@ import { useFormat } from "@/lib/use-format";
 import { LoadFailed } from "@/components/ui/load-failed";
 import { useResource } from "@/hooks/use-resource";
 import { usePageSaveAction } from "./page-actions-context";
+import { useDraft } from "./use-draft";
 
 interface Props {
   instance: Instance;
@@ -56,26 +57,20 @@ function parseKeywords(s: string): string[] {
     .filter(Boolean);
 }
 
-function sameKeywords(input: string, base: string[]): boolean {
-  const parsed = parseKeywords(input);
-  return parsed.length === base.length && parsed.every((k, i) => k === base[i]);
-}
-
 export function PrivacyTab({ instance, onUpdate }: Props) {
   const { t } = useI18n();
   const fmt = useFormat();
 
   // ── Config form state ──────────────────────────────────────────────
-  const [enabled, setEnabled] = useState(instance.optoutEnabled);
-  const [stopKeywords, setStopKeywords] = useState(
-    instance.optoutStopKeywords.join(", "),
-  );
-  const [resumeKeywords, setResumeKeywords] = useState(
-    instance.optoutResumeKeywords.join(", "),
-  );
-  const [closingMsg, setClosingMsg] = useState(instance.optoutClosingMessage ?? "");
-  const [resumeMsg, setResumeMsg] = useState(instance.optoutResumeMessage ?? "");
-  const [injectHint, setInjectHint] = useState(instance.optoutInjectPromptHint);
+  const { draft, set, isDirty } = useDraft({
+    enabled: instance.optoutEnabled,
+    stopKeywords: instance.optoutStopKeywords.join(", "),
+    resumeKeywords: instance.optoutResumeKeywords.join(", "),
+    closingMsg: instance.optoutClosingMessage ?? "",
+    resumeMsg: instance.optoutResumeMessage ?? "",
+    injectHint: instance.optoutInjectPromptHint,
+  });
+  const { enabled, stopKeywords, resumeKeywords, closingMsg, resumeMsg, injectHint } = draft;
   const [saving, setSaving] = useState(false);
 
   // ── Contacts table state ───────────────────────────────────────────
@@ -109,14 +104,6 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
       setSaving(false);
     }
   };
-
-  const isDirty =
-    enabled !== instance.optoutEnabled ||
-    !sameKeywords(stopKeywords, instance.optoutStopKeywords) ||
-    !sameKeywords(resumeKeywords, instance.optoutResumeKeywords) ||
-    closingMsg.trim() !== (instance.optoutClosingMessage ?? "") ||
-    resumeMsg.trim() !== (instance.optoutResumeMessage ?? "") ||
-    injectHint !== instance.optoutInjectPromptHint;
 
   usePageSaveAction({ isDirty, saving, onSave: handleSave });
 
@@ -162,7 +149,7 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
         {/* Enable toggle */}
         <div className="flex items-center justify-between border-t pt-4">
           <Label>{t("privacy.enable")}</Label>
-          <Switch checked={enabled} onCheckedChange={setEnabled} />
+          <Switch checked={enabled} onCheckedChange={(v) => set("enabled", v)} />
         </div>
 
         {enabled && (
@@ -173,7 +160,7 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
               <Input
                 id="stop-keywords"
                 value={stopKeywords}
-                onChange={(e) => setStopKeywords(e.target.value)}
+                onChange={(e) => set("stopKeywords", e.target.value)}
                 placeholder="STOP, UNSUBSCRIBE"
               />
               <p className="text-xs text-muted-foreground">
@@ -187,7 +174,7 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
               <Input
                 id="resume-keywords"
                 value={resumeKeywords}
-                onChange={(e) => setResumeKeywords(e.target.value)}
+                onChange={(e) => set("resumeKeywords", e.target.value)}
                 placeholder="START, SUBSCRIBE"
               />
             </div>
@@ -198,7 +185,7 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
               <Textarea
                 id="closing-msg"
                 value={closingMsg}
-                onChange={(e) => setClosingMsg(e.target.value)}
+                onChange={(e) => set("closingMsg", e.target.value)}
                 placeholder={t("privacy.closingMessagePlaceholder")}
                 rows={3}
               />
@@ -210,7 +197,7 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
               <Textarea
                 id="resume-msg"
                 value={resumeMsg}
-                onChange={(e) => setResumeMsg(e.target.value)}
+                onChange={(e) => set("resumeMsg", e.target.value)}
                 placeholder={t("privacy.resumeMessagePlaceholder")}
                 rows={3}
               />
@@ -226,7 +213,7 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
                   {t("privacy.injectHintHelp")}
                 </p>
               </div>
-              <Switch checked={injectHint} onCheckedChange={setInjectHint} />
+              <Switch checked={injectHint} onCheckedChange={(v) => set("injectHint", v)} />
             </div>
           </>
         )}

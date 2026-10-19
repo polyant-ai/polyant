@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle } from "lucide-react";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,7 @@ import { api, getUserErrorMessage, type Instance } from "@/lib/api";
 import { providerName } from "@/lib/provider-secrets";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
+import { useDraft } from "./use-draft";
 
 /**
  * Whether the agent remembers, and the warning when it cannot.
@@ -34,15 +35,8 @@ export function MemoryCard({
   const { t } = useI18n();
   const embeddingProvider = instance.embeddingProvider ?? "openai";
   const [saving, setSaving] = useState(false);
-  const [enabled, setEnabled] = useState(instance.memoryEnabled);
-
-  // Re-sync when the parent reloads the agent: local state would otherwise keep
-  // showing the pre-save value.
-  useEffect(() => {
-    setEnabled(instance.memoryEnabled);
-  }, [instance.memoryEnabled]);
-
-  const isDirty = enabled !== instance.memoryEnabled;
+  const { draft, set, isDirty } = useDraft({ enabled: instance.memoryEnabled });
+  const { enabled } = draft;
 
   const handleSave = async () => {
     setSaving(true);
@@ -74,7 +68,7 @@ export function MemoryCard({
           id="agent-memory"
           checked={enabled}
           disabled={saving}
-          onCheckedChange={setEnabled}
+          onCheckedChange={(v) => set("enabled", v)}
         />
       </div>
 
