@@ -2,12 +2,11 @@
 
 "use client";
 
-import { Fragment, useEffect, useState, useCallback } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { usePagination } from "@/hooks/use-pagination";
 import { toast } from "sonner";
 import { ScrollText, Search, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -29,90 +28,71 @@ import {
   api,
   getUserErrorMessage,
   isForbidden,
-  type Instance,
-  type AuditLogEntry,
-  type AuditStatsResult,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { PageHeader } from "@/components/layout/page-header";
+import { Pager } from "@/components/ui/pager";
+import { useResource } from "@/hooks/use-resource";
 import { PermissionRequired } from "@/components/layout/permission-required";
 import { truncate } from "@/lib/format";
 import { useFormat } from "@/lib/use-format";
 
+const PAGE_SIZE = 30;
+
 export default function AuditLogsPage() {
   const { t } = useI18n();
   const fmt = useFormat();
-  const PAGE_SIZE = 30;
   const {
     page,
     setPage,
     search,
     setSearch,
     debouncedSearch,
-    totalPages,
-    setTotal,
     offset,
   } = usePagination({ pageSize: PAGE_SIZE });
 
-  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
-  const [stats, setStats] = useState<AuditStatsResult | null>(null);
-  const [instances, setInstances] = useState<Instance[]>([]);
-  const [loading, setLoading] = useState(true);
-  // `audit_log:read` is admin+. The nav entry is offered to every role because
-  // the panel cannot know the caller's, so a viewer legitimately lands here and
-  // both audit fetches refuse. That is an ANSWER, not a failure — it replaces the
-  // page body rather than raising the "failed to load" toast it used to.
-  const [forbidden, setForbidden] = useState(false);
   const [instanceFilter, setInstanceFilter] = useState("");
   const [toolFilter, setToolFilter] = useState("");
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
-  // Fetch instances for filter dropdown
-  useEffect(() => {
-    api.instances
-      .list()
-      .then(({ instances }) => setInstances(instances))
-      .catch((err) => toast.error(getUserErrorMessage(err, t("common.loadFailed"))));
-  }, [t]);
+  // Agents for the filter dropdown.
+  const { data: instancesData, error: instancesError } = useResource("instances", () => api.instances.list());
+  const instances = instancesData?.instances ?? [];
 
-  // Fetch stats — `instanceId` is optional: when the dropdown is on "all
-  // agents" we send `undefined` and the backend returns system-wide stats.
-  useEffect(() => {
-    api.auditLogs
-      .stats({ instanceId: instanceFilter || undefined })
-      .then(setStats)
-      .catch((err) => {
-        if (isForbidden(err)) {
-          setForbidden(true);
-          return;
-        }
-        toast.error(getUserErrorMessage(err, t("common.loadFailed")));
-      });
-  }, [instanceFilter, t]);
+  // Stats — `instanceId` is optional: when the dropdown is on "all agents" we
+  // send `undefined` and the backend returns system-wide stats.
+  const { data: stats, error: statsError } = useResource(["audit-stats", instanceFilter], () =>
+    api.auditLogs.stats({ instanceId: instanceFilter || undefined }),
+  );
 
-  // Fetch audit logs — same: `undefined` instanceId means "show every instance".
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await api.auditLogs.list({
+  // Audit logs — same: `undefined` instanceId means "show every instance".
+  const { data: logsData, error: logsError, loading } = useResource(
+    ["audit-logs", instanceFilter, toolFilter, debouncedSearch, offset],
+    () =>
+      api.auditLogs.list({
         instanceId: instanceFilter || undefined,
         toolName: toolFilter || undefined,
         search: debouncedSearch || undefined,
         limit: PAGE_SIZE,
         offset,
-      });
-      setLogs(result.items);
-      setTotal(result.total);
-    } catch (err) {
-      if (isForbidden(err)) setForbidden(true);
-      else toast.error(getUserErrorMessage(err, t("common.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [page, instanceFilter, toolFilter, debouncedSearch, offset, setTotal]);
+      }),
+  );
+  const logs = logsData?.items ?? [];
+  const totalPages = Math.max(1, Math.ceil((logsData?.total ?? 0) / PAGE_SIZE));
 
+  // `audit_log:read` is admin+. The nav entry is offered to every role because
+  // the panel cannot know the caller's, so a viewer legitimately lands here and
+  // both audit fetches refuse. That is an ANSWER, not a failure — it replaces the
+  // page body rather than raising the "failed to load" toast it used to.
+  const forbidden = isForbidden(statsError) || isForbidden(logsError);
+
+  // Anything else that failed is said once, when it arrives.
+  const failure = [instancesError, statsError, logsError].find((err) => err !== undefined && !isForbidden(err));
   useEffect(() => {
-    fetchLogs();
-  }, [fetchLogs]);
+    if (failure !== undefined) toast.error(getUserErrorMessage(failure, t("common.loadFailed")));
+    // `t` is stable per locale; the failure itself is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [failure]);
 
   // Unique tool names from stats for filter dropdown
   const toolNames = stats?.byTool.map((t) => t.toolName) ?? [];
@@ -120,11 +100,12 @@ export default function AuditLogsPage() {
   // Early, before the filters: with no readable log there is nothing to filter,
   // and a working search over a permanently empty table is the misleading half
   // of the dead-end this replaces.
+  const header = <PageHeader title={t("auditLog.title")} subtitle={t("auditLog.subtitle")} />;
+
   if (forbidden) {
     return (
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{t("auditLog.title")}</h1>
-        <p className="mt-1 text-muted-foreground">{t("auditLog.subtitle")}</p>
+        {header}
         <PermissionRequired description={t("permission.required.auditLogs")} />
       </div>
     );
@@ -132,12 +113,7 @@ export default function AuditLogsPage() {
 
   return (
     <div>
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          {t("auditLog.title")}
-        </h1>
-        <p className="mt-1 text-muted-foreground">{t("auditLog.subtitle")}</p>
-      </div>
+      {header}
 
       {/* Stats cards */}
       {stats && (
@@ -364,29 +340,7 @@ export default function AuditLogsPage() {
               </TableBody>
             </Table>
 
-            {totalPages > 1 && (
-              <div className="mt-4 flex items-center justify-center gap-4">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
-                >
-                  {t("auditLog.previous")}
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  {page} / {totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  {t("auditLog.next")}
-                </Button>
-              </div>
-            )}
+            <Pager page={page} totalPages={totalPages} onPage={setPage} />
           </>
         )}
       </div>
