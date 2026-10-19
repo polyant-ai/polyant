@@ -28,7 +28,7 @@ vi.mock("./adapters/whatsapp/index.js", () => ({ WhatsAppAdapter: vi.fn() }));
 async function incomingOutputAt(level: string): Promise<string> {
   vi.resetModules();
   process.env.LOG_LEVEL = level;
-  const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+  const spy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
   const { ChannelManager } = await import("./channel-manager.js");
   const manager = new ChannelManager();
   manager.setMessageHandler(vi.fn().mockResolvedValue({ text: "ok" }));

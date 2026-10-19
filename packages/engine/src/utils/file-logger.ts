@@ -3,7 +3,7 @@
 import { createWriteStream, existsSync, mkdirSync, readdirSync, unlinkSync, type WriteStream } from "fs";
 import { resolve, dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { sanitizeForLog } from "./create-logger.js";
+import { sanitizeForLog, setLogTee } from "./create-logger.js";
 import { serializeForLog } from "./serialize-for-log.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -105,6 +105,9 @@ export function installFileLogger(): void {
     writeLine("[ERROR] ", args);
   };
 
+  // Module loggers (createLogger) write to stdout/stderr, not console.*: tee them too.
+  setLogTee((level, line) => writeLine(level === "warn" ? "[WARN] " : level === "error" ? "[ERROR] " : "", [line]));
+
   // Rotation happens on the first line of a new day (`getStream`); the timer only purges.
   rotationTimer = setInterval(purgeOldLogs, PURGE_INTERVAL_MS);
 
@@ -116,6 +119,7 @@ export function installFileLogger(): void {
 
 /** Shutdown file logger cleanly. */
 export function shutdownFileLogger(): void {
+  setLogTee(null);
   if (rotationTimer) {
     clearInterval(rotationTimer);
     rotationTimer = null;

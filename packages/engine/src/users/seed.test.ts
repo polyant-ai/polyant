@@ -31,7 +31,7 @@ describe("seedInitialAdmin", () => {
 
   it("is a no-op when the users table is not empty", async () => {
     mockedStore.countUsers.mockResolvedValueOnce(3);
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const log = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     await seedInitialAdmin();
 
@@ -46,8 +46,8 @@ describe("seedInitialAdmin", () => {
 
   it("skips seeding (without inserting or printing secrets) when INITIAL_ADMIN_PASSWORD is unset", async () => {
     mockedStore.countUsers.mockResolvedValueOnce(0);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const log = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     await seedInitialAdmin();
 
@@ -72,8 +72,8 @@ describe("seedInitialAdmin", () => {
       email: "boss@example.com",
       password: "supplied-by-env",
     };
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const log = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     await seedInitialAdmin();
 

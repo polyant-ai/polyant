@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect } from "vitest";
-import { sanitizeForLog } from "./create-logger.js";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { createLogger, sanitizeForLog, setLogTee } from "./create-logger.js";
 
 describe("sanitizeForLog", () => {
   it("collapses newlines so untrusted text cannot forge a second log line", () => {
@@ -24,5 +24,27 @@ describe("sanitizeForLog", () => {
 
   it("is a no-op on an empty string", () => {
     expect(sanitizeForLog("")).toBe("");
+  });
+});
+
+describe("setLogTee", () => {
+  afterEach(() => {
+    setLogTee(null);
+    vi.restoreAllMocks();
+  });
+
+  it("hands every formatted line to the tee with its level", () => {
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const tee = vi.fn();
+    setLogTee(tee);
+
+    const log = createLogger();
+    log.info("a", "hello");
+    log.warn("a", "careful");
+    log.error("a", "broke", new Error("why"));
+
+    expect(tee.mock.calls.map((c) => c[0])).toEqual(["info", "warn", "error"]);
+    expect(String(tee.mock.calls[2]![1])).toContain("broke — why");
   });
 });

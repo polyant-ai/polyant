@@ -603,7 +603,7 @@ describe("registry", () => {
       expect(getToolRegistry().has(name)).toBe(true);
 
       mockReaddirSync.mockReturnValue([] as any);
-      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const consoleSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       await loadAllTools();
 
@@ -663,7 +663,7 @@ describe("registry", () => {
       );
 
       mockReaddirSync.mockReturnValue([] as any);
-      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const consoleSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       await loadAllTools();
 
@@ -685,7 +685,7 @@ describe("registry", () => {
       _registerToolForTests(makeDef({ name: badName, requiredEnv: ["NONEXISTENT_VAR_ZZZ"] }));
 
       mockReaddirSync.mockReturnValue([] as any);
-      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
       await loadAllTools();
 
@@ -735,7 +735,7 @@ describe("registry", () => {
     });
 
     it("degrades to fill-only (accept) when the schema does not compile", () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       const bad = { type: "object", properties: { x: { type: "not-a-real-type" } } };
       const r = fillAndValidate(bad, { x: 1 });
       expect(r.ok).toBe(true); // best-effort: no hard break on an uncompilable schema

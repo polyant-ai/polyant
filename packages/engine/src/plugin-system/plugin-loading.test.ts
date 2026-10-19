@@ -113,7 +113,7 @@ describe("plugin loading (serialized contract, integration)", () => {
       { root: sampleFixture, manifest: sampleManifest! },
     ]);
 
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     await expect(loadAllTools()).resolves.toBeUndefined();
 
     expect(getToolRegistry().has("crash:boom")).toBe(false); // exploded → skipped
@@ -127,7 +127,7 @@ describe("plugin loading (serialized contract, integration)", () => {
     expect(badManifest).not.toBeNull();
     vi.mocked(resolvePluginRoots).mockReturnValue([{ root: badSchemaFixture, manifest: badManifest! }]);
 
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     await loadAllTools();
 
     expect(getToolRegistry().has("badschema:loose")).toBe(true); // still registered

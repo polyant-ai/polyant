@@ -180,6 +180,9 @@ describe("GlobalExceptionFilter", () => {
         log: vi.spyOn(console, "log").mockImplementation(() => {}),
         debug: vi.spyOn(console, "debug").mockImplementation(() => {}),
         info: vi.spyOn(console, "info").mockImplementation(() => {}),
+        // createLogger writes straight to the streams (4xx branches log through it).
+        stdout: vi.spyOn(process.stdout, "write").mockImplementation(() => true),
+        stderr: vi.spyOn(process.stderr, "write").mockImplementation(() => true),
       };
     }
 
@@ -202,7 +205,7 @@ describe("GlobalExceptionFilter", () => {
 
       filter.catch(new HttpException("Too Many Requests", 429), host);
 
-      expect(spies.warn).toHaveBeenCalledTimes(1);
+      expect(spies.stderr).toHaveBeenCalledTimes(1);
       expect(spies.error).not.toHaveBeenCalled();
       const logged = allLoggedText(spies);
       expect(logged).not.toContain(secret);
@@ -218,7 +221,7 @@ describe("GlobalExceptionFilter", () => {
 
       filter.catch(new TypeError("Cannot read properties of undefined (reading 'map')"), host);
 
-      expect(spies.warn).toHaveBeenCalledTimes(1);
+      expect(spies.stderr).toHaveBeenCalledTimes(1);
       const logged = allLoggedText(spies);
       expect(logged).not.toContain(secret);
       expect(logged).toContain(REDACTED_PLACEHOLDER);

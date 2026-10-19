@@ -209,7 +209,8 @@ describe("TwilioWebhookController (path secret route)", () => {
     });
 
     it("never logs the secret", async () => {
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // createLogger writes warn lines to stderr rather than through console.warn.
+      const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       const log = vi.spyOn(console, "log").mockImplementation(() => {});
       const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
@@ -255,12 +256,13 @@ describe("TwilioWebhookController (path secret route)", () => {
     const forgedSlug = "foo\n[INFO] forged";
     mockResolveInstanceId.mockResolvedValue(undefined);
 
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     const promise = controller.handleWhatsAppWebhookWithSecret(forgedSlug, "any-secret", validBody);
     await expect(promise).rejects.toBeInstanceOf(NotFoundException);
 
-    const loggedText = warn.mock.calls.flat().map(String).join(" ");
+    // Drop the line terminator the logger itself appends.
+    const loggedText = warn.mock.calls.flat().map((c) => String(c).replace(/\n$/, "")).join(" ");
     expect(loggedText).not.toContain("\n");
     expect(loggedText).toContain("foo [INFO] forged");
 

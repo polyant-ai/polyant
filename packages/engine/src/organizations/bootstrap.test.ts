@@ -39,7 +39,7 @@ describe("bootstrapOrganizations", () => {
 
   it("stops without touching tenancy when the default org is missing", async () => {
     mockedStore.findDefaultOrganization.mockResolvedValueOnce(null);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
     await bootstrapOrganizations();
 
@@ -51,7 +51,7 @@ describe("bootstrapOrganizations", () => {
 
   it("is a no-op on a fresh install (zero users)", async () => {
     mockedUsers.countUsers.mockResolvedValueOnce(0);
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const log = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     await bootstrapOrganizations();
 
@@ -66,7 +66,7 @@ describe("bootstrapOrganizations", () => {
       password: "set-only-when-creating-the-initial-admin",
     };
     mockedStore.ensureExistingPlatformAdminOwner.mockResolvedValueOnce("org-1");
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     await bootstrapOrganizations();
 
@@ -80,7 +80,7 @@ describe("bootstrapOrganizations", () => {
     // created the local account. Without it there is no bootstrap identity to
     // complete, and nothing here may pick one by matching an address.
     mockedUsers.countUsers.mockResolvedValueOnce(5);
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     await bootstrapOrganizations();
 

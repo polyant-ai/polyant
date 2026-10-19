@@ -107,7 +107,7 @@ describe("ManagementAuditStore", () => {
         };
       },
     };
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     store.initialize(failingDb);
     store.record({
       action: ManagementAuditAction.AgentCreate,
@@ -151,7 +151,7 @@ describe("ManagementAuditStore", () => {
 
   it("writes the other rows of a batch and drops only the one the database refuses", async () => {
     const { db, written } = refusingDb();
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     store.initialize(db);
     store.record(entry("a"));
     store.record(entry("poison"));
@@ -167,7 +167,7 @@ describe("ManagementAuditStore", () => {
 
   it("keeps the whole batch for later when the database itself is down", async () => {
     const { db, written, setUp } = refusingDb();
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     store.initialize(db);
     store.record(entry("a"));
     store.record(entry("b"));
