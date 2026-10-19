@@ -12,7 +12,6 @@ const { mockList, mockSet, mockConnect, mockDisconnect } = vi.hoisted(() => ({
   mockDisconnect: vi.fn(),
 }));
 
-// One stable `t`: the tab reloads whenever `t` changes identity.
 const i18n = vi.hoisted(() => ({ t: (key: string) => key, locale: "en", setLocale: () => {} }));
 vi.mock("@/lib/i18n/context", () => ({ useI18n: () => i18n }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
