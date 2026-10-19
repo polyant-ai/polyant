@@ -6,7 +6,7 @@ import { ChevronDown } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { MarkdownRenderer } from "@/app/(admin)/organizations/[orgSlug]/workspaces/[workspaceSlug]/playground/_components/markdown-renderer";
+import { MarkdownRenderer } from "@/components/messages/markdown-renderer";
 import type { ChangelogEntry } from "@/lib/changelog-types";
 
 interface ChangelogEntryCardProps {

@@ -41,7 +41,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { api, getUserErrorMessage, type ConversationListItem, type ConversationMessage, type AttachmentMeta, type HookExecution } from "@/lib/api";
-import { MarkdownRenderer } from "@/app/(admin)/organizations/[orgSlug]/workspaces/[workspaceSlug]/playground/_components/markdown-renderer";
+import { MarkdownRenderer } from "@/components/messages/markdown-renderer";
 import { MessageExtras } from "@/components/messages/message-extras";
 import { MessageMetadataPills } from "@/components/messages/message-metadata-pills";
 import { Switch } from "@/components/ui/switch";

@@ -8,7 +8,7 @@ import {
   streamChatCompletion,
   type ChatMessage as SSEMessage,
   type PlaygroundHookExecution,
-} from "../_lib/stream-parser";
+} from "@/lib/stream-parser";
 import {
   api,
   type ConversationMessage,
