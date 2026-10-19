@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,8 @@ import {
 import { api, getUserErrorMessage, type Instance, type OptoutContact } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { useFormat } from "@/lib/use-format";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { useResource } from "@/hooks/use-resource";
 import { usePageSaveAction } from "./page-actions-context";
 
 interface Props {
@@ -77,30 +79,16 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
   const [saving, setSaving] = useState(false);
 
   // ── Contacts table state ───────────────────────────────────────────
-  const [contacts, setContacts] = useState<OptoutContact[]>([]);
-  const [loadingContacts, setLoadingContacts] = useState(true);
+  const { data, error: contactsError, loading: loadingContacts, reload: refreshContacts } = useResource(
+    ["optouts", instance.slug],
+    () => api.optouts.list(instance.slug, { status: "opted_out" }),
+  );
+  const contacts: OptoutContact[] = data?.optouts ?? [];
 
   // ── Opt-out-a-contact form state ───────────────────────────────────
   const [newChannelType, setNewChannelType] = useState<string>(OPTOUT_CHANNELS[0]);
   const [newChannelId, setNewChannelId] = useState("");
   const [addingContact, setAddingContact] = useState(false);
-
-  const refreshContacts = async () => {
-    setLoadingContacts(true);
-    try {
-      const res = await api.optouts.list(instance.slug, { status: "opted_out" });
-      setContacts(res.optouts);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("privacy.loadContactsFailed")));
-    } finally {
-      setLoadingContacts(false);
-    }
-  };
-
-  useEffect(() => {
-    void refreshContacts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instance.slug]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -136,7 +124,7 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
     try {
       await api.optouts.optIn(instance.slug, contact.channelType, contact.channelId);
       toast.success(t("privacy.reEnableSuccess"));
-      await refreshContacts();
+      refreshContacts();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("privacy.reEnableFailed")));
     }
@@ -152,7 +140,7 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
       toast.success(t("privacy.optOutContactSuccess"));
       setNewChannelType(OPTOUT_CHANNELS[0]);
       setNewChannelId("");
-      await refreshContacts();
+      refreshContacts();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("privacy.optOutContactFailed")));
     } finally {
@@ -253,7 +241,9 @@ export function PrivacyTab({ instance, onUpdate }: Props) {
           </p>
         </div>
 
-        {loadingContacts ? (
+        {contactsError ? (
+          <LoadFailed message={t("privacy.loadContactsFailed")} onRetry={refreshContacts} />
+        ) : loadingContacts ? (
           <div className="space-y-2">
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
