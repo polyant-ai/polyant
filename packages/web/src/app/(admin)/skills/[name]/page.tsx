@@ -5,13 +5,13 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Download } from "lucide-react";
+import { Download } from "lucide-react";
 import { parseUTC } from "@/lib/format";
+import { downloadBlob } from "@/lib/download";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ChipTabs } from "@/components/layout/chip-tabs";
@@ -39,16 +39,10 @@ import {
   getUserErrorMessage,
   type LibrarySkillDetail,
   type SkillVersion,
-  type RequiredEnvEntry,
   type ToolInfo,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
-
-interface EnvVarDef {
-  name: string;
-  description: string;
-  sensitive: boolean;
-}
+import { EnvVarsEditor, toEnvVarDefs, toRequiredEnv, type EnvVarDef } from "@/components/skills/env-vars-editor";
 
 export default function SkillDetailPage() {
   const params = useParams<{ name: string }>();
@@ -88,18 +82,12 @@ export default function SkillDetailPage() {
         setSkill(data);
         setDescription(data.description);
         setContent(data.content);
-        setEnvVars(
-          data.requiredEnv?.map((e) => ({
-            name: e.name,
-            description: e.description ?? "",
-            sensitive: e.sensitive,
-          })) ?? [],
-        );
+        setEnvVars(toEnvVarDefs(data.requiredEnv));
         setRequiredTools(data.requiredTools ?? []);
         setAvailableTools(toolsData.tools ?? []);
       } catch (err) {
         toast.error(
-          getUserErrorMessage(err, t("skills.fetchFailed") ?? "Failed to load skill"),
+          getUserErrorMessage(err, t("skills.fetchFailed")),
         );
       } finally {
         setLoading(false);
@@ -115,43 +103,17 @@ export default function SkillDetailPage() {
       setVersions(data.versions);
     } catch (err) {
       toast.error(
-        getUserErrorMessage(err, t("skills.fetchFailed") ?? "Failed to load versions"),
+        getUserErrorMessage(err, t("skills.fetchFailed")),
       );
     } finally {
       setVersionsLoading(false);
     }
   };
 
-  const addEnvVar = () => {
-    setEnvVars((prev) => [...prev, { name: "", description: "", sensitive: true }]);
-  };
-
-  const removeEnvVar = (index: number) => {
-    setEnvVars((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const updateEnvVar = (
-    index: number,
-    field: keyof EnvVarDef,
-    value: string | boolean,
-  ) => {
-    setEnvVars((prev) =>
-      prev.map((v, i) => (i === index ? { ...v, [field]: value } : v)),
-    );
-  };
-
   const handleSave = async () => {
     setSaving(true);
     try {
-      const validEnvVars = envVars
-        .filter((e) => e.name.trim())
-        .map((e) => ({
-          name: e.name.trim(),
-          ...(e.description.trim() ? { description: e.description.trim() } : {}),
-          sensitive: e.sensitive,
-        }));
-
-      const reqEnv = validEnvVars.length > 0 ? validEnvVars : undefined;
+      const reqEnv = toRequiredEnv(envVars);
 
       const updated = await api.skillLibrary.update(params.name, {
         description,
@@ -163,7 +125,7 @@ export default function SkillDetailPage() {
 
       setSkill(updated);
       setChangelog("");
-      toast.success(t("common.saved") ?? "Saved");
+      toast.success(t("common.saved"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("skills.form.saveFailed")));
     } finally {
@@ -179,7 +141,7 @@ export default function SkillDetailPage() {
       router.push("/skills");
     } catch (err) {
       toast.error(
-        getUserErrorMessage(err, t("skills.deleteFailed") ?? "Failed to archive skill"),
+        getUserErrorMessage(err, t("skills.deleteFailed")),
       );
     } finally {
       setArchiving(false);
@@ -190,15 +152,8 @@ export default function SkillDetailPage() {
     setExporting(true);
     try {
       const blob = await api.exportImport.exportSkill(params.name);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
       const date = new Date().toISOString().slice(0, 10);
-      a.download = `${params.name}-${date}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `${params.name}-${date}.json`);
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("exportImport.export.failed")));
     } finally {
@@ -216,7 +171,7 @@ export default function SkillDetailPage() {
       setSelectedVersion(data);
     } catch (err) {
       toast.error(
-        getUserErrorMessage(err, t("skills.fetchFailed") ?? "Failed to load version"),
+        getUserErrorMessage(err, t("skills.fetchFailed")),
       );
     }
   };
@@ -296,74 +251,7 @@ export default function SkillDetailPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>{t("skills.form.requiredEnv")}</Label>
-              {envVars.length > 0 && (
-                <div className="space-y-3">
-                  {envVars.map((envVar, index) => (
-                    <div
-                      key={index}
-                      className="flex items-start gap-3 rounded-lg border p-3"
-                    >
-                      <div className="flex-1 space-y-2">
-                        <div className="flex items-center gap-3">
-                          <Input
-                            value={envVar.name}
-                            onChange={(e) =>
-                              updateEnvVar(
-                                index,
-                                "name",
-                                e.target.value
-                                  .toUpperCase()
-                                  .replace(/[^A-Z0-9_]/g, "_"),
-                              )
-                            }
-                            placeholder={t("skills.form.envNamePlaceholder")}
-                            className="font-mono text-sm"
-                          />
-                          <div className="flex items-center gap-2 shrink-0">
-                            <Switch
-                              checked={envVar.sensitive}
-                              onCheckedChange={(checked) =>
-                                updateEnvVar(index, "sensitive", checked)
-                              }
-                            />
-                            <span className="text-xs text-muted-foreground">
-                              {t("skills.form.envSecret")}
-                            </span>
-                          </div>
-                        </div>
-                        <Input
-                          value={envVar.description}
-                          onChange={(e) =>
-                            updateEnvVar(index, "description", e.target.value)
-                          }
-                          placeholder={t("skills.form.envDescPlaceholder")}
-                          className="text-sm"
-                        />
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeEnvVar(index)}
-                        className="shrink-0 mt-0.5"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={addEnvVar}
-                className="mt-2"
-              >
-                <Plus className="mr-2 size-4" />
-                {t("skills.form.addVariable")}
-              </Button>
-            </div>
+            <EnvVarsEditor value={envVars} onChange={setEnvVars} />
 
             <div className="space-y-2">
               <Label>{t("skills.detail.requiredTools")}</Label>

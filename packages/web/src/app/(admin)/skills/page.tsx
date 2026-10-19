@@ -40,7 +40,7 @@ export default function SkillsPage() {
       const data = await api.skillLibrary.list();
       setSkills(Array.isArray(data.skills) ? data.skills : []);
     } catch (err) {
-      toast.error(getUserErrorMessage(err, t("skills.fetchFailed") ?? "Failed to load skills"));
+      toast.error(getUserErrorMessage(err, t("skills.fetchFailed")));
     } finally {
       setLoading(false);
     }
@@ -82,7 +82,7 @@ export default function SkillsPage() {
       await api.skillLibrary.delete(name);
       setSkills((prev) => prev.filter((s) => s.name !== name));
     } catch (err) {
-      toast.error(getUserErrorMessage(err, t("skills.deleteFailed") ?? "Failed to delete skill"));
+      toast.error(getUserErrorMessage(err, t("skills.deleteFailed")));
     }
   };
 
