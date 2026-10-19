@@ -76,7 +76,7 @@ describe("MembersPage — a role that may not manage members is told so", () => 
 
     render(<MembersPage />);
 
-    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("members.loadFailed"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("members.loadFailed");
     expect(screen.queryByText("permission.required.title")).not.toBeInTheDocument();
   });
 

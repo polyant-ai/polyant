@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { toast } from "sonner";
@@ -43,6 +43,9 @@ import {
   type OrganizationMember,
 } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
+import { PageHeader } from "@/components/layout/page-header";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { useResource } from "@/hooks/use-resource";
 import { PermissionRequired } from "@/components/layout/permission-required";
 import type { TranslationKey } from "@/lib/i18n/types";
 
@@ -58,29 +61,13 @@ export default function MembersPage() {
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
-  const [members, setMembers] = useState<OrganizationMember[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, error, loading, reload } = useResource(["members", orgSlug], () => api.members.list(orgSlug));
+  const members = data?.members ?? [];
   // `org.member:manage` is admin+. The entry is now offered to every role (it
   // used to be platform-admin-only, which hid it from the org Owner it exists
   // for), so a viewer reaching it is expected and gets an explanation.
-  const [forbidden, setForbidden] = useState(false);
+  const forbidden = isForbidden(error);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
-
-  const fetchMembers = useCallback(async () => {
-    try {
-      const { members } = await api.members.list(orgSlug);
-      setMembers(members);
-    } catch (err) {
-      if (isForbidden(err)) setForbidden(true);
-      else toast.error(getUserErrorMessage(err, t("members.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [t, orgSlug]);
-
-  useEffect(() => {
-    fetchMembers();
-  }, [fetchMembers]);
 
   // The org must always keep at least one Owner. When a single Owner remains,
   // the UI locks that Owner's role select + remove action (the engine enforces
@@ -93,9 +80,7 @@ export default function MembersPage() {
     setBusyUserId(member.userId);
     try {
       await api.members.assign(member.userId, roleKey, orgSlug);
-      setMembers((prev) =>
-        prev.map((m) => (m.userId === member.userId ? { ...m, roleKey } : m)),
-      );
+      reload();
       toast.success(t("members.roleUpdated"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("members.roleUpdateFailed")));
@@ -108,7 +93,7 @@ export default function MembersPage() {
     setBusyUserId(member.userId);
     try {
       await api.members.remove(member.userId, orgSlug);
-      setMembers((prev) => prev.filter((m) => m.userId !== member.userId));
+      reload();
       toast.success(t("members.removed"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("members.removeFailed")));
@@ -117,10 +102,12 @@ export default function MembersPage() {
     }
   };
 
-  if (loading) {
+  const header = <PageHeader title={t("members.title")} subtitle={t("members.subtitle")} />;
+
+  if (loading && data === undefined) {
     return (
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{t("members.title")}</h1>
+        {header}
         <p className="mt-2 text-muted-foreground">{t("common.loading")}</p>
       </div>
     );
@@ -129,19 +116,24 @@ export default function MembersPage() {
   if (forbidden) {
     return (
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{t("members.title")}</h1>
-        <p className="mt-1 text-muted-foreground">{t("members.subtitle")}</p>
+        {header}
         <PermissionRequired description={t("permission.required.members")} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div>
+        {header}
+        <LoadFailed message={t("members.loadFailed")} onRetry={reload} />
       </div>
     );
   }
 
   return (
     <div>
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{t("members.title")}</h1>
-        <p className="mt-1 text-muted-foreground">{t("members.subtitle")}</p>
-      </div>
+      {header}
 
       {isSoloOwner && (
         <div className="mt-6 flex items-start gap-3 rounded-md border border-border bg-secondary p-4">

@@ -32,8 +32,6 @@ vi.mock("@/lib/api", () => ({
   isForbidden: (err: unknown) => err instanceof ApiError && err.status === 403,
 }));
 
-// A stable `t`, as the real provider's is: the page refetches when `t` changes,
-// so a fresh function per render would refetch on every state update.
 const i18n = { t: (key: string) => key, locale: "en", setLocale: () => {} };
 vi.mock("@/lib/i18n/context", () => ({ useI18n: () => i18n }));
 
@@ -140,7 +138,7 @@ describe("ApiKeysPage", () => {
 
   it("revokes a key only after confirmation", async () => {
     const user = userEvent.setup();
-    mockList.mockResolvedValue({ keys: [key({ id: "k1", name: "ci" })] });
+    mockList.mockResolvedValueOnce({ keys: [key({ id: "k1", name: "ci" })] }).mockResolvedValue({ keys: [] });
     mockRemove.mockResolvedValue({ deleted: true });
 
     render(<ApiKeysPage />);
@@ -151,5 +149,24 @@ describe("ApiKeysPage", () => {
 
     expect(mockRemove).toHaveBeenCalledWith("acme", "k1");
     await waitFor(() => expect(screen.queryByText("ci")).not.toBeInTheDocument());
+    expect(mockList).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the list once however often the page re-renders", async () => {
+    mockList.mockResolvedValue({ keys: [key()] });
+    const { rerender } = render(<ApiKeysPage />);
+    await screen.findByText("ci");
+    rerender(<ApiKeysPage />);
+    expect(mockList).toHaveBeenCalledTimes(1);
+  });
+
+  it("states a failed load with a retry, apart from a refusal", async () => {
+    const user = userEvent.setup();
+    mockList.mockRejectedValueOnce(new Error("boom")).mockResolvedValue({ keys: [key()] });
+    render(<ApiKeysPage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("apiKeys.loadFailed");
+    await user.click(screen.getByRole("button", { name: "common.retry" }));
+    expect(await screen.findByText("ci")).toBeInTheDocument();
   });
 });

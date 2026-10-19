@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
@@ -30,6 +30,9 @@ import {
 import { api, getUserErrorMessage, isForbidden, type ManagementApiKey } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { useFormat } from "@/lib/use-format";
+import { PageHeader } from "@/components/layout/page-header";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { useResource } from "@/hooks/use-resource";
 import { PermissionRequired } from "@/components/layout/permission-required";
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
 
@@ -47,33 +50,17 @@ export default function ApiKeysPage() {
   const { t } = useI18n();
   const format = useFormat();
   const { orgSlug } = useParams<{ orgSlug: string }>();
-  const [keys, setKeys] = useState<ManagementApiKey[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [forbidden, setForbidden] = useState(false);
+  const { data, error, loading, reload } = useResource(["api-keys", orgSlug], () => api.apiKeys.list(orgSlug));
+  const keys = data?.keys ?? [];
+  const forbidden = isForbidden(error);
   const [creating, setCreating] = useState(false);
   const [busyKeyId, setBusyKeyId] = useState<string | null>(null);
-
-  const fetchKeys = useCallback(async () => {
-    try {
-      const { keys } = await api.apiKeys.list(orgSlug);
-      setKeys(keys);
-    } catch (err) {
-      if (isForbidden(err)) setForbidden(true);
-      else toast.error(getUserErrorMessage(err, t("apiKeys.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [t, orgSlug]);
-
-  useEffect(() => {
-    fetchKeys();
-  }, [fetchKeys]);
 
   const handleRevoke = async (key: ManagementApiKey) => {
     setBusyKeyId(key.id);
     try {
       await api.apiKeys.remove(orgSlug, key.id);
-      setKeys((prev) => prev.filter((k) => k.id !== key.id));
+      reload();
       toast.success(t("apiKeys.revoked"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("apiKeys.revokeFailed")));
@@ -83,25 +70,34 @@ export default function ApiKeysPage() {
   };
 
   const header = (
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{t("apiKeys.title")}</h1>
-        <p className="mt-1 text-muted-foreground">{t("apiKeys.subtitle")}</p>
-      </div>
-      {!loading && !forbidden && (
-        <Button onClick={() => setCreating(true)}>
-          <Plus className="size-4" />
-          {t("apiKeys.create.button")}
-        </Button>
-      )}
-    </div>
+    <PageHeader
+      title={t("apiKeys.title")}
+      subtitle={t("apiKeys.subtitle")}
+      actions={
+        data !== undefined && (
+          <Button onClick={() => setCreating(true)}>
+            <Plus className="size-4" />
+            {t("apiKeys.create.button")}
+          </Button>
+        )
+      }
+    />
   );
 
-  if (loading) {
+  if (loading && data === undefined) {
     return (
       <div>
         {header}
         <p className="mt-2 text-muted-foreground">{t("common.loading")}</p>
+      </div>
+    );
+  }
+
+  if (error && !forbidden) {
+    return (
+      <div>
+        {header}
+        <LoadFailed message={t("apiKeys.loadFailed")} onRetry={reload} />
       </div>
     );
   }
@@ -185,7 +181,7 @@ export default function ApiKeysPage() {
         orgSlug={orgSlug}
         open={creating}
         onOpenChange={setCreating}
-        onCreated={fetchKeys}
+        onCreated={reload}
       />
     </div>
   );
