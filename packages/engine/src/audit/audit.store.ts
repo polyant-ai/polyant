@@ -3,6 +3,9 @@
 import { toolAuditLogs } from "./audit.schema.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { BufferedInsertQueue, type InsertableDb } from "../utils/buffered-insert-queue.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 export interface AuditEntry {
   instanceId: InstanceSlug;
@@ -25,8 +28,9 @@ class AuditStore {
     table: toolAuditLogs,
     label: "audit entries",
     onRefused: (rows, written) =>
-      console.warn(
-        `AuditStore: dropped ${rows.length} un-insertable audit entries ` +
+      log.warn(
+        "audit",
+        `dropped ${rows.length} un-insertable audit entries ` +
           `(actions: ${[...new Set(rows.map((e) => e.action))].join(", ")}); ` +
           `${written} entries in the same batch were written.`,
       ),
@@ -53,8 +57,9 @@ class AuditStore {
    */
   record(entry: AuditEntry) {
     if (typeof entry.action !== "string" || entry.action.trim() === "") {
-      console.warn(
-        `AuditStore: dropped an entry without \`action\` from tool="${entry.toolName}" ` +
+      log.warn(
+        "audit",
+        `dropped an entry without \`action\` from tool="${entry.toolName}" ` +
           `instance="${entry.instanceId}". \`log()\` takes ONE object: ` +
           `log({ action, details?, success?, error? }).`,
       );

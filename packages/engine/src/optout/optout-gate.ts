@@ -10,6 +10,10 @@ import { createAuditLogger } from "../audit/audit-logger.js";
 import { evaluateOptout } from "./optout.guard.js";
 import { getOptoutStatus, setOptoutStatus } from "./contact-optouts.store.js";
 import { contactConversationId } from "../channels/outbound-conversation.js";
+import { createLogger } from "../utils/create-logger.js";
+import { errMsg } from "../utils/error.js";
+
+const log = createLogger();
 
 /** Synthetic channels never participate in opt-out (no real end-user contact). */
 const OPTOUT_EXCLUDED_CHANNELS = new Set(["agent", "scheduled", "room"]);
@@ -64,7 +68,7 @@ export async function runOptoutGate(msg: IncomingMessage): Promise<OptoutGateRes
     audit.log({
       action: `optout:${action.kind}`,
       success: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errMsg(err),
       durationMs: Date.now() - started,
       details: { channelType: msg.channelType, channelId: msg.channelId },
     });
@@ -91,6 +95,6 @@ async function persistOptoutExchange(msg: IncomingMessage, reply: string): Promi
     if (reply) messages.push({ role: "assistant", content: reply });
     await conversationStore.appendMessages(conversationId, messages);
   } catch (err) {
-    console.error(`[optout] failed to persist exchange for ${conversationId}:`, err instanceof Error ? err.message : String(err));
+    log.error("optout", `failed to persist exchange for ${conversationId}`, err);
   }
 }

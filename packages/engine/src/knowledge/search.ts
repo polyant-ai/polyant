@@ -8,6 +8,9 @@ import {
 import { embed, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { reciprocalRankFusion } from "../utils/rrf.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 export interface KnowledgeSearchResult {
   content: string;
@@ -46,11 +49,11 @@ export async function searchKnowledge(
 
   const [semanticResults, keywordResults] = await Promise.all([
     searchByVector(queryEmbedding, instanceId, fetchLimit, ctx.dimensions).catch((err) => {
-      console.error("Knowledge hybrid search: pgvector backend failed:", err);
+      log.error("knowledge", "hybrid search: pgvector backend failed", err);
       return [] as StoreResult[];
     }),
     searchByKeyword(query, instanceId, fetchLimit).catch((err) => {
-      console.error("Knowledge hybrid search: FTS backend failed:", err);
+      log.error("knowledge", "hybrid search: FTS backend failed", err);
       return [] as StoreResult[];
     }),
   ]);

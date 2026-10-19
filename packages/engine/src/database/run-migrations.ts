@@ -3,6 +3,9 @@
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { Sql } from "postgres";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 /**
  * Advisory-lock key for the migration run. Arbitrary but fixed — any constant
@@ -44,8 +47,7 @@ export async function waitForDatabase(
     } catch (err) {
       const delay = CONNECT_RETRY_DELAYS_MS[attempt];
       if (!isConnectionNotReadyError(err) || delay === undefined) throw err;
-      // CLI entry-point: console output is intentional (no structured logger here).
-      console.warn(`Database not reachable yet, retrying in ${delay / 1000}s...`);
+      log.warn("migrations", `Database not reachable yet, retrying in ${delay / 1000}s...`);
       await sleep(delay);
     }
   }

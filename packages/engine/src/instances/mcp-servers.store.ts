@@ -7,6 +7,9 @@ import { instanceMcpServers } from "./mcp-servers.schema.js";
 import { encrypt, decrypt } from "../crypto/index.js";
 import { isSafeMcpUrl } from "../agents/tools/mcp/mcp-url-guard.js";
 import { type InstanceUuid } from "./identifiers.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 /**
  * `none` is a real mode, not the absence of one: plenty of MCP servers are public
@@ -126,7 +129,7 @@ function decryptConfig(encrypted: string): Record<string, unknown> {
   try {
     return JSON.parse(decrypt(encrypted)) as Record<string, unknown>;
   } catch (err) {
-    console.error("[McpServers] Failed to decrypt config:", err);
+    log.error("mcp-servers", "Failed to decrypt config", err);
     return {};
   }
 }

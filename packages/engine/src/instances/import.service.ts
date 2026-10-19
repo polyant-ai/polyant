@@ -44,6 +44,9 @@ import { importScheduledTasks } from "./scheduled-tasks.import.js";
 import { importMcpServers } from "./mcp-servers.import.js";
 import { importSecrets } from "./secrets.import.js";
 import type { ImportWarning, ImportResult } from "./import.types.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 export type { ImportWarning, ImportResult } from "./import.types.js";
 export { importChannels, importMcpServers };
@@ -331,7 +334,7 @@ async function finishCommittedImport(instanceId: InstanceUuid, slug: string, war
     // Outside the import transaction: it opens its own.
     await recomputeInstanceTools(instanceId);
   } catch (err) {
-    console.error("[import] tool recompute failed for agent %s after a committed import:", instanceId, err);
+    log.error("import", `tool recompute failed for agent ${instanceId} after a committed import`, err);
     warnings.push({
       type: "tool_recompute_failed",
       message: "The agent was imported, but its tool access could not be recomputed; save its tools again to apply it.",

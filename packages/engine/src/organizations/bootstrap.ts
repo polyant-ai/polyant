@@ -6,8 +6,11 @@ import {
   findDefaultOrganization,
 } from "./organizations.store.js";
 import { countUsers } from "../users/users.store.js";
+import { createLogger } from "../utils/create-logger.js";
 
-const LOG_PREFIX = "[organizations/bootstrap]";
+const log = createLogger();
+
+const LOG_PREFIX = "organizations/bootstrap";
 
 /**
  * First-boot RBAC bootstrap (design §8). Runs on every boot and is fully
@@ -39,8 +42,9 @@ const LOG_PREFIX = "[organizations/bootstrap]";
 export async function bootstrapOrganizations(): Promise<void> {
   const defaultOrg = await findDefaultOrganization();
   if (!defaultOrg) {
-    console.warn(
-      `${LOG_PREFIX} Default organization not found — run migrations (0051) before boot. Skipping bootstrap.`,
+    log.warn(
+      LOG_PREFIX,
+      "Default organization not found — run migrations (0051) before boot. Skipping bootstrap.",
     );
     return;
   }
@@ -57,10 +61,10 @@ export async function bootstrapOrganizations(): Promise<void> {
 
   const userCount = await countUsers();
   if (userCount === 0) {
-    console.log(`${LOG_PREFIX} Fresh install (0 users) — nothing to backfill.`);
+    log.info(LOG_PREFIX, "Fresh install (0 users) — nothing to backfill.");
     return;
   }
 
   // Count is not logged — it leaks deployment size into the tee'd boot log.
-  console.log(`${LOG_PREFIX} Ready — default org present.`);
+  log.info(LOG_PREFIX, "Ready — default org present.");
 }

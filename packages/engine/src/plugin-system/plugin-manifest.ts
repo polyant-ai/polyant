@@ -5,6 +5,10 @@ import { join } from "path";
 import { parse, satisfies, validRange } from "semver";
 import { z } from "zod";
 import { localizedTextSchema } from "./localized-text.js";
+import { createLogger } from "../utils/create-logger.js";
+import { errMsg } from "../utils/error.js";
+
+const log = createLogger();
 
 /**
  * Shape of one entry in a plugin manifest's `oauthProviders` array. A plugin
@@ -92,12 +96,12 @@ export function readPluginManifest(root: string): PluginManifest | null {
   try {
     raw = JSON.parse(readFileSync(file, "utf8"));
   } catch (err) {
-    console.warn(`Plugin manifest at ${file} is not valid JSON — skipping: ${(err as Error).message}`);
+    log.warn("plugins", `Plugin manifest at ${file} is not valid JSON — skipping: ${errMsg(err)}`);
     return null;
   }
   const parsed = pluginManifestSchema.safeParse(raw);
   if (!parsed.success) {
-    console.warn(`Plugin manifest at ${file} failed validation — skipping: ${parsed.error.message}`);
+    log.warn("plugins", `Plugin manifest at ${file} failed validation — skipping: ${parsed.error.message}`);
     return null;
   }
   // Namespace defaults to name; guaranteed non-empty by the schema when present.

@@ -38,6 +38,10 @@ import type {
   ChatStreamResult,
 } from "../ai-gateway/types.js";
 import type { ReasoningDetail } from "../conversations/schema.js";
+import { createLogger } from "../utils/create-logger.js";
+import { errMsg } from "../utils/error.js";
+
+const log = createLogger();
 
 export interface BusContext {
   instance?: InstanceMeta;
@@ -91,7 +95,7 @@ export function tapAndForwardFullStream(
         } catch (err) {
           // The chat itself is unaffected by our bookkeeping; just log the
           // bus tap failure and keep streaming.
-          console.error("[activity-bus] tap error:", err);
+          log.error("activity-bus", "tap error", err);
         }
       }
     } catch (err) {
@@ -101,7 +105,7 @@ export function tapAndForwardFullStream(
         id: `${baseId}:stream-error`,
         ts: nowIso(),
         persona: "agent",
-        text: err instanceof Error ? err.message : String(err),
+        text: errMsg(err),
         instance: ctx.instance,
         conversationId: ctx.conversationId,
         status: "error",

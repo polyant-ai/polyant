@@ -5,6 +5,10 @@ import { config } from "../config.js";
 import { db } from "../database/client.js";
 import { cachedValue } from "../utils/ttl-cache.js";
 import { platformSettings } from "./platform-settings.schema.js";
+import { createLogger } from "../utils/create-logger.js";
+import { errMsg } from "../utils/error.js";
+
+const log = createLogger();
 
 /** The numeric policies, named once so the three shapes below cannot drift apart. */
 export const PLATFORM_SETTING_NUMBERS = [
@@ -141,9 +145,7 @@ export async function resolvePlatformSettingsOrDefaults(): Promise<EffectivePlat
   try {
     return await resolvePlatformSettings();
   } catch (err: unknown) {
-    console.warn(
-      `[platform-settings] falling back to the shipped defaults: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    log.warn("platform-settings", `falling back to the shipped defaults: ${errMsg(err)}`);
     return { ...DEFAULTS, baseUrl: config.server.baseUrl };
   }
 }

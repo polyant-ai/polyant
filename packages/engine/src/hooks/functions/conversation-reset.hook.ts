@@ -6,6 +6,9 @@ import { defineHook } from "@polyant-ai/plugin-sdk";
 // plugin, expose it as a method on `ctx.conversation` in the SDK instead.
 import { conversationStore } from "../../conversations/index.js";
 import { allTenantsScope, type TenantScope } from "../../authz/scope-filter.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 /** Whole-message keyword, matched case-insensitively. Deliberately not configurable. */
 const KEYWORD = "RESET";
@@ -64,7 +67,7 @@ export default defineHook({
         halt: { message: `RESET → ${archiveId.slice(conversationId.length)}`, persist: false },
       };
     } catch (err) {
-      console.error(`[conversation-reset] rename failed for ${conversationId}:`, err);
+      log.error("conversation-reset", `rename failed for ${conversationId}`, err);
       return {
         halt: { message: "RESET failed — the conversation was not archived.", persist: false },
       };

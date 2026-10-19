@@ -7,6 +7,9 @@ import { tracedGenerateText, tracedStreamText } from "../langsmith.js";
 import { stripReasoningTags } from "../strip-reasoning-tags.js";
 import type { CacheTtl, ChatRequest, ChatResponse, ChatStreamResult, ProviderAdapter } from "../types.js";
 import type { LlmDebugPayload, ReasoningDetail, StepDetail } from "../../conversations/schema.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 type ModelFactory = (modelId: string, apiKeys?: ChatRequest["apiKeys"]) => LanguageModel;
 
@@ -648,7 +651,7 @@ function logProviderError(
     message?: unknown;
   };
   const parts = [
-    `[ai-gateway] ${providerName}/${modelId} call failed:`,
+    `${providerName}/${modelId} call failed:`,
     typeof e?.name === "string" ? e.name : "Error",
     e?.statusCode != null ? `status=${String(e.statusCode)}` : "",
     typeof e?.message === "string" ? e.message : String(err),
@@ -669,10 +672,11 @@ function logProviderError(
     if (reason) parts.push(`body_reason=${reason}`);
   }
   if (typeof e?.url === "string") parts.push(`url=${e.url}`);
-  console.error(parts.filter(Boolean).join(" "));
+  log.error("ai-gateway", parts.filter(Boolean).join(" "));
   if (ctx) {
-    console.error(
-      `[ai-gateway]   system=${describeInstructions(ctx.system)} | roles: ${describeMessages(ctx.messages)}`,
+    log.error(
+      "ai-gateway",
+      `  system=${describeInstructions(ctx.system)} | roles: ${describeMessages(ctx.messages)}`,
     );
   }
 }

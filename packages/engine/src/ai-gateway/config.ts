@@ -3,6 +3,9 @@
 import type { TierMapping, CostBreakdown } from "./types.js";
 import { providerConfigs, getModelCapabilities } from "./model-catalog.js";
 import type { ModelCapabilities, ReasoningLevel, ReasoningToggle, WireDialect } from "./model-catalog.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 // The per-model catalog (data) lives in model-catalog.ts; re-exported here so
 // existing importers (`./config.js`) keep working. This file holds the LOGIC:
@@ -189,8 +192,9 @@ export function warnCatalogFallback(gate: string, provider: string, modelId: str
   const key = `${gate}:${provider}:${modelId}`;
   if (catalogFallbackWarned.has(key)) return;
   catalogFallbackWarned.add(key);
-  console.warn(
-    `[ai-gateway] ${gate}: no catalog entry for ${provider || "?"}/${modelId || "?"} — using regex fallback`,
+  log.warn(
+    "ai-gateway",
+    `${gate}: no catalog entry for ${provider || "?"}/${modelId || "?"} — using regex fallback`,
   );
 }
 

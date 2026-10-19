@@ -8,7 +8,6 @@ installFileLogger();
 import { config } from "./config.js";
 import { retiredEnvironmentWarnings } from "./config-retired.js";
 import { db } from "./database/client.js";
-import { errMsg } from "./utils/error.js";
 import { initAIGateway, shutdown as shutdownGateway } from "./ai-gateway/index.js";
 import { initMemory } from "./memory/index.js";
 import { startStuckDocumentSweep } from "./knowledge/stuck-document-sweep.js";
@@ -47,6 +46,9 @@ import { generateWithReplay, MAX_REGENERATIONS, EMPTY_SPEND, addPassSpend } from
 import { hookProvenance } from "./hooks/hook-runner.js";
 import { runOptoutGate } from "./optout/index.js";
 import { closeMcpClientPool } from "./agents/tools/mcp/mcp-client-pool.js";
+import { createLogger } from "./utils/create-logger.js";
+
+const log = createLogger();
 
 // ---------------------------------------------------------------------------
 // Module-level caches (kept in index.ts — they depend on DB lookups)
@@ -85,7 +87,8 @@ async function nonFatal(label: string, run: () => Promise<unknown>, withStack = 
   try {
     await run();
   } catch (err) {
-    console.error(label, withStack ? err : errMsg(err));
+    if (withStack) console.error(label, fatalDetail(err));
+    else log.error("boot", label, err);
   }
 }
 
@@ -95,7 +98,7 @@ async function nonFatal(label: string, run: () => Promise<unknown>, withStack = 
 
 async function main() {
   console.log("Polyant starting...");
-  for (const warning of retiredEnvironmentWarnings()) console.warn(warning);
+  for (const warning of retiredEnvironmentWarnings()) log.warn("boot", warning);
 
   // 1. Initialize AI Gateway (logging + LangSmith) + Trace Store
   initAIGateway(db);
@@ -103,16 +106,16 @@ async function main() {
 
   // 1b. Load tool registry (auto-discover *.tool.ts files)
   await loadAllTools();
-  console.log("Tool registry loaded");
+  log.info("boot", "Tool registry loaded");
 
   // 1b-0. Load hook function registry (auto-discover *.hook.ts files)
   await loadAllHooks();
-  console.log("Hook function registry loaded");
+  log.info("boot", "Hook function registry loaded");
 
 
   // 1b-ii. Sync tool registry to DB
   await syncToolsToDb();
-  console.log("Tool registry synced to DB");
+  log.info("boot", "Tool registry synced to DB");
 
   // The remaining boot steps touch the database independently of each other and of the
   // tool registry, so they run together.
@@ -131,7 +134,7 @@ async function main() {
     nonFatal("[Webhooks] Boot cleanup failed (non-fatal):", async () => {
       const resetEvents = await resetStuckProcessingEvents();
       if (resetEvents > 0) {
-        console.log(`[Webhooks] Reset ${resetEvents} stale processing event(s) to pending`);
+        log.info("webhooks", `Reset ${resetEvents} stale processing event(s) to pending`);
       }
     }),
   ]);
@@ -277,8 +280,9 @@ async function main() {
     // leaves `outcome.regenerate` set, but there the run is being cancelled (and
     // runPipelinePost's abort gate skips persistence), not hitting the cap.
     if (outcome.regenerate && !abortSignal?.aborted) {
-      console.warn(
-        `[pipeline] ${ctx.conversationId}: regenerate still requested after MAX_REGENERATIONS=${MAX_REGENERATIONS} — delivering last output`,
+      log.warn(
+        "pipeline",
+        `${ctx.conversationId}: regenerate still requested after MAX_REGENERATIONS=${MAX_REGENERATIONS} — delivering last output`,
       );
     }
 
@@ -497,7 +501,7 @@ async function main() {
   for (const inst of allInstances) {
     if (inst.status === "active") {
       channelManager.startAllForInstance(inst.slug).catch((err) => {
-        console.error(`Failed to start channels for instance "${inst.slug}" — skipping:`, err);
+        log.error("boot", `Failed to start channels for instance "${inst.slug}" — skipping`, err);
       });
     }
   }
@@ -529,7 +533,7 @@ async function main() {
   // Graceful shutdown. The steps run in order and each on its own (see
   // `runShutdownSteps`), so one that fails cannot keep the process alive.
   const shutdown = async () => {
-    console.log("\nShutting down...");
+    log.info("boot", "Shutting down...");
     let failed: string[] = [];
     try {
       failed = await runShutdownSteps([
@@ -558,9 +562,9 @@ async function main() {
               closeHttpServer(nestApp),
               drainBackgroundTurns(HTTP_SHUTDOWN_GRACE_MS),
             ]);
-            console.log(`HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
+            log.info("boot", `HTTP server closed (${streams} activity stream(s) ended${forced ? ", in-flight requests cut after the grace period" : ""})`);
             if (background.pending > 0) {
-              console.warn(`${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
+              log.warn("boot", `${background.pending} acknowledged channel turn(s) still running after the grace period; they are cut off`);
             }
           },
         },

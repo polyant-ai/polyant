@@ -6,6 +6,9 @@ import { getHookRegistry } from "../hook-registry.js";
 import { buildHookContext } from "../hook-context.js";
 import { scopeSecrets } from "../../agents/tools/registry.js";
 import type { HookActionExecutor, HookRunContext } from "../hook-types.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 /**
  * Warn when a hook returns `replaceResponse` without declaring mutatesResponse:true.
@@ -15,8 +18,9 @@ import type { HookActionExecutor, HookRunContext } from "../hook-types.js";
  */
 function warnReplaceUndeclared(mutatesResponse: boolean | undefined, functionName: string): void {
   if (!mutatesResponse) {
-    console.warn(
-      `[hooks] "${functionName}" returned replaceResponse without declaring mutatesResponse:true — honored only on non-streamed turns.`,
+    log.warn(
+      "hooks",
+      `"${functionName}" returned replaceResponse without declaring mutatesResponse:true — honored only on non-streamed turns.`,
     );
   }
 }
@@ -33,7 +37,7 @@ const MAX_HOOK_MESSAGE_CHARS = 16_000;
 
 function capMessage(message: string): string {
   if (message.length <= MAX_HOOK_MESSAGE_CHARS) return message;
-  console.warn(`[hooks] hook-authored message truncated to ${MAX_HOOK_MESSAGE_CHARS} chars (was ${message.length}).`);
+  log.warn("hooks", `hook-authored message truncated to ${MAX_HOOK_MESSAGE_CHARS} chars (was ${message.length}).`);
   return message.slice(0, MAX_HOOK_MESSAGE_CHARS);
 }
 
@@ -80,7 +84,7 @@ export const functionActionExecutor: HookActionExecutor = {
     // the control return here keeps a late halt/replace from reaching a reply
     // that has, by then, been delivered.
     if (scopedCtx.abortSignal?.aborted) {
-      console.warn(`[hooks] "${functionName}" returned after it was abandoned — control return ignored.`);
+      log.warn("hooks", `"${functionName}" returned after it was abandoned — control return ignored.`);
       return;
     }
 
@@ -103,8 +107,9 @@ export const functionActionExecutor: HookActionExecutor = {
       if (def.mutatesResponse) {
         capture({ regenerate: { reason: result.regenerate.reason } });
       } else {
-        console.warn(
-          `[hooks] "${functionName}" returned regenerate without declaring mutatesResponse:true — ignored.`,
+        log.warn(
+          "hooks",
+          `"${functionName}" returned regenerate without declaring mutatesResponse:true — ignored.`,
         );
       }
     }

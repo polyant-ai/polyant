@@ -6,6 +6,9 @@ import { config } from "../config.js";
 import { errMsg } from "../utils/error.js";
 import { resolvePluginRoots, type PluginRoot } from "./plugin-roots.js";
 import { engineSatisfies } from "./plugin-manifest.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 // Engine version, read lazily so merely importing this module touches no fs
 // (keeps partial fs mocks in tests working). Fail-closed to "0.0.0" so an
@@ -35,7 +38,8 @@ export function compatiblePluginRoots(conventionDir: string, opts: { warn?: bool
   return resolvePluginRoots({ envDirs: config.plugins.dirs, conventionDir }).filter(({ manifest }) => {
     if (engineSatisfies(manifest, getEngineVersion())) return true;
     if (warn) {
-      console.warn(
+      log.warn(
+        "plugins",
         `Plugin "${manifest.name}" requires engine ${manifest.engine}, have ${getEngineVersion()} — skipping`,
       );
     }
@@ -70,11 +74,11 @@ export async function importDefinitions<T>(opts: {
       if (isDefinition(mod.default)) {
         register(mod.default, namespace);
       } else {
-        console.warn(`${kind[0].toUpperCase()}${kind.slice(1)} file "${file}" has no ${definer} default export — skipping`);
+        log.warn("plugins", `${kind[0].toUpperCase()}${kind.slice(1)} file "${file}" has no ${definer} default export — skipping`);
       }
     } catch (err) {
       if (namespace === null) throw err;
-      console.warn(`Plugin "${namespace}" ${kind} file "${file}" failed to load: ${errMsg(err)} — skipping`);
+      log.warn("plugins", `Plugin "${namespace}" ${kind} file "${file}" failed to load: ${errMsg(err)} — skipping`);
     }
   }
 }

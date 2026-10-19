@@ -2,6 +2,9 @@
 
 import { managementAuditLogs } from "./management-audit.schema.js";
 import { BufferedInsertQueue, type InsertableDb } from "../utils/buffered-insert-queue.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 /** A single row to be persisted to `management_audit_logs`. */
 export interface ManagementAuditEntry {
@@ -23,8 +26,9 @@ export class ManagementAuditStore {
     label: "management audit logs",
     onRefused: (rows) => {
       for (const entry of rows) {
-        console.error(
-          `ManagementAuditStore: dropped an audit entry the database refused (action ${entry.action}, target type ${entry.targetType})`,
+        log.error(
+          "management-audit",
+          `dropped an audit entry the database refused (action ${entry.action}, target type ${entry.targetType})`,
         );
       }
     },

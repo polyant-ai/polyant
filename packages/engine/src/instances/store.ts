@@ -23,6 +23,9 @@ import {
 } from "../authz/scope-filter.js";
 import { asInstanceSlug, asInstanceUuid, type InstanceSlug, type InstanceUuid } from "./identifiers.js";
 import { UPDATABLE_INSTANCE_KEYS, type UpdatableInstanceFields } from "./instance-fields.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 export { UPDATABLE_INSTANCE_KEYS, type UpdatableInstanceFields };
 
@@ -229,7 +232,7 @@ export async function seedInstances(): Promise<void> {
     name: "Creative Assistant",
     description: "Example alternative instance — informal and playful",
   });
-  console.log("Instances seeded (default, creative)");
+  log.info("instances", "Instances seeded (default, creative)");
 }
 
 /**
