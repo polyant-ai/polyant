@@ -135,7 +135,7 @@ describe("WhatsAppAdapter.validateSignature error observability", () => {
     const result = adapter.validateSignature("sig", "https://example.com/webhook", {});
 
     expect(result).toBe(false);
-    expect(stderr).toHaveBeenCalledTimes(1);
+    expect(stderr).toHaveBeenCalled(); // debug level adds stack lines after the message line
     expect(String(stderr.mock.calls[0]![0])).toContain(COLORS.red);
     stderr.mockRestore();
   });
