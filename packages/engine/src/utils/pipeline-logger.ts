@@ -24,6 +24,24 @@ function fmtInstance(instanceId?: string): string {
   return `[${sanitizeForLog(instanceId)}] `;
 }
 
+type Color = (typeof COLORS)[keyof typeof COLORS];
+
+/**
+ * One log line: `[time] <label> [instance] body`. The level guard lives here so a
+ * disabled level never formats its body (pass a function for a body that costs).
+ */
+function line(
+  level: "debug" | "info",
+  color: Color,
+  label: string,
+  instanceId: string,
+  body: string | (() => string),
+): void {
+  if (!shouldLog(level)) return;
+  const text = typeof body === "function" ? body() : body;
+  console.log(`${color}[${timestamp()}] ${label}${COLORS.reset} ${fmtInstance(instanceId)}${text}`);
+}
+
 export const pipelineLog = {
   /** New request entering the pipeline. Returns a unique requestId for tracing. */
   request(channel: string, instanceId: string, message: string): string {
@@ -47,32 +65,31 @@ export const pipelineLog = {
 
   /** AI Gateway call */
   llmCall(instanceId: string, tier: string, model: string, hasTools: boolean) {
-    if (!shouldLog("debug")) return;
-    console.log(
-      `${COLORS.blue}[${timestamp()}] 🤖 LLM CALL${COLORS.reset} ${fmtInstance(instanceId)}tier=${tier} model=${model} tools=${hasTools}`
-    );
+    line("debug", COLORS.blue, "🤖 LLM CALL", instanceId, `tier=${tier} model=${model} tools=${hasTools}`);
   },
 
   /** AI Gateway response */
   llmResponse(instanceId: string, model: string, tokens: { prompt: number; completion: number }, durationMs: number, toolCallCount: number) {
-    if (!shouldLog("info")) return;
-    console.log(
-      `${COLORS.blue}[${timestamp()}] ✅ LLM DONE${COLORS.reset} ${fmtInstance(instanceId)}model=${model} tokens=${tokens.prompt}+${tokens.completion} duration=${durationMs}ms toolCalls=${toolCallCount}`
+    line(
+      "info",
+      COLORS.blue,
+      "✅ LLM DONE",
+      instanceId,
+      `model=${model} tokens=${tokens.prompt}+${tokens.completion} duration=${durationMs}ms toolCalls=${toolCallCount}`,
     );
   },
 
   /** Tool call executed */
   toolCall(instanceId: string, toolName: string, args: Record<string, unknown>) {
-    if (!shouldLog("debug")) return;
-    const summary = Object.entries(args)
-      .map(([k, v]) => {
-        const val = typeof v === "string" ? truncate(v, 40) : JSON.stringify(v);
-        return `${k}=${val}`;
-      })
-      .join(" ");
-    console.log(
-      `${COLORS.green}[${timestamp()}] 🔧 TOOL${COLORS.reset} ${fmtInstance(instanceId)}${toolName}(${summary})`
-    );
+    line("debug", COLORS.green, "🔧 TOOL", instanceId, () => {
+      const summary = Object.entries(args)
+        .map(([k, v]) => {
+          const val = typeof v === "string" ? truncate(v, 40) : JSON.stringify(v);
+          return `${k}=${val}`;
+        })
+        .join(" ");
+      return `${toolName}(${summary})`;
+    });
   },
 
   /** Tool result */
@@ -92,26 +109,17 @@ export const pipelineLog = {
    * tools}`) for full-payload inspection.
    */
   systemPrompt(instanceId: string, prompt: string) {
-    if (!shouldLog("debug")) return;
-    console.log(
-      `${COLORS.yellow}[${timestamp()}] 📋 SYSTEM PROMPT${COLORS.reset} ${fmtInstance(instanceId)}length=${prompt.length} chars`
-    );
+    line("debug", COLORS.yellow, "📋 SYSTEM PROMPT", instanceId, `length=${prompt.length} chars`);
   },
 
   /** Supervisor starting */
   supervisorStart(instanceId: string, toolCount: number) {
-    if (!shouldLog("debug")) return;
-    console.log(
-      `${COLORS.magenta}[${timestamp()}] 🎯 SUPERVISOR${COLORS.reset} ${fmtInstance(instanceId)}starting with ${toolCount} tools available`
-    );
+    line("debug", COLORS.magenta, "🎯 SUPERVISOR", instanceId, `starting with ${toolCount} tools available`);
   },
 
   /** Supervisor completed */
   supervisorDone(instanceId: string, durationMs: number, responsePreview: string) {
-    if (!shouldLog("info")) return;
-    console.log(
-      `${COLORS.magenta}[${timestamp()}] 🏁 SUPERVISOR DONE${COLORS.reset} ${fmtInstance(instanceId)}duration=${durationMs}ms`
-    );
+    line("info", COLORS.magenta, "🏁 SUPERVISOR DONE", instanceId, `duration=${durationMs}ms`);
     if (shouldLog("debug")) {
       console.log(
         `${COLORS.dim}   response: "${truncate(responsePreview, 500)}"${COLORS.reset}`
@@ -121,18 +129,13 @@ export const pipelineLog = {
 
   /** Pre-enrichment context loaded */
   preEnrichment(instanceId: string, hasSummary: boolean) {
-    if (!shouldLog("debug")) return;
-    console.log(
-      `${COLORS.yellow}[${timestamp()}] 🧠 CONTEXT${COLORS.reset} ${fmtInstance(instanceId)}summary=${hasSummary ? "yes" : "no"}`
-    );
+    line("debug", COLORS.yellow, "🧠 CONTEXT", instanceId, `summary=${hasSummary ? "yes" : "no"}`);
   },
 
   /** Pipeline complete */
   response(instanceId: string, durationMs: number) {
     if (!shouldLog("info")) return;
-    console.log(
-      `${COLORS.cyan}[${timestamp()}] 📤 RESPONSE${COLORS.reset} ${fmtInstance(instanceId)}total=${durationMs}ms`
-    );
+    line("info", COLORS.cyan, "📤 RESPONSE", instanceId, `total=${durationMs}ms`);
     console.log(
       `${COLORS.cyan}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${COLORS.reset}\n`
     );
