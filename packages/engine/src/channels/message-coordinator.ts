@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { sanitizeForLog, shouldLog } from "../utils/create-logger.js";
+import { createLogger, shouldLog } from "../utils/create-logger.js";
 import type { IncomingMessage, OutgoingMessage } from "./types.js";
 import type { MessageTimingSettings } from "../instances/agent-settings.js";
 import { trackBackgroundTurn } from "./background-turns.js";
 import { contactConversationId } from "./outbound-conversation.js";
+
+const log = createLogger();
 
 /**
  * Per-conversation coordinator for inbound messaging channels that tend to
@@ -264,11 +266,7 @@ export class MessageCoordinator {
         state.lastSid,
       )
       .catch((err) =>
-        console.error(
-          "[coordinator] sendTyping failed for",
-          sanitizeForLog(`${state.seed.channelType}:${state.seed.channelId}`),
-          err,
-        ),
+        log.error("coordinator", `sendTyping failed for ${state.seed.channelType}:${state.seed.channelId}`, err),
       );
   }
 
@@ -313,7 +311,7 @@ export class MessageCoordinator {
         return this.doFlush(key, state, combined, signal, fragments, burstAttachments);
       })
       .catch((err) => {
-        console.error("[coordinator] flushChain unhandled error for", sanitizeForLog(key), err);
+        log.error("coordinator", `flushChain unhandled error for ${key}`, err);
       });
   }
 
@@ -333,11 +331,7 @@ export class MessageCoordinator {
         this.restoreOnAbort(state, fragments, burstAttachments, signal);
         return;
       }
-      console.error(
-        "[coordinator] handler error for",
-        sanitizeForLog(`${combined.channelType}:${combined.channelId}`),
-        err,
-      );
+      log.error("coordinator", `handler error for ${combined.channelType}:${combined.channelId}`, err);
       this.finalizePipeline(key, state, signal);
       return;
     }
@@ -359,11 +353,7 @@ export class MessageCoordinator {
       } catch (err) {
         // Adapter errors (e.g. grammY) can carry the reply text in their payload:
         // the full object is debug only.
-        console.error(
-          "[coordinator] sendOutbound failed for",
-          sanitizeForLog(`${combined.channelType}:${combined.channelId}`),
-          err instanceof Error ? err.message : String(err),
-        );
+        log.error("coordinator", `sendOutbound failed for ${combined.channelType}:${combined.channelId}`, err);
         if (shouldLog("debug")) console.debug("[coordinator] sendOutbound error detail:", err);
       }
     }

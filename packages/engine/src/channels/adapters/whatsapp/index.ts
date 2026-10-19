@@ -8,9 +8,12 @@ import { contactChannelId } from "../../outbound-conversation.js";
 import { transcribeInbound } from "../../audio-transcription.js";
 import { fetchMediaFollowingRedirects } from "./media-fetch.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
-import { sanitizeForLog } from "../../../utils/create-logger.js";
 import { resolveTwilioCredentials, type WhatsAppConfig } from "./resolve-credentials.js";
 import { contactConversationId } from "../../outbound-conversation.js";
+import { createLogger } from "../../../utils/create-logger.js";
+import { errMsg } from "../../../utils/error.js";
+
+const log = createLogger();
 
 export type { WhatsAppConfig };
 
@@ -30,7 +33,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
       this.cfg.whatsappNumber,
     );
     this.onMessage = onMessage;
-    console.log(`WhatsApp (Twilio) adapter initialized for instance "${sanitizeForLog(this.instanceSlug)}"`);
+    log.info("whatsapp", `Twilio adapter initialized for instance "${this.instanceSlug}"`);
   }
 
   /** Called by the webhook controller when an inbound message arrives. */
@@ -120,7 +123,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
       }
       return { type: isImage ? "image" : "file", data, mimeType: contentType, fileName };
     } catch (err) {
-      console.error("[whatsapp] Media download failed (%s):", url, err);
+      log.error("whatsapp", `Media download failed (${url})`, err);
       return null;
     }
   }
@@ -132,7 +135,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
       body = toWhatsAppText(msg.text);
     } catch (err) {
       // Formatting failed — fall back to the raw text so the message is never lost
-      console.warn(`[whatsapp] Markdown conversion failed, sending raw text:`, err);
+      log.warn("whatsapp", `Markdown conversion failed, sending raw text: ${errMsg(err)}`);
     }
     const mediaUrl = Array.isArray(msg.mediaUrl)
       ? msg.mediaUrl
@@ -176,7 +179,7 @@ export class WhatsAppAdapter implements ChannelAdapter {
     try {
       await this.client.sendTypingIndicator(messageSid);
     } catch (err) {
-      console.error("[whatsapp] Typing indicator failed for %s:", messageSid, err);
+      log.error("whatsapp", `Typing indicator failed for ${messageSid}`, err);
     }
   }
 
@@ -203,12 +206,9 @@ export class WhatsAppAdapter implements ChannelAdapter {
       // credential material — only the error message.
       const isWrongModeError = err instanceof Error && /auth token/i.test(err.message);
       if (isWrongModeError) {
-        console.warn("[whatsapp] Signature validation skipped: %s", err.message);
+        log.warn("whatsapp", `Signature validation skipped: ${err.message}`);
       } else {
-        console.error(
-          "[whatsapp] Signature validation threw unexpectedly:",
-          err instanceof Error ? err.message : String(err),
-        );
+        log.error("whatsapp", "Signature validation threw unexpectedly", err);
       }
       return false;
     }

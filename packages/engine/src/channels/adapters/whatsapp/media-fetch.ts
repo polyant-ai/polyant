@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { createSafeDispatcher, pairedFetch, type PairedFetch } from "../../../utils/safe-http.js";
-import { sanitizeForLog } from "../../../utils/create-logger.js";
+import { createLogger } from "../../../utils/create-logger.js";
+import { errMsg } from "../../../utils/error.js";
+
+const log = createLogger();
 
 const MAX_REDIRECTS = 3;
 const TIMEOUT_MS = 30_000;
@@ -91,15 +94,12 @@ export async function fetchMediaFollowingRedirects(
     try {
       target = new URL(currentUrl);
     } catch {
-      console.warn("[whatsapp] Media URL is not a valid URL, skipping: %s", sanitizeForLog(currentUrl));
+      log.warn("whatsapp", `Media URL is not a valid URL, skipping: ${currentUrl}`);
       return null;
     }
     if (originHost === null) {
       if (!isTwilioMediaHost(target.host)) {
-        console.warn(
-          "[whatsapp] Media URL host is not an allowlisted Twilio host, refusing to fetch: %s",
-          sanitizeForLog(currentUrl),
-        );
+        log.warn("whatsapp", `Media URL host is not an allowlisted Twilio host, refusing to fetch: ${currentUrl}`);
         return null;
       }
       originHost = target.host;
@@ -109,11 +109,7 @@ export async function fetchMediaFollowingRedirects(
     try {
       ({ dispatcher } = await makeDispatcher(target));
     } catch (err) {
-      console.warn(
-        "[whatsapp] Media URL failed SSRF check, skipping (%s): %s",
-        sanitizeForLog(currentUrl),
-        err instanceof Error ? err.message : String(err),
-      );
+      log.warn("whatsapp", `Media URL failed SSRF check, skipping (${currentUrl}): ${errMsg(err)}`);
       return null;
     }
 
@@ -137,10 +133,6 @@ export async function fetchMediaFollowingRedirects(
     return res;
   }
 
-  console.warn(
-    "[whatsapp] Media download exceeded %d redirects, skipping: %s",
-    MAX_REDIRECTS,
-    sanitizeForLog(rawUrl),
-  );
+  log.warn("whatsapp", `Media download exceeded ${MAX_REDIRECTS} redirects, skipping: ${rawUrl}`);
   return null;
 }

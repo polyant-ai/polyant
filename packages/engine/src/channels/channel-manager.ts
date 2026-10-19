@@ -12,7 +12,7 @@ import { emitOutbound } from "../activity-stream/emitters/emit-outbound.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import { getOptoutStatus } from "../optout/index.js";
-import { createLogger, sanitizeForLog, shouldLog } from "../utils/create-logger.js";
+import { createLogger, shouldLog } from "../utils/create-logger.js";
 
 const log = createLogger();
 import { findInstanceBySlug } from "../instances/store.js";
@@ -22,6 +22,7 @@ import {
   resolveMessageTimings,
   UNSET_AGENT_SETTINGS,
 } from "../instances/agent-settings.js";
+import { errMsg } from "../utils/error.js";
 
 /**
  * Channel types that should NOT produce `category: "outbound"` events:
@@ -54,20 +55,20 @@ export class ChannelManager {
     const handler = this.messageHandler;
 
     const loggedPipeline: MessageHandler = async (msg: IncomingMessage, signal?: AbortSignal): Promise<OutgoingMessage> => {
-      console.log(`[${msg.channelType}] [${msg.instanceId}] Incoming message`);
+      log.info(msg.channelType, `[${msg.instanceId}] Incoming message`);
       if (shouldLog("debug")) {
-        console.log(`[${msg.channelType}] [${msg.instanceId}] Incoming message from ${sanitizeForLog(msg.userName ?? "unknown")}`);
+        log.info(msg.channelType, `[${msg.instanceId}] Incoming message from ${msg.userName ?? "unknown"}`);
       }
       try {
         const response = await handler(msg, signal);
-        console.log(`[${msg.channelType}] [${msg.instanceId}] Response sent`);
+        log.info(msg.channelType, `[${msg.instanceId}] Response sent`);
         return response;
       } catch (err) {
         // Let AbortErrors bubble up so the coordinator can recognise a cancel-and-restart.
         if (signal?.aborted || (err instanceof Error && err.name === "AbortError")) {
           throw err;
         }
-        console.error("[%s] [%s] Error handling message:", msg.channelType, msg.instanceId, err);
+        log.error(msg.channelType, `[${msg.instanceId}] Error handling message`, err);
         return {
           text: "I apologize, an error occurred while processing your request. Please try again shortly.",
         };
@@ -87,7 +88,7 @@ export class ChannelManager {
             const agent = await findInstanceBySlug(msg.instanceId);
             return resolveMessageTimings(agent ?? UNSET_AGENT_SETTINGS);
           } catch (err) {
-            console.error(`[channel-manager] timing lookup failed for ${sanitizeForLog(msg.instanceId)}; using defaults:`, err);
+            log.error("channel-manager", `timing lookup failed for ${msg.instanceId}; using defaults`, err);
             return DEFAULT_MESSAGE_TIMINGS;
           }
         },
@@ -98,8 +99,9 @@ export class ChannelManager {
         sendTyping: (slug, channelType, channelId, messageSid) =>
           this.dispatchSendTyping(slug, channelType, channelId, messageSid),
       });
-      console.log(
-        `[channel-manager] MessageCoordinator enabled: timings resolved per agent ` +
+      log.info(
+        "channel-manager",
+        `MessageCoordinator enabled: timings resolved per agent ` +
           `(defaults softDebounce=${DEFAULT_MESSAGE_TIMINGS.softDebounceMs}ms, ` +
           `typingDelay=${DEFAULT_MESSAGE_TIMINGS.typingDelayMs}ms, maxRestarts=${DEFAULT_MESSAGE_TIMINGS.maxRestarts}), ` +
           `channels=${[...DEBOUNCED_CHANNELS].join(",")}`,
@@ -150,12 +152,12 @@ export class ChannelManager {
       }
       instanceMap.set(channelType, adapter);
 
-      console.log(`Channel started: ${sanitizeForLog(channelType)} for instance "${sanitizeForLog(instanceSlug)}"`);
+      log.info("channel-manager", `Channel started: ${channelType} for instance "${instanceSlug}"`);
     } catch (err) {
-      console.error('Failed to start channel %s for instance "%s":', sanitizeForLog(channelType), sanitizeForLog(instanceSlug), err);
+      log.error("channel-manager", `Failed to start channel ${channelType} for instance "${instanceSlug}"`, err);
       // Auto-disable the channel in DB to prevent crash loops on restart
       this.autoDisableChannel(instanceSlug, channelType).catch((disableErr) =>
-        console.error('Failed to auto-disable %s for "%s":', sanitizeForLog(channelType), sanitizeForLog(instanceSlug), disableErr),
+        log.error("channel-manager", `Failed to auto-disable ${channelType} for "${instanceSlug}"`, disableErr),
       );
     }
   }
@@ -253,7 +255,7 @@ export class ChannelManager {
       const status = await getOptoutStatus(asInstanceSlug(instanceSlug), channelType, channelId);
       return status === "opted_out";
     } catch (err) {
-      console.error("[channel-manager] opt-out check failed (allowing send):", err);
+      log.error("channel-manager", "opt-out check failed (allowing send)", err);
       return false;
     }
   }
@@ -269,7 +271,7 @@ export class ChannelManager {
     const adapter = this.requireAdapter(instanceSlug, channelType);
 
     if (!opts?.skipOptoutCheck && (await this.isOptoutSuppressed(instanceSlug, channelType, channelId))) {
-      console.log(`[channel-manager] outbound suppressed (opt-out): ${sanitizeForLog(instanceSlug)} ${sanitizeForLog(channelType)}:${sanitizeForLog(channelId)}`);
+      log.info("channel-manager", `outbound suppressed (opt-out): ${instanceSlug} ${channelType}:${channelId}`);
       if (opts?.throwOnSuppressed) throw new Error("Outbound suppressed by recipient opt-out");
       return;
     }
@@ -284,7 +286,7 @@ export class ChannelManager {
       ok = true;
       return delivery;
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : String(err);
+      errorMessage = errMsg(err);
       throw err;
     } finally {
       // Activity-stream emit: success/error parity for proactive outbound sends.
@@ -322,7 +324,7 @@ export class ChannelManager {
     const adapter = this.requireAdapter(instanceSlug, channelType);
 
     if (await this.isOptoutSuppressed(instanceSlug, channelType, channelId)) {
-      console.log(`[channel-manager] template suppressed (opt-out): ${sanitizeForLog(instanceSlug)} ${sanitizeForLog(channelType)}:${sanitizeForLog(channelId)}`);
+      log.info("channel-manager", `template suppressed (opt-out): ${instanceSlug} ${channelType}:${channelId}`);
       throw new Error(`Outbound suppressed: contact ${channelType}:${channelId} has opted out`);
     }
 
@@ -378,7 +380,7 @@ export class ChannelManager {
   /** Auto-disable a channel in DB after adapter initialization failure. */
   private async autoDisableChannel(instanceSlug: string, channelType: string): Promise<void> {
     await disableChannel(asInstanceSlug(instanceSlug), channelType);
-    console.warn(`Channel auto-disabled: ${sanitizeForLog(channelType)} for instance "${sanitizeForLog(instanceSlug)}" — re-enable from admin panel after fixing credentials`);
+    log.warn("channel-manager", `Channel auto-disabled: ${channelType} for instance "${instanceSlug}" — re-enable from admin panel after fixing credentials`);
   }
 
   /** Create the appropriate adapter based on channel type. */
@@ -409,7 +411,7 @@ export class ChannelManager {
         // web: the public HTTP endpoints; nothing to start, the row is the switch.
         return null;
       default:
-        console.warn(`Unknown channel type: ${sanitizeForLog(channelType)}`);
+        log.warn("channel-manager", `Unknown channel type: ${channelType}`);
         return null;
     }
   }

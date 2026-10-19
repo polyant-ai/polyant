@@ -9,6 +9,10 @@ import { firstDelivery } from "../../inbound-dedupe.js";
 import type { InstanceSlug } from "../../../instances/identifiers.js";
 import { contactConversationId } from "../../outbound-conversation.js";
 import { TtlCache } from "../../../utils/ttl-cache.js";
+import { createLogger } from "../../../utils/create-logger.js";
+import { errMsg } from "../../../utils/error.js";
+
+const log = createLogger();
 
 export interface SlackConfig {
   botToken: string;
@@ -122,7 +126,7 @@ export class SlackAdapter implements ChannelAdapter {
       }
     });
 
-    console.log("Slack bot started (webhook)");
+    log.info("slack", "bot started (webhook)");
   }
 
   verifyRequest(rawBody: Buffer, signature: string, timestamp: string): boolean {
@@ -213,7 +217,7 @@ export class SlackAdapter implements ChannelAdapter {
       this.userCache.set(userId, name);
       return name;
     } catch (err) {
-      console.warn(`[slack] users.info failed for ${userId}:`, err instanceof Error ? err.message : err);
+      log.warn("slack", `users.info failed for ${userId}: ${errMsg(err)}`);
       return userId;
     }
   }
