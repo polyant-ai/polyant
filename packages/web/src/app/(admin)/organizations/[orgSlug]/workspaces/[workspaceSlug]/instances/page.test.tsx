@@ -89,7 +89,8 @@ describe("InstancesPage", () => {
     mockList.mockRejectedValue(new Error("network"));
     render(<InstancesPage />);
 
-    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("common.loadFailed"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("common.loadFailed");
+    expect(screen.queryByText("instances.empty.title")).not.toBeInTheDocument();
   });
 
   it("imports a bundle as a new agent, shows its warnings and opens it", async () => {
@@ -111,7 +112,8 @@ describe("InstancesPage", () => {
       expect(mockPush).toHaveBeenCalledWith("/organizations/acme/workspaces/sales/instances/imported-bot"),
     );
     expect(mockImportNew).toHaveBeenCalledWith(bundle);
-    expect(mockList).toHaveBeenCalledTimes(2);
+    // The list page unmounts on navigation, so importing does not re-read the list first.
+    expect(mockList).toHaveBeenCalledTimes(1);
     const warnings = await screen.findByRole("dialog");
     expect(within(warnings).getByText("Secret OPENAI_KEY was not exported")).toBeInTheDocument();
   });

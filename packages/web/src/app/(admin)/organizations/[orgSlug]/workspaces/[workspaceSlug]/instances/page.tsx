@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
@@ -18,6 +18,10 @@ import {
 } from "@/components/ui/table";
 import { ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { PageHeader } from "@/components/layout/page-header";
+import { useResource } from "@/hooks/use-resource";
+import { usePersistedState } from "@/hooks/use-persisted-state";
 import {
   Dialog,
   DialogContent,
@@ -36,38 +40,8 @@ type ViewMode = "list" | "grid";
 const STORAGE_KEY = "instances-view-mode";
 const SHOW_INACTIVE_STORAGE_KEY = "instances-show-inactive";
 
-function useViewMode(): [ViewMode, (mode: ViewMode) => void] {
-  const [mode, setMode] = useState<ViewMode>("list");
-
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as ViewMode;
-    if (saved && (saved === "list" || saved === "grid")) setMode(saved);
-  }, []);
-
-  const setAndPersist = useCallback((next: ViewMode) => {
-    setMode(next);
-    localStorage.setItem(STORAGE_KEY, next);
-  }, []);
-
-  return [mode, setAndPersist];
-}
-
-/** Persist the "show inactive instances" toggle. Default: hidden. */
-function useShowInactive(): [boolean, (next: boolean) => void] {
-  const [show, setShow] = useState<boolean>(false);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(SHOW_INACTIVE_STORAGE_KEY);
-    if (saved === "true") setShow(true);
-  }, []);
-
-  const setAndPersist = useCallback((next: boolean) => {
-    setShow(next);
-    localStorage.setItem(SHOW_INACTIVE_STORAGE_KEY, String(next));
-  }, []);
-
-  return [show, setAndPersist];
-}
+const parseViewMode = (raw: string): ViewMode | undefined => (raw === "list" || raw === "grid" ? raw : undefined);
+const parseBool = (raw: string): boolean | undefined => (raw === "true" ? true : raw === "false" ? false : undefined);
 
 function InstanceGrid({ instances, paths }: { instances: Instance[]; paths: TenantPaths }) {
   return (
@@ -183,11 +157,12 @@ export default function InstancesPage() {
   const { t } = useI18n();
   const router = useRouter();
   const paths = useTenantPaths();
-  const [instances, setInstances] = useState<Instance[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, error, loading, reload } = useResource(["instances", paths.workspace("")], () => api.instances.list());
+  const instances: Instance[] = data?.instances ?? [];
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [viewMode, setViewMode] = useViewMode();
-  const [showInactive, setShowInactive] = useShowInactive();
+  const [viewMode, setViewMode] = usePersistedState<ViewMode>(STORAGE_KEY, "list", parseViewMode);
+  // Hide inactive instances by default.
+  const [showInactive, setShowInactive] = usePersistedState(SHOW_INACTIVE_STORAGE_KEY, false, parseBool);
   const [importing, setImporting] = useState(false);
   const [importWarnings, setImportWarnings] = useState<{ type: string; message: string }[] | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
@@ -207,9 +182,8 @@ export default function InstancesPage() {
       }
 
       toast.success(t("exportImport.import.success"));
-      await fetchInstances();
 
-      // Navigate to the new instance
+      // The list page reloads itself when it is opened again.
       router.push(paths.workspace(`/instances/${encodeURIComponent(result.slug)}`));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("exportImport.import.failed")));
@@ -219,25 +193,7 @@ export default function InstancesPage() {
     }
   };
 
-  const fetchInstances = async () => {
-    try {
-      const { instances } = await api.instances.list();
-      setInstances(instances);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("common.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchInstances();
-    // Load once on mount. `fetchInstances` is a stable closure; adding it to
-    // deps without useCallback would re-run every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Hide inactive instances by default. The toggle is purely client-side —
+  // The toggle is purely client-side —
   // the API still returns every instance regardless of status.
   const visibleInstances = showInactive
     ? instances
@@ -246,16 +202,11 @@ export default function InstancesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {t("instances.title")}
-          </h1>
-          <p className="mt-2 text-muted-foreground">
-            {t("instances.subtitle")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader
+        title={t("instances.title")}
+        subtitle={t("instances.subtitle")}
+        subtitleClassName="mt-2 text-muted-foreground"
+        actions={<>
           <div className="flex items-center rounded-md border">
             <Button
               variant={viewMode === "list" ? "default" : "ghost"}
@@ -317,11 +268,13 @@ export default function InstancesPage() {
             <Plus className="h-4 w-4" />
             {t("instances.newInstance")}
           </Button>
-        </div>
-      </div>
+        </>}
+      />
 
       <div className="mt-8">
-        {loading ? (
+        {error ? (
+          <LoadFailed onRetry={reload} />
+        ) : loading ? (
           viewMode === "list" ? (
             <div className="space-y-3">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -363,7 +316,7 @@ export default function InstancesPage() {
         onOpenChange={setDialogOpen}
         onCreated={() => {
           setDialogOpen(false);
-          fetchInstances();
+          reload();
         }}
       />
 
