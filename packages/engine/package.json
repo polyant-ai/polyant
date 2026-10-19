@@ -76,7 +76,7 @@
     "@types/cookie-parser": "^1.4.10",
     "@types/node": "^24.19.0",
     "@types/semver": "^7.5.8",
-    "@vitest/coverage-v8": "^5.0.3",
+    "@vitest/coverage-v8": "^5.0.5",
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.9.1",
     "fast-check": "^4.10.2",
