@@ -858,11 +858,13 @@ export const api = {
       request(urlPath`/api/instances/${slug}/room`, { method: "DELETE" }),
     backlog: (slug: string, params?: { status?: string; limit?: number; offset?: number }) => {
       return request<{ events: BacklogEvent[]; total: number }>(
-        withQuery(urlPath`/api/instances/${slug}/room/backlog`, params ?? {}),
+        withQuery(urlPath`/api/instances/${slug}/room/backlog`, { ...params, limit: params?.limit || undefined }),
       );
     },
     activity: (slug: string, params?: { logType?: string; limit?: number }) => {
-      return request<ActivityLogEntry[]>(withQuery(urlPath`/api/instances/${slug}/room/activity`, params ?? {}));
+      return request<ActivityLogEntry[]>(
+        withQuery(urlPath`/api/instances/${slug}/room/activity`, { ...params, limit: params?.limit || undefined }),
+      );
     },
   },
 

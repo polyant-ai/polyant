@@ -364,3 +364,33 @@ describe("api.members", () => {
     expect(sentUrl(fetchFn).pathname).toBe("/api/organizations/acme%20corp/members/u%2F2");
   });
 });
+
+// The room backlog and activity routes validate `limit` as 1..200 and answer 400
+// for 0, so a zero limit is left out of the query like an absent one. Offset 0 is valid.
+describe("room list queries", () => {
+  async function urlOf(call: () => Promise<unknown>): Promise<string> {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("[]", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await call();
+      return String(fetchMock.mock.calls[0][0]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+
+  it("leaves a zero limit out of the backlog query and keeps a zero offset", async () => {
+    expect(await urlOf(() => api.room.backlog("acme", { limit: 0, offset: 0 }))).toBe(
+      "/api/instances/acme/room/backlog?offset=0",
+    );
+    expect(await urlOf(() => api.room.backlog("acme", { limit: 20 }))).toBe(
+      "/api/instances/acme/room/backlog?limit=20",
+    );
+  });
+
+  it("leaves a zero limit out of the activity query", async () => {
+    expect(await urlOf(() => api.room.activity("acme", { logType: "daily", limit: 0 }))).toBe(
+      "/api/instances/acme/room/activity?logType=daily",
+    );
+  });
+});
