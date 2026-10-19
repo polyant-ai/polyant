@@ -8,6 +8,7 @@ installFileLogger();
 import { config } from "./config.js";
 import { retiredEnvironmentWarnings } from "./config-retired.js";
 import { db } from "./database/client.js";
+import { errMsg } from "./utils/error.js";
 import { initAIGateway, shutdown as shutdownGateway } from "./ai-gateway/index.js";
 import { initMemory } from "./memory/index.js";
 import { startStuckDocumentSweep } from "./knowledge/stuck-document-sweep.js";
@@ -79,6 +80,15 @@ function formatDbTarget(databaseUrl: string): string {
   }
 }
 
+/** Run a boot step whose failure must not stop the boot: log it and carry on. */
+async function nonFatal(label: string, run: () => Promise<unknown>, withStack = false): Promise<void> {
+  try {
+    await run();
+  } catch (err) {
+    console.error(label, withStack ? err : errMsg(err));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // main()
 // ---------------------------------------------------------------------------
@@ -86,15 +96,6 @@ function formatDbTarget(databaseUrl: string): string {
 async function main() {
   console.log("Polyant starting...");
   for (const warning of retiredEnvironmentWarnings()) console.warn(warning);
-
-  // 0. Seed the initial platform admin if the users table is empty (idempotent).
-  // Runs before the rest of the boot so the system is "ready for first
-  // access" the moment the server is up.
-  try {
-    await seedInitialAdmin();
-  } catch (err) {
-    console.error("[users] Initial admin seed failed:", err);
-  }
 
   // 1. Initialize AI Gateway (logging + LangSmith) + Trace Store
   initAIGateway(db);
@@ -113,29 +114,27 @@ async function main() {
   await syncToolsToDb();
   console.log("Tool registry synced to DB");
 
-  // 2. (Instances are managed via the admin panel — no auto-seeding)
-
-  // 3. Initialize memory layer (pgvector)
-  const pgvectorStatus = await initMemory();
-
-  // 3a. Fail knowledge documents whose ingestion died with its process, now and
-  // periodically after.
-  const stopStuckDocumentSweep = await startStuckDocumentSweep();
-
-  // 3b. Recover webhook events stuck in "processing" — see follow-up to #81.
-  // A fresh boot has no in-flight room cycle, so anything in PROCESSING is a
-  // zombie from a prior crash that has to be requeued.
-  try {
-    const resetEvents = await resetStuckProcessingEvents();
-    if (resetEvents > 0) {
-      console.log(`[Webhooks] Reset ${resetEvents} stale processing event(s) to pending`);
-    }
-  } catch (err) {
-    console.error(
-      "[Webhooks] Boot cleanup failed (non-fatal):",
-      err instanceof Error ? err.message : String(err),
-    );
-  }
+  // The remaining boot steps touch the database independently of each other and of the
+  // tool registry, so they run together.
+  const [, pgvectorStatus, stopStuckDocumentSweep] = await Promise.all([
+    // Seed initial platform admin if the users table is empty (idempotent), so the
+    // system is "ready for first access" the moment the server is up.
+    nonFatal("[users] Initial admin seed failed:", () => seedInitialAdmin(), true),
+    // Initialize memory layer (pgvector).
+    initMemory(),
+    // Fail knowledge documents whose ingestion died with its process, now and
+    // periodically after.
+    startStuckDocumentSweep(),
+    // Recover webhook events stuck in "processing" — see follow-up to #81. A fresh
+    // boot has no in-flight room cycle, so anything in PROCESSING is a zombie from a
+    // prior crash that has to be requeued.
+    nonFatal("[Webhooks] Boot cleanup failed (non-fatal):", async () => {
+      const resetEvents = await resetStuckProcessingEvents();
+      if (resetEvents > 0) {
+        console.log(`[Webhooks] Reset ${resetEvents} stale processing event(s) to pending`);
+      }
+    }),
+  ]);
 
   // --- Message handlers (sync + streaming) ---
 
