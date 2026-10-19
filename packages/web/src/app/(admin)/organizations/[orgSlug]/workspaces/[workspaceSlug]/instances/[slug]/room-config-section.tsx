@@ -84,7 +84,7 @@ export function RoomConfigSection({ form, onChange, onDelete, isNew }: Props) {
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                  <AlertDialogAction className="bg-destructive text-destructive-foreground" onClick={onDelete}>{t("common.delete")}</AlertDialogAction>
+                  <AlertDialogAction variant="destructive" onClick={onDelete}>{t("common.delete")}</AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>

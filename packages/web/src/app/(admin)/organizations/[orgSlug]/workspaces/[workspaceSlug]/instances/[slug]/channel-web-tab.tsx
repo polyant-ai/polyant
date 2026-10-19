@@ -253,7 +253,7 @@ export function ChannelWebTab({ instance, onUpdate, onWebEnabledChange }: Props)
                 setConfirmOpen(false);
                 void handleSave(true);
               }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
             >
               {t("channels.tab.webAuthOffAccept")}
             </AlertDialogAction>

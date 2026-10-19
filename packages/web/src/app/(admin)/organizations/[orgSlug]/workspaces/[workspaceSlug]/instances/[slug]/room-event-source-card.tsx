@@ -318,7 +318,7 @@ export function EventSourceCard({
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                <AlertDialogAction className="bg-destructive text-destructive-foreground" onClick={() => onDeleteSource(source.id)}>{t("common.delete")}</AlertDialogAction>
+                <AlertDialogAction variant="destructive" onClick={() => onDeleteSource(source.id)}>{t("common.delete")}</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
@@ -395,7 +395,7 @@ export function EventSourceCard({
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                          <AlertDialogAction className="bg-destructive text-destructive-foreground" onClick={() => onDeleteDefinition(source.id, def.id)}>{t("common.delete")}</AlertDialogAction>
+                          <AlertDialogAction variant="destructive" onClick={() => onDeleteDefinition(source.id, def.id)}>{t("common.delete")}</AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
