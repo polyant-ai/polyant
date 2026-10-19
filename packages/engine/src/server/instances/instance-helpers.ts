@@ -5,8 +5,6 @@ import { findInstanceBySlug } from "../../instances/store.js";
 import { asInstanceSlug } from "../../instances/identifiers.js";
 import { maskSecret } from "./secret-mask.js";
 
-export { errMsg } from "../../utils/error.js";
-
 /** Find instance or throw 404. Returns the instance record with id + slug. */
 export async function findInstanceOrFail(slug: string) {
   const instance = await findInstanceBySlug(asInstanceSlug(slug));
