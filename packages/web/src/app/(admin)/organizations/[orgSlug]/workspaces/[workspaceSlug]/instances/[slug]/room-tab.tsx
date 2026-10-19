@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api, getUserErrorMessage } from "@/lib/api";
 import type { RoomConfigResponse } from "@/lib/api-types";
 import { useI18n } from "@/lib/i18n/context";
@@ -111,9 +112,9 @@ export function RoomTab({ slug }: Props) {
 
   if (loading && data === undefined) {
     return (
-      <div className="max-w-3xl animate-pulse space-y-4">
-        <div className="h-48 rounded-lg bg-muted" />
-        <div className="h-32 rounded-lg bg-muted" />
+      <div className="max-w-3xl space-y-4">
+        <Skeleton className="h-48 rounded-lg" />
+        <Skeleton className="h-32 rounded-lg" />
       </div>
     );
   }

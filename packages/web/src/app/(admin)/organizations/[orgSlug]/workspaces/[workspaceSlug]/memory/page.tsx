@@ -3,6 +3,7 @@
 "use client";
 
 import { MemoryView } from "@/components/memory/memory-view";
+import { PageHeader } from "@/components/layout/page-header";
 import { useI18n } from "@/lib/i18n/context";
 
 /** The workspace-wide list. The list itself is shared with the agent's Attività. */
@@ -11,10 +12,7 @@ export default function MemoryPage() {
 
   return (
     <div>
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{t("memory.title")}</h1>
-        <p className="mt-1 text-muted-foreground">{t("memory.subtitle")}</p>
-      </div>
+      <PageHeader title={t("memory.title")} subtitle={t("memory.subtitle")} />
       <div className="mt-6">
         <MemoryView />
       </div>

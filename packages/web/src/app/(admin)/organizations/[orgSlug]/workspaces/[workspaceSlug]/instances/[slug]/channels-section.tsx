@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { Globe, Send, Hash, MessageCircle, Bot } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api, type Instance } from "@/lib/api";
 import { useResource } from "@/hooks/use-resource";
 import { Chip } from "@/components/ui/chip";
@@ -106,8 +107,8 @@ export function ChannelsSection({
       {selected === "web" ? (
         <ChannelWebTab instance={instance} onUpdate={onUpdate} channels={channels} onChannelsChanged={reload} />
       ) : channels === undefined ? (
-        <div className="animate-pulse space-y-4">
-          <div className="h-48 rounded-lg bg-muted" />
+        <div className="space-y-4">
+          <Skeleton className="h-48 rounded-lg" />
         </div>
       ) : (
         <ChannelsTab

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { AlertTriangle, Check } from "lucide-react";
 import { TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api, isForbidden, type Instance, type ModelsResponse, type SecretStatus } from "@/lib/api";
 import { useResource } from "@/hooks/use-resource";
 import { useI18n } from "@/lib/i18n/context";
@@ -63,9 +64,9 @@ export function ModelTab({ instance, onUpdate, onConfigurationChanged }: Props) 
 
   if (loading) {
     return (
-      <div className="animate-pulse space-y-4">
-        <div className="h-10 rounded-lg bg-muted" />
-        <div className="h-32 rounded-lg bg-muted" />
+      <div className="space-y-4">
+        <Skeleton className="h-10 rounded-lg" />
+        <Skeleton className="h-32 rounded-lg" />
       </div>
     );
   }

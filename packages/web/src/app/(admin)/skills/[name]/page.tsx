@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Download } from "lucide-react";
 import { parseUTC } from "@/lib/format";
+import { PageHeader } from "@/components/layout/page-header";
 import { downloadBlob } from "@/lib/download";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -179,9 +180,7 @@ export default function SkillDetailPage() {
   if (loading) {
     return (
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          {t("common.loading")}
-        </h1>
+        <PageHeader title={t("common.loading")} />
       </div>
     );
   }
@@ -189,33 +188,33 @@ export default function SkillDetailPage() {
   if (!skill) {
     return (
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          {t("skills.notFound")}
-        </h1>
+        <PageHeader title={t("skills.notFound")} />
       </div>
     );
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-semibold tracking-tight">{skill.name}</h1>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleExport}
-            disabled={exporting}
-            className="gap-1.5"
-          >
-            <Download className="h-4 w-4" />
-            {exporting ? t("exportImport.export.downloading") : t("exportImport.export.button")}
-          </Button>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? t("common.saving") : t("common.saveSingle")}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title={skill.name}
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleExport}
+              disabled={exporting}
+              className="gap-1.5"
+            >
+              <Download className="h-4 w-4" />
+              {exporting ? t("exportImport.export.downloading") : t("exportImport.export.button")}
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? t("common.saving") : t("common.saveSingle")}
+            </Button>
+          </>
+        }
+      />
 
       <ChipTabs
         className="mt-6"

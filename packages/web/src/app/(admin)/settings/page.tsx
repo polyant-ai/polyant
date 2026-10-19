@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
 import { ChipTabs } from "@/components/layout/chip-tabs";
+import { PageHeader } from "@/components/layout/page-header";
 import { useI18n } from "@/lib/i18n/context";
 import { UsersTab } from "./users-tab";
 import { PlatformTab } from "./platform-tab";
@@ -33,12 +34,11 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          {t("settings.title")}
-        </h1>
-        <p className="mt-2 text-muted-foreground">{t("settings.subtitle")}</p>
-      </div>
+      <PageHeader
+        title={t("settings.title")}
+        subtitle={t("settings.subtitle")}
+        subtitleClassName="mt-2 text-muted-foreground"
+      />
 
       <ChipTabs
         tabs={[

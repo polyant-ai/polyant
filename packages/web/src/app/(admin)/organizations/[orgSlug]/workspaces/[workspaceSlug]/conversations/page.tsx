@@ -3,6 +3,7 @@
 "use client";
 
 import { ConversationsView } from "@/components/conversations/conversations-view";
+import { PageHeader } from "@/components/layout/page-header";
 import { useI18n } from "@/lib/i18n/context";
 
 /** The workspace-wide list. The table itself is shared with the agent's Attività. */
@@ -11,10 +12,7 @@ export default function ConversationsPage() {
 
   return (
     <div>
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">{t("conversations.title")}</h1>
-        <p className="mt-1 text-muted-foreground">{t("conversations.subtitle")}</p>
-      </div>
+      <PageHeader title={t("conversations.title")} subtitle={t("conversations.subtitle")} />
       <div className="mt-6" data-tour="conv-table">
         <ConversationsView />
       </div>

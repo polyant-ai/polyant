@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { LoadFailed } from "@/components/ui/load-failed";
 import { useResource } from "@/hooks/use-resource";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api, getUserErrorMessage } from "@/lib/api";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useI18n } from "@/lib/i18n/context";
@@ -168,9 +169,9 @@ export function TriggersWebhooksTab({ slug }: Props) {
 
   if (loading && data === undefined) {
     return (
-      <div className="animate-pulse space-y-4">
-        <div className="h-32 rounded-lg bg-muted" />
-        <div className="h-24 rounded-lg bg-muted" />
+      <div className="space-y-4">
+        <Skeleton className="h-32 rounded-lg" />
+        <Skeleton className="h-24 rounded-lg" />
       </div>
     );
   }

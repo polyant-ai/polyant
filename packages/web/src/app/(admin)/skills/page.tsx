@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import { Plus, Pencil, Trash2, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -28,27 +28,17 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { api, getUserErrorMessage, type LibrarySkillSummary } from "@/lib/api";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { useResource } from "@/hooks/use-resource";
+import { PageHeader } from "@/components/layout/page-header";
 import { useI18n } from "@/lib/i18n/context";
+
+const NO_SKILLS: LibrarySkillSummary[] = [];
 
 export default function SkillsPage() {
   const { t } = useI18n();
-  const [skills, setSkills] = useState<LibrarySkillSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchSkills = async () => {
-    try {
-      const data = await api.skillLibrary.list();
-      setSkills(Array.isArray(data.skills) ? data.skills : []);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("skills.fetchFailed")));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchSkills();
-  }, []);
+  const { data, error, loading, reload } = useResource("skill-library", () => api.skillLibrary.list());
+  const skills: LibrarySkillSummary[] = Array.isArray(data?.skills) ? data.skills : NO_SKILLS;
 
   const [importingSkills, setImportingSkills] = useState(false);
   const importSkillsRef = useRef<HTMLInputElement>(null);
@@ -68,7 +58,7 @@ export default function SkillsPage() {
           .replace("{updated}", String(result.updated.length))
           .replace("{skipped}", String(result.skipped.length)),
       );
-      await fetchSkills();
+      reload();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("exportImport.skills.import.failed")));
     } finally {
@@ -80,62 +70,53 @@ export default function SkillsPage() {
   const handleDelete = async (name: string) => {
     try {
       await api.skillLibrary.delete(name);
-      setSkills((prev) => prev.filter((s) => s.name !== name));
+      reload();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("skills.deleteFailed")));
     }
   };
 
-  if (loading) {
-    return (
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          {t("skills.title")}
-        </h1>
-        <p className="mt-2 text-muted-foreground">{t("common.loading")}</p>
-      </div>
-    );
-  }
-
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {t("skills.title")}
-          </h1>
-          <p className="mt-1 text-muted-foreground">
-            {t("skills.subtitle")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => importSkillsRef.current?.click()}
-            disabled={importingSkills}
-            className="gap-2"
-          >
-            <Upload className="h-4 w-4" />
-            {importingSkills ? t("exportImport.import.uploading") : t("exportImport.skills.import.button")}
-          </Button>
-          <input
-            ref={importSkillsRef}
-            type="file"
-            accept=".json"
-            className="hidden"
-            onChange={handleImportSkills}
-          />
-          <Button asChild>
-            <Link href="/skills/new">
-              <Plus className="mr-2 size-4" />
-              {t("skills.newSkill")}
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title={t("skills.title")}
+        subtitle={t("skills.subtitle")}
+        actions={
+          data !== undefined && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => importSkillsRef.current?.click()}
+                disabled={importingSkills}
+                className="gap-2"
+              >
+                <Upload className="h-4 w-4" />
+                {importingSkills ? t("exportImport.import.uploading") : t("exportImport.skills.import.button")}
+              </Button>
+              <input
+                ref={importSkillsRef}
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={handleImportSkills}
+              />
+              <Button asChild>
+                <Link href="/skills/new">
+                  <Plus className="mr-2 size-4" />
+                  {t("skills.newSkill")}
+                </Link>
+              </Button>
+            </>
+          )
+        }
+      />
 
-      {skills.length === 0 ? (
+      {error && data === undefined ? (
+        <LoadFailed message={t("skills.fetchFailed")} onRetry={reload} />
+      ) : loading && data === undefined ? (
+        <p className="mt-2 text-muted-foreground">{t("common.loading")}</p>
+      ) : skills.length === 0 ? (
         <div className="mt-16 flex flex-col items-center text-center">
           <p className="text-muted-foreground">{t("skills.empty")}</p>
           <Button asChild className="mt-4" variant="outline">
