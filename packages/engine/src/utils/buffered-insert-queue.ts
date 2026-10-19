@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { createLogger } from "./create-logger.js";
 
 const log = createLogger();
-// SPDX-License-Identifier: AGPL-3.0-or-later
 
 // ---------------------------------------------------------------------------
 // Buffered batch writer shared by every append-only log table (traces, AI
