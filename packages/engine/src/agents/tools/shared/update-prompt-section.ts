@@ -7,6 +7,9 @@ import { getPromptSection, upsertPrompt } from "../../../instances/prompts.store
 import { resolveInstanceId } from "../../../instances/resolve-instance-id.js";
 import { errMsg } from "../../../utils/error.js";
 import { auditPreview } from "../../../audit/audit-logger.js";
+import { createLogger } from "../../../utils/create-logger.js";
+
+const log = createLogger();
 
 interface PromptUpdaterConfig {
   toolName: string;
@@ -68,7 +71,7 @@ export function createPromptUpdaterTool(config: PromptUpdaterConfig): ToolDefini
         return { updated: true };
       } catch (err) {
         const message = errMsg(err);
-        console.error(`${config.toolName} error: ${message}`);
+        log.error(config.toolName, message);
         ctx.audit.log({
           action: config.auditAction,
           details: { instructionPreview: auditPreview(instruction) },

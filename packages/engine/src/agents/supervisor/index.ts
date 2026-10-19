@@ -40,6 +40,10 @@ import { agentToolTarget } from "../../authz/agent-tenancy.js";
 import { readAgentScope } from "../../authz/authz.store.js";
 import type { DatetimeSettings } from "../../instances/agent-settings.js";
 import { emitToolStart } from "../../activity-stream/emitters/emit-tool.js";
+import { createLogger } from "../../utils/create-logger.js";
+import { errMsg } from "../../utils/error.js";
+
+const log = createLogger();
 
 export interface SupervisorInput {
   message: string;
@@ -238,7 +242,7 @@ function wrapToolWithAudit(
         const durationMs = Date.now() - toolStart;
         const hasError = output != null && typeof output === "object" && "error" in output;
         if (hasError) {
-          console.error(`🔧 TOOL ERROR [${name}]`, (output as Record<string, unknown>).error);
+          log.error("supervisor", `tool error [${name}]`, (output as Record<string, unknown>).error);
         }
         if (signals && output != null && typeof output === "object") {
           const out = output as Record<string, unknown>;
@@ -258,7 +262,7 @@ function wrapToolWithAudit(
         const durationMs = Date.now() - toolStart;
         toolCallTraces?.push({ name, duration_ms: durationMs, success: false });
         auditStore.patchDuration(name, instanceId, durationMs);
-        emitToolEnd({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+        emitToolEnd({ kind: "error", message: errMsg(err) });
         throw err;
       }
     },
@@ -347,7 +351,7 @@ async function buildTools(opts: BuildToolsOptions) {
       // Record key, so no reverse mapping is needed on the tool-call round-trip.
       const modelToolName = toModelToolName(name);
       if (modelToolName in tools) {
-        console.warn(`Tool name collision after sanitization: "${name}" → "${modelToolName}" already equipped — skipping`);
+        log.warn("supervisor", `Tool name collision after sanitization: "${name}" → "${modelToolName}" already equipped — skipping`);
         continue;
       }
       tools[modelToolName] = wrapToolWithAudit(name, built, instanceId, conversationId, toolCallTraces, signals);
@@ -387,7 +391,7 @@ async function buildTools(opts: BuildToolsOptions) {
       const targetSlug = agentToolTarget(entryName)!;
       const target = targets.get(targetSlug);
       if (!target) {
-        console.warn(`[supervisor] agent tool '${entryName}': target instance not found`);
+        log.warn("supervisor", `agent tool '${entryName}': target instance not found`);
         continue;
       }
       // Tenancy backstop, independent of how the row got into instance_tools:
@@ -399,12 +403,12 @@ async function buildTools(opts: BuildToolsOptions) {
         targetSlug === instanceId ||
         (callerScope !== null && callerScope.organizationId === target.organizationId);
       if (!sameOrg) {
-        console.warn(`[supervisor] agent tool '${entryName}': target is in another organization — skipped`);
+        log.warn("supervisor", `agent tool '${entryName}': target is in another organization — skipped`);
         continue;
       }
       const adapter = channelManager.getAdapter(target.slug, "agent") as AgentChannelAdapter | undefined;
       if (!adapter) {
-        console.warn(`[supervisor] agent tool '${entryName}': target has 'agent' channel disabled`);
+        log.warn("supervisor", `agent tool '${entryName}': target has 'agent' channel disabled`);
         continue;
       }
       const synth = buildAgentInvokeTool({
@@ -574,7 +578,7 @@ async function prepareSupervisor(input: SupervisorInput): Promise<SupervisorCont
   try {
     for (const [name, mcpTool] of Object.entries(mcp.tools)) {
       if (name in tools) {
-        console.warn(`MCP tool name collision: "${name}" already equipped by a core/plugin tool — skipping`);
+        log.warn("supervisor", `MCP tool name collision: "${name}" already equipped by a core/plugin tool — skipping`);
         continue;
       }
       // MCP tools bypass buildTools' per-tool ctx (they're pre-built by the SDK),

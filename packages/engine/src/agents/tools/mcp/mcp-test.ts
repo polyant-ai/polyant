@@ -5,6 +5,7 @@ import { connectWithTimeout } from "./mcp-connect.js";
 import { assertSafeMcpUrlResolved } from "./mcp-url-guard.js";
 import { resolvePlatformSettings } from "../../../platform/platform-settings.store.js";
 import type { McpAuthMode } from "../../../instances/mcp-servers.store.js";
+import { errMsg } from "../../../utils/error.js";
 
 export interface McpTestOptions {
   url: string;
@@ -49,6 +50,6 @@ export async function testMcpConnection(opts: McpTestOptions): Promise<McpTestRe
     }
   } catch (e) {
     if (e instanceof UnauthorizedError) return { ok: true, requiresOAuth: true };
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: errMsg(e) };
   }
 }

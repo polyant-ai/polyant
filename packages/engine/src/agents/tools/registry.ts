@@ -22,6 +22,9 @@ import { compatiblePluginRoots, importDefinitions } from "../../plugin-system/pl
 import type { LocalizedText } from "../../plugin-system/localized-text.js";
 import { registerOAuthProvider } from "../../server/oauth/oauth-providers.js";
 import { findStrictModeViolations, findIllegalToolName } from "./strict-mode-lint.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 // Re-export the authoring contract from the SDK so core tools keep importing
 // `normalizeRequiredSecrets` / the types from "./registry.js" unchanged.
@@ -211,7 +214,7 @@ function getValidator(schema: Record<string, unknown>): ValidateFunction | null 
   } catch (err) {
     // A schema ajv can't compile degrades to fill-only (today's behaviour) rather
     // than breaking the tool — validation is best-effort parity, not a hard gate.
-    console.warn(`Tool schema failed to compile for validation — skipping: ${errMsg(err)}`);
+    log.warn("tools", `Tool schema failed to compile for validation — skipping: ${errMsg(err)}`);
   }
   validatorCache.set(schema, compiled);
   return compiled;
@@ -380,10 +383,10 @@ function registerLoadedTool(serialized: SerializedToolDefinition, namespace: str
   if (namespace !== null) {
     const finalName = `${namespace}:${serialized.name}`;
     for (const v of findStrictModeViolations(serialized.inputSchema, finalName)) {
-      console.warn(`Plugin tool strict-mode lint: ${v}`);
+      log.warn("tools", `Plugin tool strict-mode lint: ${v}`);
     }
     const nameViolation = findIllegalToolName(finalName);
-    if (nameViolation) console.warn(`Plugin tool name lint: ${nameViolation}`);
+    if (nameViolation) log.warn("tools", `Plugin tool name lint: ${nameViolation}`);
   }
 }
 
@@ -439,7 +442,7 @@ export async function loadAllTools(): Promise<void> {
       const missing = def.requiredEnv.filter((envVar) => !process.env[envVar]);
       if (missing.length > 0) {
         registry.delete(name);
-        console.warn(`Tool "${name}" disabled: missing env var(s) ${missing.join(", ")}`);
+        log.warn("tools", `Tool "${name}" disabled: missing env var(s) ${missing.join(", ")}`);
       }
     }
   }

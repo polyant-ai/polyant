@@ -17,7 +17,7 @@ vi.mock("node:fs/promises", () => ({
   realpath: mockRealpath,
 }));
 vi.mock("../../utils/error.js", () => ({
-  errMsg: (err: unknown) => err instanceof Error ? err.message : String(err),
+  errMsg: (err: unknown) => (err instanceof Error ? err.message : `${err}`),
 }));
 
 import { createMockAudit } from "../../test-utils.js";

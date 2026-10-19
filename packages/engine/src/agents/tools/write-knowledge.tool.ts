@@ -9,9 +9,11 @@ import {
 } from "../../knowledge/store.js";
 import { processDocument } from "../../knowledge/ingestion.js";
 import { defineTool } from "@polyant-ai/plugin-sdk";
-import { errMsg } from "../../utils/error.js";
 import { auditFailure } from "./shared/audit-failure.js";
 import { auditPreview } from "../../audit/audit-logger.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 export default defineTool({
   name: "writeKnowledge",
@@ -96,9 +98,7 @@ export default defineTool({
         const { docId, rawContent } = result;
         setImmediate(() => {
           processDocument(docId, ctx.instanceId, rawContent).catch((err) => {
-            console.error(
-              `writeKnowledge reindex failed for doc ${docId}: ${errMsg(err)}`,
-            );
+            log.error("write-knowledge", `reindex failed for doc ${docId}`, err);
           });
         });
 

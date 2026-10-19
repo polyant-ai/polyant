@@ -8,6 +8,7 @@ import {
   emitAgentHandoffEnd,
 } from "../../activity-stream/emitters/emit-agent-handoff.js";
 import { resolveInstanceMeta } from "../../activity-stream/emit-helpers.js";
+import { errMsg } from "../../utils/error.js";
 
 /**
  * Minimal description of the callee instance used to synthesise an
@@ -156,7 +157,7 @@ export function buildAgentInvokeTool(opts: {
           reason.message === "timeout";
         const errorText = isTimeout
           ? `Error: agent call timed out after ${opts.timeoutMs}ms`
-          : `Error: ${err instanceof Error ? err.message : String(err)}`;
+          : `Error: ${errMsg(err)}`;
         if (handoffMeta) {
           emitAgentHandoffEnd({
             ...handoffMeta,

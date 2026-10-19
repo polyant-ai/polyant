@@ -6,6 +6,7 @@ import { auditPreview } from "../../audit/audit-logger.js";
 import * as scheduledTaskStore from "../../scheduled-tasks/store.js";
 import { parseRelativeDuration, formatScheduleHuman } from "../../scheduled-tasks/schedule-utils.js";
 import type { ScheduleConfig } from "../../scheduled-tasks/schema.js";
+import { errMsg } from "../../utils/error.js";
 
 /**
  * Build a ScheduleConfig from tool params, returning either the config or an error string.
@@ -307,9 +308,9 @@ export default defineTool({
         ctx.audit.log({
           action: "task.schedule",
           success: false,
-          error: err instanceof Error ? err.message : String(err),
+          error: errMsg(err),
         });
-        return { error: `Error: ${err instanceof Error ? err.message : String(err)}` };
+        return { error: `Error: ${errMsg(err)}` };
       }
     },
 });

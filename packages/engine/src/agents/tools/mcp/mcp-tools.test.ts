@@ -2,10 +2,14 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { asInstanceUuid, asInstanceSlug } from "../../../instances/identifiers.js";
-// Skips are announced through the module's own logger, not `console.warn`: the
-// lines interpolate remote-controlled text, so they go through createLogger's
-// sanitizing formatter (see mcp-logger.ts). Spy there.
-import { mcpLog } from "./mcp-logger.js";
+// Skips are announced through createLogger, not `console.warn`: the lines
+// interpolate remote-controlled text, so they go through its sanitizing
+// formatter. The logger is replaced by a mock so the tests can assert on it.
+const mcpLog = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock("../../../utils/create-logger.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../utils/create-logger.js")>()),
+  createLogger: () => mcpLog,
+}));
 
 class FakeUnauthorized extends Error {}
 const createMCPClient = vi.fn();
