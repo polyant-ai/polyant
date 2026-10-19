@@ -2,8 +2,10 @@
 
 /**
  * Shared logger factory for colored, timestamped console output.
- * Used by pipeline-logger, room-logger, webhook-logger, etc.
+ * Used by pipeline-logger and the module loggers.
  */
+
+import { errMsg } from "./error.js";
 
 export const COLORS = {
   reset: "\x1b[0m",
@@ -108,6 +110,9 @@ export interface Logger {
 /**
  * Create a structured logger with colored, timestamped output.
  * The `defaultColor` is used for info-level messages.
+ *
+ * Lines go through `console.*` (looked up at call time), so `installFileLogger`
+ * tees them to the daily log file like every other line.
  */
 export function createLogger(defaultColor: string = COLORS.cyan): Logger {
   function fmt(level: "info" | "warn" | "error", prefix: string, msg: string): string {
@@ -120,21 +125,21 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
   return {
     debug(prefix: string, msg: string): void {
       if (!shouldLog("debug")) return;
-      process.stdout.write(fmt("info", prefix, msg) + "\n");
+      console.log(fmt("info", prefix, msg));
     },
     info(prefix: string, msg: string): void {
       if (!shouldLog("info")) return;
-      process.stdout.write(fmt("info", prefix, msg) + "\n");
+      console.log(fmt("info", prefix, msg));
     },
     warn(prefix: string, msg: string): void {
       if (!shouldLog("warn")) return;
-      process.stderr.write(fmt("warn", prefix, msg) + "\n");
+      console.warn(fmt("warn", prefix, msg));
     },
     error(prefix: string, msg: string, err?: unknown): void {
       if (!shouldLog("error")) return;
-      const errMsg = sanitizeForLog(err instanceof Error ? err.message : String(err ?? ""));
-      const full = errMsg ? `${msg} — ${errMsg}` : msg;
-      process.stderr.write(fmt("error", prefix, full) + "\n");
+      const detail = err == null ? "" : sanitizeForLog(errMsg(err));
+      const full = detail ? `${msg} — ${detail}` : msg;
+      console.error(fmt("error", prefix, full));
     },
   };
 }
