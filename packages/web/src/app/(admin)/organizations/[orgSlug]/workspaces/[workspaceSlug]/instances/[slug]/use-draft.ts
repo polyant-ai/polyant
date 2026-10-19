@@ -16,6 +16,9 @@ import { useCallback, useMemo, useState } from "react";
 export function useDraft<T extends object>(baseline: T) {
   const baselineKey = JSON.stringify(baseline);
   const [state, setState] = useState<{ key: string; edits: Partial<T> }>({ key: baselineKey, edits: {} });
+  // A baseline that changed drops the stored edits for good (not just hides them), so a
+  // baseline that later returns to a former value does not bring them back.
+  if (state.key !== baselineKey) setState({ key: baselineKey, edits: {} });
   const edits: Partial<T> = state.key === baselineKey ? state.edits : (NO_EDITS as Partial<T>);
 
   const draft = useMemo(() => ({ ...baseline, ...edits }), [baseline, edits]);

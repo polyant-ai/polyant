@@ -36,4 +36,13 @@ describe("useDraft", () => {
     expect(result.current.draft.name).toBe("b");
     expect(result.current.isDirty).toBe(true);
   });
+
+  it("does not bring dropped edits back when the baseline returns to a former value", () => {
+    const { result, rerender } = renderHook(({ base }) => useDraft(base), { initialProps: { base: { name: "a" } } });
+    act(() => result.current.set("name", "x"));
+    rerender({ base: { name: "b" } });
+    rerender({ base: { name: "a" } });
+    expect(result.current.draft.name).toBe("a");
+    expect(result.current.isDirty).toBe(false);
+  });
 });

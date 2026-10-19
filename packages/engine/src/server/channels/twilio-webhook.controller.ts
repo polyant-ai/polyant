@@ -116,7 +116,7 @@ export class TwilioWebhookController {
 
     const isValid = adapter.validateSignature(signature || "", webhookUrl, params);
     if (!isValid) {
-      log.warn(
+      log.error(
         "whatsapp",
         `Invalid Twilio signature for instance ${instanceSlug} (url: ${redactWebhookPath(webhookUrl)})`,
       );
@@ -160,7 +160,7 @@ export class TwilioWebhookController {
       // exact existence oracle the unified 404 exists to close. The
       // distinguishing detail (bad secret vs. unconfigured channel) is kept
       // in this server-side log line only.
-      log.warn("whatsapp", `Invalid webhook secret for instance: ${instanceSlug}`);
+      log.error("whatsapp", `Invalid webhook secret for instance: ${instanceSlug}`);
       throw new NotFoundException(WHATSAPP_WEBHOOK_UNAVAILABLE_MESSAGE);
     }
 

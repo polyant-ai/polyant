@@ -27,20 +27,25 @@ export function useOptimisticToggle(source: unknown, scope: string) {
   const chosen = state.source === source && state.scope === scope ? state.chosen : NONE;
 
   const scopeRef = useRef(scope);
+  const chosenRef = useRef(chosen);
   useEffect(() => {
     scopeRef.current = scope;
+    chosenRef.current = chosen;
   });
 
   /** The position to show for `key`, given the one the rows hold. */
   const value = useCallback((key: string, saved: boolean) => chosen[key] ?? saved, [chosen]);
 
   /**
-   * Show `next` for `key`, run `commit`, and on failure show the old position again
-   * and pass the error to `onError` (when still on the same scope).
+   * Show `next` for `key`, run `commit`, and on failure show the position that was
+   * on screen before the click (a toggle that succeeded earlier moved it away from
+   * the rows) and pass the error to `onError` (when still on the same scope).
    */
   const toggle = useCallback(
     async (key: string, next: boolean, commit: () => Promise<unknown>, onError: (err: unknown) => void) => {
       const sentFrom = scopeRef.current;
+      const before = chosenRef.current[key];
+      chosenRef.current = { ...chosenRef.current, [key]: next };
       setState((prev) => ({
         source,
         scope: sentFrom,
@@ -50,10 +55,16 @@ export function useOptimisticToggle(source: unknown, scope: string) {
         await commit();
       } catch (err) {
         if (scopeRef.current !== sentFrom) return;
+        const restoredRef = { ...chosenRef.current };
+        if (before === undefined) delete restoredRef[key];
+        else restoredRef[key] = before;
+        chosenRef.current = restoredRef;
         setState((prev) => {
-          const rest = { ...prev.chosen };
-          delete rest[key];
-          return { ...prev, chosen: rest };
+          if (prev.source !== source || prev.scope !== sentFrom) return prev;
+          const restored = { ...prev.chosen };
+          if (before === undefined) delete restored[key];
+          else restored[key] = before;
+          return { ...prev, chosen: restored };
         });
         onError(err);
       }

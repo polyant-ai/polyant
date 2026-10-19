@@ -50,7 +50,7 @@ export default function ApiKeysPage() {
   const { t } = useI18n();
   const format = useFormat();
   const { orgSlug } = useParams<{ orgSlug: string }>();
-  const { data, error, loading, reload } = useResource(["api-keys", orgSlug], () => api.apiKeys.list(orgSlug));
+  const { data, error, loading, reload, mutate } = useResource(["api-keys", orgSlug], () => api.apiKeys.list(orgSlug));
   const keys = data?.keys ?? [];
   const forbidden = isForbidden(error);
   const [creating, setCreating] = useState(false);
@@ -60,6 +60,7 @@ export default function ApiKeysPage() {
     setBusyKeyId(key.id);
     try {
       await api.apiKeys.remove(orgSlug, key.id);
+      mutate((current) => ({ ...current, keys: current.keys.filter((k) => k.id !== key.id) }));
       reload();
       toast.success(t("apiKeys.revoked"));
     } catch (err) {

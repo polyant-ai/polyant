@@ -380,7 +380,7 @@ export class ChannelManager {
   /** Auto-disable a channel in DB after adapter initialization failure. */
   private async autoDisableChannel(instanceSlug: string, channelType: string): Promise<void> {
     await disableChannel(asInstanceSlug(instanceSlug), channelType);
-    log.warn("channel-manager", `Channel auto-disabled: ${channelType} for instance "${instanceSlug}" — re-enable from admin panel after fixing credentials`);
+    log.error("channel-manager", `Channel auto-disabled: ${channelType} for instance "${instanceSlug}" — re-enable from admin panel after fixing credentials`);
   }
 
   /** Create the appropriate adapter based on channel type. */

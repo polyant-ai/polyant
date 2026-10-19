@@ -70,4 +70,29 @@ describe("useOptimisticToggle", () => {
     expect(onError).not.toHaveBeenCalled();
     expect(result.current.value("a", false)).toBe(false);
   });
+
+  it("after a success then a refusal, shows the position the engine holds", async () => {
+    const rows = [{ id: "a" }];
+    const { result } = renderHook(() => useOptimisticToggle(rows, "acme/sales"));
+    await act(async () => {
+      await result.current.toggle("a", true, () => Promise.resolve(), vi.fn());
+    });
+    expect(result.current.value("a", false)).toBe(true);
+    await act(async () => {
+      await result.current.toggle("a", false, () => Promise.reject(new Error("no")), vi.fn());
+    });
+    expect(result.current.value("a", false)).toBe(true);
+  });
+
+  it("after a revoke then a refused re-assign, shows the revoked position", async () => {
+    const rows = [{ id: "a" }];
+    const { result } = renderHook(() => useOptimisticToggle(rows, "acme/sales"));
+    await act(async () => {
+      await result.current.toggle("a", false, () => Promise.resolve(), vi.fn());
+    });
+    await act(async () => {
+      await result.current.toggle("a", true, () => Promise.reject(new Error("no")), vi.fn());
+    });
+    expect(result.current.value("a", true)).toBe(false);
+  });
 });

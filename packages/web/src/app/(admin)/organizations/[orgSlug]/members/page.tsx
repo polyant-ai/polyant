@@ -61,7 +61,7 @@ export default function MembersPage() {
   const { orgSlug } = useParams<{ orgSlug: string }>();
   const { data: session } = useSession();
   const currentUserId = session?.user?.id;
-  const { data, error, loading, reload } = useResource(["members", orgSlug], () => api.members.list(orgSlug));
+  const { data, error, loading, reload, mutate } = useResource(["members", orgSlug], () => api.members.list(orgSlug));
   const members = data?.members ?? [];
   // `org.member:manage` is admin+. The entry is now offered to every role (it
   // used to be platform-admin-only, which hid it from the org Owner it exists
@@ -93,6 +93,7 @@ export default function MembersPage() {
     setBusyUserId(member.userId);
     try {
       await api.members.remove(member.userId, orgSlug);
+      mutate((current) => ({ ...current, members: current.members.filter((m) => m.userId !== member.userId) }));
       reload();
       toast.success(t("members.removed"));
     } catch (err) {

@@ -55,4 +55,15 @@ describe("useResource", () => {
     expect(called).toBe(false);
     expect(result.current.loading).toBe(false);
   });
+
+  it("mutate changes the held data at once and a reload replaces it", async () => {
+    let list = [1, 2];
+    const { result } = renderHook(() => useResource("k", async () => list));
+    await waitFor(() => expect(result.current.data).toEqual([1, 2]));
+    act(() => result.current.mutate((rows) => rows.filter((n) => n !== 1)));
+    expect(result.current.data).toEqual([2]);
+    list = [2, 3];
+    act(() => result.current.reload());
+    await waitFor(() => expect(result.current.data).toEqual([2, 3]));
+  });
 });

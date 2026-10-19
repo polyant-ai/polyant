@@ -13,6 +13,12 @@ export interface Resource<T> {
   loading: boolean;
   /** Ask again for the same key; the held data stays visible meanwhile. */
   reload: () => void;
+  /**
+   * Change the held data without asking the engine, for a result the engine has
+   * just confirmed (a row it deleted). Pair it with `reload`, whose answer then
+   * replaces the local change. Does nothing while there is no data.
+   */
+  mutate: (update: (data: T) => T) => void;
 }
 
 interface Settled<T> {
@@ -66,6 +72,11 @@ export function useResource<T>(
   }, [keyString, attempt]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
+  const mutate = useCallback(
+    (update: (data: T) => T) =>
+      setSettled((prev) => (prev !== null && prev.key === keyString && prev.data !== undefined ? { ...prev, data: update(prev.data) } : prev)),
+    [keyString],
+  );
   const forKey = settled !== null && settled.key === keyString;
   const current = forKey && settled.attempt === attempt;
   return {
@@ -73,5 +84,6 @@ export function useResource<T>(
     error: current && settled.failed ? settled.error : undefined,
     loading: keyString !== null && !current,
     reload,
+    mutate,
   };
 }

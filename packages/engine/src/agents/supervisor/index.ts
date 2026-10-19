@@ -403,7 +403,7 @@ async function buildTools(opts: BuildToolsOptions) {
         targetSlug === instanceId ||
         (callerScope !== null && callerScope.organizationId === target.organizationId);
       if (!sameOrg) {
-        log.warn("supervisor", `agent tool '${entryName}': target is in another organization — skipped`);
+        log.error("supervisor", `agent tool '${entryName}': target is in another organization — skipped`);
         continue;
       }
       const adapter = channelManager.getAdapter(target.slug, "agent") as AgentChannelAdapter | undefined;

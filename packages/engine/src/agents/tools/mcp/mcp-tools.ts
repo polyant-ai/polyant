@@ -170,7 +170,7 @@ export async function buildMcpTools(opts: {
     try {
       await assertSafeMcpUrlResolved(server.url);
     } catch (e) {
-      mcpLog.warn("mcp", `server '${server.slug}' skipped: URL rejected by the SSRF guard at connect time: ${errMsg(e)}`);
+      mcpLog.error("mcp", `server '${server.slug}' skipped: URL rejected by the SSRF guard at connect time: ${errMsg(e)}`);
       continue;
     }
 

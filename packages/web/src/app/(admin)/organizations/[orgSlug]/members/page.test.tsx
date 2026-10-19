@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 
 const mockMembersList = vi.fn();
+const mockMembersRemove = vi.fn();
 const mockToastError = vi.fn();
 
 class ApiError extends Error {
@@ -22,7 +24,7 @@ vi.mock("@/lib/api", () => ({
     members: {
       list: (...args: unknown[]) => mockMembersList(...args),
       assign: vi.fn(),
-      remove: vi.fn(),
+      remove: (...args: unknown[]) => mockMembersRemove(...args),
     },
   },
   getUserErrorMessage: (_err: unknown, fallback: string) => fallback,
@@ -114,5 +116,27 @@ describe("MembersPage — a role that may not manage members is told so", () => 
 
     const otherRow = screen.getByText("bob@example.com").closest("tr")!;
     expect(within(otherRow).getByText("members.remove.button")).toBeInTheDocument();
+  });
+
+  it("takes a removed member off the screen before the new list arrives", async () => {
+    const user = userEvent.setup();
+    mockMembersList
+      .mockResolvedValueOnce({
+        members: [
+          { userId: "u1", email: "ada@example.com", name: "Ada", roleKey: "admin" },
+          { userId: "u2", email: "bob@example.com", name: "Bob", roleKey: "viewer" },
+        ],
+      })
+      .mockReturnValue(new Promise(() => {}));
+    mockMembersRemove.mockResolvedValue({ removed: true });
+
+    render(<MembersPage />);
+
+    const row = (await screen.findByText("bob@example.com")).closest("tr")!;
+    await user.click(within(row).getByText("members.remove.button"));
+    await user.click(await screen.findByRole("button", { name: "members.remove.confirm" }));
+
+    await waitFor(() => expect(screen.queryByText("bob@example.com")).not.toBeInTheDocument());
+    expect(screen.getByText("ada@example.com")).toBeInTheDocument();
   });
 });

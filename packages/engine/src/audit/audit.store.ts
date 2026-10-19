@@ -28,7 +28,7 @@ class AuditStore {
     table: toolAuditLogs,
     label: "audit entries",
     onRefused: (rows, written) =>
-      log.warn(
+      log.error(
         "audit",
         `dropped ${rows.length} un-insertable audit entries ` +
           `(actions: ${[...new Set(rows.map((e) => e.action))].join(", ")}); ` +

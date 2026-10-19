@@ -99,7 +99,7 @@ export async function fetchMediaFollowingRedirects(
     }
     if (originHost === null) {
       if (!isTwilioMediaHost(target.host)) {
-        log.warn("whatsapp", `Media URL host is not an allowlisted Twilio host, refusing to fetch: ${currentUrl}`);
+        log.error("whatsapp", `Media URL host is not an allowlisted Twilio host, refusing to fetch: ${currentUrl}`);
         return null;
       }
       originHost = target.host;
@@ -109,7 +109,7 @@ export async function fetchMediaFollowingRedirects(
     try {
       ({ dispatcher } = await makeDispatcher(target));
     } catch (err) {
-      log.warn("whatsapp", `Media URL failed SSRF check, skipping (${currentUrl}): ${errMsg(err)}`);
+      log.error("whatsapp", `Media URL failed SSRF check, skipping (${currentUrl}): ${errMsg(err)}`);
       return null;
     }
 

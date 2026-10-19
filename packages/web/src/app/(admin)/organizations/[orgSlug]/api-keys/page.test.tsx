@@ -152,6 +152,19 @@ describe("ApiKeysPage", () => {
     expect(mockList).toHaveBeenCalledTimes(2);
   });
 
+  it("takes the revoked key off the screen before the new list arrives", async () => {
+    const user = userEvent.setup();
+    mockList.mockResolvedValueOnce({ keys: [key({ id: "k1", name: "ci" })] }).mockReturnValue(new Promise(() => {}));
+    mockRemove.mockResolvedValue({ deleted: true });
+
+    render(<ApiKeysPage />);
+
+    await user.click(await screen.findByRole("button", { name: "apiKeys.revoke.button" }));
+    await user.click(screen.getByRole("button", { name: "apiKeys.revoke.confirm" }));
+
+    await waitFor(() => expect(screen.queryByText("ci")).not.toBeInTheDocument());
+  });
+
   it("reads the list once however often the page re-renders", async () => {
     mockList.mockResolvedValue({ keys: [key()] });
     const { rerender } = render(<ApiKeysPage />);

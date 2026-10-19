@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { LoadFailed } from "@/components/ui/load-failed";
 import { useResource } from "@/hooks/use-resource";
+import { useReloadFailureToast } from "@/hooks/use-reload-failure-toast";
 import { useOptimisticToggle } from "@/hooks/use-optimistic-toggle";
 import { api, getUserErrorMessage, type HookEvent, type InstanceHook, type HookFunctionInfo, type RequiredSecretSpec } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -78,10 +79,11 @@ const NO_CATALOG: HookFunctionInfo[] = [];
 
 export function HooksTab({ slug }: Props) {
   const { t, locale } = useI18n();
-  const { data, error, loading, reload: load } = useResource(["hooks", slug], async () => {
+  const { data, error, loading, reload: load, mutate } = useResource(["hooks", slug], async () => {
     const [hooksRes, catalogRes] = await Promise.all([api.hooks.list(slug), api.hooks.functions()]);
     return { hooks: hooksRes.hooks, catalog: catalogRes.hookFunctions };
   });
+  useReloadFailureToast(error, data !== undefined, t("hooks.loadFailed"));
   const hooks = data?.hooks ?? NO_HOOKS;
   const catalog = data?.catalog ?? NO_CATALOG;
   const { value: enabledOf, toggle } = useOptimisticToggle(data, slug);
@@ -174,6 +176,7 @@ export function HooksTab({ slug }: Props) {
       toast.success(t("hooks.deleted"));
       if (openHookId === deleting.id) setOpenHookId(null);
       setDeleting(null);
+      mutate((current) => ({ ...current, hooks: current.hooks.filter((h) => h.id !== deleting.id) }));
       load();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("hooks.deleteFailed")));

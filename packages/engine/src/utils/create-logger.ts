@@ -124,7 +124,8 @@ export function setLogTee(fn: LogTee | null): void {
  * The `defaultColor` is used for info-level messages.
  *
  * `warn` and `error` accept an optional error value. At normal levels only its
- * sanitized message is appended to the line. When LOG_LEVEL=debug and the value
+ * sanitized message is appended to the line, followed by the messages (and
+ * codes) of its `cause` chain, up to three levels. When LOG_LEVEL=debug and the value
  * is an `Error` with a stack, the stack is also written (each line sanitized
  * like the message) through the same stdout/stderr and log-tee path. Other
  * values are logged as their string form and never gain a stack.
@@ -143,12 +144,37 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
     tee?.(level, line);
   }
 
+  const MAX_CAUSE_DEPTH = 3;
+
+  /** Message of an error, with its driver/system code (SQLSTATE, ECONNREFUSED) when it has one. */
+  function describeCause(cause: unknown): string {
+    const code = (cause as { code?: unknown } | null)?.code;
+    const text = sanitizeForLog(errMsg(cause));
+    return typeof code === "string" || typeof code === "number"
+      ? `${text} [${sanitizeForLog(String(code))}]`
+      : text;
+  }
+
+  /** The `cause` chain, outermost first, up to MAX_CAUSE_DEPTH levels. */
+  function causeChain(err: unknown): string[] {
+    const reasons: string[] = [];
+    let current: unknown = err instanceof Error ? err.cause : undefined;
+    while (current != null && reasons.length < MAX_CAUSE_DEPTH) {
+      reasons.push(describeCause(current));
+      current = current instanceof Error ? current.cause : undefined;
+    }
+    return reasons;
+  }
+
   function emitWithError(level: "warn" | "error", prefix: string, msg: string, err: unknown): void {
-    const detail = err == null ? "" : sanitizeForLog(errMsg(err));
+    const detail = err == null ? "" : [sanitizeForLog(errMsg(err)), ...causeChain(err)].join(" ← ");
     emit(level, prefix, detail ? `${msg} — ${detail}` : msg);
     if (err instanceof Error && err.stack && shouldLog("debug")) {
-      // The first stack line repeats the message already printed above.
-      for (const frame of err.stack.split("\n").slice(1)) {
+      // The message (possibly several lines) is already printed above: start at
+      // the first frame. A stack with no frame lines falls back to skipping line 1.
+      const lines = err.stack.split("\n");
+      const firstFrame = lines.findIndex((l) => /^\s+at /.test(l));
+      for (const frame of lines.slice(firstFrame === -1 ? 1 : firstFrame)) {
         if (frame.trim()) emit(level, prefix, frame);
       }
     }
