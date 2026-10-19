@@ -60,7 +60,7 @@ describe("Telegram webhook", () => {
 
   it("answers 200 even when processing the update fails", async () => {
     const controller = new TelegramWebhookController();
-    const error = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     handleInbound.mockReset().mockRejectedValue(new Error("boom"));
     const secret = "per-channel-random-secret";
 

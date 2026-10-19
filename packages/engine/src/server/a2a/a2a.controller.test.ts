@@ -20,7 +20,11 @@ vi.mock("../openai/instance-api-key-auth.js", () => ({
 import { resolveInstanceConfig } from "../../instances/config-resolver.js";
 import { validateInstanceApiKey } from "../openai/instance-api-key-auth.js";
 import { A2aController } from "./a2a.controller.js";
-import { a2aLog } from "./a2a-logger.js";
+const a2aLog = vi.hoisted(() => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }));
+vi.mock("../../utils/create-logger.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../utils/create-logger.js")>()),
+  createLogger: () => a2aLog,
+}));
 
 function res() {
   return { setHeader: vi.fn(), write: vi.fn(), end: vi.fn(), json: vi.fn() } as never;

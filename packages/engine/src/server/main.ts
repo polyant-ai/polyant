@@ -9,6 +9,9 @@ import { A2aHandlerRegistry } from "./a2a/a2a-handler.registry.js";
 import { configureHttpApp, getLogLevels } from "./configure-http-app.js";
 import { config } from "../config.js";
 import type { MessageHandler, StreamMessageHandler } from "../channels/types.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 export async function startServer(
   messageHandler: MessageHandler,
@@ -29,7 +32,7 @@ export async function startServer(
 
   const port = config.server.port;
   await app.listen(port);
-  console.log(`HTTP server listening on port ${port}`);
+  log.info("http", `HTTP server listening on port ${port}`);
 
   return app;
 }

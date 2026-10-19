@@ -220,7 +220,7 @@ describe("TwilioWebhookController (path secret route)", () => {
       ).rejects.toBeInstanceOf(NotFoundException);
 
       expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn).toHaveBeenCalledWith("[whatsapp] Invalid webhook secret for instance:", "test-instance");
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Invalid webhook secret for instance: test-instance"));
       expect(error).not.toHaveBeenCalled();
       expect(log).not.toHaveBeenCalled();
       expect(debug).not.toHaveBeenCalled();

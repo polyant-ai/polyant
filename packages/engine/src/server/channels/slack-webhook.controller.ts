@@ -8,6 +8,9 @@ import { Public } from "../../auth/decorators/public.decorator.js";
 import type { SlackAdapter } from "../../channels/adapters/slack/index.js";
 import { channelWebhookTracker, requireLiveAdapter } from "./live-adapter.js";
 import { trackBackgroundTurn } from "../../channels/background-turns.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 const UNAVAILABLE = "Slack webhook unavailable";
 
@@ -37,7 +40,7 @@ export class SlackWebhookController {
     }
     if (event.type !== "event_callback") return { status: "ignored" };
     trackBackgroundTurn(
-      adapter.handleInbound(event).catch((error) => console.error("[slack] webhook processing failed:", error)),
+      adapter.handleInbound(event).catch((error) => log.error("slack", "webhook processing failed", error)),
     );
     return { status: "accepted" };
   }

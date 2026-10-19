@@ -29,8 +29,10 @@ import { mimeForFilename } from "../../knowledge/mime-for-filename.js";
 import { requireEmbeddingContext } from "../utils/require-embedding-context.js";
 import { MAX_DOCUMENT_BYTES, prepareImportDocuments } from "../utils/import-bundle.js";
 import { RequirePermission, Permission } from "../../authz/index.js";
-import { sanitizeForLog } from "../../utils/create-logger.js";
 import { resolveKnowledgeDocCap } from "../../knowledge/doc-cap.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const log = createLogger();
 
 @Controller("api/instances/:slug/knowledge")
 export class InstanceKnowledgeController {
@@ -162,9 +164,7 @@ export class InstanceKnowledgeController {
 
     // Ingest asynchronously
     processDocument(doc.id, instance.slug, content).catch((err) => {
-      console.error(
-        `[Knowledge] Ingestion failed for doc ${doc.id}: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`,
-      );
+      log.error("knowledge", `Ingestion failed for doc ${doc.id}`, err);
     });
 
     return {
@@ -226,9 +226,7 @@ export class InstanceKnowledgeController {
 
       // Re-embed with the instance's current embedder (fire-and-forget, like upload).
       processDocument(created.id, instance.slug, doc.content).catch((err) => {
-        console.error(
-          `[Knowledge] Import ingestion failed for doc ${created.id}: ${sanitizeForLog(err instanceof Error ? err.message : String(err))}`,
-        );
+        log.error("knowledge", `Import ingestion failed for doc ${created.id}`, err);
       });
 
       imported.push(filename === doc.requestedName ? { filename } : { filename, renamedFrom: doc.requestedName });

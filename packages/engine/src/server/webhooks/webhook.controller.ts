@@ -9,12 +9,14 @@ import { matchEvent } from "../../webhooks/webhook-matcher.js";
 import { insertEvent } from "../../webhooks/webhook-backlog.store.js";
 import { triggerConversation } from "../../webhooks/webhook-engine.js";
 import { resolveInstanceSlug } from "../../instances/resolve-instance-id.js";
-import { webhookLog } from "../../webhooks/webhook-logger.js";
 import { Public } from "../../auth/decorators/public.decorator.js";
 import { emitWebhook } from "../../activity-stream/emitters/emit-webhook.js";
 import { resolveInstanceMeta } from "../../activity-stream/emit-helpers.js";
 import type { InstanceUuid } from "../../instances/identifiers.js";
 import { trackBackgroundTurn } from "../../channels/background-turns.js";
+import { createLogger } from "../../utils/create-logger.js";
+
+const webhookLog = createLogger();
 
 const MAX_PAYLOAD_BYTES = 65_536;
 
