@@ -3,8 +3,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePersistedState } from "@/hooks/use-persisted-state";
 
 const STORAGE_KEY = "activity-instance-filter-excluded";
+const EMPTY = new Set<string>();
+
+/** A stale or corrupt entry is rejected, which leaves the empty selection. */
+function parseExcluded(raw: string): Set<string> | undefined {
+  const parsed: unknown = JSON.parse(raw);
+  return Array.isArray(parsed) ? new Set(parsed.filter((v): v is string => typeof v === "string")) : undefined;
+}
+
+const serializeExcluded = (ids: Set<string>) => JSON.stringify([...ids]);
 
 /**
  * Persist the set of instance IDs whose events should be HIDDEN from the
@@ -18,51 +28,35 @@ export function useInstanceFilter(): {
   clear: () => void;
   hydrated: boolean;
 } {
-  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [excluded, setExcluded] = usePersistedState<Set<string>>(STORAGE_KEY, EMPTY, parseExcluded, serializeExcluded);
+  // Set in the effect that follows the storage read, so both land in one render.
   const [hydrated, setHydrated] = useState(false);
-
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setExcluded(new Set(parsed.filter((v): v is string => typeof v === "string")));
-        }
-      }
-    } catch {
-      // ignore corrupt storage — start with empty selection
-    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- marks the end of the first storage read
     setHydrated(true);
   }, []);
-
-  const persist = useCallback((next: Set<string>) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([...next]));
-    setExcluded(next);
-  }, []);
-
   const toggle = useCallback(
     (id: string) => {
       const next = new Set(excluded);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      persist(next);
+      setExcluded(next);
     },
-    [excluded, persist],
+    [excluded, setExcluded],
   );
 
   /** Mark every given id as excluded (used for "deselect all"). */
   const setAll = useCallback(
     (ids: string[]) => {
-      persist(new Set(ids));
+      setExcluded(new Set(ids));
     },
-    [persist],
+    [setExcluded],
   );
 
   /** Clear exclusions — show every instance ("select all"). */
   const clear = useCallback(() => {
-    persist(new Set());
-  }, [persist]);
+    setExcluded(new Set());
+  }, [setExcluded]);
 
   return { excluded, toggle, setAll, clear, hydrated };
 }
