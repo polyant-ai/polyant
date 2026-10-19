@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { HttpException, BadRequestException, NotFoundException } from "@nestjs/common";
 import { GlobalExceptionFilter } from "./http-exception.filter.js";
 import { REDACTED_PLACEHOLDER } from "./redact-webhook-path.js";
@@ -243,32 +243,5 @@ describe("GlobalExceptionFilter", () => {
 
       restoreAll(spies);
     });
-  });
-});
-
-describe("GlobalExceptionFilter at LOG_LEVEL=error", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.resetModules();
-    vi.restoreAllMocks();
-  });
-
-  async function logged(exception: HttpException): Promise<string> {
-    vi.stubEnv("LOG_LEVEL", "error");
-    vi.resetModules();
-    const out: string[] = [];
-    vi.spyOn(process.stderr, "write").mockImplementation((c) => (out.push(String(c)), true));
-    const { GlobalExceptionFilter: Fresh } = await import("./http-exception.filter.js");
-    new Fresh().catch(exception, createMockHost(createMockResponse(), createMockRequest("GET", "/x")));
-    return out.join("");
-  }
-
-  it("still logs a 401 or 403 refusal", async () => {
-    expect(await logged(new HttpException("Forbidden", 403))).toContain("-> 403");
-    expect(await logged(new HttpException("Unauthorized", 401))).toContain("-> 401");
-  });
-
-  it("keeps other 4xx at warning level", async () => {
-    expect(await logged(new HttpException("Too Many Requests", 429))).toBe("");
   });
 });

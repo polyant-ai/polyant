@@ -28,10 +28,8 @@ function handleHttpException(exception: HttpException, method: string, path: str
   const status = exception.getStatus();
   const body = exception.getResponse();
   // A 4xx is the client's mistake or a refusal working as meant: a warning. Errors are the server's own failures.
-  // Authentication and permission refusals are security events and stay visible at LOG_LEVEL=error.
   const line = `[${method}] ${path} -> ${status}: ${typeof body === "string" ? body : JSON.stringify(body)}`;
   if (status >= 500) console.error(line);
-  else if (status === 401 || status === 403) log.error("http", line);
   else log.warn("http", line);
   return {
     status,
