@@ -10,6 +10,7 @@ import {
   formatNumber,
   formatRelativeTime,
   formatTime,
+  formatUsd,
 } from "@/lib/format";
 
 /**
@@ -38,6 +39,8 @@ export function useFormat() {
       time: (iso: string | null | undefined) => formatTime(iso, locale),
       /** 1.234 */
       number: (value: number) => formatNumber(value, locale),
+      /** $0.0123 */
+      usd: (value: number) => formatUsd(value, locale),
       /** "5 minuti fa", falling back to a date past 30 days */
       relative: (iso: string | null) => formatRelativeTime(iso, t, locale),
     }),

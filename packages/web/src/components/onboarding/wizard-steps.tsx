@@ -3,10 +3,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Check, Copy, Send, TriangleAlert } from "lucide-react";
+import { Check, Send, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Chip } from "@/components/ui/chip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -387,15 +388,7 @@ function ChannelsStep({ p }: { p: StepProps }) {
                     <Label htmlFor="wizard-agent-key">{t("settings.tab.authApiKey")}</Label>
                     <div className="flex gap-2">
                       <Input id="wizard-agent-key" readOnly value={p.web.freshKey} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        aria-label={t("onboarding.channels.copy")}
-                        onClick={() => void navigator.clipboard?.writeText(p.web.freshKey ?? "")}
-                      >
-                        <Copy className="size-4" />
-                      </Button>
+                      <CopyButton value={p.web.freshKey} label={t("onboarding.channels.copy")} variant="outline" />
                     </div>
                     <p className="text-xs text-muted-foreground">{t("onboarding.channels.keyOnce")}</p>
                   </>

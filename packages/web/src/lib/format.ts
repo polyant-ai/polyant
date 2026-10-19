@@ -124,6 +124,11 @@ export function formatNumber(value: number, locale: string): string {
   return value.toLocaleString(locale);
 }
 
+/** A dollar amount with four decimals in the UI's locale, for a cost small enough that cents hide it. */
+export function formatUsd(value: number, locale: string): string {
+  return `$${value.toLocaleString(locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`;
+}
+
 /**
  * Shared by every analytics comparison table (instance, organization): more
  * decimal places under $1 so a sub-cent cost does not round to "$0.00".

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useI18n } from "@/lib/i18n/context";
 
 /** 32 random bytes as hex — matches the strength of the server webhook token. */
@@ -27,6 +28,7 @@ interface Props {
 
 export function WebhookAuthSection({ currentMasked, onSave }: Props) {
   const { t } = useI18n();
+  const { copy } = useCopyToClipboard();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
   const isProtected = currentMasked.length > 0;
@@ -61,12 +63,7 @@ export function WebhookAuthSection({ currentMasked, onSave }: Props) {
               variant="ghost"
               className="h-8 w-8 shrink-0"
               onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(value);
-                  toast.success(t("room.sources.authCopied"));
-                } catch {
-                  toast.error(t("common.copyFailed"));
-                }
+                if (await copy(value)) toast.success(t("room.sources.authCopied"));
               }}
             >
               <Copy className="h-3 w-3" />

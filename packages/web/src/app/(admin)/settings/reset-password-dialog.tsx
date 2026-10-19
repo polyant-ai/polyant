@@ -4,7 +4,6 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { Copy } from "lucide-react";
 
 import {
   Dialog,
@@ -15,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { OneTimeSecret } from "@/components/ui/one-time-secret";
 import { useI18n } from "@/lib/i18n/context";
 import { api, getUserErrorMessage, type AdminUser } from "@/lib/api";
 
@@ -47,16 +47,6 @@ export function ResetPasswordDialog({ user, onClose }: Props) {
     }
   }
 
-  async function copyGenerated() {
-    if (!generated) return;
-    try {
-      await navigator.clipboard.writeText(generated);
-      toast.success(t("users.reset.copied"));
-    } catch {
-      // ignore
-    }
-  }
-
   return (
     <Dialog open={!!user} onOpenChange={(o) => !o && close()}>
       <DialogContent>
@@ -71,12 +61,7 @@ export function ResetPasswordDialog({ user, onClose }: Props) {
         </DialogHeader>
 
         {generated ? (
-          <div className="flex items-center gap-2 rounded-md border bg-muted px-3 py-2 font-mono text-sm">
-            <span className="flex-1 break-all">{generated}</span>
-            <Button size="icon" variant="ghost" onClick={copyGenerated}>
-              <Copy className="size-4" />
-            </Button>
-          </div>
+          <OneTimeSecret value={generated} copiedMessage={t("users.reset.copied")} />
         ) : null}
 
         <DialogFooter>

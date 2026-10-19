@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { formatRelativeTime, lastDays, toIsoDay, truncate } from "./format";
+import { formatRelativeTime, formatUsd, lastDays, toIsoDay, truncate } from "./format";
 
 // Simple translation mock
 const t = (key: string, params?: Record<string, string | number>) => {
@@ -85,5 +85,16 @@ describe("toIsoDay and lastDays", () => {
 
   it("spans from N days back to today, both inclusive", () => {
     expect(lastDays(30, new Date(2026, 6, 31))).toEqual({ from: "2026-07-01", to: "2026-07-31" });
+  });
+});
+
+describe("formatUsd", () => {
+  it("keeps four decimals so a sub-cent cost is not rounded away", () => {
+    expect(formatUsd(0.01234, "en")).toBe("$0.0123");
+    expect(formatUsd(0, "en")).toBe("$0.0000");
+  });
+
+  it("writes the amount in the UI's locale", () => {
+    expect(formatUsd(12345.5, "it")).toBe("$12.345,5000");
   });
 });

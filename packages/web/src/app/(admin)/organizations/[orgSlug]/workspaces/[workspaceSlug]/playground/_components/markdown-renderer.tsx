@@ -2,13 +2,13 @@
 
 "use client";
 
-import { useState, useCallback } from "react";
 import ReactMarkdown, { type Components, type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useI18n } from "@/lib/i18n/context";
 import { rehypeStreamWords } from "@/lib/markdown/rehype-stream-words";
 
@@ -31,17 +31,11 @@ interface MarkdownRendererProps {
 
 function CopyButton({ text }: { text: string }) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(async () => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [text]);
+  const { copy, copied } = useCopyToClipboard();
 
   return (
     <button
-      onClick={handleCopy}
+      onClick={() => void copy(text)}
       className="absolute right-2 top-2 rounded-sm bg-secondary p-1.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
       aria-label={t("playground.copyCode")}
     >

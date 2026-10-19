@@ -23,6 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { api, getUserErrorMessage, type ChannelConfig } from "@/lib/api";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
 
@@ -56,6 +57,7 @@ const MODE_FIELDS: Record<AuthMode, ChannelField[]> = {
  */
 export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
   const { t } = useI18n();
+  const { copy } = useCopyToClipboard(2000, t("channels.tab.whatsappUrlCopyFailed"));
   const storedMode: AuthMode = channel?.config?.authMode === "apiKey" ? "apiKey" : "authToken";
 
   const [mode, setMode] = useState<AuthMode>(storedMode);
@@ -144,21 +146,9 @@ export function WhatsAppChannelCard({ slug, channel, onChanged }: Props) {
   }
 
   async function copyWebhookUrl(url: string) {
-    // navigator.clipboard is undefined in insecure (non-HTTPS) contexts and
-    // in some older browsers, and writeText() rejects if the page lost focus
-    // or the user denied permission. Either case must surface as a toast,
-    // not a swallowed/console-only error, since the operator needs to know
+    // A refused or missing clipboard raises a toast: the operator needs to know
     // whether the secret-bearing URL actually made it to the clipboard.
-    if (!navigator.clipboard) {
-      toast.error(t("channels.tab.whatsappUrlCopyFailed"));
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success(t("channels.tab.whatsappUrlCopied"));
-    } catch {
-      toast.error(t("channels.tab.whatsappUrlCopyFailed"));
-    }
+    if (await copy(url)) toast.success(t("channels.tab.whatsappUrlCopied"));
   }
 
   async function remove() {

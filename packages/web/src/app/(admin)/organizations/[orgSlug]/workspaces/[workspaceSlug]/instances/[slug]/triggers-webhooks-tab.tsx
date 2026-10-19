@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api, getUserErrorMessage } from "@/lib/api";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useI18n } from "@/lib/i18n/context";
 import { EventSourceCard, type EventSource, type EventDefinition } from "./room-event-source-card";
 import { SectionActions } from "./section-actions";
@@ -30,6 +31,7 @@ interface Props {
 
 export function TriggersWebhooksTab({ slug }: Props) {
   const { t } = useI18n();
+  const { copy } = useCopyToClipboard();
   const [sources, setSources] = useState<EventSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedSources, setExpandedSources] = useState<Record<string, boolean>>({});
@@ -174,12 +176,7 @@ export function TriggersWebhooksTab({ slug }: Props) {
   }
 
   async function copyWebhookUrl(url: string) {
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success(t("room.sources.copied"));
-    } catch {
-      toast.error(t("common.copyFailed"));
-    }
+    if (await copy(url)) toast.success(t("room.sources.copied"));
   }
 
   if (loading) {

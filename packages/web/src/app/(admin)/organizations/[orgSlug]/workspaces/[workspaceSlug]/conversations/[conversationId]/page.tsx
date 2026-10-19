@@ -55,6 +55,7 @@ import { formatActivityTimestamp, parseUTC } from "@/lib/format";
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { useFormat } from "@/lib/use-format";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useDetailedView } from "@/hooks/use-detailed-view";
 import { currentTurn, useLiveConversation } from "@/hooks/use-live-conversation";
 import { useFollowBottom } from "@/hooks/use-follow-bottom";
@@ -171,27 +172,20 @@ export default function ConversationDetailPage() {
 
   // Copy a deep link to a specific message. Opening it scrolls to and
   // highlights that message (see the deep-link effect below).
+  const { copy: copyLink } = useCopyToClipboard(2000, t("conversations.detail.linkCopyFailed"));
+  const { copy: copyId } = useCopyToClipboard(2000, t("conversations.detail.idCopyFailed"));
   const handleShare = async (messageId: string) => {
     const url = `${window.location.origin}${window.location.pathname}#msg-${messageId}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      window.history.replaceState(null, "", `#msg-${messageId}`);
-      toast.success(t("conversations.detail.linkCopied"));
-      // Flash the message so the user sees which one they just linked.
-      setHighlightId(messageId);
-      setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 2600);
-    } catch {
-      toast.error(t("conversations.detail.linkCopyFailed"));
-    }
+    if (!(await copyLink(url))) return;
+    window.history.replaceState(null, "", `#msg-${messageId}`);
+    toast.success(t("conversations.detail.linkCopied"));
+    // Flash the message so the user sees which one they just linked.
+    setHighlightId(messageId);
+    setTimeout(() => setHighlightId((cur) => (cur === messageId ? null : cur)), 2600);
   };
 
   const handleCopyId = async () => {
-    try {
-      await navigator.clipboard.writeText(conversationId);
-      toast.success(t("conversations.detail.idCopied"));
-    } catch {
-      toast.error(t("conversations.detail.idCopyFailed"));
-    }
+    if (await copyId(conversationId)) toast.success(t("conversations.detail.idCopied"));
   };
 
   useEffect(() => {
@@ -505,12 +499,12 @@ export default function ConversationDetailPage() {
                   <Tooltip key="cost">
                     <TooltipTrigger asChild>
                       <span tabIndex={0} className="cursor-help tabular-nums underline decoration-dotted underline-offset-4">
-                        ${conversation.totalCost.toFixed(4)}
+                        {fmt.usd(conversation.totalCost)}
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p>{t("conversations.detail.conversationCost")}: ${conversation.conversationCost.toFixed(4)}</p>
-                      <p className="text-muted-foreground">{t("conversations.detail.serviceCost")}: ${conversation.serviceCost.toFixed(4)}</p>
+                      <p>{t("conversations.detail.conversationCost")}: {fmt.usd(conversation.conversationCost)}</p>
+                      <p className="text-muted-foreground">{t("conversations.detail.serviceCost")}: {fmt.usd(conversation.serviceCost)}</p>
                     </TooltipContent>
                   </Tooltip>
                 ),
