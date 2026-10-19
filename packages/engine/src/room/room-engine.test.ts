@@ -59,12 +59,14 @@ vi.mock("./activity-log.store.js", () => ({ appendDailyLog: mockAppendDailyLog }
 vi.mock("./room.store.js", () => ({
   setRoomConversationId: mockSetRoomConversationId,
 }));
+const mockRoomLog = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
 vi.mock("../database/client.js", () => ({ db: mockDb }));
 vi.mock("../analytics/trace.store.js", () => ({ traceStore: mockTraceStore }));
 vi.mock("../memory/extractor.js", () => ({ extractMemories: mockExtractMemories }));
 vi.mock("../ai-gateway/index.js", () => ({ chat: mockChat }));
-vi.mock("./room-logger.js", () => ({
-  roomLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+vi.mock("../utils/create-logger.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/create-logger.js")>()),
+  createLogger: () => mockRoomLog,
 }));
 vi.mock("../webhooks/webhooks.schema.js", () => ({
   eventDefinitions: {
@@ -362,14 +364,12 @@ describe("executeRoomCycle", () => {
         { id: "evt-1", eventDefinitionId: "def-1", rawPayload: {}, matchedAt: new Date(), createdAt: new Date() },
       ]);
       mockDb.select.mockReturnValue(createChainMock([]) as any);
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      warn.mockClear();
+      mockRoomLog.warn.mockClear();
 
       await executeRoomCycle(makeRoom(), asInstanceSlug("test-slug"));
 
-      const warned = warn.mock.calls.map((c) => String(c[0]));
+      const warned = mockRoomLog.warn.mock.calls.map((c) => String(c[1]));
       expect(warned.some((m) => m.includes("requireTool") && m.includes("regenerate") && m.includes("room"))).toBe(true);
-      warn.mockRestore();
     });
   });
 

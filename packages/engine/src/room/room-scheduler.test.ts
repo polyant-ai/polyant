@@ -28,7 +28,10 @@ vi.mock("./room-engine.js", () => ({ executeRoomCycle: mockExecuteRoomCycle }));
 vi.mock("../instances/resolve-instance-id.js", () => ({
   resolveInstanceSlug: mockResolveInstanceSlug,
 }));
-vi.mock("./room-logger.js", () => ({ roomLog: mockRoomLog }));
+vi.mock("../utils/create-logger.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/create-logger.js")>()),
+  createLogger: () => mockRoomLog,
+}));
 
 /* ── import under test ─────────────────────────────────────────── */
 

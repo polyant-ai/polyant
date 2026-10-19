@@ -197,7 +197,7 @@ describe("extractMemories", () => {
   });
 
   it("returns empty when LLM extracts nothing (no summary log)", async () => {
-    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockGetRecentMessages.mockResolvedValue([
       { role: "user", content: "Hi", createdAt: new Date() },
     ]);
@@ -218,7 +218,7 @@ describe("extractMemories", () => {
   });
 
   it("logs a summary line after extraction", async () => {
-    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stdoutSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     mockGetRecentMessages.mockResolvedValue([
       { role: "user", content: "I like pizza", createdAt: new Date() },
     ]);
@@ -314,14 +314,15 @@ describe("extractMemories unparseable reply logging", () => {
   async function outputAt(level: string): Promise<string> {
     vi.resetModules();
     process.env.LOG_LEVEL = level;
-    const out = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const out = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockResolveEmbeddingContext.mockResolvedValue({});
     mockGetRecentMessages.mockResolvedValue([{ role: "user", content: "x", createdAt: new Date() }]);
     mockChat.mockResolvedValue({ text: "SECRET-CONVERSATION-ECHO not json" });
     const { extractMemories: fresh } = await import("./extractor.js");
     await fresh("conv-1", asInstanceSlug("user-1"));
-    return [...out.mock.calls, ...err.mock.calls].map((c) => String(c[0])).join("\n");
+    return [...out.mock.calls, ...err.mock.calls, ...warn.mock.calls].map((c) => String(c[0])).join("\n");
   }
 
   it("does not print the model reply at info", async () => {

@@ -5,8 +5,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockChat, mockWarn } = vi.hoisted(() => ({ mockChat: vi.fn(), mockWarn: vi.fn() }));
 
 vi.mock("../ai-gateway/index.js", () => ({ chat: mockChat }));
-vi.mock("./webhook-logger.js", () => ({
-  webhookLog: { info: vi.fn(), warn: mockWarn, error: vi.fn() },
+vi.mock("../utils/create-logger.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/create-logger.js")>()),
+  createLogger: () => ({ info: vi.fn(), warn: mockWarn, error: vi.fn() }),
 }));
 vi.mock("../instances/config-resolver.js", () => ({
   resolveInstanceConfig: vi.fn().mockResolvedValue({ apiKeys: {}, provider: "openai" }),

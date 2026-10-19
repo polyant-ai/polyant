@@ -3,10 +3,12 @@
 import { searchByVector } from "./memory-store.js";
 import { embed, resolveEmbeddingContext } from "../embeddings-gateway/index.js";
 import { conversationStore } from "../conversations/index.js";
-import { memoryLog } from "./memory-logger.js";
 import type { InstanceSlug } from "../instances/identifiers.js";
 import { allTenantsScope } from "../authz/scope-filter.js";
 import { reciprocalRankFusion } from "../utils/rrf.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const memoryLog = createLogger();
 
 export interface HybridSearchResult {
   content: string;

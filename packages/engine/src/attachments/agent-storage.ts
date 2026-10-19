@@ -14,7 +14,9 @@ import {
   resolveAgentS3,
   type AgentS3Config,
 } from "./agent-s3.js";
-import { attachmentsLog } from "./attachments-logger.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const attachmentsLog = createLogger();
 
 /**
  * Attachment persistence, on the AGENT's own bucket.

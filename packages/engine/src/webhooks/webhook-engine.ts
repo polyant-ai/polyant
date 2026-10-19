@@ -11,12 +11,14 @@ import { renderTemplate } from "./template-renderer.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { registerTrigger } from "./active-triggers.js";
 import { setTriggerContext, clearTriggerContext } from "./trigger-context.js";
-import { webhookLog } from "./webhook-logger.js";
 import type { EventDefinition } from "./webhook-sources.store.js";
 import { emitConversation } from "../activity-stream/emitters/emit-conversation.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { ConversationStateBuffer } from "../conversations/state.buffer.js";
 import { contactConversationId } from "../channels/outbound-conversation.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const webhookLog = createLogger();
 
 /**
  * Trigger an immediate conversation from a matched webhook event.

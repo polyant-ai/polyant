@@ -5,10 +5,12 @@ import { countPendingByInstance } from "../webhooks/webhook-backlog.store.js";
 import { compactActivityLog } from "./activity-log.store.js";
 import { executeRoomCycle } from "./room-engine.js";
 import { resolveInstanceSlug } from "../instances/resolve-instance-id.js";
-import { roomLog } from "./room-logger.js";
 import { runAnalyticsCleanup } from "../analytics/cleanup.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const roomLog = createLogger();
 
 const TICK_INTERVAL_MS = 30_000;
 const HOUSEKEEPING_INTERVAL_MS = 24 * 60 * 60 * 1000;

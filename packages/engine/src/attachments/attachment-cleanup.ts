@@ -7,7 +7,9 @@ import { conversationMessages, conversations } from "../conversations/schema.js"
 import { getAllSecrets } from "../instances/secrets.store.js";
 import type { InstanceSlug } from "../instances/identifiers.js";
 import { describeAgentS3Failure, resolveAgentS3 } from "./agent-s3.js";
-import { attachmentsLog } from "./attachments-logger.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const attachmentsLog = createLogger();
 
 /**
  * Deleting the stored copies of a conversation's attachments when its rows go.

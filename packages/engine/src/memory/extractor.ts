@@ -7,12 +7,13 @@ import { embedMany, resolveEmbeddingContext } from "../embeddings-gateway/index.
 import { upsertMemory } from "./memory-store.js";
 import type { UpsertResult } from "./memory-store.js";
 import type { ExtractedFact } from "./types.js";
-import { memoryLog } from "./memory-logger.js";
-import { shouldLog } from "../utils/create-logger.js";
+import { createLogger, shouldLog } from "../utils/create-logger.js";
 import { emitMemory } from "../activity-stream/emitters/emit-memory.js";
 import { resolveInstanceMeta } from "../instances/instance-meta.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { resolveInstanceConfig } from "../instances/config-resolver.js";
+
+const memoryLog = createLogger();
 
 function buildExtractionPrompt(): string {
   const now = new Date();

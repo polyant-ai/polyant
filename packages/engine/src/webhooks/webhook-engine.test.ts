@@ -58,7 +58,10 @@ vi.mock("./trigger-context.js", () => ({
   setTriggerContext: mockSetTriggerContext,
   clearTriggerContext: mockClearTriggerContext,
 }));
-vi.mock("./webhook-logger.js", () => ({ webhookLog: mockWebhookLog }));
+vi.mock("../utils/create-logger.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../utils/create-logger.js")>()),
+  createLogger: () => mockWebhookLog,
+}));
 vi.mock("../hooks/hook-runner.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../hooks/hook-runner.js")>()),
   runHooks: mockRunHooks,
@@ -521,14 +524,12 @@ describe("triggerConversation", () => {
             ]
           : [],
       );
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      warn.mockClear();
+      mockWebhookLog.warn.mockClear();
 
       await triggerConversation("inst-1", asInstanceSlug("test-slug"), baseDefinition, { chat_id: "9999" });
 
-      const warned = warn.mock.calls.map((c) => String(c[0]));
+      const warned = mockWebhookLog.warn.mock.calls.map((c) => String(c[1]));
       expect(warned.some((m) => m.includes("requireTool") && m.includes("regenerate") && m.includes("webhook"))).toBe(true);
-      warn.mockRestore();
     });
   });
 

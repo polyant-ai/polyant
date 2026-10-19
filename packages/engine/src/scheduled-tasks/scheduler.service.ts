@@ -8,12 +8,15 @@ import { computeNextRun } from "./schedule-utils.js";
 import { channelManager } from "../channels/channel-manager.js";
 import { contactChannelId, contactConversationId } from "../channels/outbound-conversation.js";
 import { conversationStore } from "../conversations/index.js";
-import { scheduledTaskLog } from "./scheduled-task-logger.js";
 import { emitCron } from "../activity-stream/emitters/emit-cron.js";
 import { asInstanceSlug } from "../instances/identifiers.js";
 import { resolveInstanceMeta } from "../activity-stream/emit-helpers.js";
 import { findInstanceBySlug } from "../instances/store.js";
 import { resolvePlatformSettings } from "../platform/platform-settings.store.js";
+import { createLogger } from "../utils/create-logger.js";
+import { errMsg } from "../utils/error.js";
+
+const scheduledTaskLog = createLogger();
 
 function scheduleLabel(schedule: ScheduleConfig): string {
   switch (schedule.type) {
@@ -275,7 +278,7 @@ class SchedulerService {
         }
       }
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = errMsg(err);
       await store.markFailed(task.id, errorMsg, claim);
       scheduledTaskLog.error("SchedulerService", `task "${task.name}" failed:`, errorMsg);
 

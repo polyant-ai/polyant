@@ -12,12 +12,15 @@ import type { RoomConfig } from "./room.store.js";
 import { type InstanceSlug } from "../instances/identifiers.js";
 import { setRoomConversationId } from "./room.store.js";
 import { makeDelimiter, scrubClosing } from "../utils/untrusted-text.js";
-import { roomLog } from "./room-logger.js";
 import { projectEventPayload } from "./payload-projection.js";
 import { eventDefinitions, eventSources } from "../webhooks/webhooks.schema.js";
 import { db } from "../database/client.js";
 import { eq, inArray } from "drizzle-orm";
 import { randomBytes } from "crypto";
+import { createLogger } from "../utils/create-logger.js";
+import { errMsg } from "../utils/error.js";
+
+const roomLog = createLogger();
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -185,7 +188,7 @@ export async function executeRoomCycle(
       includeHarness: new Set(["room"]),
     },
     onSuperviseError: async (err) => {
-      const errorMsg = err instanceof Error ? err.message : String(err);
+      const errorMsg = errMsg(err);
       roomLog.error("RoomCycle", `supervise() failed for ${instanceSlug}`, err);
 
       // Mark events as completed with error so they don't stay stuck in "processing"

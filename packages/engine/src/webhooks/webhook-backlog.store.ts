@@ -4,6 +4,9 @@ import { and, eq, sql, desc, inArray } from "drizzle-orm";
 import { db } from "../database/client.js";
 import { eventBacklog } from "./webhooks.schema.js";
 import { asInstanceUuid, type InstanceUuid } from "../instances/identifiers.js";
+import { createLogger } from "../utils/create-logger.js";
+
+const log = createLogger();
 
 export const BACKLOG_STATUS = {
   PENDING: "pending",
@@ -100,8 +103,9 @@ export async function markEventsCompleted(eventIds: string[], notes?: string, in
     .returning({ id: eventBacklog.id });
 
   if (eventIds.length > 0 && updated.length < eventIds.length) {
-    console.debug(
-      `[webhook-backlog] markEventsCompleted: ${updated.length}/${eventIds.length} rows updated ` +
+    log.debug(
+      "webhook-backlog",
+      `markEventsCompleted: ${updated.length}/${eventIds.length} rows updated ` +
       `(remaining were already COMPLETED by the harness tool)`,
     );
   }
