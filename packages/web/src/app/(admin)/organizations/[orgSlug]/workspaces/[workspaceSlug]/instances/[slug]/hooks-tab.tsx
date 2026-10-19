@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { useResource } from "@/hooks/use-resource";
+import { useOptimisticToggle } from "@/hooks/use-optimistic-toggle";
 import { api, getUserErrorMessage, type HookEvent, type InstanceHook, type HookFunctionInfo, type RequiredSecretSpec } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/context";
@@ -70,35 +73,23 @@ const EMPTY_FORM: FormState = {
   position: 0,
 };
 
+const NO_HOOKS: InstanceHook[] = [];
+const NO_CATALOG: HookFunctionInfo[] = [];
+
 export function HooksTab({ slug }: Props) {
   const { t, locale } = useI18n();
-  const [hooks, setHooks] = useState<InstanceHook[]>([]);
-  const [catalog, setCatalog] = useState<HookFunctionInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, error, loading, reload: load } = useResource(["hooks", slug], async () => {
+    const [hooksRes, catalogRes] = await Promise.all([api.hooks.list(slug), api.hooks.functions()]);
+    return { hooks: hooksRes.hooks, catalog: catalogRes.hookFunctions };
+  });
+  const hooks = data?.hooks ?? NO_HOOKS;
+  const catalog = data?.catalog ?? NO_CATALOG;
+  const { value: enabledOf, toggle } = useOptimisticToggle(data, slug);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [openHookId, setOpenHookId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<InstanceHook | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const [hooksRes, catalogRes] = await Promise.all([
-        api.hooks.list(slug),
-        api.hooks.functions(),
-      ]);
-      setHooks(hooksRes.hooks);
-      setCatalog(catalogRes.hookFunctions);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("hooks.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [slug, t]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   /*
     The keys a hook function declares, set beside the hook that asks for them —
@@ -152,7 +143,7 @@ export function HooksTab({ slug }: Props) {
       });
       toast.success(t("hooks.saved"));
       setDialogOpen(false);
-      await load();
+      load();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("hooks.saveFailed")));
     } finally {
@@ -162,19 +153,19 @@ export function HooksTab({ slug }: Props) {
 
   const saveSettings = async (hook: InstanceHook, settings: HookSettings) => {
     await api.hooks.update(slug, hook.id, settings);
-    await load();
+    load();
   };
 
-  const handleToggle = async (hook: InstanceHook, enabled: boolean) => {
-    setHooks((prev) => prev.map((h) => (h.id === hook.id ? { ...h, enabled } : h)));
-    try {
-      await api.hooks.update(slug, hook.id, { enabled });
-      toast.success(t(enabled ? "hooks.enabled" : "hooks.disabled"));
-    } catch (err) {
-      setHooks((prev) => prev.map((h) => (h.id === hook.id ? { ...h, enabled: hook.enabled } : h)));
-      toast.error(getUserErrorMessage(err, t("hooks.saveFailed")));
-    }
-  };
+  const handleToggle = (hook: InstanceHook, enabled: boolean) =>
+    toggle(
+      hook.id,
+      enabled,
+      async () => {
+        await api.hooks.update(slug, hook.id, { enabled });
+        toast.success(t(enabled ? "hooks.enabled" : "hooks.disabled"));
+      },
+      (err) => toast.error(getUserErrorMessage(err, t("hooks.saveFailed"))),
+    );
 
   const handleDelete = async () => {
     if (!deleting) return;
@@ -183,13 +174,15 @@ export function HooksTab({ slug }: Props) {
       toast.success(t("hooks.deleted"));
       if (openHookId === deleting.id) setOpenHookId(null);
       setDeleting(null);
-      await load();
+      load();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("hooks.deleteFailed")));
     }
   };
 
-  if (loading) {
+  if (error && data === undefined) return <LoadFailed message={t("hooks.loadFailed")} onRetry={load} />;
+
+  if (loading && data === undefined) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-64" />
@@ -278,7 +271,7 @@ export function HooksTab({ slug }: Props) {
                         </span>
                         <div className="ml-auto flex items-center gap-2">
                           <Switch
-                            checked={hook.enabled}
+                            checked={enabledOf(hook.id, hook.enabled)}
                             onClick={(e) => e.stopPropagation()}
                             aria-label={t("hooks.enabledLabel")}
                             onCheckedChange={(v) => handleToggle(hook, v)}

@@ -2,8 +2,6 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
 import { Loader2, MessageSquare, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -14,7 +12,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, getUserErrorMessage, type ScheduledTask, type ConversationListItem } from "@/lib/api";
+import { api } from "@/lib/api";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { useResource } from "@/hooks/use-resource";
 import { useI18n } from "@/lib/i18n/context";
 import { useTenantPaths } from "@/lib/tenant/use-tenant-paths";
 import { ScheduledTaskRunsSection } from "./scheduled-task-runs-section";
@@ -38,35 +38,25 @@ export function TriggersRunsTab({ slug, block }: Props) {
   const { t } = useI18n();
   const fmt = useFormat();
   const paths = useTenantPaths();
-  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
-  const [webhookConversations, setWebhookConversations] = useState<ConversationListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Only the half this instance renders. `block` narrows the component to one
+  // section, and the Log page mounts it TWICE — so loading both datasets
+  // regardless meant four requests to render two tables, two of them for rows
+  // nobody ever sees.
+  const wantsScheduled = !block || block === "scheduled";
+  const wantsWebhook = !block || block === "webhook";
+  const { data, error, loading, reload } = useResource(["trigger-runs", slug, wantsScheduled, wantsWebhook], async () => {
+    const [tasksRes, convRes] = await Promise.all([
+      wantsScheduled ? api.scheduledTasks.list(slug) : Promise.resolve(undefined),
+      wantsWebhook
+        ? api.conversations.list({ instanceId: slug, source: "webhook", limit: 50 })
+        : Promise.resolve(undefined),
+    ]);
+    return { tasks: tasksRes?.tasks ?? [], webhookConversations: convRes?.conversations ?? [] };
+  });
+  const tasks = data?.tasks ?? [];
+  const webhookConversations = data?.webhookConversations ?? [];
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Only the half this instance renders. `block` narrows the component to
-      // one section, and the Log page mounts it TWICE — so loading both
-      // datasets regardless meant four requests to render two tables, two of
-      // them for rows nobody ever sees.
-      const wantsScheduled = !block || block === "scheduled";
-      const wantsWebhook = !block || block === "webhook";
-      const [tasksRes, convRes] = await Promise.all([
-        wantsScheduled ? api.scheduledTasks.list(slug) : Promise.resolve(undefined),
-        wantsWebhook
-          ? api.conversations.list({ instanceId: slug, source: "webhook", limit: 50 })
-          : Promise.resolve(undefined),
-      ]);
-      if (tasksRes) setTasks(tasksRes.tasks ?? []);
-      if (convRes) setWebhookConversations(convRes.conversations ?? []);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, "Failed to load trigger runs"));
-    } finally {
-      setLoading(false);
-    }
-  }, [slug, block]);
-
-  useEffect(() => { loadData(); }, [loadData]);
+  if (error) return <LoadFailed onRetry={reload} />;
 
   if (loading) {
     return (

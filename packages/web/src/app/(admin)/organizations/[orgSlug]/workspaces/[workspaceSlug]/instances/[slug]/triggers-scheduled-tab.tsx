@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   Plus,
@@ -65,7 +65,9 @@ import {
 import { api, getUserErrorMessage, type ScheduledTask, type ScheduledTaskSchedule } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/types";
-import { formatDateTime } from "@/lib/format";
+import { useFormat } from "@/lib/use-format";
+import { useResource } from "@/hooks/use-resource";
+import { LoadFailed } from "@/components/ui/load-failed";
 import { SectionActions } from "./section-actions";
 
 interface Props {
@@ -201,33 +203,17 @@ function StatusBadge({ task, t }: { task: ScheduledTask; t: (key: TranslationKey
   );
 }
 
-/** Takes the UI's locale explicitly: a module-level helper has no hook to read it. */
-function formatDate(iso: string | null, locale: string): string {
-  if (!iso) return "-";
-  return formatDateTime(iso, locale);
-}
+const NO_TASKS: ScheduledTask[] = [];
 
 export function TriggersScheduledTab({ slug }: Props) {
-  const { t, locale } = useI18n();
-  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { t } = useI18n();
+  const fmt = useFormat();
+  const { data, error, loading, reload: loadTasks } = useResource(["scheduled-tasks", slug], () => api.scheduledTasks.list(slug));
+  const tasks = data?.tasks ?? NO_TASKS;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<TaskForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
-
-  const loadTasks = useCallback(async () => {
-    try {
-      const res = await api.scheduledTasks.list(slug);
-      setTasks(res.tasks);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("scheduledTasks.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [slug, t]);
-
-  useEffect(() => { loadTasks(); }, [loadTasks]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -325,7 +311,9 @@ export function TriggersScheduledTab({ slug }: Props) {
     }
   };
 
-  if (loading) {
+  if (error && data === undefined) return <LoadFailed message={t("scheduledTasks.loadFailed")} onRetry={loadTasks} />;
+
+  if (loading && data === undefined) {
     return (
       <div className="flex items-center gap-2 py-8 text-muted-foreground">
         <Loader2 className="size-4 animate-spin" />
@@ -394,8 +382,8 @@ export function TriggersScheduledTab({ slug }: Props) {
                       </Tooltip>
                     )}
                   </TableCell>
-                  <TableCell className="text-sm">{formatDate(task.nextRunAt, locale)}</TableCell>
-                  <TableCell className="text-sm">{formatDate(task.lastRunAt, locale)}</TableCell>
+                  <TableCell className="text-sm">{fmt.dateTime(task.nextRunAt)}</TableCell>
+                  <TableCell className="text-sm">{fmt.dateTime(task.lastRunAt)}</TableCell>
                   <ListControlCell>
                     <div className="flex items-center justify-end gap-1">
                       <Tooltip>
