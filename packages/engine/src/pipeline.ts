@@ -17,6 +17,7 @@ import { buildHistoryWithToolResults } from "./conversations/tool-history.js";
 import { rowsToModelMessages, type MessageRow } from "./conversations/store.js";
 import { extractMemories } from "./memory/index.js";
 import { pipelineLog } from "./utils/pipeline-logger.js";
+import { contactConversationId } from "./channels/outbound-conversation.js";
 import { generateConversationTitle } from "./utils/title-generator.js";
 import { resolveInstanceConfig, type InstanceConfig } from "./instances/config-resolver.js";
 import { traceStore } from "./analytics/trace.store.js";
@@ -148,7 +149,7 @@ export async function preparePipeline(
   pipelineLog.request(msg.channelType, instanceId, msg.text);
 
   const conversationId = conversationIdOverride
-    ?? `${instanceId}:${msg.channelType}:${msg.channelId}`;
+    ?? contactConversationId(instanceId, msg.channelType, msg.channelId);
   const isAutoTaskTurn = isAutoTask(msg.text);
 
   // Skip conversation creation for automated tasks (e.g. Open WebUI title/tag generation)

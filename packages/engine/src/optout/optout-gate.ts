@@ -9,6 +9,7 @@ import { conversationStore } from "../conversations/index.js";
 import { createAuditLogger } from "../audit/audit-logger.js";
 import { evaluateOptout } from "./optout.guard.js";
 import { getOptoutStatus, setOptoutStatus } from "./contact-optouts.store.js";
+import { contactConversationId } from "../channels/outbound-conversation.js";
 
 /** Synthetic channels never participate in opt-out (no real end-user contact). */
 const OPTOUT_EXCLUDED_CHANNELS = new Set(["agent", "scheduled", "room"]);
@@ -79,7 +80,7 @@ export async function runOptoutGate(msg: IncomingMessage): Promise<OptoutGateRes
  * Best-effort: a persistence failure never blocks honoring the opt-out.
  */
 async function persistOptoutExchange(msg: IncomingMessage, reply: string): Promise<void> {
-  const conversationId = `${msg.instanceId}:${msg.channelType}:${msg.channelId}`;
+  const conversationId = contactConversationId(msg.instanceId, msg.channelType, msg.channelId);
   try {
     await conversationStore.ensureConversation(conversationId, msg.instanceId, {
       channel: msg.channelType,
