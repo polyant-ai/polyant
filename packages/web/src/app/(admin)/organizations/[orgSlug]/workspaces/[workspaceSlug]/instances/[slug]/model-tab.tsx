@@ -8,6 +8,7 @@ import { AlertTriangle, Check } from "lucide-react";
 import { TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { ListHead, ListNameCell, ListRow, ListTable } from "@/components/list-table";
 import { api, isForbidden, type Instance, type ModelsResponse, type SecretStatus } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
 import { useI18n } from "@/lib/i18n/context";
 import { providerName } from "@/lib/provider-secrets";
 import { ModelTaskSheet } from "./model-task-sheet";
@@ -35,38 +36,30 @@ interface Props {
  * the model and whether its key is in place. A row opens the task in a side
  * panel, where the choice, its options and the key are saved together.
  */
+const NO_SECRETS: SecretStatus[] = [];
+
 export function ModelTab({ instance, onUpdate, onConfigurationChanged }: Props) {
   const { t } = useI18n();
-  const [modelsData, setModelsData] = useState<ModelsResponse | null>(null);
-  const [secrets, setSecrets] = useState<SecretStatus[]>([]);
+  // Independent reads: a refused keys read must not blank the model choices.
+  const models = useResource(["models"], () => api.models.list());
+  const secretsRead = useResource(["secrets", instance.slug], () => api.secrets.list(instance.slug));
+  const modelsData: ModelsResponse | null = models.data ?? null;
+  // The keys list the panel hands back after it writes one is newer than the read above.
+  const [savedSecrets, setSavedSecrets] = useState<SecretStatus[] | null>(null);
+  const secrets: SecretStatus[] = savedSecrets ?? secretsRead.data?.secrets ?? NO_SECRETS;
   // `agent.secret:read` is not everyone's: a reader without it is shown the
   // choices and no keys, and never told a key is missing that it cannot see.
-  const [canReadSecrets, setCanReadSecrets] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const canReadSecrets = !isForbidden(secretsRead.error);
+  const loading = models.loading || secretsRead.loading;
   const [openTask, setOpenTask] = useState<ModelTask | null>(null);
 
+  // A failed read other than a refusal is said once, when it arrives.
+  const failed = models.error !== undefined || (secretsRead.error !== undefined && canReadSecrets);
   useEffect(() => {
-    let cancelled = false;
-    // Independent reads: a refused keys read must not blank the model choices.
-    Promise.allSettled([api.secrets.list(instance.slug), api.models.list()])
-      .then(([secretsRes, modelsRes]) => {
-        if (cancelled) return;
-        if (modelsRes.status === "fulfilled") setModelsData(modelsRes.value);
-        else toast.error(t("settings.tab.loadFailed"));
-        if (secretsRes.status === "fulfilled") setSecrets(secretsRes.value.secrets);
-        else if (isForbidden(secretsRes.reason)) setCanReadSecrets(false);
-        else toast.error(t("settings.tab.loadFailed"));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // `t` is read for a toast only: reading everything again because a
-    // translation function changed identity would reset the page.
+    if (failed) toast.error(t("settings.tab.loadFailed"));
+    // The failure is the trigger; `t` is read for the message only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instance.slug]);
+  }, [failed]);
 
   if (loading) {
     return (
@@ -159,7 +152,7 @@ export function ModelTab({ instance, onUpdate, onConfigurationChanged }: Props) 
         secrets={secrets}
         canReadSecrets={canReadSecrets}
         onSecretsChanged={(next) => {
-          setSecrets(next);
+          setSavedSecrets(next);
           onConfigurationChanged?.();
         }}
         onSaved={async (updated) => {

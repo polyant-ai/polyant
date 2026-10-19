@@ -260,15 +260,15 @@ describe("SkillEnvDialog", () => {
     });
   });
 
-  it("shows error toast when loading fails", async () => {
-    const { toast } = await import("sonner");
-    getEnvMock.mockRejectedValueOnce(new Error("load failed"));
+  it("states a failed load and offers a retry", async () => {
+    const user = userEvent.setup();
+    getEnvMock.mockRejectedValueOnce(new Error("load failed")).mockResolvedValue({ env: envData });
 
     renderDialog();
 
-    await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith("skills.env.loadFailed");
-    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("skills.env.loadFailed");
+    await user.click(screen.getByRole("button", { name: "common.retry" }));
+    expect(await screen.findByLabelText("API_KEY")).toBeInTheDocument();
   });
 
   it("disables save button while loading", () => {

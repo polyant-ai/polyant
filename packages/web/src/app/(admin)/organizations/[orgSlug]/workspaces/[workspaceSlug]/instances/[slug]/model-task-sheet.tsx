@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -122,14 +122,16 @@ export function ModelTaskSheet({
   // The draft starts from what is saved when the sheet opens on a task, and
   // only then: "changed" means "differs from this", and a read of the page's
   // data while the panel is open does not wipe what is being typed.
-  useEffect(() => {
-    if (!task) return;
-    const start = draftOf(instance);
-    setInitial(start);
-    setDraft(start);
-    setVisible({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task]);
+  const [shownTask, setShownTask] = useState<ModelTask | null>(null);
+  if (task !== shownTask) {
+    setShownTask(task);
+    if (task) {
+      const start = draftOf(instance);
+      setInitial(start);
+      setDraft(start);
+      setVisible({});
+    }
+  }
 
   if (!task || !draft || !initial) {
     return <Sheet open={false} />;
