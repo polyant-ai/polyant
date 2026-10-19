@@ -2,33 +2,22 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useParams } from "next/navigation";
 import { api, type ConversationListItem } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
 
 const PAGE_SIZE = 30;
+const NONE: ConversationListItem[] = [];
 
 export function useConversations() {
-  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { orgSlug, workspaceSlug } = useParams<{ orgSlug: string; workspaceSlug: string }>();
+  // A failed read leaves the sidebar on its empty state.
+  const { data, loading, reload } = useResource(["playground-conversations", orgSlug, workspaceSlug], () =>
+    api.conversations
+      .list({ limit: PAGE_SIZE })
+      .then((result) => result.conversations)
+      .catch(() => NONE),
+  );
 
-  const fetch_ = useCallback(async () => {
-    try {
-      const result = await api.conversations.list({ limit: PAGE_SIZE });
-      setConversations(result.conversations);
-    } catch {
-      // Silently fail — sidebar will show empty state
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetch_();
-  }, [fetch_]);
-
-  const refresh = useCallback(() => {
-    fetch_();
-  }, [fetch_]);
-
-  return { conversations, loading, refresh };
+  return { conversations: data ?? NONE, loading: loading && data === undefined, refresh: reload };
 }

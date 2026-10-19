@@ -3,6 +3,7 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { usePagination } from "@/hooks/use-pagination";
 import { toast } from "sonner";
 import { ScrollText, Search, AlertCircle, CheckCircle2 } from "lucide-react";
@@ -42,6 +43,7 @@ const PAGE_SIZE = 30;
 export default function AuditLogsPage() {
   const { t } = useI18n();
   const fmt = useFormat();
+  const { orgSlug } = useParams<{ orgSlug: string }>();
   const {
     page,
     setPage,
@@ -56,18 +58,18 @@ export default function AuditLogsPage() {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   // Agents for the filter dropdown.
-  const { data: instancesData, error: instancesError } = useResource("instances", () => api.instances.list());
+  const { data: instancesData, error: instancesError } = useResource(["instances", orgSlug], () => api.instances.list());
   const instances = instancesData?.instances ?? [];
 
   // Stats — `instanceId` is optional: when the dropdown is on "all agents" we
   // send `undefined` and the backend returns system-wide stats.
-  const { data: stats, error: statsError } = useResource(["audit-stats", instanceFilter], () =>
+  const { data: stats, error: statsError } = useResource(["audit-stats", orgSlug, instanceFilter], () =>
     api.auditLogs.stats({ instanceId: instanceFilter || undefined }),
   );
 
   // Audit logs — same: `undefined` instanceId means "show every instance".
   const { data: logsData, error: logsError, loading } = useResource(
-    ["audit-logs", instanceFilter, toolFilter, debouncedSearch, offset],
+    ["audit-logs", orgSlug, instanceFilter, toolFilter, debouncedSearch, offset],
     () =>
       api.auditLogs.list({
         instanceId: instanceFilter || undefined,

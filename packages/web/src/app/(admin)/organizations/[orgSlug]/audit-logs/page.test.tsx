@@ -31,6 +31,8 @@ vi.mock("@/lib/api", () => ({
   isForbidden: (err: unknown) => err instanceof ApiError && err.status === 403,
 }));
 
+vi.mock("next/navigation", () => ({ useParams: () => ({ orgSlug: "acme" }) }));
+
 vi.mock("@/lib/i18n/context", () => ({
   useI18n: () => ({ t: (key: string) => key, locale: "en", setLocale: vi.fn() }),
 }));

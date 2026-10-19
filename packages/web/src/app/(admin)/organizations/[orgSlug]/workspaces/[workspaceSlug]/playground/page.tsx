@@ -10,7 +10,6 @@ import { useConversations } from "./_hooks/use-conversations";
 export default function PlaygroundPage() {
   const { conversations, loading, refresh } = useConversations();
   const chat = useChat("");
-  const instanceSlug = chat.state.instanceSlug;
 
   // Refresh conversation list when streaming completes
   const wasStreamingRef = useRef(false);
