@@ -1,3 +1,6 @@
+import { createLogger } from "./create-logger.js";
+
+const log = createLogger();
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // ---------------------------------------------------------------------------
@@ -109,7 +112,8 @@ export class BufferedInsertQueue<T> {
         // One skip in twenty is enough to spot capacity pressure.
         this.flushSkipped += 1;
         if (this.flushSkipped % 20 === 0) {
-          console.debug(
+          log.debug(
+            "buffered-insert",
             `${this.options.label}: flush skipped ${this.flushSkipped}x (buffer=${this.buffer.length}, another flush in progress)`,
           );
         }
@@ -142,7 +146,7 @@ export class BufferedInsertQueue<T> {
       await db.insert(table).values(rows);
       return;
     } catch (err) {
-      console.error(`Failed to flush ${label}:`, err);
+      log.error("buffered-insert", `Failed to flush ${label}`, err);
     }
 
     const refused: T[] = [];
@@ -171,7 +175,7 @@ export class BufferedInsertQueue<T> {
     if (this.buffer.length > this.maxBuffer) {
       const dropped = this.buffer.length - this.maxBuffer;
       this.buffer = this.buffer.slice(-this.maxBuffer);
-      console.warn(`${label}: dropped ${dropped} oldest entries, keeping newest (buffer full)`);
+      log.warn("buffered-insert", `${label}: dropped ${dropped} oldest entries, keeping newest (buffer full)`);
     }
   }
 
@@ -180,7 +184,8 @@ export class BufferedInsertQueue<T> {
       this.options.onRefused(rows, written);
       return;
     }
-    console.warn(
+    log.warn(
+      "buffered-insert",
       `${this.options.label}: dropped ${rows.length} un-insertable entries; ${written} entries in the same batch were written.`,
     );
   }
