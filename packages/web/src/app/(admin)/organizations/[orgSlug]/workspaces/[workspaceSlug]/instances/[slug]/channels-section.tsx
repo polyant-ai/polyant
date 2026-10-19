@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { Globe, Send, Hash, MessageCircle, Bot } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { LoadFailed } from "@/components/ui/load-failed";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, type Instance } from "@/lib/api";
 import { useResource } from "@/hooks/use-resource";
@@ -62,7 +63,7 @@ export function ChannelsSection({
   // selected channel's panel all work from it. A panel that changes a channel asks
   // for it again (`reload`), so the dots follow a save or a removal; switching
   // between channels reads nothing.
-  const { data, reload } = useResource(["channels", instance.slug], () => api.channels.list(instance.slug));
+  const { data, error, reload } = useResource(["channels", instance.slug], () => api.channels.list(instance.slug));
   const channels = data?.channels;
 
   return (
@@ -104,7 +105,10 @@ export function ChannelsSection({
         given, so remounting on a change is what keeps the panel's dirty state from
         surviving into a channel it does not belong to.
       */}
-      {selected === "web" ? (
+      {channels === undefined && error ? (
+        // Without the list neither the dots nor the panels can say anything true.
+        <LoadFailed onRetry={reload} />
+      ) : selected === "web" ? (
         <ChannelWebTab instance={instance} onUpdate={onUpdate} channels={channels} onChannelsChanged={reload} />
       ) : channels === undefined ? (
         <div className="space-y-4">

@@ -42,4 +42,21 @@ describe("ChannelsSection — how many times the channel list is read", () => {
 
     expect(mockChannelsList).toHaveBeenCalledTimes(1);
   });
+
+  it("says the list could not be read, and reads it again on retry", async () => {
+    mockChannelsList.mockRejectedValueOnce(new Error("boom"));
+    mockChannelsList.mockResolvedValue({ channels: [] });
+    const user = userEvent.setup();
+    render(
+      <PageActionsProvider>
+        <ChannelsSection instance={instance} onUpdate={vi.fn()} />
+      </PageActionsProvider>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("common.loadFailed");
+    await user.click(screen.getByRole("button", { name: "common.retry" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(mockChannelsList).toHaveBeenCalledTimes(2);
+  });
 });
