@@ -154,8 +154,10 @@ describe("PrivacyTab", () => {
 
   it("saves the opt-out config through the header save action", async () => {
     const user = userEvent.setup();
-    const onSaved = vi.fn();
-    render(<PrivacyTab instance={makeInstance({ optoutEnabled: false })} onSaved={onSaved} />);
+    const onUpdate = vi.fn();
+    const updated = makeInstance({ optoutEnabled: true });
+    mockInstanceUpdate.mockResolvedValue({ instance: updated });
+    render(<PrivacyTab instance={makeInstance({ optoutEnabled: false })} onUpdate={onUpdate} />);
 
     await waitFor(() => {
       expect(mockOptoutsList).toHaveBeenCalled();
@@ -170,7 +172,7 @@ describe("PrivacyTab", () => {
         expect.objectContaining({ optoutEnabled: true }),
       );
     });
-    expect(onSaved).toHaveBeenCalled();
+    expect(onUpdate).toHaveBeenCalledWith(updated);
     expect(mockToastSuccess).toHaveBeenCalledWith("privacy.saved");
   });
 

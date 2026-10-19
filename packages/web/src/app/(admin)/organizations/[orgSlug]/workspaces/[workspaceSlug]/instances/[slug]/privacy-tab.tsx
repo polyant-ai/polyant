@@ -32,7 +32,7 @@ import { usePageSaveAction } from "./page-actions-context";
 
 interface Props {
   instance: Instance;
-  onSaved?: () => void;
+  onUpdate?: (instance: Instance) => void;
 }
 
 // Channels whose inbound gate + outbound suppression actually honor opt-out
@@ -59,7 +59,7 @@ function sameKeywords(input: string, base: string[]): boolean {
   return parsed.length === base.length && parsed.every((k, i) => k === base[i]);
 }
 
-export function PrivacyTab({ instance, onSaved }: Props) {
+export function PrivacyTab({ instance, onUpdate }: Props) {
   const { t } = useI18n();
   const fmt = useFormat();
 
@@ -105,7 +105,7 @@ export function PrivacyTab({ instance, onSaved }: Props) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.instances.update(instance.slug, {
+      const { instance: updated } = await api.instances.update(instance.slug, {
         optoutEnabled: enabled,
         optoutStopKeywords: parseKeywords(stopKeywords),
         optoutResumeKeywords: parseKeywords(resumeKeywords),
@@ -113,7 +113,7 @@ export function PrivacyTab({ instance, onSaved }: Props) {
         optoutResumeMessage: resumeMsg.trim() || null,
         optoutInjectPromptHint: injectHint,
       });
-      onSaved?.();
+      onUpdate?.(updated);
       toast.success(t("privacy.saved"));
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("privacy.saveFailed")));

@@ -372,15 +372,7 @@ function InstanceDetailContent() {
         {/* Governance — the gates, the compliance artifacts and the retention
             policy are not part of this build; what ships here is the opt-out. */}
         <TabsContent value="privacy" data-tour="agent-privacy">
-          <PrivacyTab
-            instance={instance}
-            onSaved={() => {
-              api.instances
-                .get(params.slug)
-                .then((r) => setInstance(r.instance))
-                .catch(() => {});
-            }}
-          />
+          <PrivacyTab instance={instance} onUpdate={setInstance} />
         </TabsContent>
 
         {/* Attività — what this agent has done, not how it is configured. */}
