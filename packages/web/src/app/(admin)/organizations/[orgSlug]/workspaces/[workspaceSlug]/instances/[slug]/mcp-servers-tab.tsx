@@ -120,7 +120,7 @@ export function McpServersTab({ slug }: Props) {
     }
   };
 
-  if (error) return <LoadFailed message={t("mcp.loadFailed")} onRetry={reload} />;
+  if (error && data === undefined) return <LoadFailed message={t("mcp.loadFailed")} onRetry={reload} />;
 
   if (loading && data === undefined) {
     return (

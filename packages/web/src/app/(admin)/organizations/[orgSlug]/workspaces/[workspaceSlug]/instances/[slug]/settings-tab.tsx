@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { api, getUserErrorMessage, type Instance } from "@/lib/api";
 import { useI18n } from "@/lib/i18n/context";
 import { usePageSaveAction } from "./page-actions-context";
+import { useDraft } from "./use-draft";
 
 interface Props {
   instance: Instance;
@@ -39,54 +40,31 @@ export function SettingsTab({ instance, onUpdate }: Props) {
   const { t } = useI18n();
   const [saving, setSaving] = useState(false);
 
-  // Conversation state store: render known state read-only into the prompt (default off).
-  const [stateInPromptEnabled, setStateInPromptEnabled] = useState(instance.stateInPromptEnabled);
-
-  // Inject the current date/time into every turn (default on).
-  const [datetimeInjectionEnabled, setDatetimeInjectionEnabled] = useState(instance.datetimeInjectionEnabled);
-
   /**
-   * The six behaviours that used to be deployment configuration. Held as
-   * STRINGS, empty for "declares none": an empty input has to stay empty rather
-   * than showing the default as if the agent had chosen it, and the save maps
-   * empty back to `null`, which is what clears the column.
+   * The six numeric/text overrides are held as STRINGS, empty for "declares
+   * none": an empty input has to stay empty rather than showing the default as
+   * if the agent had chosen it, and the save maps empty back to `null`, which is
+   * what clears the column. A field is dirty when its string differs from the
+   * stored value rendered the same way, so clearing one counts — that is how a
+   * value is handed back to the deployment default.
    */
-  const [overrides, setOverrides] = useState({
+  const { draft, set, isDirty } = useDraft({
+    // Conversation state store: render known state read-only into the prompt (default off).
+    stateInPromptEnabled: instance.stateInPromptEnabled,
+    // Inject the current date/time into every turn (default on).
+    datetimeInjectionEnabled: instance.datetimeInjectionEnabled,
     datetimeTimezone: instance.datetimeTimezone ?? "",
     datetimeLocale: instance.datetimeLocale ?? "",
     dedupSimilarityThreshold: instance.dedupSimilarityThreshold?.toString() ?? "",
     messageSoftDebounceMs: instance.messageSoftDebounceMs?.toString() ?? "",
     messageTypingDelayMs: instance.messageTypingDelayMs?.toString() ?? "",
     messageMaxRestarts: instance.messageMaxRestarts?.toString() ?? "",
+    // Replay prior-turn tool results into the model's cross-turn history (default off).
+    toolResultsInHistoryEnabled: instance.toolResultsInHistoryEnabled,
+    // DEBUG mode: persist the exact LLM request payload per turn (default off).
+    debugEnabled: instance.debugEnabled ?? false,
   });
-  const setOverride = (key: keyof typeof overrides, value: string) =>
-    setOverrides((prev) => ({ ...prev, [key]: value }));
-
-  // Replay prior-turn tool results into the model's cross-turn history (default off).
-  const [toolResultsInHistoryEnabled, setToolResultsInHistoryEnabled] = useState(
-    instance.toolResultsInHistoryEnabled,
-  );
-
-  // DEBUG mode: persist the exact LLM request payload per turn (default off).
-  const [debugEnabled, setDebugEnabled] = useState(instance.debugEnabled ?? false);
-
-  // An override is dirty when its string differs from the stored value rendered
-  // the same way — so clearing a field to empty counts, which is how a value is
-  // handed back to the deployment default.
-  const overridesDirty =
-    overrides.datetimeTimezone !== (instance.datetimeTimezone ?? "") ||
-    overrides.datetimeLocale !== (instance.datetimeLocale ?? "") ||
-    overrides.dedupSimilarityThreshold !== (instance.dedupSimilarityThreshold?.toString() ?? "") ||
-    overrides.messageSoftDebounceMs !== (instance.messageSoftDebounceMs?.toString() ?? "") ||
-    overrides.messageTypingDelayMs !== (instance.messageTypingDelayMs?.toString() ?? "") ||
-    overrides.messageMaxRestarts !== (instance.messageMaxRestarts?.toString() ?? "");
-
-  const isDirty =
-    stateInPromptEnabled !== instance.stateInPromptEnabled ||
-    datetimeInjectionEnabled !== instance.datetimeInjectionEnabled ||
-    overridesDirty ||
-    toolResultsInHistoryEnabled !== instance.toolResultsInHistoryEnabled ||
-    debugEnabled !== (instance.debugEnabled ?? false);
+  const { stateInPromptEnabled, datetimeInjectionEnabled, toolResultsInHistoryEnabled, debugEnabled } = draft;
 
   const handleSave = async () => {
     setSaving(true);
@@ -99,12 +77,12 @@ export function SettingsTab({ instance, onUpdate }: Props) {
         // Empty means "hand this back to the deployment default", which the API
         // spells as an explicit null — not as an omitted field, which would
         // leave the column as it is.
-        datetimeTimezone: overrides.datetimeTimezone.trim() || null,
-        datetimeLocale: overrides.datetimeLocale.trim() || null,
-        dedupSimilarityThreshold: numberOrNull(overrides.dedupSimilarityThreshold),
-        messageSoftDebounceMs: numberOrNull(overrides.messageSoftDebounceMs),
-        messageTypingDelayMs: numberOrNull(overrides.messageTypingDelayMs),
-        messageMaxRestarts: numberOrNull(overrides.messageMaxRestarts),
+        datetimeTimezone: draft.datetimeTimezone.trim() || null,
+        datetimeLocale: draft.datetimeLocale.trim() || null,
+        dedupSimilarityThreshold: numberOrNull(draft.dedupSimilarityThreshold),
+        messageSoftDebounceMs: numberOrNull(draft.messageSoftDebounceMs),
+        messageTypingDelayMs: numberOrNull(draft.messageTypingDelayMs),
+        messageMaxRestarts: numberOrNull(draft.messageMaxRestarts),
       });
       onUpdate(updated);
       toast.success(t("settings.tab.saved"));
@@ -141,7 +119,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             <Switch
               id="agent-state-in-prompt"
               checked={stateInPromptEnabled}
-              onCheckedChange={setStateInPromptEnabled}
+              onCheckedChange={(v) => set("stateInPromptEnabled", v)}
             />
           </div>
 
@@ -162,7 +140,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             <Switch
               id="agent-datetime-injection"
               checked={datetimeInjectionEnabled}
-              onCheckedChange={setDatetimeInjectionEnabled}
+              onCheckedChange={(v) => set("datetimeInjectionEnabled", v)}
             />
           </div>
 
@@ -186,9 +164,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               <Input
                 id="agent-datetime-timezone"
                 type="text"
-                value={overrides.datetimeTimezone}
+                value={draft.datetimeTimezone}
                 placeholder="Europe/Rome"
-                onChange={(e) => setOverride("datetimeTimezone", e.target.value)}
+                onChange={(e) => set("datetimeTimezone", e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
                 {t("settings.tab.datetimeTimezoneHelp")}
@@ -201,9 +179,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               <Input
                 id="agent-datetime-locale"
                 type="text"
-                value={overrides.datetimeLocale}
+                value={draft.datetimeLocale}
                 placeholder="it-IT"
-                onChange={(e) => setOverride("datetimeLocale", e.target.value)}
+                onChange={(e) => set("datetimeLocale", e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
                 {t("settings.tab.datetimeLocaleHelp")}
@@ -216,9 +194,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               <Input
                 id="agent-dedup-threshold"
                 type="number"
-                value={overrides.dedupSimilarityThreshold}
+                value={draft.dedupSimilarityThreshold}
                 placeholder="0.90"
-                onChange={(e) => setOverride("dedupSimilarityThreshold", e.target.value)}
+                onChange={(e) => set("dedupSimilarityThreshold", e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
                 {t("settings.tab.dedupSimilarityThresholdHelp")}
@@ -231,9 +209,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               <Input
                 id="agent-message-debounce"
                 type="number"
-                value={overrides.messageSoftDebounceMs}
+                value={draft.messageSoftDebounceMs}
                 placeholder="2000"
-                onChange={(e) => setOverride("messageSoftDebounceMs", e.target.value)}
+                onChange={(e) => set("messageSoftDebounceMs", e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
                 {t("settings.tab.messageSoftDebounceMsHelp")}
@@ -246,9 +224,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               <Input
                 id="agent-message-typing"
                 type="number"
-                value={overrides.messageTypingDelayMs}
+                value={draft.messageTypingDelayMs}
                 placeholder="1500"
-                onChange={(e) => setOverride("messageTypingDelayMs", e.target.value)}
+                onChange={(e) => set("messageTypingDelayMs", e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
                 {t("settings.tab.messageTypingDelayMsHelp")}
@@ -261,9 +239,9 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               <Input
                 id="agent-message-restarts"
                 type="number"
-                value={overrides.messageMaxRestarts}
+                value={draft.messageMaxRestarts}
                 placeholder="3"
-                onChange={(e) => setOverride("messageMaxRestarts", e.target.value)}
+                onChange={(e) => set("messageMaxRestarts", e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
                 {t("settings.tab.messageMaxRestartsHelp")}
@@ -288,7 +266,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
             <Switch
               id="agent-tool-results-history"
               checked={toolResultsInHistoryEnabled}
-              onCheckedChange={setToolResultsInHistoryEnabled}
+              onCheckedChange={(v) => set("toolResultsInHistoryEnabled", v)}
             />
           </div>
 
@@ -305,7 +283,7 @@ export function SettingsTab({ instance, onUpdate }: Props) {
               </Label>
               <p className="text-xs text-muted-foreground">{t("settings.tab.debugHelp")}</p>
             </div>
-            <Switch id="agent-debug" checked={debugEnabled} onCheckedChange={setDebugEnabled} />
+            <Switch id="agent-debug" checked={debugEnabled} onCheckedChange={(v) => set("debugEnabled", v)} />
           </div>
         </section>
   );

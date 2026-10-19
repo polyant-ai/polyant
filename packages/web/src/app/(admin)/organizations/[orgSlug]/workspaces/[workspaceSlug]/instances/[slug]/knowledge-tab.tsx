@@ -2,14 +2,12 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   FileText,
   Trash2,
   RefreshCw,
-  AlertCircle,
-  CheckCircle2,
   Loader2,
   Eye,
   Download,
@@ -17,18 +15,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { LoadFailed } from "@/components/ui/load-failed";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -42,56 +30,18 @@ import { Switch } from "@/components/ui/switch";
 import { api, getUserErrorMessage, type Instance, type KnowledgeDocument } from "@/lib/api";
 import { providerName } from "@/lib/provider-secrets";
 import { useI18n } from "@/lib/i18n/context";
-import type { TranslationKey } from "@/lib/i18n/types";
+import { useResource } from "@/hooks/use-resource";
+import { downloadBlob } from "@/lib/download";
 import { usePageSaveAction } from "./page-actions-context";
+import { useDraft } from "./use-draft";
 import { AddTextDialog } from "@/components/knowledge/add-text-dialog";
+import { formatBytes, KnowledgeStatusBadge } from "@/components/knowledge/document-status";
 
 interface Props {
   slug: string;
   /** For the capability switches above the documents — see `KnowledgeCapabilities`. */
   instance: Instance;
   onUpdate: (instance: Instance) => void;
-}
-
-function StatusBadge({ status, t }: { status: KnowledgeDocument["status"]; t: (key: TranslationKey) => string }) {
-  switch (status) {
-    case "ready":
-      return (
-        <Badge variant="default" className="gap-1">
-          <CheckCircle2 className="size-3" />
-          {t("knowledge.tab.statusReady")}
-        </Badge>
-      );
-    case "processing":
-      return (
-        <Badge variant="secondary" className="gap-1">
-          <Loader2 className="size-3 animate-spin" />
-          {t("knowledge.tab.statusProcessing")}
-        </Badge>
-      );
-    case "uploading":
-      return (
-        <Badge variant="secondary" className="gap-1">
-          <Loader2 className="size-3 animate-spin" />
-          {t("knowledge.tab.statusUploading")}
-        </Badge>
-      );
-    case "error":
-      return (
-        <Badge variant="destructive" className="gap-1">
-          <AlertCircle className="size-3" />
-          {t("knowledge.tab.statusError")}
-        </Badge>
-      );
-  }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
 /**
@@ -121,15 +71,8 @@ function KnowledgeToggle({
 }) {
   const { t } = useI18n();
   const [saving, setSaving] = useState(false);
-  const [enabled, setEnabled] = useState(instance.knowledgeEnabled ?? false);
-
-  // Re-sync when the parent reloads the agent (a save elsewhere, or this one's own
-  // round trip): local state would otherwise keep showing the pre-save values.
-  useEffect(() => {
-    setEnabled(instance.knowledgeEnabled ?? false);
-  }, [instance.knowledgeEnabled]);
-
-  const isDirty = enabled !== (instance.knowledgeEnabled ?? false);
+  const { draft, set, isDirty } = useDraft({ enabled: instance.knowledgeEnabled ?? false });
+  const { enabled } = draft;
 
   const handleSave = async () => {
     setSaving(true);
@@ -166,7 +109,7 @@ function KnowledgeToggle({
           id="agent-knowledge"
           checked={enabled}
           disabled={saving}
-          onCheckedChange={setEnabled}
+          onCheckedChange={(v) => set("enabled", v)}
         />
       </div>
 
@@ -197,8 +140,9 @@ function KnowledgeToggle({
 
 export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
   const { t } = useI18n();
-  const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, error, loading, reload: load } = useResource(["knowledge", slug], () => api.knowledge.list(slug));
+  const documents: KnowledgeDocument[] = data?.documents ?? [];
+  const [deleting, setDeleting] = useState<KnowledgeDocument | null>(null);
   const [viewDocId, setViewDocId] = useState<string | null>(null);
   const [viewContent, setViewContent] = useState<string>("");
   const [viewFilename, setViewFilename] = useState<string>("");
@@ -206,21 +150,6 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const { documents: docs } = await api.knowledge.list(slug);
-      setDocuments(docs);
-    } catch (err) {
-      toast.error(getUserErrorMessage(err, t("knowledge.tab.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [slug, t]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   // Poll for processing documents (max 60 attempts = ~3 minutes)
   const pollCountRef = useRef(0);
@@ -252,8 +181,7 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
       if (pollCountRef.current >= MAX_POLL_ATTEMPTS) {
         clearInterval(interval);
         toast.error(
-          t("knowledge.tab.processingTimeout") ||
-            "Document processing timed out. The document may have failed to process.",
+          t("knowledge.tab.processingTimeout"),
         );
         return;
       }
@@ -278,12 +206,7 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
     try {
       const bundle = await api.knowledge.export(slug);
       const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${slug}-knowledge.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `${slug}-knowledge.json`);
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("knowledge.tab.exportFailed")));
     } finally {
@@ -320,7 +243,8 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
     try {
       await api.knowledge.delete(slug, docId);
       toast.success(t("knowledge.tab.deleted"));
-      setDocuments((prev) => prev.filter((d) => d.id !== docId));
+      setDeleting(null);
+      load();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("knowledge.tab.deleteFailed")));
     }
@@ -342,7 +266,9 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
     }
   };
 
-  if (loading) {
+  if (error && data === undefined) return <LoadFailed message={t("knowledge.tab.loadFailed")} onRetry={load} />;
+
+  if (loading && data === undefined) {
     return (
       <div className="max-w-3xl">
         <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
@@ -432,7 +358,7 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
                     <span className="font-medium text-sm truncate">
                       {doc.filename}
                     </span>
-                    <StatusBadge status={doc.status} t={t} />
+                    <KnowledgeStatusBadge status={doc.status} t={t} />
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {formatBytes(doc.sizeBytes)}
@@ -455,40 +381,24 @@ export function KnowledgeTab({ slug, instance, onUpdate }: Props) {
                 >
                   <Eye className="size-4" />
                 </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="ghost" size="sm" className="text-destructive">
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>
-                        {t("knowledge.tab.deleteTitle")}
-                      </AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {t("knowledge.tab.deleteDescription", {
-                          name: doc.filename,
-                        })}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={() => handleDelete(doc.id)}
-                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      >
-                        {t("common.delete")}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleting(doc)}>
+                  <Trash2 className="size-4" />
+                </Button>
               </div>
             </div>
           ))}
         </div>
       )}
       </div>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={t("knowledge.tab.deleteTitle")}
+        description={t("knowledge.tab.deleteDescription", { name: deleting?.filename ?? "" })}
+        confirmLabel={t("common.delete")}
+        onConfirm={() => deleting ? handleDelete(deleting.id) : undefined}
+      />
 
       {/* View document content dialog */}
       <Dialog open={viewDocId !== null} onOpenChange={(open) => !open && setViewDocId(null)}>
