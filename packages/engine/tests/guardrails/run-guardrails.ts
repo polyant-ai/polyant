@@ -101,7 +101,7 @@ async function runConversation(
     }
 
     const tools: string[] = [];
-    let textParts: string[] = [];
+    const textParts: string[] = [];
     let inThink = false;
 
     const reader = res.body!.getReader();
@@ -188,7 +188,7 @@ async function main() {
     const healthCheck = await fetch(`${API_URL}/v1/models`);
     if (!healthCheck.ok) throw new Error(`HTTP ${healthCheck.status}`);
     console.log("   ✅ API reachable\n");
-  } catch (e) {
+  } catch {
     console.error(`   ❌ API not reachable at ${API_URL}`);
     console.error(`   Start the engine with: npm run dev\n`);
     process.exit(1);
@@ -201,7 +201,7 @@ async function main() {
 
   const results = await pMap(
     cases,
-    async (tc, idx) => {
+    async (tc) => {
       const start = Date.now();
       const chatId = `guardrail-test-${tc.id}-${Date.now()}`;
 
