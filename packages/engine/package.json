@@ -38,7 +38,7 @@
     "@ai-sdk/mcp": "^2.0.66",
     "@ai-sdk/openai": "^4.0.83",
     "@ai-sdk/openai-compatible": "^3.0.62",
-    "@aws-sdk/client-s3": "^3.1148.0",
+    "@aws-sdk/client-s3": "^3.1152.0",
     "@aws-sdk/client-transcribe-streaming": "^3.1144.0",
     "@aws-sdk/credential-providers": "^3.1144.0",
     "@nestjs/common": "^12.1.2",
