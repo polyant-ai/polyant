@@ -4,7 +4,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChannelWebTab } from "./channel-web-tab";
 import { PageActionsProvider, usePageActions } from "./page-actions-context";
-import type { Instance } from "@/lib/api";
+import { api, type Instance } from "@/lib/api";
+import { useResource } from "@/hooks/use-resource";
 
 /** Stands in for the page header's save button, which is where this tab's lives. */
 function SaveButton() {
@@ -50,10 +51,16 @@ function agent(overrides: Partial<Instance> = {}): Instance {
   return { slug: "bot-1", authEnabled: false, ...overrides } as Instance;
 }
 
+/** What the section above does for the tab: reads the list and asks again after the channel is saved. */
+function TabWithList({ instance, onUpdate }: { instance: Instance; onUpdate: (i: Instance) => void }) {
+  const { data, reload } = useResource("channels", () => api.channels.list(instance.slug));
+  return <ChannelWebTab instance={instance} onUpdate={onUpdate} channels={data?.channels} onChannelsChanged={reload} />;
+}
+
 function renderTab(instance: Instance, onUpdate = vi.fn()) {
   return render(
     <PageActionsProvider>
-      <ChannelWebTab instance={instance} onUpdate={onUpdate} />
+      <TabWithList instance={instance} onUpdate={onUpdate} />
       <SaveButton />
     </PageActionsProvider>,
   );
@@ -239,14 +246,8 @@ describe("ChannelWebTab", () => {
       mockSecretsSet.mockImplementation(async () => { order.push("secret"); return { secrets: [] }; });
       mockInstanceUpdate.mockImplementation(async () => { order.push("agent"); return { instance: agent({ authEnabled: true }) }; });
       mockChannelsSet.mockImplementation(async () => { order.push("channel"); return { channel: null }; });
-      const onWebEnabledChange = vi.fn();
 
-      render(
-        <PageActionsProvider>
-          <ChannelWebTab instance={agent({ authEnabled: true })} onUpdate={vi.fn()} onWebEnabledChange={onWebEnabledChange} />
-          <SaveButton />
-        </PageActionsProvider>,
-      );
+      renderTab(agent({ authEnabled: true }));
       const sw = await screen.findByLabelText("channels.tab.webEnabled");
       await waitFor(() => expect(sw).not.toBeDisabled());
       await userEvent.click(sw);
@@ -255,7 +256,8 @@ describe("ChannelWebTab", () => {
 
       await waitFor(() => expect(order).toEqual(["secret", "agent", "channel"]));
       expect(mockChannelsSet).toHaveBeenCalledWith("bot-1", "web", {}, true);
-      expect(onWebEnabledChange).toHaveBeenLastCalledWith(true);
+      // The picker's dot follows: the list is read again once the channel is saved.
+      await waitFor(() => expect(mockChannelsList).toHaveBeenCalledTimes(2));
     });
 
     it("does not switch Web on while authentication is on and no key exists", async () => {
