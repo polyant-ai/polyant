@@ -103,7 +103,7 @@ export function shouldLog(level: LogLevel): boolean {
 export interface Logger {
   debug(prefix: string, msg: string): void;
   info(prefix: string, msg: string): void;
-  warn(prefix: string, msg: string): void;
+  warn(prefix: string, msg: string, err?: unknown): void;
   error(prefix: string, msg: string, err?: unknown): void;
 }
 
@@ -122,6 +122,12 @@ export function setLogTee(fn: LogTee | null): void {
 /**
  * Create a structured logger with colored, timestamped output.
  * The `defaultColor` is used for info-level messages.
+ *
+ * `warn` and `error` accept an optional error value. At normal levels only its
+ * sanitized message is appended to the line. When LOG_LEVEL=debug and the value
+ * is an `Error` with a stack, the stack is also written (each line sanitized
+ * like the message) through the same stdout/stderr and log-tee path. Other
+ * values are logged as their string form and never gain a stack.
  */
 export function createLogger(defaultColor: string = COLORS.cyan): Logger {
   function fmt(level: "info" | "warn" | "error", prefix: string, msg: string): string {
@@ -137,6 +143,17 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
     tee?.(level, line);
   }
 
+  function emitWithError(level: "warn" | "error", prefix: string, msg: string, err: unknown): void {
+    const detail = err == null ? "" : sanitizeForLog(errMsg(err));
+    emit(level, prefix, detail ? `${msg} — ${detail}` : msg);
+    if (err instanceof Error && err.stack && shouldLog("debug")) {
+      // The first stack line repeats the message already printed above.
+      for (const frame of err.stack.split("\n").slice(1)) {
+        if (frame.trim()) emit(level, prefix, frame);
+      }
+    }
+  }
+
   return {
     debug(prefix: string, msg: string): void {
       if (!shouldLog("debug")) return;
@@ -146,14 +163,13 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
       if (!shouldLog("info")) return;
       emit("info", prefix, msg);
     },
-    warn(prefix: string, msg: string): void {
+    warn(prefix: string, msg: string, err?: unknown): void {
       if (!shouldLog("warn")) return;
-      emit("warn", prefix, msg);
+      emitWithError("warn", prefix, msg, err);
     },
     error(prefix: string, msg: string, err?: unknown): void {
       if (!shouldLog("error")) return;
-      const detail = err == null ? "" : sanitizeForLog(errMsg(err));
-      emit("error", prefix, detail ? `${msg} — ${detail}` : msg);
+      emitWithError("error", prefix, msg, err);
     },
   };
 }

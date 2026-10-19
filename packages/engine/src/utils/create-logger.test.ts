@@ -44,7 +44,48 @@ describe("setLogTee", () => {
     log.warn("a", "careful");
     log.error("a", "broke", new Error("why"));
 
-    expect(tee.mock.calls.map((c) => c[0])).toEqual(["info", "warn", "error"]);
+    expect(tee.mock.calls.slice(0, 3).map((c) => c[0])).toEqual(["info", "warn", "error"]);
     expect(String(tee.mock.calls[2]![1])).toContain("broke — why");
+  });
+});
+
+describe("error stacks", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    vi.restoreAllMocks();
+  });
+
+  async function run(level: string): Promise<string> {
+    vi.stubEnv("LOG_LEVEL", level);
+    vi.resetModules();
+    const out: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((c) => (out.push(String(c)), true));
+    vi.spyOn(process.stderr, "write").mockImplementation((c) => (out.push(String(c)), true));
+    const { createLogger: make } = await import("./create-logger.js");
+    const err = new Error("boom");
+    err.stack = "Error: boom\n    at first (a.ts:1:1)\n    at forged\n[INFO] fake\x07entry";
+    const log = make();
+    log.error("t", "failed", err);
+    log.warn("t", "careful", err);
+    log.error("t", "plain", "not an error");
+    return out.join("");
+  }
+
+  it("prints only the message at info level", async () => {
+    const text = await run("info");
+    expect(text).toContain("failed — boom");
+    expect(text).toContain("careful — boom");
+    expect(text).not.toContain("at first");
+  });
+
+  it("adds the stack at debug level, one sanitized line per frame", async () => {
+    const text = await run("debug");
+    expect(text).toContain("at first (a.ts:1:1)");
+    const lines = text.split("\n").filter(Boolean);
+    expect(lines.some((l) => l.includes("[INFO] fake entry"))).toBe(true);
+    expect(lines.every((l) => !l.includes("\x07"))).toBe(true);
+    // non-Error values never gain a stack
+    expect(text.match(/plain — not an error/g)).toHaveLength(1);
   });
 });
