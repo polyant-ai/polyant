@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { TurnState, extractTurnState, humanizeKey } from "./turn-state";
+import { TurnState, extractTurnState } from "./turn-state";
 
 vi.mock("@/lib/i18n/context", () => ({
   useI18n: () => ({ locale: "en", setLocale: vi.fn(), t: (key: string) => key }),
@@ -46,14 +46,6 @@ describe("extractTurnState", () => {
   });
 });
 
-describe("humanizeKey", () => {
-  it("splits snake, kebab and camel case into a sentence", () => {
-    expect(humanizeKey("appointment_date")).toBe("Appointment date");
-    expect(humanizeKey("customerName")).toBe("Customer name");
-    expect(humanizeKey("lead-score")).toBe("Lead score");
-  });
-});
-
 describe("TurnState", () => {
   it("renders labelled fields, nested objects and lists", () => {
     render(
@@ -67,12 +59,12 @@ describe("TurnState", () => {
         }}
       />,
     );
-    expect(screen.getByText("Customer name")).toBeTruthy();
+    expect(screen.getByText("customer_name")).toBeTruthy();
     expect(screen.getByText("Ada")).toBeTruthy();
     expect(screen.getByText("message.debug.stateYes")).toBeTruthy();
     expect(screen.getByText("—")).toBeTruthy();
     expect(screen.getByText("vip")).toBeTruthy();
-    expect(screen.getByText("City")).toBeTruthy();
+    expect(screen.getByText("city")).toBeTruthy();
     expect(screen.getByText("Torino")).toBeTruthy();
   });
 });

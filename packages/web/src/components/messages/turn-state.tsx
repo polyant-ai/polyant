@@ -58,16 +58,6 @@ export function extractTurnState(messages: unknown[]): State | null {
   return null;
 }
 
-/** `appointment_date` / `appointmentDate` → "Appointment date". */
-export function humanizeKey(key: string): string {
-  const words = key
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[_\-.]+/g, " ")
-    .trim()
-    .toLowerCase();
-  return words ? words[0].toUpperCase() + words.slice(1) : key;
-}
-
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
 function isPlainObject(value: unknown): value is State {
@@ -141,9 +131,7 @@ function Fields({ state, nested = false }: { state: State; nested?: boolean }) {
                 : "grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-3 py-1.5" + (nested ? "" : " border-t first:border-t-0")
             }
           >
-            <dt className="text-muted-foreground" title={key}>
-              {humanizeKey(key)}
-            </dt>
+            <dt className="break-all font-mono text-muted-foreground">{key}</dt>
             <dd className="min-w-0">
               <Value value={value} />
             </dd>
