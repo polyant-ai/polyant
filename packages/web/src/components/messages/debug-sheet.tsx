@@ -39,6 +39,7 @@ import {
   AccordionContent,
 } from "@/components/ui/accordion";
 import { MessageExtras } from "./message-extras";
+import { TurnState, extractTurnState } from "./turn-state";
 import { useFormat } from "@/lib/use-format";
 
 export interface DebugSheetTarget {
@@ -266,6 +267,7 @@ function DebugSheetBody({ target }: { target: DebugSheetTarget }) {
   );
 
   const payload = data?.debugPayload ?? null;
+  const turnState = payload ? extractTurnState(payload.messages) : null;
 
   return (
     <>
@@ -342,6 +344,12 @@ function DebugSheetBody({ target }: { target: DebugSheetTarget }) {
             {data.steps && data.steps.length > 0 && (
               <Section title={t("message.debug.steps")}>
                 <MessageExtras steps={data.steps} />
+              </Section>
+            )}
+
+            {turnState && (
+              <Section title={t("message.debug.context")}>
+                <TurnState state={turnState} />
               </Section>
             )}
           </>
