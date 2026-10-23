@@ -1,6 +1,6 @@
 {
   "name": "@polyant/web",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "private": true,
   "description": "Polyant admin panel",
   "license": "AGPL-3.0-or-later",

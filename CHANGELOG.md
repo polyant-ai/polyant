@@ -7,6 +7,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-10-23
+
+### Added
+
+- The Monitor: one timeline per workspace of tool calls, hook executions,
+  webhook-started conversations and scheduled task runs, with live updates,
+  filters by group, type, agent, outcome, period and text, and a detail drawer.
+  It replaces the Activity page and the tool-call list, whose addresses now open
+  it, and the agent's Logs tab, now called Monitor, shows the same view for that
+  agent in place of its webhook and scheduled-run lists. The engine serves it at
+  `GET /api/monitor` and `GET /api/monitor/:type/:id`; each type is read under
+  the permission that guards it elsewhere and left out of the list when the
+  caller lacks it.
+- A knowledge document can be switched off. It stays stored and listed, and
+  vector and full-text search skip it until it is switched on again. Each
+  document row has a switch, and `PATCH /api/instances/:slug/knowledge/:docId`
+  takes `{ "enabled": boolean }`. Export and import carry the flag
+  (migration `0096`).
+- A skill's name and description can be edited from its page and form.
+  `PUT /api/skills/:name` accepts `displayName`, which cannot be blank; the
+  slug stays fixed and agents keep reading the skill by it.
+- The Web/API channel tab shows the endpoint to call, the header for the
+  current authentication setting, and server-side curl and fetch examples that
+  read the key from `AGENT_API_KEY`. It warns when authentication is off and
+  when the address is only the localhost fallback
+  (`GET /api/instances/:slug/channels/web/endpoint`).
+- The conversation list shows the contact, can be filtered by it
+  (`userIdentifier`), and its search box matches it.
+- A tool can ask a model through the engine: its context carries
+  `ctx.ai.chat({ system, messages, tier })` and `ctx.abortSignal`. The call runs
+  through the AI gateway on the agent's provider as a service call of the turn,
+  logged in the AI log and priced like the turn's own calls; the tier picks the
+  model. Both fields are optional in `@polyant-ai/plugin-sdk` 1.11.0, so a
+  plugin that also supports older engines keeps a fallback, and `ctx.apiKeys`
+  is unchanged.
+- A missing-permission 403 carries `code: "missing_permission"` and the
+  `permission` it needed, next to the existing message.
+
+### Changed
+
+- The agent's sidebar has six groups (Overview, Configuration, Knowledge,
+  Resources, Automations, Governance) with every section on its own row,
+  automations included; `?tab=` values are unchanged, so existing links keep
+  working. Analytics is called Dashboard, the Polyant mark at the top of the
+  sidebar leads home, and skill lists show the description under the name.
+- The message Debug sheet is now "Message details", in tabs: Model, Prompt,
+  Tools, Messages, Steps and Context. Prompt, Messages and Context each have a
+  Copy action; the conversation state and the messages render as a JSON tree
+  whose values copy on click. The Model tab adds the turn's channel, streaming
+  and, on a voice turn, its transcription, plus a table of the turn's model
+  calls with time, type, model, duration, tokens, cost and outcome. The message
+  debug endpoint returns `turn` and `modelCalls` for it.
+- The analytics model distribution groups the calls the platform makes on its
+  own (titles, summaries, checks) under one labelled slice.
+- The agent header puts icon, name, slug and status on one line, the agent
+  sidebar names the agent, and a new agent opens on its prompts. The user menu
+  moves from the sidebar footer to the header. Every side drawer has the same
+  width, and a knowledge document opens from its row in one.
+- The first-steps card lists every step, derived from what already exists, and
+  ticks the finished ones. The panel no longer offers a page tour on its own;
+  the introduction stays in the Help menu.
+- Italian copy reviewed across the panel; costs follow the panel language, and
+  agent status and default prompt sections are translated.
+- At `LOG_LEVEL=debug`, warn and error lines print the stack trace, sanitized.
+  At every level an error line names up to three causes with their codes, and
+  security-relevant refusals (webhook signature and secret failures, SSRF
+  refusals, a channel switched off automatically, dropped audit entries) are
+  logged at error level. 401 and 403 responses stay at warn.
+- Dependencies: Next.js 16.4.2, React 19.3.1, AI SDK 7.0.143, NestJS 12.1.3,
+  Express 5.3.0 in the engine, Radix UI 1.8.1, Vitest 5.0.5, and markdown-it
+  15.0.3 and Vite 8.3.5 for their security fixes.
+
+### Fixed
+
+- A row the database refused blocked the pipeline trace and AI call log: the
+  batch was put back and failed again on every flush. The refused row is now
+  set aside and the rest is written; on a connection or timeout error the rows
+  stay buffered.
+- An AI call log row took the time its batch was written, so a call could be
+  placed in the following turn. It now takes the time of the call.
+- A conversation title could keep a speaker label or wrapping quotes.
+- A mistyped workspace in the address showed the user as belonging to no
+  organization; it now shows the 404 page, localized like any address that
+  matches no route.
+- Picking a page right after a list opened sent it back to page 1.
+- A failed read of the API keys or members list showed an empty table; it now
+  says so and offers a retry.
+- The guided setup marked the chat step done before the agent had answered.
+- The Playground announced the new conversation of the user's own chat.
+- Dialog and sheet close buttons were not translated, and the Italian flag was
+  drawn wrong.
+
+### Security
+
+- MCP server secrets of 8 characters or fewer are now fully masked in API
+  responses instead of showing their last four characters, as channel secrets
+  already were.
+
 ## [1.3.3] - 2026-10-16
 
 There is no 1.3.2 of Polyant.
@@ -956,7 +1054,8 @@ Patch release. It restores agent creation, which fails on every attempt in 1.1.0
 - Delegated sub-agents cannot recursively spawn further sub-agents.
 - Node.js 22 is aligned across the supported development and container environments.
 
-[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.3...HEAD
+[Unreleased]: https://github.com/polyant-ai/polyant/compare/v1.3.4...HEAD
+[1.3.4]: https://github.com/polyant-ai/polyant/compare/v1.3.3...v1.3.4
 [1.3.3]: https://github.com/polyant-ai/polyant/compare/v1.3.1...v1.3.3
 [1.3.1]: https://github.com/polyant-ai/polyant/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/polyant-ai/polyant/compare/v1.2.0...v1.3.0
