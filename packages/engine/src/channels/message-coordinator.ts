@@ -24,6 +24,8 @@ const log = createLogger();
  *    an AbortSignal.
  * 5. A fragment that arrives AFTER the pipeline has started → abort the in-flight
  *    pipeline and re-arm the pipelineTimer (another soft-debounce window starts).
+ *    A run that had already committed its turn is still delivered, and the next
+ *    run answers only the fragments that arrived after it.
  * 6. If `maxRestarts` is reached, subsequent fragments no longer cancel — they
  *    accumulate and are flushed in a new pipeline once the current one finishes.
  *
@@ -336,8 +338,10 @@ export class MessageCoordinator {
       return;
     }
 
-    // Another abort may have landed while awaiting the handler — treat it the same.
-    if (signal.aborted) {
+    // Another abort may have landed while awaiting the handler — treat it the same,
+    // unless the run had already committed its turn: that reply is final and its
+    // fragments are answered, so it is delivered and only the new fragment runs next.
+    if (signal.aborted && !response.committed) {
       this.restoreOnAbort(state, fragments, burstAttachments, signal);
       return;
     }
@@ -387,7 +391,9 @@ export class MessageCoordinator {
     state.lastSid = undefined;
 
     if (state.buffer.length > 0) {
-      this.armPipelineTimer(key);
+      // A fragment that aborted a committed run has already armed (or queued) the
+      // run that answers it; a second one would leave the first unabortable.
+      if (!state.pipelineTimer && !state.currentAbort) this.armPipelineTimer(key);
       if (state.timings.typingDelayMs > 0) this.armTypingTimer(key);
     } else {
       if (state.typingTimer) clearTimeout(state.typingTimer);
