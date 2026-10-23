@@ -2,7 +2,10 @@
 
 import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
+import { MCPClientError } from "@ai-sdk/mcp";
+import { APICallError, JSONParseError, TypeValidationError } from "ai";
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { z } from "zod";
 import { createLogger, sanitizeForLog, setLogTee } from "./create-logger.js";
 
 describe("sanitizeForLog", () => {
@@ -143,6 +146,85 @@ describe("error cause chain", () => {
     expect(text).toContain("top ← c1 [INFO] forged ← c2 ← c3");
     expect(text).not.toContain("c4");
     expect(text.split("\n").filter(Boolean)).toHaveLength(1);
+  });
+
+  describe("what the model returned, inside AI SDK errors", () => {
+    const REPLY = "Booked for Mario Rossi, via Roma 12";
+
+    /** The SDK's error for a 200 response whose JSON fails the provider schema; the validator is zod v3, like the engine's. */
+    function failedValidation(): Error {
+      const value = { output: [{ phase: "Mario Rossi", content: [{ type: "output_text", text: REPLY }] }] };
+      const issues = z.object({ output: z.array(z.object({ phase: z.enum(["final"]) })) }).safeParse(value).error;
+      return new APICallError({
+        message: "Invalid JSON response",
+        url: "https://provider.test/v1/responses",
+        requestBodyValues: {},
+        statusCode: 200,
+        cause: TypeValidationError.wrap({ value, cause: issues }),
+      });
+    }
+
+    /**
+     * The SDK's error for a 200 response that is not JSON, with the real JSON.parse
+     * error under it, which quotes the start of the body.
+     */
+    function failedParse(): Error {
+      const body = "Mario Rossi, via Roma 12: booked";
+      let syntax: unknown;
+      try {
+        JSON.parse(body);
+      } catch (e) {
+        syntax = e;
+      }
+      expect(String((syntax as Error).message)).toContain("Mario Ross");
+      return new APICallError({
+        message: "Invalid JSON response",
+        url: "https://provider.test/v1/responses",
+        requestBodyValues: {},
+        statusCode: 200,
+        cause: new JSONParseError({ text: body, cause: syntax }),
+      });
+    }
+
+    for (const level of ["info", "error"]) {
+      it(`names a failed validation and prints neither the response nor the rejected value at ${level}`, async () => {
+        const text = await capture(level, (log) => log.error("telegram", "Error handling message", failedValidation()));
+        expect(text).toContain("Invalid JSON response ← AI_TypeValidationError");
+        expect(text).not.toContain("Mario Ross");
+      });
+    }
+
+    it("names a failed parse and does not print the parser's quote of the body", async () => {
+      const text = await capture("info", (log) => log.error("pipeline", "Memory extraction failed", failedParse()));
+      expect(text).toContain("AI_JSONParseError");
+      expect(text).not.toContain("Mario Ross");
+    });
+
+    it("prints no chain under an AI SDK error logged directly, as the engine passes them on", async () => {
+      // The MCP client's error for a message its schema rejects: a safe message, the validator's issues as cause.
+      const issues = z.object({ phase: z.enum(["final"]) }).safeParse({ phase: "Mario Rossi" }).error;
+      const err = new MCPClientError({ message: "MCP HTTP Transport Error: Failed to parse message", cause: issues });
+      const text = await capture("info", (log) => log.error("mcp", "tool call failed", err));
+      expect(text).toContain("tool call failed — MCP HTTP Transport Error: Failed to parse message");
+      expect(text).not.toContain("Mario Ross");
+    });
+
+    it("keeps a provider call's message and the network reason under it", async () => {
+      const refused = Object.assign(new Error("connect ECONNREFUSED 10.0.0.5:443"), { code: "ECONNREFUSED" });
+      const err = new APICallError({
+        message: "Cannot connect to API: fetch failed",
+        url: "https://provider.test/v1/responses",
+        requestBodyValues: {},
+        cause: refused,
+      });
+      const text = await capture("info", (log) => log.warn("pipeline", "Summary failed", new Error("summary", { cause: err })));
+      expect(text).toContain("summary ← Cannot connect to API: fetch failed ← connect ECONNREFUSED 10.0.0.5:443 [ECONNREFUSED]");
+    });
+
+    it("prints everything at debug, where it is asked for", async () => {
+      const text = await capture("debug", (log) => log.error("telegram", "Error handling message", failedValidation()));
+      expect(text).toContain("Mario Rossi");
+    });
   });
 
   it("does not print the tail of a multi-line message again as stack lines", async () => {

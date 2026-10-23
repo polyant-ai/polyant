@@ -107,6 +107,27 @@ export interface Logger {
   error(prefix: string, msg: string, err?: unknown): void;
 }
 
+/** The markers the AI SDK and its gateway set on every error they throw (what their `isInstance` reads). */
+const AI_SDK_ERROR_MARKERS = [Symbol.for("vercel.ai.error"), Symbol.for("vercel.ai.gateway.error")];
+
+/**
+ * An AI SDK error whose causes the logger does not print below debug level. Its
+ * causes are made from what the model or provider returned: under a failed
+ * schema validation, the validator's issues with the rejected value; under a
+ * failed parse, the `JSON.parse` error quoting the body. `APICallError` is the
+ * exception: its message (`Invalid JSON response`, `Cannot connect to API`) and
+ * the network causes under it are what an operator needs, and an AI SDK error
+ * further down is still stopped.
+ */
+function hidesItsCauses(value: unknown): value is object {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    AI_SDK_ERROR_MARKERS.some((marker) => (value as Record<symbol, unknown>)[marker] === true) &&
+    (value as { name?: unknown }).name !== "AI_APICallError"
+  );
+}
+
 type LogTee = (level: "info" | "warn" | "error", line: string) => void;
 let tee: LogTee | null = null;
 
@@ -125,7 +146,9 @@ export function setLogTee(fn: LogTee | null): void {
  *
  * `warn` and `error` accept an optional error value. At normal levels only its
  * sanitized message is appended to the line, followed by the messages (and
- * codes) of its `cause` chain, up to three levels. When LOG_LEVEL=debug and the value
+ * codes) of its `cause` chain, up to three levels; below debug level the chain
+ * stops at an AI SDK error other than `APICallError`, which is only named (see
+ * `hidesItsCauses`). When LOG_LEVEL=debug and the value
  * is an `Error` with a stack, the stack is also written (each line sanitized
  * like the message) through the same stdout/stderr and log-tee path. Other
  * values are logged as their string form and never gain a stack.
@@ -155,11 +178,31 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
       : text;
   }
 
-  /** The `cause` chain, outermost first, up to MAX_CAUSE_DEPTH levels. */
+  /**
+   * An AI SDK error met in the chain, by name only: its message is made from the
+   * same output as its causes (`Value: …`, `Text: …`). `logProviderError` keeps
+   * provider bodies out of the log for the same reason.
+   */
+  function nameOnly(error: object): string {
+    return `${sanitizeForLog(String((error as { name?: unknown }).name))} (LOG_LEVEL=debug shows its message)`;
+  }
+
+  /**
+   * The `cause` chain, outermost first, up to MAX_CAUSE_DEPTH levels. Below
+   * debug level it is not printed under an AI SDK error (see `hidesItsCauses`):
+   * one met in the chain is named and ends it, and one logged directly brings
+   * no chain at all.
+   */
   function causeChain(err: unknown): string[] {
     const reasons: string[] = [];
+    const debug = shouldLog("debug");
+    if (!debug && hidesItsCauses(err)) return reasons;
     let current: unknown = err instanceof Error ? err.cause : undefined;
     while (current != null && reasons.length < MAX_CAUSE_DEPTH) {
+      if (!debug && hidesItsCauses(current)) {
+        reasons.push(nameOnly(current));
+        break;
+      }
       reasons.push(describeCause(current));
       current = current instanceof Error ? current.cause : undefined;
     }
