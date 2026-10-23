@@ -31,6 +31,7 @@ export function ChipTabs({
   onValueChange,
   ariaLabel,
   className,
+  rowClassName,
   listClassName,
   contentClassName,
   actions,
@@ -40,6 +41,8 @@ export function ChipTabs({
   onValueChange?: (value: string) => void;
   ariaLabel?: string;
   className?: string;
+  /** Applied to the row that holds the tabs and `actions`, e.g. to keep it `sticky` while the page scrolls. */
+  rowClassName?: string;
   listClassName?: string;
   /** Applied to every tab's panel, e.g. to make the panel the part that scrolls. */
   contentClassName?: string;
@@ -57,7 +60,7 @@ export function ChipTabs({
       }}
       className={cn("flex flex-col gap-0", className)}
     >
-      <div className="flex items-start gap-2">
+      <div className={cn("flex items-start gap-2", rowClassName)}>
         <TabsPrimitive.List aria-label={ariaLabel} className={cn("flex min-w-0 flex-1 justify-start gap-2 overflow-x-auto", listClassName)}>
           {tabs.map(({ value: tabValue, label, icon: Icon, count, badge, disabled }) => (
             <TabsPrimitive.Trigger
