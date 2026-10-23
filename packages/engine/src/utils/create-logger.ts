@@ -146,10 +146,25 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
 
   const MAX_CAUSE_DEPTH = 3;
 
+  /**
+   * Message of an error for the log. drizzle-orm's DrizzleQueryError carries
+   * "Failed query: <sql>\nparams: <values>" and the values are row content
+   * (message bodies, tool arguments, PII), so only the parameterised SQL is kept.
+   * Recognised by shape (message prefix plus a `params` property) so the logger
+   * stays free of a drizzle import.
+   */
+  function messageForLog(err: unknown): string {
+    if (err instanceof Error && err.message.startsWith("Failed query:") && "params" in err) {
+      const query = (err as { query?: unknown }).query;
+      return typeof query === "string" ? `Failed query: ${query}` : err.message.split("\nparams:")[0];
+    }
+    return errMsg(err);
+  }
+
   /** Message of an error, with its driver/system code (SQLSTATE, ECONNREFUSED) when it has one. */
   function describeCause(cause: unknown): string {
     const code = (cause as { code?: unknown } | null)?.code;
-    const text = sanitizeForLog(errMsg(cause));
+    const text = sanitizeForLog(messageForLog(cause));
     return typeof code === "string" || typeof code === "number"
       ? `${text} [${sanitizeForLog(String(code))}]`
       : text;
@@ -167,7 +182,7 @@ export function createLogger(defaultColor: string = COLORS.cyan): Logger {
   }
 
   function emitWithError(level: "warn" | "error", prefix: string, msg: string, err: unknown): void {
-    const detail = err == null ? "" : [sanitizeForLog(errMsg(err)), ...causeChain(err)].join(" ← ");
+    const detail = err == null ? "" : [sanitizeForLog(messageForLog(err)), ...causeChain(err)].join(" ← ");
     emit(level, prefix, detail ? `${msg} — ${detail}` : msg);
     if (err instanceof Error && err.stack && shouldLog("debug")) {
       // The message (possibly several lines) is already printed above: start at

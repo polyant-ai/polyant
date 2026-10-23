@@ -2,6 +2,7 @@
 
 import { createServer } from "node:net";
 import type { AddressInfo } from "node:net";
+import { DrizzleQueryError } from "drizzle-orm";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createLogger, sanitizeForLog, setLogTee } from "./create-logger.js";
 
@@ -143,6 +144,32 @@ describe("error cause chain", () => {
     expect(text).toContain("top ← c1 [INFO] forged ← c2 ← c3");
     expect(text).not.toContain("c4");
     expect(text.split("\n").filter(Boolean)).toHaveLength(1);
+  });
+
+  describe("failed drizzle queries", () => {
+    const sql = "insert into ai_logs (conversation_id, body) values ($1, $2)";
+    const secret = "MESSAGE-BODY-SECRET-4711";
+    const driver = Object.assign(new Error('duplicate key value violates unique constraint "uq_x"'), { code: "23505" });
+
+    for (const level of ["info", "debug"]) {
+      it(`keeps the SQL and the driver code but not the parameter values at ${level}`, async () => {
+        const err = new DrizzleQueryError(sql, ["conv-1", secret], driver);
+        const text = await capture(level, (log) => log.error("buffered-insert", "flush failed", err));
+        expect(text).not.toContain(secret);
+        expect(text).not.toContain("params:");
+        expect(text).toContain(`Failed query: ${sql}`);
+        expect(text).toContain("uq_x");
+        expect(text).toContain("[23505]");
+      });
+    }
+
+    it("redacts the values when the drizzle error sits inside the cause chain", async () => {
+      const inner = new DrizzleQueryError(sql, ["conv-1", secret], driver);
+      const outer = new Error("transaction failed", { cause: inner });
+      const text = await capture("info", (log) => log.warn("t", "failed", outer));
+      expect(text).not.toContain(secret);
+      expect(text).toContain("transaction failed ← Failed query: " + sql);
+    });
   });
 
   it("does not print the tail of a multi-line message again as stack lines", async () => {
