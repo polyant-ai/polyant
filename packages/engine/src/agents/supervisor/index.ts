@@ -704,13 +704,20 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
     throw err;
   }
 
-  // Wrap textStream to capture TTFB (time to first token)
+  // TTFB (time to first token) on both streams: every streaming consumer reads
+  // `fullStream`, so timing `textStream` alone never recorded it.
   let ttfbMs: number | undefined;
   const streamStart = Date.now();
   const ttfbTextStream = (async function* () {
     for await (const chunk of stream.textStream) {
-      if (ttfbMs === undefined) ttfbMs = Date.now() - streamStart;
+      ttfbMs ??= Date.now() - streamStart;
       yield chunk;
+    }
+  })();
+  const ttfbFullStream = (async function* () {
+    for await (const part of stream.fullStream) {
+      if (ttfbMs === undefined && (part as { type?: unknown } | null)?.type === "text-delta") ttfbMs = Date.now() - streamStart;
+      yield part;
     }
   })();
 
@@ -726,7 +733,7 @@ export async function superviseStream(input: SupervisorInput): Promise<Superviso
 
   return {
     textStream: ttfbTextStream,
-    fullStream: stream.fullStream,
+    fullStream: ttfbFullStream,
     completed,
   };
 }
