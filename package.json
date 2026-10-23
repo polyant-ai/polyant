@@ -2,7 +2,7 @@
   "name": "polyant",
   "version": "1.3.3",
   "private": true,
-  "description": "Polyant \u2014 open-source platform for building AI assistants with long-term memory and multi-channel support",
+  "description": "Polyant is an enterprise AI agent platform by Exelab for putting agents to work in business processes, at scale.",
   "license": "AGPL-3.0-or-later",
   "author": "Exelab S.r.l.",
   "homepage": "https://github.com/polyant-ai/polyant",
