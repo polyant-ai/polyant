@@ -164,8 +164,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   // "the active workspace" that a link could disagree with. A path outside a
   // workspace (org- or deployment-level) sends no header and is resolved by the
   // caller's stored preference server-side.
+  // Own-tenancy bootstrap must work before the URL's tenant has been validated.
   const workspaceSlug =
-    typeof window !== "undefined" ? workspaceSlugFromPath(window.location.pathname) : null;
+    path !== "/api/me" && typeof window !== "undefined" ? workspaceSlugFromPath(window.location.pathname) : null;
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
       "Content-Type": "application/json",
