@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+// @vitest-environment node
 
+import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
-import { databaseSslFromEnv, databaseUrlFromEnv } from "./db-url";
+import { databaseSslFromEnv, databaseUrlFromEnv, openDatabase } from "./db-url";
 
 describe("databaseUrlFromEnv", () => {
   it("should_return_DATABASE_URL_verbatim_when_set", () => {
@@ -41,5 +43,33 @@ describe("databaseSslFromEnv", () => {
       expect(databaseSslFromEnv({ POSTGRES_SSL: value }), value).toBe(false);
     }
     expect(databaseSslFromEnv({})).toBe(false);
+  });
+});
+
+describe("openDatabase", () => {
+  const DB_SECRET = "synthetic-db-secret-7f3a";
+
+  it("should_name_the_variables_and_never_print_the_password_when_the_driver_cannot_read_the_string", () => {
+    for (const env of [
+      // A POSTGRES_PORT that is not a number, as a Kubernetes Service named `postgres` sets it.
+      { POSTGRES_PASSWORD: DB_SECRET, POSTGRES_HOST: "postgres", POSTGRES_PORT: "tcp://10.96.0.12:5432" },
+      // An unencoded `#` in a DATABASE_URL password.
+      { DATABASE_URL: `postgresql://polyant:${DB_SECRET}#x@db:5432/polyant` },
+    ]) {
+      let printed = "";
+      try {
+        openDatabase(env);
+      } catch (err) {
+        printed = inspect(err, { depth: 10 });
+      }
+      expect(printed).toContain("POSTGRES_PORT (a number)");
+      expect(printed).not.toContain(DB_SECRET);
+    }
+  });
+
+  it("should_open_a_readable_connection_string", async () => {
+    const sql = openDatabase({ POSTGRES_PASSWORD: DB_SECRET, POSTGRES_HOST: "db" });
+    expect(typeof sql.begin).toBe("function");
+    await sql.end();
   });
 });
