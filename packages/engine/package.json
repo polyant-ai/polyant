@@ -78,7 +78,7 @@
     "@types/node": "^24.19.0",
     "@types/semver": "^7.5.8",
     "@vitest/coverage-v8": "^5.0.5",
-    "drizzle-kit": "^0.31.10",
+    "drizzle-kit": "^0.31.11",
     "eslint": "^10.13.0",
     "fast-check": "^4.10.2",
     "tsx": "^4.22.4",
