@@ -24,7 +24,7 @@ import { api, getUserErrorMessage, type Instance, type Memory } from "@/lib/api"
 import { useI18n } from "@/lib/i18n/context";
 import { useFormat } from "@/lib/use-format";
 import { useWorkspaceSlug } from "@/lib/tenant/use-workspace-slug";
-import { CreateMemoryDialog } from "@/components/memory/create-memory-dialog";
+import { CreateMemorySheet } from "@/components/memory/create-memory-sheet";
 
 const CATEGORIES = ["", "general", "preference", "fact", "event", "relationship", "decision"] as const;
 
@@ -226,7 +226,7 @@ export function MemoryView({ lockedInstanceId }: { lockedInstanceId?: string }) 
         }}
       />
 
-      <CreateMemoryDialog
+      <CreateMemorySheet
         open={createOpen}
         onOpenChange={setCreateOpen}
         instances={

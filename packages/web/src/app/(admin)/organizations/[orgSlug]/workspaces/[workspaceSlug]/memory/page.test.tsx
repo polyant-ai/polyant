@@ -62,9 +62,9 @@ vi.mock("sonner", () => ({
   },
 }));
 
-// Mock the CreateMemoryDialog to avoid pulling in its dependencies
-vi.mock("@/components/memory/create-memory-dialog", () => ({
-  CreateMemoryDialog: () => <div data-testid="create-memory-dialog" />,
+// Mock the CreateMemorySheet to avoid pulling in its dependencies
+vi.mock("@/components/memory/create-memory-sheet", () => ({
+  CreateMemorySheet: () => <div data-testid="create-memory-sheet" />,
 }));
 
 // The workspace now comes from the URL, so a component test that does not
@@ -160,9 +160,9 @@ describe("MemoryPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("renders the CreateMemoryDialog component", () => {
+  it("renders the CreateMemorySheet component", () => {
     render(<MemoryPage />);
 
-    expect(screen.getByTestId("create-memory-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("create-memory-sheet")).toBeInTheDocument();
   });
 });

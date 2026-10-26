@@ -11,14 +11,6 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -36,6 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { LoadFailed } from "@/components/ui/load-failed";
+import { ListDrawer } from "@/components/list-drawer";
 import { useResource } from "@/hooks/use-resource";
 import { useReloadFailureToast } from "@/hooks/use-reload-failure-toast";
 import { useOptimisticToggle } from "@/hooks/use-optimistic-toggle";
@@ -87,7 +80,7 @@ export function HooksTab({ slug }: Props) {
   const hooks = data?.hooks ?? NO_HOOKS;
   const catalog = data?.catalog ?? NO_CATALOG;
   const { value: enabledOf, toggle } = useOptimisticToggle(data, slug);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [openHookId, setOpenHookId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -95,7 +88,7 @@ export function HooksTab({ slug }: Props) {
 
   /*
     The keys a hook function declares, set beside the hook that asks for them —
-    in its sheet, and in the Add dialog once a function is chosen. Provider
+    in its sheet, and in the Add drawer once a function is chosen. Provider
     credentials stay in the Modello section. One form holds every function's
     keys: a key belongs to the agent, and several hooks can ask for the same one.
   */
@@ -119,13 +112,13 @@ export function HooksTab({ slug }: Props) {
 
   const openCreate = () => {
     setForm(EMPTY_FORM);
-    setDialogOpen(true);
+    setCreateOpen(true);
   };
 
-  // Keys typed in the dialog and then abandoned must not reappear in a sheet.
-  const onDialogOpenChange = (open: boolean) => {
+  // Keys typed in the Add drawer and then abandoned must not reappear in a sheet.
+  const onCreateOpenChange = (open: boolean) => {
     if (!open && !saving) params.reset();
-    setDialogOpen(open);
+    setCreateOpen(open);
   };
 
   const handleSave = async () => {
@@ -144,7 +137,7 @@ export function HooksTab({ slug }: Props) {
         position: form.position,
       });
       toast.success(t("hooks.saved"));
-      setDialogOpen(false);
+      setCreateOpen(false);
       load();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("hooks.saveFailed")));
@@ -228,7 +221,7 @@ export function HooksTab({ slug }: Props) {
                       rendered an empty `<code>` followed by a red badge — a row
                       with a destructive-looking state and nothing saying which
                       hook it was, so the only way to identify it was to open the
-                      edit dialog. The fallback names the condition instead.
+                      hook's drawer. The fallback names the condition instead.
                     */
                     const fnName = hook.actionConfig.functionName;
                     const named = fnName && fnName.trim().length > 0;
@@ -290,54 +283,50 @@ export function HooksTab({ slug }: Props) {
         </div>
       )}
 
-      <Dialog open={dialogOpen} onOpenChange={onDialogOpenChange}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("hooks.createTitle")}</DialogTitle>
-            <DialogDescription>{t("hooks.dialogDescription")}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <HookEventField value={form} onChange={(next) => setForm((f) => ({ ...f, ...next }))} />
-            <div className="space-y-2">
-              <Label>{t("hooks.function")}</Label>
-              <Select
-                value={form.functionName || undefined}
-                onValueChange={(v) => setForm((f) => ({ ...f, functionName: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t("hooks.functionPlaceholder")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {catalog.map((fn) => (
-                    <SelectItem key={fn.name} value={fn.name}>
-                      {fn.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedFn && hookSummary(selectedFn, locale) && (
-                <p className="text-xs text-muted-foreground">{hookSummary(selectedFn, locale)}</p>
-              )}
-              {selectedFn?.mutatesResponse && <StreamingWarning />}
-            </div>
-            <HookRunFields value={form} onChange={(next) => setForm((f) => ({ ...f, ...next }))} />
-            {selectedFn && specsOf(selectedFn.name).length > 0 && (
-              <section className="space-y-4 border-t pt-4">
-                <h3 className="text-sm font-medium">{t("hooks.params")}</h3>
-                <HookParamFields specs={specsOf(selectedFn.name)} params={params} />
-              </section>
+      <ListDrawer
+        open={createOpen}
+        onOpenChange={onCreateOpenChange}
+        title={t("hooks.createTitle")}
+        description={t("hooks.dialogDescription")}
+        primary={
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? t("common.saving") : t("common.save")}
+          </Button>
+        }
+      >
+        <div className="space-y-4">
+          <HookEventField value={form} onChange={(next) => setForm((f) => ({ ...f, ...next }))} />
+          <div className="space-y-2">
+            <Label>{t("hooks.function")}</Label>
+            <Select
+              value={form.functionName || undefined}
+              onValueChange={(v) => setForm((f) => ({ ...f, functionName: v }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t("hooks.functionPlaceholder")} />
+              </SelectTrigger>
+              <SelectContent>
+                {catalog.map((fn) => (
+                  <SelectItem key={fn.name} value={fn.name}>
+                    {fn.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedFn && hookSummary(selectedFn, locale) && (
+              <p className="text-xs text-muted-foreground">{hookSummary(selectedFn, locale)}</p>
             )}
+            {selectedFn?.mutatesResponse && <StreamingWarning />}
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => onDialogOpenChange(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? t("common.saving") : t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <HookRunFields value={form} onChange={(next) => setForm((f) => ({ ...f, ...next }))} />
+          {selectedFn && specsOf(selectedFn.name).length > 0 && (
+            <section className="space-y-4 border-t pt-4">
+              <h3 className="text-sm font-medium">{t("hooks.params")}</h3>
+              <HookParamFields specs={specsOf(selectedFn.name)} params={params} />
+            </section>
+          )}
+        </div>
+      </ListDrawer>
 
       <HookSheet
         hook={openHook}

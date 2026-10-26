@@ -30,14 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ListDrawer } from "@/components/list-drawer";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -210,7 +203,7 @@ export function TriggersScheduledTab({ slug }: Props) {
   const fmt = useFormat();
   const { data, error, loading, reload: loadTasks } = useResource(["scheduled-tasks", slug], () => api.scheduledTasks.list(slug));
   const tasks = data?.tasks ?? NO_TASKS;
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<TaskForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -218,13 +211,13 @@ export function TriggersScheduledTab({ slug }: Props) {
   const openCreate = () => {
     setEditingId(null);
     setForm(EMPTY_FORM);
-    setDialogOpen(true);
+    setFormOpen(true);
   };
 
   const openEdit = (task: ScheduledTask) => {
     setEditingId(task.id);
     setForm(formFromTask(task));
-    setDialogOpen(true);
+    setFormOpen(true);
   };
 
   const handleSave = async () => {
@@ -273,7 +266,7 @@ export function TriggersScheduledTab({ slug }: Props) {
         });
         toast.success(t("scheduledTasks.created"));
       }
-      setDialogOpen(false);
+      setFormOpen(false);
       loadTasks();
     } catch (err) {
       toast.error(getUserErrorMessage(err, t("scheduledTasks.saveFailed")));
@@ -448,190 +441,179 @@ export function TriggersScheduledTab({ slug }: Props) {
         </TooltipProvider>
       )}
 
-      {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>
-              {editingId ? t("scheduledTasks.editTitle") : t("scheduledTasks.createTitle")}
-            </DialogTitle>
-            <DialogDescription>
-              {t("scheduledTasks.dialogDescription")}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 overflow-y-auto flex-1 pr-1">
-            <div className="space-y-2">
-              <Label>{t("scheduledTasks.form.name")}</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Daily briefing"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>{t("scheduledTasks.form.description")}</Label>
-              <Input
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder={t("scheduledTasks.form.descriptionPlaceholder")}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>{t("scheduledTasks.form.prompt")}</Label>
-              <Textarea
-                value={form.prompt}
-                onChange={(e) => setForm((f) => ({ ...f, prompt: e.target.value }))}
-                placeholder={t("scheduledTasks.form.promptPlaceholder")}
-                rows={3}
-                className="max-h-48 overflow-y-auto"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>{t("scheduledTasks.form.scheduleType")}</Label>
-              <Select
-                value={form.scheduleType}
-                onValueChange={(v) => setForm((f) => ({ ...f, scheduleType: v as ScheduleType }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cron">Cron</SelectItem>
-                  <SelectItem value="interval">{t("scheduledTasks.form.interval")}</SelectItem>
-                  <SelectItem value="one-shot">One-shot</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {form.scheduleType === "cron" && (
-              <>
-                <div className="space-y-2">
-                  <Label>{t("scheduledTasks.form.cronExpression")}</Label>
-                  <Input
-                    value={form.cronExpression}
-                    onChange={(e) => setForm((f) => ({ ...f, cronExpression: e.target.value }))}
-                    placeholder="0 9 * * 1-5"
-                  />
-                  <p className="text-xs text-muted-foreground">{t("scheduledTasks.form.cronHelp")}</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>{t("scheduledTasks.form.timezone")}</Label>
-                  <Input
-                    value={form.timezone}
-                    onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
-                    placeholder="UTC"
-                  />
-                </div>
-              </>
-            )}
-
-            {form.scheduleType === "interval" && (
-              <div className="flex gap-2">
-                <div className="flex-1 space-y-2">
-                  <Label>{t("scheduledTasks.form.every")}</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    value={form.intervalValue}
-                    onChange={(e) => setForm((f) => ({ ...f, intervalValue: e.target.value }))}
-                    placeholder="2"
-                  />
-                </div>
-                <div className="w-28 space-y-2">
-                  <Label>{t("scheduledTasks.form.unit")}</Label>
-                  <Select
-                    value={form.intervalUnit}
-                    onValueChange={(v) => setForm((f) => ({ ...f, intervalUnit: v as "m" | "h" | "d" }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="m">{t("scheduledTasks.form.minutes")}</SelectItem>
-                      <SelectItem value="h">{t("scheduledTasks.form.hours")}</SelectItem>
-                      <SelectItem value="d">{t("scheduledTasks.form.days")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            )}
-
-            {form.scheduleType === "one-shot" && (
-              <div className="space-y-2">
-                <Label>{t("scheduledTasks.form.runAt")}</Label>
-                <Input
-                  type="datetime-local"
-                  value={form.runAt}
-                  onChange={(e) => setForm((f) => ({ ...f, runAt: e.target.value }))}
-                />
-                <div className="flex items-center gap-2 pt-1">
-                  <Switch
-                    checked={form.deleteAfterRun}
-                    onCheckedChange={(v) => setForm((f) => ({ ...f, deleteAfterRun: v }))}
-                  />
-                  <Label className="text-sm font-normal">{t("scheduledTasks.form.deleteAfterRun")}</Label>
-                </div>
-              </div>
-            )}
-
-            {/* Output channel */}
-            <div className="space-y-2 border-t pt-4">
-              <Label>{t("scheduledTasks.form.outboundChannel")}</Label>
-              <Select
-                value={form.outboundChannel || "none"}
-                onValueChange={(v) => setForm((f) => ({ ...f, outboundChannel: (v === "none" ? "" : v) as OutboundChannelType }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t("scheduledTasks.form.noChannel")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">{t("scheduledTasks.form.noChannel")}</SelectItem>
-                  <SelectItem value="telegram">Telegram</SelectItem>
-                  <SelectItem value="slack">Slack</SelectItem>
-                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">{t("scheduledTasks.form.outboundChannelHelp")}</p>
-            </div>
-
-            {form.outboundChannel && (
-              <div className="space-y-2">
-                <Label>{t("scheduledTasks.form.outboundTarget")}</Label>
-                <Input
-                  value={form.outboundTarget}
-                  onChange={(e) => setForm((f) => ({ ...f, outboundTarget: e.target.value }))}
-                  placeholder={t("scheduledTasks.form.outboundTargetPlaceholder")}
-                />
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 border-t pt-4">
-              <Switch
-                checked={form.keepHistory}
-                onCheckedChange={(v) => setForm((f) => ({ ...f, keepHistory: v }))}
-              />
-              <div>
-                <Label className="text-sm font-normal">{t("scheduledTasks.form.keepHistory")}</Label>
-                <p className="text-xs text-muted-foreground">{t("scheduledTasks.form.keepHistoryHelp")}</p>
-              </div>
-            </div>
+      <ListDrawer
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        title={editingId ? t("scheduledTasks.editTitle") : t("scheduledTasks.createTitle")}
+        description={t("scheduledTasks.dialogDescription")}
+        primary={
+          <Button onClick={handleSave} disabled={saving}>
+            {saving && <Loader2 className="mr-1 size-4 animate-spin" />}
+            {editingId ? t("common.save") : t("scheduledTasks.form.create")}
+          </Button>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>{t("scheduledTasks.form.name")}</Label>
+            <Input
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Daily briefing"
+            />
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="mr-1 size-4 animate-spin" />}
-              {editingId ? t("common.save") : t("scheduledTasks.form.create")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <div className="space-y-2">
+            <Label>{t("scheduledTasks.form.description")}</Label>
+            <Input
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              placeholder={t("scheduledTasks.form.descriptionPlaceholder")}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t("scheduledTasks.form.prompt")}</Label>
+            <Textarea
+              value={form.prompt}
+              onChange={(e) => setForm((f) => ({ ...f, prompt: e.target.value }))}
+              placeholder={t("scheduledTasks.form.promptPlaceholder")}
+              rows={3}
+              className="max-h-48 overflow-y-auto"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t("scheduledTasks.form.scheduleType")}</Label>
+            <Select
+              value={form.scheduleType}
+              onValueChange={(v) => setForm((f) => ({ ...f, scheduleType: v as ScheduleType }))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cron">Cron</SelectItem>
+                <SelectItem value="interval">{t("scheduledTasks.form.interval")}</SelectItem>
+                <SelectItem value="one-shot">One-shot</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {form.scheduleType === "cron" && (
+            <>
+              <div className="space-y-2">
+                <Label>{t("scheduledTasks.form.cronExpression")}</Label>
+                <Input
+                  value={form.cronExpression}
+                  onChange={(e) => setForm((f) => ({ ...f, cronExpression: e.target.value }))}
+                  placeholder="0 9 * * 1-5"
+                />
+                <p className="text-xs text-muted-foreground">{t("scheduledTasks.form.cronHelp")}</p>
+              </div>
+              <div className="space-y-2">
+                <Label>{t("scheduledTasks.form.timezone")}</Label>
+                <Input
+                  value={form.timezone}
+                  onChange={(e) => setForm((f) => ({ ...f, timezone: e.target.value }))}
+                  placeholder="UTC"
+                />
+              </div>
+            </>
+          )}
+
+          {form.scheduleType === "interval" && (
+            <div className="flex gap-2">
+              <div className="flex-1 space-y-2">
+                <Label>{t("scheduledTasks.form.every")}</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={form.intervalValue}
+                  onChange={(e) => setForm((f) => ({ ...f, intervalValue: e.target.value }))}
+                  placeholder="2"
+                />
+              </div>
+              <div className="w-28 space-y-2">
+                <Label>{t("scheduledTasks.form.unit")}</Label>
+                <Select
+                  value={form.intervalUnit}
+                  onValueChange={(v) => setForm((f) => ({ ...f, intervalUnit: v as "m" | "h" | "d" }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="m">{t("scheduledTasks.form.minutes")}</SelectItem>
+                    <SelectItem value="h">{t("scheduledTasks.form.hours")}</SelectItem>
+                    <SelectItem value="d">{t("scheduledTasks.form.days")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {form.scheduleType === "one-shot" && (
+            <div className="space-y-2">
+              <Label>{t("scheduledTasks.form.runAt")}</Label>
+              <Input
+                type="datetime-local"
+                value={form.runAt}
+                onChange={(e) => setForm((f) => ({ ...f, runAt: e.target.value }))}
+              />
+              <div className="flex items-center gap-2 pt-1">
+                <Switch
+                  checked={form.deleteAfterRun}
+                  onCheckedChange={(v) => setForm((f) => ({ ...f, deleteAfterRun: v }))}
+                />
+                <Label className="text-sm font-normal">{t("scheduledTasks.form.deleteAfterRun")}</Label>
+              </div>
+            </div>
+          )}
+
+          {/* Output channel */}
+          <div className="space-y-2 border-t pt-4">
+            <Label>{t("scheduledTasks.form.outboundChannel")}</Label>
+            <Select
+              value={form.outboundChannel || "none"}
+              onValueChange={(v) => setForm((f) => ({ ...f, outboundChannel: (v === "none" ? "" : v) as OutboundChannelType }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t("scheduledTasks.form.noChannel")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("scheduledTasks.form.noChannel")}</SelectItem>
+                <SelectItem value="telegram">Telegram</SelectItem>
+                <SelectItem value="slack">Slack</SelectItem>
+                <SelectItem value="whatsapp">WhatsApp</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t("scheduledTasks.form.outboundChannelHelp")}</p>
+          </div>
+
+          {form.outboundChannel && (
+            <div className="space-y-2">
+              <Label>{t("scheduledTasks.form.outboundTarget")}</Label>
+              <Input
+                value={form.outboundTarget}
+                onChange={(e) => setForm((f) => ({ ...f, outboundTarget: e.target.value }))}
+                placeholder={t("scheduledTasks.form.outboundTargetPlaceholder")}
+              />
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 border-t pt-4">
+            <Switch
+              checked={form.keepHistory}
+              onCheckedChange={(v) => setForm((f) => ({ ...f, keepHistory: v }))}
+            />
+            <div>
+              <Label className="text-sm font-normal">{t("scheduledTasks.form.keepHistory")}</Label>
+              <p className="text-xs text-muted-foreground">{t("scheduledTasks.form.keepHistoryHelp")}</p>
+            </div>
+          </div>
+        </div>
+      </ListDrawer>
     </div>
   );
 }

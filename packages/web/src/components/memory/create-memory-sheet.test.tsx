@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CreateMemoryDialog } from "./create-memory-dialog";
+import { CreateMemorySheet } from "./create-memory-sheet";
 import type { Instance } from "@/lib/api";
 
 // ── Mocks ───────────────────────────────────────────────────────────
@@ -121,8 +121,8 @@ const instances: Instance[] = [
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-function renderDialog(
-  props: Partial<React.ComponentProps<typeof CreateMemoryDialog>> = {},
+function renderSheet(
+  props: Partial<React.ComponentProps<typeof CreateMemorySheet>> = {},
 ) {
   const defaults = {
     open: true,
@@ -130,31 +130,31 @@ function renderDialog(
     instances,
     onCreated: vi.fn(),
   };
-  return { ...render(<CreateMemoryDialog {...defaults} {...props} />), defaults };
+  return { ...render(<CreateMemorySheet {...defaults} {...props} />), defaults };
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
 
-describe("CreateMemoryDialog", () => {
+describe("CreateMemorySheet", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("renders dialog title and description when open", () => {
-    renderDialog();
+  it("renders the drawer title and description when open", () => {
+    renderSheet();
 
     expect(screen.getByText("memory.create.title")).toBeInTheDocument();
     expect(screen.getByText("memory.create.description")).toBeInTheDocument();
   });
 
   it("does not render when closed", () => {
-    renderDialog({ open: false });
+    renderSheet({ open: false });
 
     expect(screen.queryByText("memory.create.title")).not.toBeInTheDocument();
   });
 
   it("renders the content textarea", () => {
-    renderDialog();
+    renderSheet();
 
     expect(screen.getByText("memory.table.content")).toBeInTheDocument();
     expect(
@@ -163,21 +163,35 @@ describe("CreateMemoryDialog", () => {
   });
 
   it("renders category and importance labels", () => {
-    renderDialog();
+    renderSheet();
 
     expect(screen.getByText("memory.create.category")).toBeInTheDocument();
     expect(screen.getByText("memory.create.importance")).toBeInTheDocument();
   });
 
-  it("renders cancel and create buttons", () => {
-    renderDialog();
+  it("opens in the list drawer, with Cancel and Create in its footer", () => {
+    renderSheet();
 
-    expect(screen.getByRole("button", { name: "common.cancel" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "memory.create.button" })).toBeInTheDocument();
+    const footer = screen.getByRole("dialog").querySelector("[data-slot=sheet-footer]") as HTMLElement;
+    expect(within(footer).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "common.cancel",
+      "memory.create.button",
+    ]);
+  });
+
+  it("starts from empty fields each time it opens", async () => {
+    const user = userEvent.setup();
+    const { defaults, rerender } = renderSheet({ defaultInstanceId: "bot-alpha" });
+    await user.type(screen.getByPlaceholderText("memory.create.contentPlaceholder"), "Half typed");
+
+    rerender(<CreateMemorySheet {...defaults} defaultInstanceId="bot-alpha" open={false} />);
+    rerender(<CreateMemorySheet {...defaults} defaultInstanceId="bot-alpha" open />);
+
+    expect(await screen.findByPlaceholderText("memory.create.contentPlaceholder")).toHaveValue("");
   });
 
   it("disables create button when content is empty", () => {
-    renderDialog();
+    renderSheet();
 
     const createBtn = screen.getByRole("button", { name: "memory.create.button" });
     expect(createBtn).toBeDisabled();
@@ -189,7 +203,7 @@ describe("CreateMemoryDialog", () => {
     const onOpenChange = vi.fn();
     createMock.mockResolvedValueOnce({ memory: { id: "m1", content: "fact", event: "created" } });
 
-    renderDialog({ defaultInstanceId: "bot-alpha", onCreated, onOpenChange });
+    renderSheet({ defaultInstanceId: "bot-alpha", onCreated, onOpenChange });
 
     const textarea = screen.getByPlaceholderText("memory.create.contentPlaceholder");
     await user.type(textarea, "User likes coffee");
@@ -219,7 +233,7 @@ describe("CreateMemoryDialog", () => {
     const { toast } = await import("sonner");
     createMock.mockRejectedValueOnce(new Error("fail"));
 
-    renderDialog({ defaultInstanceId: "bot-alpha" });
+    renderSheet({ defaultInstanceId: "bot-alpha" });
 
     await user.type(
       screen.getByPlaceholderText("memory.create.contentPlaceholder"),
@@ -236,7 +250,7 @@ describe("CreateMemoryDialog", () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
 
-    renderDialog({ onOpenChange });
+    renderSheet({ onOpenChange });
 
     await user.click(screen.getByRole("button", { name: "common.cancel" }));
 

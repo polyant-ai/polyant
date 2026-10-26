@@ -135,13 +135,16 @@ describe("HooksTab — parameters", () => {
     render(<HooksTab slug="agent-1" />);
 
     await user.click(await screen.findByRole("button", { name: "hooks.add" }));
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).queryByText("Translation API key")).not.toBeInTheDocument();
+    const drawer = await screen.findByRole("dialog");
+    // Adding a hook opens the same right-hand drawer as the rest of the agent's lists.
+    const footer = drawer.querySelector("[data-slot=sheet-footer]") as HTMLElement;
+    expect(within(footer).getAllByRole("button").map((b) => b.textContent)).toEqual(["common.cancel", "common.save"]);
+    expect(within(drawer).queryByText("Translation API key")).not.toBeInTheDocument();
 
-    await user.click(within(dialog).getAllByRole("combobox")[1]);
+    await user.click(within(drawer).getAllByRole("combobox")[1]);
     await user.click(await screen.findByRole("option", { name: "translate" }));
-    await user.type(within(dialog).getByPlaceholderText("settings.tab.keyPlaceholder"), "tr-9");
-    await user.click(within(dialog).getByRole("button", { name: "common.save" }));
+    await user.type(within(drawer).getByPlaceholderText("settings.tab.keyPlaceholder"), "tr-9");
+    await user.click(within(drawer).getByRole("button", { name: "common.save" }));
 
     await waitFor(() =>
       expect(mockSecretsSet).toHaveBeenCalledWith("agent-1", [{ key: "translate_api_key", value: "tr-9" }]),

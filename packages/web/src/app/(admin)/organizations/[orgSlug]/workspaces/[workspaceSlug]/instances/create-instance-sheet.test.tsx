@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CreateInstanceDialog } from "./create-instance-dialog";
+import { CreateInstanceSheet } from "./create-instance-sheet";
 
 // ── Mocks ───────────────────────────────────────────────────────────
 
@@ -39,24 +39,24 @@ vi.mock("sonner", () => ({
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-function renderDialog(props: Partial<React.ComponentProps<typeof CreateInstanceDialog>> = {}) {
+function renderSheet(props: Partial<React.ComponentProps<typeof CreateInstanceSheet>> = {}) {
   const defaults = {
     open: true,
     onOpenChange: vi.fn(),
     onCreated: vi.fn(),
   };
-  return render(<CreateInstanceDialog {...defaults} {...props} />);
+  return render(<CreateInstanceSheet {...defaults} {...props} />);
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
 
-describe("CreateInstanceDialog", () => {
+describe("CreateInstanceSheet", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("renders the step 1 form fields when open", () => {
-    renderDialog();
+    renderSheet();
 
     expect(screen.getByText("instances.create.title")).toBeInTheDocument();
     expect(screen.getByText("instances.create.description")).toBeInTheDocument();
@@ -65,15 +65,15 @@ describe("CreateInstanceDialog", () => {
     expect(screen.getByLabelText("instances.table.description")).toBeInTheDocument();
   });
 
-  it("does not render dialog content when closed", () => {
-    renderDialog({ open: false });
+  it("does not render the drawer content when closed", () => {
+    renderSheet({ open: false });
 
     expect(screen.queryByText("instances.create.title")).not.toBeInTheDocument();
   });
 
   it("auto-generates slug from the name", async () => {
     const user = userEvent.setup();
-    renderDialog();
+    renderSheet();
 
     const nameInput = screen.getByLabelText("instances.table.name");
     await user.type(nameInput, "My Test Bot");
@@ -84,7 +84,7 @@ describe("CreateInstanceDialog", () => {
 
   it("stops auto-generating slug once user manually edits it", async () => {
     const user = userEvent.setup();
-    renderDialog();
+    renderSheet();
 
     const nameInput = screen.getByLabelText("instances.table.name");
     const slugInput = screen.getByLabelText("instances.table.slug");
@@ -106,7 +106,7 @@ describe("CreateInstanceDialog", () => {
 
   it("slugifies special characters correctly", async () => {
     const user = userEvent.setup();
-    renderDialog();
+    renderSheet();
 
     const nameInput = screen.getByLabelText("instances.table.name");
     await user.type(nameInput, "Hello World!!! @#$ Test");
@@ -116,7 +116,7 @@ describe("CreateInstanceDialog", () => {
   });
 
   it("disables continue button when name is empty", () => {
-    renderDialog();
+    renderSheet();
 
     const continueBtn = screen.getByRole("button", { name: "common.continue" });
     expect(continueBtn).toBeDisabled();
@@ -124,7 +124,7 @@ describe("CreateInstanceDialog", () => {
 
   it("enables continue button when name and slug are filled", async () => {
     const user = userEvent.setup();
-    renderDialog();
+    renderSheet();
 
     await user.type(screen.getByLabelText("instances.table.name"), "My Bot");
 
@@ -134,7 +134,7 @@ describe("CreateInstanceDialog", () => {
 
   it("advances to step 2 (review) on continue click", async () => {
     const user = userEvent.setup();
-    renderDialog();
+    renderSheet();
 
     await user.type(screen.getByLabelText("instances.table.name"), "My Bot");
     await user.click(screen.getByRole("button", { name: "common.continue" }));
@@ -146,12 +146,19 @@ describe("CreateInstanceDialog", () => {
 
   it("can go back from step 2 to step 1", async () => {
     const user = userEvent.setup();
-    renderDialog();
+    renderSheet();
+    const footerButtons = () =>
+      within(screen.getByRole("dialog").querySelector("[data-slot=sheet-footer]") as HTMLElement)
+        .getAllByRole("button")
+        .map((b) => b.textContent);
+    // Both steps live in the list drawer's footer: Back joins Cancel on the review.
+    expect(footerButtons()).toEqual(["common.cancel", "common.continue"]);
 
     await user.type(screen.getByLabelText("instances.table.name"), "My Bot");
     await user.click(screen.getByRole("button", { name: "common.continue" }));
 
     expect(screen.getByText("instances.create.reviewTitle")).toBeInTheDocument();
+    expect(footerButtons()).toEqual(["common.back", "common.cancel", "instances.create.button"]);
 
     await user.click(screen.getByRole("button", { name: "common.back" }));
 
@@ -164,7 +171,7 @@ describe("CreateInstanceDialog", () => {
     const onCreated = vi.fn();
     createMock.mockResolvedValueOnce({ instance: { slug: "my-bot" } });
 
-    renderDialog({ onCreated });
+    renderSheet({ onCreated });
 
     await user.type(screen.getByLabelText("instances.table.name"), "My Bot");
     await user.type(screen.getByLabelText("instances.table.description"), "A description");
@@ -192,7 +199,7 @@ describe("CreateInstanceDialog", () => {
     const user = userEvent.setup();
     createMock.mockResolvedValueOnce({ instance: { slug: "bot" } });
 
-    renderDialog();
+    renderSheet();
 
     await user.type(screen.getByLabelText("instances.table.name"), "Bot");
     await user.click(screen.getByRole("button", { name: "common.continue" }));
@@ -212,7 +219,7 @@ describe("CreateInstanceDialog", () => {
     const { toast } = await import("sonner");
     createMock.mockRejectedValueOnce(new Error("Conflict"));
 
-    renderDialog();
+    renderSheet();
 
     await user.type(screen.getByLabelText("instances.table.name"), "Bot");
     await user.click(screen.getByRole("button", { name: "common.continue" }));

@@ -121,21 +121,27 @@ describe("TriggersScheduledTab", () => {
     expect(await screen.findByText("scheduledTasks.empty")).toBeInTheDocument();
   });
 
-  it("creates a cron task with the fields typed in the dialog", async () => {
+  it("creates a cron task with the fields typed in the drawer", async () => {
     const user = userEvent.setup();
     mockList.mockResolvedValue({ tasks: [] });
     render(<TriggersScheduledTab slug="bot-1" />);
     await screen.findByText("scheduledTasks.empty");
 
     await user.click(screen.getByRole("button", { name: "scheduledTasks.newTask" }));
-    const dialog = await screen.findByRole("dialog");
-    await user.type(within(dialog).getByPlaceholderText("Daily briefing"), "Morning check");
-    await user.type(within(dialog).getByPlaceholderText("scheduledTasks.form.promptPlaceholder"), "Check the inbox");
-    await user.type(within(dialog).getByPlaceholderText("0 9 * * 1-5"), "0 8 * * 1-5");
-    const timezone = within(dialog).getByPlaceholderText("UTC");
+    const drawer = await screen.findByRole("dialog");
+    // The form opens in the right-hand drawer every list of the agent uses.
+    const footer = drawer.querySelector("[data-slot=sheet-footer]") as HTMLElement;
+    expect(within(footer).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "common.cancel",
+      "scheduledTasks.form.create",
+    ]);
+    await user.type(within(drawer).getByPlaceholderText("Daily briefing"), "Morning check");
+    await user.type(within(drawer).getByPlaceholderText("scheduledTasks.form.promptPlaceholder"), "Check the inbox");
+    await user.type(within(drawer).getByPlaceholderText("0 9 * * 1-5"), "0 8 * * 1-5");
+    const timezone = within(drawer).getByPlaceholderText("UTC");
     await user.clear(timezone);
     await user.type(timezone, "Europe/Rome");
-    await user.click(within(dialog).getByRole("button", { name: "scheduledTasks.form.create" }));
+    await user.click(within(drawer).getByRole("button", { name: "scheduledTasks.form.create" }));
 
     await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
     expect(mockCreate).toHaveBeenCalledWith("bot-1", {
@@ -157,8 +163,8 @@ describe("TriggersScheduledTab", () => {
     await renderLoaded();
 
     await user.click(screen.getByRole("button", { name: "scheduledTasks.newTask" }));
-    const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "scheduledTasks.form.create" }));
+    const drawer = await screen.findByRole("dialog");
+    await user.click(within(drawer).getByRole("button", { name: "scheduledTasks.form.create" }));
 
     expect(mockToast.error).toHaveBeenCalledWith("scheduledTasks.validation.required");
     expect(mockCreate).not.toHaveBeenCalled();
@@ -218,12 +224,12 @@ describe("TriggersScheduledTab", () => {
     await renderLoaded();
 
     await user.click(rowActions("Daily digest").edit);
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveTextContent("scheduledTasks.editTitle");
-    const name = within(dialog).getByDisplayValue("Daily digest");
+    const drawer = await screen.findByRole("dialog");
+    expect(drawer.querySelector("[data-slot=sheet-title]")).toHaveTextContent("scheduledTasks.editTitle");
+    const name = within(drawer).getByDisplayValue("Daily digest");
     await user.clear(name);
     await user.type(name, "Daily digest v2");
-    await user.click(within(dialog).getByRole("button", { name: "common.save" }));
+    await user.click(within(drawer).getByRole("button", { name: "common.save" }));
 
     await waitFor(() => expect(mockUpdate).toHaveBeenCalledTimes(1));
     expect(mockUpdate).toHaveBeenCalledWith(
