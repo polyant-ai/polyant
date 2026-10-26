@@ -15,7 +15,7 @@
 
 ---
 
-**Polyant** is an open-source platform for building and deploying AI assistants with long-term memory, multi-channel support, and full per-instance customization. It provides a complete runtime for multi-agent systems with an OpenAI-compatible API, a NestJS engine, and a Next.js admin panel — batteries included.
+**Polyant** is an enterprise AI platform by Exelab for putting agents to work in business processes, at scale. It is open source under AGPL-3.0-or-later and provides a complete runtime for multi-agent systems with an OpenAI-compatible API, a NestJS engine, and a Next.js admin panel — batteries included.
 
 ## Release status
 
