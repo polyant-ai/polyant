@@ -137,7 +137,6 @@ export const conversationMessages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
-    index("idx_conversation_messages_conversation_id").on(table.conversationId),
     index("idx_conversation_messages_created_at").on(table.createdAt),
     // One conversation's messages in time order (history reads, windowed scans).
     index("idx_conversation_messages_conversation_created").on(table.conversationId, table.createdAt),

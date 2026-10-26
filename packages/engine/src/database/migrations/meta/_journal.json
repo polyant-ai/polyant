@@ -631,6 +631,13 @@
       "when": 1792200000000,
       "tag": "0096_knowledge_document_enabled",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1792310000000,
+      "tag": "0097_drop_prefix_indexes",
+      "breakpoints": true
     }
   ]
 }
